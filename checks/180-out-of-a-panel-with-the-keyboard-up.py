@@ -4,6 +4,20 @@ FEATURE = "panel"
 SINCE = "2026-08-28"
 
 
+def drawn(seen, seconds=4.0):
+    """Wait for the panel, rather than for a number of seconds.
+
+    How long it takes to draw is how busy the machine is, and a check that
+    sleeps for a fixed guess passes on a quiet device and fails on the same
+    device behind a screenshot. This one asks until it is there.
+    """
+    for _ in range(int(seconds / 0.5)):
+        seen.settle(0.5)
+        if seen.menus():
+            return True
+    return False
+
+
 def device(pad, seen):
     """The keyboard is over the panel and B still means back.
 
@@ -22,8 +36,7 @@ def device(pad, seen):
     presses the way out and then asks whether the machine still works.
     """
     pad.press("menu")
-    seen.settle(2.0)
-    assert seen.menus(), "the panel did not draw"
+    assert drawn(seen), "the panel did not draw"
 
     pad.press("x")
     seen.settle(1.5)
@@ -41,7 +54,6 @@ def device(pad, seen):
         "the pad still answers to the panel that closed; profile is %s" % seen.profile()
 
     pad.press("menu")
-    seen.settle(2.0)
-    assert seen.menus(), "the menu button stopped drawing anything"
+    assert drawn(seen), "the menu button stopped drawing anything"
     pad.press("b")
     seen.settle(1.5)

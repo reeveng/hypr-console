@@ -1,0 +1,12 @@
+# The pad under the right thumb: move, tap, and drag something.
+profile desktop
+drag 200 200 800 200 0.3
+wait 0.2
+drag 800 200 800 800 0.3
+wait 0.2
+tap 512 512
+wait 0.2
+
+click down
+drag 300 300 700 700 0.4
+click up

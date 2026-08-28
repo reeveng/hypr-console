@@ -1,0 +1,246 @@
+# The colours this desktop is made of, and nothing else.
+#
+# Every colour on the machine comes from here, and almost nothing on the
+# machine holds one: `make theme` writes the palette out once per language and
+# the bar, the menu, the panel, the keyboard, the terminal, GTK, Qt and the
+# browser import whichever of those speaks theirs. Change a number here and all
+# of them move, because none of them kept a copy.
+#
+# A colour is written as a hue and how much of it. What is missing is how
+# light it is, and that is the point: `least` says what the colour has to be
+# readable against and the engine returns the softest shade that clears it.
+# `lightness` is where it would like to sit, and the engine will lift it off
+# that number and never let it fall below what `least` demands. So the palette
+# is pastel because it was asked to be, and readable because it was measured.
+#
+# The ratios are WCAG. 7:1 is AAA for text of any size, 4.5:1 is AA, and 3:1
+# is the floor for a line or an edge that carries meaning without being read.
+# Nothing here is allowed under 4.5, almost everything clears 7, and the
+# report `make theme` prints says which is which.
+
+[meta]
+name = "Blossom"
+about = "A pink dark theme for a handheld held at arm's length."
+# Neutrals are not grey. They carry a little of the same pink, so that a menu
+# in front of the wallpaper reads as the same room rather than a grey box on a
+# pink wall.
+neutral_hue = 318
+
+
+# ---------------------------------------------------------------- the grounds
+# Three depths, and they only ever go under something. Text is never asked to
+# be readable against a colour that is not listed as a ground somewhere below.
+
+[colour.night]
+hue = 318
+chroma = 0.018
+lightness = 0.160
+spent = "the deepest ground: the terminal, the picture behind everything, and the ink carried on top of a pastel fill"
+
+[colour.ground]
+hue = 318
+chroma = 0.024
+lightness = 0.235
+spent = "the bar, the strip a set of tabs sits in, and the space behind the keyboard"
+
+[colour.panel]
+hue = 318
+chroma = 0.030
+lightness = 0.310
+spent = "a window, a menu, a card, a key: whatever is in front of the wallpaper"
+
+[colour.edge]
+hue = 318
+chroma = 0.030
+least = { on = ["ground", "panel"], ratio = 3.0 }
+lightness = 0.480
+spent = "a line between two things. It is not read, so it clears the 3:1 an edge needs and no more"
+
+[colour.ash]
+hue = 330
+chroma = 0.062
+least = { on = ["night"], ratio = 4.5 }
+lightness = 0.560
+spent = "what a terminal means by black. A program that prints in it is asking for something quiet, and this is as quiet as a thing may be and still be read"
+
+
+# ------------------------------------------------------------------- the inks
+# What is written. Both clear AAA against every ground, so the difference
+# between them is tone and never whether you can read it.
+
+[colour.text]
+hue = 335
+chroma = 0.022
+least = { on = ["panel", "ground", "night"], ratio = 10.0 }
+lightness = 0.860
+spent = "everything that is read"
+
+[colour.soft]
+hue = 332
+chroma = 0.038
+least = { on = ["panel", "ground", "night"], ratio = 7.0 }
+lightness = 0.760
+spent = "what is beside the thing being read: a shortcut, a unit, a workspace you are not on"
+
+
+# --------------------------------------------------------------- the pastels
+# One lightness for all of them, so that no colour shouts over its neighbours,
+# and each one clears AAA against all three grounds and carries `night` on top
+# of it at AAA when it is used as a fill. `carries` is that second promise: a
+# highlighted row is dark ink on a pastel, and the pastel has to be light
+# enough for the ink.
+
+[colour.pink]
+hue = 342
+chroma = 0.105
+lightness = 0.855
+least = { on = ["panel", "ground", "night"], ratio = 7.0, carries = ["night"], carries_ratio = 7.0 }
+spent = "this one: the workspace you are on, the highlighted row, the key under your thumb, the window you are typing into"
+
+[colour.rose]
+hue = 8
+chroma = 0.095
+lightness = 0.855
+least = { on = ["panel", "ground", "night"], ratio = 7.0, carries = ["night"], carries_ratio = 7.0 }
+spent = "the cursor in the terminal, and a selection"
+
+[colour.mauve]
+hue = 303
+chroma = 0.095
+lightness = 0.855
+least = { on = ["panel", "ground", "night"], ratio = 7.0, carries = ["night"], carries_ratio = 7.0 }
+spent = "sound, and a key held down"
+
+[colour.lilac]
+hue = 278
+chroma = 0.090
+lightness = 0.855
+least = { on = ["panel", "ground", "night"], ratio = 7.0, carries = ["night"], carries_ratio = 7.0 }
+spent = "bluetooth"
+
+[colour.sky]
+hue = 238
+chroma = 0.085
+lightness = 0.855
+least = { on = ["panel", "ground", "night"], ratio = 7.0, carries = ["night"], carries_ratio = 7.0 }
+spent = "a link, and blue where a program asks for blue"
+
+[colour.mint]
+hue = 178
+chroma = 0.080
+lightness = 0.855
+least = { on = ["panel", "ground", "night"], ratio = 7.0, carries = ["night"], carries_ratio = 7.0 }
+spent = "the network, and the setting that is in effect"
+
+[colour.leaf]
+hue = 146
+chroma = 0.090
+lightness = 0.855
+least = { on = ["panel", "ground", "night"], ratio = 7.0, carries = ["night"], carries_ratio = 7.0 }
+spent = "charging, and anything that went well"
+
+[colour.butter]
+hue = 96
+chroma = 0.095
+lightness = 0.855
+least = { on = ["panel", "ground", "night"], ratio = 7.0, carries = ["night"], carries_ratio = 7.0 }
+spent = "the battery getting low, and a warning"
+
+[colour.peach]
+hue = 58
+chroma = 0.090
+lightness = 0.855
+least = { on = ["panel", "ground", "night"], ratio = 7.0, carries = ["night"], carries_ratio = 7.0 }
+spent = "a number, and orange where a program asks for orange"
+
+[colour.coral]
+hue = 20
+chroma = 0.095
+lightness = 0.855
+least = { on = ["panel", "ground", "night"], ratio = 7.0, carries = ["night"], carries_ratio = 7.0 }
+spent = "the battery about to go, something disconnected, and anything that failed"
+
+
+# ------------------------------------------------------------- the terminal
+# The sixteen a program may ask for by number. The bright half is the same
+# colour lifted, which keeps a bold line legible without turning it into a
+# different colour.
+
+[terminal]
+background = "night"
+foreground = "text"
+cursor = "rose"
+selection = "pink"
+bright_lift = 0.070
+
+[terminal.normal]
+black = "ash"
+red = "coral"
+green = "leaf"
+yellow = "butter"
+blue = "sky"
+magenta = "pink"
+cyan = "mint"
+white = "soft"
+
+
+# ---------------------------------------------------- what has to hold true
+# Every pair the eye actually meets, and the ratio it has to clear. The engine
+# refuses to write a single file while one of these is short, so a palette
+# that reads badly cannot reach the device.
+
+[[pair]]
+front = "text"
+back = ["night", "ground", "panel"]
+ratio = 7.0
+where = "everything that is read, on every ground it is read against"
+
+[[pair]]
+front = "soft"
+back = ["night", "ground", "panel"]
+ratio = 7.0
+where = "every secondary label on the device"
+
+[[pair]]
+front = "night"
+back = ["pink", "rose", "mauve", "lilac", "sky", "mint", "leaf", "butter", "peach", "coral"]
+ratio = 7.0
+where = "the ink on a highlighted row, a pressed key, an active workspace"
+
+# And the other way round. Every pastel is used as writing somewhere: the
+# network on the bar, the setting in effect in a panel, a warning, a link, and
+# the whole of what a terminal prints. So each is measured as writing, against
+# each ground it can be written on.
+[[pair]]
+front = ["pink", "rose", "mauve", "lilac", "sky", "mint", "leaf", "butter", "peach", "coral"]
+back = ["night", "ground", "panel"]
+ratio = 7.0
+where = "a pastel used as writing rather than as a fill"
+
+[[pair]]
+front = "edge"
+back = ["ground", "panel"]
+ratio = 3.0
+kind = "edge"
+where = "a border, which is looked at rather than read"
+
+[[pair]]
+front = "ash"
+back = ["night"]
+ratio = 4.5
+kind = "quiet"
+where = "a terminal printing in black. The one thing on the machine that is AA rather than AAA, because black at 7:1 would be lighter than half the palette and would stop meaning black"
+
+[[pair]]
+front = "ground"
+back = ["night"]
+ratio = 1.05
+kind = "seen"
+where = "the bar against the wallpaper behind it, which only has to be seen as a different thing"
+
+[[pair]]
+front = "panel"
+back = ["ground"]
+ratio = 1.1
+kind = "seen"
+where = "a menu against the bar"

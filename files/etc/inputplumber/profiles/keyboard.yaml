@@ -1,0 +1,26 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/ShadowBlip/InputPlumber/main/rootfs/usr/share/inputplumber/schema/device_profile_v1.json
+version: 1
+kind: DeviceProfile
+name: Keyboard
+description: >
+  Loaded while the on-screen keyboard is up, and only then. The keyboard reads
+  the controller itself, so everything is passed through untouched: without
+  this the same press would both move the cursor and click the mouse.
+
+  wvkbd loads this on show and puts the desktop profile back on hide, through
+  WVKBD_ON_SHOW and WVKBD_ON_HIDE.
+
+# The mouse and the keyboard are listed in every profile, whether or not that
+# profile sends anything to them. InputPlumber destroys a target that a profile
+# leaves out and builds a new one when it comes back, and the compositor does
+# not deliver anything from a keyboard that appeared after it started: the
+# device is there, it is listed, and every key it sends is dropped. That is
+# what made the on-screen keyboard "break" over and over. Opening it swapped
+# to this profile, closing it swapped back, and the keyboard that came back was
+# a new one nothing was listening to.
+target_devices:
+  - mouse
+  - keyboard
+  - xbox-elite
+
+mapping: []

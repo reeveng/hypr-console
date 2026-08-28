@@ -1,0 +1,34 @@
+/* The pages the browser draws itself, which are not covered by a theme and are
+   otherwise white: a new tab, a blank tab, the page that appears when there is
+   no network. On a dark desktop each of those is a flash bright enough to be
+   the brightest thing that happens all day.
+
+   A page from the web is left alone. Forcing colours onto somebody else's site
+   breaks it in ways nobody can predict, and a site that is unreadable is worse
+   than a site that is bright.
+
+   There is no colour in this file. Every name below comes from the palette,
+   which is written from theme/palette.toml and imported beside it. */
+
+@import url("palette.css");
+
+@-moz-document url("about:blank"), url("about:newtab"), url("about:home"),
+               url-prefix("about:privatebrowsing") {
+  :root, body {
+    background-color: var(--night) !important;
+    color: var(--text) !important;
+  }
+}
+
+@-moz-document url-prefix("about:") {
+  :root {
+    --in-content-page-background: var(--night) !important;
+    --in-content-page-color: var(--text) !important;
+    --in-content-box-background: var(--panel) !important;
+    --in-content-accent-color: var(--pink) !important;
+    --in-content-primary-button-background: var(--pink) !important;
+    --in-content-primary-button-text-color: var(--night) !important;
+    --in-content-link-color: var(--sky) !important;
+    --in-content-border-color: var(--edge) !important;
+  }
+}

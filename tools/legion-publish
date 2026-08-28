@@ -1,0 +1,256 @@
+#!/usr/bin/env python3
+"""Build the public copy of this, with nobody's name in it.
+
+    tools/legion-publish /tmp/hypr-console
+
+What comes out is the same desktop with four things changed, and it is built
+rather than kept, so it can be built again when this one moves on. Keeping a
+second copy by hand is how the two come to disagree.
+
+  * The person is called player rather than the name of the person whose
+    machine this is.
+  * The machine is called handheld rather than the name on the network.
+  * The controller's serial number is gone from the captured devices.
+  * The two compiled programs are not carried. Both are forks of somebody
+    else's GPL project, and publishing a binary means offering the source with
+    it, which is theirs to publish and not ours. What is published instead is
+    where each came from and how to build it.
+
+Everything else is the same file. The tests run against the copy, because a
+scrub that breaks the desktop is a scrub that has not been read.
+"""
+
+import argparse
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+
+WAS, NOW = "player", "player"
+HOST_WAS, HOST_NOW = "handheld", "handheld"
+SERIAL = ""
+
+# Carried here, not there. Each is somebody else's program with our changes in
+# it, and a binary published without its source is a licence somebody else
+# wrote being broken on their behalf.
+FORKS = ("/usr/local/bin/wvkbd-mobintl", "/usr/local/bin/hyprsession")
+
+NOT_PUBLISHED = """
+
+[elsewhere]
+# Two programs this desktop is made of, which this repository does not carry.
+#
+# Both are forks of somebody else's work, kept on the machine as built
+# programs. Publishing a binary means publishing the source that made it, and
+# that source is theirs rather than ours. docs/forks.md says what each one is,
+# what the fork changes, and how to build it. Build it, put it at the path
+# named here, move that line up into [files], and apply will carry it.
+#
+# Listed rather than left out, so that a unit starting a program nothing
+# installs stays the failure it should be everywhere else.
+/usr/local/bin/wvkbd-mobintl
+/usr/local/bin/hyprsession
+"""
+
+FORKS_DOC = """# The two programs that are not here
+
+This desktop is made of ordinary packages, a set of config files, and two
+programs that are forks of somebody else's work. The forks are not in this
+repository. Publishing a compiled program means publishing the source that
+made it, and that source belongs to the projects below rather than to this one.
+
+Build each and put it where the manifest expects, then add its path back to the
+`[files]` section of `desktop.conf` and run `legion apply`.
+
+## wvkbd, at /usr/local/bin/wvkbd-mobintl
+
+The on-screen keyboard. Upstream is <https://github.com/jjsullivan5196/wvkbd>,
+a Wayland keyboard that draws layers and toggles itself on a signal.
+
+What the fork changes: it reads the controller directly. On this device the
+keyboard and the controller daemon both see the same pad, and only one of them
+may act on a press, so the keyboard takes the pad while it is up and hands it
+back when it goes away. One button shows it and puts it away, and no other
+button closes it.
+
+    git clone https://github.com/jjsullivan5196/wvkbd
+    cd wvkbd && make wvkbd-mobintl
+    install -m755 wvkbd-mobintl /usr/local/bin/
+
+## hyprsession, at /usr/local/bin/hyprsession
+
+Restores the windows that were open, and keeps saving them. Upstream is
+<https://github.com/Duckonaut/hyprsession>.
+
+What the fork changes: Hyprland 0.56 moved to a Lua configuration and the old
+dispatch path stopped working, so the fork talks to the compositor the way it
+now expects. Note that its mode is a positional argument: passed as an option
+it saves somewhere nothing reads.
+
+    cargo build --release
+    install -m755 target/release/hyprsession /usr/local/bin/
+"""
+
+README = """# hypr-console
+
+A handheld running Hyprland as a desktop, driven entirely by its controller.
+
+This is a Lenovo Legion Go with CachyOS on it, set up for somebody who is not
+going to plug in a keyboard. There is no Game Mode and no Plasma. There is a
+compositor, a bar, a menu, an on-screen keyboard and a settings panel, and
+every one of them is reachable with two thumbs.
+
+What is worth taking from here is probably not the desktop. It is the two
+things underneath it.
+
+## Everything is declared, nothing is done by hand
+
+`desktop.conf` is the whole inventory: packages, files, services, masked units,
+and the palette. The content of every file it names is under `files/` at the
+same path. `legion` is the only thing that installs any of it.
+
+    legion check     where the machine has drifted from the manifest
+    legion apply     bring it back
+    legion save      take a file edited in place back into the source
+
+This exists because of one complaint: "every restart breaks previously fixed
+things, it's like changes aren't persisted between fixing them". Every helper
+was running because somebody had started it by hand over ssh, and the
+compositor config launched things it then forgot about. State lives in a file
+now rather than in whatever happens to be running.
+
+## The controller is emulated, so the desktop can be tested without touching it
+
+The device publishes three virtual input devices through InputPlumber, plus a
+touchpad it cannot translate. `emulator/` builds all four somewhere else, from
+a capture of the real ones, and presses their buttons by name through the real
+profile. So what a button does can be tested in under a second on a laptop.
+
+    make fast          every test that needs no machine at all
+    make desktop       the device's own desktop, nested, at its own screen size
+    make checks        every feature it has grown, tried again
+    make deploy        push it to the device and apply it
+
+There are three places a change can be tried, and the same files describe all
+three. In this process, against a stand-in for evdev with a clock the test
+holds, so a stick held for a second scrolls exactly as far as the arithmetic
+says. In a nested Hyprland reading the device's own compositor config at the
+device's own 1024x640, so a bar that does not fit can be seen not to fit. And
+finally on the device itself, where a button is pressed through InputPlumber's
+own SendEvent, exactly as the hardware's would arrive.
+
+## Where to start reading
+
+| | |
+| --- | --- |
+| [`docs/button-contract.md`](docs/button-contract.md) | What the buttons promise, and why it is checked rather than remembered |
+| [`docs/emulator.md`](docs/emulator.md) | The controller, in software |
+| [`docs/desktop.md`](docs/desktop.md) | The desktop, running on a machine that is not the device |
+| [`docs/checks.md`](docs/checks.md) | One file to a feature, replayed oldest first |
+| [`docs/forks.md`](docs/forks.md) | The two programs that are not in this repository |
+
+## Licence
+
+MIT, for everything in this repository. The two forks named in
+`docs/forks.md` are not here and keep their own.
+"""
+
+LICENCE = """MIT License
+
+Copyright (c) 2026 the hypr-console contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+"""
+
+
+def tracked():
+    out = subprocess.run(["git", "-C", str(REPO), "ls-files"],
+                         capture_output=True, text=True, check=True)
+    return [line for line in out.stdout.splitlines() if line]
+
+
+def scrub(text):
+    text = text.replace(WAS, NOW).replace(WAS.capitalize(), NOW.capitalize())
+    text = text.replace(HOST_WAS, HOST_NOW)
+    return text.replace(SERIAL, "")
+
+
+def publish(where):
+    where = Path(where)
+    if where.exists():
+        shutil.rmtree(where)
+    where.mkdir(parents=True)
+
+    for name in tracked():
+        if name in [f.lstrip("/") for f in FORKS] or \
+                any(name.endswith(f) for f in FORKS):
+            continue
+        source = REPO / name
+        target = where / scrub(name)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            target.write_text(scrub(source.read_text()))
+        except UnicodeDecodeError:
+            shutil.copyfile(source, target)
+        shutil.copymode(source, target)
+
+    manifest = where / "desktop.conf"
+    lines = [line for line in manifest.read_text().splitlines()
+             if line.strip() not in FORKS]
+    manifest.write_text("\n".join(lines).rstrip() + "\n" + NOT_PUBLISHED)
+
+    (where / "docs/forks.md").write_text(FORKS_DOC)
+    (where / "README.md").write_text(README)
+    (where / "LICENSE").write_text(LICENCE)
+    return where
+
+
+def check(where):
+    """Nobody's name, and the tests still pass."""
+    leaked = subprocess.run(
+        ["grep", "-rIl", "-e", WAS, "-e", HOST_WAS, "-e", SERIAL, str(where)],
+        capture_output=True, text=True)
+    if leaked.stdout.strip():
+        print("still says too much:\n%s" % leaked.stdout, file=sys.stderr)
+        return 1
+    print("nothing of anybody's name in it")
+
+    venv = REPO / ".venv/bin/python"
+    done = subprocess.run([str(venv), "-m", "pytest", "-q",
+                           "--ignore=tests/test_live.py"],
+                          cwd=where, capture_output=True, text=True)
+    print(done.stdout.strip().splitlines()[-1] if done.stdout else done.stderr)
+    return done.returncode
+
+
+def main():
+    parser = argparse.ArgumentParser(prog="legion-publish", description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("where", type=Path)
+    args = parser.parse_args()
+    where = publish(args.where)
+    print("built %s" % where)
+    return check(where)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

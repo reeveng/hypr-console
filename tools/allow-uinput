@@ -1,0 +1,41 @@
+#!/bin/sh
+# Let this machine make input devices without being root.
+#
+#     sudo tools/allow-uinput
+#
+# Only the slower half of the tests needs this, and only on the machine the
+# tests are run on. The Legion Go is not touched by any of it. `make test` runs
+# without it and covers what the daemons decide; what this buys is the other
+# half, where the devices are real ones the kernel published.
+set -e
+
+if [ "$(id -u)" != 0 ]; then
+    echo "run this with sudo: sudo $0" >&2
+    exit 1
+fi
+
+for_user=${SUDO_USER:-$(logname 2>/dev/null || true)}
+
+echo "loading the uinput module, now and at every boot"
+modprobe uinput
+printf 'uinput\n' > /etc/modules-load.d/uinput.conf
+
+echo "granting the seat's own user a way in to /dev/uinput"
+cat > /etc/udev/rules.d/99-uinput.rules <<'RULE'
+# /dev/uinput belongs to root and nothing else, which means a test that makes
+# an input device has to be root too. uaccess hands it to whoever is logged in
+# at the seat, the same way a sound card or a webcam is handed over, and the
+# group is the fallback for a session logind does not count as one.
+KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput"
+RULE
+
+udevadm control --reload-rules
+udevadm trigger --name-match=uinput
+
+if [ -n "$for_user" ]; then
+    usermod -aG input "$for_user" || true
+    echo "$for_user is in the input group now, which counts from their next login"
+fi
+
+ls -l /dev/uinput
+echo "if that still says only root, log out and back in, or reboot"

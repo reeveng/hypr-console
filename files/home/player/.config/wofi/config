@@ -1,0 +1,21 @@
+# The menu.
+#
+# There is no keyboard on this device, so a search box is a row of the screen
+# spent on something nobody can use. Hiding it leaves a plain list: the D-pad
+# moves, A picks, B backs out.
+hide_search=true
+
+# Sized against the screen rather than in rows. An earlier version counted how
+# many rows would fit and passed a number, which meant every menu opened at the
+# same height whether it held four entries or forty, and got the count wrong
+# whenever it could not reach the compositor. A percentage is right on any
+# panel, and dynamic_lines shrinks the window to what is actually in it.
+width=70%
+height=60%
+dynamic_lines=true
+location=center
+
+allow_images=true
+image_size=32
+insensitive=true
+no_actions=true

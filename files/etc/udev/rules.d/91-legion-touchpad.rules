@@ -1,0 +1,10 @@
+# Let the session read the controller's touchpad.
+#
+# It is an ordinary input device owned by root, so nothing running as the
+# person using the machine can open it. The usual answer is the uaccess tag,
+# which asks logind to hand a seat's devices to whoever is logged in; the tag
+# is set here and on the device, and logind does not act on it for this one.
+# So the permission is granted outright instead. This machine has one person
+# on it, and the manifest already names them as the owner of everything else.
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="*Legion Controller*Touchpad*", \
+  TAG+="uaccess", RUN+="/usr/bin/setfacl -m u:player:rw /dev/input/%k"

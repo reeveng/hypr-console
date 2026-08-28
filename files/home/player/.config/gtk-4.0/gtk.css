@@ -1,0 +1,9 @@
+/* GTK applications, both generations of them.
+
+   The palette defines the names libadwaita reads and the names Breeze reads,
+   as well as the roles they stand for, so importing it here is the whole of
+   what this file has to do. A named colour defined by the user's stylesheet
+   outranks the same name defined by the theme, which is how a GTK application
+   arrives wearing this palette without a widget theme being installed to
+   carry it. */
+@import url("../legion/palette.css");

@@ -1,0 +1,419 @@
+#!/usr/bin/env python3
+"""The Legion Go's desktop, running on this machine, in a window.
+
+    tools/legion-desktop verify     does the compositor config still parse
+    tools/legion-desktop run        the desktop, nested, at the device's size
+    tools/legion-desktop shot FILE  a picture of it
+    tools/legion-desktop clean      forget the staged copy
+
+The device is a screen you have to pick up and a session you have to log into.
+Most of what is worth looking at, the bar, the menu, the keyboard, the panel,
+the colours everything wears, is ordinary Wayland software reading ordinary
+config files, and this machine can run all of it. So it does: a compositor of
+its own, inside a window, at the size the device's screen actually is, reading
+the files the device reads.
+
+What it is not is the device. Read `## What this is not` in docs/desktop.md
+before trusting it about anything.
+
+The staged copy is the whole of the trick. Every file the desktop reads is
+copied out of files/ into one directory, and every absolute path inside those
+files is rewritten to point back into it. So a stylesheet that says
+/usr/share/backgrounds/legion.png finds the picture that is going to be
+installed there, without this machine having a /usr/share/backgrounds it is
+allowed to write to.
+"""
+
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+REPO = Path(__file__).resolve().parent.parent
+FILES = REPO / "files"
+STAGE = REPO / ".stage"
+HOME = "/home/player"
+
+# The panel is 1600x2560 at a scale of 2.5, mounted portrait and turned a
+# quarter turn, so what the desktop is laid out in is this. Getting it wrong
+# is the difference between a bar that fits and a bar that does not.
+WIDTH, HEIGHT = 1024, 640
+
+# What the compositor starts on the device is a systemd target, and the four
+# services under it belong to that machine's session. Starting them here would
+# reach into this machine's own systemd, so the staged copy of session-start
+# runs the same programs directly instead.
+SESSION_START = """#!/bin/sh
+# The staged stand-in for session-start. On the device this hands the
+# environment to systemd and starts legion.target; here the four pieces are
+# started directly, because this machine's systemd is not the device's.
+[ -x "$(command -v waybar)" ] && waybar &
+[ -x "$(command -v hyprpaper)" ] && hyprpaper &
+wvkbd-mobintl --hidden --no-popup -L 260 -H 260 --fn "Noto Sans 16" \\
+  --bg 181825 --fg 313244 --fg-sp 45475a --text cdd6f4 --text-sp cdd6f4 \\
+  --press cba6f7 --press-sp cba6f7 --swipe f5c2e7 --text-swipe 1e1e2e &
+exit 0
+"""
+
+NESTED = """-- The device's compositor config, with its screen swapped for this one.
+--
+-- Nothing else is changed. The window rules, the bindings, the look and the
+-- absence of animation are all read from the file the device reads, so a
+-- change tried here is a change tried there.
+
+%s
+
+dofile("%s")
+
+-- Said again after the device's config, because that one names the screen the
+-- device is mounted on and this is not that screen.
+hl.monitor({ output = "eDP-1", disabled = true })
+"""
+
+# A compositor running as somebody else's window gets one output and calls it
+# WAYLAND-1, at whatever size the host gave the window. That is the one to have
+# while looking at something and pressing things.
+IN_A_WINDOW = '''hl.monitor({
+    output   = "WAYLAND-1",
+    mode     = "%dx%d@60",
+    position = "auto",
+    scale    = 1,
+})'''
+
+# For a picture, the window is in the way: its size is the host's to decide and
+# the device's screen is a fixed thing. So a headless output is made at the
+# size the device's screen is, and the window is turned off once it exists.
+# Turning the window off first leaves nothing to draw on and nothing to
+# photograph, which is what "no wl_output" meant.
+HEADLESS = '''hl.monitor({
+    output   = "HEADLESS-1",
+    mode     = "%dx%d@60",
+    position = "auto",
+    scale    = 1,
+})
+hl.monitor({
+    output   = "HEADLESS-2",
+    mode     = "%dx%d@60",
+    position = "auto",
+    scale    = 1,
+})'''
+
+
+
+def text(path):
+    try:
+        return path.read_text()
+    except (UnicodeDecodeError, OSError):
+        return None
+
+
+def stage(quiet=False, headless=False):
+    """Every file the desktop reads, in one place, pointing at each other."""
+    if STAGE.exists():
+        shutil.rmtree(STAGE)
+    shutil.copytree(FILES / "home/player", STAGE / "home", symlinks=True)
+    shutil.copytree(FILES / "usr", STAGE / "usr", symlinks=True)
+
+    here = str(STAGE)
+    for path in sorted(STAGE.rglob("*")):
+        if not path.is_file() or path.is_symlink():
+            continue
+        was = text(path)
+        if was is None:
+            continue
+        now = (was.replace(HOME, here + "/home")
+                  .replace("/usr/local", here + "/usr/local")
+                  .replace("/usr/share", here + "/usr/share"))
+        if now != was:
+            path.write_text(now)
+
+    start = STAGE / "usr/local/bin/session-start"
+    start.write_text(SESSION_START)
+    start.chmod(0o755)
+
+    device_config = STAGE / "home/.config/hypr/hyprland.lua"
+    nested = STAGE / "home/.config/hypr/nested.lua"
+    screen = (HEADLESS % (WIDTH, HEIGHT, WIDTH, HEIGHT)) if headless \
+        else (IN_A_WINDOW % (WIDTH, HEIGHT))
+    nested.write_text(NESTED % (screen, device_config))
+    if not quiet:
+        print("staged in %s" % STAGE)
+    return nested
+
+
+def environment():
+    """A session that believes the staged copy is the whole system."""
+    out = dict(os.environ)
+    out.update(
+        HOME=str(STAGE / "home"),
+        XDG_CONFIG_HOME=str(STAGE / "home/.config"),
+        XDG_DATA_HOME=str(STAGE / "home/.local/share"),
+        XDG_CACHE_HOME=str(STAGE / "home/.cache"),
+        XDG_STATE_HOME=str(STAGE / "home/.local/state"),
+        XDG_DATA_DIRS="%s:/usr/local/share:/usr/share" % (STAGE / "usr/share"),
+        PATH="%s:%s" % (STAGE / "usr/local/bin", os.environ.get("PATH", "")),
+    )
+    return out
+
+
+def verify():
+    nested = stage(quiet=True)
+    done = subprocess.run(["Hyprland", "--verify-config", "-c", str(nested)],
+                          env=environment(), capture_output=True, text=True)
+    print(done.stdout.strip() or done.stderr.strip())
+    return done.returncode
+
+
+def instances():
+    """The Hyprlands running on this machine, by their signature."""
+    where = Path(os.environ.get("XDG_RUNTIME_DIR", "/run/user/%d" % os.getuid()))
+    return {p.name for p in (where / "hypr").glob("*") if p.is_dir()}
+
+
+def wait_for_instance(was, seconds=15.0):
+    """The nested compositor's own signature, which is how it is spoken to.
+
+    It picks this itself and does not say what it picked, so what is watched
+    for is a new one appearing with a socket in it. Without it, hyprctl talks
+    to whichever Hyprland this session belongs to, which is the one running
+    the screen you are looking at.
+    """
+    where = Path(os.environ.get("XDG_RUNTIME_DIR", "/run/user/%d" % os.getuid()))
+    until = time.monotonic() + seconds
+    while time.monotonic() < until:
+        for name in sorted(instances() - was):
+            if (where / "hypr" / name / ".socket.sock").exists():
+                return name
+        time.sleep(0.1)
+    return None
+
+
+def sockets():
+    """The Wayland displays this machine is offering right now."""
+    where = Path(os.environ.get("XDG_RUNTIME_DIR", "/run/user/%d" % os.getuid()))
+    return {p.name for p in where.glob("wayland-*") if p.suffix != ".lock"}
+
+
+def wait_for_socket(was, seconds=10.0):
+    """The one the nested compositor just put down.
+
+    It cannot be asked for by name: --socket is half of the handover pair and
+    Hyprland refuses it alone. So it names itself, and this waits to see which
+    name that was.
+    """
+    until = time.monotonic() + seconds
+    while time.monotonic() < until:
+        new = sockets() - was
+        if new:
+            return sorted(new)[0]
+        time.sleep(0.1)
+    return None
+
+
+def wait_for_screen(name, inside, seconds=12.0):
+    """Wait until there is something to take a picture of.
+
+    The screen is made a moment after the compositor starts, not with it, so
+    everything that follows has to wait for it rather than assume it.
+    """
+    until = time.monotonic() + seconds
+    while time.monotonic() < until:
+        time.sleep(0.25)
+        done = subprocess.run(["grim", "-o", name, "-"], env=inside,
+                              capture_output=True)
+        if done.returncode == 0:
+            return True
+    return False
+
+
+def hyprctl(inside, *arguments):
+    done = subprocess.run(["hyprctl", *arguments], env=inside,
+                          capture_output=True, text=True)
+    return done.stdout.strip()
+
+
+def make_the_screen(inside):
+    """A screen the size of the device's, and only that one.
+
+    Done from out here rather than from the config, because a config can only
+    have one handler for the compositor starting: registering a second one
+    replaces the first, and the first is what starts the desktop.
+
+    The window has to go last. Turning it off while it is the only screen
+    leaves nothing to draw on, and nothing to photograph either.
+    """
+    hyprctl(inside, "output", "create", "headless")
+    time.sleep(0.8)
+    # Said now rather than in the config, because a monitor rule written for a
+    # screen that does not exist yet is not applied to the one that turns up.
+    hyprctl(inside, "eval",
+            'hl.monitor({ output = "HEADLESS-1", mode = "%dx%d@60", '
+            'position = "auto", scale = 1 })' % (WIDTH, HEIGHT))
+    time.sleep(0.5)
+    hyprctl(inside, "eval", 'hl.monitor({ output = "WAYLAND-1", disabled = true })')
+    time.sleep(0.5)
+
+
+def show_a_window(inside):
+    """Look at whatever was opened.
+
+    Every window on this desktop opens on an empty workspace of its own, which
+    is the whole point of it: there is never a second window to share a screen
+    with. It also means a window that has just opened is not necessarily the
+    one being looked at, and a picture of the workspace it is not on is a
+    picture of nothing.
+    """
+    try:
+        clients = json.loads(hyprctl(inside, "clients", "-j"))
+    except (ValueError, TypeError):
+        return
+    if not clients:
+        return
+    where = clients[0]["workspace"]["name"]
+    hyprctl(inside, "dispatch", 'hl.dsp.focus({workspace = "%s"})' % where)
+    time.sleep(0.6)
+
+
+def say_the_colours(shot, sample):
+    """What colour the screen is where it was asked about.
+
+    A screenshot nobody looks at agrees with anything. The
+    wallpaper on the device had not painted for days: hyprpaper
+    read a config it no longer understood, painted nothing, and
+    reported success. What was on screen was the compositor's own
+    default, dark enough to pass for a background.
+    """
+    if not sample:
+        return
+    from harness.picture import Picture
+    picture = Picture(shot)
+    for where in sample:
+        if where == "most":
+            print("  most of it   #%s" % picture.commonest())
+            continue
+        x, y = (int(n) for n in where.split(","))
+        print("  %-12s #%s" % ("%d,%d" % (x, y), picture.at(x, y)))
+
+
+def run(shot=None, seconds=None, open_these=(), headless=True, probe=False,
+        sample=()):
+    nested = stage(quiet=True, headless=headless and shot is not None)
+    where = environment()
+    where.pop("HYPRLAND_INSTANCE_SIGNATURE", None)
+    was, running = sockets(), instances()
+    compositor = subprocess.Popen(["Hyprland", "-c", str(nested)], env=where)
+
+    socket = wait_for_socket(was)
+    signature = wait_for_instance(running)
+    if socket is None or signature is None:
+        print("the nested compositor never came up", file=sys.stderr)
+        compositor.terminate()
+        return 1
+    print("the desktop is on %s" % socket, file=sys.stderr)
+
+    if shot is None and seconds is None:
+        compositor.wait()
+        return compositor.returncode
+
+    inside = dict(where, WAYLAND_DISPLAY=socket,
+                  HYPRLAND_INSTANCE_SIGNATURE=signature)
+    screen = ("HEADLESS-1" if headless else "WAYLAND-1") \
+        if shot is not None or probe else None
+
+    if headless:
+        make_the_screen(inside)
+
+    if screen is not None and not wait_for_screen(screen, inside):
+        print("the screen never appeared", file=sys.stderr)
+        compositor.terminate()
+        return 1
+
+    for command in open_these:
+        subprocess.Popen(command, shell=True, env=inside,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if open_these:
+        # Long enough for a window to map and draw. A picture taken before
+        # that is a picture of the background, which is a passing test of
+        # nothing.
+        time.sleep(2.5)
+        show_a_window(inside)
+
+    if probe:
+        for question in ("monitors", "workspaces", "clients"):
+            print("== %s" % question)
+            print(hyprctl(inside, question, "-j")[:1200])
+
+    if shot is not None:
+        taken = subprocess.run(["grim", "-o", screen, str(shot)],
+                               env=inside, capture_output=True, text=True)
+        if taken.returncode == 0:
+            print("%s" % shot)
+            say_the_colours(shot, sample)
+        else:
+            print("no picture: %s" % taken.stderr.strip(), file=sys.stderr)
+
+    if seconds:
+        time.sleep(seconds)
+    compositor.terminate()
+    try:
+        compositor.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        compositor.kill()
+    return 0
+
+
+def main():
+    parser = argparse.ArgumentParser(prog="legion-desktop", description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = parser.add_subparsers(dest="command")
+    sub.add_parser("stage", help="the staged copy, and nothing else")
+    sub.add_parser("verify", help="does the compositor config still parse")
+    running = sub.add_parser("run", help="the desktop, nested, in a window")
+    running.add_argument("--seconds", type=float, default=None,
+                         help="stop after this long")
+    running.add_argument("--open", action="append", default=[],
+                         metavar="COMMAND", help="start this inside it")
+    shooting = sub.add_parser("shot", help="a picture of it")
+    shooting.add_argument("file", type=Path)
+    shooting.add_argument("--open", action="append", default=[],
+                          metavar="COMMAND", help="start this inside it")
+    shooting.add_argument("--sample", action="append", default=[],
+                          metavar="X,Y",
+                          help="say what colour the screen is there; "
+                               "'most' for whatever most of it is")
+    shooting.add_argument("--window", action="store_true",
+                          help="in a window, at the host's size, rather than "
+                               "headless at the device's")
+    probing = sub.add_parser("probe", help="what the nested compositor thinks")
+    probing.add_argument("--open", action="append", default=[],
+                         metavar="COMMAND", help="start this inside it")
+    probing.add_argument("--window", action="store_true")
+    sub.add_parser("clean", help="forget the staged copy")
+    args = parser.parse_args()
+
+    if args.command == "clean":
+        shutil.rmtree(STAGE, ignore_errors=True)
+        return 0
+    if args.command == "stage":
+        stage()
+        return 0
+    if args.command == "verify":
+        return verify()
+    if args.command == "probe":
+        return run(shot=None, seconds=0.1, open_these=args.open,
+                   headless=not args.window, probe=True)
+    if args.command == "shot":
+        return run(shot=args.file, open_these=args.open,
+                   headless=not args.window, sample=args.sample)
+    return run(seconds=getattr(args, "seconds", None),
+               open_these=getattr(args, "open", []))
+
+
+if __name__ == "__main__":
+    sys.exit(main())

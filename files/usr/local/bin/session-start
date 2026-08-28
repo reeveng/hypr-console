@@ -1,0 +1,14 @@
+#!/bin/sh
+# Hand the session's environment to systemd, then start the desktop.
+#
+# Everything that makes up this desktop is a user service rather than something
+# the compositor launches and forgets. One place decides what runs, it is the
+# same after every reboot, and anything that dies comes back by itself.
+systemctl --user import-environment \
+    WAYLAND_DISPLAY \
+    HYPRLAND_INSTANCE_SIGNATURE \
+    XDG_CURRENT_DESKTOP \
+    XDG_SESSION_TYPE \
+    XDG_RUNTIME_DIR
+
+exec systemctl --user start --no-block legion.target

@@ -1,0 +1,28 @@
+#!/bin/sh
+# The rocker on the top edge.
+#   legion-volume up | down | mute
+#
+# Turning it up also unsilences it. The rocker was bound straight to the
+# volume, so on a muted machine pressing it moved a number nobody could hear
+# and the buttons looked broken. Turning it down does not unsilence: someone
+# who has just silenced the thing and reaches for down means quieter still,
+# not louder.
+STEP=5%
+SINK=@DEFAULT_SINK@
+
+case "$1" in
+up)
+    pactl set-sink-mute "$SINK" 0
+    exec pactl set-sink-volume "$SINK" "+$STEP"
+    ;;
+down)
+    exec pactl set-sink-volume "$SINK" "-$STEP"
+    ;;
+mute)
+    exec pactl set-sink-mute "$SINK" toggle
+    ;;
+*)
+    echo "usage: legion-volume [up|down|mute]" >&2
+    exit 2
+    ;;
+esac

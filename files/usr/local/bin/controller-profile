@@ -1,0 +1,36 @@
+#!/bin/sh
+# Switch the Legion Go controller between desktop and gamepad behaviour.
+#   controller-profile desktop   buttons become mouse and keyboard
+#   controller-profile game      buttons stay a gamepad, for Steam and games
+#   controller-profile menu      a chooser is up: the highlight, not the pointer
+#   controller-profile tabs      the same, for a chooser with more than one page
+#   controller-profile           print which one is active
+#
+# InputPlumber waits for udev to finish enumerating the controllers before it
+# starts, so at login it is not on the bus yet. Wait for it rather than fail.
+BUS=org.shadowblip.InputPlumber
+OBJ=/org/shadowblip/InputPlumber/CompositeDevice0
+IFACE=org.shadowblip.Input.CompositeDevice
+
+case "$1" in
+  desktop) P=/etc/inputplumber/profiles/desktop.yaml ;;
+  game)     P=/usr/share/inputplumber/profiles/default.yaml ;;
+  keyboard) P=/etc/inputplumber/profiles/keyboard.yaml ;;
+  menu)     P=/etc/inputplumber/profiles/menu.yaml ;;
+  tabs)     P=/etc/inputplumber/profiles/tabs.yaml ;;
+  "")      busctl --system get-property $BUS $OBJ $IFACE ProfileName 2>/dev/null | cut -d\" -f2; exit 0 ;;
+  *)       echo "usage: controller-profile [desktop|game|keyboard|menu|tabs]" >&2; exit 2 ;;
+esac
+
+n=0
+while [ $n -lt 60 ]; do
+    if busctl --system get-property $BUS $OBJ $IFACE ProfileName >/dev/null 2>&1; then
+        busctl --system call $BUS $OBJ $IFACE LoadProfilePath s "$P"
+        exit $?
+    fi
+    n=$((n + 1))
+    sleep 1
+done
+
+echo "controller-profile: InputPlumber never appeared on the bus" >&2
+exit 1

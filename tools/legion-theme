@@ -1,0 +1,718 @@
+#!/usr/bin/env python3
+"""Spend the palette.
+
+    legion-theme          write the palette out of theme/palette.toml
+    legion-theme --check  say what it would change, change nothing
+
+theme/palette.toml is the one place a colour is decided. Everything on the
+machine reads from there, and almost nothing on the machine holds a hex.
+
+Almost. A stylesheet, a Lua table, a TOML file, an ini file, a shell script
+and a browser cannot share a variable with each other, but most of them can
+import a file written in their own language. So this writes one small palette
+file per language, and the stylesheet, the terminal, the keyboard and the
+browser each import the one that speaks theirs. Change a colour and they all
+change, because none of them holds a copy.
+
+Two cannot import anything. KDE's ini format has no include and Firefox's
+user.js is a list of literals, so those two get the colours written into them
+between a pair of markers. The pictures are drawn.
+
+Nothing here is installed. This writes into files/ and `legion apply` puts
+those on the machine, so the palette goes through the same manifest as
+everything else and `legion check` reports a drifted colour like any other
+drift.
+"""
+
+import argparse
+import math
+import struct
+import sys
+import tomllib
+import zlib
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "theme"))
+
+import colour as col
+
+ROOT = Path(__file__).resolve().parent.parent
+PALETTE = ROOT / "theme" / "palette.toml"
+FILES = ROOT / "files"
+REPORT = ROOT / "theme" / "report.md"
+
+BEGIN, END = "legion-theme:begin", "legion-theme:end"
+
+
+# ------------------------------------------------------------------ resolving
+
+class Short(Exception):
+    """A pairing that does not clear what it was asked to clear."""
+
+
+def resolve(declared):
+    """Every colour as six hex digits, in an order that respects what each needs.
+
+    A colour whose floor is expressed against another colour cannot be worked
+    out until that other one is. Nothing here declares a cycle, so passing over
+    the list until it stops growing is enough, and a pass that adds nothing
+    means somebody wrote one.
+    """
+    done, pending = {}, dict(declared)
+    while pending:
+        progressed = False
+        for name, spec in list(pending.items()):
+            least = spec.get("least", {})
+            needed = set(least.get("on", [])) | set(least.get("carries", []))
+            if not needed <= done.keys():
+                continue
+            done[name] = solve(spec, done)
+            del pending[name]
+            progressed = True
+        if not progressed:
+            raise Short(f"these colours wait on each other: {sorted(pending)}")
+    return done
+
+
+def solve(spec, known):
+    """One colour: where it wants to sit, lifted to where it has to sit."""
+    hue, chroma = spec["hue"], spec["chroma"]
+    lightness = spec.get("lightness", 0.0)
+    least = spec.get("least", {})
+    grounds = [known[name] for name in least.get("on", [])]
+    if grounds:
+        lightness = max(lightness, col.lightest_clearing(
+            chroma, hue, grounds, least["ratio"], floor=0.0))
+    for name in least.get("carries", []):
+        # Something dark is painted on top of this one, so this one has to be
+        # light enough for it. The ink is already fixed, so the fill gives way.
+        ink = known[name]
+        while col.contrast(col.hexcode(lightness, chroma, hue), ink) < least["carries_ratio"]:
+            lightness += 0.002
+            if lightness > 1.0:
+                raise Short(f"no shade at hue {hue} carries #{ink}")
+    return col.hexcode(lightness, chroma, hue)
+
+
+def lift(code, amount):
+    """A colour moved towards white by `amount`, keeping its hue.
+
+    What a terminal means by bright: the same colour with more light in it.
+    Mixing towards white instead would take the colour out as well.
+    """
+    lightness, chroma, hue = to_oklch(code)
+    return col.hexcode(min(1.0, lightness + amount), chroma, hue)
+
+
+def to_oklch(code):
+    """Back the other way, which is the same matrices in the other order."""
+    code = code.lstrip("#")
+    channels = [int(code[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+    red, green, blue = (col._to_linear(channel) for channel in channels)
+    long, medium, short = (
+        (0.4122214708 * red + 0.5363325363 * green + 0.0514459929 * blue) ** (1 / 3),
+        (0.2119034982 * red + 0.6806995451 * green + 0.1073969566 * blue) ** (1 / 3),
+        (0.0883024619 * red + 0.2817188376 * green + 0.6299787005 * blue) ** (1 / 3),
+    )
+    lightness = 0.2104542553 * long + 0.7936177850 * medium - 0.0040720468 * short
+    a = 1.9779984951 * long - 2.4285922050 * medium + 0.4505937099 * short
+    b = 0.0259040371 * long + 0.7827717662 * medium - 0.8086757660 * short
+    return lightness, math.hypot(a, b), math.degrees(math.atan2(b, a)) % 360
+
+
+# ------------------------------------------------------------------- checking
+
+def measure(spec, palette):
+    """Every declared pairing with the ratio it actually reached."""
+    rows = []
+    for pair in spec.get("pair", []):
+        fronts = pair["front"]
+        for front in ([fronts] if isinstance(fronts, str) else fronts):
+            for back in pair["back"]:
+                got = col.contrast(palette[front], palette[back])
+                rows.append((front, back, pair["ratio"], got,
+                             pair.get("kind", "text"), pair["where"]))
+    return rows
+
+
+def grade(ratio, kind="text"):
+    """What a ratio is worth, for what the pairing is for.
+
+    A grade is about text, so only text is graded. A border has a floor of 3:1
+    and clearing it is the whole of what is asked; a bar against the wallpaper
+    behind it only has to be seen as a different thing. Reporting those two as
+    failed AA would be reporting a fact about the wrong question.
+    """
+    if kind == "edge":
+        return "clears the 3:1 a border needs" if ratio >= 3.0 else "under"
+    if kind == "seen":
+        return "a visible step" if ratio >= 1.05 else "flat"
+    if kind == "quiet":
+        return "AA, on purpose" if ratio >= 4.5 else "under"
+    if ratio >= 7.0:
+        return "AAA"
+    if ratio >= 4.5:
+        return "AA"
+    return "under"
+
+
+# ------------------------------------------------------------------- spending
+
+ROLES = ["night", "ground", "panel", "edge", "text", "soft",
+         "pink", "rose", "mauve", "lilac", "sky", "mint", "leaf",
+         "butter", "peach", "coral"]
+
+# What the browser and the compositor call the palette file, from where they
+# sit. Everything under .config reaches it the same way, so the path is
+# relative and nothing has the user's name written into it.
+BESIDE = "../legion/palette.css"
+
+# What libadwaita calls things. Breeze's own vocabulary is longer and is worked
+# out by rule further down; this one is short enough to say outright.
+ADWAITA = [
+    ("accent_bg_color", "pink"), ("accent_color", "pink"),
+    ("accent_fg_color", "night"), ("borders", "edge"),
+    ("card_bg_color", "panel"), ("card_fg_color", "text"),
+    ("destructive_bg_color", "coral"), ("destructive_color", "coral"),
+    ("destructive_fg_color", "night"), ("dialog_bg_color", "panel"),
+    ("dialog_fg_color", "text"), ("error_color", "coral"),
+    ("headerbar_bg_color", "ground"), ("headerbar_fg_color", "text"),
+    ("popover_bg_color", "panel"), ("popover_fg_color", "text"),
+    ("selected_bg_color", "pink"), ("selected_fg_color", "night"),
+    ("sidebar_bg_color", "ground"), ("sidebar_fg_color", "text"),
+    ("success_color", "leaf"), ("theme_selected_bg_color", "pink"),
+    ("theme_selected_fg_color", "night"), ("view_bg_color", "night"),
+    ("view_fg_color", "text"), ("warning_color", "butter"),
+    ("window_bg_color", "panel"), ("window_fg_color", "text"),
+]
+
+
+def gtk_palette(palette):
+    """The palette in GTK's stylesheet language, which is imported by five files.
+
+    waybar, wofi, the panel, GTK's own themes and libadwaita all read GTK CSS
+    and all support @import, so this is the only file among them that holds a
+    hex. The names libadwaita and Breeze ask for are defined here too, as
+    references rather than as colours, so that a role changing its shade
+    changes every name that stands for it.
+    """
+    width = max(len(name) for name in ROLES)
+    lines = ["/* Written by tools/legion-theme from theme/palette.toml.",
+             "   Everything on this machine that speaks GTK's stylesheet language",
+             "   imports this file. Nothing else among them holds a colour. */", ""]
+    lines += [f"@define-color {name:<{width}} #{palette[name]};" for name in ROLES]
+    lines += ["", "/* The names libadwaita reads, as references: a role changing its",
+              "   shade changes every name that stands for it. */"]
+    for name, role in ADWAITA:
+        lines.append(f"@define-color {name:<28} @{role};")
+    lines += ["", "/* The names Breeze GTK reads, which are not libadwaita's and are many.",
+              "   Left alone this list is written by Plasma's settings, which this",
+              "   machine does not run, so it sat a whole flavour behind the screen. */"]
+    width = max(len(name) for name in BREEZE) + len("_breeze")
+    for name in sorted(BREEZE):
+        lines.append(f"@define-color {name + '_breeze':<{width}} @{breeze_role(name)};")
+    return "\n".join(lines) + "\n"
+
+
+def firefox_palette(palette):
+    """The same, as custom properties, which is the only kind Firefox's chrome takes."""
+    width = max(len(name) for name in ROLES)
+    body = "\n".join(f"  --{name:<{width}}: #{palette[name]};" for name in ROLES)
+    return ("/* Written by tools/legion-theme from theme/palette.toml.\n"
+            "   userChrome.css and userContent.css both import this and neither\n"
+            "   holds a colour of its own. */\n\n:root {\n" + body + "\n}\n")
+
+
+def terminal_palette(palette, spec):
+    """The terminal's colours as a file alacritty imports.
+
+    TOML has no way to name a colour once and use it twice, so the sixteen are
+    spelled out. They are spelled out here and nowhere else, and alacritty.toml
+    names this file rather than repeating them.
+    """
+    term = terminal_set(spec, palette)
+    order = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"]
+    lines = ["# Written by tools/legion-theme from theme/palette.toml.",
+             "# Imported by alacritty.toml, which holds no colour of its own.",
+             "",
+             "[colors.primary]",
+             f'background = "0x{term["background"]}"',
+             f'foreground = "0x{term["foreground"]}"',
+             "",
+             "[colors.cursor]",
+             f'cursor = "0x{term["cursor"]}"',
+             f'text = "0x{term["background"]}"',
+             "",
+             "[colors.selection]",
+             f'background = "0x{term["selection"]}"',
+             f'text = "0x{term["background"]}"']
+    for shade in ("normal", "bright"):
+        lines += ["", f"[colors.{shade}]"]
+        lines += [f'{slot} = "0x{term[shade][slot]}"' for slot in order]
+    return "\n".join(lines) + "\n"
+
+
+def shell_palette(palette):
+    """The palette as shell variables, for the keyboard.
+
+    wvkbd takes its colours as arguments and has no configuration file, so
+    something has to turn them into a command line. osk-start sources this and
+    spends them by name.
+
+    Not aligned on the equals sign the way the stylesheet is aligned: a space
+    before it makes the shell read the name as a command, and a palette that
+    lines up beautifully and stops the keyboard starting is not a trade
+    anybody wants.
+    """
+    body = "\n".join(f"{name}={palette[name]}" for name in ROLES)
+    return ("# Written by tools/legion-theme from theme/palette.toml.\n"
+            "# Sourced by osk-start, which holds no colour of its own.\n\n"
+            + body + "\n")
+
+
+def region(path, body):
+    """Replace what sits between the two markers, leaving the rest alone.
+
+    For the two files that cannot import anything. The rest of such a file has
+    a shape and an owner, and only the colours are written here.
+    """
+    lines = path.read_text().splitlines(keepends=True)
+    starts = [i for i, line in enumerate(lines) if BEGIN in line]
+    ends = [i for i, line in enumerate(lines) if END in line]
+    if len(starts) != 1 or len(ends) != 1 or ends[0] < starts[0]:
+        raise Short(f"{path} has no single {BEGIN}..{END} to write into")
+    return "".join(lines[:starts[0] + 1]) + body.rstrip("\n") + "\n" + "".join(lines[ends[0]:])
+
+
+def terminal_set(spec, palette):
+    """The sixteen a program may ask for by number, and what surrounds them."""
+    setting = spec["terminal"]
+    normal = {slot: palette[name] for slot, name in setting["normal"].items()}
+    bright = {slot: lift(code, setting["bright_lift"]) for slot, code in normal.items()}
+    bright["white"] = palette["text"]
+    return {
+        "background": palette[setting["background"]],
+        "foreground": palette[setting["foreground"]],
+        "cursor": palette[setting["cursor"]],
+        "selection": palette[setting["selection"]],
+        "normal": normal,
+        "bright": bright,
+    }
+
+
+def rgb(code):
+    """A colour as the three decimal numbers a KDE config file wants."""
+    code = code.lstrip("#")
+    return ",".join(str(int(code[i:i + 2], 16)) for i in (0, 2, 4))
+
+
+def hyprland_block(palette):
+    """The compositor's two borders, and the colour behind everything.
+
+    `background_color` is what the screen is where no window and no wallpaper
+    covers it. Hyprland's own default is a neutral grey, which is close enough
+    to a background that a wallpaper daemon can stop working without anybody
+    going to look for it. Told the palette instead, the desktop is the right
+    colour even with nothing painting on it.
+    """
+    return "\n".join([
+        "local blossom = {",
+        f'    active   = "rgba({palette["pink"]}ff)",',
+        f'    inactive = "rgba({palette["edge"]}ff)",',
+        f'    behind   = "rgba({palette["night"]}ff)",',
+        "}",
+    ])
+
+
+def kdeglobals_block(palette):
+    """Qt's colours.
+
+    Qt applications ask for a role rather than a colour, and Fusion answers out
+    of this file, so a file manager and a print dialogue arrive already wearing
+    the palette without a widget theme being installed to do it.
+    """
+    common = [
+        f"DecorationFocus={rgb(palette['pink'])}",
+        f"DecorationHover={rgb(palette['pink'])}",
+        f"ForegroundActive={rgb(palette['peach'])}",
+        f"ForegroundInactive={rgb(palette['soft'])}",
+        f"ForegroundLink={rgb(palette['sky'])}",
+        f"ForegroundNegative={rgb(palette['coral'])}",
+        f"ForegroundNeutral={rgb(palette['butter'])}",
+        f"ForegroundNormal={rgb(palette['text'])}",
+        f"ForegroundPositive={rgb(palette['leaf'])}",
+        f"ForegroundVisited={rgb(palette['mauve'])}",
+    ]
+    sections = {
+        "Colors:Button": (palette["panel"], palette["ground"]),
+        "Colors:Complementary": (palette["ground"], palette["night"]),
+        "Colors:Header": (palette["ground"], palette["night"]),
+        "Colors:Tooltip": (palette["panel"], palette["ground"]),
+        "Colors:View": (palette["night"], palette["ground"]),
+        "Colors:Window": (palette["ground"], palette["night"]),
+    }
+    lines = []
+    for name, (normal, alternate) in sections.items():
+        lines += [f"[{name}]",
+                  f"BackgroundAlternate={rgb(alternate)}",
+                  f"BackgroundNormal={rgb(normal)}", *common, ""]
+    lines += ["[Colors:Selection]",
+              f"BackgroundAlternate={rgb(palette['pink'])}",
+              f"BackgroundNormal={rgb(palette['pink'])}",
+              f"DecorationFocus={rgb(palette['pink'])}",
+              f"DecorationHover={rgb(palette['pink'])}",
+              # On a pink fill every one of these is the dark ink, because the
+              # fill is the thing carrying contrast and a second hue on top of
+              # it would be the one unreadable place in the palette.
+              *[f"{role}={rgb(palette['night'])}" for role in
+                ("ForegroundActive", "ForegroundInactive", "ForegroundLink",
+                 "ForegroundNegative", "ForegroundNeutral", "ForegroundNormal",
+                 "ForegroundPositive", "ForegroundVisited")],
+              ""]
+    lines += ["[WM]",
+              f"activeBackground={rgb(palette['panel'])}",
+              f"activeBlend={rgb(palette['pink'])}",
+              f"activeForeground={rgb(palette['text'])}",
+              f"inactiveBackground={rgb(palette['ground'])}",
+              f"inactiveBlend={rgb(palette['soft'])}",
+              f"inactiveForeground={rgb(palette['soft'])}"]
+    return "\n".join(lines)
+
+
+def firefox_prefs_block(palette):
+    """The colours Firefox will not take from a stylesheet.
+
+    A page that has not painted yet is painted by the browser, and left alone
+    that is white: on a dark desktop every link opens with a flash bright
+    enough to be the brightest thing that happens all day.
+    """
+    return "\n".join([
+        f'user_pref("browser.display.background_color", "#{palette["night"]}");',
+        f'user_pref("browser.display.background_color.dark", "#{palette["night"]}");',
+        f'user_pref("browser.display.foreground_color", "#{palette["text"]}");',
+        f'user_pref("browser.anchor_color", "#{palette["sky"]}");',
+        f'user_pref("browser.visited_color", "#{palette["mauve"]}");',
+        f'user_pref("browser.active_color", "#{palette["pink"]}");',
+    ])
+
+
+# ------------------------------------------------------------------- the picture
+
+WALLPAPER = (800, 1280)
+
+# An ordered dither. A gradient this dark crosses very few 8-bit values over
+# the whole screen, and without a little noise thrown in first the steps
+# between them appear as bands you cannot stop seeing once you have.
+BAYER = [[0, 32, 8, 40, 2, 34, 10, 42], [48, 16, 56, 24, 50, 18, 58, 26],
+         [12, 44, 4, 36, 14, 46, 6, 38], [60, 28, 52, 20, 62, 30, 54, 22],
+         [3, 35, 11, 43, 1, 33, 9, 41], [51, 19, 59, 27, 49, 17, 57, 25],
+         [15, 47, 7, 39, 13, 45, 5, 37], [63, 31, 55, 23, 61, 29, 53, 21]]
+
+
+def ramp(spec, steps=512):
+    """The gradient the picture is made of, worked out once.
+
+    From the deepest ground to a shade a little above the bar, with the pink
+    growing as it lightens. Computing this per pixel would be a million cube
+    roots for a picture that only ever holds a few hundred distinct colours.
+    """
+    hue = spec["meta"]["neutral_hue"]
+    out = []
+    for step in range(steps):
+        share = step / (steps - 1)
+        lightness = 0.185 + 0.235 * share ** 1.15
+        chroma = 0.020 + 0.062 * share ** 1.5
+        drift = hue + 18 * share
+        out.append([min(1.0, max(0.0, channel)) * 255
+                    for channel in col.oklch_to_rgb(lightness, col.fit(lightness, chroma, drift), drift)])
+    return out
+
+
+def bloom(width, height):
+    """How much light reaches each pixel, as a field between 0 and 1.
+
+    Light off the top left corner, a softer second source low and right so the
+    corner opposite is not dead, and a scatter of soft rounds too faint to be
+    looked at directly. The screen is held in two hands and the middle of it is
+    where a window goes, so the picture keeps its interest at the edges.
+    """
+    rounds = []
+    seed = 20260828
+    for _ in range(14):
+        seed = (seed * 1103515245 + 12345) % (1 << 31)
+        x = (seed >> 8) % width
+        seed = (seed * 1103515245 + 12345) % (1 << 31)
+        y = (seed >> 8) % height
+        seed = (seed * 1103515245 + 12345) % (1 << 31)
+        radius = 40 + (seed >> 8) % 130
+        rounds.append((x, y, radius * radius))
+
+    far = (width ** 2 + height ** 2) ** 0.5
+    field = []
+    for y in range(height):
+        row = []
+        for x in range(width):
+            near = 1.0 - ((x * x + y * y) ** 0.5) / far
+            low = 1.0 - (((width - x) ** 2 + (height - y) ** 2) ** 0.5) / far
+            row.append(0.78 * near ** 1.25 + 0.34 * low ** 2.6)
+        field.append(row)
+
+    # Each round reaches only as far as it reaches, so only that square of the
+    # picture is walked. Asking every round about every pixel instead is
+    # fourteen questions a pixel, and the picture is a million pixels.
+    for cx, cy, area in rounds:
+        radius = int(area ** 0.5)
+        for y in range(max(0, cy - radius), min(height, cy + radius + 1)):
+            row = field[y]
+            for x in range(max(0, cx - radius), min(width, cx + radius + 1)):
+                gap = (x - cx) ** 2 + (y - cy) ** 2
+                if gap < area:
+                    row[x] += 0.055 * (1 - gap / area) ** 2
+
+    return [[min(1.0, max(0.0, value)) for value in row] for row in field]
+
+
+def picture(spec):
+    """The wallpaper, as the bytes of a PNG."""
+    width, height = WALLPAPER
+    shades, field = ramp(spec), bloom(width, height)
+    steps = len(shades) - 1
+    rows = bytearray()
+    for y in range(height):
+        rows.append(0)
+        line = field[y]
+        for x in range(width):
+            noise = (BAYER[y & 7][x & 7] - 31.5) / 64
+            for channel in range(3):
+                value = shades[round(line[x] * steps)][channel] + noise
+                rows.append(min(255, max(0, round(value))))
+    return png(width, height, bytes(rows))
+
+
+def png(width, height, rows):
+    def chunk(kind, payload):
+        body = kind + payload
+        return struct.pack(">I", len(payload)) + body + struct.pack(">I", zlib.crc32(body))
+
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return (b"\x89PNG\r\n\x1a\n"
+            + chunk(b"IHDR", header)
+            + chunk(b"IDAT", zlib.compress(rows, 9))
+            + chunk(b"IEND", b""))
+
+
+def placeholder(palette):
+    """The box that stands where an application ships no icon."""
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- Written by tools/legion-theme. Where an icon would be, for an
+       application that ships none. An empty box keeps the names in one column:
+       without it those rows sit flush left and the list looks broken rather
+       than merely incomplete. -->
+  <rect x="8.5" y="8.5" width="47" height="47" rx="8"
+        fill="none" stroke="#{palette['edge']}" stroke-width="3"/>
+  <circle cx="32" cy="32" r="7" fill="#{palette['edge']}" fill-opacity="0.55"/>
+</svg>
+"""
+
+
+# ---------------------------------------------------------------- GTK's names
+
+# Breeze GTK asks for its colours by these names, and asks for a great many of
+# them. Left alone the file is written by Plasma's settings, which this machine
+# does not run, so it sat a whole flavour behind everything else on screen.
+BREEZE = """borders content_view_bg error_color_backdrop error_color
+error_color_insensitive_backdrop error_color_insensitive insensitive_base_color
+insensitive_base_fg_color insensitive_bg_color insensitive_borders
+insensitive_fg_color insensitive_selected_bg_color insensitive_selected_fg_color
+insensitive_unfocused_bg_color insensitive_unfocused_fg_color
+insensitive_unfocused_selected_bg_color insensitive_unfocused_selected_fg_color
+link_color link_visited_color success_color_backdrop success_color
+success_color_insensitive_backdrop success_color_insensitive theme_base_color
+theme_bg_color theme_button_background_backdrop
+theme_button_background_backdrop_insensitive theme_button_background_insensitive
+theme_button_background_normal theme_button_decoration_focus_backdrop
+theme_button_decoration_focus_backdrop_insensitive theme_button_decoration_focus
+theme_button_decoration_focus_insensitive theme_button_decoration_hover_backdrop
+theme_button_decoration_hover_backdrop_insensitive theme_button_decoration_hover
+theme_button_decoration_hover_insensitive theme_button_foreground_active_backdrop
+theme_button_foreground_active_backdrop_insensitive theme_button_foreground_active
+theme_button_foreground_active_insensitive theme_button_foreground_backdrop
+theme_button_foreground_backdrop_insensitive theme_button_foreground_insensitive
+theme_button_foreground_normal theme_fg_color theme_header_background_backdrop
+theme_header_background theme_header_background_light theme_header_foreground_backdrop
+theme_header_foreground theme_header_foreground_insensitive_backdrop
+theme_header_foreground_insensitive theme_hovering_selected_bg_color
+theme_selected_bg_color theme_selected_fg_color theme_text_color
+theme_titlebar_background_backdrop theme_titlebar_background
+theme_titlebar_background_light theme_titlebar_foreground_backdrop
+theme_titlebar_foreground theme_titlebar_foreground_insensitive_backdrop
+theme_titlebar_foreground_insensitive theme_unfocused_base_color
+theme_unfocused_bg_color theme_unfocused_fg_color
+theme_unfocused_selected_bg_color_alt theme_unfocused_selected_bg_color
+theme_unfocused_selected_fg_color theme_unfocused_text_color
+theme_unfocused_view_bg_color theme_unfocused_view_text_color
+theme_view_active_decoration_color theme_view_hover_decoration_color
+tooltip_background tooltip_border tooltip_text unfocused_borders
+unfocused_insensitive_borders warning_color_backdrop warning_color
+warning_color_insensitive_backdrop warning_color_insensitive""".split()
+
+
+def breeze_role(name):
+    """Which of our colours one of Breeze's names is asking for.
+
+    Read in order, because the names overlap: a selected foreground is a
+    foreground and a selected one, and the second word is the one that decides.
+    Anything greyed out still answers `soft`, which clears AAA. Unreadable
+    disabled text is a convention rather than a requirement, and on a device
+    somebody is meant to be able to use it is a bad one.
+    """
+    for word, role in [
+        ("selected_fg", "night"), ("selected_bg", "pink"),
+        ("decoration_focus", "pink"), ("decoration_hover", "pink"),
+        ("view_active_decoration", "pink"), ("view_hover_decoration", "edge"),
+        ("error", "coral"), ("warning", "butter"), ("success", "leaf"),
+        ("link_visited", "mauve"), ("link_color", "sky"),
+        ("borders", "edge"), ("tooltip_border", "edge"),
+        ("tooltip_background", "panel"), ("tooltip_text", "text"),
+        ("base_fg", "text"), ("base_color", "night"),
+        ("content_view_bg", "night"), ("view_bg", "night"),
+        ("view_text", "text"), ("text_color", "text"),
+        ("foreground_active", "pink"), ("foreground", "text"),
+        ("fg_color", "text"),
+        ("background_light", "panel"), ("button_background", "panel"),
+        ("header_background", "ground"), ("titlebar_background", "ground"),
+        ("bg_color", "panel"),
+    ]:
+        if word in name:
+            if role in ("text",) and "insensitive" in name:
+                return "soft"
+            return role
+    raise Short(f"no colour decided for Breeze's {name}")
+
+
+# -------------------------------------------------------------------- the work
+
+def written(spec, palette):
+    """Every file the palette reaches, and what it should hold.
+
+    Five of these are the palette itself, one per language that has to be
+    spoken. The rest of the desktop imports whichever of them speaks its own,
+    so this list is nearly the whole of where a colour appears on the machine.
+
+    `region` means a file somebody else owns, where only what lies between the
+    markers is written. `whole` means a file that is nothing but colour.
+    """
+    home = FILES / "home/player"
+    chrome = home / ".mozilla/firefox/legion/chrome"
+    return {
+        # The palette, once per language.
+        home / ".config/legion/palette.css": ("whole", gtk_palette(palette)),
+        home / ".config/legion/palette.toml": ("whole", terminal_palette(palette, spec)),
+        chrome / "palette.css": ("whole", firefox_palette(palette)),
+        FILES / "usr/local/lib/legion/palette.sh": ("whole", shell_palette(palette)),
+
+        # The two that cannot import anything. KDE's ini format has no include,
+        # and a user.js is a list of literals.
+        home / ".config/kdeglobals": ("region", kdeglobals_block(palette)),
+        home / ".mozilla/firefox/legion/user.js": ("region", firefox_prefs_block(palette)),
+
+        # The compositor. Two lines, written rather than imported: a Lua file
+        # that fails to load takes the whole session with it, and the session
+        # is the thing the person holding this device is standing on.
+        home / ".config/hypr/hyprland.lua": ("region", hyprland_block(palette)),
+
+        # Drawn.
+        FILES / "usr/share/icons/legion-placeholder.svg": ("whole", placeholder(palette)),
+    }
+
+
+def report(spec, palette, rows):
+    """The numbers, written down where somebody can read them without running this."""
+    term = terminal_set(spec, palette)
+    lines = [f"# {spec['meta']['name']}", "",
+             spec["meta"]["about"], "",
+             "Written by `tools/legion-theme` from `theme/palette.toml`. Every number",
+             "here is measured after the colour has been quantised to eight bits a",
+             "channel, which is what a contrast checker reads off the screen and is a",
+             "tenth of a point away from the arithmetic on the same two colours.", "",
+             "## The colours", "",
+             "| | colour | spent on |", "| --- | --- | --- |"]
+    for name, spec_of in spec["colour"].items():
+        lines.append(f"| `{name}` | `#{palette[name]}` | {spec_of.get('spent', '')} |")
+
+    lines += ["", "## What was asked of them", "",
+              "| front | on | asked | got | |", "| --- | --- | --- | --- | --- |"]
+    for front, back, asked, got, kind, _where in rows:
+        lines.append(f"| `{front}` | `{back}` | {asked:g}:1 | **{got:.2f}:1** "
+                     f"| {grade(got, kind)} |")
+
+    lines += ["", "## The terminal", "",
+              "| slot | normal | | bright | |", "| --- | --- | --- | --- | --- |"]
+    for slot in ("black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"):
+        normal, bright = term["normal"][slot], term["bright"][slot]
+        lines.append(f"| {slot} | `#{normal}` | {col.contrast(normal, term['background']):.2f}:1 "
+                     f"| `#{bright}` | {col.contrast(bright, term['background']):.2f}:1 |")
+    return "\n".join(lines) + "\n"
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check", action="store_true",
+                        help="say what would change and change nothing")
+    arguments = parser.parse_args()
+
+    spec = tomllib.loads(PALETTE.read_text())
+    palette = resolve(spec["colour"])
+    rows = measure(spec, palette)
+
+    short = [row for row in rows if row[3] < row[2]]
+    if short:
+        for front, back, asked, got, _kind, where in short:
+            print(f"  {front} on {back}: asked {asked}:1, got {got:.2f}:1 ({where})")
+        sys.exit("the palette does not clear what it declares; nothing written")
+
+    work = written(spec, palette)
+    work[REPORT] = ("whole", report(spec, palette, rows))
+
+    changed = []
+    for path, (kind, body) in sorted(work.items()):
+        if kind == "region":
+            wanted = region(path, body).encode()
+        else:
+            wanted = body.encode()
+        if not path.exists() or path.read_bytes() != wanted:
+            changed.append(path)
+            if not arguments.check:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(wanted)
+
+    canvas = FILES / "usr/share/backgrounds/legion.png"
+    drawn = picture(spec)
+    if not canvas.exists() or canvas.read_bytes() != drawn:
+        changed.append(canvas)
+        if not arguments.check:
+            canvas.write_bytes(drawn)
+
+    # The closest call is the one with the least room over what it was asked
+    # for, which is not the same as the lowest ratio: the bar only has to be a
+    # different colour from the wallpaper, and it always will be.
+    worst = min(rows, key=lambda row: row[3] - row[2])
+    text_rows = [row for row in rows if row[2] >= 7.0]
+    print(f"{spec['meta']['name']}: {len(spec['colour'])} colours, "
+          f"{len(rows)} pairings, all clearing what they declare.")
+    print(f"  the closest call is {worst[0]} on {worst[1]}, asked for {worst[2]:g}:1 "
+          f"and reaching {worst[3]:.2f}:1 ({grade(worst[3], worst[4])}).")
+    print(f"  {len(text_rows)} of them are text, and every one is AAA.")
+
+    if arguments.check and changed:
+        for path in changed:
+            print(f"  would rewrite {path.relative_to(ROOT)}")
+        sys.exit(1)
+    for path in changed:
+        print(f"  wrote {path.relative_to(ROOT)}")
+    if not changed:
+        print("  every file already says this.")
+
+
+if __name__ == "__main__":
+    main()

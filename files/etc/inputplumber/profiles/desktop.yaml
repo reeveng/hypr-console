@@ -1,0 +1,250 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/ShadowBlip/InputPlumber/main/rootfs/usr/share/inputplumber/schema/device_profile_v1.json
+version: 1
+kind: DeviceProfile
+name: Desktop
+description: >
+  One controller map for the whole desktop. Every button means the same thing
+  in every program. Loaded when the Hyprland session starts; Game Mode keeps
+  the stock Default profile so games still see a real gamepad.
+
+  Actions that need the compositor are sent as Super plus a letter, which
+  Hyprland binds. Raw F13-F20 did not resolve to keysyms it could match.
+
+target_devices:
+  - mouse
+  - keyboard
+  - xbox-elite
+
+mapping:
+  ##################### POINTER #####################
+
+  - name: Left stick - move the pointer
+    source_event:
+      gamepad:
+        axis:
+          name: LeftStick
+    target_events:
+      - mouse:
+          motion:
+            speed_pps: 900
+
+  - name: A - click
+    source_event:
+      gamepad:
+        button: South
+    target_events:
+      - mouse:
+          button: Left
+
+  - name: Y - right click, more options
+    source_event:
+      gamepad:
+        button: West
+    target_events:
+      - mouse:
+          button: Right
+
+  - name: Left stick press - click, the same as A
+    source_event:
+      gamepad:
+        button: LeftStick
+    target_events:
+      - mouse:
+          button: Left
+
+  ##################### SCROLL #####################
+
+  # Passed through untouched. /usr/local/bin/stick-scroll reads this axis and
+  # turns how far the stick is pushed into how fast the wheel turns. A wheel
+  # notch does not repeat while held, and arrow keys mean command history in a
+  # terminal, so neither of those could do the job.
+  - name: Right stick - scroll
+    source_event:
+      gamepad:
+        axis:
+          name: RightStick
+    target_events:
+      - gamepad:
+          axis:
+            name: RightStick
+
+  ##################### BACK, CANCEL, KEYBOARD #####################
+
+  - name: B - back, cancel
+    source_event:
+      gamepad:
+        button: East
+    target_events:
+      - keyboard: KeyEsc
+
+  - name: X - show or hide the keyboard
+    source_event:
+      gamepad:
+        button: North
+    target_events:
+      - gamepad:
+          button: North
+
+  - name: Keyboard button - show or hide the keyboard
+    source_event:
+      gamepad:
+        button: Keyboard
+    target_events:
+      - gamepad:
+          button: North
+
+  ##################### MOVE THE SELECTION #####################
+
+  - name: D-pad up - move up
+    source_event:
+      gamepad:
+        button: DPadUp
+    target_events:
+      - keyboard: KeyUp
+  - name: D-pad down - move down
+    source_event:
+      gamepad:
+        button: DPadDown
+    target_events:
+      - keyboard: KeyDown
+  - name: D-pad left - move left
+    source_event:
+      gamepad:
+        button: DPadLeft
+    target_events:
+      - keyboard: KeyLeft
+  - name: D-pad right - move right
+    source_event:
+      gamepad:
+        button: DPadRight
+    target_events:
+      - keyboard: KeyRight
+
+  - name: R1 - next workspace
+    source_event:
+      gamepad:
+        button: RightBumper
+    target_events:
+      - gamepad:
+          button: RightBumper
+
+  - name: L1 - previous workspace
+    source_event:
+      gamepad:
+        button: LeftBumper
+    target_events:
+      - gamepad:
+          button: LeftBumper
+
+  ##################### PAGE BACK AND FORWARD #####################
+
+  - name: L2 - hold for the second thing a button does
+    source_event:
+      gamepad:
+        trigger:
+          name: LeftTrigger
+          deadzone: 0.3
+    target_events:
+      - gamepad:
+          trigger:
+            name: LeftTrigger
+
+  - name: R2 - forward a page
+    source_event:
+      gamepad:
+        trigger:
+          name: RightTrigger
+          deadzone: 0.3
+    target_events:
+      - keyboard: KeyLeftAlt
+      - keyboard: KeyRight
+
+  ##################### GETTING AROUND #####################
+
+  ##################### ONE BUTTON, ONE THING #####################
+
+  # Two buttons that both open the menu is two buttons doing one job while
+  # something else goes unreachable. Each of these does one thing and nothing
+  # else does that thing.
+
+  - name: Menu - the guide to the buttons
+    source_event:
+      gamepad:
+        button: Start
+    target_events:
+      - gamepad:
+          button: Start
+
+  - name: Legion left - nothing yet
+    source_event:
+      gamepad:
+        button: Guide
+    target_events:
+      - gamepad:
+          button: Guide
+
+  - name: View - back to the workspace you were on
+    source_event:
+      gamepad:
+        button: Select
+    target_events:
+      - gamepad:
+          button: Select
+
+  - name: Legion right - power and settings
+    source_event:
+      gamepad:
+        button: QuickAccess
+    target_events:
+      - keyboard: KeyF17
+
+  - name: Right stick press - click, the same as A
+    source_event:
+      gamepad:
+        button: RightStick
+    target_events:
+      - mouse:
+          button: Left
+
+  ##################### THE BACK PADDLES #####################
+
+  # Each of these sends a key nothing else on the device sends, and the daemon
+  # acts on the key.
+  #
+  # They used to pass through as paddle buttons on the emulated pad, which meant
+  # the daemon had to know which of four interchangeable button codes belonged
+  # to which paddle, and nothing anywhere records that. Guessing it put the
+  # brightness controls on the wrong side of the machine. InputPlumber does know
+  # which paddle is which, because it reads the hardware, and naming the source
+  # is how it says so. This keeps the answer where it is known.
+
+  - name: Left paddle, top - the menu
+    source_event:
+      gamepad:
+        button: LeftPaddle1
+    target_events:
+      - keyboard: KeyF13
+
+  - name: Left paddle, bottom - nothing yet
+    source_event:
+      gamepad:
+        button: LeftPaddle2
+    target_events:
+      - keyboard: KeyF14
+
+  - name: Right paddle, top - close the window
+    source_event:
+      gamepad:
+        button: RightPaddle1
+    target_events:
+      - keyboard: KeyF15
+
+  - name: Right paddle, bottom - take a screenshot
+    source_event:
+      gamepad:
+        button: RightPaddle2
+    target_events:
+      - keyboard: KeyF16
+
+  # The volume rocker on the side of the machine is a keyboard of its own and
+  # never came through here.

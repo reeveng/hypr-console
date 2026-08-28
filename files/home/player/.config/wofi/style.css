@@ -1,0 +1,38 @@
+/* Rows big enough for a thumb, in the palette the bar and the keyboard use:
+   a soft dark ground with pink as the colour that says "this one".
+
+   The search box is hidden in the config rather than here. GTK has no display
+   property, and setting one only produced a parse warning while leaving the
+   box on screen.
+
+   There is no colour in this file. Every name below comes from the palette. */
+@import url("../legion/palette.css");
+
+window {
+    background-color: @panel;
+    border: 3px solid @pink;
+    border-radius: 16px;
+    font-family: "Noto Sans";
+    font-size: 18px;
+}
+
+#outer-box { margin: 0; }
+#scroll { margin: 10px; }
+
+#entry {
+    padding: 12px 16px;
+    border-radius: 10px;
+}
+
+#entry image { margin-right: 12px; }
+
+#text { color: @text; }
+
+#entry:selected {
+    background-color: @pink;
+}
+
+#entry:selected #text {
+    color: @night;
+    font-weight: bold;
+}

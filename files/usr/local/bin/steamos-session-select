@@ -1,0 +1,17 @@
+#!/bin/sh
+# Wraps the stock session switcher, which lives in /usr/bin and is what Game
+# Mode calls when you leave it. It only understands gamescope and plasma, so it
+# sends "the desktop" to Plasma. Record the real answer where it cannot reach,
+# then let it do the rest of its job.
+case "$1" in
+gamescope | gamescope-session)
+    session=gamescope-session.desktop
+    ;;
+*)
+    session=hyprland.desktop
+    ;;
+esac
+
+printf "[Autologin]\nSession=%s\n" "$session" > /etc/plasmalogin.conf.d/zzz-session.conf 2>/dev/null
+
+exec /usr/bin/steamos-session-select "$@"

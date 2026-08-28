@@ -1,0 +1,12 @@
+[Unit]
+Description=The background
+PartOf=legion.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/hyprpaper
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=legion.target

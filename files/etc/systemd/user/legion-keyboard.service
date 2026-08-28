@@ -1,0 +1,22 @@
+[Unit]
+Description=On-screen keyboard, driven by the controller
+PartOf=legion.target
+
+[Service]
+Type=simple
+# Quoted, because systemd splits an unquoted Environment= line on whitespace.
+# Without the quotes this set WVKBD_ON_SHOW to "osk-hook" and threw "show"
+# away, so every time the keyboard appeared the hook ran with no argument,
+# printed its usage and did nothing: the controller was never handed over and
+# the keyboard and the scroll daemon both acted on the pad at once.
+Environment="WVKBD_ON_SHOW=osk-hook show"
+Environment="WVKBD_ON_HIDE=osk-hook hide"
+ExecStart=/usr/local/bin/osk-start
+# It hands the controller back on the way out, so a restart cannot strand the
+# desktop holding a profile nothing is listening to.
+ExecStopPost=/usr/local/bin/osk-hook hide
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=legion.target

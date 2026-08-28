@@ -1,0 +1,248 @@
+#!/usr/bin/env python3
+"""What Legion right opens: the settings, each kind in its own place.
+
+Battery is how the machine runs, Wi-Fi and Bluetooth are what it talks to,
+Sound is what comes out of it, System is how it stops. Nothing that turns the
+machine off shares a page with anything you would touch every day.
+
+Sound is a row for the speakers and a row for each thing playing through them,
+so a video can be turned down without turning down the game. Left and right
+move the level of the row you are on, A silences it.
+
+Everything here is read from the machine each time the panel is drawn, so a
+network that has just come into range appears and one that has gone is gone.
+Anything that takes a moment, connecting above all, is done off to one side so
+the panel keeps answering the buttons while it happens.
+"""
+import json
+import subprocess
+import sys
+
+sys.path.insert(0, "/usr/local/lib/legion")
+
+import panel
+
+FULL, EMPTY = "█", "░"
+STEP = 5          # per press of left or right, in points of a hundred
+
+
+def said(argv):
+    """What a command printed, or nothing if it could not be run."""
+    try:
+        done = subprocess.run(argv, capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return done.stdout.strip()
+
+
+def sound(argv):
+    """pactl, as the user whose sound it is."""
+    return said(["pactl"] + argv)
+
+
+def as_json(what):
+    try:
+        return json.loads(sound(["-f", "json", "list", what]) or "[]")
+    except ValueError:
+        return []
+
+
+def level_of(thing):
+    """One number for a volume that is reported per channel."""
+    channels = thing.get("volume", {})
+    for channel in channels.values():
+        return int(str(channel.get("value_percent", "0%")).rstrip("%"))
+    return 0
+
+
+def bar(level, muted, cells=8):
+    """A level you can read across the room, and the number for exactness."""
+    filled = round(level / 100 * cells)
+    drawn = FULL * filled + EMPTY * (cells - filled)
+    if cells < 8:
+        return drawn
+    return "%s silent" % drawn if muted else "%s %d%%" % (drawn, level)
+
+
+def turn_to(target, kind):
+    """Left and right, five points at a time, and never past the ends."""
+    def moved(step):
+        thing = one(kind, target)
+        if thing is None:
+            return
+        going = min(max(level_of(thing) + step * STEP, 0), 100)
+        sound(["set-%s-volume" % kind, str(target), "%d%%" % going])
+
+    return moved
+
+
+def hush(target, kind):
+    def chosen(_showing):
+        sound(["set-%s-mute" % kind, str(target), "toggle"])
+        return False
+
+    return chosen
+
+
+def one(kind, target):
+    for thing in as_json("%ss" % kind):
+        if str(thing.get("index")) == str(target):
+            return thing
+    return None
+
+
+def named(stream):
+    """What to call a stream, in the words its own application uses."""
+    about = stream.get("properties", {})
+    for key in ("application.name", "media.name", "node.name"):
+        if about.get(key):
+            return about[key]
+    return "Something"
+
+
+def sound_rows():
+    """The speakers, and then whatever is playing through them."""
+    rows = []
+    sinks = as_json("sinks")
+    default = sound(["get-default-sink"])
+    speakers = next((s for s in sinks if s.get("name") == default),
+                    sinks[0] if sinks else None)
+    if speakers is not None:
+        index = speakers.get("index")
+        rows.append(("Speakers", bar(level_of(speakers), speakers.get("mute")),
+                     hush(index, "sink"), turn_to(index, "sink")))
+
+    playing = as_json("sink-inputs")
+    for stream in playing:
+        index = stream.get("index")
+        rows.append((named(stream), bar(level_of(stream), stream.get("mute")),
+                     hush(index, "sink-input"), turn_to(index, "sink-input")))
+    if not playing:
+        rows.append(("Nothing else is playing", "", None))
+    return rows
+
+
+def now():
+    """The power profile in use."""
+    return said(["powerprofilesctl", "get"])
+
+
+def strength(signal):
+    """How well it is heard, drawn the way a volume is, so both read alike."""
+    try:
+        return bar(int(signal), False, cells=4)
+    except ValueError:
+        return ""
+
+
+def saved_networks():
+    return {line.split(":")[0] for line in said(["nmcli", "-t", "-f", "NAME,TYPE",
+                                                 "connection", "show"]).splitlines()
+            if line.endswith("802-11-wireless")}
+
+
+def networks():
+    """Everything in range, strongest first, one row per name."""
+    seen = {}
+    for line in said(["nmcli", "-t", "-f", "ACTIVE,SSID,SIGNAL,SECURITY",
+                      "device", "wifi", "list"]).splitlines():
+        parts = line.split(":")
+        if len(parts) < 4:
+            continue
+        active, name, signal, security = parts[0], parts[1], parts[2], ":".join(parts[3:])
+        if not name:
+            continue
+        found = seen.get(name)
+        if found and int(found["signal"]) >= int(signal or 0):
+            continue
+        seen[name] = {"here": active == "yes", "signal": signal or "0",
+                      "locked": bool(security)}
+    return sorted(seen.items(), key=lambda pair: -int(pair[1]["signal"]))
+
+
+def join(name, locked, known):
+    """Connect to one network, asking for the password only if it has to."""
+    def chosen(showing):
+        if known:
+            panel.later(["nmcli", "connection", "up", "id", name], showing.refresh)
+            return False
+        if not locked:
+            panel.later(["nmcli", "device", "wifi", "connect", name], showing.refresh)
+            return False
+        showing.ask("The password for %s" % name,
+                    lambda word: panel.later(
+                        ["nmcli", "device", "wifi", "connect", name, "password", word],
+                        showing.refresh))
+        return False
+
+    return chosen
+
+
+def switch(argv):
+    """A row that turns something on or off and stays where it is."""
+    def chosen(showing):
+        panel.later(argv, showing.refresh)
+        return False
+
+    return chosen
+
+
+def wifi_rows():
+    if said(["nmcli", "radio", "wifi"]) != "enabled":
+        return [("Turn Wi-Fi on", "", switch(["nmcli", "radio", "wifi", "on"]))]
+
+    known = saved_networks()
+    rows = [("Turn Wi-Fi off", "", switch(["nmcli", "radio", "wifi", "off"]))]
+    for name, about in networks():
+        if about["here"]:
+            rows.append((name, "now", None))
+        else:
+            rows.append((name, strength(about["signal"]),
+                         join(name, about["locked"], name in known)))
+    return rows
+
+
+def bluetooth_rows():
+    if "Powered: yes" not in said(["bluetoothctl", "show"]):
+        return [("Turn Bluetooth on", "", switch(["bluetoothctl", "power", "on"]))]
+
+    rows = [("Turn Bluetooth off", "", switch(["bluetoothctl", "power", "off"]))]
+    for line in said(["bluetoothctl", "devices"]).splitlines():
+        parts = line.split(" ", 2)
+        if len(parts) < 3:
+            continue
+        address, name = parts[1], parts[2]
+        joined = "Connected: yes" in said(["bluetoothctl", "info", address])
+        rows.append((name, "now" if joined else "",
+                     switch(["bluetoothctl",
+                             "disconnect" if joined else "connect", address])))
+    rows.append(("Look for devices", "",
+                 switch(["bluetoothctl", "--timeout", "8", "scan", "on"])))
+    return rows
+
+
+def pages():
+    marks = {"balanced": "", "power-saver": "", "performance": ""}
+    if now() in marks:
+        marks[now()] = "now"
+    return [
+        ("Battery", [
+            ("Balanced", marks["balanced"], ["powerprofilesctl", "set", "balanced"]),
+            ("Battery life", marks["power-saver"], ["powerprofilesctl", "set", "power-saver"]),
+            ("Full speed", marks["performance"], ["powerprofilesctl", "set", "performance"]),
+        ]),
+        ("Sound", sound_rows()),
+        ("Wi-Fi", wifi_rows()),
+        ("Bluetooth", bluetooth_rows()),
+        ("System", [
+            ("Sleep", "", ["systemctl", "suspend"]),
+            ("Restart", "", ["systemctl", "reboot"]),
+            ("Shut down", "", ["systemctl", "poweroff"]),
+        ]),
+    ]
+
+
+if __name__ == "__main__":
+    # A tab may be named, so a tap on the bar lands on the thing it stands for.
+    panel.show(pages, width=880, height=430,
+               start=sys.argv[1] if len(sys.argv) > 1 else None)

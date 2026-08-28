@@ -1,0 +1,32 @@
+#!/bin/sh
+# The on-screen keyboard, started with the palette in its hands.
+#
+# wvkbd takes its colours as arguments and has no configuration file, so
+# something has to turn the palette into a command line. This is that. It holds
+# no colour of its own: the palette it sources is written from
+# theme/palette.toml, the same one every other surface on this machine reads.
+#
+# It exists so the unit file can be about starting a program.
+#
+# How big it is and what it is written in, which are not colours:
+height=260
+font="Noto Sans 16"
+
+. /usr/local/lib/legion/palette.sh
+
+# wvkbd gives a pressed key its own background and goes on writing on it in
+# --text, so a pressed key has to go darker rather than pinker: there is no
+# second ink to switch to. A swipe does have one, so the trail is pink with the
+# dark ink on it, and that is where the colour goes.
+#
+# --bg is behind the keys, --fg a letter key, --fg-sp a key that is not a
+# letter, --press a key with a thumb on it, and --swipe the trail a swipe
+# leaves behind.
+exec /usr/local/bin/wvkbd-mobintl --hidden --no-popup \
+    -L "$height" -H "$height" --fn "$font" \
+    --bg "$ground" --fg "$panel" --fg-sp "$ground" \
+    --text "$text" --text-sp "$soft" \
+    --press "$night" --press-sp "$night" \
+    --swipe "$pink" --swipe-sp "$pink" \
+    --text-swipe "$night" --text-swipe-sp "$night" \
+    "$@"

@@ -1,0 +1,16 @@
+# Move between workspaces, then carry a window to the one on the left.
+profile desktop
+press r1
+wait 0.4
+press r1
+wait 0.4
+press l1
+wait 0.4
+
+hold l2
+press l1
+release
+
+# And close what is in front of you.
+wait 0.4
+press right-paddle-top

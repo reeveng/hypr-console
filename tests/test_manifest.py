@@ -5,13 +5,11 @@ then find out about at the wrong moment: a file listed with nothing behind it,
 a file kept in the tree that is never installed anywhere, a script that will
 not parse, a service that starts a program the manifest does not carry.
 
-The manifest is read with the machine's own reader rather than a second one
-written here, so a change to how it is read is a change to what is checked.
+What the engine does with the manifest is tested beside the engine, in
+`crates/legion-manifest`. What is tested here is the manifest against the tree.
 """
 
 import ast
-import importlib.machinery
-import importlib.util
 import json
 import re
 import subprocess
@@ -22,23 +20,24 @@ import yaml
 
 
 @pytest.fixture(scope="module")
-def engine(request):
-    """`legion` itself, pointed at the checkout instead of at /etc/legion."""
-    root = request.config.rootpath
-    path = root / "files/usr/local/bin/legion"
-    loader = importlib.machinery.SourceFileLoader("legion_engine", str(path))
-    spec = importlib.util.spec_from_loader(loader.name, loader)
-    module = importlib.util.module_from_spec(spec)
-    loader.exec_module(module)
-    module.ROOT = root
-    module.SOURCE = root / "files"
-    module.MANIFEST = root / "desktop.conf"
-    return module
+def manifest(request):
+    """`desktop.conf` as {section: [entry]}.
 
-
-@pytest.fixture(scope="module")
-def manifest(engine):
-    return engine.read_manifest()
+    Read here rather than asked of the engine, which is a compiled program now.
+    What the engine does with the manifest is tested beside the engine; what is
+    tested from here is the manifest against the tree.
+    """
+    sections, current = {}, None
+    for line in (request.config.rootpath / "desktop.conf").read_text().splitlines():
+        line = line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            current = line[1:-1]
+            sections.setdefault(current, [])
+        elif current:
+            sections[current].append(line)
+    return sections
 
 
 @pytest.fixture(scope="module")
@@ -59,12 +58,6 @@ def carried(source):
                   if p.is_file() and "__pycache__" not in p.parts)
 
 
-def test_the_manifest_has_the_sections_the_engine_reads(manifest):
-    assert {"packages", "files", "services", "masked"} <= set(manifest)
-    assert set(manifest) <= {"packages", "files", "services", "masked",
-                             "elsewhere"}
-
-
 def carried_or_declared(manifest):
     """Everything this desktop is allowed to reach for.
 
@@ -83,16 +76,10 @@ def test_every_file_the_manifest_lists_is_in_the_tree(manifest, source):
             "%s is listed and there is nothing behind it" % path
 
 
-# The engine is the one thing the manifest does not list. It is what installs
-# every other file, and a program that copies over the file it is being read
-# from is a program that can be halfway through itself when it changes.
-INSTALLS_THE_REST = "/usr/local/bin/legion"
-
-
 def test_every_file_in_the_tree_is_listed(manifest, source):
     """A file nobody lists is a file `legion apply` never installs. It reads
     as part of the desktop and is not part of it."""
-    listed = set(manifest["files"]) | {INSTALLS_THE_REST}
+    listed = set(manifest["files"])
     for path in carried(source):
         assert path in listed, "%s is in the tree and nothing installs it" % path
 
@@ -124,6 +111,16 @@ def test_every_program_a_unit_starts_is_carried(manifest, source):
             if command.startswith("/usr/local/"):
                 assert command in listed, \
                     "%s starts %s, which is not carried" % (unit.name, command)
+
+
+def test_the_paper_service_throws_away_the_frames_of_the_last_background(source):
+    """awww names its cache after the picture's path and not after anything
+    inside the file, so a redrawn background at the same path is played as the
+    old one's frames over the new one's still. That is a screen full of blocks
+    of two pictures mixed, and the only thing that was ever wrong with it was a
+    file nobody thought to delete."""
+    unit = (source / "etc/systemd/user/legion-paper.service").read_text()
+    assert "ExecStartPre=-/usr/bin/rm -rf %h/.cache/awww" in unit
 
 
 def test_every_program_a_carried_script_reaches_for_is_carried(manifest, source):
@@ -174,21 +171,6 @@ def test_every_yaml_file_parses(source):
 def test_every_json_file_parses(source):
     for file in sorted(source.rglob("*.json")):
         json.loads(file.read_text())
-
-
-def test_everything_meant_to_be_run_will_be_installed_able_to_run(engine, source):
-    for path in carried(source):
-        file = source / path.lstrip("/")
-        head = file.read_bytes()[:4]
-        if head[:2] == b"#!" or head == b"\x7fELF":
-            assert engine.mode_of(file) == 0o755, \
-                "%s is a program and would be installed unrunnable" % path
-
-
-def test_files_in_the_user_s_home_are_installed_as_the_user(engine, manifest):
-    for path in manifest["files"]:
-        expected = "player" if path.startswith("/home/player/") else "root"
-        assert engine.owner_of(Path(path)) == expected
 
 
 # Programs the bar may reach for that come from a package rather than the tree.
@@ -244,3 +226,77 @@ def test_every_tab_the_bar_asks_for_exists(source):
             continue
         assert argument in tabs, \
             "the bar's %s opens the %s tab, which does not exist" % (module, argument)
+
+
+# ---------------------------------------------------------------- by finger
+
+# The screen is a touchscreen, and the device is put down as often as it is
+# held. Everything below is something a hand with no controller in it could
+# not do at all until it was there, so each of these is a way back to that.
+
+
+def test_the_bar_has_a_door_for_the_menu_and_for_the_keyboard(source):
+    """The two things a finger has no other road to. Every other button on the
+    pad has an icon on the bar or a row in a panel; these two had neither, so
+    a person holding nothing could not open an application or type a letter."""
+    runs = {command for _, command, _ in bar_commands(source)}
+    assert "launcher" in runs, "there is no way to open the menu by hand"
+    assert "osk" in runs, "there is no way to ask for the keyboard by hand"
+
+
+def panel_names(source):
+    """Every name the panel gives a widget, which is how it is styled and,
+    for these, whether it exists at all."""
+    tree = ast.parse((source / "usr/local/lib/legion/panel.py").read_text())
+    return {call.args[0].value for call in ast.walk(tree)
+            if isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Attribute)
+            and call.func.attr == "set_name"
+            and call.args and isinstance(call.args[0], ast.Constant)}
+
+
+def test_a_panel_can_be_closed_without_a_button(source):
+    """B closes a panel and a finger has no B. Four of the bar's icons open
+    one, so without the mark on the strip a tap could put a panel on the
+    screen that only the controller could take off again."""
+    assert "shut" in panel_names(source), "a panel has no way out but a button"
+
+
+def test_a_level_draws_the_two_ends_of_itself(source):
+    """A level is the one thing on a panel that left and right do and a tap
+    cannot: tapping the row it is on silences it. Without these the volume is
+    a reading a person can look at and not change."""
+    tree = ast.parse((source / "usr/local/lib/legion/panel.py").read_text())
+    line = next(node for node in ast.walk(tree)
+                if isinstance(node, ast.FunctionDef) and node.name == "line")
+    assert "level" in [a.arg for a in line.args.args], \
+        "a row is drawn without knowing whether it carries a level"
+    marks = {node.value for node in ast.walk(line)
+             if isinstance(node, ast.Constant) and node.value in ("+", "−")}
+    assert marks == {"+", "−"}, "a level row draws no steps: %s" % marks
+    assert "step" in panel_names(source)
+
+
+def levels_in(source, program):
+    """Every row of a panel that carries a level, by the word it opens with."""
+    tree = ast.parse((source / "usr/local/bin" / program).read_text())
+    return {node.elts[0].value for node in ast.walk(tree)
+            if isinstance(node, ast.Tuple) and len(node.elts) == 4
+            and isinstance(node.elts[0], ast.Constant)}
+
+
+def test_the_two_things_that_are_held_at_a_level_are_on_a_panel(source):
+    """Sound was on a panel and the screen was not: brightness lived on the
+    d-pad held under L2 and nowhere else, which is two buttons at once for the
+    setting a person changes when the room gets dark."""
+    assert {"Screen", "Speakers"} <= levels_in(source, "settings-panel")
+
+
+def test_something_answers_when_a_password_is_asked_for(manifest, source):
+    """polkitd asks the session for a password and gives up if nothing
+    answers. With no agent running, installing something is not a refusal, it
+    is a button that does nothing and says nothing about why."""
+    assert "legion-polkit.service" in manifest["services"]
+    unit = (source / "etc/systemd/user/legion-polkit.service").read_text()
+    starts = re.search(r"^ExecStart=(\S+)", unit, re.M).group(1)
+    assert "polkit" in starts, "the polkit service starts %s" % starts

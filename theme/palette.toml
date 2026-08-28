@@ -184,6 +184,70 @@ cyan = "mint"
 white = "soft"
 
 
+# ---------------------------------------------------------------- the garden
+# The wallpaper is a drawing, and a drawing has colours, so they are declared
+# here like everything else. tools/legion-garden holds the shapes and not one
+# colour: it asks this table what to dip the brush in.
+#
+# `alpha` is how much of a colour reaches the picture, and it lives here rather
+# than in the tool because a wash at a tenth is a decision about colour. The
+# shape of a tree is not.
+#
+# The picture rests, and then the wind comes through and takes the blossom with
+# it. `rest_seconds` is how long between one gust and the next, and it is the
+# whole reason this costs nothing: a WebP frame declares how long it lasts and
+# the wallpaper daemon sleeps for exactly that long, so a resting picture is a
+# process doing nothing at all.
+
+[garden]
+rest_seconds = 420
+gust_seconds = 3.6
+frames_per_second = 12
+
+[garden.paint]
+# The sky, darkest overhead and warming down to the horizon, where the light
+# that is left in the day is.
+sky_high = { colour = "night", alpha = 1.0 }
+sky_low = { colour = "panel", alpha = 1.0 }
+glow = { colour = "peach", alpha = 0.17 }
+haze = { colour = "lilac", alpha = 0.085 }
+# What a hill turns into when there is enough air in front of it. The same
+# colour as the haze, spent as a fill rather than as a wash, so a ridge four
+# valleys away and the air it is behind cannot drift apart.
+haze_far = { colour = "lilac", alpha = 1.0 }
+
+# The ground. Warm where the path is, cool and darker off it, and darker still
+# at the bottom edge where the picture is nearest and holds nothing.
+earth = { colour = "ground", alpha = 1.0 }
+shade = { colour = "night", alpha = 0.55 }
+road = { colour = "peach", alpha = 0.115 }
+road_light = { colour = "butter", alpha = 0.075 }
+verge = { colour = "ash", alpha = 0.13 }
+
+# The trees, both the same dark purple. The far one is not painted a lighter
+# colour, it is painted the same and then veiled, which is what distance does.
+bark = { colour = "ground", alpha = 1.0 }
+bark_lit = { colour = "ash", alpha = 0.13 }
+veil = { colour = "night", alpha = 0.52 }
+# What a tree throws. The same night the sky is darkest with, because a shadow
+# is not a colour a thing has, it is the ground with the light taken off it.
+shadow = { colour = "night", alpha = 0.46 }
+
+# The blossom. A mass first, soft and low, and then the petals that catch the
+# light drawn on top of it.
+#
+# All of it is warm, and every colour of the air is cool. That is the whole of
+# how the blossom is told apart from the mist it hangs in: they sit at the same
+# lightness and nearly the same place, so if they also shared a hue the tree
+# would read as a thicker patch of fog. It was mauve blossom in mauve air once,
+# and that is exactly what it looked like.
+bloom = { colour = "rose", alpha = 0.075 }
+bloom_deep = { colour = "coral", alpha = 0.055 }
+petal = { colour = "pink", alpha = 0.88 }
+petal_pale = { colour = "rose", alpha = 0.78 }
+fallen = { colour = "rose", alpha = 0.26 }
+
+
 # ---------------------------------------------------- what has to hold true
 # Every pair the eye actually meets, and the ratio it has to clear. The engine
 # refuses to write a single file while one of these is short, so a palette
@@ -216,6 +280,12 @@ front = ["pink", "rose", "mauve", "lilac", "sky", "mint", "leaf", "butter", "pea
 back = ["night", "ground", "panel"]
 ratio = 7.0
 where = "a pastel used as writing rather than as a fill"
+
+[[pair]]
+front = "soft"
+back = ["ground"]
+ratio = 7.0
+where = "the swipe trail across the keyboard, and the face of a key that is not a letter. Those keys are the slab's own colour, so what is written on them is read against it"
 
 [[pair]]
 front = "edge"

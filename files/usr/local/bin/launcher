@@ -5,9 +5,6 @@ Applications come out in the order you actually use them: the ones you open
 most, most often, and everything else alphabetically after them. wofi can sort
 one way or the other but not both, so the list is built here and handed to it
 in dmenu mode.
-
-Run with any arguments, this is a plain dmenu and reads its entries from
-standard input, which is what the power menu uses.
 """
 
 import os
@@ -18,6 +15,10 @@ import struct
 import subprocess
 import sys
 from pathlib import Path
+
+sys.path.insert(0, "/usr/local/lib/legion")
+
+import chooser
 
 COUNTS = Path.home() / ".local/state/legion/menu-counts"
 FIELD_CODES = re.compile(r"%[fFuUdDnNickvm]")
@@ -258,20 +259,20 @@ def bump(name):
     COUNTS.write_text("".join(f"{n} {k}\n" for k, n in sorted(counts.items())))
 
 
-def wofi(lines, extra, profile="menu"):
-    """Show the list, and say how it ended.
+def wofi(lines, extra):
+    """Show the list, and say which line was picked, or nothing.
 
     A chooser is driven by its highlight, so while one is up A confirms the
     highlighted row rather than clicking wherever the pointer sits. The desktop
     gets its own profile back whichever way this ends, including a crash.
     """
-    subprocess.run(["controller-profile", profile],
+    subprocess.run(["controller-profile", "menu"],
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         process = subprocess.run(
             ["wofi", "--dmenu", *extra],
             input="\n".join(lines), capture_output=True, text=True)
-        return process.stdout.strip(), process.returncode
+        return process.stdout.strip()
     finally:
         subprocess.run(["controller-profile", "desktop"],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -283,13 +284,16 @@ def main():
     for stopped in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
         signal.signal(stopped, lambda *_: sys.exit(1))
 
-    extra = [a for a in sys.argv[1:] if a != "--dmenu"]
-
-    if "--dmenu" in sys.argv:
-        # A plain dmenu: the caller has already decided what the entries are.
-        chosen, _ = wofi(sys.stdin.read().splitlines(), extra)
-        print(chosen)
+    # The menu is on a button, on a paddle, on a key and on the bar. Pressed
+    # again while it is already up, each of those used to draw a second menu
+    # over the first, in the same place, and backing out of one left the other
+    # looking like a menu that ignores you. Now the second press closes it,
+    # which is the only way a finger has of putting the menu away: wofi
+    # answers B and a keyboard's Escape and nothing else.
+    if not chooser.alone("menu"):
         return 0
+
+    extra = sys.argv[1:]
 
     apps = {}
     for path in desktop_files():
@@ -304,7 +308,7 @@ def main():
     lines = ["img:%s:text:%s" % (apps[name][2] or PLACEHOLDER, name)
              for name in order]
 
-    chosen, _ = wofi(lines, ["--allow-images", *extra])
+    chosen = wofi(lines, ["--allow-images", *extra])
     if ":text:" in chosen:
         chosen = chosen.split(":text:", 1)[1]
     if not chosen or chosen not in apps:

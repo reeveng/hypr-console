@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """What Legion right opens: the settings, each kind in its own place.
 
-Battery is how the machine runs, Wi-Fi and Bluetooth are what it talks to,
-Sound is what comes out of it, System is how it stops. Nothing that turns the
-machine off shares a page with anything you would touch every day.
+Battery is how the machine runs, which is the screen as much as the profile,
+Wi-Fi and Bluetooth are what it talks to, Sound is what comes out of it, System
+is how it stops. Nothing that turns the machine off shares a page with anything
+you would touch every day.
 
 Sound is a row for the speakers and a row for each thing playing through them,
 so a video can be turned down without turning down the game. Left and right
-move the level of the row you are on, A silences it.
+move the level of the row you are on, the two marks beside it do the same for
+a finger, and A silences it.
 
 Everything here is read from the machine each time the panel is drawn, so a
 network that has just come into range appears and one that has gone is gone.
@@ -20,6 +22,7 @@ import sys
 
 sys.path.insert(0, "/usr/local/lib/legion")
 
+import chooser
 import panel
 
 FULL, EMPTY = "█", "░"
@@ -127,6 +130,25 @@ def now():
     return said(["powerprofilesctl", "get"])
 
 
+def brightness():
+    """How bright the screen is, asked of the program that owns the range.
+
+    The panel takes numbers up to 65535 and goes dark near the top of them, so
+    what counts as full is a decision, and it is made once in
+    legion-brightness. Reading the file here would be a second opinion about
+    the same screen, and the two would part company the day one of them moved.
+    """
+    try:
+        return int(said(["legion-brightness", "get"]))
+    except ValueError:
+        return 0
+
+
+def dim(step):
+    """One step of the screen, the same step the d-pad takes under L2."""
+    said(["legion-brightness", "up" if step > 0 else "down"])
+
+
 def strength(signal):
     """How well it is heard, drawn the way a volume is, so both read alike."""
     try:
@@ -221,28 +243,66 @@ def bluetooth_rows():
     return rows
 
 
-def pages():
+def battery_rows():
     marks = {"balanced": "", "power-saver": "", "performance": ""}
-    if now() in marks:
-        marks[now()] = "now"
+    running = now()
+    if running in marks:
+        marks[running] = "now"
     return [
-        ("Battery", [
-            ("Balanced", marks["balanced"], ["powerprofilesctl", "set", "balanced"]),
-            ("Battery life", marks["power-saver"], ["powerprofilesctl", "set", "power-saver"]),
-            ("Full speed", marks["performance"], ["powerprofilesctl", "set", "performance"]),
-        ]),
-        ("Sound", sound_rows()),
-        ("Wi-Fi", wifi_rows()),
-        ("Bluetooth", bluetooth_rows()),
-        ("System", [
-            ("Sleep", "", ["systemctl", "suspend"]),
-            ("Restart", "", ["systemctl", "reboot"]),
-            ("Shut down", "", ["systemctl", "poweroff"]),
-        ]),
+        # The screen is the largest thing on this tab in every sense: it is
+        # what the battery is mostly spent on, and until now it was the one
+        # setting with no way to it but a button held down with another button.
+        ("Screen", bar(brightness(), False), None, dim),
+        ("Balanced", marks["balanced"], ["powerprofilesctl", "set", "balanced"]),
+        ("Battery life", marks["power-saver"], ["powerprofilesctl", "set", "power-saver"]),
+        ("Full speed", marks["performance"], ["powerprofilesctl", "set", "performance"]),
+    ]
+
+
+def system_rows():
+    return [
+        ("Sleep", "", ["systemctl", "suspend"]),
+        ("Restart", "", ["systemctl", "reboot"]),
+        ("Shut down", "", ["systemctl", "poweroff"]),
+    ]
+
+
+def look_again(showing):
+    """Arriving on Wi-Fi, ask the radio to look rather than answer from memory.
+
+    nmcli will otherwise report the last scan, which can be minutes old and
+    from another room. The list drawn first is that memory, because a panel
+    that waits for a radio before it appears is a panel that feels broken;
+    it is redrawn when the radio has finished looking.
+    """
+    panel.later(["nmcli", "device", "wifi", "rescan"], showing.refresh)
+
+
+def pages():
+    """Each tab, what fills it, what to do on arriving, and what to listen to.
+
+    Nothing here is read until its tab is looked at. Reading all of it to open
+    one tab meant scanning for networks before the volume could be shown.
+    """
+    return [
+        ("Battery", battery_rows),
+        ("Sound", sound_rows, None,
+         (["stdbuf", "-oL", "pactl", "subscribe"], "on sink")),
+        ("Wi-Fi", wifi_rows, look_again),
+        ("Bluetooth", bluetooth_rows),
+        ("System", system_rows),
     ]
 
 
 if __name__ == "__main__":
     # A tab may be named, so a tap on the bar lands on the thing it stands for.
-    panel.show(pages, width=880, height=430,
-               start=sys.argv[1] if len(sys.argv) > 1 else None)
+    tab = sys.argv[1] if len(sys.argv) > 1 else None
+
+    # The settings are on the Menu button and on four of the bar's icons, and
+    # any of them pressed twice used to stack two identical panels. The tab is
+    # part of which door this is: tapping the speaker while the battery is up
+    # moves the panel to Sound, and tapping the speaker again puts it away.
+    if not chooser.alone("settings %s" % (tab or "")):
+        sys.exit(0)
+
+    panel.show(pages, width=880, height=430, start=tab)

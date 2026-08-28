@@ -1,4 +1,4 @@
-# Written by tools/legion-theme from theme/palette.toml.
+# Written by legion-theme from theme/palette.toml.
 # Sourced by osk-start, which holds no colour of its own.
 
 night=110b12

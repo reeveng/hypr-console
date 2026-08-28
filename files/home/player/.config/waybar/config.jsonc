@@ -5,9 +5,28 @@
   "height": 38,
   "spacing": 10,
 
-  "modules-left": ["hyprland/workspaces"],
+  "modules-left": ["custom/apps", "custom/keyboard", "hyprland/workspaces"],
   "modules-center": ["clock"],
   "modules-right": ["pulseaudio", "bluetooth", "network", "battery", "tray"],
+
+  // The two doors a finger has no other way through. Everything else along
+  // here is a reading that happens to open something when it is tapped; these
+  // two are buttons and nothing else, and they are on the left because that is
+  // where the thumb of the hand not holding the device falls.
+  //
+  // Both toggle. Tapped again they put away what they brought out, which is
+  // the whole of how a menu or a keyboard is closed without a controller.
+  "custom/apps": {
+    "format": "󰀻",
+    "tooltip": false,
+    "on-click": "launcher"
+  },
+
+  "custom/keyboard": {
+    "format": "󰌌",
+    "tooltip": false,
+    "on-click": "osk"
+  },
 
   "hyprland/workspaces": {
     "format": "{id}",

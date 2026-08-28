@@ -19,6 +19,7 @@ import select
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -30,6 +31,10 @@ from emulator.targets import Devices
 REPO = Path(__file__).resolve().parent.parent
 BIN = REPO / "files/usr/local/bin"
 FAKEBIN = Path(__file__).resolve().parent / "fakebin"
+
+# The three of the four the daemon reads, by the part of the name it prints.
+# The mouse is one it writes through, and it never opens it.
+READS = ("Elite 2 pad", "Touchpad", "InputPlumber Keyboard")
 
 
 def uinput_is_open():
@@ -62,7 +67,13 @@ def wait_for(name, seconds=5.0, since=None):
 
 
 class Running:
-    """A daemon, the devices it reads, and the device it writes."""
+    """A daemon, the devices it reads, and the device it writes.
+
+    A daemon publishes what it writes before it has opened what it reads, so
+    waiting for its device is not waiting for it to be ready. It says which
+    devices it found as it finds them, and that is what is waited for here: a
+    press sent in between would go to a device nobody was reading yet.
+    """
 
     def __init__(self, daemon="stick-scroll", profile="desktop"):
         self.devices = Devices()
@@ -84,9 +95,27 @@ class Running:
         self.process = subprocess.Popen(
             [sys.executable, str(BIN / daemon)],
             env=environment, stderr=subprocess.PIPE, text=True)
+        self._lines = []
+        self._listener = threading.Thread(target=self._listen, daemon=True)
+        self._listener.start()
+
         self.out = wait_for(daemon, since=was)
         if self.out is not None:
             self.out.grab()
+        self.reading()
+
+    def _listen(self):
+        for line in self.process.stderr:
+            self._lines.append(line)
+
+    def reading(self, seconds=5.0):
+        """Wait until it has said it found every device it reads."""
+        until = time.monotonic() + seconds
+        while time.monotonic() < until:
+            if all(name in self.said for name in READS):
+                return True
+            time.sleep(0.02)
+        return False
 
     def settle(self, seconds=0.25):
         """Let the daemon get round to what it was sent."""
@@ -123,7 +152,7 @@ class Running:
     @property
     def said(self):
         """What the daemon has printed about itself so far."""
-        return self._said
+        return "".join(self._lines)
 
     def close(self):
         if self.out is not None:
@@ -134,14 +163,14 @@ class Running:
             self.out.close()
         self.process.terminate()
         try:
-            self._said = self.process.communicate(timeout=5)[1]
+            self.process.wait(timeout=5)
         except subprocess.TimeoutExpired:
             self.process.kill()
-            self._said = self.process.communicate()[1]
+            self.process.wait()
+        self._listener.join(timeout=5)
+        self.process.stderr.close()
         self.devices.close()
         self.here.cleanup()
-
-    _said = ""
 
     def __enter__(self):
         return self

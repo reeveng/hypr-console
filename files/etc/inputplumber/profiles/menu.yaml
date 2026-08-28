@@ -105,6 +105,28 @@ mapping:
     target_events:
       - keyboard: KeyEsc
 
+  - name: Left paddle, top - nothing while a chooser is up
+    source_event:
+      gamepad:
+        button: LeftPaddle1
+    target_events: []
+
+  - name: Left paddle, bottom - nothing while a chooser is up
+    source_event:
+      gamepad:
+        button: LeftPaddle2
+    target_events: []
+
+  # A screenshot does not act behind the chooser, it takes a picture of it,
+  # and a chooser is exactly the thing somebody wants a picture of when they
+  # are trying to say what went wrong. So this one keeps its meaning.
+  - name: Right paddle, bottom - take a screenshot
+    source_event:
+      gamepad:
+        button: RightPaddle2
+    target_events:
+      - keyboard: KeyF16
+
   - name: Legion right - close the menu
     source_event:
       gamepad:
@@ -140,4 +162,52 @@ mapping:
     source_event:
       gamepad:
         button: RightBumper
+    target_events: []
+
+  # The pointer is still there for anyone who would rather reach for it, so
+  # pressing a stick stays a click. A is the highlight's way in, not the only
+  # one.
+  - name: Left stick press - click
+    source_event:
+      gamepad:
+        button: LeftStick
+    target_events:
+      - mouse:
+          button: Left
+  - name: Right stick press - click
+    source_event:
+      gamepad:
+        button: RightStick
+    target_events:
+      - mouse:
+          button: Left
+
+  # The button labelled Keyboard does what X does, here as everywhere. Left
+  # out, it passed through to the pad and reached nothing, so the one button
+  # on the machine named after the keyboard was the one that could not open it
+  # while a chooser was up.
+  - name: Keyboard - show or hide the keyboard
+    source_event:
+      gamepad:
+        button: Keyboard
+    target_events:
+      - gamepad:
+          button: North
+
+  - name: Y - nothing while a chooser is up
+    source_event:
+      gamepad:
+        button: West
+    target_events: []
+
+  - name: D-pad left - nothing, there is one page
+    source_event:
+      gamepad:
+        button: DPadLeft
+    target_events: []
+
+  - name: D-pad right - nothing, there is one page
+    source_event:
+      gamepad:
+        button: DPadRight
     target_events: []

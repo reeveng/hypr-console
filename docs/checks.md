@@ -1,4 +1,4 @@
-# Everything this desktop has grown, tried again
+# Checks
 
     tools/legion-check                       here, against the emulator
     tools/legion-check --list                what there is
@@ -6,91 +6,50 @@
     tools/legion-check --stage device --dry  what it would do to the device
     tools/legion-check --stage device --yes  do it
 
-A check is one file and one feature. It says what somebody did with their
-thumbs and what should have happened. Running them in order walks everything
-this desktop has grown, oldest first, and says which of it still works.
+One file per feature. The number in front is the order they run in. When a
+feature changes, edit its file rather than adding a second one.
 
-## One file to a feature
+A check has up to three functions. `here(pad, seen)` is what needs no machine,
+`device(pad, seen)` is what only the Legion Go can answer, `check(pad, seen)` is
+both. `pad` presses, `seen` looks. If a stage cannot answer something the check
+skips and says which part it could not see.
 
-The number at the front is when the feature arrived, so the order they run in
-is the order they were built in, and a run reads as the history of the machine.
+There is a third stage, `--stage desktop`, which runs the device's desktop
+nested on this machine and can say what colour the screen is.
 
-When a feature changes, its file is edited. It does not get a second file
-saying something different, because two files describing one button is how a
-suite comes to disagree with itself and with the device.
+Every check that runs without a machine also runs in `make fast`.
 
-A feature is split only where the parts fail separately. "The d-pad works" is
-not a thing that fails: left works or right works, and a check that presses
-both and asserts once tells you neither which failed nor that only one did. So
-there is a check for the d-pad's left and one for its right, and brightness up
-and brightness down are two files rather than one.
+## Assert what a person would see
 
-## The same check, in two places
+A check has to assert the thing somebody would notice, not the mechanism behind
+it.
 
-    def here(pad, seen):     what can be answered with no machine at all
-    def device(pad, seen):   what can only be answered on the Legion Go
-    def check(pad, seen):    the same thing in both
+Three checks pressed B on an open menu and then asked which controller profile
+was loaded. The answer was right and all three passed, with a menu still on the
+screen that would not close. The question to ask is whether the menu is gone.
 
-`pad` presses. `seen` looks. A check asks `seen` for whatever it needs, and a
-stage that cannot answer that does not have the method, so the check skips and
-says which thing could not be seen. Nothing declares in advance what it needs:
-that would be the same fact written twice, and the second copy is the one that
-goes stale.
+Asking the mechanism is still worth doing as a tiebreak. `150-the-wallpaper`
+reads five places on the screen first and then asks the wallpaper daemon which
+file it is showing, because an empty screen is the same colour as the picture.
 
-Here, what can be seen is what the daemon decided to run and what it wrote to
-the pointer. On the device, what can be seen is the machine: which workspace,
-which windows, how bright, whether the keyboard is up, which controller profile
-is loaded, whether every service is running, what appeared in a directory.
+## A green check can be a lie
 
-Two checks are honest about being answerable in only one place. Nothing on the
-device can see a page scroll, and InputPlumber cannot send touch at all, which
-is the whole reason the daemon reads the touchpad directly.
+`020` says a held trigger carries the window to the next workspace. It asserted
+that the workspace had changed and that the machine still had as many windows as
+before. Both are true whether the window came along or stayed behind, so it
+passed from the day it was written with the trigger doing nothing at all.
 
-## Pressing a button on the real device
-
-Through InputPlumber's own `SendEvent` and `SendButtonChord`, which is how a
-chord on the device already works. So a press arrives exactly as the hardware's
-would, through whichever profile is loaded, and nothing is created on the
-device, nothing is grabbed, and nothing is left behind if a run stops halfway.
-
-The alternative was a uinput device pretending to be the controller, which
-risks a second composite device publishing a second pad for the daemons to find
-and argue over. This asks the thing that already owns the pad.
-
-## Looking at the screen
-
-There is a third stage, `--stage desktop`, which starts the device's own
-desktop nested on this machine and answers what colour the screen is.
-
-It exists because of a fault neither of the others can see. The wallpaper on
-the device did not paint for days: hyprpaper 0.8 changed its config format, the
-old lines stopped meaning anything, and it did not fail. It started, said the
-monitor had no target, painted nothing, and reported success. Nothing was in a
-failed state and a service check would have passed. What was on screen was the
-compositor's own default, dark enough to pass for a background.
-
-So `150-the-wallpaper` reads the colour most of the screen is and compares it
-to the colour most of the carried wallpaper is, which it reads out of the
-picture rather than being told. A wallpaper that changes changes the check with
-it, and a check that has to be edited whenever the thing it checks changes is
-one that will eventually be edited to agree with a fault.
-
-    tools/legion-desktop shot after.png --sample most --sample 512,320
-
-says the same thing by hand, for anything else that paints.
+Ask what a check would say if the feature were broken. If the answer is the
+same, it is not a check. A green one nobody doubts is worse than a red one,
+because it is the thing that was supposed to tell you.
 
 ## It is somebody's machine
 
-`--stage device` does nothing without `--yes`. `--dry` prints every command it
-would send, and judges nothing, because on a dry run the machine answers
-nothing and every assertion would be about that rather than about the desktop.
+`--stage device` does nothing without `--yes`, and `--dry` prints what it would
+send. Some checks open menus, move between workspaces and close windows. Read a
+dry run first.
 
-Some checks change what is on screen: they open the menu, move between
-workspaces, close a window. `030-close-the-window` closes whatever is in front
-of you. Read the dry run before the real one.
-
-## They are also the fast suite
-
-Every check that can run without a machine runs on every `make fast`. A check
-nobody has run since the feature changed is a check that will fail on the
-device for a reason that has nothing to do with the device.
+Ask the person holding the device before running anything on it. A clean tree is
+not permission. Another session saying it is finished is not permission. Another
+user clearing a deploy is not permission for the run after it. Whoever is
+holding the device decides what happens on it.

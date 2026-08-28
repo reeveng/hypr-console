@@ -7,6 +7,8 @@ between the two ends is stood in for, so a test that passes here is a statement
 about the profile as much as about the daemon.
 """
 
+from pathlib import Path
+
 from evdev import ecodes as e
 
 
@@ -28,14 +30,16 @@ def test_the_bottom_right_paddle_takes_a_screenshot(go, controller):
     assert controller.ran.names == ["legion-screenshot"]
 
 
-def test_legion_right_opens_the_settings_panel(go, controller):
-    go.press("legion-right")
+def test_the_menu_button_opens_the_settings(go, controller):
+    """The settings are behind the button that is easiest to reach. The guide
+    is read once and the settings are opened every day."""
+    go.press("menu")
     controller.run(ticks=2)
     assert controller.ran.names == ["settings-panel"]
 
 
-def test_the_menu_button_opens_the_guide(go, controller):
-    go.press("menu")
+def test_legion_right_opens_the_guide(go, controller):
+    go.press("legion-right")
     controller.run(ticks=2)
     assert controller.ran.commands == [["/usr/local/bin/legion-buttons", "--menu"]]
 
@@ -185,3 +189,19 @@ def test_the_pad_is_picked_up_again_when_it_comes_back(go, world, controller):
         90: lambda: go.press("r1"),
     })
     assert controller.ran.dispatched() == ['hl.dsp.focus({workspace = "+1"})']
+
+
+def test_the_keyboard_stops_the_daemon_and_nothing_the_daemon_started():
+    """The on-screen keyboard takes the pad by signalling this daemon's unit.
+    A signal to a unit reaches every process in its control group unless it is
+    told otherwise, and the menu, the panel and anything opened from the menu
+    are all in that group: a control group is inherited by every child and
+    nothing a program can do to itself leaves one. Named wrongly, raising the
+    keyboard over a panel stopped the panel."""
+    hook = Path(__file__).resolve().parent.parent / "files/usr/local/bin/osk-hook"
+    lines = [line for line in hook.read_text().splitlines()
+             if "systemctl" in line and "kill" in line and not line.startswith("#")]
+    assert lines, "osk-hook no longer signals the daemon at all"
+    for line in lines:
+        assert "--kill-whom=main" in line, \
+            "osk-hook signals the whole control group: %s" % line.strip()

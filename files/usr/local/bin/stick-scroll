@@ -73,7 +73,7 @@ KEYS = {
     e.KEY_F13: ["launcher"],
     e.KEY_F15: ["hyprctl", "dispatch", "hl.dsp.window.close()"],
     e.KEY_F16: ["/usr/local/bin/legion-screenshot"],
-    e.KEY_F17: ["settings-panel"],
+    e.KEY_F17: ["/usr/local/bin/legion-buttons", "--menu"],
 }
 
 # Held with L2, a button does its second thing. Brightness lives here rather
@@ -86,7 +86,7 @@ CARRIED_KEYS = {
 
 BUTTONS = {
     e.BTN_MODE:   ["launcher"],
-    e.BTN_START:  ["/usr/local/bin/legion-buttons", "--menu"],
+    e.BTN_START:  ["settings-panel"],
     e.BTN_SELECT: ["hyprctl", "dispatch",
                    'hl.dsp.focus({workspace = "previous"})'],
 
@@ -106,8 +106,18 @@ def workspace(where, carrying):
 
 
 def run(argv):
+    """Start something.
+
+    Whatever this starts is in this service's control group and stays there:
+    a control group is inherited by every child, and nothing a program can do
+    to itself leaves one. So a signal sent to the unit reaches all of it, which
+    is why `osk-hook` names --kill-whom=main when it stops this daemon for the
+    keyboard. Starting things in a session of their own was tried here and
+    fixed nothing, because a session is not a control group.
+    """
     try:
-        subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.Popen(argv,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except OSError as exc:
         print("cannot run %s: %s" % (argv[0], exc), file=sys.stderr)
 

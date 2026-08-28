@@ -14,19 +14,38 @@ font="Noto Sans 16"
 
 . /usr/local/lib/legion/palette.sh
 
-# wvkbd gives a pressed key its own background and goes on writing on it in
-# --text, so a pressed key has to go darker rather than pinker: there is no
-# second ink to switch to. A swipe does have one, so the trail is pink with the
-# dark ink on it, and that is where the colour goes.
+# A key with a thumb on it is pink with dark ink, the same as a row with a
+# thumb on it everywhere else here. It has to be a colour of its own: given
+# the slab's colour it vanishes into the slab, and a key that disappears when
+# pressed reads as a key that is not there.
+#
+# No two of the five backgrounds may be the same colour. That is the fault
+# this keyboard has had twice: the slab and a key that is not a letter, and
+# then the slab and a key being pressed.
 #
 # --bg is behind the keys, --fg a letter key, --fg-sp a key that is not a
-# letter, --press a key with a thumb on it, and --swipe the trail a swipe
-# leaves behind.
+# letter, --press a key with a thumb on it, --sel the key the stick is sitting
+# on, and --swipe the trail a swipe leaves behind.
+#
+# Every one of them is given six digits and so every one of them is opaque.
+# A colour here is a fill and never a wash: the eighth and ninth digits would
+# be an alpha, and a key you can see the wallpaper through is a key you cannot
+# read. The selected key had that fault, by being painted in the swipe colour,
+# which is a wash by design.
+#
+# Those first three are three different things and so they are three
+# different colours, darkest behind and lightest on top. Given the same
+# colour for the slab and for a key that is not a letter, Esc and Tab and
+# the arrows have nothing under them: they read as letters lying on the
+# desktop, and the keyboard reads as something you can see through.
 exec /usr/local/bin/wvkbd-mobintl --hidden --no-popup \
     -L "$height" -H "$height" --fn "$font" \
-    --bg "$ground" --fg "$panel" --fg-sp "$ground" \
+    --bg "$night" --fg "$panel" --fg-sp "$ground" \
     --text "$text" --text-sp "$soft" \
-    --press "$night" --press-sp "$night" \
+    --press "$pink" --press-sp "$pink" \
+    --text-press "$night" --text-press-sp "$night" \
     --swipe "$pink" --swipe-sp "$pink" \
     --text-swipe "$night" --text-swipe-sp "$night" \
+    --sel "$rose" --sel-sp "$rose" \
+    --text-sel "$night" --text-sel-sp "$night" \
     "$@"

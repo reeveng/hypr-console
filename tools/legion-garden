@@ -1,0 +1,975 @@
+#!/usr/bin/env python3
+"""Draw the garden.
+
+    legion-garden          draw files/usr/share/backgrounds/legion.webp
+    legion-garden --check  say whether it has fallen out of step, draw nothing
+    legion-garden --still  write a PNG of the resting picture somewhere to look
+
+A cherry blossom garden with a path through it, a tree close and a tree far,
+and a wind that comes through every few minutes and takes the blossom with it.
+
+The picture is an animated WebP, and that is the whole reason it costs nothing
+to have. A WebP frame declares how long it lasts, and the wallpaper daemon
+sleeps in poll() for exactly that long, so the resting picture is a process
+doing nothing at all until the wind. The gust is a few dozen frames at the end,
+and each of those redraws only the band of the picture the petals cross, which
+is what keeps the file small enough to keep in the repository.
+
+Every colour comes out of theme/palette.toml like every other surface on this
+machine. There is not one colour written down in here, only shapes.
+"""
+
+import argparse
+import collections
+import hashlib
+import io
+import math
+import random
+import re
+import struct
+import subprocess
+import sys
+import tomllib
+from pathlib import Path
+
+import cairo
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from harness.screen import Screen
+
+ROOT = Path(__file__).resolve().parent.parent
+PALETTE = ROOT / "theme" / "palette.toml"
+REPORT = ROOT / "theme" / "report.md"
+STAMP = ROOT / "theme" / "garden.stamp"
+CANVAS = ROOT / "files" / "usr/share/backgrounds/legion.webp"
+
+# The wallpaper surface is the screen's own pixels after the compositor has
+# turned it, so the picture is drawn at exactly that size and nothing ever
+# resamples it. Read out of the compositor's file rather than written down
+# here, because a screen written down twice is a screen that can disagree with
+# itself, and this one already did: the picture was drawn the shape of the
+# panel rather than the shape of the desktop for its whole life.
+WIDTH, HEIGHT = Screen().pixels
+
+# Where the furthest hills meet the sky. It is high because the picture is
+# taken from up on the near slope looking down a valley, and a camera tilted
+# down puts the horizon up.
+HORIZON = 0.408
+QUALITY = 78
+
+
+def read_palette():
+    """Every colour as it was solved, read out of the report.
+
+    Read rather than resolved, because the engine that solves it is
+    `legion-theme`, which is a compiled program now. Resolving it a second time
+    here would be a second place a colour could be decided, which is the thing
+    this whole arrangement exists to prevent. `theme/report.md` is the palette
+    written down, and a test in `crates/legion-theme` fails if it has fallen
+    behind what `theme/palette.toml` says.
+    """
+    rows = re.findall(r"^\| `(\w+)` \| `#([0-9a-f]{6})` \|", REPORT.read_text(), re.M)
+    if not rows:
+        sys.exit("theme/report.md holds no colours; run `make theme`")
+    return dict(rows)
+
+
+def paints(spec, palette):
+    """The garden's table, as colours a brush can be dipped in."""
+    out = {}
+    for name, said in spec["garden"]["paint"].items():
+        code = palette[said["colour"]]
+        red, green, blue = (int(code[i:i + 2], 16) / 255 for i in (0, 2, 4))
+        out[name] = (red, green, blue, said["alpha"])
+    return out
+
+
+def petal_at(ctx, x, y, size, turn):
+    """One blossom, wherever it is: on the tree, in the wind, or on the path.
+
+    Round at the open end and pointed where it was joined on. A blossom drawn
+    as a circle reads as a speck and a blossom drawn as an ellipse reads as a
+    grain of rice, and at this size the difference between those and a petal is
+    two curves.
+    """
+    ctx.save()
+    ctx.translate(x, y)
+    ctx.rotate(turn)
+    ctx.move_to(0, -size)
+    ctx.curve_to(size * 0.88, -size * 0.34, size * 0.80, size * 0.78, 0, size)
+    ctx.curve_to(-size * 0.80, size * 0.78, -size * 0.88, -size * 0.34, 0, -size)
+    ctx.close_path()
+    ctx.fill()
+    ctx.restore()
+
+
+def dip(ctx, paint, name, alpha=1.0):
+    red, green, blue, own = paint[name]
+    ctx.set_source_rgba(red, green, blue, own * alpha)
+
+
+def washed(paint, over, under, amount=None):
+    """One paint laid over another, worked out rather than laid down twice.
+
+    A gradient stop cannot be half-transparent and still be the end of a solid
+    shape: it would show what the shape is standing in front of. So where a
+    wash has to appear inside a gradient it is resolved into the colour it
+    would have become.
+    """
+    top, bottom = paint[over], paint[under]
+    share = top[3] if amount is None else amount
+    return tuple(top[i] * share + bottom[i] * (1 - share) for i in range(3)) + (1.0,)
+
+
+def stop(gradient, offset, paint, name, alpha=1.0):
+    red, green, blue, own = paint[name]
+    gradient.add_color_stop_rgba(offset, red, green, blue, own * alpha)
+
+
+# ------------------------------------------------------------------- the room
+# The picture is taken from up on the near slope, looking down a valley. That
+# is why the horizon sits high and there is so much ground: a camera tilted
+# down puts the horizon up.
+
+
+def sky(ctx, paint):
+    """Darkest overhead, warming down to the last of the light behind the hills."""
+    line = cairo.LinearGradient(0, 0, 0, HEIGHT * HORIZON)
+    stop(line, 0.00, paint, "sky_high")
+    stop(line, 0.52, paint, "sky_high")
+    stop(line, 1.00, paint, "sky_low")
+    ctx.set_source(line)
+    # The whole picture and not down to the horizon. A hill's crest wanders
+    # either side of where the hills are said to be, so a sky that stops at
+    # that line leaves bare canvas showing wherever a crest happens to sit
+    # below it. Everything else is drawn on top of this, so the part of it
+    # nobody sees costs nothing.
+    ctx.paint()
+
+
+def crestline(base, tilt, swell, ripple, phase):
+    """The top of a hill, as a height across the picture.
+
+    Two waves and a lean. One wave is a hill and two are a range: the long one
+    gives the shape of the ridge and the short one keeps it from being a single
+    smooth mound, which is what a hill drawn with one sine always looks like.
+    """
+    def at(x):
+        share = x / WIDTH
+        return HEIGHT * (base + tilt * (share - 0.5)
+                         + swell * math.sin(math.tau * 0.68 * share + phase)
+                         + ripple * math.sin(math.tau * 2.4 * share + phase * 1.7))
+    return at
+
+
+def ridge(ctx, crest, top, bottom, fall=0.16):
+    """A hill, filled from its crest to the bottom of the picture.
+
+    Everything is filled all the way down and drawn back to front, so a nearer
+    hill covers a further one without either of them having to know the other
+    is there.
+
+    The fill is a gradient and not a colour. The crest of a ridge is the part of
+    it that is furthest away, so it holds the most air; below the crest the
+    ground is nearer and clearer. Filled flat, a hill is a piece of paper cut
+    to the shape of a hill, which is what they all were for one draft.
+    """
+    high = min(crest(x) for x in range(0, WIDTH + 1, 16))
+    face = cairo.LinearGradient(0, high, 0, high + HEIGHT * fall)
+    face.add_color_stop_rgba(0.0, *top)
+    face.add_color_stop_rgba(1.0, *bottom)
+
+    ctx.move_to(0, crest(0))
+    for x in range(0, WIDTH + 1, 8):
+        ctx.line_to(x, crest(x))
+    ctx.line_to(WIDTH, HEIGHT)
+    ctx.line_to(0, HEIGHT)
+    ctx.close_path()
+    ctx.set_source(face)
+    ctx.fill()
+
+
+# Each is nearer and lower than the one behind it, and each holds less of the
+# air between here and it. Distance is the whole of what tells them apart:
+# every one of them is the same ground under the same sky.
+# base, tilt, swell, ripple, phase, mist, and then how wide the path is where
+# it crosses this hill and how far to one side it comes over the crest.
+HILLS = [
+    (0.398, -0.034, 0.030, 0.009, 0.4, 0.66, 0.0036, 0.000),
+    (0.432, 0.052, 0.037, 0.013, 2.1, 0.48, 0.0075, 0.014),
+    (0.472, -0.060, 0.031, 0.017, 3.7, 0.30, 0.0150, -0.010),
+    (0.516, 0.034, 0.024, 0.012, 5.2, 0.16, 0.0270, 0.018),
+    (0.560, -0.022, 0.018, 0.008, 1.3, 0.07, 0.0450, 0.002),
+]
+
+
+def hills(ctx, paint, seed):
+    """The valley, from the far end of it to the floor, with the path on it.
+
+    The nearest of these is the floor. There is no separate shape for the
+    ground the path lies on, because a floor drawn as its own rectangle puts a
+    straight edge across the whole picture at the height where the hills stop,
+    and a straight edge is the one thing a landscape has none of.
+
+    The path is drawn into this rather than over it. Each hill is laid down and
+    then the path is drawn with nothing above that hill's crest, and the next
+    hill nearer covers everything below its own, so what is left is the piece
+    of path on that hill and nothing else. Each piece is drawn at the width the
+    path has on that hill, which is why it steps rather than tapers.
+    """
+    for base, tilt, swell, ripple, phase, mist, spread, shift in HILLS:
+        crest = crestline(base, tilt, swell, ripple, phase)
+        ridge(ctx, crest, washed(paint, "haze_far", "earth", mist),
+              washed(paint, "haze_far", "earth", mist * 0.45))
+        turf(ctx, paint, crest, spread, shift, random.Random(seed + 5))
+        road(ctx, paint, crest, spread, shift, random.Random(seed + 3))
+
+    # The floor falls away towards the bottom of the picture, where it is
+    # nearest and holds nothing worth looking at.
+    line = cairo.LinearGradient(0, HEIGHT * 0.60, 0, HEIGHT)
+    stop(line, 0.0, paint, "shade", 0.0)
+    stop(line, 1.0, paint, "shade", 0.55)
+    ctx.set_source(line)
+    ctx.rectangle(0, HEIGHT * 0.60, WIDTH, HEIGHT * 0.40 + 1)
+    ctx.fill()
+
+
+def brow(x):
+    """The slope this is all being looked at from.
+
+    It leaves the left of the picture high and falls away out of the bottom,
+    so the near end of the path goes behind it. A path that runs to the bottom
+    edge is a path you are standing on; a path that goes behind a slope is one
+    you are looking down at, which is the difference asked for.
+    """
+    share = x / WIDTH
+    return HEIGHT * (0.700 + 0.86 * share ** 1.35
+                     + 0.030 * math.sin(math.tau * 1.7 * share + 1.1))
+
+
+def near_slope(ctx, paint):
+    ridge(ctx, brow, washed(paint, "shade", "earth", 0.30),
+          washed(paint, "shade", "earth", 0.72), fall=0.34)
+
+
+def glow(ctx, paint):
+    """What is left of the day, low behind the far end of the valley.
+
+    Squashed into an ellipse and laid across the horizon rather than up to it.
+    Light in the air does not stop where the ground starts, and the first
+    version of this did, which put a step across the whole picture at exactly
+    the height a step is least forgivable.
+    """
+    middle, low = WIDTH * 0.54, HEIGHT * (HORIZON + 0.01)
+    ctx.save()
+    ctx.translate(middle, low)
+    ctx.scale(1.0, 0.40)
+    ctx.translate(-middle, -low)
+    light = cairo.RadialGradient(middle, low, 0, middle, low, WIDTH * 0.48)
+    stop(light, 0.0, paint, "glow")
+    stop(light, 1.0, paint, "glow", 0.0)
+    ctx.set_source(light)
+    ctx.paint()
+    ctx.restore()
+
+
+def haze(ctx, paint):
+    """The air in the valley, thickest where the valley is furthest away.
+
+    It is drawn across the join between the sky and the hills rather than up to
+    it. Anything that stops at the horizon puts a line there, and a line across
+    a picture at the height of the far distance is the one thing that stops it
+    being distance.
+    """
+    top, bottom = HEIGHT * (HORIZON - 0.16), HEIGHT * 0.74
+    line = cairo.LinearGradient(0, top, 0, bottom)
+    stop(line, 0.00, paint, "haze", 0.0)
+    stop(line, 0.26, paint, "haze", 0.80)
+    stop(line, 0.42, paint, "haze", 1.0)
+    stop(line, 0.72, paint, "haze", 0.42)
+    stop(line, 1.00, paint, "haze", 0.0)
+    ctx.set_source(line)
+    ctx.rectangle(0, top, WIDTH, bottom - top)
+    ctx.fill()
+
+
+# -------------------------------------------------------------------- the way
+
+# Where the path is furthest and where it is nearest, down the picture. FAR has
+# to sit above the crest of the furthest hill where the path crosses it, or the
+# path simply begins below that hill and the hill has no path on it, which is
+# not the same thing as being too far away to see one.
+FAR, NEAR = 0.392, 0.960
+
+
+def lane(down, spread, shift):
+    """The middle of the path and half its width, at a height down the picture.
+
+    One route over rolling ground, so where it runs is a question about how far
+    down the picture you are looking. How wide it is there is a question about
+    which hill you are looking at, and those are not the same question.
+
+    Going down the picture across a crest does not take you a little nearer.
+    It takes you from the furthest of one hill that can still be seen to the
+    top of the next hill along, which is a good deal nearer, so the path steps
+    wider at every crest rather than growing smoothly. Drawn at one width down
+    the whole picture it climbed over every ridge like something painted on.
+    """
+    part = max(0.0, min(1.0, (down - FAR) / (NEAR - FAR)))
+    x = WIDTH * (0.60 - 0.475 * part ** 1.15 + 0.075 * math.sin(math.pi * part) + shift)
+    half = WIDTH * spread * (0.62 + 0.38 * part)
+    return x, half
+
+
+def road(ctx, paint, over, spread, shift, rng):
+    """As much of the path as can be seen from over one particular crest.
+
+    A path lying on rolling ground is not one ribbon. It comes over a crest,
+    runs down the near face of that hill towards you, and goes behind the next
+    hill along; the dip between them is the far side of something and the far
+    side of something cannot be seen. So it is drawn once for every hill, each
+    time with nothing above that hill's crest, and the next hill nearer paints
+    over everything below its own. What is left is a piece of path on each
+    face, each one wider than the last because each one is nearer.
+
+    Drawn as a single ribbon it climbed straight over every ridge in the
+    picture, which is the sort of thing you cannot stop seeing.
+    """
+    ctx.save()
+    ctx.move_to(0, over(0))
+    for x in range(0, WIDTH + 1, 8):
+        ctx.line_to(x, over(x))
+    ctx.line_to(WIDTH, HEIGHT)
+    ctx.line_to(0, HEIGHT)
+    ctx.close_path()
+    ctx.clip()
+
+    steps = 160
+    left, right = [], []
+    for i in range(steps + 1):
+        down = FAR + (NEAR - FAR) * i / steps
+        x, half = lane(down, spread, shift)
+        left.append((x - half, HEIGHT * down))
+        right.append((x + half, HEIGHT * down))
+
+    ctx.move_to(*left[0])
+    for point in left[1:]:
+        ctx.line_to(*point)
+    for point in reversed(right):
+        ctx.line_to(*point)
+    ctx.close_path()
+
+    dip(ctx, paint, "road")
+    ctx.fill_preserve()
+    ctx.save()
+    ctx.clip()
+
+    # Worn lighter towards the near end, where feet have been.
+    line = cairo.LinearGradient(0, HEIGHT * FAR, 0, HEIGHT * NEAR)
+    stop(line, 0.0, paint, "road_light", 0.0)
+    stop(line, 0.55, paint, "road_light", 0.45)
+    stop(line, 1.0, paint, "road_light", 0.75)
+    ctx.set_source(line)
+    ctx.paint()
+    ctx.restore()
+
+    # Grass does not stop at a line. The edge is laid down as a few strokes
+    # getting wider and fainter, which is the nearest a vector drawing comes to
+    # something being out of focus.
+    for spread in (1, 3, 7):
+        dip(ctx, paint, "verge", 0.45 / spread)
+        ctx.set_line_width(WIDTH * 0.0010 * spread)
+        for edge in (left, right):
+            ctx.move_to(*edge[0])
+            for point in edge[1:]:
+                ctx.line_to(*point)
+            ctx.stroke()
+
+    fallen(ctx, paint, spread, shift, rng)
+    ctx.restore()
+
+
+def turf(ctx, paint, over, spread, shift, rng):
+    """The ground either side of the path, which is grass and not paper.
+
+    Nothing here is meant to be looked at. It is here because a field of one
+    flat colour reads as a hole, and a field with something in it reads as a
+    field, even when what is in it is too faint to name.
+    """
+    ctx.save()
+    ctx.move_to(0, over(0))
+    for x in range(0, WIDTH + 1, 8):
+        ctx.line_to(x, over(x))
+    ctx.line_to(WIDTH, HEIGHT)
+    ctx.line_to(0, HEIGHT)
+    ctx.close_path()
+    ctx.clip()
+
+    for _ in range(900):
+        down = rng.uniform(FAR, 1.0)
+        x = rng.uniform(0, WIDTH)
+        middle, half = lane(down, spread, shift)
+        if abs(x - middle) < half:
+            continue
+        part = (down - FAR) / (1.0 - FAR)
+        blade = WIDTH * (0.0008 + 0.0060 * part)
+        dip(ctx, paint, "verge", rng.uniform(0.06, 0.20) * (0.3 + part))
+        ctx.set_line_width(WIDTH * (0.0005 + 0.0016 * part))
+        ctx.move_to(x, HEIGHT * down)
+        ctx.line_to(x + rng.gauss(0, blade * 0.35), HEIGHT * down - blade)
+        ctx.stroke()
+    ctx.restore()
+
+
+def fallen(ctx, paint, spread, shift, rng):
+    """Blossom already down, lying on the path where it fell."""
+    for _ in range(200):
+        down = FAR + (NEAR - FAR) * rng.random() ** 0.55
+        x, half = lane(down, spread, shift)
+        x += rng.uniform(-1, 1) * half * 0.92
+        near = (down - FAR) / (NEAR - FAR)
+        size = (WIDTH * 0.0004 + WIDTH * 0.0028 * near) * rng.uniform(0.75, 1.25)
+        dip(ctx, paint, "fallen", 0.25 + 0.75 * near)
+        petal_at(ctx, x, HEIGHT * down, size, rng.uniform(0, math.pi))
+
+
+# ------------------------------------------------------------------ the trees
+
+def limb(ctx, tips, x, y, angle, length, width, bow, rng, depth):
+    """One branch, and the branches off it, laid down as a filled shape.
+
+    A stroke would give every branch the same thickness from the trunk to the
+    tip. A tree does not do that, so each limb is drawn as its own tapering
+    quadrilateral and the next one starts narrower.
+    """
+    end_x = x + math.cos(angle) * length
+    end_y = y + math.sin(angle) * length
+    across = angle + math.pi / 2
+    tip_width = width * 0.62
+
+    # Both sides of the limb are bent the same way by the same amount, so the
+    # limb curves rather than swelling. A branch that leaves the trunk dead
+    # straight is a mast.
+    mid_x = (x + end_x) / 2 + math.cos(across) * bow
+    mid_y = (y + end_y) / 2 + math.sin(across) * bow
+    out, back = math.cos(across), math.sin(across)
+
+    ctx.move_to(x + out * width, y + back * width)
+    ctx.curve_to(x + out * width, y + back * width,
+                 mid_x + out * width * 0.8, mid_y + back * width * 0.8,
+                 end_x + out * tip_width, end_y + back * tip_width)
+    ctx.line_to(end_x - out * tip_width, end_y - back * tip_width)
+    ctx.curve_to(end_x - out * tip_width, end_y - back * tip_width,
+                 mid_x - out * width * 0.8, mid_y - back * width * 0.8,
+                 x - out * width, y - back * width)
+    ctx.close_path()
+    ctx.fill()
+
+    if depth == 0:
+        tips.append((end_x, end_y, length))
+        return
+
+    # A cherry does not reach for the sky, it reaches sideways and then leans
+    # down under its own weight, so a branch is turned away from its parent by
+    # a good deal and then pulled back towards level.
+    for turn in (-1, 1):
+        for _ in range(rng.choice((1, 1, 2))):
+            aside = angle + turn * rng.uniform(0.30, 0.80) + rng.uniform(0.04, 0.20)
+            limb(ctx, tips, end_x, end_y,
+                 max(-2.5, min(0.55, aside)),
+                 length * rng.uniform(0.54, 0.72),
+                 tip_width * rng.uniform(0.58, 0.76),
+                 length * rng.uniform(-0.10, 0.10), rng, depth - 1)
+
+
+def trunk(ctx, tips, x, base, height, lean, rng, depth):
+    """The one limb the rest of the tree comes off, in a trunk's proportions.
+
+    Its own function because a tree is drawn twice: once standing, and once
+    lying on the ground as its own shadow. Written down in both places the two
+    could be different trees, and the day somebody makes this one lean further
+    is the day its shadow does not."""
+    limb(ctx, tips, x, base, -math.pi / 2 + lean, height * 0.42, height * 0.036,
+         height * 0.070, rng, depth)
+
+
+def tree(ctx, paint, x, base, height, lean, seed, depth):
+    """A trunk from the ground and everything that comes off it. The tips it
+    ends in are handed back, because that is where the blossom goes."""
+    rng = random.Random(seed)
+    tips = []
+
+    # The light is off to the right, so the bark is laid down as a gradient
+    # across the whole tree rather than a flat fill. A branch on the near side
+    # of the trunk then comes out lighter than one behind it without anything
+    # having to know which side it is on.
+    lit = cairo.LinearGradient(x - height * 0.10, 0, x + height * 0.10, 0)
+    lit.add_color_stop_rgba(0.0, *paint["bark"][:3], 1.0)
+    lit.add_color_stop_rgba(1.0, *washed(paint, "bark_lit", "bark"))
+    ctx.set_source(lit)
+
+    trunk(ctx, tips, x, base, height, lean, rng, depth)
+    return tips, rng
+
+
+def blossom(ctx, paint, tips, rng, size):
+    """The mass of it first, then the few that catch the light on top."""
+    for x, y, reach in tips:
+        for _ in range(4):
+            radius = reach * rng.uniform(0.5, 1.15) * size
+            cloud = cairo.RadialGradient(x + rng.gauss(0, reach * 0.8),
+                                         y + rng.gauss(0, reach * 0.8), 0,
+                                         x, y, radius)
+            stop(cloud, 0.0, paint, "bloom")
+            stop(cloud, 0.55, paint, "bloom_deep")
+            stop(cloud, 1.0, paint, "bloom", 0.0)
+            ctx.set_source(cloud)
+            ctx.arc(x, y, radius, 0, math.tau)
+            ctx.fill()
+
+    for x, y, reach in tips:
+        for petal in range(7):
+            px = x + rng.gauss(0, reach * 0.62)
+            py = y + rng.gauss(0, reach * 0.62)
+            dip(ctx, paint, "petal" if petal % 3 else "petal_pale",
+                rng.uniform(0.55, 1.0))
+            petal_at(ctx, px, py,
+                     (reach * 0.085 * size + WIDTH * 0.0013) * rng.uniform(0.68, 1.38),
+                     rng.uniform(0, math.pi))
+
+
+# Where the light comes from, said as the direction of a shadow. It is the same
+# light the bark is lit by: low, behind the far end of the valley, and off to
+# the right. A tree this tall under a sun that low throws a shadow the length of
+# a field, and the ground takes nearly all of that back by lying almost edge-on
+# to us, so what reaches the picture is a long reach across it and a short one
+# down it. Both per height of whatever is casting.
+THROW, SETTLE = -0.85, 0.36
+
+# A shadow is sharp where the thing touches the ground and soft at its far end,
+# because the light has a width and that end is further from the ground. So it
+# is laid down three times, each reaching further than the last and fainter for
+# it. At the foot the three lie on top of each other and at the tip they lie
+# apart, and that is the spreading.
+SPREADS = ((0.90, 0.42), (1.00, 0.32), (1.14, 0.20))
+
+# How much smaller than the picture the shadow is drawn before it is laid back
+# on it, which is to say how blurred it is: stretching a small picture up is the
+# blur cairo has not got. It has to be blurred at all because there is no sun
+# here to cast it. What light is left is the whole of the sky behind the hills,
+# and a light that broad carries no outline as far as the ground: the shadow of
+# a twig is not a thin shadow, it is no shadow. Drawn sharp and faint instead,
+# the tree came out as scratches on a field.
+SOFTEN = 8
+
+
+def thrown(x, base, height, lean, seed, depth, size, stretch):
+    """The tree lying on the ground, as a small picture of where it is solid.
+
+    The ground is put under the brush rather than a second set of shapes being
+    worked out: the same tree, from the same seed, through a transform that tips
+    it away from the light and flattens it into the picture. A shadow cannot
+    come out of a different tree than the one standing in it.
+
+    The blossom is thrown with it, as a mass at every branch tip. What stops the
+    light is the flower and not the twig, and a tree that threw only its
+    branches would be a tree in winter.
+    """
+    mask = cairo.ImageSurface(cairo.FORMAT_A8, WIDTH // SOFTEN, HEIGHT // SOFTEN)
+    ctx = cairo.Context(mask)
+    ctx.scale(1 / SOFTEN, 1 / SOFTEN)
+    ctx.translate(x, base)
+    ctx.transform(cairo.Matrix(1, 0, -THROW * stretch, -SETTLE * stretch, 0, 0))
+    ctx.translate(-x, -base)
+    ctx.set_source_rgba(0, 0, 0, 1)
+
+    tips = []
+    trunk(ctx, tips, x, base, height, lean, random.Random(seed), depth)
+    for tip_x, tip_y, reach in tips:
+        ctx.arc(tip_x, tip_y, reach * 0.80 * size, 0, math.tau)
+        ctx.fill()
+    return mask
+
+
+def shadow(ctx, paint, x, base, height, lean, seed, depth, size):
+    """What a tree throws.
+
+    Nothing is clipped. A shadow leaves the foot of what casts it going down the
+    picture, and down the picture is nearer, so there is no ground behind it for
+    it to climb.
+    """
+    red, green, blue, own = paint["shadow"]
+    for stretch, weight in SPREADS:
+        laid = cairo.SurfacePattern(
+            thrown(x, base, height, lean, seed, depth, size, stretch))
+        laid.set_filter(cairo.FILTER_GOOD)
+        ctx.save()
+        ctx.scale(SOFTEN, SOFTEN)
+        ctx.set_source_rgba(red, green, blue, own * weight)
+        ctx.mask(laid)
+        ctx.restore()
+
+
+def planted(ctx, paint, x, base, height, lean, seed, depth, size):
+    """One tree, everything it is made of, in the order the ground sees it:
+    what it throws, then what throws it, then what is in flower on it."""
+    shadow(ctx, paint, x, base, height, lean, seed, depth, size)
+    tips, rng = tree(ctx, paint, x, base, height, lean, seed, depth)
+    blossom(ctx, paint, tips, rng, size)
+    return tips
+
+
+# -------------------------------------------------------------------- the air
+
+def flight(tips, rng, count):
+    """Where each petal of a gust starts, and how it goes.
+
+    They do not all leave together. Each waits its own share of the gust before
+    it lifts, which is what makes a wind out of what would otherwise be a
+    single flock moving as one body.
+
+    The wind comes in under the tree rather than over it, so the blossom it
+    takes is the blossom hanging low. That is also what keeps the whole picture
+    from having to be redrawn: every frame of a gust costs whatever band of the
+    picture the petals reach, and a stream is a band while a snowstorm is the
+    whole sky.
+    """
+    low = sorted(tips, key=lambda tip: -tip[1])[:max(4, len(tips) * 2 // 3)]
+    out = []
+    for _ in range(count):
+        x, y, reach = rng.choice(low)
+        out.append({
+            "x": x + rng.gauss(0, reach * 0.7),
+            "y": y + rng.gauss(0, reach * 0.7),
+            "wait": rng.uniform(0.0, 0.55),
+            "speed": rng.uniform(0.80, 1.35),
+            "rise": rng.uniform(-0.17, -0.01),
+            "sway": rng.uniform(0.02, 0.06),
+            "beat": rng.uniform(4.0, 9.0),
+            "phase": rng.uniform(0, math.tau),
+            "size": WIDTH * rng.uniform(0.0026, 0.0058),
+            "spin": rng.uniform(-7, 7),
+            "pale": rng.random() < 0.34,
+        })
+    return out
+
+
+def carried(petal, part):
+    """Where one petal has got to, a part of the way through a gust.
+
+    Nothing before it has left, and nothing once it is off the right of the
+    picture. The band the wind is drawn into is measured by walking this, so
+    this is the only place a petal's position is worked out.
+    """
+    gone = (part - petal["wait"]) / (1 - petal["wait"])
+    if gone <= 0 or gone >= 1:
+        return None
+    travel = WIDTH * 0.95 * petal["speed"] * gone ** 1.25
+    x = petal["x"] + travel
+    if x - petal["size"] > WIDTH:
+        return None
+    y = (petal["y"] + travel * petal["rise"]
+         + math.sin(petal["phase"] + gone * petal["beat"]) * WIDTH * petal["sway"])
+    return x, y, gone
+
+
+def blown(ctx, paint, petals, part):
+    """The petals of a gust, drawn where they have got to."""
+    for petal in petals:
+        found = carried(petal, part)
+        if found is None:
+            continue
+        x, y, gone = found
+        # The wind dies rather than stopping. Without the second half of this
+        # the last frame of a gust is full of blossom and the one after it is
+        # the resting picture, and blossom does not leave a garden like that.
+        fade = min(1.0, gone * 6) * min(1.0, (1 - gone) * 3.5)
+        dip(ctx, paint, "petal_pale" if petal["pale"] else "petal", fade)
+        petal_at(ctx, x, y, petal["size"], petal["phase"] + gone * petal["spin"])
+
+
+# ------------------------------------------------------------------ the sheet
+
+def scene(ctx, paint, seed):
+    """Everything that does not move, back to front.
+
+    The order matters more than any one shape in it. Everything beyond reach is
+    drawn first and the air is put in front of all of it together, so that the
+    mist crosses the horizon instead of stopping at it. The slope this is being
+    looked at from is drawn after the path, so the path goes behind it, and the
+    tree that is close is drawn on top of the slope, standing on it.
+
+    Two trees, and no more. There is very little here on purpose: what a
+    wallpaper is for is to be behind something.
+    """
+    sky(ctx, paint)
+    hills(ctx, paint, seed)
+
+    planted(ctx, paint, WIDTH * 0.665, HEIGHT * 0.655,
+            HEIGHT * 0.26, 0.12, seed + 7, 4, 0.76)
+
+    glow(ctx, paint)
+    haze(ctx, paint)
+    near_slope(ctx, paint)
+
+    return planted(ctx, paint, WIDTH * 0.205, brow(WIDTH * 0.205),
+                   HEIGHT * 0.655, 0.13, seed, 5, 1.0)
+
+
+def sheet(width, height, offset=0):
+    surface = cairo.ImageSurface(cairo.FORMAT_RGB24, width, height)
+    ctx = cairo.Context(surface)
+    ctx.translate(0, -offset)
+    return surface, ctx
+
+
+def webp(surface):
+    """One picture, encoded on its own. ffmpeg is the encoder because libwebp's
+    own tools are not packaged here, and the chunk it writes is exactly the
+    chunk an animation frame is made of."""
+    buffer = io.BytesIO()
+    surface.write_to_png(buffer)
+    return subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", "pipe:0",
+         "-c:v", "libwebp", "-quality", str(QUALITY), "-f", "webp", "pipe:1"],
+        input=buffer.getvalue(), capture_output=True, check=True).stdout
+
+
+# ----------------------------------------------------------------- the muxing
+# A WebP animation is a RIFF file holding one frame chunk after another, and
+# each frame chunk carries its own rectangle and its own duration. Neither
+# ffmpeg's muxer nor any tool packaged here will write the durations this needs,
+# so the container is written out by hand. It is a header and a loop.
+
+def three(value):
+    return struct.pack("<I", value)[:3]
+
+
+def chunk(tag, body):
+    return tag + struct.pack("<I", len(body)) + body + (b"\0" if len(body) & 1 else b"")
+
+
+def image_of(single):
+    """The bare picture chunk out of a WebP holding one picture."""
+    at = 12
+    while at < len(single):
+        tag = single[at:at + 4]
+        size = struct.unpack("<I", single[at + 4:at + 8])[0]
+        if tag in (b"VP8 ", b"VP8L"):
+            return single[at:at + 8 + size + (size & 1)]
+        at += 8 + size + (size & 1)
+    raise ValueError("that WebP holds no picture")
+
+
+def animation(width, height, frames):
+    """frames are (x, y, width, height, milliseconds, one encoded picture)."""
+    body = chunk(b"VP8X", bytes([0x02, 0, 0, 0]) + three(width - 1) + three(height - 1))
+    body += chunk(b"ANIM", struct.pack("<I", 0) + struct.pack("<H", 0))
+    for x, y, wide, tall, milliseconds, single in frames:
+        # Do not blend and do not dispose: each frame paints over what is under
+        # it and leaves it there, so a frame that redraws a band of the picture
+        # leaves the rest of the picture alone.
+        head = (three(x // 2) + three(y // 2) + three(wide - 1) + three(tall - 1)
+                + three(milliseconds) + bytes([0b10]))
+        body += chunk(b"ANMF", head + image_of(single))
+    return b"RIFF" + struct.pack("<I", len(body) + 4) + b"WEBP" + body
+
+
+# ------------------------------------------------------------------- the work
+
+def band_of(petals, steps):
+    """The strip of the picture a gust ever reaches.
+
+    Only this is redrawn while the wind blows, so the band is the file size.
+    It is measured by walking every petal through every frame rather than by
+    picking a likely strip: a strip that is too big is paid for in every frame,
+    and a strip that is too small clips a petal against nothing.
+    """
+    top, bottom = HEIGHT, 0.0
+    for step in range(steps + 1):
+        for petal in petals:
+            found = carried(petal, step / steps)
+            if found is None:
+                continue
+            _, y, _ = found
+            top = min(top, y - petal["size"] * 2)
+            bottom = max(bottom, y + petal["size"] * 2)
+    top = max(0, int(top) & ~1)
+    bottom = min(HEIGHT, int(bottom) + 2)
+    return top, bottom - top
+
+
+def draw(spec, palette, seed=20260828):
+    paint = paints(spec, palette)
+    garden = spec["garden"]
+
+    still, ctx = sheet(WIDTH, HEIGHT)
+    tips = scene(ctx, paint, seed)
+
+    petals = flight(tips, random.Random(seed + 11), 170)
+    count = max(2, round(garden["gust_seconds"] * garden["frames_per_second"]))
+    top, tall = band_of(petals, count)
+
+    each = round(garden["gust_seconds"] * 1000 / count)
+
+    frames = [(0, 0, WIDTH, HEIGHT, round(garden["rest_seconds"] * 1000), webp(still))]
+    for step in range(1, count + 1):
+        strip, ctx = sheet(WIDTH, tall, top)
+        scene(ctx, paint, seed)
+        if step < count:
+            blown(ctx, paint, petals, step / count)
+        frames.append((0, top, WIDTH, tall, each, webp(strip)))
+
+    return still, animation(WIDTH, HEIGHT, frames), (top, tall, count)
+
+
+def commonest(surface):
+    """The colour most of the resting picture is.
+
+    A check that wants to know whether what is on the screen is this wallpaper
+    has to compare against something, and it cannot decode the file: an
+    animated WebP is a VP8 bitstream and nothing on the device will take one
+    apart. So the drawing is measured here, while it is still pixels.
+    """
+    data, seen = surface.get_data(), collections.Counter()
+    for at in range(0, len(data) - 4, 4 * 37):
+        seen[bytes(data[at:at + 3])] += 1
+    blue, green, red = seen.most_common(1)[0][0]
+    return "%02x%02x%02x" % (red, green, blue)
+
+
+# Places to look, as fractions of the picture. Chosen to be flat: no tree, no
+# petal, no crest, so what is read there is the ground or the air and a
+# difference means the wrong picture rather than the wrong pixel. They are
+# spread apart on purpose, so that a picture painted at the wrong size, the
+# wrong shape or the wrong way up fails at least one of them.
+PROBES = [(0.06, 0.46), (0.95, 0.49), (0.88, 0.62), (0.52, 0.86), (0.24, 0.63)]
+
+# How far a probe has to sit from the colour the screen is when nothing has
+# painted it. A probe that lands on that colour is a probe that passes against
+# a dead wallpaper daemon, which is the one thing this is for.
+CLEAR_OF_NOTHING = 14
+
+
+def probe(surface, across, down, patch=0.02):
+    """The average colour of a small patch of the picture.
+
+    An average and not a pixel, so that a petal or a blade of grass that
+    strayed into the patch moves the answer by less than a lossy encoder does.
+    """
+    data, wide = surface.get_data(), surface.get_stride() // 4
+    half_x, half_y = int(WIDTH * patch / 2), int(HEIGHT * patch / 2)
+    x0, y0 = int(WIDTH * across), int(HEIGHT * down)
+    total, seen = [0, 0, 0], 0
+    for y in range(max(0, y0 - half_y), min(HEIGHT, y0 + half_y)):
+        for x in range(max(0, x0 - half_x), min(WIDTH, x0 + half_x)):
+            at = (y * wide + x) * 4
+            total[0] += data[at + 2]
+            total[1] += data[at + 1]
+            total[2] += data[at]
+            seen += 1
+    return "%02x%02x%02x" % tuple(round(channel / seen) for channel in total)
+
+
+def blind(probes, fallback):
+    """Probes that could not tell this picture from an unpainted screen.
+
+    The compositor's own background is deliberately the picture's darkest
+    colour, so that a wallpaper daemon dying costs the right colour rather than
+    a grey nobody chose. That kindness is also a blindness, and it is a
+    blindness a check cannot see for itself: a probe on the dark part of the
+    sky reads exactly what a bare screen reads. So it is caught here, where
+    moving the composition is what would cause it.
+    """
+    out = []
+    for (across, down), code in probes:
+        apart = max(abs(int(code[i:i + 2], 16) - int(fallback[i:i + 2], 16))
+                    for i in (0, 2, 4))
+        if apart < CLEAR_OF_NOTHING:
+            out.append((across, down, code, apart))
+    return out
+
+
+def stamp(spec, palette):
+    """What the picture was drawn from. The picture cannot be read for its
+    colours the way a stylesheet can, so this stands in for reading it: change
+    a colour, or change a shape, and this stops matching."""
+    digest = hashlib.sha256()
+    digest.update(repr(sorted(palette.items())).encode())
+    digest.update(repr(spec["garden"]).encode())
+    digest.update(Path(__file__).read_bytes())
+    digest.update(f"{WIDTH}x{HEIGHT}q{QUALITY}".encode())
+    return digest.hexdigest()
+
+
+def drawn_from(path):
+    return tomllib.loads(path.read_text())["palette"]
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--check", action="store_true",
+                        help="say whether it has fallen out of step, draw nothing")
+    parser.add_argument("--still", metavar="PATH",
+                        help="also write the resting picture as a PNG, to look at")
+    arguments = parser.parse_args()
+
+    spec = tomllib.loads(PALETTE.read_text())
+    palette = read_palette()
+    wanted = stamp(spec, palette)
+
+    if arguments.check and not arguments.still:
+        if CANVAS.exists() and STAMP.exists() and drawn_from(STAMP) == wanted:
+            print("the garden is drawn from the palette as it stands.")
+            return
+        sys.exit("the garden is out of step with the palette; run `make garden`")
+
+    still, picture, (top, tall, count) = draw(spec, palette)
+
+    probes = [(where, probe(still, *where)) for where in PROBES]
+    dark = blind(probes, palette["night"])
+    if dark:
+        for across, down, code, apart in dark:
+            print(f"  the probe at {across}, {down} reads #{code}, which is "
+                  f"{apart} from what an unpainted screen reads")
+        sys.exit("a probe cannot tell the picture from a bare screen; "
+                 "move it somewhere the picture has a colour")
+
+    CANVAS.parent.mkdir(parents=True, exist_ok=True)
+    CANVAS.write_bytes(picture)
+    STAMP.write_text(f"""# Written by tools/legion-garden. What the wallpaper was drawn from, and what
+# it came out as. Nothing is decided here: `palette` is the state of
+# theme/palette.toml and of the drawing that read it, so that a colour changed
+# without the picture being drawn again is caught; `resting` is the picture
+# measured afterwards, the same as theme/report.md measures the palette.
+palette = "{wanted}"
+resting = "#{commonest(still)}"
+width = {WIDTH}
+height = {HEIGHT}
+
+# Five places in the picture and the average colour of a small patch at each,
+# as fractions of the width and the height. `resting` alone cannot tell a
+# painted wallpaper from an unpainted screen, because the compositor's own
+# background is deliberately the picture's darkest colour so that a wallpaper
+# daemon dying costs the right colour rather than a grey nobody chose. These
+# can: they are spread across the picture and none of them is that colour.
+""" + "".join(f"""
+[[probe]]
+at = [{across}, {down}]
+colour = "#{code}"
+"""
+              for (across, down), code in probes))
+    if arguments.still:
+        still.write_to_png(arguments.still)
+
+    rest = spec["garden"]["rest_seconds"]
+    print(f"the garden: {WIDTH}x{HEIGHT}, still for {rest // 60}m{rest % 60:02d}s, "
+          f"then {count} frames of wind.")
+    print(f"  the wind crosses a band {WIDTH}x{tall} at {top}, and only that is redrawn.")
+    print(f"  {CANVAS.relative_to(ROOT)} is {len(picture) / 1024:.0f} KiB.")
+
+
+if __name__ == "__main__":
+    main()

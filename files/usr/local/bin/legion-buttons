@@ -16,6 +16,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+# The section whose rows are things to do rather than things to know.
+DOABLE = "Getting around"
+
 PROFILE = Path("/etc/inputplumber/profiles/desktop.yaml")
 HYPR = Path("/home/player/.config/hypr/hyprland.lua")
 
@@ -38,17 +41,79 @@ def row(button, does):
     print(f"  {BOLD}{button:<22}{OFF}{does}")
 
 
+# InputPlumber's names for the three buttons it hands to the daemon as buttons
+# rather than as keys. Everything else arrives as a key and is found by name.
+AS_BUTTONS = {"Start": "BTN_START", "Select": "BTN_SELECT", "Guide": "BTN_MODE"}
+
+
 def controller_map():
-    """Each mapping in the profile is named "Button - what it does"."""
+    """Each mapping in the profile, named "Button - what it does".
+
+    The target it is mapped to comes back with it, because that is the thread
+    from a button to the thing the daemon runs when it is pressed.
+    """
     pairs = []
+    button = does = target = None
     for line in PROFILE.read_text().splitlines():
-        match = re.match(r"\s*- name:\s*(.+)", line)
-        if not match:
+        name = re.match(r"\s*- name:\s*(.+)", line)
+        if name:
+            if button is not None:
+                pairs.append((button, does, target))
+            button, _, does = name.group(1).strip().partition(" - ")
+            does, target = does or "", None
             continue
-        name = match.group(1).strip()
-        button, _, does = name.partition(" - ")
-        pairs.append((button, does or ""))
+        if button is None:
+            continue
+        found = re.match(r"\s*- keyboard:\s*Key(\w+)", line)
+        if found:
+            target = "KEY_" + found.group(1).upper()
+        found = re.match(r"\s*- gamepad:\s*$", line)
+        if found:
+            target = "gamepad"
+        found = re.match(r"\s*button:\s*(\w+)", line)
+        if found and target == "gamepad":
+            target = AS_BUTTONS.get(found.group(1))
+    if button is not None:
+        pairs.append((button, does, target))
     return pairs
+
+
+def actions():
+    """What each button runs, asked of the daemon that runs it.
+
+    The daemon's own table is the answer, so a button that is given something
+    new to do becomes something new to press here without anybody remembering
+    to say so twice. If it cannot be read, the guide is still a guide; it is
+    only the pressing that goes away.
+    """
+    try:
+        import importlib.machinery
+        import importlib.util
+
+        from evdev import ecodes
+
+        loader = importlib.machinery.SourceFileLoader(
+            "controller_daemon", "/usr/local/bin/stick-scroll")
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        daemon = importlib.util.module_from_spec(spec)
+        loader.exec_module(daemon)
+    except Exception:
+        return {}
+
+    runs = {}
+    for table in (daemon.KEYS, daemon.BUTTONS):
+        for code, argv in table.items():
+            # A code can answer to more than one name, and which of them the
+            # profile used is not ours to choose.
+            names = ecodes.bytype[ecodes.EV_KEY][code]
+            for name in (names if isinstance(names, (list, tuple)) else [names]):
+                runs[name] = argv
+    named = {}
+    for button, _, target in controller_map():
+        found = runs.get(target)
+        if found:
+            named[button] = found if isinstance(found, list) else list(found)
+    return named
 
 
 def keyboard_shortcuts():
@@ -77,11 +142,13 @@ def sections():
     """
     return [
         ("Getting around",
-         [(button, does or "nothing yet") for button, does in controller_map()] + [
+         [(button, does or "nothing yet") for button, does, _ in controller_map()] + [
              ("Volume rocker", "louder, quieter; louder also unsilences"),
              ("Touchpad", "move the pointer"),
              ("Tap the touchpad", "click"),
              ("Press the touchpad in", "click and hold, to drag"),
+             ("The screen", "tap what you would click, drag to scroll"),
+             ("The bar", "tap the icons along the top"),
          ]),
         ("Held with L2", [
             ("L1 / R1", "carry this window to the workspace before or after"),
@@ -106,6 +173,10 @@ def sections():
             ("L1 / R1", "the tab to the left or right, where there are tabs"),
             ("D-pad left / right", "move a level, on a row that carries one"),
             ("Right paddle, top", "close the menu"),
+            ("Tap a row", "the same as A"),
+            ("\u2212 and +", "move a level, the same as left and right"),
+            ("\u00d7", "close the menu, the same as B"),
+            ("The icon that opened it", "tap it again to put the menu away"),
         ]),
         ("Typed", keyboard_shortcuts()),
     ]
@@ -170,10 +241,30 @@ def show_on_screen():
     and closes on B, which is what the guide is describing in the first place.
     """
     sys.path.insert(0, "/usr/local/lib/legion")
+    import chooser
     import panel
 
-    pages = [(title, [(button, does, None) for button, does in lines])
-             for title, lines in sections() if lines]
+    # The guide is a chooser like the others: it takes the controller while it
+    # is up, and Legion right pressed twice used to leave two of them stacked.
+    if not chooser.alone("guide"):
+        return
+
+    doing = actions()
+    pages = []
+    for title, lines in sections():
+        if not lines:
+            continue
+        if title == DOABLE:
+            # The one section that is a list of things the device does, rather
+            # than a list of what a button means, is drawn as what it is: the
+            # thing on the left, the button that also does it on the right, and
+            # A does it from here. A row nothing can run keeps its place in the
+            # list so the section still reads as one shape.
+            rows = [(does[:1].upper() + does[1:], button, doing.get(button))
+                    for button, does in lines]
+        else:
+            rows = [(button, does, None) for button, does in lines]
+        pages.append((title, rows))
     panel.show(pages, width=900, column=250, height=500)
 
 

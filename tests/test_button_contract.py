@@ -210,3 +210,24 @@ def test_the_shoulders_move_between_pages_where_there_are_pages(profiles):
         targets = profiles["tabs"].targets_of(button)
         assert [t.code for t in targets] == [key], \
             "tabs: %s is %s" % (button, targets)
+
+
+def test_a_chooser_leaves_no_button_to_chance(profiles):
+    """Every button the desktop names, a chooser names too.
+
+    InputPlumber passes a source it was told nothing about straight through to
+    whatever pad the profile publishes. So a button left out of a chooser's
+    profile does not stop working: it arrives as the pad's own button, on a
+    device nothing is reading it from, and does nothing for a reason nobody can
+    see from either file. Three of the four paddles were in that state, showing
+    up in the journal as BTN_TRIGGER_HAPPY while a chooser was up and answered
+    by no one.
+
+    Named and sent nowhere is a decision. Left out is an accident that reads
+    the same.
+    """
+    named = {name for name in vocabulary.BUTTONS
+             if profiles["desktop"].for_button(name)}
+    for where in ("menu", "tabs"):
+        missing = sorted(n for n in named if not profiles[where].for_button(n))
+        assert not missing, "%s says nothing about %s" % (where, ", ".join(missing))

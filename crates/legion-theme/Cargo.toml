@@ -1,0 +1,21 @@
+[package]
+name = "legion-theme"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "legion-theme"
+path = "src/main.rs"
+
+[dependencies]
+legion-colour.workspace = true
+# `preserve_order` because the report lists the colours in the order the
+# palette declares them, and a sorted map would list them alphabetically.
+indexmap = { version = "2", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+toml = { version = "0.9", default-features = false, features = ["parse", "serde", "preserve_order"] }
+
+[dev-dependencies]
+regex = "1"

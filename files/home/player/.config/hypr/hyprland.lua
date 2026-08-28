@@ -147,7 +147,7 @@ hl.window_rule({
 hl.on("hyprland.start", function()
     -- Everything this desktop is made of is a user service, started together
     -- by legion.target: the controller daemon, the on-screen keyboard, the
-    -- bar, and the session restore.
+    -- bar, the session restore, and the box that asks for a password.
     --
     -- They used to be launched from here and forgotten. That meant a crash
     -- left a piece silently missing until the next reboot, and what was

@@ -13,9 +13,23 @@ def here(pad, seen):
 
 
 def device(pad, seen):
-    was = seen.brightness()
+    """Brightness has a ceiling and the screen usually sits on it.
+
+    `legion-brightness` clamps, so on a screen already at the top there is no
+    higher number to arrive at, and asserting that one does fails on a machine
+    doing exactly what it should. Room is made first, by one step down, and the
+    step up gives it back: the screen ends where it was found.
+
+    What full is stays the script's to know. A number here would be a second
+    opinion about this panel, and two numbers about one screen part company the
+    day either of them moves.
+    """
     pad.trigger("l2", 1.0)
+    pad.press("dpad-left")
+    seen.settle(1.0)
+    was = seen.brightness()
     pad.press("dpad-right")
     seen.settle(1.0)
     pad.trigger("l2", 0.0)
-    assert seen.brightness() > was, "still at %d" % was
+    now = seen.brightness()
+    assert now > was, "it was %d and is %d" % (was, now)

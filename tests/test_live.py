@@ -13,7 +13,7 @@ as soon as it appears.
 import pytest
 from evdev import ecodes as e
 
-from harness.live import Running, uinput_is_open
+from harness.live import READS, Running, uinput_is_open
 
 pytestmark = pytest.mark.skipif(
     not uinput_is_open(),
@@ -31,9 +31,7 @@ def live():
 
 
 def test_the_daemon_finds_all_three_devices(live):
-    live.settle()
-    live.close()
-    for wanted in ("Elite 2 pad", "Touchpad", "InputPlumber Keyboard"):
+    for wanted in READS:
         assert wanted in live.said, "it did not say it had found %s" % wanted
 
 

@@ -7,20 +7,26 @@ HOST ?= root@handheld
 # __pycache__ beside them is a file the manifest does not carry.
 export PYTHONDONTWRITEBYTECODE = 1
 
-.PHONY: setup test theme fast live emulate capture check deploy pull clean
+.PHONY: setup test rust theme garden fast live emulate capture check deploy pull clean
 
 setup: .venv/bin/pytest            ## everything the tests need, in a venv here
 
 .venv/bin/pytest:
 	python3 -m venv .venv
 	.venv/bin/pip install --quiet --upgrade pip
-	.venv/bin/pip install --quiet evdev pytest pyyaml
+	.venv/bin/pip install --quiet evdev pycairo pytest pyyaml
 
 theme:                             ## write the palette into every file that spends it
-	python3 tools/legion-theme
+	cargo run --quiet --release --bin legion-theme
 
-test: setup                        ## every test that can run on this machine
+garden:                            ## draw the wallpaper again, out of the palette
+	python3 tools/legion-garden
+
+test: setup rust                   ## every test that can run on this machine
 	$(PYTHON) -m pytest -q
+
+rust:                              ## everything written in rust, and its tests
+	cargo test --quiet --workspace
 
 fast: setup                        ## the tier that needs no devices at all
 	$(PYTHON) -m pytest -q --ignore=tests/test_live.py

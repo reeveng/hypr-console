@@ -1,0 +1,17 @@
+[package]
+name = "legion-manifest"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# `legion`, because that is what somebody types on the device. The crate is
+# named for what it is; the program is named for what it does.
+[[bin]]
+name = "legion"
+path = "src/main.rs"
+
+[dependencies]
+
+[dev-dependencies]
+toml = { version = "0.9", default-features = false, features = ["parse", "serde"] }

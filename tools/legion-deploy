@@ -61,4 +61,12 @@ fi
 # committed is not overwritten from here.
 ssh "$host" git -C /etc/legion config receive.denyCurrentBranch updateInstead
 git push "ssh://$host/etc/legion" HEAD:master
+
+# The engine is the one file the manifest does not list, because a program
+# that copies over the file it is being read from can be halfway through
+# itself when it changes. So it is put there from here, by something that is
+# not it, before it is asked to do anything. Without this the device keeps
+# whatever engine it was given the day it was set up, and every later
+# improvement to `apply` sits in the history doing nothing.
+ssh "$host" install -m 755 /etc/legion/files/usr/local/bin/legion /usr/local/bin/legion
 ssh "$host" legion apply

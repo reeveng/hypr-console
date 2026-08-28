@@ -93,6 +93,28 @@ class Picture:
         row = self.rows[y]
         return "%02x%02x%02x" % (row[start], row[start + 1], row[start + 2])
 
+    def average(self, across, down, size=0.02):
+        """The average colour of a small patch, placed by fraction not pixel.
+
+        A fraction because the thing being compared was measured on a picture
+        of another size, and an average because a petal that strayed into the
+        patch should move the answer by less than the encoder does.
+        """
+        wide = max(1, int(self.width * size))
+        left = min(max(0, int(self.width * across) - wide // 2),
+                   self.width - wide)
+        top = min(max(0, int(self.height * down) - wide // 2),
+                  self.height - wide)
+        totals, seen = [0, 0, 0], 0
+        for y in range(top, min(top + wide, self.height)):
+            row = self.rows[y]
+            for x in range(left, min(left + wide, self.width)):
+                start = x * self.channels
+                for band in range(3):
+                    totals[band] += row[start + band]
+                seen += 1
+        return "%02x%02x%02x" % tuple(total // seen for total in totals)
+
     def commonest(self):
         """The colour most of the screen is, which is usually the background."""
         seen = {}

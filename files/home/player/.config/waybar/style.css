@@ -43,11 +43,22 @@ window#waybar {
 
 #clock,
 #battery,
+#custom-apps,
+#custom-keyboard,
 #network,
 #bluetooth,
 #pulseaudio,
 #tray {
   padding: 0 12px;
+}
+
+/* The two that are pressed rather than read. They are the size of everything
+   else on the bar and a shade brighter than the readings beside them, because
+   a button that looks like a reading is a button nobody presses. */
+#custom-apps,
+#custom-keyboard {
+  color: @pink;
+  font-size: 18px;
 }
 
 #clock {

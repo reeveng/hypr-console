@@ -167,7 +167,7 @@ mapping:
   # something else goes unreachable. Each of these does one thing and nothing
   # else does that thing.
 
-  - name: Menu - the guide to the buttons
+  - name: Menu - the settings
     source_event:
       gamepad:
         button: Start
@@ -191,7 +191,7 @@ mapping:
       - gamepad:
           button: Select
 
-  - name: Legion right - power and settings
+  - name: Legion right - the guide to the buttons
     source_event:
       gamepad:
         button: QuickAccess

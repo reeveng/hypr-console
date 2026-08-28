@@ -1,0 +1,26 @@
+# Every program on this device, in one workspace.
+#
+# The device builds these itself: `rust` is in desktop.conf's [packages] and
+# `legion apply` runs cargo before it installs. So the manifest stays the whole
+# truth about the machine, nothing compiled is kept in git, and the public copy
+# of this repository is source and nothing else.
+
+[workspace]
+members = ["crates/*"]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+
+[workspace.dependencies]
+legion-colour = { path = "crates/legion-colour" }
+
+[profile.release]
+# A handheld compiles this, so the build is kept cheap. None of these programs
+# is hot: the panel waits for a thumb and the theme runs when a colour changes.
+opt-level = 2
+lto = "thin"
+codegen-units = 4
+strip = true

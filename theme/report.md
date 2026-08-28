@@ -2,7 +2,7 @@
 
 A pink dark theme for a handheld held at arm's length.
 
-Written by `tools/legion-theme` from `theme/palette.toml`. Every number
+Written by `legion-theme` from `theme/palette.toml`. Every number
 here is measured after the colour has been quantised to eight bits a
 channel, which is what a contrast checker reads off the screen and is a
 tenth of a point away from the arithmetic on the same two colours.
@@ -79,6 +79,7 @@ tenth of a point away from the arithmetic on the same two colours.
 | `coral` | `night` | 7:1 | **12.10:1** | AAA |
 | `coral` | `ground` | 7:1 | **10.40:1** | AAA |
 | `coral` | `panel` | 7:1 | **8.25:1** | AAA |
+| `soft` | `ground` | 7:1 | **8.86:1** | AAA |
 | `edge` | `ground` | 3:1 | **3.78:1** | clears the 3:1 a border needs |
 | `edge` | `panel` | 3:1 | **3.00:1** | clears the 3:1 a border needs |
 | `ash` | `night` | 4.5:1 | **4.50:1** | AA, on purpose |

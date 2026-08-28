@@ -11,6 +11,14 @@
 # process from a stray copy: signal the wrong one and the desktop ends up with
 # two daemons fighting over every button, or none listening at all.
 #
+# The daemon, and nothing else the daemon started. Without --kill-whom the
+# signal goes to every process in the unit's control group, and the menu, the
+# panel and anything opened from the menu are all in it, because a control
+# group is inherited by every child and nothing a program can do to itself
+# leaves one. So raising the keyboard over a panel stopped the panel: still on
+# screen, reading nothing, until the keyboard went away and it woke to answer a
+# button pressed a minute earlier.
+#
 # What was loaded before the keyboard came up is remembered, because the
 # keyboard can be summoned over a panel as well as over the desktop, and the
 # panel's own profile is what its shoulders answer to. Putting the desktop
@@ -21,12 +29,18 @@ was=${XDG_RUNTIME_DIR:-/run/user/1000}/legion-profile-before-keyboard
 case "$1" in
 show)
     controller-profile | tr "[:upper:]" "[:lower:]" > "$was"
-    systemctl --user kill --signal=STOP "$unit"
+    systemctl --user kill --kill-whom=main --signal=STOP "$unit"
     exec controller-profile keyboard
     ;;
 hide)
-    controller-profile "$(cat "$was" 2>/dev/null || echo desktop)"
-    exec systemctl --user kill --signal=CONT "$unit"
+    # Only if nothing has moved since. A panel closed while the keyboard was
+    # over it puts the desktop back on its way out, and laying the panel's
+    # profile over that leaves the pad answering to a panel that is not there:
+    # the menu button draws nothing and the screen says nothing about why.
+    if [ "$(controller-profile)" = Keyboard ]; then
+        controller-profile "$(cat "$was" 2>/dev/null || echo desktop)"
+    fi
+    exec systemctl --user kill --kill-whom=main --signal=CONT "$unit"
     ;;
 *)
     echo "usage: osk-hook [show|hide]" >&2

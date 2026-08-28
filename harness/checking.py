@@ -79,6 +79,10 @@ def run(check, stage):
     why = check.why_not(stage)
     if why:
         return "skipped", why
+    # One check's picture is not another's, and one check's idea of what
+    # should be running is its own. A stage is used by all of them in turn.
+    if hasattr(stage, "fresh"):
+        stage.fresh()
     if getattr(stage, "dry", False):
         try:
             check.body(stage)(stage, stage)

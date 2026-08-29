@@ -48,7 +48,7 @@ own SendEvent, exactly as the hardware's would arrive.
 
 ## Where to start reading
 
-| | |
+| link | description |
 | --- | --- |
 | [`docs/button-contract.md`](docs/button-contract.md) | What the buttons promise, and why it is checked rather than remembered |
 | [`docs/emulator.md`](docs/emulator.md) | The controller, in software |

@@ -98,7 +98,17 @@ pub fn unit_state(unit: &str) -> (String, String) {
 }
 
 pub fn installed_packages() -> Vec<String> {
-    run(&["pacman", "-Qq"]).out.split_whitespace().map(str::to_owned).collect()
+    named(&["pacman", "-Qq"])
+}
+
+/// The packages somebody asked for, as against the ones that came in behind
+/// them. pacman keeps only these when the orphans are swept.
+pub fn wanted_packages() -> Vec<String> {
+    named(&["pacman", "-Qeq"])
+}
+
+fn named(argv: &[&str]) -> Vec<String> {
+    run(argv).out.split_whitespace().map(str::to_owned).collect()
 }
 
 /// Write beside the destination, then move it into place.

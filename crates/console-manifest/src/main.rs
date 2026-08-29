@@ -13,6 +13,7 @@ mod build;
 mod install;
 mod machine;
 mod manifest;
+mod packages;
 mod units;
 
 use std::path::{Path, PathBuf};
@@ -126,15 +127,12 @@ fn list(manifest: &Manifest) {
 fn check(root: &Path, manifest: &Manifest) -> ExitCode {
     let source = root.join("files");
     let have = machine::installed_packages();
+    let asked_for = machine::wanted_packages();
 
     let drift = [
         under("packages", manifest.of(Section::Packages), |package| {
-            let ok = have.contains(package);
-            (
-                ok,
-                if ok { "ok".into() } else { "missing".into() },
-                package.clone(),
-            )
+            let held = packages::held(&have, &asked_for, package);
+            (held.settled(), held.name().into(), package.clone())
         }),
         under("built", manifest.of(Section::Build), |name| {
             let state = build::state(root, name);
@@ -197,23 +195,35 @@ fn apply(root: &Path, manifest: &Manifest) -> Result<(), String> {
     }
     let source = root.join("files");
 
-    let missing: Vec<&String> = {
-        let have = machine::installed_packages();
-        manifest
-            .of(Section::Packages)
-            .iter()
-            .filter(|p| !have.contains(p))
-            .collect()
-    };
+    let named = manifest.of(Section::Packages);
+    let have = machine::installed_packages();
+    let asked_for = machine::wanted_packages();
+
+    let missing = packages::missing(named, &have);
     if !missing.is_empty() {
-        let names: Vec<&str> = missing.iter().map(|name| name.as_str()).collect();
-        println!("{YELLOW}installing{OFF} {}", names.join(" "));
+        println!("{YELLOW}installing{OFF} {}", missing.join(" "));
         let argv: Vec<&str> = ["pacman", "-S", "--needed", "--noconfirm"]
             .into_iter()
-            .chain(names)
+            .chain(missing)
             .collect();
         if !machine::run_seen(&argv) {
             return Err("pacman could not install what the manifest asks for.".into());
+        }
+    }
+
+    // Named here and on the machine on somebody else's word. Installing it
+    // again would do nothing, because it is already there; what is missing is
+    // pacman knowing that this desktop wants it, without which it is swept with
+    // the orphans the day the package that brought it in leaves.
+    let borrowed = packages::borrowed(named, &have, &asked_for);
+    if !borrowed.is_empty() {
+        println!("{YELLOW}keeping{OFF} {}", borrowed.join(" "));
+        let argv: Vec<&str> = ["pacman", "-D", "--asexplicit", "--quiet"]
+            .into_iter()
+            .chain(borrowed)
+            .collect();
+        if !machine::run_seen(&argv) {
+            return Err("pacman would not be told the desktop asks for these.".into());
         }
     }
 

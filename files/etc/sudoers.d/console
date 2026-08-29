@@ -1,0 +1,16 @@
+# What the desktop user may do as root, which is one program.
+#
+# The Web tab writes the chosen search engine into every browser on the
+# machine, and all three of them read their policy out of /etc. The panel runs
+# as them, so something has to carry it across, and this is the smallest thing
+# that will: one program, which takes the name of an engine and writes three
+# files. It has no way to be handed anything else to do. A name it does not
+# know is a name it refuses rather than a name it passes on.
+#
+# Without a password because the alternative is a settings panel that stops to
+# ask for one on a machine with no keyboard, and a password prompt nobody can
+# answer is a setting that cannot be changed.
+#
+# `@user@` is the mark the manifest writes for whoever this desktop belongs to.
+# `console apply` fills it in on the way here, because sudo wants a name.
+@user@ ALL=(root) NOPASSWD: /usr/local/bin/console-engine

@@ -1,0 +1,13 @@
+[elsewhere]
+# Two programs this desktop is made of, which this repository does not carry.
+#
+# Both are forks of somebody else's work, kept on the machine as built
+# programs. Publishing a binary means publishing the source that made it, and
+# that source is theirs rather than ours. docs/forks.md says what each one is,
+# what the fork changes, and how to build it. Build it, put it at the path
+# named here, move that line up into [files], and apply will carry it.
+#
+# Listed rather than left out, so that a unit starting a program nothing
+# installs stays the failure it should be everywhere else.
+/usr/local/bin/wvkbd-mobintl
+/usr/local/bin/hyprsession

@@ -1,0 +1,134 @@
+# The wallpapers, and which one answers what.
+#
+# A picture is chosen by two things: what part of the day it is, worked out
+# from the sun, and what the weather is, asked of a service that wants no
+# account. `console-sky` does the choosing and `sky-press` writes the pictures.
+#
+# The rule for choosing is that the most particular picture wins. A picture
+# that names a part of the day and a weather beats one that names only a part
+# of the day, which beats one that names nothing. So a picture naming nothing
+# is the one that is up when nothing else fits, and a set is grown by adding a
+# picture rather than by editing the ones already here.
+#
+# Every picture in this file is by Abi Toads, who gives them away
+# (abitoads.com/pages/animated-wallpapers, through Wallpaper Engine on Steam).
+# They are fetched rather than kept here: this repository is source, the
+# pictures are somebody else's work, and `console apply` presses them on the
+# device the way it compiles the programs.
+
+# How the pictures move.
+#
+# They loop: the artist's whole animation, over and over, for as long as
+# nothing is in front of it. A loop that stops is stranger to look at than one
+# that does not, and what paid for stopping is now had another way, by not
+# moving at all while a window or a menu is over the picture.
+#
+# `rest_seconds` above zero brings the old behaviour back for one picture: a
+# still that holds for that long, then a few seconds of movement, then a snap
+# back to the still. It is here because a picture whose every pixel moves costs
+# the same whether anybody is looking at it or not, and this is the setting
+# that buys that back. `seconds` is how long that movement lasts and is ignored
+# by a picture that loops.
+#
+# Twelve frames a second is the artist's thirty halved and halved again to
+# about a third. These are hand-drawn loops of water and firelight, none of
+# which has an edge sharp enough to judder at twelve.
+[stir]
+rest_seconds = 0
+seconds = 4.0
+frames_per_second = 12
+tolerance = 6
+quality = 82
+
+# --------------------------------------------------------------- the pictures
+#
+# `grade` is how far a picture is brought into this palette. `keep` is how much
+# of the artist's own colour survives, `pull` is how much of the theme's colour
+# is laid over it, and `ceiling` is where the picture's brightest point lands,
+# which is what leaves the bar something to be read against. `docs/sky.md` has
+# the argument; the numbers here were chosen by looking at a proof sheet.
+#
+# A green daylight picture takes the pull worst, because a bright green scene in
+# a dark plum theme is a contradiction and pulling it hard turns it grey. Those
+# keep more of themselves and give up more of their brightness instead.
+
+[[picture]]
+name = "terrarium"
+says = "Terrarium"
+by = "Abi Toads"
+from = "https://motionbgs.com/dl/4k/9581/"
+sha256 = "5209739feecabc6b6b640fde57ddfc30156849c503bd5ad6e964c1e409af6ced"
+grade = { keep = 0.50, pull = 0.50, floor = 0.0, ceiling = 0.72 }
+# This one names nothing, so it is what is up when nothing else answers: rain,
+# fog and thunder at any hour. A tank of plants indoors is the right picture
+# for weather you would rather be inside than out in.
+
+[[picture]]
+name = "lazy-river"
+says = "Lazy River"
+by = "Abi Toads"
+from = "https://motionbgs.com/dl/4k/7956/"
+sha256 = "c16b2d877e3bb2a2f6a01f54159c549f6316023f810f08daa126dc84e0f93fee"
+grade = { keep = 0.60, pull = 0.45, floor = 0.0, ceiling = 0.74 }
+sky = ["sunrise", "day"]
+weather = ["clear"]
+
+[[picture]]
+name = "lilypad-ride"
+says = "Lilypad Ride"
+by = "Abi Toads"
+from = "https://motionbgs.com/dl/4k/7631/"
+sha256 = "b936f5d7ebd774a6a5dfcddb7dee84c4488fd7817b4f9d858c5595fe60a112fe"
+grade = { keep = 0.55, pull = 0.50, floor = 0.0, ceiling = 0.72 }
+sky = ["dawn", "day"]
+weather = ["cloud"]
+
+[[picture]]
+name = "snow-day"
+says = "Snow Day"
+by = "Abi Toads"
+from = "https://motionbgs.com/dl/4k/7331/"
+sha256 = "00ea7e3c82d9c1b606c096fa6de9d176b1a038dd90643bae6c52ea425c1ae11b"
+grade = { keep = 0.30, pull = 0.70, floor = 0.0, ceiling = 0.50 }
+sky = ["sunrise", "day"]
+weather = ["snow"]
+
+[[picture]]
+name = "campfire"
+says = "Cozy Campfire"
+by = "Abi Toads"
+from = "https://motionbgs.com/dl/4k/8823/"
+sha256 = "4fe4b674c0dea8053e8880bb3223241946a7ea981d25504bfba12cceb85668c9"
+grade = { keep = 0.35, pull = 0.70, floor = 0.0, ceiling = 0.76 }
+sky = ["sunset", "dusk"]
+weather = ["clear", "cloud"]
+
+[[picture]]
+name = "sledding"
+says = "Sledding"
+by = "Abi Toads"
+from = "https://motionbgs.com/dl/4k/8028/"
+sha256 = "d6975daf31329202f80146c60e503b059c69451ac04be1bd58ac58db966386ce"
+grade = { keep = 0.30, pull = 0.70, floor = 0.0, ceiling = 0.52 }
+sky = ["sunset", "dusk"]
+weather = ["snow"]
+
+[[picture]]
+name = "star-ride"
+says = "Star Ride"
+by = "Abi Toads"
+from = "https://motionbgs.com/dl/4k/8928/"
+sha256 = "ed6592a8dcdcd1c22d50163c0dc88a929b04c5ee3cc2d19ffda966e81740372b"
+grade = { keep = 0.35, pull = 0.70, floor = 0.0, ceiling = 0.70 }
+sky = ["night"]
+weather = ["clear", "cloud"]
+
+[[picture]]
+name = "cozy-winter"
+says = "Cozy Winter"
+by = "Abi Toads"
+from = "https://motionbgs.com/dl/4k/7283/"
+sha256 = "244d05aae448bd3197194c5d35837ba3c58054ba6627e501c30180ba11caee37"
+grade = { keep = 0.40, pull = 0.60, floor = 0.0, ceiling = 0.72 }
+sky = ["night"]
+weather = ["snow"]

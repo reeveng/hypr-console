@@ -1,0 +1,20 @@
+[package]
+name = "console-pad"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "capture-devices"
+path = "src/bin/capture.rs"
+
+[[bin]]
+name = "console-emulate"
+path = "src/bin/emulate.rs"
+
+[dependencies]
+evdev = "0.13"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml_ng = "0.10"

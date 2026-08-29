@@ -1,17 +1,91 @@
 #!/bin/sh
-# Wraps the stock session switcher, which lives in /usr/bin and is what Game
-# Mode calls when you leave it. It only understands gamescope and plasma, so it
-# sends "the desktop" to Plasma. Record the real answer where it cannot reach,
-# then let it do the rest of its job.
+# Wraps the stock session switcher, which lives in /usr/bin and is what Steam
+# calls when you leave Game Mode. It is written for a machine whose desktop is
+# Plasma, and both halves of that show: the session it comes back to is
+# plasma.desktop, and the way it leaves is Plasma's own logout over D-Bus,
+# which nothing in this session answers. So the switch recorded the choice and
+# then stayed exactly where it was.
+#
+# Which session logs in is written through the helper polkit already lets any
+# user run, so both directions leave their answer in the one file rather than
+# racing over which name sorts last.
+
+session() {
+    pkexec /usr/lib/steamos/steam-set-session "$1"
+}
+
+running() {
+    pgrep -u "$(id -u)" -x steam >/dev/null 2>&1
+}
+
+# Steam, asked to go, and waited for.
+#
+# A Steam killed with the session it was in leaves its installation marked
+# unclean, and the Game Mode start after that fetches a client manifest over
+# the network and verifies every executable's checksum before it draws
+# anything, where a clean one only compares file sizes.
+#
+# Asked only when it is there: handed -shutdown with none running, the wrapper
+# starts Steam rather than stopping it. The wait is bounded because a Steam
+# that will not go is not a reason to keep somebody on a screen they have
+# already pressed the button to leave.
+settle() {
+    running || return 0
+    steam -shutdown
+    waited=0
+    while running && [ "$waited" -lt 10 ]; do
+        sleep 1
+        waited=$((waited + 1))
+    done
+}
+
 case "$1" in
 gamescope | gamescope-session)
-    session=gamescope-session.desktop
+    # The menu launches a game through Steam, so there can be one running on
+    # the desktop. It goes before the desktop does.
+    settle
+    session gamescope-session.desktop
+    # Nothing else here happens unless the compositor is actually leaving. A
+    # session recorded but not left, or a desktop whose services were stopped
+    # out from under it, is worse than a button that did nothing.
+    if ! hyprctl dispatch 'hl.dsp.exit()'; then
+        session hyprland.desktop
+        exit 1
+    fi
+    # What this desktop handed systemd on the way in names a compositor that
+    # has just stopped existing. Left behind, the session that follows
+    # inherits it and Game Mode opens into a Wayland socket that has gone: it
+    # fails, the display manager starts it again, and the machine sits in that
+    # loop.
+    systemctl --user unset-environment \
+        DISPLAY \
+        HYPRLAND_INSTANCE_SIGNATURE \
+        WAYLAND_DISPLAY \
+        XDG_CURRENT_DESKTOP
+    # The desktop's services answer to the user's manager, and nothing there
+    # ends with a session, so they would go on drawing against a screen that
+    # is not there. Last, because stopping them takes this script with them:
+    # it is the controller daemon's child, and a control group is inherited.
+    exec systemctl --user stop console.target
+    ;;
+plasma | plasma-session)
+    session hyprland.desktop
+    # Not waited for, in this direction. Game Mode's target upholds the Steam
+    # unit, which systemd starts again the moment it stops, so a wait here
+    # would watch Steam come back and then take the whole ten seconds. The
+    # target's own stop asks Steam to go and gives it a minute to do it.
+    steam -shutdown
+    exec systemctl --user stop gamescope-session.target
+    ;;
+persistent)
+    # Already true here: the unit that rewrites the choice on every logout is
+    # masked, so the last session chosen is the one that comes back.
+    ;;
+oneshot)
+    echo "this machine does not boot into Game Mode; see the masked unit" >&2
+    exit 1
     ;;
 *)
-    session=hyprland.desktop
+    exec /usr/bin/steamos-session-select "$@"
     ;;
 esac
-
-printf "[Autologin]\nSession=%s\n" "$session" > /etc/plasmalogin.conf.d/zzz-session.conf 2>/dev/null
-
-exec /usr/bin/steamos-session-select "$@"

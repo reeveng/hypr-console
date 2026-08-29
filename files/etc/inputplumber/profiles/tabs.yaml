@@ -103,24 +103,31 @@ mapping:
       - gamepad:
           button: North
 
-  - name: Right paddle, top - close the menu
+  - name: Right paddle, top - close what is up
     source_event:
       gamepad:
         button: RightPaddle1
     target_events:
-      - keyboard: KeyEsc
+      - keyboard: KeyF15
 
-  - name: Left paddle, top - nothing while a chooser is up
+  # The paddles keep the meaning they have everywhere else. A paddle that
+  # means one thing here and another on the desktop means the wrong one for
+  # the beat between the screen changing and the pad hearing about it, and a
+  # thumb is quicker than that beat. What opening and closing come to while a
+  # chooser is up is worked out by the daemon, which can see the screen.
+  - name: Left paddle, top - the menu
     source_event:
       gamepad:
         button: LeftPaddle1
-    target_events: []
+    target_events:
+      - keyboard: KeyF13
 
-  - name: Left paddle, bottom - nothing while a chooser is up
+  - name: Left paddle, bottom - say something, and have it typed
     source_event:
       gamepad:
         button: LeftPaddle2
-    target_events: []
+    target_events:
+      - keyboard: KeyF14
 
   # A screenshot does not act behind the chooser, it takes a picture of it,
   # and a chooser is exactly the thing somebody wants a picture of when they
@@ -132,24 +139,39 @@ mapping:
     target_events:
       - keyboard: KeyF16
 
-  - name: Legion right - close the menu
+  # These two open a chooser of their own, and they do it whatever is already
+  # on the screen. A button on the front of the machine has one meaning: the
+  # settings button opens the settings and the menu button opens the guide,
+  # here as much as on the desktop.
+  #
+  # Closing was the other thing the settings button did here, and it cost the
+  # button its meaning: pressed with anything up, it shut that and opened
+  # nothing, so reaching the settings from the menu took two presses and the
+  # first of them looked like the machine ignoring the second. B backs out and
+  # the right paddle closes, which is two ways to put a chooser away without
+  # spending a button that has somewhere to be.
+  - name: Legion right - the settings
     source_event:
       gamepad:
         button: QuickAccess
     target_events:
-      - keyboard: KeyEsc
+      - keyboard: KeyF17
 
+  # Leaving the desktop is not something to do by brushing a button with a
+  # menu open, so this one alone stays quiet while a chooser is up.
   - name: Legion left - nothing while a chooser is up
     source_event:
       gamepad:
         button: Guide
     target_events: []
 
-  - name: Menu - nothing while a chooser is up
+  - name: Menu - the guide
     source_event:
       gamepad:
         button: Start
-    target_events: []
+    target_events:
+      - gamepad:
+          button: Start
 
   - name: View - nothing while a chooser is up
     source_event:
@@ -215,8 +237,13 @@ mapping:
       - gamepad:
           button: North
 
-  - name: Y - nothing while a chooser is up
+  # F18 because nothing else on this device sends it. A letter would be typed
+  # into whatever holds the focus in the beat after a panel goes, and the
+  # keyboard InputPlumber publishes carries F13 to F24, none of which any real
+  # keyboard has a key for.
+  - name: Y - what else can be done with this
     source_event:
       gamepad:
         button: West
-    target_events: []
+    target_events:
+      - keyboard: KeyF18

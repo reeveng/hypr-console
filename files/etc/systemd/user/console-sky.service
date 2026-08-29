@@ -1,0 +1,19 @@
+[Unit]
+Description=Which wallpaper is up
+PartOf=console.target
+# The wallpaper daemon has to be listening before there is any point telling it
+# anything. console-paper puts the garden up as it starts, which is the ground
+# this then paints over: a picture chosen for the weather if there is one, and
+# the garden left where it is if there is not.
+Requires=console-paper.service
+After=console-paper.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/console-sky
+ExecStopPost=-/usr/local/bin/console-fell %n
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=console.target

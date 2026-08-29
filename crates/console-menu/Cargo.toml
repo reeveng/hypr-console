@@ -1,0 +1,18 @@
+[package]
+name = "console-menu"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_menu"
+path = "src/lib.rs"
+
+[[bin]]
+name = "launcher"
+path = "src/bin/launcher.rs"
+
+[dependencies]
+console-defaults.workspace = true
+console-panel.workspace = true

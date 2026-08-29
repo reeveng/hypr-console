@@ -1,0 +1,14 @@
+[Unit]
+Description=Restore and keep saving the open windows
+PartOf=console.target
+
+[Service]
+Type=simple
+# Mode is positional. Passed as an option it saves somewhere nothing reads.
+ExecStart=/usr/local/bin/hyprsession
+ExecStopPost=-/usr/local/bin/console-fell %n
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=console.target

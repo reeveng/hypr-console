@@ -1,0 +1,13 @@
+[Unit]
+Description=Status bar
+PartOf=console.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/waybar
+ExecStopPost=-/usr/local/bin/console-fell %n
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=console.target

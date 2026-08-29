@@ -1,0 +1,86 @@
+#!/bin/sh
+# Put this checkout on the Legion Go and bring the machine to match it.
+#
+#     tools/console-deploy --check    what would change, and change nothing
+#     tools/console-deploy            that, then ask, then apply
+#     tools/console-deploy --yes      that, without asking
+#
+# The device's /etc/console is a git repository and this pushes into it, so the
+# history of what the desktop is made of stays one history whether a change was
+# made here or made there and saved. Everything after the push is the machine's
+# own `console` doing what it always does.
+set -e
+
+if [ -z "${CONSOLE_HOST:-}" ]; then
+    echo "CONSOLE_HOST is not set, so there is no device to talk to." >&2
+    echo "Set it to the device, as in CONSOLE_HOST=root@handheld." >&2
+    exit 1
+fi
+host=$CONSOLE_HOST
+here=$(cd "$(dirname "$0")/.." && pwd)
+cd "$here"
+
+if [ -n "$(git status --porcelain)" ]; then
+    echo "there are changes here that are not committed:" >&2
+    git status --short >&2
+    echo "commit them first: what is deployed is what is in the history" >&2
+    echo "or send the history alone, out of a clone nobody is working in:" >&2
+    echo "  clone=\$(mktemp -d)/console && git clone . \"\$clone\" && cd \"\$clone\"" >&2
+    echo "  CONSOLE_HOST=$host tools/console-deploy" >&2
+    exit 1
+fi
+
+echo "== the tests, before anything is sent"
+make --no-print-directory test
+
+echo
+echo "== what the device has that this does not"
+git fetch --quiet "ssh://$host/etc/console" master
+if [ -n "$(git log --oneline HEAD..FETCH_HEAD)" ]; then
+    git log --oneline HEAD..FETCH_HEAD
+    echo "pull those first: tools/console-pull" >&2
+    exit 1
+fi
+echo "  nothing"
+
+echo
+echo "== what this has that the device does not"
+git log --oneline FETCH_HEAD..HEAD || true
+git diff --stat FETCH_HEAD..HEAD || true
+
+case "$1" in
+--check)
+    echo
+    echo "== what the machine would say about itself"
+    ssh "$host" console check || true
+    exit 0
+    ;;
+esac
+
+if [ "$1" != "--yes" ]; then
+    printf '\napply this to %s? [y/N] ' "$host"
+    read -r answer
+    case "$answer" in y | Y | yes) ;; *) echo "nothing sent"; exit 1 ;; esac
+fi
+
+# A push into a repository with a working tree is refused unless it is told to
+# update the tree as well, and it is still refused if that tree has changes of
+# its own, which is the protection worth keeping: a `console save` nobody
+# committed is not overwritten from here.
+ssh "$host" git -C /etc/console config receive.denyCurrentBranch updateInstead
+git push "ssh://$host/etc/console" HEAD:master
+
+# The engine is built and put in place from here, before it is asked to do
+# anything. It builds every other program the manifest lists, including a newer
+# copy of itself, but it cannot be the thing that puts the first copy there:
+# the engine on the machine is the one being replaced. Without this the device
+# keeps whatever engine it was given the day it was set up, and every later
+# improvement to `apply` sits in the history doing nothing.
+#
+# Nothing compiled is sent. The device has the source and the toolchain, so it
+# makes its own, which is also what keeps this repository free of binaries.
+echo
+echo "== the engine"
+ssh "$host" cargo build --release --locked --manifest-path /etc/console/Cargo.toml --bin console
+ssh "$host" install -m 755 /etc/console/target/release/console /usr/local/bin/console
+ssh "$host" console apply

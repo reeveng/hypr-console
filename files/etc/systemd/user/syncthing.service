@@ -1,0 +1,19 @@
+[Unit]
+Description=Syncthing, keeping folders in step with the machines it is paired with
+PartOf=console.target
+
+[Service]
+Type=simple
+# Its own window is a page in the browser, and it is asked for from the menu
+# rather than opened at every login.
+ExecStart=/usr/bin/syncthing serve --no-browser --no-restart --logflags=0
+Restart=on-failure
+RestartSec=5
+# Syncthing asks to be started again by leaving with these, which is what it
+# does when it has taken a new configuration or upgraded itself. Read as a
+# failure they would be a service that stops the first time it is reconfigured.
+SuccessExitStatus=3 4
+RestartForceExitStatus=3 4
+
+[Install]
+WantedBy=console.target

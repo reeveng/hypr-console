@@ -11,4 +11,8 @@ systemctl --user import-environment \
     XDG_SESSION_TYPE \
     XDG_RUNTIME_DIR
 
-exec systemctl --user start --no-block legion.target
+# Restarted rather than started. These services outlive the compositor, and
+# what they were told about it on the way in is a socket that a new one does
+# not answer on: a desktop that came back would be driven by services still
+# talking to the one before it.
+exec systemctl --user restart --no-block console.target

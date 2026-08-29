@@ -10,15 +10,15 @@ decides one.
 Almost nothing on the machine holds one either. A stylesheet, a Lua table, a
 TOML file, an ini file, a shell script and a browser cannot share a variable
 with each other, but most of them can import a file written in their own
-language. So `legion-theme` writes one small palette file per language,
+language. So `console-theme` writes one small palette file per language,
 and everything else imports whichever speaks its own:
 
 | The palette, written | Imported by |
 | --- | --- |
-| `~/.config/legion/palette.css` | waybar, wofi, the settings panel, GTK 3, GTK 4, libadwaita, Breeze |
-| `~/.config/legion/palette.toml` | alacritty |
-| `~/.mozilla/firefox/legion/chrome/palette.css` | `userChrome.css`, `userContent.css` |
-| `/usr/local/lib/legion/palette.sh` | `osk-start`, which hands the colours to wvkbd as arguments |
+| `~/.config/console/palette.css` | waybar, the panels, GTK 3, GTK 4, libadwaita, Breeze |
+| `~/.config/console/palette.toml` | alacritty |
+| `~/.librewolf/console/chrome/palette.css` | `userChrome.css`, `userContent.css` |
+| `/usr/local/lib/console/palette.sh` | `osk-start`, which hands the colours to wvkbd as arguments |
 
 The stylesheets say `@pink` and `@text`. The keyboard says `"$pink"`. None of
 them holds a hex, so none of them can fall behind.
@@ -27,14 +27,17 @@ The names libadwaita asks for and the longer list Breeze asks for are defined
 in `palette.css` as references rather than as colours, so a role changing its
 shade changes every name that stands for it.
 
-Three cannot import anything and are written into between a pair of markers:
+Four cannot import anything and are written into between a pair of markers:
 
 - `kdeglobals`, because KDE's ini format has no include. It is also the odd one
   out in another way: Qt wants three decimal numbers rather than a hex.
-- `user.js`, because a Firefox preferences file is a list of literals.
+- `user.js`, because a browser preferences file is a list of literals.
 - `hyprland.lua`. Lua could import it, and the compositor is the one place
   where a file failing to load costs the whole session rather than one window,
   so its two border colours are written rather than read.
+- `console-paper.service`, because a systemd unit is a list of literals too. Its
+  one colour is the ground the wallpaper daemon fills the screen with before
+  `console-sky` has chosen a picture.
 
 The placeholder icon is drawn. So is the wallpaper, which has a section of its
 own below because it cannot be read back the way the rest can.
@@ -94,11 +97,11 @@ and it sits about a tenth of a point away from the same arithmetic done on the
 unrounded values: the difference between a palette that measures 7.02:1 and one
 that measures 6.92:1 to anybody who tests it.
 
-`crates/legion-colour` is the arithmetic, in Oklch. It is the same arithmetic
+`crates/console-colour` is the arithmetic, in Oklch. It is the same arithmetic
 as `Codincod.Design.Oklch` in the Codincod repository, which was written first
 and for a different purpose, and the two were checked against each other:
 colours and ratios agree to four decimal places. Those cases are vectors in
-`crates/legion-theme/tests/the_desktop.rs`, so this implementation cannot drift
+`crates/console-theme/tests/the_desktop.rs`, so this implementation cannot drift
 away from the other one without a test saying so.
 
 
@@ -127,10 +130,22 @@ path, its size, and how it was fitted to the screen. Nothing in that name comes
 from what is inside the file. Redraw the garden, install it at the same path,
 and `awww` plays the old picture's frames over the new picture's still: the
 screen fills with rectangles of the two mixed together, worst where they differ
-most, which is the band the wind redraws. `legion-paper.service` deletes that
-cache before the daemon starts, so a restart is always a clean read. `legion
-apply` restarts the service when the picture changes, which is why `named_by`
-looks at a unit's arguments and not only at the program it runs.
+most, which is the band the wind redraws.
+
+Nothing empties that cache wholesale. Those frames are what a picture costs to
+put up: with them a wallpaper arrives in the moment it is asked for, and without
+them the client decodes and compresses the whole loop first, which was measured
+on the device at twenty-five seconds of a core. Emptied at every start, that was
+paid at every boot, at every return from Game Mode, and every time a window
+stopped covering the screen. What is thrown away instead is the entries older
+than the picture they are entries for: `console_sky::place::freshen` does it by
+their date, before that picture goes up, and `sky-press` throws the cache away
+when it writes one. `console apply` throws it away when it writes a background,
+which covers the garden: that one is painted by hand rather than by
+`console-sky`, so nothing else holds its date against what the daemon kept. It is
+an entry in `units::WAKES`. The same apply restarts the service when the picture
+changes, which is why `named_by` looks at a unit's arguments and not only at the
+program it runs.
 
 So when the background looks wrong on the device, the first question is not
 whether it was drawn wrong. Three steps, in this order, and the answer is
@@ -140,7 +155,8 @@ usually in the second:
    expect ends it there.
 2. `ls -l ~/.cache/awww/*/` against the picture's own mtime. A cache older than
    the picture it caches is the whole fault, and nothing about the drawing is in
-   question: restart `legion-paper.service` and look again.
+   question: the next pass that puts that picture up throws it away, and `rm` on
+   the entry is the same thing sooner.
 3. `grim` to a file, and look at the band the wind redraws, which is the top
    half. Two pictures mixed together shows there first, because that is where
    consecutive frames differ.
@@ -153,7 +169,7 @@ its times kept is new in content and old on paper. Older than the picture is
 strong evidence and not proof. It is still the rung to reach for first, because
 it is right nearly every time and it costs one `stat`.
 
-`tools/legion-garden` draws it. There is not one colour written in that file:
+`crates/console-garden` draws it. There is not one colour written down in it:
 `[garden.paint]` in `theme/palette.toml` says which palette colour every part
 of the scene is painted with and how much of it reaches the picture, and the
 tool holds only the shapes. An alpha lives in the palette because a wash at a

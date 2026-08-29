@@ -1,9 +1,9 @@
-# Written by tools/legion-garden. What the wallpaper was drawn from, and what
-# it came out as. Nothing is decided here: `palette` is the state of
+# Written by console-garden. What the wallpaper was drawn from, and what it came
+# out as. Nothing is decided here: `palette` is the state of
 # theme/palette.toml and of the drawing that read it, so that a colour changed
 # without the picture being drawn again is caught; `resting` is the picture
 # measured afterwards, the same as theme/report.md measures the palette.
-palette = "9c485d952f97648cde152bf75ad945ec7fa38eb9eaf0b4bb1bf1a676ac3e398f"
+palette = "5b20fcda25d1368c2aad6bd10e3ed5bf6bbc82633d3faefb7323719b610ef9f9"
 resting = "#110b12"
 width = 2560
 height = 1600

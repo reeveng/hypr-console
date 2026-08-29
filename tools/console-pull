@@ -1,0 +1,26 @@
+#!/bin/sh
+# Take what was changed on the device back into this checkout.
+#
+# The loop on the machine itself is to edit the live file, try it, and run
+# `console save`, which commits. This is the other end of that: the same commits
+# arrive here, and the tests run against them.
+set -e
+
+if [ -z "${CONSOLE_HOST:-}" ]; then
+    echo "CONSOLE_HOST is not set, so there is no device to talk to." >&2
+    echo "Set it to the device, as in CONSOLE_HOST=root@handheld." >&2
+    exit 1
+fi
+host=$CONSOLE_HOST
+here=$(cd "$(dirname "$0")/.." && pwd)
+cd "$here"
+
+if [ -n "$(git status --porcelain)" ]; then
+    echo "there are changes here that are not committed; commit or drop them" >&2
+    git status --short >&2
+    exit 1
+fi
+
+git fetch "ssh://$host/etc/console" master
+git rebase FETCH_HEAD
+git log --oneline -5

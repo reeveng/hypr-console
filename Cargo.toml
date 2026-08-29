@@ -1,7 +1,7 @@
 # Every program on this device, in one workspace.
 #
 # The device builds these itself: `rust` is in desktop.conf's [packages] and
-# `legion apply` runs cargo before it installs. So the manifest stays the whole
+# `console apply` runs cargo before it installs. So the manifest stays the whole
 # truth about the machine, nothing compiled is kept in git, and the public copy
 # of this repository is source and nothing else.
 
@@ -15,7 +15,21 @@ rust-version = "1.85"
 license = "MIT"
 
 [workspace.dependencies]
-legion-colour = { path = "crates/legion-colour" }
+console-checks = { path = "crates/console-checks" }
+console-colour = { path = "crates/console-colour" }
+console-controller = { path = "crates/console-controller" }
+console-defaults = { path = "crates/console-defaults" }
+console-desktop = { path = "crates/console-desktop" }
+console-files = { path = "crates/console-files" }
+console-garden = { path = "crates/console-garden" }
+console-music = { path = "crates/console-music" }
+console-pad = { path = "crates/console-pad" }
+console-panel = { path = "crates/console-panel" }
+console-random = { path = "crates/console-random" }
+console-screen = { path = "crates/console-screen" }
+console-sky = { path = "crates/console-sky" }
+console-stage = { path = "crates/console-stage" }
+console-voice = { path = "crates/console-voice" }
 
 [profile.release]
 # A handheld compiles this, so the build is kept cheap. None of these programs

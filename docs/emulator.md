@@ -7,12 +7,12 @@ tried in a second instead of over SSH.
     make emulate   a Legion Go to press
     make live      the slower tier, needs /dev/uinput
 
-    tools/legion-emulate what x                      what X does, in every profile
-    tools/legion-emulate run scenarios/get-around.txt
+    console-emulate what x                      what X does, in every profile
+    console-emulate run scenarios/get-around.txt
 
 It builds the four devices InputPlumber publishes, from a real capture kept in
-`emulator/fixtures/devices.json`. `make capture` asks the device again, and a
-diff means something changed under it.
+`crates/console-pad/fixtures/devices.json`. `make capture` asks the device
+again, and a diff means something changed under it.
 
 A press goes through the same profile files the device reads, so this tests the
 profile as well as the daemon.
@@ -22,9 +22,9 @@ plays against real devices and fake ones.
 
 ## Two tiers
 
-**Fast.** The daemon runs in this process against a stand-in for evdev, with a
-clock the test controls. No devices, no root, no compositor. This is most of
-`make test`.
+**Fast.** The daemon's loop runs in this process against a world that is not
+this machine's, with a clock the test controls. No devices, no root, no
+compositor. This is most of `make test`.
 
 **Slow.** Real uinput devices, with the daemon started as its own program. It
 answers whether the devices this builds are the ones the daemon goes looking

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Files
+Comment=What is on this device, and where
+Exec=/usr/local/bin/files-panel
+Icon=folder
+Terminal=false
+Categories=System;FileTools;

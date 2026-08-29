@@ -1,0 +1,29 @@
+[package]
+name = "console-music"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_music"
+path = "src/lib.rs"
+
+[[bin]]
+name = "music-panel"
+path = "src/bin/music-panel.rs"
+
+[[bin]]
+name = "music-bar"
+path = "src/bin/music-bar.rs"
+
+# Draws a cover as characters into a terminal, which is how the port of kew's
+# renderer is checked against kew itself.
+[[bin]]
+name = "cover-ascii"
+path = "src/bin/cover-ascii.rs"
+
+[dependencies]
+gtk4 = "0.11"
+console-panel.workspace = true
+serde_json = "1"

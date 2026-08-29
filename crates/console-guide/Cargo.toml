@@ -1,0 +1,21 @@
+[package]
+name = "console-guide"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_guide"
+path = "src/lib.rs"
+
+[[bin]]
+name = "console-buttons"
+path = "src/bin/console-buttons.rs"
+
+[dependencies]
+evdev = "0.13"
+console-controller.workspace = true
+console-files.workspace = true
+console-pad.workspace = true
+console-panel.workspace = true

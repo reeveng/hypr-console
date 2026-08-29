@@ -1,0 +1,187 @@
+# What Qt applications are painted with, and how big.
+#
+# There is no Plasma session on this machine, so nothing generates this file
+# and nothing overwrites it. Fusion is the widget style because it answers to
+# the colours below; the Breeze style paints some of its own and would leave a
+# print dialogue looking like it came from another desktop.
+#
+# The colours between the markers are written by tools/console-theme out of
+# theme/palette.toml. Change them there.
+
+[General]
+ColorScheme=Blossom
+fixed=Hack,15,-1,5,400,0,0,0,0,0,0,0,0,0,0,1
+font=Noto Sans,16,-1,5,400,0,0,0,0,0,0,0,0,0,0,1
+menuFont=Noto Sans,16,-1,5,400,0,0,0,0,0,0,0,0,0,0,1
+smallestReadableFont=Noto Sans,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1
+toolBarFont=Noto Sans,16,-1,5,400,0,0,0,0,0,0,0,0,0,0,1
+
+[KDE]
+AnimationDurationFactor=0
+contrast=4
+frameContrast=0.2
+widgetStyle=Fusion
+
+# Qt dims what it considers disabled or inactive by mixing it towards the
+# background. Every foreground here already clears AAA, and there is nobody
+# this device is for who is helped by a menu entry being faded until it cannot
+# be read, so the dimming is turned off and greyed-out text stays legible.
+[ColorEffects:Disabled]
+ChangeSelectionColor=false
+ColorAmount=0
+ColorEffect=0
+ContrastAmount=0
+ContrastEffect=0
+Enable=false
+IntensityAmount=0
+IntensityEffect=0
+
+[ColorEffects:Inactive]
+ChangeSelectionColor=false
+ColorAmount=0
+ColorEffect=0
+ContrastAmount=0
+ContrastEffect=0
+Enable=false
+IntensityAmount=0
+IntensityEffect=0
+
+# console-theme:begin
+[Colors:Button]
+BackgroundAlternate=35,27,38
+BackgroundNormal=55,44,58
+DecorationFocus=255,181,226
+DecorationHover=255,181,226
+ForegroundActive=253,193,149
+ForegroundInactive=205,182,201
+ForegroundLink=157,216,255
+ForegroundNegative=255,187,186
+ForegroundNeutral=226,208,134
+ForegroundNormal=235,220,231
+ForegroundPositive=170,224,172
+ForegroundVisited=219,194,255
+
+[Colors:Complementary]
+BackgroundAlternate=17,11,18
+BackgroundNormal=35,27,38
+DecorationFocus=255,181,226
+DecorationHover=255,181,226
+ForegroundActive=253,193,149
+ForegroundInactive=205,182,201
+ForegroundLink=157,216,255
+ForegroundNegative=255,187,186
+ForegroundNeutral=226,208,134
+ForegroundNormal=235,220,231
+ForegroundPositive=170,224,172
+ForegroundVisited=219,194,255
+
+[Colors:Header]
+BackgroundAlternate=17,11,18
+BackgroundNormal=35,27,38
+DecorationFocus=255,181,226
+DecorationHover=255,181,226
+ForegroundActive=253,193,149
+ForegroundInactive=205,182,201
+ForegroundLink=157,216,255
+ForegroundNegative=255,187,186
+ForegroundNeutral=226,208,134
+ForegroundNormal=235,220,231
+ForegroundPositive=170,224,172
+ForegroundVisited=219,194,255
+
+[Colors:Tooltip]
+BackgroundAlternate=35,27,38
+BackgroundNormal=55,44,58
+DecorationFocus=255,181,226
+DecorationHover=255,181,226
+ForegroundActive=253,193,149
+ForegroundInactive=205,182,201
+ForegroundLink=157,216,255
+ForegroundNegative=255,187,186
+ForegroundNeutral=226,208,134
+ForegroundNormal=235,220,231
+ForegroundPositive=170,224,172
+ForegroundVisited=219,194,255
+
+[Colors:View]
+BackgroundAlternate=35,27,38
+BackgroundNormal=17,11,18
+DecorationFocus=255,181,226
+DecorationHover=255,181,226
+ForegroundActive=253,193,149
+ForegroundInactive=205,182,201
+ForegroundLink=157,216,255
+ForegroundNegative=255,187,186
+ForegroundNeutral=226,208,134
+ForegroundNormal=235,220,231
+ForegroundPositive=170,224,172
+ForegroundVisited=219,194,255
+
+[Colors:Window]
+BackgroundAlternate=17,11,18
+BackgroundNormal=35,27,38
+DecorationFocus=255,181,226
+DecorationHover=255,181,226
+ForegroundActive=253,193,149
+ForegroundInactive=205,182,201
+ForegroundLink=157,216,255
+ForegroundNegative=255,187,186
+ForegroundNeutral=226,208,134
+ForegroundNormal=235,220,231
+ForegroundPositive=170,224,172
+ForegroundVisited=219,194,255
+
+[Colors:Selection]
+BackgroundAlternate=255,181,226
+BackgroundNormal=255,181,226
+DecorationFocus=255,181,226
+DecorationHover=255,181,226
+ForegroundActive=17,11,18
+ForegroundInactive=17,11,18
+ForegroundLink=17,11,18
+ForegroundNegative=17,11,18
+ForegroundNeutral=17,11,18
+ForegroundNormal=17,11,18
+ForegroundPositive=17,11,18
+ForegroundVisited=17,11,18
+
+[WM]
+activeBackground=55,44,58
+activeBlend=255,181,226
+activeForeground=235,220,231
+inactiveBackground=35,27,38
+inactiveBlend=205,182,201
+inactiveForeground=205,182,201
+# console-theme:end
+
+[DesktopIcons]
+Size=32
+
+[Icons]
+Theme=Papirus-Dark
+
+[KFileDialog Settings]
+Allow Expansion=false
+Automatically select filename extension=true
+Breadcrumb Navigation=true
+Decoration position=2
+Show Full Path=false
+Show Inline Previews=true
+Show Preview=false
+Show Speedbar=true
+Show hidden files=false
+Sort by=Name
+Sort directories first=true
+Sort hidden files last=false
+Sort reversed=false
+Speedbar Width=208
+View Style=DetailTree
+
+[MainToolbarIcons]
+Size=32
+
+[SmallIcons]
+Size=32
+
+[ToolbarIcons]
+Size=32

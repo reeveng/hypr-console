@@ -12,7 +12,7 @@
 height=260
 font="Noto Sans 16"
 
-. /usr/local/lib/legion/palette.sh
+. /usr/local/lib/console/palette.sh
 
 # A key with a thumb on it is pink with dark ink, the same as a row with a
 # thumb on it everywhere else here. It has to be a colour of its own: given

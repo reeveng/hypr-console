@@ -1,0 +1,136 @@
+@import url("{palette}");
+
+/* The surface is the whole of the room the compositor left and almost none of
+   it is painted. The panel is the card in the middle of it. */
+window { background-color: transparent; }
+#card { background-color: @panel; border: {edge}px solid @pink; border-radius: 16px; }
+* { font-family: "Noto Sans"; font-size: 18px; transition: none; }
+
+#top { margin: {margin}px {margin}px 0 {margin}px; }
+#strip { background-color: @ground; border-radius: 12px; padding: {pad}px; }
+#tab { background-image: none; background-color: transparent; border: none; box-shadow: none;
+       color: @soft; padding: 10px 22px; border-radius: 9px; font-weight: bold; }
+#tab:hover { color: @text; }
+#tab.here { background-color: @pink; color: @night; }
+
+/* The way out, for a hand with no B under its thumb. It is a tab's height and
+   sits at the end of the strip, which is the corner a thumb reaches for. */
+#shut { background-image: none; background-color: @ground; border: none;
+        box-shadow: none; color: @soft; font-weight: bold;
+        padding: 10px 20px; border-radius: 12px; }
+#shut:hover { background-color: @pink; color: @night; }
+
+/* The way to the tabs the strip has no room for. They are the shoulders said
+   in the other language, and they appear only at an end there is something
+   past. The space either side of the strip is asked for in code rather than
+   here, because a margin in a stylesheet is a margin the measuring cannot
+   see, and this is measured. */
+#more { background-image: none; background-color: @ground; border: none;
+        box-shadow: none; color: @soft; font-weight: bold;
+        padding: 10px 12px; border-radius: 12px; }
+#more:hover { background-color: @pink; color: @night; }
+
+/* The two ends of a level. They do to the row they sit on what left and right
+   do to the row you are standing on, so a volume can be turned up by somebody
+   holding nothing. Dark on the highlighted row rather than pink, because two
+   pinks touching is the panel asking a question it does not mean. */
+#step { background-image: none; background-color: @ground; border: none;
+        box-shadow: none; font-weight: bold;
+        padding: 2px 20px; margin: 0 8px; border-radius: 8px; }
+row:selected #step { background-color: @night; }
+/* The mark, rather than the button it is on. A button carries a label and the
+   rule above it dresses every label in a highlighted row in the row's own dark
+   ink, which on a dark step is a mark that is there and cannot be seen. */
+#step label { color: @text; }
+#step:hover { background-color: @pink; }
+#step:hover label { color: @night; }
+
+scrolledwindow, list { background-color: transparent; }
+/* A row is a card on the panel rather than a line in a list, because a thumb
+   aims at a shape. Left unsaid it would take the widget theme's base colour,
+   which is a colour this palette never chose. */
+row { padding: 13px 18px; border-radius: 10px; background-color: @night; }
+row label { color: @text; }
+
+/* The setting that is in effect, which is not the same thing as the row your
+   thumb is on. Two pinks side by side made the panel ask a question it did not
+   mean to ask, so the highlight keeps the pink and what is already true is
+   said in mint. */
+row.now label { color: @mint; }
+
+row:selected { background-color: @pink; }
+row:selected label { color: @night; font-weight: bold; }
+
+/* Held off the sides, and nothing above or below: space there is the
+   scroller's to give. Given here it belongs to the list, which starts the
+   rows that far down a viewport counted in whole rows and pushes the last
+   one the same distance past the bottom of it. */
+#panel { padding: 0 {margin}px; }
+#aside { color: @soft; font-size: 15px; }
+row:selected #aside { color: @night; }
+#said { color: @soft; }
+row:selected #said { color: @night; }
+
+/* The room at the front of a row. A photograph brings its own colours and this
+   says nothing about them; an icon is symbolic and is drawn in whatever ink it
+   is given, so it is told the same two the words are told. */
+#icon { color: @text; }
+row:selected #icon { color: @night; }
+
+/* The mark on a row that opens onto another list, at the edge the list goes
+   deeper through. Quiet, like the reading beside it: it says which rows are a
+   way in, and a page of them shouting would say nothing. */
+#into { color: @soft; font-weight: bold; margin-left: 10px; }
+row:selected #into { color: @night; }
+
+#asked { color: @text; padding: 4px 4px 10px 4px; }
+entry { background-color: @ground; color: @text; border: 2px solid @pink;
+        border-radius: 9px; padding: 10px 12px; }
+entry text { caret-color: @pink; }
+
+/* The line a list is narrowed with. It is the same field as the one a question
+   is asked in, because it is the same act: a thing on the screen taking
+   letters. It is the first row of the list, so that the d-pad can arrive on it,
+   and the row it sits in gives it no padding of its own: the field already has
+   its own, and two paddings make a row half again as tall as the ones under
+   it. */
+row.typing { padding: 0; background-color: transparent; }
+row.typing:selected { background-color: transparent; }
+#sought { font-size: 20px; }
+#sought text { caret-color: @pink; }
+/* Stood on, which is when what is typed goes into it. The border is what says
+   so, because a field that filled with pink would be a field whose word cannot
+   be read. */
+row:selected #sought { border-color: @mint; }
+
+/* A cover, written in characters, on a ground of its own.
+   The line is held at one because the picture is the grid: the characters are
+   placed by the crate that draws them, and it is told what shape a cell is.
+   The dark plaque is not decoration. A sleeve is painted in its own colours,
+   and half of them vanish against the pink a row wears while it is stood on. */
+#cover { font-family: monospace; font-size: 14px; line-height: 1;
+         background-color: @night; padding: 10px 12px; border-radius: 9px; }
+
+/* A word in the corner, over the card rather than in it. It stands where a
+   notification would stand if this surface were not a layer over everything,
+   and it wears what the card wears, because it is the panel talking. It says
+   what has been set going and then goes: there is nothing to answer and
+   nothing to dismiss. */
+#note { background-color: @panel; border: {edge}px solid @pink; border-radius: 12px;
+        color: @text; padding: 12px 16px; }
+
+/* A question: what is asked, the thing it is about beside it, and the answers
+   under that. Two lines, because it stands where a list was and a list of
+   things is what somebody was reading a moment ago. The answer that does
+   something wears the warmer colour and never opens standing. */
+#sure { font-size: 19px; }
+#about { color: @soft; font-size: 19px; }
+#answer { background-image: none; background-color: @ground; border: none;
+          box-shadow: none; color: @text; font-size: 17px;
+          padding: 8px 10px; border-radius: 10px; }
+#answer label { color: @text; }
+#answer.does label { color: @rose; }
+#answer.here { background-color: @pink; }
+#answer.here label { color: @night; }
+#answer:hover { background-color: @pink; }
+#answer:hover label { color: @night; }

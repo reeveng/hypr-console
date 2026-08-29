@@ -1,0 +1,105 @@
+/* The browser's own frame, in the palette the rest of the desktop wears.
+   Without this the browser is the one window that looks like it came from
+   somewhere else: its dark theme is a cold grey and everything around it is
+   warm.
+
+   There is no colour in this file. Every name below comes from the palette,
+   which is written from theme/palette.toml and imported beside it. */
+
+@import url("palette.css");
+
+:root {
+  --toolbar-bgcolor: var(--ground) !important;
+  --toolbar-color: var(--text) !important;
+  --tab-selected-bgcolor: var(--panel) !important;
+  --tab-selected-textcolor: var(--text) !important;
+  --toolbarbutton-hover-background: var(--panel) !important;
+  --toolbarbutton-active-background: var(--edge) !important;
+  --lwt-accent-color: var(--night) !important;
+  --arrowpanel-background: var(--panel) !important;
+  --arrowpanel-color: var(--text) !important;
+  --arrowpanel-border-color: var(--edge) !important;
+  --panel-separator-color: var(--edge) !important;
+  --focus-outline-color: var(--pink) !important;
+  --link-color: var(--sky) !important;
+}
+
+#navigator-toolbox {
+  background-color: var(--ground) !important;
+  border-bottom: 1px solid var(--edge) !important;
+}
+
+#TabsToolbar,
+#nav-bar,
+#PersonalToolbar {
+  background-color: var(--ground) !important;
+  color: var(--text) !important;
+}
+
+/* The tab you are on is the pink one, the same promise the bar makes about the
+   workspace you are on. A line rather than a fill, because a filled tab would
+   put text on pink at the top of every window and the browser is where the
+   most text on this device is read. */
+.tabbrowser-tab[selected] .tab-content {
+  background-color: var(--panel) !important;
+  box-shadow: inset 0 3px 0 0 var(--pink) !important;
+}
+
+.tabbrowser-tab .tab-label {
+  color: var(--soft) !important;
+}
+
+.tabbrowser-tab[selected] .tab-label {
+  color: var(--text) !important;
+  font-weight: 600 !important;
+}
+
+#urlbar,
+#searchbar {
+  background-color: var(--night) !important;
+  color: var(--text) !important;
+  border: 1px solid var(--edge) !important;
+}
+
+#urlbar[focused="true"] {
+  border-color: var(--pink) !important;
+  outline: 2px solid var(--pink) !important;
+}
+
+#urlbar-results .urlbarView-row[selected],
+#urlbar-results .urlbarView-row-inner[selected] {
+  background-color: var(--pink) !important;
+  color: var(--night) !important;
+}
+
+.urlbarView-row {
+  color: var(--text) !important;
+}
+
+.urlbarView-secondary,
+.urlbarView-url {
+  color: var(--soft) !important;
+}
+
+menupopup,
+panel {
+  --panel-background: var(--panel) !important;
+  --panel-color: var(--text) !important;
+}
+
+menuitem:hover,
+menu:hover {
+  background-color: var(--pink) !important;
+  color: var(--night) !important;
+}
+
+findbar {
+  background-color: var(--ground) !important;
+  color: var(--text) !important;
+}
+
+/* Nothing on this machine animates. */
+* {
+  transition: none !important;
+  animation: none !important;
+}

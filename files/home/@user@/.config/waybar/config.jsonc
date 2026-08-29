@@ -1,0 +1,128 @@
+{
+  // Top, because the on-screen keyboard owns the bottom of the screen.
+  "layer": "top",
+  "position": "top",
+  "height": 38,
+  "spacing": 10,
+
+  "modules-left": ["custom/apps", "custom/keyboard", "hyprland/workspaces"],
+  "modules-center": ["clock"],
+  "modules-right": [
+    "custom/music",
+    "custom/sound",
+    "custom/bluetooth",
+    "custom/network",
+    "custom/battery",
+    "tray"
+  ],
+
+  // The two doors a finger has no other way through. Everything else along
+  // here is a reading that happens to open something when it is tapped; these
+  // two are buttons and nothing else, and they are on the left because that is
+  // where the thumb of the hand not holding the device falls.
+  //
+  // Both toggle. Tapped again they put away what they brought out, which is
+  // the whole of how a menu or a keyboard is closed without a controller.
+  //
+  // Which is why both are lit while what they opened is on the screen, the
+  // same way the workspace you are on is lit. A control that opens and closes
+  // the same thing has to say which it is about to do, and these two said
+  // nothing: the icon looked identical with the menu up and with it gone.
+  //
+  // `bar-door` runs for as long as the bar does and prints a line whenever the
+  // answer changes, which it learns from the compositor rather than from
+  // anything written down. restart-interval is the net under it: a compositor
+  // that was not up yet leaves it nothing to listen to, and it exits.
+  "custom/apps": {
+    "format": "{}",
+    "return-type": "json",
+    "exec": "bar-door launcher 󰀻",
+    "restart-interval": 5,
+    "tooltip": false,
+    "on-click": "launcher"
+  },
+
+  "custom/keyboard": {
+    "format": "{}",
+    "return-type": "json",
+    "exec": "bar-door keyboard 󰌌",
+    "restart-interval": 5,
+    "tooltip": false,
+    "on-click": "osk"
+  },
+
+  "hyprland/workspaces": {
+    "format": "{id}",
+    "on-click": "activate"
+  },
+
+  // One reading, always the same one. A handheld is picked up cold and put
+  // down again; a clock that changes what it says when a thumb brushes it is
+  // a clock that has to be read twice.
+  "clock": {
+    "format": "{:%a %d %b  %H:%M}",
+    "tooltip": false
+  },
+
+  // The four readings along the right, each of which opens its own tab of the
+  // settings. They are ours rather than waybar's own modules for one reason:
+  // waybar's cannot be given a class from outside, so the icon could not say
+  // that the tab it opens is already on the screen. `bar-say` reads the same
+  // machine and lights the icon while its tab is in front.
+  "custom/sound": {
+    "format": "{}",
+    "return-type": "json",
+    "exec": "bar-say sound",
+    "restart-interval": 5,
+    "tooltip": false,
+    // Tap opens the mixer; a second tap on the icon itself mutes.
+    "on-click": "settings-panel Sound",
+    "on-click-right": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
+    "on-scroll-up": "wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+",
+    "on-scroll-down": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"
+  },
+
+  "custom/bluetooth": {
+    "format": "{}",
+    "return-type": "json",
+    "exec": "bar-say bluetooth",
+    "restart-interval": 5,
+    "tooltip": false,
+    "on-click": "settings-panel Bluetooth"
+  },
+
+  "custom/network": {
+    "format": "{}",
+    "return-type": "json",
+    "exec": "bar-say network",
+    "restart-interval": 5,
+    "tooltip": false,
+    "on-click": "settings-panel Wi-Fi"
+  },
+
+  "custom/battery": {
+    "format": "{}",
+    "return-type": "json",
+    "exec": "bar-say battery",
+    "restart-interval": 5,
+    "tooltip": false,
+    "on-click": "settings-panel Battery"
+  },
+
+  // The music, beside the sound it comes out of. Not waybar's mpris module,
+  // which draws nothing at all while no player is running.
+  //
+  // Lit while the panel is up, as the two doors on the left are: it opens and
+  // closes the same thing, so it has to say which a tap will do.
+  "custom/music": {
+    "format": "{}",
+    "return-type": "json",
+    "exec": "music-bar 󰝚",
+    "restart-interval": 5,
+    "max-length": 24,
+    "tooltip": false,
+    "on-click": "music-panel"
+  },
+
+  "tray": { "spacing": 10 }
+}

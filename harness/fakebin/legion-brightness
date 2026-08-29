@@ -1,9 +1,0 @@
-#!/bin/sh
-# Stands in for whatever the daemon meant to run, and writes down that it was
-# asked. Every name in this directory is a link to this file, so the name it
-# was called by is the first thing written.
-{
-    printf '%s' "${0##*/}"
-    for argument in "$@"; do printf '\t%s' "$argument"; done
-    printf '\n'
-} >> "$LEGION_RAN"

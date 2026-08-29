@@ -1,9 +1,13 @@
 # What the buttons promise
 
+This is the buttons. [`docs/panels.md`](panels.md) is how a surface is built so
+that what is written here can be kept.
+
 A person holding this thing learns a few buttons once and then stops thinking
 about them. That only holds if the answer is the same in every program, and
 what a button means is decided in four separate files, so it is written here
-and checked in `tests/test_button_contract.py` rather than remembered.
+and checked in `crates/console-pad/tests/the_button_contract.rs` rather than
+remembered.
 
 | | |
 | --- | --- |
@@ -33,11 +37,16 @@ readable on a panel a finger could open, on a row a finger could only silence.
 | **B** | The **×** at the end of the tab strip, and for the menu, the bar icon that opened it |
 | **X** | The keyboard icon on the bar |
 | Left and right on a level | The **−** and **+** on the row that carries it |
-| **Menu**, **Legion left** | The bar's icons, each opening the panel at its own tab |
+| **L1** and **R1** | The **‹** and **›** either side of the tab strip, which appear when there are tabs it has no room for |
+| **Legion right**, **left paddle, top** | The bar's icons: the settings, each at its own tab, and the menu |
+| **Legion left** | The **Game Mode** row on the panel's System tab |
+| **Left paddle, bottom** | Dictation, in the menu, which starts and stops the same way the paddle does |
+| **View** | The browser, in the menu |
 
-`tests/test_manifest.py` holds these to it: the bar has to carry a door for the
-menu and one for the keyboard, a panel has to draw a way out, and a level has
-to draw its two ends.
+`crates/console-manifest/tests/the_tree.rs` holds these to it: the bar has to
+carry a door for the menu and one for the keyboard, a panel has to draw a way
+out, a level has to draw its two ends, and a strip that hides a tab has to draw
+the way to it.
 
 ## The rule that is not about a person
 
@@ -61,9 +70,19 @@ open chooser are named and given `target_events: []`, which means the same
 thing whether an unmapped button is passed through or dropped. Nothing here
 rests on knowing which of those InputPlumber does, and no test had to guess it.
 
-`tests/test_button_contract.py` reads the daemon's own tables of what it acts
-on, so a button given a job there and forgotten in a chooser profile is a
-failure rather than something found later with a thumb.
+`crates/console-pad/tests/the_button_contract.rs` reads the daemon's own tables
+of what it acts on, so a button given a job there and forgotten in a chooser
+profile is a failure rather than something found later with a thumb.
+
+The front of the machine is not silenced with them. The settings button opens
+the settings and the menu button opens the guide, with a chooser already up as
+much as without one, because a button on the front means one thing wherever it
+is pressed. The settings button used to close what was up instead, which cost
+two presses to reach the settings from the menu and made the first of them look
+like a machine ignoring a thumb. Nothing was lost by taking closing off it: B
+backs out and the right paddle closes. Leaving for Game Mode is the one
+exception and stays quiet, because that is not a thing to do by brushing a
+button with a menu open.
 
 ## Only one thing holds the pad
 
@@ -99,8 +118,8 @@ those names, and the tests read them. Renaming a mapping renames it everywhere
 it is shown.
 
 That holds for the part of the guide that is read out of the profiles, which is
-the first section and no more. "Held with L2", "Keyboard up" and "In a menu" are
-written by hand in `legion-buttons`, and so are the rows in the first section
+the first section and no more. "L2", "Keyboard", "Menus" and "Files" are
+written by hand in `console-buttons`, and so are the rows in the first section
 about hardware no profile mentions: the volume rocker, the touchpad, the screen
 and the bar. Nothing keeps those honest. Change what the right paddle does in
 `tabs.yaml` and the guide will still say it closes the menu.

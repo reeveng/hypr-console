@@ -1,0 +1,27 @@
+[package]
+name = "console-sky"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_sky"
+path = "src/lib.rs"
+
+[[bin]]
+name = "console-sky"
+path = "src/bin/console-sky.rs"
+
+[[bin]]
+name = "sky-press"
+path = "src/bin/sky-press.rs"
+
+[dependencies]
+console-colour.workspace = true
+console-garden.workspace = true
+console-screen.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+toml = { version = "0.9", default-features = false, features = ["parse", "serde", "preserve_order", "display"] }

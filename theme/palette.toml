@@ -186,7 +186,7 @@ white = "soft"
 
 # ---------------------------------------------------------------- the garden
 # The wallpaper is a drawing, and a drawing has colours, so they are declared
-# here like everything else. tools/legion-garden holds the shapes and not one
+# here like everything else. crates/console-garden holds the shapes and not one
 # colour: it asks this table what to dip the brush in.
 #
 # `alpha` is how much of a colour reaches the picture, and it lives here rather

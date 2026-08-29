@@ -2,7 +2,7 @@
 
 A pink dark theme for a handheld held at arm's length.
 
-Written by `legion-theme` from `theme/palette.toml`. Every number
+Written by `console-theme` from `theme/palette.toml`. Every number
 here is measured after the colour has been quantised to eight bits a
 channel, which is what a contrast checker reads off the screen and is a
 tenth of a point away from the arithmetic on the same two colours.

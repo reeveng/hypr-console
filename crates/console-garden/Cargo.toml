@@ -1,0 +1,23 @@
+[package]
+name = "console-garden"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_garden"
+path = "src/lib.rs"
+
+[[bin]]
+name = "console-garden"
+path = "src/main.rs"
+
+[dependencies]
+cairo-rs = { version = "0.21", features = ["png"] }
+console-random.workspace = true
+console-screen.workspace = true
+indexmap = { version = "2", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+sha2 = "0.10"
+toml = { version = "0.9", default-features = false, features = ["parse", "serde", "preserve_order"] }

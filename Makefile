@@ -1,69 +1,61 @@
 # The loop: change something, run `make test`, and only then `make deploy`.
 
-PYTHON ?= .venv/bin/python
-HOST ?= root@handheld
+# The device, which only somebody with one can name. The tools read it too, and
+# say so if it is not set.
+HOST ?= $(CONSOLE_HOST)
 
-# The daemons are loaded from the tree they are installed from, and a stray
-# __pycache__ beside them is a file the manifest does not carry.
-export PYTHONDONTWRITEBYTECODE = 1
-
-.PHONY: setup test rust theme garden fast live emulate capture check deploy pull clean
-
-setup: .venv/bin/pytest            ## everything the tests need, in a venv here
-
-.venv/bin/pytest:
-	python3 -m venv .venv
-	.venv/bin/pip install --quiet --upgrade pip
-	.venv/bin/pip install --quiet evdev pycairo pytest pyyaml
+.PHONY: test theme garden sky live emulate checks device-checks desktop shot capture check deploy migrate pull clean
 
 theme:                             ## write the palette into every file that spends it
-	cargo run --quiet --release --bin legion-theme
+	cargo run --quiet --release --bin console-theme
 
 garden:                            ## draw the wallpaper again, out of the palette
-	python3 tools/legion-garden
+	cargo run --quiet --release --bin console-garden
 
-test: setup rust                   ## every test that can run on this machine
-	$(PYTHON) -m pytest -q
+sky:                               ## press the wallpapers the table names
+	cargo run --quiet --release --bin sky-press
 
-rust:                              ## everything written in rust, and its tests
+test:                              ## every test that can run on this machine
 	cargo test --quiet --workspace
 
-fast: setup                        ## the tier that needs no devices at all
-	$(PYTHON) -m pytest -q --ignore=tests/test_live.py
+live:                              ## the tier that makes real input devices, if it can
+	cargo test --quiet -p console-controller --test really_running -- --nocapture
 
-live: setup                        ## the tier that makes real input devices
-	$(PYTHON) -m pytest -q tests/test_live.py
+emulate:                           ## a Legion Go on this machine, to press
+	cargo run --quiet --bin console-emulate
 
-emulate: setup                     ## a Legion Go on this machine, to press
-	$(PYTHON) tools/legion-emulate
+checks:                            ## every feature, tried again, here
+	cargo run --quiet --bin console-check
 
-checks:  setup                     ## every feature, tried again, here
-	$(PYTHON) tools/legion-check
-
-device-checks: setup               ## what those would do to the device
-	$(PYTHON) tools/legion-check --stage device --dry
+device-checks:                     ## what those would do to the device
+	cargo run --quiet --bin console-check -- --stage device --dry
 
 desktop:                           ## the device's desktop here, in a window
-	tools/legion-desktop run
+	cargo run --quiet --bin console-desktop -- run
 
 shot:                              ## a picture of it, at the device's size
-	tools/legion-desktop shot desktop.png
+	cargo run --quiet --bin console-desktop -- shot desktop.png
 	@echo "desktop.png"
 
-capture: setup                     ## write down the real devices again
-	scp tools/capture-devices $(HOST):/tmp/capture-devices
-	ssh $(HOST) python3 /tmp/capture-devices > emulator/fixtures/devices.json
-	git diff --stat emulator/fixtures/devices.json
+# The device compiles it, out of the tree `make deploy` pushed there, so this
+# describes whatever was last deployed. Deploy first if that matters.
+capture:                           ## write down the real devices again
+	ssh $(HOST) cargo run --release --locked --quiet \
+	  --manifest-path /etc/console/Cargo.toml --bin capture-devices \
+	  > crates/console-pad/fixtures/devices.json
+	git diff --stat crates/console-pad/fixtures/devices.json
 
-check: setup                       ## what deploying would change, changing nothing
-	tools/legion-deploy --check
+check:                             ## what deploying would change, changing nothing
+	tools/console-deploy --check
 
-deploy: setup                      ## put this on the device and apply it
-	tools/legion-deploy
+deploy:                            ## put this on the device and apply it
+	tools/console-deploy
+
+migrate:                           ## move a device still called legion over, once
+	tools/console-migrate
 
 pull:                              ## take what was changed on the device back
-	tools/legion-pull
+	tools/console-pull
 
 clean:
-	rm -rf .venv .pytest_cache .stage
-	find . -name __pycache__ -type d -prune -exec rm -rf {} +
+	rm -rf .stage target

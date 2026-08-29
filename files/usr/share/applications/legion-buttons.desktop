@@ -1,8 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Buttons
-Comment=What every button on this device does
-Exec=/usr/local/bin/legion-buttons --menu
-Icon=input-gaming
-Terminal=false
-Categories=System;

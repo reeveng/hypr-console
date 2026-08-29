@@ -1,0 +1,161 @@
+/* Sized for an 8.8 inch screen held at arm's length, and for a thumb: nothing
+   here is smaller than it needs to be to be read or hit.
+
+   Pink is the colour that means "this one": the workspace you are on, the
+   highlighted row in a menu, the key under your thumb. The rest is pastel
+   against a soft dark ground, warm rather than clinical.
+
+   There is no colour in this file. Every name below comes from the palette,
+   which is written from theme/palette.toml and imported here. */
+@import url("../console/palette.css");
+
+* {
+  font-family: "Noto Sans", sans-serif;
+  font-size: 15px;
+  font-weight: 500;
+  border: none;
+  border-radius: 0;
+  min-height: 0;
+}
+
+window#waybar {
+  background: @ground;
+  color: @text;
+}
+
+#workspaces button {
+  padding: 0 12px;
+  margin: 4px 2px;
+  color: @soft;
+  background: transparent;
+  border-radius: 4px;
+}
+
+#workspaces button.active {
+  color: @night;
+  background: @pink;
+}
+
+#workspaces button.urgent {
+  color: @night;
+  background: @coral;
+}
+
+#clock,
+#custom-apps,
+#custom-battery,
+#custom-bluetooth,
+#custom-keyboard,
+#custom-music,
+#custom-network,
+#custom-sound,
+#tray {
+  padding: 0 12px;
+}
+
+/* The two that are pressed rather than read. They are the size of everything
+   else on the bar and a shade brighter than the readings beside them, because
+   a button that looks like a reading is a button nobody presses.
+
+   The slab and the corners are here rather than below so that lighting one
+   moves nothing: a margin that appeared only while the menu was up would shift
+   the workspaces along the bar every time it opened. */
+#custom-apps,
+#custom-keyboard {
+  color: @pink;
+  font-size: 18px;
+  margin: 4px 2px;
+  border-radius: 4px;
+}
+
+/* Neither glyph is centred in its own advance width. Measured off the screen,
+   the keyboard sits three pixels right of the middle of the slab drawn behind
+   it and the grid sits two, which is invisible until the slab is lit and
+   obvious afterwards. The padding is moved by that much rather than the
+   glyph, because there is nothing else to move. */
+#custom-apps {
+  padding-left: 10px;
+  padding-right: 14px;
+}
+
+#custom-keyboard {
+  padding-left: 9px;
+  padding-right: 15px;
+}
+
+/* Open, and lit exactly as the workspace you are on is lit. Both are the bar
+   saying "this is what is in front of you", and there is no reason for it to
+   say that two ways. */
+#custom-apps.open,
+#custom-keyboard.open {
+  color: @night;
+  background: @pink;
+}
+
+#clock {
+  font-weight: 700;
+  color: @text;
+}
+
+/* Every icon that opens a tab of the settings is lit while that tab is the one
+   in front, the same slab the menu and the keyboard wear. The margin and the
+   corners are on all of them whether they are lit or not, so lighting one
+   moves nothing along the bar.
+
+   One colour across the five, because they are one row of readings and a row
+   that wears four colours reads as four kinds of thing. Each of them had its
+   own before -- lilac, mauve, rose, and the plain text colour for the two
+   nobody had got to -- which left colour saying two things at once: which
+   reading this is, and what it is doing. It only needs to say the second. So
+   the resting colour is the same one the clock wears, and every colour below
+   is a state: butter and coral and leaf for a battery, soft for a thing that
+   is off or muted or silent. A coloured icon on this bar now means something
+   has changed, and that is the whole of what it means. */
+#custom-battery,
+#custom-bluetooth,
+#custom-music,
+#custom-network,
+#custom-sound {
+  color: @text;
+  font-size: 18px;
+  margin: 4px 2px;
+  border-radius: 4px;
+}
+
+#custom-battery.warning {
+  color: @butter;
+}
+
+#custom-battery.critical {
+  color: @coral;
+}
+
+#custom-battery.charging {
+  color: @leaf;
+}
+
+/* Off, muted, and nothing playing are one thing to a thumb: this reading has
+   nothing to report. */
+#custom-bluetooth.off,
+#custom-network.off,
+#custom-sound.muted,
+#custom-music.stopped {
+  color: @soft;
+}
+
+#custom-battery.open,
+#custom-bluetooth.open,
+#custom-music.open,
+#custom-network.open,
+#custom-sound.open {
+  color: @night;
+  background: @pink;
+}
+
+#network {
+  color: @mint;
+}
+
+#network.disconnected {
+  color: @coral;
+}

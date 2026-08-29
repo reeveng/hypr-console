@@ -2,8 +2,7 @@
 # Switch the Legion Go controller between desktop and gamepad behaviour.
 #   controller-profile desktop   buttons become mouse and keyboard
 #   controller-profile game      buttons stay a gamepad, for Steam and games
-#   controller-profile menu      a chooser is up: the highlight, not the pointer
-#   controller-profile tabs      the same, for a chooser with more than one page
+#   controller-profile tabs      a chooser is up: the highlight, not the pointer
 #   controller-profile           print which one is active
 #
 # InputPlumber waits for udev to finish enumerating the controllers before it
@@ -16,17 +15,30 @@ case "$1" in
   desktop) P=/etc/inputplumber/profiles/desktop.yaml ;;
   game)     P=/usr/share/inputplumber/profiles/default.yaml ;;
   keyboard) P=/etc/inputplumber/profiles/keyboard.yaml ;;
-  menu)     P=/etc/inputplumber/profiles/menu.yaml ;;
   tabs)     P=/etc/inputplumber/profiles/tabs.yaml ;;
   "")      busctl --system get-property $BUS $OBJ $IFACE ProfileName 2>/dev/null | cut -d\" -f2; exit 0 ;;
-  *)       echo "usage: controller-profile [desktop|game|keyboard|menu|tabs]" >&2; exit 2 ;;
+  *)       echo "usage: controller-profile [desktop|game|keyboard|tabs]" >&2; exit 2 ;;
 esac
+
+# The controller daemon is held off the pad only while the keyboard has it.
+# Anything that takes the pad back takes it back for the daemon too. A
+# keyboard that went away without saying so, or a hook that died between the
+# stop and the start, used to leave the daemon stopped for good: every press
+# piled up behind it and arrived at once when something else woke it, which
+# reads as buttons that need pressing twice.
+resume() {
+    [ "$1" = keyboard ] && return 0
+    systemctl --user kill --kill-whom=main --signal=CONT console-controller.service 2>/dev/null
+    return 0
+}
 
 n=0
 while [ $n -lt 60 ]; do
     if busctl --system get-property $BUS $OBJ $IFACE ProfileName >/dev/null 2>&1; then
         busctl --system call $BUS $OBJ $IFACE LoadProfilePath s "$P"
-        exit $?
+        answered=$?
+        resume "$1"
+        exit $answered
     fi
     n=$((n + 1))
     sleep 1

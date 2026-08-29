@@ -1,0 +1,19 @@
+[package]
+name = "console-bar"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_bar"
+path = "src/lib.rs"
+
+[[bin]]
+name = "bar-say"
+path = "src/bin/bar-say.rs"
+
+[dependencies]
+console-panel.workspace = true
+libc = "0.2"
+serde_json = "1"

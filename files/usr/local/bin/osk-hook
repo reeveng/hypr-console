@@ -23,8 +23,8 @@
 # keyboard can be summoned over a panel as well as over the desktop, and the
 # panel's own profile is what its shoulders answer to. Putting the desktop
 # back either way left a panel on screen with nothing driving its tabs.
-unit=legion-controller.service
-was=${XDG_RUNTIME_DIR:-/run/user/1000}/legion-profile-before-keyboard
+unit=console-controller.service
+was=${XDG_RUNTIME_DIR:-/run/user/1000}/console-profile-before-keyboard
 
 case "$1" in
 show)

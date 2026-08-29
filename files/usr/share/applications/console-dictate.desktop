@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Dictation
+Comment=Say something, and have it typed where the keyboard would have
+Exec=/usr/local/bin/dictate
+Icon=audio-input-microphone
+Terminal=false
+Categories=Utility;Accessibility;

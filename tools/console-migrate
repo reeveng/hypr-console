@@ -1,0 +1,217 @@
+#!/bin/sh
+# Move a device that is still called legion over to the console names. Once.
+#
+#     tools/console-migrate --check    what the machine is called now
+#     tools/console-migrate            that, then ask, then move it
+#     tools/console-migrate --yes      that, without asking
+#
+# The rename in this repository is a rename of strings. On a machine that has
+# already been applied to, the old names are enabled units, installed binaries,
+# a checkout at /etc/legion and directories in a home with somebody's own
+# answers in them. Deploying the renamed tree without this leaves a machine
+# running seven units nothing declares any more, beside seven new ones that
+# want the same devices.
+#
+# Nothing here is deleted. Everything the old names left behind is moved into
+# an attic under /var/tmp, named for the day, and the last line says where it
+# is. Look at the desktop first; empty the attic after.
+#
+# Run it over ssh from a laptop, with a shell you are already sitting in. The
+# desktop is down between the disable and the enable, so a machine doing this
+# from its own screen has no way of finishing the job.
+set -e
+
+if [ -z "${CONSOLE_HOST:-}" ]; then
+    echo "CONSOLE_HOST is not set, so there is no device to talk to." >&2
+    echo "Set it to the device, as in CONSOLE_HOST=root@handheld." >&2
+    exit 1
+fi
+host=$CONSOLE_HOST
+here=$(cd "$(dirname "$0")/.." && pwd)
+cd "$here"
+
+on() { ssh "$host" "$@"; }
+
+# systemd's user units belong to the person the desktop is for, not to the
+# account this is logged in as. Found the way the manifest finds it, so that
+# what is enabled here is what @user@ was filled in with there.
+whoever=$(on 'homes=""; for at in /home/*; do
+    [ -d "$at" ] || continue
+    name=${at#/home/}
+    id -u "$name" >/dev/null 2>&1 || continue
+    homes="$homes $name"
+done
+set -- $homes
+if [ $# -eq 1 ]; then echo "$1"; else id -nu 1000; fi')
+[ -n "$whoever" ] || { echo "no account on $host to own the desktop" >&2; exit 1; }
+uid=$(on "id -u $whoever")
+
+# Every user-scoped command goes through this. Without the runtime directory
+# systemctl talks to root's session, which runs none of the desktop.
+theirs() { on "runuser -u $whoever -- env XDG_RUNTIME_DIR=/run/user/$uid $*"; }
+
+UNITS="bar controller keyboard paper polkit session sky"
+
+echo "== what $host is called now"
+tree=none
+if on 'test -d /etc/legion'; then tree=/etc/legion; fi
+if on 'test -d /etc/console'; then tree=/etc/console; fi
+echo "  the tree        $tree"
+enabled=$(theirs "systemctl --user list-unit-files --no-legend" || true)
+old=$(echo "$enabled" | awk '$1 ~ /^legion/ {print $1}' | tr '\n' ' ')
+new=$(echo "$enabled" | awk '$1 ~ /^console/ {print $1}' | tr '\n' ' ')
+echo "  units, old      ${old:-none}"
+echo "  units, new      ${new:-none}"
+echo "  in a home       $(on "runuser -u $whoever -- sh -c 'ls -d ~/.config/legion ~/.local/state/legion ~/.local/share/legion ~/.cache/legion ~/.librewolf/legion 2>/dev/null' " | tr '\n' ' ')"
+echo "  in /usr/local   $(on 'ls /usr/local/bin/legion* /usr/local/lib/legion 2>/dev/null' | tr '\n' ' ')"
+
+case "${1:-}" in --check) exit 0 ;; esac
+
+if [ "$tree" = "none" ]; then
+    echo "there is no checkout on $host to migrate" >&2
+    exit 1
+fi
+if [ "$tree" = "/etc/console" ] && [ -z "$old" ]; then
+    echo
+    echo "$host is already called console. Nothing to do."
+    exit 0
+fi
+if [ -n "$(git status --porcelain)" ]; then
+    echo "there are changes here that are not committed; the machine is brought" >&2
+    echo "to a commit, not to a working tree" >&2
+    exit 1
+fi
+
+# A profile directory moved underneath a running browser is a browser writing
+# into a directory that is not there any more.
+if theirs "pgrep -u $whoever -x librewolf" >/dev/null 2>&1; then
+    echo "librewolf is running on $host. Close it: its profile directory moves." >&2
+    exit 1
+fi
+
+if [ "${1:-}" != "--yes" ]; then
+    printf '\nmigrate %s to the console names? the desktop goes down for it [y/N] ' "$host"
+    read -r answer
+    case "$answer" in y | Y | yes) ;; *) echo "nothing done"; exit 1 ;; esac
+fi
+
+attic=/var/tmp/console-migration-$(date +%Y%m%d-%H%M%S)
+on "mkdir -p $attic/bin $attic/units $attic/share $attic/etc"
+echo
+echo "== the attic is $attic"
+
+# 1. The history first, into the tree where it still stands. Nothing installed
+#    moves yet: this only gives the machine the source the new engine is built
+#    from, and the files/ the apply will read later.
+echo
+echo "== the history"
+on "git -C $tree config receive.denyCurrentBranch updateInstead"
+git push "ssh://$host$tree" HEAD:master
+
+# 2. The engine, built where the tree stands and not where it is going. It
+#    holds /etc/console as its root, so it is installed now and asked for
+#    nothing until the tree has moved under it.
+echo
+echo "== the engine"
+on "cargo build --release --locked --manifest-path $tree/Cargo.toml --bin console"
+on "install -m 755 $tree/target/release/console /usr/local/bin/console"
+
+# 3. The desktop stops here and does not come back until step 7.
+echo
+echo "== the old units go"
+for unit in $UNITS; do
+    theirs "systemctl --user disable --now legion-$unit.service" || true
+done
+theirs "systemctl --user disable --now syncthing.service" || true
+theirs "systemctl --user disable --now legion.target" || true
+theirs "systemctl --user daemon-reload"
+
+# 4. The tree, and then everything in a home that carries somebody's own
+#    answers. Moved rather than left, because a renamed path with nothing at it
+#    is a menu that has forgotten its order and a browser on an empty profile.
+echo
+echo "== the tree and the directories"
+if [ "$tree" = "/etc/legion" ]; then
+    on "mv /etc/legion /etc/console"
+fi
+on "runuser -u $whoever -- sh -c '
+    for pair in .config/legion:.config/console \
+                .local/state/legion:.local/state/console \
+                .local/share/legion:.local/share/console \
+                .cache/legion:.cache/console \
+                .librewolf/legion:.librewolf/console; do
+        was=\${pair%%:*}; now=\${pair#*:}
+        [ -e \"\$HOME/\$was\" ] || continue
+        [ -e \"\$HOME/\$now\" ] && continue
+        mkdir -p \"\$(dirname \"\$HOME/\$now\")\"
+        mv \"\$HOME/\$was\" \"\$HOME/\$now\"
+        echo \"  \$was -> \$now\"
+    done
+    true'"
+
+# The pictures somebody pressed live only on the machine: sky-press writes them
+# there and nothing in the repository carries them. Moved, not swept.
+on "if [ -d /usr/share/backgrounds/legion ]; then
+        mkdir -p /usr/share/backgrounds/console
+        mv /usr/share/backgrounds/legion/* /usr/share/backgrounds/console/ 2>/dev/null || true
+        rmdir /usr/share/backgrounds/legion 2>/dev/null || true
+    fi"
+
+# 5. Now the machine can be brought to the manifest, under the new names.
+echo
+echo "== the apply"
+on "console apply"
+
+# 6. What the old names left behind. The manifest installs a name and never
+#    sweeps one, so every one of these is here until something moves it.
+echo
+echo "== the old names"
+on "for at in /usr/local/bin/legion /usr/local/bin/legion-*; do
+        [ -e \"\$at\" ] && mv \"\$at\" $attic/bin/
+    done
+    [ -d /usr/local/lib/legion ] && mv /usr/local/lib/legion $attic/
+    for at in /usr/share/applications/legion-*.desktop; do
+        [ -e \"\$at\" ] && mv \"\$at\" $attic/share/
+    done
+    for at in /usr/share/backgrounds/legion.webp /usr/share/icons/legion-placeholder.svg; do
+        [ -e \"\$at\" ] && mv \"\$at\" $attic/share/
+    done
+    for at in /etc/sudoers.d/legion /etc/udev/rules.d/90-legion-backlight.rules \
+              /etc/udev/rules.d/91-legion-touchpad.rules \
+              /etc/chromium/policies/managed/legion-search.json; do
+        [ -e \"\$at\" ] && mv \"\$at\" $attic/etc/
+    done
+    for at in /etc/systemd/user/legion.target /etc/systemd/user/legion-*.service \
+              /etc/systemd/user/gamescope-session.service.d/legion.conf; do
+        [ -e \"\$at\" ] && mv \"\$at\" $attic/units/
+    done
+    udevadm control --reload 2>/dev/null || true
+    true"
+
+# 7. The desktop comes back. syncthing is enabled again with them: it keeps its
+#    own name, but what pulled it in was the target that has just been renamed.
+echo
+echo "== the new units"
+theirs "systemctl --user daemon-reload"
+for unit in $UNITS; do
+    theirs "systemctl --user enable console-$unit.service"
+done
+theirs "systemctl --user enable syncthing.service"
+theirs "systemctl --user enable --now console.target"
+
+echo
+echo "== what the machine says about itself"
+on "console check" || true
+
+# This clone's own remote last, so that a run that fails before here leaves the
+# laptop still able to reach the device by the path it is still at.
+if git remote get-url device >/dev/null 2>&1; then
+    git remote set-url device "ssh://$host/etc/console"
+    echo
+    echo "== the device remote here is now $(git remote get-url device)"
+fi
+
+echo
+echo "$host is on the console names."
+echo "What the old ones left is in $attic. Look at the desktop, then empty it."
+echo "Other clones need: git remote set-url device ssh://$host/etc/console"

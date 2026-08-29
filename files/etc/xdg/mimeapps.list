@@ -1,0 +1,22 @@
+# Which program opens what, as this desktop ships.
+#
+# The menu hands a line that matched no application to the web, and the guide
+# and the settings have links in them. Every one of those asks xdg-open rather
+# than naming a browser, so the name is written here once and nothing else on
+# the machine holds a second copy of it.
+#
+# It has to be said. There are three browsers on this device and the desktop
+# picks between them by what was installed last, which is not a decision
+# anybody made. librewolf is the one the palette was written for; chromium is
+# kept for the site that will not work in it and is not the one a link should
+# land in.
+#
+# Here rather than under her own config, because the settings panel writes that
+# one and this is the answer it starts from. XDG reads hers first and falls
+# back to this, so choosing a browser on the Web tab is a file of her own laid
+# over this one, and a machine put back together from the manifest still opens
+# a link in something.
+[Default Applications]
+text/html=librewolf.desktop
+x-scheme-handler/http=librewolf.desktop
+x-scheme-handler/https=librewolf.desktop

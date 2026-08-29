@@ -167,7 +167,7 @@ mapping:
   # something else goes unreachable. Each of these does one thing and nothing
   # else does that thing.
 
-  - name: Menu - the settings
+  - name: Menu - the guide to the buttons
     source_event:
       gamepad:
         button: Start
@@ -175,7 +175,7 @@ mapping:
       - gamepad:
           button: Start
 
-  - name: Legion left - nothing yet
+  - name: Legion left - Game Mode, and Steam
     source_event:
       gamepad:
         button: Guide
@@ -183,7 +183,11 @@ mapping:
       - gamepad:
           button: Guide
 
-  - name: View - back to the workspace you were on
+  # The shoulders already move between workspaces, and going back to the one
+  # before was a fifth thing to learn for a road that was already there. Named
+  # and given nothing rather than left out, so the next thing it is asked to do
+  # is written here.
+  - name: View - the browser
     source_event:
       gamepad:
         button: Select
@@ -191,7 +195,7 @@ mapping:
       - gamepad:
           button: Select
 
-  - name: Legion right - the guide to the buttons
+  - name: Legion right - the settings
     source_event:
       gamepad:
         button: QuickAccess
@@ -225,7 +229,7 @@ mapping:
     target_events:
       - keyboard: KeyF13
 
-  - name: Left paddle, bottom - nothing yet
+  - name: Left paddle, bottom - say something, and have it typed
     source_event:
       gamepad:
         button: LeftPaddle2

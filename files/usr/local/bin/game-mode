@@ -1,5 +1,5 @@
 #!/bin/sh
-# Leave the desktop and go to Steam. Bound to the right Legion button.
+# Leave the desktop and go to Steam. Bound to the left Legion button.
 #
 # The controller goes back to being a gamepad first: Steam and games need a
 # real A button, not the mouse click the desktop map turns it into.

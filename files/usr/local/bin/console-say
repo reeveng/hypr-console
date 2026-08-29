@@ -1,0 +1,44 @@
+#!/bin/sh
+# Say something went wrong, where somebody who is not in a terminal sees it.
+#
+#     console-say KIND SUMMARY [BODY]
+#
+# The journal always gets it. The screen gets it up to five times per kind per
+# session, because everything this is called from is a loop of one sort or
+# another: a service that restarts, a daemon that comes round every five
+# minutes, an apply that walks a list. The first few tell somebody something is
+# wrong; the two hundredth is a machine shouting over itself, and the way that
+# ends is with the notifications turned off and the fault still there.
+#
+# KIND is what is counted, so it names the fault and not the moment: two
+# pictures that will not delete are one kind, and the picture and the
+# compositor are two. The count lives in the runtime directory, so a fresh
+# session is a fresh five and a reboot forgets it all, which is the same
+# lifetime as the fault it is counting.
+LOUD=5
+
+kind=$1
+summary=$2
+body=$3
+
+if [ -z "$kind" ] || [ -z "$summary" ]; then
+    echo "usage: console-say KIND SUMMARY [BODY]" >&2
+    exit 2
+fi
+
+logger -t console -p user.warning -- "$kind: $summary${body:+ - $body}"
+
+counting=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/console/said
+mkdir -p "$counting" || exit 0
+count=$(($(cat "$counting/$kind" 2>/dev/null || echo 0) + 1))
+echo "$count" > "$counting/$kind"
+
+[ "$count" -le "$LOUD" ] || exit 0
+if [ "$count" -eq "$LOUD" ]; then
+    body="${body:+$body }This is the last time it will be shown this session."
+fi
+
+# Never the reason this fails as well: nothing here is worth taking down the
+# thing that called it, and the journal already has what was said.
+notify-send --app-name=Console --urgency=critical --icon=dialog-warning \
+    -- "$summary" "$body" 2>/dev/null || true

@@ -1,0 +1,47 @@
+[Unit]
+Description=The background
+PartOf=console.target
+
+[Service]
+# The daemon tells systemd when it is ready, so the colour is only asked for
+# once there is something listening to be asked. Setting it from the unit
+# rather than from a login script means the background is on the machine's
+# inventory like everything else, and comes back with the service.
+Type=notify
+
+# What the daemon keeps of the frames it has decoded is left where it is. It is
+# what a picture costs: with those frames a wallpaper goes up in the moment it
+# is asked for, and without them the client decodes and compresses the whole
+# loop before any of it is drawn, which was measured on this machine at
+# twenty-five seconds of a core. Emptied at every start, that was paid again at
+# every boot, at every return from Game Mode, and every time a window stopped
+# covering the screen. What made it look worth paying is that the name of a
+# cache entry says nothing about what is inside the picture, so a picture
+# pressed again at the same path is served out of the old one's frames;
+# `console_sky::place::freshen` throws away exactly those, by their date.
+#
+# --no-cache is about the other half of the cache, which is the picture the
+# daemon would put up by itself: it remembers what was last on each screen, and
+# a daemon that restored that would be a second opinion about the wallpaper.
+ExecStart=/usr/bin/awww-daemon --no-cache
+
+# What is on the screen for the moment before `console-sky` has chosen a
+# picture, and what stays there on a machine where `console-sky` will not start.
+# It is a colour rather than a picture: this unit brings the daemon up and
+# `console-sky` decides what goes on it, and a unit that painted a picture of
+# its own would be a second opinion about the wallpaper.
+#
+# Written by `make theme`, because a unit file can import nothing.
+# console-theme:begin
+# Written by console-theme from theme/palette.toml.
+#
+# awww wants six hex digits and no hash, and a hash would start a
+# comment here anyway.
+ExecStartPost=/usr/bin/awww clear 110b12
+# console-theme:end
+ExecStopPost=-/usr/local/bin/console-fell %n
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=console.target

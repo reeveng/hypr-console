@@ -1,0 +1,9 @@
+Nothing reads what is written here. The file exists so that
+/usr/lib/steamos/steam-short-session-tracker leaves Steam alone.
+
+The tracker counts every Game Mode session shorter than a minute as Steam
+having failed to start, and after enough of them it moves ~/.steam aside and
+unpacks the copy under /usr/lib over the top. On a machine where leaving Game
+Mode is one button, a short visit is what a person does rather than a fault,
+and the entry that follows the repair spends the best part of a minute
+rebuilding Steam and then updating what it rebuilt.

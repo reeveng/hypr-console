@@ -1,11 +1,11 @@
 # Open the menu, walk down it, and choose. The profile changes partway
-# through because the launcher changes it: while a chooser is up the pad
-# drives the highlight rather than the pointer.
+# through because the panel changes it: while a chooser is up the pad drives
+# the highlight rather than the pointer.
 profile desktop
 press left-paddle-top
 wait 0.6
 
-profile menu
+profile tabs
 press dpad-down
 press dpad-down
 wait 0.2

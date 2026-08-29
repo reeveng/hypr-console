@@ -1,0 +1,22 @@
+[package]
+name = "console-files"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_files"
+path = "src/lib.rs"
+
+[[bin]]
+name = "files-panel"
+path = "src/bin/files-panel.rs"
+
+[[bin]]
+name = "files-thumbs"
+path = "src/bin/files-thumbs.rs"
+
+[dependencies]
+gtk4 = "0.11"
+console-panel.workspace = true

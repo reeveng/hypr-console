@@ -45,14 +45,17 @@ const PROGRAMS: &[(&str, From_)] = &[
     ("busctl", From_::Base),
     ("cargo", From_::Package("rust")),
     ("cp", From_::Base),
+    ("cmake", From_::Package("cmake")),
     ("curl", From_::Package("curl")),
     ("env", From_::Base),
     ("ffmpeg", From_::Package("ffmpeg")),
+    ("ffprobe", From_::Package("ffmpeg")),
     ("gio", From_::Package("glib2")),
     ("git", From_::Package("git")),
     ("hostname", From_::Here),
     ("hyprctl", From_::Package("hyprland")),
     ("id", From_::Base),
+    ("makoctl", From_::Package("mako")),
     ("mkdir", From_::Base),
     ("mv", From_::Base),
     ("nmcli", From_::Package("networkmanager")),
@@ -75,6 +78,7 @@ const PROGRAMS: &[(&str, From_)] = &[
     ("xdg-mime", From_::Package("xdg-utils")),
     ("xdg-open", From_::Package("xdg-utils")),
     ("xdg-settings", From_::Package("xdg-utils")),
+    ("yt-dlp", From_::Package("yt-dlp")),
 ];
 
 /// Words that are a program's name somewhere else and not one here.

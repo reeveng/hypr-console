@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/ShadowBlip/InputPlumber/main/rootfs/usr/share/inputplumber/schema/device_profile_v1.json
+version: 1
+kind: DeviceProfile
+name: Game
+description: >
+  Loaded while Game Mode has the screen. Everything is passed through
+  untouched: Steam and the games under it are handed a pad, and a pad is what
+  they get, down to the button that leaves.
+
+  Legion left is Steam's own menu and stays Steam's. `game-return` reads the
+  same button off the pad and comes back to the desktop if it is held, which
+  is the one thing this desktop keeps while Steam is up.
+
+  This stands where the shipped Default profile used to. It translates
+  nothing, which is what Game Mode wants of it; what it is here for is naming
+  the devices below, which a file from a package could not be held to.
+
+# The same three as every other profile, and the reason is not about Game Mode
+# at all. InputPlumber destroys a target a profile leaves out and builds a new
+# one when it comes back, and the compositor does not deliver anything from a
+# keyboard that appeared after it started. Leaving for Game Mode and coming
+# back is a profile switch like any other.
+target_devices:
+  - mouse
+  - keyboard
+  - xbox-elite
+
+mapping: []

@@ -12,8 +12,10 @@ use std::collections::BTreeMap;
 
 use evdev::{EventType, KeyCode, RelativeAxisCode};
 use harness::{Daemon, Go, Script, go};
+use console_controller::doing::Doing;
 use console_controller::touch::GAIN;
 use console_controller::reading::POLL;
+use console_controller::returning::{HELD_SECONDS, Returning};
 use console_controller::turning::SETTLING_SECONDS;
 
 const WHEEL: (EventType, u16) = (EventType::RELATIVE, RelativeAxisCode::REL_WHEEL.0);
@@ -86,6 +88,91 @@ fn legion_left_leaves_for_game_mode() {
     go.press("legion-left").expect("a button");
     daemon.run(&mut go, 2);
     assert_eq!(daemon.did.names(), ["game-mode"]);
+}
+
+// ------------------------------------------------------------------ and back
+//
+// The other side of that button, which is a second daemon: the desktop's own is
+// stopped along with the rest of console.target on the way to Game Mode, so
+// what reads the pad there is `game-return`. Game Mode's profile translates
+// nothing, which is why the press arrives at Steam as itself and opens Steam's
+// menu. These are about what happens if it is kept down.
+
+/// Everything the pad has to say just now, read the way Game Mode reads it.
+fn read_the_pad(go: &mut Go, returning: &mut Returning, now: f64) {
+    for event in go.devices.sink.devices.get_mut("pad").expect("a pad").drain() {
+        returning.saw(event.event_type(), event.code(), event.value(), now);
+    }
+}
+
+/// Every key the pad sent, in order, which is what a game is handed.
+fn keys_of(go: &mut Go) -> Vec<u16> {
+    go.devices
+        .sink
+        .devices
+        .get_mut("pad")
+        .expect("a pad")
+        .drain()
+        .iter()
+        .filter(|event| event.event_type() == EventType::KEY)
+        .map(evdev::InputEvent::code)
+        .collect()
+}
+
+fn way_back() -> Option<Doing> {
+    Some(Doing::run(&["/usr/local/bin/desktop-mode"]))
+}
+
+/// One button for the door, whichever side of it you are on.
+#[test]
+fn legion_left_held_comes_back_from_game_mode() {
+    let mut go = go("game");
+    let mut returning = Returning::default();
+    go.down("legion-left").expect("a button");
+    read_the_pad(&mut go, &mut returning, 1000.0);
+    assert_eq!(returning.turn(1000.0 + HELD_SECONDS), way_back());
+}
+
+/// A press is Steam's. Taken outright, Game Mode would lose the menu that the
+/// library, the power and the way out of a game are on.
+#[test]
+fn a_press_of_it_is_steams_own_menu_and_nothing_of_ours() {
+    let mut go = go("game");
+    let mut returning = Returning::default();
+    go.press("legion-left").expect("a button");
+    read_the_pad(&mut go, &mut returning, 1000.0);
+    assert_eq!(returning.turn(1000.0 + HELD_SECONDS), None);
+}
+
+/// Steam's own shortcuts are that button and another one together, and the one
+/// that makes a game give up is held for longer than this is.
+#[test]
+fn held_with_another_button_it_is_a_chord_of_steams() {
+    let mut go = go("game");
+    let mut returning = Returning::default();
+    go.down("legion-left").expect("a button");
+    go.down("b").expect("a button");
+    read_the_pad(&mut go, &mut returning, 1000.0);
+    assert_eq!(returning.turn(1000.0 + HELD_SECONDS), None);
+}
+
+/// And the press reaches Steam either way, held or not: the button it acts on
+/// is the pad's own, and nothing here takes it.
+#[test]
+fn steam_is_handed_the_button_whatever_is_made_of_it_here() {
+    let mut go = go("game");
+    go.press("legion-left").expect("a button");
+    assert_eq!(keys_of(&mut go), [KeyCode::BTN_MODE.0, KeyCode::BTN_MODE.0]);
+}
+
+/// Every other button too, untouched, which is the whole of what Game Mode's
+/// profile is for: what is on the screen there is a game, and a game expects a
+/// pad rather than this desktop.
+#[test]
+fn everything_else_reaches_the_pad_as_itself() {
+    let mut go = go("game");
+    go.press("a").expect("a button");
+    assert_eq!(keys_of(&mut go), [KeyCode::BTN_SOUTH.0, KeyCode::BTN_SOUTH.0]);
 }
 
 /// The daemon is stopped outright while the on-screen keyboard is up, so that

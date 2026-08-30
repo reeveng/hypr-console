@@ -628,9 +628,12 @@ impl Panel {
     /// focus by hovering it. Doing it here also keeps the highlight and the
     /// cursor together, which is the same reason the pointer moves both.
     fn walk(self: &Rc<Self>, step: i32) {
-        let last = self.state.borrow().placed.len().saturating_sub(1) as i32;
         let now = self.rows.selected_row().map_or(0, |row| row.index());
-        let Some(going) = self.rows.row_at_index((now + step).clamp(0, last)) else { return };
+        // Worked out and the state given back before anything is selected:
+        // selecting a row calls back in to remember where the highlight is, and
+        // a borrow still alive at that point is a panel that dies as it walks.
+        let at = walked(&self.state.borrow().placed, now, step);
+        let Some(going) = self.rows.row_at_index(at) else { return };
         self.rows.select_row(Some(&going));
         self.seen(&going);
     }
@@ -813,6 +816,18 @@ impl Panel {
             let held = ListBoxRow::new();
             if row.now() {
                 held.add_css_class("now");
+            }
+            // Nothing happens to it, so nothing about it is offered to a hand:
+            // the d-pad walks past it and a tap slides off it. Said to GTK as
+            // well as worked out here, because the pad is not the only thing
+            // that picks a row and a finger would otherwise land where the
+            // highlight cannot.
+            if row.heading() {
+                held.set_activatable(false);
+                held.set_selectable(false);
+            }
+            if row.naming {
+                held.add_css_class("naming");
             }
             held.set_child(Some(&self.line(row)));
             self.rows.append(&held);
@@ -1602,6 +1617,30 @@ fn standing(rows: &[Row], at: usize) -> i32 {
     found.map_or(at, |(index, _)| index) as i32
 }
 
+/// Where one press of the d-pad takes the highlight.
+///
+/// Past anything nothing happens to, rather than onto it. A title is a row on
+/// the list and is not one of the answers on it, and a thumb walking down six
+/// things that can be done should meet six of them.
+///
+/// It stops where the list does, and a step that finds nothing to stand on
+/// stays where it was: at the bottom of a list ending in a word to be read,
+/// pressing down again should leave the highlight where it is rather than take
+/// it off the last row anybody can choose.
+fn walked(rows: &[Row], at: i32, step: i32) -> i32 {
+    let last = rows.len().saturating_sub(1) as i32;
+    let mut going = at;
+    loop {
+        going += step;
+        if going < 0 || going > last {
+            return at;
+        }
+        if rows.get(going as usize).is_none_or(|row| !row.heading()) {
+            return going;
+        }
+    }
+}
+
 /// Take everything off the list, except the one row that is asked to stay.
 ///
 /// The line to type into stays. Removing it would unparent the entry inside it,
@@ -1664,7 +1703,7 @@ pub fn show(build: Build, column: i32, start: Option<&str>) {
 
 #[cfg(test)]
 mod tests {
-    use super::standing;
+    use super::{standing, walked};
     use crate::page::{Does, Row};
 
     fn heading(says: &str) -> Row {
@@ -1704,6 +1743,24 @@ mod tests {
     fn a_tab_with_nothing_to_act_on_stays_where_it_was_put() {
         assert_eq!(standing(&[heading("Nothing else is playing")], 0), 0);
         assert_eq!(standing(&[], 0), 0);
+    }
+
+    /// A title is walked past rather than onto, from either direction.
+    #[test]
+    fn the_dpad_steps_over_the_name_of_what_a_list_is_about() {
+        let rows = [chooseable("\u{2039} Pictures"), Row::naming("holiday.jpg", "2.4 MB"),
+                    chooseable("Open"), chooseable("Delete")];
+        assert_eq!(walked(&rows, 0, 1), 2);
+        assert_eq!(walked(&rows, 2, -1), 0);
+    }
+
+    /// A step off the end is a step that stays, so the last row anybody can
+    /// choose is one the highlight can rest on.
+    #[test]
+    fn a_step_past_the_end_of_a_list_stays_where_it_was() {
+        let rows = [chooseable("Open"), chooseable("Delete"), heading("Nothing else")];
+        assert_eq!(walked(&rows, 1, 1), 1);
+        assert_eq!(walked(&rows, 0, -1), 0);
     }
 
     /// Nothing happens to it and nothing is written beside it, which is a

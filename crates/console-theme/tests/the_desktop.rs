@@ -195,15 +195,17 @@ mod the_tree {
     /// A stylesheet, a terminal, a keyboard and a browser can each import a
     /// file written in their own language, so each of them does, and the hex
     /// lives in one place per language rather than in every file that spends
-    /// it. The ones that cannot import anything are KDE's ini format, which
-    /// has no include, a `user.js`, which is a list of literals, the
-    /// compositor, whose config is written rather than imported because a Lua
-    /// file that fails to load takes the session with it, and a picture.
+    /// it. The ones that cannot import anything are KDE's ini format and
+    /// mako's, neither of which has an include, a `user.js`, which is a list
+    /// of literals, the compositor, whose config is written rather than
+    /// imported because a Lua file that fails to load takes the session with
+    /// it, and a picture.
     #[test]
     fn only_the_palette_holds_a_colour() {
         let allowed: BTreeSet<&str> = BTreeSet::from([
             "home/@user@/.config/hypr/hyprland.lua",
             "home/@user@/.config/kdeglobals",
+            "home/@user@/.config/mako/config",
             "home/@user@/.config/console/palette.css",
             "home/@user@/.config/console/palette.toml",
             "home/@user@/.librewolf/console/chrome/palette.css",

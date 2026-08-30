@@ -61,6 +61,15 @@ row.now label { color: @mint; }
 row:selected { background-color: @pink; }
 row:selected label { color: @night; font-weight: bold; }
 
+/* The name of what the rows under it are about, which is not one of them. It
+   used to be a row like any other: the same card, the same ink, the same shape
+   a thumb aims at, so a question about a photograph read as though the
+   photograph were one of the answers. It keeps no card, is written small and
+   quiet, and the highlight walks past it. */
+row.naming { background-color: transparent; padding: 14px 18px 6px 18px; }
+row.naming label { color: @soft; font-size: 15px; font-weight: bold; }
+row.naming #aside { color: @soft; font-size: 15px; font-weight: normal; }
+
 /* Held off the sides, and nothing above or below: space there is the
    scroller's to give. Given here it belongs to the list, which starts the
    rows that far down a viewport counted in whole rows and pushes the last

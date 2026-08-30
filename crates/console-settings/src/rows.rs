@@ -156,7 +156,7 @@ pub fn bluetooth_rows(
 pub fn search_rows(engine: &str, back: Chosen) -> Vec<Row> {
     let leaving = Arc::clone(&back);
     let mut rows =
-        vec![Row::back(DEFAULTS, move |showing| leaving(showing)), Row::said("Search with", "")];
+        vec![Row::back(DEFAULTS, move |showing| leaving(showing)), Row::naming("Search with", "")];
     for offered in &engines::EVERY {
         let mark = match offered.key == engine {
             true => NOW,
@@ -209,16 +209,24 @@ pub fn system_rows() -> Vec<Row> {
 
 /// The words on the tabs, in the order they are drawn.
 ///
-/// Battery is how the machine runs, Wi-Fi and Bluetooth are what it talks to,
-/// Sound is what comes out of it. Wallpaper and Defaults are how it looks and
-/// what it opens things with, which are the two anybody changes once and then
-/// leaves alone. System is how it stops, and nothing that turns the machine off
-/// shares a page with anything you would touch every day.
+/// The first four are the bar's own four, in the order the bar draws them.
+/// Sound, Bluetooth, Wi-Fi and Battery are each an icon along the top of the
+/// screen that opens this panel at the tab it stands for, and the bar is still
+/// up there while the panel is being read. They stood in one order along the
+/// top and another along the tabs, which is the kind of thing nobody notices
+/// and everybody follows: a thumb that had just tapped the speaker went
+/// looking for the battery on the far side of the tabs from where it is on the
+/// bar.
+///
+/// The last three are nobody's icon. Wallpaper and Defaults are how it looks
+/// and what it opens things with, which are the two anybody changes once and
+/// then leaves alone. System is how it stops, and nothing that turns the
+/// machine off shares a page with anything you would touch every day.
 pub const TABS: [&str; 7] = [
-    "Battery",
     "Sound",
-    "Wi-Fi",
     "Bluetooth",
+    "Wi-Fi",
+    "Battery",
     "Wallpaper",
     DEFAULTS,
     "System",

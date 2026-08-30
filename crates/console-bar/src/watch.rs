@@ -17,6 +17,13 @@ use console_panel::door::{events, worth_asking_after};
 
 use crate::reading::What;
 
+/// How often the bell is counted when nothing said anything.
+///
+/// The net under the monitor below, and nothing more: every notification that
+/// arrives or goes says so, so this is only what carries the reading on a
+/// machine where the monitor could not be started.
+pub const BELL: Duration = Duration::from_secs(10);
+
 /// How often a reading is taken when nothing said anything.
 pub fn tick(what: What) -> Duration {
     match what {
@@ -61,13 +68,37 @@ fn layers(say: Sender<()>) {
     });
 }
 
+/// A word whenever a notification arrived or went, or the panel opened over it.
+///
+/// busctl is asked to watch the name mako owns, which catches both halves: the
+/// call that raises a notification, and the signal that says one has closed,
+/// whether a thumb took it down or it ran out of seconds. Nothing else on the
+/// bus is watched, so a desktop doing anything at all does not wake this.
+///
+/// The compositor is the other half, as it is for every reading here: the bell
+/// lights while the panel it opens is in front, and a layer opening is the
+/// only thing that says so. Left off, the bell lit up to ten seconds after the
+/// tap that opened it, which reads as an icon that does not answer.
+///
+/// stdbuf, because a monitor whose output is a pipe buffers it by the
+/// kilobyte, and a bell that lights when the buffer fills has not lit.
+pub fn watching_notices() -> Receiver<()> {
+    let (say, heard) = channel();
+    layers(say.clone());
+    lines(
+        vec!["stdbuf", "-oL", "busctl", "--user", "monitor", "org.freedesktop.Notifications"],
+        say,
+    );
+    heard
+}
+
 /// A program that prints a line whenever the thing it watches changed.
 ///
 /// It is asked to die with this one. waybar restarts a module that exits, and
 /// a `pactl subscribe` left behind by each of those is a wake-up a second for
 /// the rest of the session; twenty-five of them were found alive on the device
 /// once, the oldest four hours old.
-fn lines(argv: Vec<&'static str>, say: Sender<()>) {
+pub fn lines(argv: Vec<&'static str>, say: Sender<()>) {
     std::thread::spawn(move || {
         let mut asking = Command::new(argv[0]);
         asking.args(&argv[1..]).stdout(Stdio::piped()).stderr(Stdio::null());

@@ -101,6 +101,20 @@ fn the_door_that_opened_it_closes_it() {
     assert!(gone(&mut up), "the panel that was up is still up");
 }
 
+/// The bell names no tab, so its door is the panel's name and the space where a
+/// tab would have been. What is written down is read back trimmed, so until the
+/// name was trimmed on the way in as well the bell could not recognise its own
+/// door: the tap put the panel away for being somebody else's and opened it
+/// again in the same breath. Every other icon along that edge names a tab,
+/// which is why the bell was the only one that flickered.
+#[test]
+fn a_door_that_names_no_tab_is_still_the_door_it_came_out_of() {
+    let runtime = runtime("no-tab");
+    let mut up = already_up(&runtime, "notices ");
+    assert_eq!(asking(&runtime, "ask", "notices "), "no");
+    assert!(gone(&mut up), "the bell opened again the panel it had just put away");
+}
+
 /// The battery tapped while the sound is up is one panel showing the battery,
 /// not two panels or a tap that did nothing.
 #[test]

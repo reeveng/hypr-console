@@ -12,8 +12,9 @@
 //! in wofi. They are one fact: the menu was the only surface on this machine
 //! that was not ours.
 //!
-//! What is typed and matches nothing is not thrown away. The menu offers to
-//! ask the browser it instead.
+//! What is typed is a name to the machine and a question to the browser, and
+//! it does not stop being the second because it was the first. The last row of
+//! the list offers to ask it, under everything the machine answered with.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -209,11 +210,19 @@ fn app_row(all: &Arc<Everything>, name: &str) -> Row {
     .picturing(picture)
 }
 
-/// The row offered when the machine has nothing by that name.
+/// The row that asks the browser instead, under everything the machine has.
 ///
 /// wofi handed back whatever was typed and the browser was asked it without
 /// anybody being told that was about to happen. Said out loud it is a row like
 /// any other: it can be read before it is taken, and stepped past.
+///
+/// It stood there only while the list had been narrowed to nothing, which made
+/// the browser the answer to a word the machine did not know and no answer at
+/// all to a word it half knew. "map", on a machine with a map editor installed,
+/// is somebody who has to leave the menu and start again somewhere else. So the
+/// row is the last one on the list rather than the only one: what the machine
+/// answers with comes first, and under it, one press further down than the last
+/// application, is the rest of the world.
 fn looking_up_row(said: &str) -> Row {
     let word = said.to_string();
     Row::new(
@@ -227,14 +236,20 @@ fn looking_up_row(said: &str) -> Row {
     .picturing(Picture::Space)
 }
 
-/// The list as the typed word leaves it.
+/// The list as the typed word leaves it, with the offer to look that word up.
+///
+/// Nothing typed is not a question, so the menu opens on the applications and
+/// nothing else: an empty line handed to an engine is that engine's front page,
+/// which is not what anybody standing on the bottom row meant to ask for.
 fn rows(typed: &Typed, all: &Arc<Everything>) -> Vec<Row> {
     let word = typed.lock().map(|held| held.clone()).unwrap_or_default();
     let standing = narrow::matching(&all.order, &word);
-    if standing.is_empty() {
-        return vec![looking_up_row(word.trim())];
+    let mut rows: Vec<Row> = standing.iter().map(|name| app_row(all, name)).collect();
+    let said = word.trim();
+    if !said.is_empty() {
+        rows.push(looking_up_row(said));
     }
-    standing.iter().map(|name| app_row(all, name)).collect()
+    rows
 }
 
 /// The one tab, and the line that narrows it.
@@ -307,9 +322,9 @@ fn start(app: Option<&entry::Application>, counted: BTreeMap<String, u64>, chose
 
 /// A line that matched no application, handed to the browser.
 ///
-/// wofi gives back whatever was typed when the search box has narrowed the
-/// list to nothing, so this is somebody who wanted something the machine does
-/// not have. A menu that closed and did nothing was the old answer to that.
+/// Somebody who wanted something this machine does not have, or has under a
+/// name they did not type. A menu that closed and did nothing was the old
+/// answer to the first of those and had nothing at all to say to the second.
 ///
 /// Which engine is asked, and which browser opens it, are both the settings
 /// panel's to say. Neither is named here.

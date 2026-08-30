@@ -39,7 +39,7 @@ readable on a panel a finger could open, on a row a finger could only silence.
 | Left and right on a level | The **−** and **+** on the row that carries it |
 | **L1** and **R1** | The **‹** and **›** either side of the tab strip, which appear when there are tabs it has no room for |
 | **Legion right**, **left paddle, top** | The bar's icons: the settings, each at its own tab, and the menu |
-| **Legion left** | The **Game Mode** row on the panel's System tab |
+| **Legion left** | The **Game Mode** row on the panel's System tab. Coming back the other way is the button held, and a finger has Steam's own **Switch to Desktop** |
 | **Left paddle, bottom** | Dictation, in the menu, which starts and stops the same way the paddle does |
 | **View** | The browser, in the menu |
 
@@ -83,6 +83,52 @@ like a machine ignoring a thumb. Nothing was lost by taking closing off it: B
 backs out and the right paddle closes. Leaving for Game Mode is the one
 exception and stays quiet, because that is not a thing to do by brushing a
 button with a menu open.
+
+## The one button that means something on both sides
+
+Legion left leaves this desktop for Game Mode, and Legion left held is what
+comes back. One button for the door, whichever side of it you are on, because
+somebody who learned the press should not have to learn a second answer for the
+other direction.
+
+A hold there and a press here, because on that side the button is Steam's.
+Taken outright it would cost Game Mode its own menu, which is where the
+library, the power and the way out of a game are, and a machine that cannot
+quit a game is worse off than one that takes a second to leave. So the press
+arrives at Steam untouched and opens what it always opened. Only keeping it
+down for a second means anything to us. It also has to be held alone: Steam's
+own shortcuts are that button and another one together, and holding Steam and B
+until a game gives up is somebody staying in Game Mode rather than leaving it.
+
+Nothing translates it, so there is no mapping to read this off. `game.yaml`
+publishes the same three devices as every other profile and maps nothing at
+all, and `game-return` reads the pad the way the desktop's own daemon does. It
+is a program of its own because the desktop's daemon is not there: Game Mode
+stops `console.target` behind it. `console-return.service` is started by the
+Game Mode session itself, through the drop-in at
+`/etc/systemd/user/gamescope-session.service.d/console.conf`, rather than
+enabled for the user, which would leave it reading the pad on the desktop too,
+behind the daemon that already reads it.
+
+Game Mode kept the shipped Default profile until this was written, and what
+that publishes was nobody's decision. A profile switch that destroys a target
+and builds another is the thing the section above is about, so the four words
+`controller-profile` takes now all name a file this repository holds.
+
+Reading a pad somebody else is also reading is the ordinary state of things
+here, and the section below is the other half of it: on the desktop the
+on-screen keyboard and the controller daemon hold that node at once. Steam does
+not take it either, which had to be read off the machine rather than reasoned
+about: a grab is in neither the node's permissions nor `fuser`, and a second
+reader that has lost is a second reader receiving nothing. Asked with an
+`EVIOCGRAB` taken and given back while Game Mode had the screen, the published
+pad came back free, against the real hardware as a control, which InputPlumber
+does grab. So the pad is read here the same way the desktop reads it, and Game
+Mode's profile stays the one that translates nothing.
+
+`crates/console-controller/tests/the_controller.rs` presses the button on both
+sides: the press that is Steam's, the hold that comes back, the chord that does
+not, and every other button reaching the pad as itself.
 
 ## Only one thing holds the pad
 

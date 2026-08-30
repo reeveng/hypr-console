@@ -103,7 +103,7 @@ Never a thing they do. A shoulder that submits a form on one panel and turns a
 page on another is two buttons wearing one name, and the thumb that learnt the
 first one is wrong on the second.
 
-## Y is about the row, never about the screen
+## Y is about the row, never about the selection
 
 Y asks the highlighted row what else can be done with it. Not the tab, not the
 selection, not whatever was last touched.
@@ -112,6 +112,24 @@ It is the one button the contract lends out, and it already means "more options"
 on the desktop, where it is the right mouse button. A row with nothing more to
 offer says nothing, which is why Y can mean the same thing everywhere and still
 be silent over most of what it is pressed on.
+
+A row may be about where you are standing rather than about a thing: the files'
+way back is the folder, and Y over it asks for a new folder in it. That is still
+the row answering. What Y must never become is a menu about the screen, offered
+the same wherever the highlight happens to be, because then what it does is a
+guess about what was last touched.
+
+## The name of a list is not one of its rows
+
+`Row::naming` is the thing the rows under it are about: the file a question is
+about, the folder a listing is of, the kind of thing a choice of programs is
+for.
+
+It is drawn as a title and not as a row — no card, smaller, quieter — and the
+highlight walks past it, from either direction, so a list of six things that can
+be done is six rows to a thumb. Written with `said` it was a row like any other,
+the same shape a thumb aims at, and a question about a photograph read as though
+the photograph were one of the answers to it.
 
 ## Every button has an answer for a finger
 

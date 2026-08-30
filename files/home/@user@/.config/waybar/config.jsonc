@@ -13,6 +13,7 @@
     "custom/bluetooth",
     "custom/network",
     "custom/battery",
+    "custom/notices",
     "tray"
   ],
 
@@ -122,6 +123,35 @@
     "max-length": 24,
     "tooltip": false,
     "on-click": "music-panel"
+  },
+
+  // What the desktop said and nobody has cleared. mako holds a notification
+  // until it runs out of seconds or a thumb takes it down, and this counts
+  // what it is holding.
+  //
+  // Which is nearly always a fault: everything else here raises a notification
+  // that takes itself down after five seconds, and console-say raises the one
+  // kind that waits. So the bell is lit when something went wrong and is still
+  // wrong.
+  //
+  // It is beside the tray rather than among the readings because it is not a
+  // reading. The five to its left say what the machine is doing and are never
+  // silent; this one is empty nearly all the time, which is the whole of what
+  // makes it worth looking at.
+  //
+  // A tap opens the panel, the way every other icon along this edge opens one,
+  // and a second tap puts it away. It used to clear the lot instead, which was
+  // the only thing a finger could do to a notification and threw away the one
+  // thing worth having: a card is 320 by 140 and the line that says which
+  // service fell is the part that did not fit on it. The panel is where that
+  // line is, and clearing them all is a row on it.
+  "custom/notices": {
+    "format": "{}",
+    "return-type": "json",
+    "exec": "bar-notice",
+    "restart-interval": 5,
+    "tooltip": false,
+    "on-click": "notices-panel"
   },
 
   "tray": { "spacing": 10 }

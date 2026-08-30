@@ -8,7 +8,7 @@ it, and the four buttons mean here what they mean everywhere else.
 | **D-pad** | up and down the folder |
 | **A** | a folder goes into it, a file opens |
 | **B** | back to the folder above, and out of the panel at the top of a place |
-| **Y** | what else can be done with the thing you are on |
+| **Y** | what else can be done with the thing you are on, and a new folder |
 | **L1** and **R1** | the next place, and the one before |
 
 [`docs/panels.md`](panels.md) is the grammar all of that belongs to, and it is
@@ -110,10 +110,43 @@ step at a time, so B out of one arrives at the folder above it rather than back
 where the search began. The line empties on the way in, because the word was
 about the list it narrowed and not about the one that replaces it.
 
+## Where you are, said
+
+The strip names the place and the way back names the folder above it, so a
+person three folders down inside Home was reading a list whose own name was
+written nowhere. The folder's name is under the way back, drawn as a title
+rather than as a row: nothing happens to it, the highlight walks past it, and a
+finger slides off it. At the top of a place there is none, because the strip is
+already saying it an inch above and in pink.
+
 ## What Y offers
 
 Open, Open with, Rename, Copy, Move, Delete. A folder gets all of those except
-the two about opening one, because a folder is walked into.
+the two about opening one, because a folder is walked into. Under them, beneath
+a second title naming the folder you are in, is New folder.
+
+Two lists under two names, because they are about two different things. A new
+folder is made where you are standing rather than out of the thing under the
+highlight, and put in among Rename and Delete it would read as one more thing
+that could happen to the photograph.
+
+It is on the folder's rows as well: Y over the way back, or over the thing being
+carried, opens the folder's own short list. So Y in a folder always reaches it,
+and only a place with nothing in it and nowhere above it — a stick just
+formatted — has no row to press Y over, and there New folder is a row of its
+own.
+
+That list was the name question on its own for as long as a name was the only
+thing there was to ask. **Make everything one format** is the second: every song
+in the folder becomes an opus and every film becomes an mkv, which are what the
+Download panel already writes, so a folder somebody has copied a phone's worth
+of music into can be made something one program plays the whole of.
+[`docs/downloads.md`](downloads.md) says what that costs and what it keeps. It
+asks before it starts, and what it replaces goes to the wastebasket, so the
+answer is one somebody can take back.
+
+New folder used to be a row in every folder, at the bottom, which is a list of
+two hundred photographs walked to the end of to make one.
 
 Not in the alphabet, which is the rule for lists of names and the wrong one
 here. Open is first because it is what most presses of Y are on the way to, and

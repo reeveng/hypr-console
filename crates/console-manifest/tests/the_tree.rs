@@ -99,6 +99,29 @@ fn the_way_to_game_mode_shuts_steam_down_before_the_compositor() {
     assert!(asked < left, "Steam is asked to go once the desktop it was on has gone");
 }
 
+/// Neither way to a session does anything when the machine is already in it.
+///
+/// The desktop's controller daemon has been seen running through a whole Game
+/// Mode session, and it answers the left Legion button by running `game-mode`.
+/// One press over there would ask Steam to shut down, wait ten seconds for it,
+/// and then fail to leave a compositor that is not running. The daemon being
+/// there at all is a fault of its own; this is the half that makes the button
+/// harmless while it is.
+#[test]
+fn neither_way_to_a_session_acts_when_the_machine_is_already_in_it() {
+    for (script, switch) in
+        [("game-mode", "steamos-session-select gamescope"), ("desktop-mode", "plasma")]
+    {
+        let at = root().join("files/usr/local/bin").join(script);
+        let held = std::fs::read_to_string(&at).unwrap_or_else(|_| panic!("{script}"));
+        let asked = held
+            .find("is-active --quiet gamescope-session.target")
+            .unwrap_or_else(|| panic!("{script} switches sessions without asking where it is"));
+        let switches = held.find(switch).unwrap_or_else(|| panic!("{script} switches nothing"));
+        assert!(asked < switches, "{script} asks where it is after it has already left");
+    }
+}
+
 #[test]
 fn everything_meant_to_be_run_will_be_installed_able_to_run() {
     for (path, live) in carried() {
@@ -398,7 +421,9 @@ fn every_json_file_parses() {
 // do at all until it was there, so each of these is a way back to that.
 
 /// Programs the bar may reach for that come from a package rather than the tree.
-const OUTSIDE: [&str; 2] = ["activate", "wpctl"];
+/// `[packages]` is what holds these to the machine; `the_programs` is what
+/// holds them to a package name.
+const OUTSIDE: [&str; 3] = ["activate", "makoctl", "wpctl"];
 
 /// What every on-click in the bar runs, as the module and the first word.
 fn bar_commands() -> Vec<(String, String)> {

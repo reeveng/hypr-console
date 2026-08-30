@@ -1,0 +1,88 @@
+# What this desktop says to somebody who is not in a terminal.
+#
+# mako owns org.freedesktop.Notifications on this machine. That name has one
+# owner and nothing else here can be it: the only other program that claimed it
+# was KDE's, dragged in as a dependency of the login manager, and it cannot
+# start under Hyprland. So every notify-send on the machine -- a fault from
+# console-say, the dictation saying it is listening -- was answered by a
+# service that could not come up, which D-Bus reports by making the caller wait
+# fifty seconds and then fail. A desktop that says nothing when it fails is bad
+# enough; one that stops for a minute to not say it is worse.
+#
+# Sizes here are the compositor's, which is a 768 by 480 picture drawn onto a
+# 1920 by 1200 screen. So 320 wide is a little under half the room, and 44 down
+# clears the bar with six to spare.
+#
+# There is no colour above the markers and none below them. Everything between
+# is written from theme/palette.toml by `make theme`.
+
+sort=-time
+layer=overlay
+anchor=top-right
+max-visible=3
+
+# How many go on being readable after they have left the screen. mako keeps a
+# dismissed notification as readily as one that ran out of seconds, so the
+# Earlier tab of the notices panel is this buffer and nothing else, and
+# clearing the bell moves what was waiting into it rather than destroying it.
+#
+# Five is mako's own number and is the length of one bad minute: a service that
+# falls and repairs itself four times fills it before anybody has picked the
+# device up. Twenty is about a screenful at the size a panel row is drawn, so
+# it is as much as the tab can show without becoming a thing to scroll.
+max-history=20
+
+font=Noto Sans 11
+width=320
+height=140
+margin=44,8
+padding=10
+border-size=2
+border-radius=4
+max-icon-size=32
+
+# Long enough to read a sentence at arm's length, and gone without being asked.
+# The one kind that stays is below.
+default-timeout=5000
+
+# A thumb, and the button under it. There is no pointer on this device, so a
+# notification that could only be dismissed by clicking it could not be
+# dismissed; the bell on the bar clears them all, and a tap clears one.
+on-touch=dismiss
+on-button-left=dismiss
+
+# console-theme:begin
+background-color=#372c3a
+text-color=#ebdce7
+border-color=#807485
+progress-color=over #ffb5e2
+
+[urgency=low]
+border-color=#cdb6c9
+text-color=#cdb6c9
+
+[urgency=critical]
+border-color=#ffbbba
+# console-theme:end
+
+# A fault waits until somebody has seen it. Everything console-say raises is
+# critical, and the whole point of it is that a thing which went wrong while
+# nobody was looking is still there when somebody looks. This is why the bell
+# on the bar is nearly always a fault: anything else has taken itself down by
+# the time it could be counted.
+[urgency=critical]
+default-timeout=0
+
+# Quiet, without going deaf. `makoctl mode -t do-not-disturb` is the switch on
+# the notices panel, and this is the whole of what the mode means: the cards
+# stop being drawn and nothing else changes. What was sent is still held, the
+# bell on the bar still counts it and still turns coral for a fault, and the
+# panel still lists it.
+#
+# That distinction is the point. A handheld is held in front of a game as often
+# as it is worked on, and the thing worth stopping is the interruption rather
+# than the news. A mode that threw notifications away would be a desktop that
+# quietly stopped saying what broke, which is the fault this whole file exists
+# because of, arrived at the other way round.
+[mode=do-not-disturb]
+invisible=1

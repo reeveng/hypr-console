@@ -204,12 +204,35 @@ pub struct Row {
     /// into it while it is stood on, and walking off it hands the pad back to
     /// the list.
     pub typing: bool,
+    /// Whether this row is the name of what the list under it is about.
+    ///
+    /// A question's first row used to be the thing it was about, said with
+    /// `said` and drawn like every other row on the page: same card, same ink,
+    /// same shape a thumb is aiming at. So a list of six things that can be
+    /// done read as seven, the d-pad walked onto the one that was not an
+    /// answer, and the row telling you what you were deciding about looked like
+    /// one of the decisions.
+    ///
+    /// Said here instead, so the panel can draw it as a title and walk past it.
+    /// A heading by the plain rule is one nothing happens to and nothing is
+    /// written beside; a title is often both of those and is a title anyway,
+    /// because a file's name has its size beside it.
+    pub naming: bool,
 }
 
 impl Row {
     /// A row that is read rather than chosen.
     pub fn said(says: &str, aside: &str) -> Self {
         Row { says: says.to_string(), aside: aside.to_string(), ..Row::default() }
+    }
+
+    /// The name of what the rows under it are about.
+    ///
+    /// Drawn as a title rather than as a row: no card of its own, quieter and
+    /// smaller, and the highlight never lands on it. Not an option, so it is
+    /// not shaped like one.
+    pub fn naming(says: &str, aside: &str) -> Self {
+        Row { naming: true, ..Row::said(says, aside) }
     }
 
     /// A row that does something.
@@ -284,7 +307,7 @@ impl Row {
     /// the other, and a highlight that walked past everything nothing happens
     /// to walked past most of the page to land in the middle of it.
     pub fn heading(&self) -> bool {
-        !self.acts() && self.aside.is_empty() && !self.typing
+        self.naming || (!self.acts() && self.aside.is_empty() && !self.typing)
     }
 }
 

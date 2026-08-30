@@ -1,0 +1,15 @@
+[Unit]
+Description=Game Mode: the left Legion button, held, comes back to the desktop
+# Started by the Game Mode session and stopped with it. This is the desktop's
+# one foothold while Steam has the screen, and the desktop's own target is not
+# running to pull it in: console.target is stopped on the way to Game Mode.
+PartOf=gamescope-session.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/game-return
+# Losing this silently is losing the way back, and the button that would say
+# so is the one that has stopped working.
+ExecStopPost=-/usr/local/bin/console-fell %n
+Restart=always
+RestartSec=2

@@ -13,7 +13,7 @@ use std::process::ExitCode;
 use std::sync::mpsc::RecvTimeoutError;
 use std::time::{Duration, Instant};
 
-use console_bar::reading::{Says, What};
+use console_bar::reading::{What, line};
 use console_bar::watch::{tick, watching};
 use console_panel::door::{is_open, tab};
 
@@ -93,67 +93,4 @@ fn main() -> ExitCode {
 /// Whether the tab this icon opens is the one the panel is showing.
 fn in_front(what: What) -> bool {
     tab().is_some_and(|named| named == what.tab())
-}
-
-/// What the bar is told, as waybar reads it.
-///
-/// The class is left out rather than left empty, because waybar applies
-/// whatever it is given and an empty name is a class nothing can be styled by.
-fn line(says: &Says, open: bool) -> String {
-    let open = match open {
-        true => "open",
-        false => "",
-    };
-    let class = format!("{} {open}", says.class);
-    let class = match class.trim() {
-        "" => String::new(),
-        named => format!(r#","class":"{named}""#),
-    };
-    format!(r#"{{"text":{}{class}}}"#, serde_json::Value::String(says.text.clone()))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn saying(text: &str, class: &str) -> Says {
-        Says { text: text.to_string(), class: class.to_string() }
-    }
-
-    fn held(said: &str) -> serde_json::Value {
-        serde_json::from_str(said).expect("json")
-    }
-
-    /// The reading and the tab being in front are two things, and the icon
-    /// says both at once.
-    #[test]
-    fn a_reading_with_nothing_to_say_about_itself_carries_no_class() {
-        let said = line(&saying("64%", ""), false);
-        assert!(held(&said).get("class").is_none());
-    }
-
-    #[test]
-    fn the_tab_in_front_is_the_only_thing_that_lights_it() {
-        let said = line(&saying("64%", ""), true);
-        assert_eq!(held(&said)["class"], "open");
-    }
-
-    /// What the reading is doing and what the panel is doing are both classes,
-    /// and the stylesheet expects them side by side.
-    #[test]
-    fn a_reading_that_says_something_says_it_beside_being_open() {
-        let said = line(&saying("muted", "muted"), true);
-        assert_eq!(held(&said)["class"], "muted open");
-
-        let shut = line(&saying("muted", "muted"), false);
-        assert_eq!(held(&shut)["class"], "muted");
-    }
-
-    /// Waybar reads the text as JSON, so a reading with a quote or a backslash
-    /// in it has to survive being written down.
-    #[test]
-    fn the_text_is_written_as_json_rather_than_pasted_in() {
-        let said = line(&saying(r#"a "quoted" \ name"#, ""), false);
-        assert_eq!(held(&said)["text"], r#"a "quoted" \ name"#);
-    }
 }

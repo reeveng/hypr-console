@@ -19,11 +19,13 @@ pub mod carry;
 pub mod chooser;
 pub mod close;
 pub mod dpad;
+pub mod download;
 pub mod files;
 pub mod game_mode;
 pub mod guide;
 pub mod keyboard;
 pub mod launcher;
+pub mod notices;
 pub mod panel;
 pub mod pointer;
 pub mod screenshot;
@@ -34,7 +36,7 @@ pub mod workspaces;
 use console_stage::checking::Check;
 
 /// Every check, oldest first, which is the order their names put them in.
-pub const CHECKS: [&Check; 23] = [
+pub const CHECKS: [&Check; 25] = [
     &workspaces::RIGHT,
     &workspaces::LEFT,
     &carry::CARRY,
@@ -58,6 +60,8 @@ pub const CHECKS: [&Check; 23] = [
     &game_mode::GAME_MODE,
     &files::DRAWS,
     &services::STEADY,
+    &notices::DRAWS,
+    &download::DRAWS,
 ];
 
 /// The checks named by these words, or all of them if nothing was named.

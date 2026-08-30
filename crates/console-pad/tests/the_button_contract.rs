@@ -39,9 +39,12 @@ fn profiles() -> BTreeMap<String, Profile> {
 
 /// The profiles that map anything.
 ///
-/// The keyboard profile maps nothing on purpose: while the on-screen keyboard
-/// is up it reads the pad itself, and anything translated here would happen
-/// twice. There is nothing in it for these rules to be about.
+/// Two of them map nothing on purpose, and neither is a surface these rules
+/// are about. While the on-screen keyboard is up it reads the pad itself, and
+/// anything translated there would happen twice. While Game Mode has the
+/// screen the pad is Steam's and a game's, which is a pad rather than this
+/// desktop, and a button that accepted here would be a button a game could not
+/// use.
 fn mapped() -> BTreeMap<String, Profile> {
     profiles().into_iter().filter(|(_, profile)| !profile.mappings.is_empty()).collect()
 }
@@ -89,7 +92,29 @@ fn targets_of(profile: &Profile, button: &str) -> BTreeSet<Target> {
 #[test]
 fn there_is_a_profile_for_each_word_controller_profile_takes() {
     let named: BTreeSet<String> = profiles().into_keys().collect();
-    assert_eq!(named, ["desktop", "keyboard", "tabs"].map(String::from).into());
+    assert_eq!(named, ["desktop", "game", "keyboard", "tabs"].map(String::from).into());
+}
+
+/// And each word names one of these, rather than a file from a package.
+///
+/// Game Mode used to be handed the shipped Default profile, which publishes
+/// whatever it publishes: a profile switch that destroys a target and builds
+/// another is what the rule below is about, and it cannot be kept against a
+/// file this repository does not hold.
+#[test]
+fn every_profile_the_switcher_names_is_one_of_these() {
+    let switcher = root().join("files/usr/local/bin/controller-profile");
+    let said = std::fs::read_to_string(switcher).expect("controller-profile");
+    let named: BTreeSet<&str> = said
+        .split_whitespace()
+        .filter(|word| word.contains("/inputplumber/profiles/"))
+        .map(|word| word.trim_start_matches("P="))
+        .collect();
+    assert!(!named.is_empty(), "controller-profile names no profile at all");
+    for path in named {
+        let held = root().join("files").join(path.trim_start_matches('/'));
+        assert!(held.is_file(), "controller-profile loads {path}, which is not in the tree");
+    }
 }
 
 #[test]
@@ -145,6 +170,16 @@ fn x_shows_and_hides_the_keyboard_everywhere() {
 #[test]
 fn the_keyboard_profile_passes_everything_through() {
     assert!(profiles()["keyboard"].mappings.is_empty());
+}
+
+/// And so does Game Mode's, for the other reason: what is on the screen there
+/// is Steam and the games under it, and every button on the front belongs to
+/// them. The way back out is the same button held, which nothing here
+/// translates: `game-return` reads it off the pad, so Steam goes on getting
+/// the press.
+#[test]
+fn the_game_profile_passes_everything_through() {
+    assert!(profiles()["game"].mappings.is_empty());
 }
 
 #[test]

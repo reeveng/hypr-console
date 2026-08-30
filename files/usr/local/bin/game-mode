@@ -1,6 +1,15 @@
 #!/bin/sh
 # Leave the desktop and go to Steam. Bound to the left Legion button.
 #
+# Nothing to do if Steam already has the screen. That is not a hypothetical: the
+# desktop's own controller daemon has been seen running through a whole Game
+# Mode session, and it answers this button by running this script. Without this
+# line, one press over there asks Steam to shut down, waits ten seconds for it,
+# and then fails to leave a compositor that is not running. `desktop-mode`
+# refuses the mirror image of it, so neither way to a session does anything when
+# the machine is already in it.
+systemctl --user is-active --quiet gamescope-session.target && exit 0
+
 # The controller goes back to being a gamepad first: Steam and games need a
 # real A button, not the mouse click the desktop map turns it into.
 /usr/local/bin/controller-profile game

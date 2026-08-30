@@ -13,7 +13,11 @@
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use console_voice::{fetching, hearing, model, recording, said, taking, tidy, typing};
+use console_voice::{
+    anything_said, cloning, compiling, configuring, fetching, hearing, made, making, model,
+    recording, said, taken, taking, tidy, told_by, typing, whisper,
+};
+use std::path::PathBuf;
 
 fn main() {
     let asked: Vec<String> = std::env::args().skip(1).collect();
@@ -21,6 +25,14 @@ fn main() {
         Some("--fetch") => {
             if let Err(why) = fetched() {
                 fell("model", "The words could not be fetched", &why);
+            }
+            if let Err(why) = built() {
+                fell("hearing", "The hearing could not be built", &why);
+            }
+        }
+        Some("--build") => {
+            if let Err(why) = built() {
+                fell("hearing", "The hearing could not be built", &why);
             }
         }
         Some(word) => {
@@ -39,24 +51,29 @@ fn listening() -> bool {
     holder().is_some()
 }
 
-/// Which process is holding the microphone, if any is.
+/// Which process is holding the microphone, and what it is filling.
 ///
 /// A pid file outlives the thing it names, so the process is asked about
 /// rather than believed: a recording killed with the session leaves a number
 /// behind, and a press reading that number alone would stop a recording that
 /// was never started and write down a file from an hour ago.
-fn holder() -> Option<i32> {
-    let said = std::fs::read_to_string(taking()).ok()?;
-    let pid: i32 = said.trim().parse().ok()?;
-    Path::new(&format!("/proc/{pid}")).exists().then_some(pid)
+fn holder() -> Option<(i32, u32)> {
+    let note = std::fs::read_to_string(taking()).ok()?;
+    let (pid, press) = told_by(&note)?;
+    Path::new(&format!("/proc/{pid}")).exists().then_some((pid, press))
 }
 
 /// Take the microphone until the next press.
+///
+/// The recording is named after this press rather than after the button, so
+/// the press that stops it is the only one that will ever touch the file.
 fn listen() {
-    if let Some(parent) = said().parent() {
+    let press = std::process::id();
+    let into = said(press);
+    if let Some(parent) = into.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let argv = recording(&said());
+    let argv = recording(&into);
     let started = Command::new(&argv[0])
         .args(&argv[1..])
         .stdin(Stdio::null())
@@ -65,31 +82,58 @@ fn listen() {
     match started {
         Err(why) => fell("microphone", "Nothing is listening", &why.to_string()),
         Ok(child) => {
-            let _ = std::fs::write(taking(), child.id().to_string());
-            told("Listening");
+            let _ = std::fs::write(taking(), taken(child.id(), press));
+            told("Listening", UNTIL_IT_CHANGES);
         }
     }
 }
 
 /// Stop listening, and write down what was said.
+///
+/// The note is taken away before the hearing starts rather than after it
+/// finishes, because the hearing takes as long as it takes and a thumb pressing
+/// again inside that time should start the next sentence, not wait behind this
+/// one. It can: the recording being read here is this press's own, and the
+/// press that starts the next one writes into a name of its own.
 fn wrote_down() {
-    let Some(pid) = holder() else { return };
+    let Some((pid, press)) = holder() else { return };
     // SAFETY: a signal to a pid this desktop started and has not reaped.
     unsafe { libc::kill(pid, libc::SIGINT) };
     gone(pid);
     let _ = std::fs::remove_file(taking());
 
+    // The recording is taken away here rather than at the end of the reading,
+    // so that it is taken away however the reading ends. It used to be the last
+    // line of that work, which meant every way out of it that was not the happy
+    // one -- a model that could not be fetched, most of all -- left somebody's
+    // voice sitting in the runtime directory until they logged out.
+    let recorded = said(press);
+    read_out(&recorded);
+    let _ = std::fs::remove_file(&recorded);
+}
+
+/// Read the recording, and put what it says where a keyboard would have.
+fn read_out(recorded: &Path) {
     if let Err(why) = fetched() {
         fell("model", "The words could not be fetched", &why);
         return;
     }
-    told("Writing it down");
-    match heard() {
-        Err(why) => fell("hearing", "What was said could not be read", &why),
-        Ok(words) if words.is_empty() => told("Nothing was said"),
-        Ok(words) => write(&words),
+    told("Writing it down", UNTIL_IT_CHANGES);
+    match heard(recorded) {
+        Err(why) => {
+            // Both, and in this order. console-say raises its own notification
+            // and that one does not replace this one, so without a word here
+            // the desktop is left saying it is still writing down a sentence it
+            // has already given up on.
+            told("What was said could not be read", BRIEFLY);
+            fell("hearing", "What was said could not be read", &why);
+        }
+        Ok(words) if words.is_empty() => told("Nothing was said", BRIEFLY),
+        Ok(words) => {
+            write(&words);
+            told(&words, BRIEFLY);
+        }
     }
-    let _ = std::fs::remove_file(said());
 }
 
 /// Wait for the recording to finish the file it is writing.
@@ -109,8 +153,19 @@ fn gone(pid: i32) {
 }
 
 /// What the recording says, in words.
-fn heard() -> Result<String, String> {
-    let argv = hearing(&model(), &said());
+///
+/// A recording with nothing in it is not asked about, because whisper does not
+/// answer an empty room with an empty answer. It answers with "Thank you.",
+/// confidently, every time -- and this types what it is told into whatever
+/// holds the focus, so an unasked question is the difference between a paddle
+/// that does nothing when nothing was said and one that writes a stranger's
+/// politeness into somebody's message.
+fn heard(recorded: &Path) -> Result<String, String> {
+    let wav = std::fs::read(recorded).map_err(|why| why.to_string())?;
+    if !anything_said(&wav) {
+        return Ok(String::new());
+    }
+    let argv = hearing(&engine(), &model(), recorded);
     let answered = Command::new(&argv[0])
         .args(&argv[1..])
         .stderr(Stdio::null())
@@ -134,6 +189,87 @@ fn write(words: &str) {
     }
 }
 
+/// Which hearing to run: this machine's own, or the packaged one.
+///
+/// Ours is the same whisper.cpp pointed at the graphics card, and on this
+/// device that is the difference between a sentence arriving in under a second
+/// and one arriving in five. The packaged build knows nothing but the
+/// processor.
+///
+/// If ours is not there yet, the packaged one answers this press and the
+/// building is started behind it. A paddle is not the place to find out that a
+/// C++ project takes four minutes: the sentence somebody just spoke is worth
+/// more than the speed of the one after it.
+fn engine() -> PathBuf {
+    let ours = whisper();
+    if ours.exists() {
+        return ours;
+    }
+    let _ = Command::new("dictate")
+        .arg("--build")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
+    PathBuf::from("whisper-cli")
+}
+
+/// The hearing, built for this machine's graphics card if it has not been.
+///
+/// Once. Two gigabytes of build tree in the runtime directory, one file
+/// carried out of it, and the tree taken down again.
+fn built() -> Result<(), String> {
+    let ours = whisper();
+    if ours.exists() {
+        return Ok(());
+    }
+    let Some(parent) = ours.parent() else { return Err("nowhere to keep it".to_string()) };
+    std::fs::create_dir_all(parent).map_err(|why| why.to_string())?;
+
+    // One builder. A press that arrives while the last one is still compiling
+    // should use the packaged hearing and say nothing, not start a second
+    // four-minute build over the top of the first.
+    let alone = parent.join("building.lock");
+    if std::fs::OpenOptions::new().write(true).create_new(true).open(&alone).is_err() {
+        return Ok(());
+    }
+    let answer = build(&ours);
+    let _ = std::fs::remove_file(&alone);
+    answer
+}
+
+/// The building itself, so the lock above is released whichever way it ends.
+fn build(ours: &Path) -> Result<(), String> {
+    let at = making();
+    let _ = std::fs::remove_dir_all(&at);
+    if let Some(parent) = at.parent() {
+        std::fs::create_dir_all(parent).map_err(|why| why.to_string())?;
+    }
+    told("Building the hearing, once", UNTIL_IT_CHANGES);
+
+    for argv in [cloning(&at), configuring(&at), compiling(&at)] {
+        let answered = Command::new(&argv[0])
+            .args(&argv[1..])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .status()
+            .map_err(|why| format!("{} could not be run: {why}", argv[0]))?;
+        if !answered.success() {
+            let _ = std::fs::remove_dir_all(&at);
+            return Err(format!("{} said no: {answered}", argv[0]));
+        }
+    }
+
+    // Beside the name rather than over it, so a build interrupted halfway
+    // leaves nothing a press would try to run.
+    let coming = ours.with_extension("coming");
+    std::fs::copy(made(&at), &coming).map_err(|why| why.to_string())?;
+    std::fs::rename(&coming, ours).map_err(|why| why.to_string())?;
+    let _ = std::fs::remove_dir_all(&at);
+    told("The hearing is ready", BRIEFLY);
+    Ok(())
+}
+
 /// The model, fetched if this machine does not have it yet.
 ///
 /// Once, and on the press that needs it rather than at login: a desktop that
@@ -147,7 +283,7 @@ fn fetched() -> Result<(), String> {
     }
     let Some(parent) = model.parent() else { return Err("nowhere to keep it".to_string()) };
     std::fs::create_dir_all(parent).map_err(|why| why.to_string())?;
-    told("Fetching the words, once");
+    told("Fetching the words, once", UNTIL_IT_CHANGES);
 
     // Beside the model rather than over it, so a fetch that is interrupted
     // leaves nothing that looks like a model to the press after it.
@@ -162,27 +298,64 @@ fn fetched() -> Result<(), String> {
     std::fs::rename(&coming, &model).map_err(|why| why.to_string())
 }
 
+/// How long something this says stays up.
+///
+/// A state stays until the state changes. Listening is true until the next
+/// press, and writing it down is true until the words are there, and a
+/// notification that takes itself down after two seconds while the thing it
+/// describes is still going on is a desktop saying it has stopped doing
+/// something it is still doing.
+///
+/// That is what a two-second "Writing it down" was: the hearing takes about
+/// three, so the message left before the words came, and the wait it was there
+/// to explain was the part somebody sat through with nothing on the screen.
+const UNTIL_IT_CHANGES: &str = "0";
+
+/// And an ending stays for a moment and goes: the words are in the box by
+/// then, and the box is the answer. Nobody needs telling twice.
+const BRIEFLY: &str = "2000";
+
 /// Say something on the screen, where somebody with no terminal is.
 ///
 /// Every press replaces what the last one put up, because these are the states
 /// of one thing happening rather than a list of events: listening, writing it
 /// down, and then the words themselves in the window they belong to.
-fn told(what: &str) {
+///
+/// Started and not waited for. Saying something is never worth the thing that
+/// said it, and this is the button that proved why: with no notification
+/// daemon on the machine, D-Bus answered every one of these by trying to start
+/// a service that could not start and failing fifty seconds later. Waited for,
+/// that was fifty seconds of a paddle doing nothing before the microphone was
+/// even asked for, and fifty more before the words were read -- around a
+/// sentence somebody had already finished speaking. The recording ran the
+/// whole time and every word of it was typed out in the end, nearly two
+/// minutes late, into whatever had the focus by then.
+fn told(what: &str, until: &str) {
     let _ = Command::new("notify-send")
         .args([
             "--app-name=Console",
             "--urgency=low",
-            "--expire-time=2000",
+            &format!("--expire-time={until}"),
             "--hint=string:x-canonical-private-synchronous:dictate",
             "--icon=audio-input-microphone",
             "--",
             what,
         ])
-        .status();
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
 }
 
 /// Say that something went wrong, the way everything else here says it.
+///
+/// Not waited for either, and for the same reason: this is called from a path
+/// that has already failed, and the journal has the line above whatever the
+/// screen manages.
 fn fell(kind: &str, summary: &str, body: &str) {
     eprintln!("dictate: {summary}: {body}");
-    let _ = Command::new("console-say").args([kind, summary, body]).status();
+    let _ = Command::new("console-say")
+        .args([kind, summary, body])
+        .stdin(Stdio::null())
+        .spawn();
 }

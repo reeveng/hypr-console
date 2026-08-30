@@ -161,7 +161,7 @@ pub fn choice_rows(
     back: impl Fn(&dyn Showing) + Send + Sync + 'static,
     use_: impl Fn(&Kind, &Program) -> Does,
 ) -> Vec<Row> {
-    let mut rows = vec![Row::back(DEFAULTS, back), Row::said(kind.says, "")];
+    let mut rows = vec![Row::back(DEFAULTS, back), Row::naming(kind.says, "")];
     let default = now(kind.mime);
     let mut opening: Vec<&Program> =
         programs.iter().filter(|program| program.opens_a(kind.mime)).collect();

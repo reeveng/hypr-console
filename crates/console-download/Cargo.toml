@@ -1,0 +1,38 @@
+[package]
+name = "console-download"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_download"
+path = "src/lib.rs"
+
+[[bin]]
+name = "download-panel"
+path = "src/bin/download-panel.rs"
+
+# The looking and the fetching are programs of their own, because both take
+# longer than a frame and a panel that waits is a panel that has stopped
+# answering the buttons.
+[[bin]]
+name = "download-find"
+path = "src/bin/download-find.rs"
+
+[[bin]]
+name = "download-get"
+path = "src/bin/download-get.rs"
+
+# The same decision about formats, applied to what is in the folder already
+# rather than to what is arriving. Its own program because it is minutes of
+# ffmpeg over somebody's music and a panel cannot wait for that.
+[[bin]]
+name = "one-format"
+path = "src/bin/one-format.rs"
+
+[dependencies]
+gtk4 = "0.11"
+serde_json = "1"
+console-music.workspace = true
+console-panel.workspace = true

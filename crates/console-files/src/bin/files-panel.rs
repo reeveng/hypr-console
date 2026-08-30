@@ -49,6 +49,9 @@ use console_panel::{chooser, panel};
 #[derive(Clone)]
 enum Onto {
     Folder,
+    /// What can be done with the folder being stood in, rather than with
+    /// anything in it.
+    Here { from: usize },
     Programs { thing: Entry, from: usize },
     Ways { thing: Entry, from: usize },
 }
@@ -112,6 +115,16 @@ fn look_for(held: &Held, tab: usize, word: &str) {
 /// A question is not a folder and has no line, which is why this is added where
 /// a folder's rows are numbered and nowhere else.
 const LINE: usize = 1;
+
+/// Where the first thing in a folder walked into stands.
+///
+/// Past the line to type in, past the way out, past the folder's own name, and
+/// past what is being carried where anything is. A folder is walked into to see
+/// what is in it, and a highlight left on the way back is a second press of A
+/// taking her straight out of the folder the first one opened.
+fn first_thing(standing: &Standing) -> usize {
+    LINE + 2 + usize::from(standing.holding.is_some())
+}
 
 /// Look at something else, and stand on a given row of it.
 fn look(held: &Held, tab: usize, onto: Onto, showing: &dyn Showing, row: usize) {
@@ -245,16 +258,28 @@ fn folder_rows(held: &Held, tab: usize, here: &Path) -> Vec<Row> {
     }
 
     let mut rows = Vec::new();
-    let (above, holding) = standing(held, |standing| {
-        (standing.walks[tab].above(&standing.places[tab].title), standing.holding.clone())
+    let (above, called, holding) = standing(held, |standing| {
+        (
+            standing.walks[tab].above(&standing.places[tab].title),
+            standing.walks[tab].called(&standing.places[tab].title),
+            standing.holding.clone(),
+        )
     });
 
     if let Some(above) = above {
         let leaving = Arc::clone(held);
-        rows.push(Row::back(&above, move |showing| went_up(&leaving, tab, showing)));
+        rows.push(here_too(held, tab, Row::back(&above, move |showing| {
+            went_up(&leaving, tab, showing)
+        })));
+        // Where you are standing, which below the top of a place nothing else
+        // on the panel says. The strip names the place and the way back names
+        // the folder above it, so three folders down inside Home the one name
+        // written nowhere was the folder in front of her. At the top there is
+        // no such gap: the strip is already saying it, in pink, an inch above.
+        rows.push(Row::naming(&called, ""));
     }
     if let Some(holding) = holding {
-        rows.push(put_down_row(held, &holding, here));
+        rows.push(here_too(held, tab, put_down_row(held, &holding, here)));
     }
 
     let things = read(here);
@@ -268,7 +293,12 @@ fn folder_rows(held: &Held, tab: usize, here: &Path) -> Vec<Row> {
         let at = rows.len() + LINE;
         rows.push(thing_row(held, tab, &thing, at, &picture(&store, here, &thing, room)));
     }
-    rows.push(new_folder_row(held, tab, here));
+    // Y is where a new folder is asked for, and Y is asked of the row you are
+    // standing on. An empty place has no row to stand on, so there it is a row
+    // of its own: the alternative is a folder nothing can ever be put into.
+    if !rows.iter().any(|row| !row.heading()) {
+        rows.push(new_folder_row(held, tab, here, LINE));
+    }
 
     match room {
         false => rows,
@@ -324,13 +354,14 @@ fn found_row(held: &Held, tab: usize, one: &Found, picture: &Picture) -> Row {
                 // The line is the panel's, and a folder arrived at is not a
                 // search any more.
                 showing.forget_typing();
-                let here = standing(&held, |standing| {
+                let (here, onto) = standing(&held, |standing| {
+                    let onto = first_thing(standing);
                     for step in &steps {
-                        standing.walks[tab].enter(step, LINE + 1);
+                        standing.walks[tab].enter(step, onto);
                     }
-                    standing.walks[tab].here().to_path_buf()
+                    (standing.walks[tab].here().to_path_buf(), onto)
                 });
-                showing.replace(LINE + 1);
+                showing.replace(onto);
                 wanting_pictures(showing, &here);
             }))
             .opening()
@@ -377,9 +408,9 @@ fn picture(store: &Path, here: &Path, thing: &Entry, room: bool) -> Picture {
 
 /// A row that keeps the room even though it is not a thing in the folder.
 ///
-/// The way back, what is being carried and the new folder are rows like any
-/// other, and a listing where three of them start an inch left of the rest is
-/// one whose names do not line up.
+/// The way back, the folder's own name and what is being carried are rows like
+/// any other, and a listing where three of them start an inch left of the rest
+/// is one whose names do not line up.
 fn with_room(row: Row) -> Row {
     match row.picture {
         Picture::None => row.picturing(Picture::Space),
@@ -396,13 +427,13 @@ fn thing_row(held: &Held, tab: usize, thing: &Entry, at: usize, picture: &Pictur
             let held = Arc::clone(held);
             let name = thing.name.clone();
             Row::new(&thing.name, &aside, Does::and_stay(move |showing| {
-                let here = standing(&held, |standing| {
+                let (here, onto) = standing(&held, |standing| {
                     standing.walks[tab].enter(&name, at);
-                    standing.walks[tab].here().to_path_buf()
+                    (standing.walks[tab].here().to_path_buf(), first_thing(standing))
                 });
                 // Onto the first thing in the folder rather than onto the row
                 // that comes back out of it, which is what walking in was for.
-                showing.replace(1);
+                showing.replace(onto);
                 wanting_pictures(showing, &here);
             }))
             .opening()
@@ -439,32 +470,126 @@ fn put_down_row(held: &Held, holding: &Holding, here: &Path) -> Row {
     }))
 }
 
-/// The last row of every folder, because a list of things is where one more
-/// belongs.
-fn new_folder_row(held: &Held, tab: usize, here: &Path) -> Row {
+/// What a new folder is called, asked, and then made.
+///
+/// The folder is the one being stood in rather than anything on the row Y was
+/// pressed over, so the row it goes back to is that row: pressing Y over a
+/// photograph, saying a name and coming back to the top of the listing is a
+/// press that moves you somewhere you did not ask to go.
+fn ask_for_a_folder(held: &Held, tab: usize, here: &Path, from: usize, showing: &dyn Showing) {
     let here = here.to_path_buf();
     let held = Arc::clone(held);
-    Row::new("New folder", "", Does::and_stay(move |showing| {
+    showing.ask_aloud(NEW_FOLDER, answered(move |showing, word| {
+        let Some(name) = doing::a_name(word) else { return };
+        back_to_the_folder(&held, tab, showing, from);
+        showing.later(vec!["mkdir".to_string(), "--".to_string(), said(&here.join(name))]);
+    }));
+}
+
+/// What the row and the question are both called.
+const NEW_FOLDER: &str = "New folder";
+
+/// The one row a folder with nothing in it carries.
+///
+/// Everywhere else this is behind Y, which is asked of the row being stood on.
+/// A place with nothing in it and nowhere above it has no such row, and without
+/// this it would be a folder nothing could ever be put into.
+fn new_folder_row(held: &Held, tab: usize, here: &Path, from: usize) -> Row {
+    let here = here.to_path_buf();
+    let held = Arc::clone(held);
+    Row::new(NEW_FOLDER, "", Does::and_stay(move |showing| {
+        ask_for_a_folder(&held, tab, &here, from, showing);
+    }))
+}
+
+/// A row that is about the folder rather than about a thing in it, offering
+/// under Y what can be done to the folder you are standing in.
+///
+/// The way back and what is being carried are the two of them. Neither is a
+/// thing in the listing, so Y over either is about where you are, and they are
+/// what an almost empty folder leaves under the thumb.
+///
+/// It asked for a folder's name at once while that was the only thing there was
+/// to ask. It is a list now, because there are two.
+fn here_too(held: &Held, tab: usize, row: Row) -> Row {
+    let held = Arc::clone(held);
+    row.offering(move |showing| {
+        look(&held, tab, Onto::Here { from: LINE }, showing, HERE_START);
+        false
+    })
+}
+
+/// Where the highlight lands in the folder's own list: past the way back, on
+/// the first thing that can be done.
+const HERE_START: usize = 1;
+
+/// What can be done with the folder being stood in.
+///
+/// No name over it. The way back is already saying which folder this is about,
+/// an inch above, and a title repeating it is a row of the screen spent saying
+/// a thing twice.
+fn here_rows(held: &Held, tab: usize, here: &Path, from: usize) -> Vec<Row> {
+    let folder = standing(held, |standing| standing.walks[tab].called(&standing.places[tab].title));
+    let leaving = Arc::clone(held);
+    vec![
+        Row::back(&folder, move |showing| back_to_the_folder(&leaving, tab, showing, from)),
+        new_folder_row(held, tab, here, from),
+        one_format_row(held, tab, here, from),
+    ]
+}
+
+/// What the row and its question are called.
+const ONE_FORMAT: &str = "Make everything one format";
+const ONE_FORMAT_ASKS: &str = "Make everything in here one format?";
+const ONE_FORMAT_YES: &str = "Yes, songs to opus and films to mkv";
+
+/// Make what is in the folder the one format this device keeps.
+///
+/// Asked first, because it rewrites every song and film in the folder at once
+/// and there is no reading a listing to see what it did. What it replaces goes
+/// to the wastebasket rather than being unlinked, which is what makes the
+/// answer to that question a thing somebody can take back.
+///
+/// Handed to `later`: an hour of ffmpeg over somebody's music is not something
+/// a card can wait for, and the corner says it has been set going.
+fn one_format_row(held: &Held, tab: usize, here: &Path, from: usize) -> Row {
+    let here = here.to_path_buf();
+    let held = Arc::clone(held);
+    Row::new(ONE_FORMAT, "", Does::and_stay(move |showing| {
         let here = here.clone();
         let held = Arc::clone(&held);
-        showing.ask_aloud("New folder", answered(move |showing, word| {
-            let Some(name) = doing::a_name(word) else { return };
-            back_to_the_folder(&held, tab, showing, LINE);
-            showing.later(vec!["mkdir".to_string(), "--".to_string(), said(&here.join(name))]);
+        let folder = here
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_else(|| said(&here));
+        let said_as = folder.clone();
+        showing.sure(ONE_FORMAT_ASKS, &said_as, &[ONE_FORMAT_YES], taken(move |showing, _| {
+            back_to_the_folder(&held, tab, showing, from);
+            showing.note(&format!("{folder} is being made one format, which takes a while"));
+            showing.later(vec!["one-format".to_string(), said(&here)]);
         }));
     }))
 }
 
-/// What can be done with one thing.
+/// What can be done with one thing, and the one thing that can be done with the
+/// folder it is in.
+///
+/// Two lists under two names, because they are about two different things. A
+/// new folder is made where you are standing rather than out of the thing under
+/// the highlight, and put among Rename and Delete it would read as one more
+/// thing that could happen to the photograph.
 fn way_rows(held: &Held, tab: usize, thing: &Entry, from: usize, here: &Path) -> Vec<Row> {
     let folder = standing(held, |standing| standing.walks[tab].called(&standing.places[tab].title));
     let leaving = Arc::clone(held);
     let mut rows = vec![
         Row::back(&folder, move |showing| back_to_the_folder(&leaving, tab, showing, from)),
-        Row::said(&thing.name, &listing::aside(thing)),
+        Row::naming(&thing.name, &listing::aside(thing)),
     ];
     let path = here.join(&thing.name);
     rows.extend(doing::ways(thing).into_iter().map(|deed| deed_row(held, tab, thing, from, &path, deed)));
+    rows.push(Row::naming(&format!("In {folder}"), ""));
+    rows.push(new_folder_row(held, tab, here, from));
+    rows.push(one_format_row(held, tab, here, from));
     rows
 }
 
@@ -473,20 +598,24 @@ fn program_rows(held: &Held, tab: usize, thing: &Entry, from: usize, here: &Path
     let path = here.join(&thing.name);
     let leaving = Arc::clone(held);
     let going_back = thing.clone();
-    let mut rows = vec![Row::back(&going_back.name.clone(), move |showing| {
-        look(&leaving, tab, Onto::Ways { thing: going_back.clone(), from }, showing, WAYS_START);
-    })];
+    let mut rows = vec![
+        Row::back(&going_back.name.clone(), move |showing| {
+            look(&leaving, tab, Onto::Ways { thing: going_back.clone(), from }, showing, WAYS_START);
+        }),
+        Row::naming(Deed::OpenWith.says(), ""),
+    ];
 
     let found = kind_of(&path).as_deref().map(programs).unwrap_or_default();
+    if found.is_empty() {
+        rows.push(Row::said("Nothing here opens this", ""));
+        return rows;
+    }
     for (says, id) in found {
         let path = path.clone();
         rows.push(Row::new(&says, "", Does::call(move |_| {
             started(&id, &path);
             true
         })));
-    }
-    if rows.len() == 1 {
-        rows.push(Row::said("Nothing here opens this", ""));
     }
     rows
 }
@@ -635,6 +764,7 @@ fn rows(held: &Held, tab: usize) -> Vec<Row> {
     let (here, onto) = at(held, tab);
     match onto {
         Onto::Folder => folder_rows(held, tab, &here),
+        Onto::Here { from } => here_rows(held, tab, &here, from),
         Onto::Programs { thing, from } => program_rows(held, tab, &thing, from, &here),
         Onto::Ways { thing, from } => way_rows(held, tab, &thing, from, &here),
     }
@@ -669,7 +799,9 @@ fn page(held: &Held, tab: usize, title: &str) -> Page {
             Onto::Folder if !word.trim().is_empty() => stopped_looking(&backing, tab, showing),
             Onto::Folder if at_top => return true,
             Onto::Folder => went_up(&backing, tab, showing),
-            Onto::Ways { from, .. } => back_to_the_folder(&backing, tab, showing, from),
+            Onto::Here { from } | Onto::Ways { from, .. } => {
+                back_to_the_folder(&backing, tab, showing, from)
+            }
             Onto::Programs { .. } => {
                 let ways = thing_of(&backing, tab);
                 look(&backing, tab, ways, showing, WAYS_START);

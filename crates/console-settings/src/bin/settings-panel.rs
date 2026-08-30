@@ -574,16 +574,16 @@ fn pages(looking: &Looking) -> Vec<Page> {
     let backing = Arc::clone(looking);
     let waiting = Arc::clone(looking);
     vec![
-        Page::new(TABS[0], Rows::asked(battery_tab)).meanwhile(battery_meanwhile),
         // The volume rocker on the top edge moves the same number this tab
         // shows, and a panel that goes on showing the old one is worse than one
         // showing nothing: it is a reading, and it is wrong.
-        Page::new(TABS[1], Rows::asked(sound_tab)).watching(console_panel::page::Watch::on(
+        Page::new(TABS[0], Rows::asked(sound_tab)).watching(console_panel::page::Watch::on(
             &["stdbuf", "-oL", "pactl", "subscribe"],
             "on sink",
         )),
+        Page::new(TABS[1], Rows::asked(bluetooth_tab)),
         Page::new(TABS[2], Rows::asked(wifi_tab)).on_arriving(look_again),
-        Page::new(TABS[3], Rows::asked(bluetooth_tab)),
+        Page::new(TABS[3], Rows::asked(battery_tab)).meanwhile(battery_meanwhile),
         Page::new(TABS[4], Rows::asked(wallpaper_tab)).meanwhile(wallpaper_meanwhile),
         // The one tab that is somewhere as well as something. B out of a list
         // under it is the tab again, and only from the tab does B mean the

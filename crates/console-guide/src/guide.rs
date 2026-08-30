@@ -151,10 +151,22 @@ pub fn sections(profile: Option<&Profile>, lua: &str) -> Vec<Section> {
                 Line::new("A", "open a folder or a file"),
                 Line::new("B", "the folder above"),
                 Line::new("Y", &what_can_be_done()),
-                Line::new("New folder", "the last row of every folder"),
+                Line::new("New folder", "under Y, in whichever folder you are in"),
                 Line::new("Copy or Move", "pick it up; a row puts it down"),
                 Line::new("Delete", "asks first; goes to the wastebasket"),
                 Line::new("Row nought", "the folder above, with a finger"),
+            ],
+        ),
+        // What the front of the machine means once Steam has the screen, which
+        // is almost nothing: it is Steam's there, down to the button that left
+        // for it. The one thing this desktop keeps is the hold, and a hold is
+        // not something anybody finds by pressing.
+        Section::of(
+            "Steam",
+            vec![
+                Line::new("Legion left", "Steam's own menu, which is Steam's to draw"),
+                Line::new("Legion left, held", "back to this desktop"),
+                Line::new("Everything else", "the pad, untouched, the way a game expects it"),
             ],
         ),
         Section::of(

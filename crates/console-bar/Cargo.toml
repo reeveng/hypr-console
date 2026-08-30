@@ -10,10 +10,15 @@ name = "console_bar"
 path = "src/lib.rs"
 
 [[bin]]
+name = "bar-notice"
+path = "src/bin/bar-notice.rs"
+
+[[bin]]
 name = "bar-say"
 path = "src/bin/bar-say.rs"
 
 [dependencies]
+console-notices.workspace = true
 console-panel.workspace = true
 libc = "0.2"
 serde_json = "1"

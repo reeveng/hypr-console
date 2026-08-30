@@ -131,6 +131,24 @@ pub fn holder(said: &str) -> (i32, &str) {
     (pid.parse().unwrap_or(0), name)
 }
 
+/// The name a door is written down under.
+///
+/// What is read back comes through `trim`, because a chooser on its way has a
+/// pid and no door at all, and the line written then is a pid with nothing
+/// after the space. So a name that ends in a space cannot come back out of the
+/// file as it went in.
+///
+/// A panel that takes a tab names its door after the tab it was asked for, and
+/// asked for without one -- the bell on the bar, the settings on the Menu
+/// button -- the name ends in the space where the tab was not. The bell wrote
+/// "notices " and read "notices", did not recognise its own door, and put the
+/// panel away for being somebody else's and opened it again in the same press.
+/// Every other icon along that edge names a tab, which is why it was only the
+/// bell that flickered.
+fn door(name: &str) -> &str {
+    name.trim()
+}
+
 /// What became of the one that had the screen and had not drawn on it.
 enum Meanwhile {
     Drawn,
@@ -211,6 +229,7 @@ pub fn put_away() -> bool {
 /// something else is holding the screen and will not let go, or one is on its
 /// way and this press is somebody who has not seen it yet.
 pub fn alone(name: &str, again: Again) -> bool {
+    let name = door(name);
     let mut held = HELD.lock().expect("the lock's own lock");
     if held.is_some() {
         return true;
@@ -335,6 +354,16 @@ mod tests {
     #[test]
     fn a_chooser_on_its_way_has_a_pid_and_no_door() {
         assert_eq!(holder("1234"), (1234, ""));
+    }
+
+    /// Which is what the bell on the bar asks for: a panel with no tab named,
+    /// whose door would otherwise be written with the space where the tab was
+    /// not and read back without it.
+    #[test]
+    fn a_door_named_for_a_tab_it_was_not_given_is_the_name_on_its_own() {
+        let name = door("notices ");
+        assert_eq!(name, "notices");
+        assert_eq!(holder(&format!("1234 {name}")), (1234, name));
     }
 
     #[test]

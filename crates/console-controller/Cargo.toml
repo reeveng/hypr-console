@@ -13,6 +13,10 @@ path = "src/lib.rs"
 name = "stick-scroll"
 path = "src/bin/stick-scroll.rs"
 
+[[bin]]
+name = "game-return"
+path = "src/bin/game-return.rs"
+
 [dependencies]
 evdev = "0.13"
 

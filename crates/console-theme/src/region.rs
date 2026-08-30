@@ -1,10 +1,11 @@
 //! Writing into a file somebody else owns.
 //!
-//! Three files on this machine cannot import a palette: KDE's ini format has
-//! no include, and the browser's `user.js` and a systemd unit are both lists
-//! of literals. A fourth, the compositor's Lua, could but must not, because a
-//! Lua file that fails to load takes the session with it. Those four have a
-//! pair of markers in them and only what lies between the markers is ours.
+//! Four files on this machine cannot import a palette: KDE's ini format has no
+//! include and neither has mako's, and the browser's `user.js` and a systemd
+//! unit are both lists of literals. A fifth, the compositor's Lua, could but
+//! must not, because a Lua file that fails to load takes the session with it.
+//! Those five have a pair of markers in them and only what lies between the
+//! markers is ours.
 
 pub const BEGIN: &str = "console-theme:begin";
 pub const END: &str = "console-theme:end";

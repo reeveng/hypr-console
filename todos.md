@@ -10,6 +10,40 @@ machine and there is usually somebody holding it.
 
 ## Needs the device
 
+- **Nothing on the Download panel has been pressed on the device.** The card
+  opens and draws its list in the nested desktop here, and both fetches have
+  been run on a laptop: a song arrives in Music as an opus with its cover and
+  its title inside it, and a film arrives in Videos as an mkv with the picture
+  attached. What no machine here can answer is the half that is a thumb.
+
+  `make deploy`, then Download in the menu. Type a song with X, press A to walk
+  off the line onto **Look for**, and press A again: the row should say
+  **Looking for** it and the list should arrive with pictures. Press A on one,
+  and the corner should say it is on its way into Music; a notification should
+  say it has landed, and the row should say **have it** the next time that
+  search is made. Then Y on a row, which should offer the video of the same
+  thing and the browser.
+
+  The one thing worth measuring while it is open is how long a search takes over
+  the device's own network. Ten pictures are ten curls and ten ffmpegs here; if
+  that is slow enough to notice on the handheld, fetching them at the same time
+  rather than one after another is where to start.
+
+- **Nobody has looked at the bell while notifications are held back.** The
+  notices panel's last row keeps cards off the screen, and while it is on the
+  bar's bell wears `md-bell_off` rather than the outline.
+
+  Most of this is settled. The codepoint is the one the font's own table gives
+  for that name, drawn and checked rather than counted along the alphabetical
+  run that turned the other two into a bunk bed and a glass of beer; the device
+  answers `fc-list :charset=f009b` with the same MesloLGS Nerd Font that draws
+  the two already on the bar; and the bar was seen to print the struck-through
+  bell with a count beside it on the machine, with the mode on. What is left is
+  a look at it.
+
+  Take **Keep them off the screen**, and check the icon is a bell with a line
+  through it. Then take **Let them back on the screen** and check it goes back.
+
 - **The keyboard's layer is named from wvkbd's source and not from the
   machine.** `bar-door` lights the bar icon while what it opened is on the
   screen, and it decides that by looking for the surface in `hyprctl layers

@@ -13,7 +13,7 @@ IFACE=org.shadowblip.Input.CompositeDevice
 
 case "$1" in
   desktop) P=/etc/inputplumber/profiles/desktop.yaml ;;
-  game)     P=/usr/share/inputplumber/profiles/default.yaml ;;
+  game)     P=/etc/inputplumber/profiles/game.yaml ;;
   keyboard) P=/etc/inputplumber/profiles/keyboard.yaml ;;
   tabs)     P=/etc/inputplumber/profiles/tabs.yaml ;;
   "")      busctl --system get-property $BUS $OBJ $IFACE ProfileName 2>/dev/null | cut -d\" -f2; exit 0 ;;

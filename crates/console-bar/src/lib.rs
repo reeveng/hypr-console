@@ -10,5 +10,6 @@
 //! These are those four readings, said by us, so that the icon lights while its
 //! own tab is in front.
 
+pub mod notices;
 pub mod reading;
 pub mod watch;

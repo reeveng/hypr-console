@@ -1,0 +1,18 @@
+# Who answers when something raises a notification and nothing is listening.
+#
+# KDE ships a file for this name as part of plasma-workspace, which is on this
+# machine because the login manager depends on it. Under Hyprland the service
+# it names cannot start, so D-Bus spent fifty seconds on every notification
+# before failing, and console-say's promise that a fault reaches the screen was
+# never once kept.
+#
+# plasma-workspace cannot be removed -- cachyos-handheld wants the login
+# manager and the login manager wants it -- so the name is taken rather than
+# the package. D-Bus searches the service directories in XDG_DATA_DIRS order
+# and /usr/local/share comes before /usr/share, so this file is the one it
+# finds. SystemdService hands the start to the unit, which is the same mako the
+# desktop target runs, so there is only ever one of it.
+[D-BUS Service]
+Name=org.freedesktop.Notifications
+Exec=/usr/bin/mako
+SystemdService=console-notify.service

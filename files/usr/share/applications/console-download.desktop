@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Download
+Comment=A song or a video off the net, into Music and Videos
+Exec=/usr/local/bin/download-panel
+Icon=folder-download
+Terminal=false
+Categories=AudioVideo;Network;

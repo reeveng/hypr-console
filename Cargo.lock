@@ -116,6 +116,7 @@ checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
 name = "console-bar"
 version = "0.1.0"
 dependencies = [
+ "console-notices",
  "console-panel",
  "libc",
  "serde_json",
@@ -157,6 +158,16 @@ dependencies = [
  "console-screen",
  "console-stage",
  "libc",
+ "serde_json",
+]
+
+[[package]]
+name = "console-download"
+version = "0.1.0"
+dependencies = [
+ "console-music",
+ "console-panel",
+ "gtk4",
  "serde_json",
 ]
 
@@ -215,6 +226,15 @@ version = "0.1.0"
 dependencies = [
  "console-panel",
  "gtk4",
+ "serde_json",
+]
+
+[[package]]
+name = "console-notices"
+version = "0.1.0"
+dependencies = [
+ "console-panel",
+ "serde",
  "serde_json",
 ]
 

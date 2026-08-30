@@ -1,0 +1,19 @@
+[Unit]
+Description=Notifications
+PartOf=console.target
+
+[Service]
+# Type=dbus rather than simple, because this unit exists to own a name and
+# something may be waiting on that name. The activation file in
+# /usr/local/share/dbus-1/services points D-Bus back here, so a program that
+# raises a notification before the desktop is up starts this and is answered,
+# rather than being told the service is there and then finding nothing on it.
+Type=dbus
+BusName=org.freedesktop.Notifications
+ExecStart=/usr/bin/mako
+ExecStopPost=-/usr/local/bin/console-fell %n
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=console.target

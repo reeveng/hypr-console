@@ -17,6 +17,7 @@ pub mod hyprland;
 pub mod icon;
 pub mod kde;
 pub mod librewolf;
+pub mod mako;
 pub mod paper;
 pub mod shell;
 
@@ -85,9 +86,10 @@ pub fn everywhere(files: &Path, palette: &Palette, terminal: &Terminal) -> Vec<W
             files.join("usr/local/lib/console/palette.sh"),
             shell::spend(palette),
         ),
-        // The two that cannot import anything. KDE's ini format has no
-        // include, and a user.js is a list of literals.
+        // The three that cannot import anything. KDE's ini format has no
+        // include and neither has mako's, and a user.js is a list of literals.
         region(home.join(".config/kdeglobals"), kde::spend(palette)),
+        region(home.join(".config/mako/config"), mako::spend(palette)),
         region(
             home.join(".librewolf/console/user.js"),
             librewolf::prefs(palette),

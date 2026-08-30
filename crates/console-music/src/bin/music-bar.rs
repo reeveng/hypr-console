@@ -76,6 +76,13 @@ fn listening() -> std::sync::mpsc::Receiver<()> {
 }
 
 /// What the bar is told, as waybar reads it.
+///
+/// The classes are a list, never one string with a space in it. waybar hands a
+/// string to GTK as a single class name and a class name cannot hold a space,
+/// so `"stopped open"` was one class called `stopped open` and the stylesheet
+/// had no rule for it. This icon always says what the music is doing, so it
+/// always carried a word already, and it was therefore the one reading on the
+/// bar that could never light at all while its own panel was in front.
 fn line(icon: &str) -> String {
     let playing = player::playing().unwrap_or_default();
     let (mark, class) = match (playing.stopped, playing.paused) {
@@ -83,11 +90,8 @@ fn line(icon: &str) -> String {
         (_, true) => (format!("{PAUSE} {}", playing.title), "paused"),
         _ => (format!("{icon} {}", playing.title), "playing"),
     };
-    let class = match is_open(PANEL) {
-        true => format!("{class} open"),
-        false => class.to_string(),
-    };
-    format!(r#"{{"text": {}, "class": "{class}"}}"#, quoted(&mark))
+    let worn: Vec<&str> = std::iter::once(class).chain(is_open(PANEL).then_some("open")).collect();
+    format!(r#"{{"text": {}, "class": {}}}"#, quoted(&mark), serde_json::Value::from(worn))
 }
 
 /// A string, as JSON holds it.

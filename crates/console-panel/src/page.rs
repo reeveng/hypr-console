@@ -69,6 +69,16 @@ pub trait Showing {
     /// happens stops the panel answering the buttons, which reads as a machine
     /// that has crashed rather than one that is working.
     fn later(&self, argv: Vec<String>);
+
+    /// Start something and leave it running, and draw again once it has had
+    /// long enough to say that it has.
+    ///
+    /// The other one is for a command that finishes. A player does not: it is
+    /// still running when the song ends and still running when the panel that
+    /// started it has gone, which is the whole point of it. Waiting on one
+    /// holds a thread for the length of the music and keeps the player a child
+    /// of the panel, so closing the panel took the music with it.
+    fn leave_running(&self, argv: Vec<String>);
 }
 
 /// What a line of text is handed to, once it has been typed.
@@ -218,12 +228,38 @@ pub struct Row {
     /// written beside; a title is often both of those and is a title anyway,
     /// because a file's name has its size beside it.
     pub naming: bool,
+    /// Whether this row is the panel saying the list is empty.
+    ///
+    /// Nearly every tab here has a list that can come up with nothing in it:
+    /// no notification waiting, no song in the folder, nothing that answers to
+    /// the word typed. Each said so in a row, and a row is a card the width of
+    /// the panel in the ink an option is written in, shaped like the thing a
+    /// thumb is aiming at. So a tab holding one thing you cannot do read as a
+    /// tab holding one thing you can, and the only way to learn otherwise was
+    /// to press A at it and watch nothing happen.
+    ///
+    /// Said here instead, so the panel can draw it as what it is: no card, no
+    /// mark, quiet, and across the middle rather than down the left where the
+    /// options line up. It declares nothing because there is nothing to
+    /// declare, and now it looks like nothing as well.
+    pub nothing: bool,
 }
 
 impl Row {
     /// A row that is read rather than chosen.
     pub fn said(says: &str, aside: &str) -> Self {
         Row { says: says.to_string(), aside: aside.to_string(), ..Row::default() }
+    }
+
+    /// The panel saying the list is empty, and why.
+    ///
+    /// Not an option, so it is not shaped like one: it is drawn without a card,
+    /// quietly, across the width of the list, and the highlight never lands on
+    /// it. For the one line a tab puts up in place of the rows it has none of.
+    /// Anything a thumb could act on afterwards — clearing the folder, looking
+    /// again — is still a row of its own under it.
+    pub fn nothing(says: &str) -> Self {
+        Row { nothing: true, ..Row::said(says, "") }
     }
 
     /// The name of what the rows under it are about.
@@ -307,7 +343,7 @@ impl Row {
     /// the other, and a highlight that walked past everything nothing happens
     /// to walked past most of the page to land in the middle of it.
     pub fn heading(&self) -> bool {
-        self.naming || (!self.acts() && self.aside.is_empty() && !self.typing)
+        self.naming || self.nothing || (!self.acts() && self.aside.is_empty() && !self.typing)
     }
 }
 

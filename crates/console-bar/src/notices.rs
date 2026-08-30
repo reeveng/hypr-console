@@ -65,10 +65,15 @@ pub fn notices(waiting: Waiting) -> Says {
         (false, 0) => OUTLINE,
         (false, _) => RINGING,
     };
+    // The count is gone, because the bell already carries it: outline for
+    // nothing, ringing for something, struck through while they are being held
+    // back. A number beside a glyph that says the same thing is the bar saying
+    // it twice, and it is what made this side of the bar three readings with
+    // numbers on and three without.
     match (waiting.many, waiting.wrong) {
         (0, _) => Says::new(bell, "quiet"),
-        (many, false) => Says::new(format!("{bell} {many}"), ""),
-        (many, true) => Says::new(format!("{bell} {many}"), "urgent"),
+        (_, false) => Says::new(bell, ""),
+        (_, true) => Says::new(bell, "urgent"),
     }
 }
 
@@ -151,9 +156,14 @@ Notification 3: Two
     }
 
     #[test]
-    fn a_bell_with_something_under_it_says_how_many() {
-        assert!(notices(Waiting { many: 1, ..Waiting::default() }).class.is_empty());
-        assert!(notices(Waiting { many: 3, ..Waiting::default() }).text.ends_with('3'));
+    fn a_bell_with_something_under_it_is_a_different_bell() {
+        let one = notices(Waiting { many: 1, ..Waiting::default() });
+        assert!(one.class.is_empty());
+        assert_ne!(one.text, notices(Waiting::default()).text);
+        // How many is not written out. One waiting and three waiting are the
+        // same news -- something is under the bell -- and the bar has room for
+        // the news and not for the arithmetic.
+        assert_eq!(notices(Waiting { many: 3, ..Waiting::default() }).text, one.text);
     }
 
     /// Three notifications and one of them a fault is a fault waiting, and the
@@ -175,13 +185,30 @@ Notification 3: Two
         assert_ne!(quiet.text, notices(Waiting { held_back: true, ..Waiting::default() }).text);
     }
 
+    /// The bar is packed from the right, so a bell that grew a character when
+    /// something arrived pushed every module left of it along. Three glyphs
+    /// out of the Mono cut are three of the same cell.
+    #[test]
+    fn the_bell_is_one_width_whatever_is_under_it() {
+        let states = [
+            Waiting::default(),
+            Waiting { many: 1, ..Waiting::default() },
+            Waiting { many: 99, wrong: true, ..Waiting::default() },
+            Waiting { many: 1, held_back: true, ..Waiting::default() },
+            Waiting { held_back: true, ..Waiting::default() },
+        ];
+        for waiting in states {
+            assert_eq!(notices(waiting).text.chars().count(), 1, "{waiting:?}");
+        }
+    }
+
     /// A desktop that has been quietened is the one state nothing else on the
     /// screen says. The cards are gone by definition, so the bell is the only
     /// thing left that can say why.
     #[test]
-    fn a_bell_that_is_holding_them_back_still_counts_and_still_says_wrong() {
+    fn a_bell_that_is_holding_them_back_is_struck_through_and_still_says_wrong() {
         let held = notices(Waiting { many: 2, wrong: true, held_back: true });
-        assert!(held.text.ends_with('2'));
+        assert_eq!(held.text, OFF);
         assert_eq!(held.class, "urgent");
     }
 }

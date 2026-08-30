@@ -168,7 +168,7 @@ pub fn choice_rows(
     opening.sort_by_key(|program| program.says.to_lowercase());
 
     if opening.is_empty() {
-        rows.push(Row::said("Nothing here opens these", ""));
+        rows.push(Row::nothing("Nothing here opens these"));
         return rows;
     }
     for program in opening {

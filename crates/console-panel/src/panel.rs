@@ -186,6 +186,10 @@ impl Showing for Rc<Panel> {
         Panel::later(self, argv);
     }
 
+    fn leave_running(&self, argv: Vec<String>) {
+        Panel::leave_running(self, argv);
+    }
+
     fn note(&self, said: &str) {
         Panel::note(self, said);
     }
@@ -566,7 +570,17 @@ impl Panel {
         let Ok(index) = usize::try_from(index) else { return };
         let does = self.state.borrow().placed.get(index).and_then(|row| row.does.clone());
         match does {
-            None => (),
+            // A press that lands on a row with nothing on it, said out loud.
+            // Silence here is the worst answer a panel gives: the row is
+            // highlighted, A is pressed, and what comes back is indis-
+            // tinguishable from a panel that has crashed, from a program that
+            // failed to start, and from a button that is not wired up. Which of
+            // those it is has cost this desktop an evening more than once.
+            None => eprintln!(
+                "nothing happens on row {index} of {}: {:?}",
+                self.state.borrow().placed.len(),
+                self.state.borrow().placed.get(index).map(|row| row.says.clone())
+            ),
             Some(Does::Call(act)) => {
                 if act(self) {
                     self.shut();
@@ -829,6 +843,9 @@ impl Panel {
             if row.naming {
                 held.add_css_class("naming");
             }
+            if row.nothing {
+                held.add_css_class("nothing");
+            }
             held.set_child(Some(&self.line(row)));
             self.rows.append(&held);
         }
@@ -868,6 +885,19 @@ impl Panel {
     /// One row, laid out for reading or for picking.
     fn line(self: &Rc<Self>, row: &Row) -> GtkBox {
         let line = GtkBox::new(Orientation::Horizontal, 0);
+        // The panel saying the list is empty. One line and nothing else: no
+        // room kept at the front for a picture there will never be one of, and
+        // none of the two-column measuring a tab of readings is given, because
+        // it is not a reading of anything. Across the width and wrapped, since
+        // what it says is a sentence and one of them names a folder.
+        if row.nothing {
+            let said = Label::new(Some(&row.says));
+            said.set_hexpand(true);
+            said.set_wrap(true);
+            said.set_justify(gtk4::Justification::Center);
+            line.append(&said);
+            return line;
+        }
         match &row.picture {
             Picture::None => {}
             Picture::Written(markup) => line.append(&written(markup)),
@@ -1508,6 +1538,24 @@ impl Panel {
             panel.redraw();
         });
     }
+
+    /// Start something and leave it running.
+    ///
+    /// In a session of its own, the way the menu starts an application: what a
+    /// panel starts and leaves on goes on running after the panel has gone.
+    /// `later` is the other kind, for a command that ends, and a player handed
+    /// to it was a player waited on for the length of the song and killed with
+    /// the panel that started it. Choosing a song did nothing that outlived
+    /// looking at it.
+    ///
+    /// Drawn again a moment later rather than at once, because what the tab
+    /// says is what the player says about itself and the player has not been
+    /// asked yet.
+    pub fn leave_running(self: &Rc<Self>, argv: Vec<String>) {
+        crate::running::left_running(&argv);
+        let panel = Rc::clone(self);
+        glib::timeout_add_local_once(crate::running::SETTLING, move || panel.redraw());
+    }
 }
 
 /// The signals that mean go away, held back from killing this outright.
@@ -1761,6 +1809,27 @@ mod tests {
         let rows = [chooseable("Open"), chooseable("Delete"), heading("Nothing else")];
         assert_eq!(walked(&rows, 1, 1), 1);
         assert_eq!(walked(&rows, 0, -1), 0);
+    }
+
+    /// A list with nothing in it says so, and what it says is not one of the
+    /// things in it. The highlight walks past it from either direction, so a
+    /// tab holding nothing has nothing under the thumb to press.
+    #[test]
+    fn the_dpad_steps_over_the_panel_saying_a_list_is_empty() {
+        let rows = [chooseable("\u{2039} Music"), Row::nothing("Nothing in /home/music"),
+                    chooseable("Open the folder")];
+        assert_eq!(walked(&rows, 0, 1), 2);
+        assert_eq!(walked(&rows, 2, -1), 0);
+    }
+
+    /// Drawn as a class rather than as a part with a name of its own, so the
+    /// check that every part is dressed does not see it. A row that says a list
+    /// is empty and is dressed like one of its options is the whole fault this
+    /// was written for.
+    #[test]
+    fn the_panel_saying_a_list_is_empty_is_not_dressed_as_an_option() {
+        assert!(Row::nothing("Nothing is waiting").heading());
+        assert!(crate::style::sheet().contains("row.nothing {"));
     }
 
     /// Nothing happens to it and nothing is written beside it, which is a

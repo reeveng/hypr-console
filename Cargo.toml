@@ -15,6 +15,7 @@ rust-version = "1.85"
 license = "MIT"
 
 [workspace.dependencies]
+console-again = { path = "crates/console-again" }
 console-checks = { path = "crates/console-checks" }
 console-colour = { path = "crates/console-colour" }
 console-controller = { path = "crates/console-controller" }

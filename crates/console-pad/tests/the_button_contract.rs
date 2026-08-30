@@ -287,6 +287,10 @@ fn every_key_a_profile_sends_is_a_key_the_keyboard_has() {
 #[test]
 fn a_button_with_nothing_to_do_here_says_so() {
     let profiles = profiles();
+    // The chooser profiles, of which there is one just now. Asked as a list
+    // because the question is about all of them, and the next one added is a
+    // line here rather than a test rewritten.
+    #[allow(clippy::single_element_loop)]
     for where_ in ["tabs"] {
         let silent: BTreeSet<&str> = profiles[where_]
             .mappings
@@ -330,6 +334,8 @@ fn a_chooser_leaves_no_button_to_chance() {
         .map(|(spoken, _)| *spoken)
         .filter(|spoken| !profiles["desktop"].for_button(spoken).expect("a button").is_empty())
         .collect();
+    // The chooser profiles again, asked as a list for the same reason.
+    #[allow(clippy::single_element_loop)]
     for where_ in ["tabs"] {
         let missing: Vec<&str> = named
             .iter()

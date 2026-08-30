@@ -157,6 +157,17 @@ pub fn sections(profile: Option<&Profile>, lua: &str) -> Vec<Section> {
                 Line::new("Row nought", "the folder above, with a finger"),
             ],
         ),
+        Section::of(
+            "Music",
+            vec![
+                Line::new("A", "play a song, or a folder of them"),
+                Line::new("Y", "show it in the files, where it is renamed or thrown away"),
+                Line::new("Typing", "a song, whose it is, or anything it says"),
+                Line::new("D-pad left / right", "the song before it, the song after it"),
+                Line::new("Play them in any order", "on Playing, under what is on"),
+                Line::new("Play this one over", "on Playing, under what is on"),
+            ],
+        ),
         // What the front of the machine means once Steam has the screen, which
         // is almost nothing: it is Steam's there, down to the button that left
         // for it. The one thing this desktop keeps is the hold, and a hold is

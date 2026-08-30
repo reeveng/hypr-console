@@ -73,11 +73,11 @@ pub fn rows(
         return rows;
     }
     if !looked.fault.is_empty() {
-        rows.push(Row::said(&looked.fault, ""));
+        rows.push(Row::nothing(&looked.fault));
     } else if !looked.asked.is_empty() {
-        rows.push(Row::said(&format!("{NOTHING_CAME_BACK} {}", looked.asked), ""));
+        rows.push(Row::nothing(&format!("{NOTHING_CAME_BACK} {}", looked.asked)));
     } else if rows.is_empty() {
-        rows.push(Row::said(NOTHING_YET, ""));
+        rows.push(Row::nothing(NOTHING_YET));
     }
     rows
 }

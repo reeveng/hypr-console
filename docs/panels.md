@@ -131,6 +131,26 @@ be done is six rows to a thumb. Written with `said` it was a row like any other,
 the same shape a thumb aims at, and a question about a photograph read as though
 the photograph were one of the answers to it.
 
+## An empty list says so, and what it says is not a row
+
+`Row::nothing` is the panel saying there is nothing here: no notification
+waiting, no song in the folder, nothing that answers to the word typed, no
+program that opens this kind of file.
+
+Every tab has one, and every one of them used to be written with `said`, which
+is a card the width of the panel in the ink an option is written in — the exact
+shape a thumb is aiming at. So a tab with nothing on it read as a tab with one
+thing on it, and the only way to find out otherwise was to press A and watch
+nothing happen. It declared no intent and no behaviour while wearing the shape
+of something that has both.
+
+It is drawn as what it is instead: no card, quiet, small, set across the middle
+rather than down the left where the names line up, with room above and below.
+The highlight walks past it from either direction. Anything that can actually be
+done about the emptiness — clear the folder, look again, add a picture — is
+still a row of its own under it, shaped like a row, because that one is an
+option and this one never was.
+
 ## Every button has an answer for a finger
 
 The device is a touchscreen and it is put down as often as it is held. A button

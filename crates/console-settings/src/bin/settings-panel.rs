@@ -15,7 +15,8 @@ use console_panel::{chooser, panel};
 use console_settings::defaults::{self, Program};
 use console_settings::level::stepped;
 use console_settings::rows::{
-    Chosen, TABS, battery_rows, bluetooth_rows, engine_says, search_rows, sound_rows, system_rows,
+    Chosen, TABS, battery_rows, bluetooth_rows, engine_says, notifications_rows, search_rows,
+    sound_rows, system_rows,
     wifi_rows,
 };
 use console_settings::wallpaper::{Found, Offered, wallpaper_rows};
@@ -134,6 +135,14 @@ fn join(network: wifi::Network, known: bool) -> Does {
             }),
         );
     })
+}
+
+/// Whether notifications are drawn on the screen as they arrive.
+///
+/// `makoctl mode` prints the modes one to a line, and the switch adds or
+/// removes the one that means quiet.
+fn notifications_tab() -> Vec<console_panel::page::Row> {
+    notifications_rows(console_notices::reading::held_back(&said(&["makoctl", "mode"])))
 }
 
 fn wifi_tab() -> Vec<console_panel::page::Row> {
@@ -584,11 +593,12 @@ fn pages(looking: &Looking) -> Vec<Page> {
         Page::new(TABS[1], Rows::asked(bluetooth_tab)),
         Page::new(TABS[2], Rows::asked(wifi_tab)).on_arriving(look_again),
         Page::new(TABS[3], Rows::asked(battery_tab)).meanwhile(battery_meanwhile),
-        Page::new(TABS[4], Rows::asked(wallpaper_tab)).meanwhile(wallpaper_meanwhile),
+        Page::new(TABS[4], Rows::asked(notifications_tab)),
+        Page::new(TABS[5], Rows::asked(wallpaper_tab)).meanwhile(wallpaper_meanwhile),
         // The one tab that is somewhere as well as something. B out of a list
         // under it is the tab again, and only from the tab does B mean the
         // panel, which is how back means one thing everywhere on this desktop.
-        Page::new(TABS[5], Rows::asked(move || defaults_tab(&drawing)))
+        Page::new(TABS[6], Rows::asked(move || defaults_tab(&drawing)))
             .meanwhile(move || defaults_meanwhile(&waiting))
             .on_back(move |showing| match looking_at(&backing) {
                 Onto::Settings => true,
@@ -597,7 +607,7 @@ fn pages(looking: &Looking) -> Vec<Page> {
                     false
                 }
             }),
-        Page::new(TABS[6], Rows::asked(system_rows)),
+        Page::new(TABS[7], Rows::asked(system_rows)),
     ]
 }
 

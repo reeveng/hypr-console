@@ -30,8 +30,8 @@ if [ -n "$(git status --porcelain)" ]; then
     exit 1
 fi
 
-echo "== the tests, before anything is sent"
-make --no-print-directory test
+echo "== everything that must hold, before anything is sent"
+make --no-print-directory ready
 
 echo
 echo "== what the device has that this does not"

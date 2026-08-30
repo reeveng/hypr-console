@@ -107,7 +107,7 @@ fn already(into: &Path, url: &str) -> Option<String> {
 /// the id in square brackets comes off it the same way the music library takes
 /// it off a row.
 fn arrived(said: &str) -> String {
-    let path = said.lines().map(str::trim).filter(|line| !line.is_empty()).next_back();
+    let path = said.lines().map(str::trim).rfind(|line| !line.is_empty());
     let name = path
         .map(Path::new)
         .and_then(Path::file_name)

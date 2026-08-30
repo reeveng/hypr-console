@@ -13,14 +13,13 @@
 //! waybar's own mpris module is the other way to do this, and it is the reason
 //! this exists: it draws nothing at all while no player is running.
 
-use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::UnixStream;
+use std::io::Write;
 use std::process::ExitCode;
 use std::sync::mpsc::{RecvTimeoutError, channel};
 use std::time::Duration;
 
 use console_music::player;
-use console_panel::door::{events, is_open, worth_asking_after};
+use console_panel::door::{is_open, watching_layers};
 
 /// How often the player is asked.
 ///
@@ -61,17 +60,14 @@ fn main() -> ExitCode {
 }
 
 /// A word from the compositor whenever a layer opens or closes.
+///
+/// Connected to again for as long as this runs, so the icon goes on lighting
+/// after the socket has been away. Without that it lit until the first time
+/// the connection went and then never again, while the icon itself stayed on
+/// the bar being drawn every two seconds and looking entirely well.
 fn listening() -> std::sync::mpsc::Receiver<()> {
     let (say, heard) = channel();
-    std::thread::spawn(move || {
-        let Some(socket) = events() else { return };
-        let Ok(stream) = UnixStream::connect(&socket) else { return };
-        for line in BufReader::new(stream).lines().map_while(Result::ok) {
-            if worth_asking_after(&line) && say.send(()).is_err() {
-                return;
-            }
-        }
-    });
+    watching_layers(say);
     heard
 }
 
@@ -87,8 +83,13 @@ fn line(icon: &str) -> String {
     let playing = player::playing().unwrap_or_default();
     let (mark, class) = match (playing.stopped, playing.paused) {
         (true, _) => (icon.to_string(), "stopped"),
-        (_, true) => (format!("{PAUSE} {}", playing.title), "paused"),
-        _ => (format!("{icon} {}", playing.title), "playing"),
+        // The glyph and nothing else. The title is as long as whoever named
+        // the file made it, so this module alone was as wide as the other five
+        // together, and it changed width with every song: the whole right-hand
+        // side of the bar shuffled along when a track ended. What is playing is
+        // one tap away, on the panel this icon opens, written out in full.
+        (_, true) => (PAUSE.to_string(), "paused"),
+        _ => (icon.to_string(), "playing"),
     };
     let worn: Vec<&str> = std::iter::once(class).chain(is_open(PANEL).then_some("open")).collect();
     format!(r#"{{"text": {}, "class": {}}}"#, quoted(&mark), serde_json::Value::from(worn))

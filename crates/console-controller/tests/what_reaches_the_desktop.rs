@@ -33,6 +33,9 @@ fn every_button_the_desktop_acts_on_is_named_in_a_chooser() {
         .canonicalize()
         .expect("the repository");
     let profiles = load_all(&root).expect("the profiles");
+    // As above: the chooser profiles, asked as a list because that is what
+    // the question is about.
+    #[allow(clippy::single_element_loop)]
     for where_ in ["tabs"] {
         let named: BTreeSet<KeyCode> = profiles[where_]
             .mappings

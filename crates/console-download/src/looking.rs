@@ -232,7 +232,7 @@ pub fn counted(views: u64) -> String {
 /// already the place faults are said, and cut short, because a row is one line
 /// and a stack trace pushed the list off the screen.
 pub fn complaint(said: &str) -> String {
-    let last = said.lines().map(str::trim).filter(|line| !line.is_empty()).next_back();
+    let last = said.lines().map(str::trim).rfind(|line| !line.is_empty());
     let said = last.unwrap_or(WENT_WRONG).trim_start_matches("ERROR:").trim();
     match said.char_indices().nth(SHORT) {
         Some((at, _)) => format!("{}\u{2026}", &said[..at]),

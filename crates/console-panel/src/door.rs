@@ -5,8 +5,13 @@
 //! of the doors it draws, and anything else that says what is in front of you
 //! asks it the same way.
 
+use std::io::{BufRead, BufReader};
+use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::mpsc::Sender;
+
+use console_again::keep;
 
 /// Whether the compositor is showing a surface with this name on it.
 ///
@@ -93,6 +98,42 @@ pub fn tab() -> Option<String> {
 /// Whether that surface is on the screen with that tab in front of it.
 pub fn open_on(namespace: &str, tab_: &str) -> bool {
     is_open(namespace) && tab().is_some_and(|said| said == tab_)
+}
+
+/// A word on `say` whenever a layer surface opened or closed, for as long as
+/// anything is listening.
+///
+/// The connection is made again whenever it ends, which is the whole of why
+/// this exists. Every icon on the bar that lights while what it opens is in
+/// front learns that from this socket, and each of them used to connect once
+/// and give up for the session the first time the connection went: the
+/// compositor was not up yet when the bar started, or the socket went away
+/// under a resume from sleep. Nothing said so. The module kept running and
+/// kept drawing, and the light simply never moved again, which is a harder
+/// thing to notice than an icon that disappeared.
+///
+/// It ends only when nobody is listening any more. A subscription nothing
+/// reads is a thread and a socket kept open for no one, and on the way out of
+/// a program it is also a thread that would hold it open.
+pub fn watching_layers(say: Sender<()>) {
+    // The one thing here that cannot come back. The socket's name is taken from
+    // the environment this program was started with, so a compositor this
+    // program has never heard of is not something waiting will fix.
+    let Some(socket) = events() else { return };
+    keep(move || {
+        let Ok(stream) = UnixStream::connect(&socket) else {
+            // Not there. It may be in a moment: this is what a bar that
+            // started before the compositor did sees, and what a resume looks
+            // like from here.
+            return true;
+        };
+        for line in BufReader::new(stream).lines().map_while(Result::ok) {
+            if worth_asking_after(&line) && say.send(()).is_err() {
+                return false;
+            }
+        }
+        true
+    });
 }
 
 #[cfg(test)]

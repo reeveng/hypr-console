@@ -94,7 +94,7 @@ pub fn wallpaper_rows(
     }
 
     if pictures.is_empty() {
-        rows.push(Row::said("There are no pictures on this machine", ""));
+        rows.push(Row::nothing("There are no pictures on this machine"));
     }
 
     // Said with the number in it, because "add a picture" on a machine holding

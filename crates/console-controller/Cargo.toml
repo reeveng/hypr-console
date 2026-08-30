@@ -19,6 +19,7 @@ path = "src/bin/game-return.rs"
 
 [dependencies]
 evdev = "0.13"
+libc = "0.2"
 
 [dev-dependencies]
 console-pad.workspace = true

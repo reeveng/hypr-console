@@ -7,12 +7,13 @@
 
 use std::collections::BTreeMap;
 use std::process::{Child, Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use evdev::uinput::VirtualDevice;
 use evdev::{
     AbsoluteAxisCode, AttributeSet, Device, InputEvent, KeyCode, RelativeAxisCode,
 };
+use console_controller::clock::since_boot;
 use console_controller::doing::Doing;
 use console_controller::finding::Says;
 use console_controller::reading::{From, Ranges};
@@ -29,11 +30,13 @@ fn main() -> std::process::ExitCode {
 
     let mut machine = Machine::default();
     let mut turning = Turning::pointed_at(told());
-    let started = Instant::now();
     let mut holding: BTreeMap<From, String> = BTreeMap::new();
     let mut running: Vec<Child> = Vec::new();
     loop {
-        for what in turning.turn(&mut machine, started.elapsed().as_secs_f64()) {
+        // Counting the time the machine spent asleep, which is the whole of
+        // why `turning::AWAY_SECONDS` can tell a suspend from a slow turn. See
+        // `console_controller::clock`.
+        for what in turning.turn(&mut machine, since_boot()) {
             running.extend(done(&what, &mut out));
         }
         running = reaped(running);

@@ -1,0 +1,64 @@
+#!/bin/sh
+# Say, on the screen, that the desktop is being rebuilt under it.
+#
+#     console-updating start   put a notice up, and leave it up
+#     console-updating done    replace it with one that goes by itself
+#     console-updating failed  replace it with one that says it did not
+#
+# `console apply` rewrites files, restarts services and compiles every program
+# the manifest names. On this device that is the better part of a minute, and
+# for all of it the screen said nothing. So whether the thing about to be
+# tested was the new copy or the one before it was a question answered by
+# remembering how long ago the deploy was pressed, and a fault reported
+# against a binary that had already been replaced costs an evening at both
+# ends of the wire.
+#
+# One notice, not a stream of them. It is raised with no expiry, so it stands
+# for as long as the apply does however long that turns out to be, and the
+# number it comes back under is kept so that the next call replaces it rather
+# than putting a second one underneath.
+#
+# Nothing here is worth failing an apply over: an apply that worked and could
+# not say so is an apply that worked. Everything that can fail is allowed to,
+# and the journal has the whole of it either way.
+
+kept=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/console/updating
+
+# Raise it, or replace what is already up. URGENCY EXPIRY SUMMARY BODY.
+#
+# --print-id hands back the number the notification is known by, and giving
+# that number to --replace-id is the whole of what makes the next one the same
+# notification. Without it "done" is a second line under a first that never
+# goes, which is worse than saying nothing.
+raise() {
+    was=$(cat "$kept" 2>/dev/null)
+    id=$(notify-send --app-name=Console --print-id --urgency="$1" \
+        --expire-time="$2" ${was:+--replace-id="$was"} -- "$3" "$4" 2>/dev/null)
+    [ -n "$id" ] || return 0
+    mkdir -p "${kept%/*}" 2>/dev/null || return 0
+    printf '%s\n' "$id" > "$kept" 2>/dev/null || true
+}
+
+case $1 in
+start)
+    raise normal 0 "Updating the console" \
+        "Writing files, restarting services and building every program the manifest names."
+    ;;
+done)
+    raise normal 4000 "The console is up to date" \
+        "Everything the manifest asks for is what is on the machine."
+    rm -f "$kept"
+    ;;
+failed)
+    # It stays up. An apply that stopped halfway leaves a machine that is
+    # neither what it was nor what it was going to be, and that is worth more
+    # than four seconds of somebody's attention.
+    raise critical 0 "The update did not finish" \
+        "The machine is part-way. journalctl -t console, or run console apply again."
+    rm -f "$kept"
+    ;;
+*)
+    echo "usage: console-updating start|done|failed" >&2
+    exit 2
+    ;;
+esac

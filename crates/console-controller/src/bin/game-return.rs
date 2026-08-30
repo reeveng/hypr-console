@@ -15,23 +15,33 @@
 //! does every time.
 
 use std::process::{Child, Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use evdev::{Device, InputEvent};
+use console_controller::clock::since_boot;
 use console_controller::doing::Doing;
 use console_controller::finding::{self, Says};
 use console_controller::reading::POLL;
 use console_controller::returning::Returning;
-use console_controller::turning::HUNT_SECONDS;
+use console_controller::turning::{AWAY_SECONDS, HUNT_SECONDS};
 
 fn main() -> std::process::ExitCode {
     let mut returning = Returning::default();
     let mut pad: Option<(String, Device)> = None;
     let mut hunted: Option<f64> = None;
-    let started = Instant::now();
     let mut running: Vec<Child> = Vec::new();
+    let mut last: Option<f64> = None;
     loop {
-        let now = started.elapsed().as_secs_f64();
+        // The clock that counts a suspend, as the desktop's own daemon uses.
+        let now = since_boot();
+        // A gap means the machine was not running, and a button that was down
+        // when it stopped is not a button somebody is holding now. Left to
+        // stand, the hold is however long the machine slept and coming back is
+        // the first thing it does on waking.
+        if last.is_some_and(|was| now - was > AWAY_SECONDS) {
+            returning.gone();
+        }
+        last = Some(now);
         if pad.is_none() && hunted.is_none_or(|was| now - was >= HUNT_SECONDS) {
             hunted = Some(now);
             pad = found();

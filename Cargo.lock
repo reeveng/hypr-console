@@ -113,9 +113,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
 
 [[package]]
+name = "console-again"
+version = "0.1.0"
+
+[[package]]
 name = "console-bar"
 version = "0.1.0"
 dependencies = [
+ "console-again",
  "console-notices",
  "console-panel",
  "libc",
@@ -142,6 +147,7 @@ version = "0.1.0"
 dependencies = [
  "console-pad",
  "evdev",
+ "libc",
 ]
 
 [[package]]
@@ -252,6 +258,7 @@ dependencies = [
 name = "console-panel"
 version = "0.1.0"
 dependencies = [
+ "console-again",
  "gtk4",
  "gtk4-layer-shell",
  "libc",
@@ -275,6 +282,7 @@ name = "console-settings"
 version = "0.1.0"
 dependencies = [
  "console-defaults",
+ "console-notices",
  "console-panel",
  "console-sky",
  "serde",
@@ -285,6 +293,7 @@ dependencies = [
 name = "console-sky"
 version = "0.1.0"
 dependencies = [
+ "console-again",
  "console-colour",
  "console-garden",
  "console-screen",

@@ -169,6 +169,37 @@ fn every_program_the_device_builds_is_one_this_repository_holds() {
     }
 }
 
+/// The bar draws its whole face out of a font, so the font is one the manifest
+/// installs.
+///
+/// It was not, for as long as there has been a bar. Noto Sans carries none of
+/// the Material Design codepoints these icons are, so every glyph on the bar
+/// came from whichever Nerd Font happened to be on the machine, chosen by
+/// fontconfig and named nowhere. A machine put back together from the manifest
+/// alone would have drawn the bar as a row of empty boxes.
+#[test]
+fn the_font_the_bar_draws_its_icons_in_is_one_the_manifest_installs() {
+    let style = std::fs::read_to_string(
+        root().join("files/home/@user@/.config/waybar/style.css"),
+    )
+    .expect("the bar's stylesheet");
+    let asked = style
+        .lines()
+        .find(|line| line.trim_start().starts_with("font-family:"))
+        .expect("a font-family");
+    assert!(
+        asked.contains("Nerd Font Mono"),
+        "the bar asks for {asked:?}. Only the Mono cut draws these glyphs centred in \
+         their cell; in the others the ink overflows the advance and hangs off the right, \
+         which puts every icon a different distance off centre"
+    );
+    let packages: BTreeSet<String> = section(&manifest(), "packages").into_iter().collect();
+    assert!(
+        packages.contains("ttf-fantasque-nerd"),
+        "[packages] does not name the font the stylesheet asks for"
+    );
+}
+
 /// Every program the workspace makes, by the name it is installed under.
 fn programs() -> Vec<String> {
     let crates = root().join("crates");

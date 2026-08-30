@@ -56,6 +56,11 @@ const FROM_LCH: [[f64; 2]; 3] = [
 /// moves a channel that lands exactly between two values in a direction that
 /// depends on nothing, and two colours a blend apart then differ by a bit for
 /// no reason anybody can point at.
+// The three cases are the rule written out, and the last two agreeing on the
+// answer is the rule rather than a repetition to be folded away: a value
+// exactly between two integers goes to the even one, which is `floor` when
+// `floor` is even and `floor + 1` when it is odd.
+#[allow(clippy::if_same_then_else)]
 fn round_half_even(value: f64) -> f64 {
     let floor = value.floor();
     let rest = value - floor;

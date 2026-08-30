@@ -3,7 +3,13 @@
   "layer": "top",
   "position": "top",
   "height": 38,
-  "spacing": 10,
+  // Nothing between the modules. What separates them is the slab each one
+  // wears -- its padding, which is also the area that answers a tap -- and
+  // the 2px margin that keeps two lit slabs from touching. waybar's spacing
+  // is on top of both and is neither: ten pixels of bar that highlight
+  // nothing, open nothing, and push every icon further from the last. The
+  // gap between two targets was fourteen pixels for four pixels of reason.
+  "spacing": 0,
 
   "modules-left": ["custom/apps", "custom/keyboard", "hyprland/workspaces"],
   "modules-center": ["clock"],
@@ -52,9 +58,13 @@
     "on-click": "osk"
   },
 
+  // No on-click. "activate" is sway's word for it, and waybar hands a
+  // hyprland/workspaces on-click to a shell like any other: the journal has
+  // `sh: line 1: activate: command not found` for every workspace anybody
+  // tapped. Left alone, the module switches to the workspace itself, which
+  // is what the line was asking for.
   "hyprland/workspaces": {
-    "format": "{id}",
-    "on-click": "activate"
+    "format": "{id}"
   },
 
   // One reading, always the same one. A handheld is picked up cold and put

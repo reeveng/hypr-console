@@ -186,6 +186,7 @@ fn a_chooser_whose_window_has_gone_hands_the_screen_over() {
     let mut last = going(&runtime, "menu");
     assert_eq!(asking(&runtime, "ask", "menu"), "yes");
     let _ = last.kill();
+    let _ = last.wait();
 }
 
 /// Waiting for one on its way is only safe if the wait ends. A chooser that
@@ -197,4 +198,5 @@ fn a_chooser_that_never_draws_is_taken_over() {
     let mut never = stuck(&runtime, "menu");
     assert_eq!(asking(&runtime, "ask", "menu"), "yes");
     let _ = never.kill();
+    let _ = never.wait();
 }

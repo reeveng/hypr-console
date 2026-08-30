@@ -19,12 +19,19 @@
 //! socket is on the bar in the time it takes to ask one question. Polling
 //! instead would be a wake-up a second for the life of the session, on a
 //! machine that runs off a battery.
+//!
+//! The socket is connected to again whenever the connection ends. It used to
+//! be connected to once: a bar that started before the compositor had made its
+//! socket left this with nothing to listen to, and it exited so that waybar
+//! would start it again. That net is still there, and it is no longer the only
+//! one -- a connection lost while the bar goes on running is now waited out
+//! here, where the exit could not help.
 
-use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::UnixStream;
+use std::io::Write;
 use std::process::ExitCode;
+use std::sync::mpsc::channel;
 
-use console_panel::door::{events, is_open, worth_asking_after};
+use console_panel::door::{is_open, watching_layers};
 
 /// A door, and what the compositor calls what it opens.
 ///
@@ -54,12 +61,14 @@ fn main() -> ExitCode {
     };
 
     let mut open = say(icon, is_open(namespace), None);
-    let Some(socket) = events() else { return ExitCode::SUCCESS };
-    let Ok(stream) = UnixStream::connect(&socket) else { return ExitCode::SUCCESS };
-    for line in BufReader::new(stream).lines().map_while(Result::ok) {
-        if worth_asking_after(&line) {
-            open = say(icon, is_open(namespace), Some(open));
-        }
+    // The subscription outlives any one connection to the compositor, so a
+    // socket that was not there yet at login, or went away under a resume, is
+    // waited for rather than given up on. This ends only when there will never
+    // be another word: no compositor was named in the environment at all.
+    let (word, heard) = channel();
+    watching_layers(word);
+    while heard.recv().is_ok() {
+        open = say(icon, is_open(namespace), Some(open));
     }
     ExitCode::SUCCESS
 }

@@ -75,6 +75,42 @@ through into a field now and then, where it is visible and one backspace away.
 There is a second way to be speech, for somebody talking without drawing
 breath: louder, all the way through, than any room this machine has recorded.
 
+## The marks
+
+Whisper writes prose. Everything it hears is a sentence to it, so it capitalises
+the front and puts a full stop on the back and commas through the middle. That
+is right for a paragraph and wrong for most of what this paddle is pressed for:
+a search box, a filename, a name to look somebody up by. "Settings." looks for a
+word this machine does not have, and the stop is then a backspace to find on a
+device whose whole problem is that it has no keyboard.
+
+So the short things come back bare. Six words or fewer and everything that is
+not a letter, a number or a space is taken out; past that it is left exactly as
+whisper wrote it, because somebody dictating a message that long would only have
+to put the stops back by hand, which is the same chore the other way round.
+
+| said | typed |
+| --- | --- |
+| "Settings." | `Settings` |
+| "Blåhaj, please?" | `Blåhaj please` |
+| "I'll be late, so don't wait for me, I'll find you there." | unchanged |
+
+An apostrophe or a hyphen with a letter on either side of it stays, because
+between two letters those are spelling rather than punctuation: `don't` and
+`well-known` are one word each, and a rule that pulled the marks out of them
+would be a rule that misspells things. A mark that goes becomes a space rather
+than nothing, so what stood on both sides of it stays two words.
+
+Six is a guess at where a name turns into a sentence and is meant to be one. The
+two mistakes are not the same size: a stop left on a search term is a wrong
+search, and a stop missing from a message is a message somebody reads anyway.
+
+Words are counted by the gaps between them, except in the scripts that have
+none. A Chinese sentence is one word to anything counting gaps and would come
+back stripped however long it ran, so its characters count for themselves. That
+is not one word each, but the only thing this number is asked is which side of
+the line it falls on.
+
 ## What is kept
 
 Nothing.

@@ -189,11 +189,51 @@ fn under<T>(name: &str, entries: &[T], state: impl Fn(&T) -> (bool, String, Stri
 
 // ------------------------------------------------------------------ apply
 
+/// The notice on the screen for as long as the apply lasts.
+///
+/// An apply rewrites files, restarts services and compiles every program the
+/// manifest names, and for the minute that takes the screen said nothing at
+/// all. So the answer to "is the thing I am about to press the new one?" was
+/// to remember how long ago the deploy went, and a fault reported against a
+/// copy that had already been replaced costs an evening at both ends.
+///
+/// A guard rather than two calls, because `apply` leaves by half a dozen
+/// question marks and every one of them has to take the notice down. Missing
+/// one leaves a machine sitting under "Updating the console" until somebody
+/// reboots it, which is a worse lie than saying nothing was.
+struct Updating {
+    finished: bool,
+}
+
+impl Updating {
+    fn started() -> Self {
+        machine::in_the_session("console-updating start");
+        Updating { finished: false }
+    }
+
+    fn done(mut self) {
+        self.finished = true;
+        machine::in_the_session("console-updating done");
+    }
+}
+
+impl Drop for Updating {
+    fn drop(&mut self) {
+        if !self.finished {
+            machine::in_the_session("console-updating failed");
+        }
+    }
+}
+
+
 fn apply(root: &Path, manifest: &Manifest) -> Result<(), String> {
     if !nix_is_root() {
         return Err("console apply has to run as root.".into());
     }
     let source = root.join("files");
+    // After the root check and before anything is touched, so that what is up
+    // on the screen and what is true of the machine begin together.
+    let saying = Updating::started();
 
     let named = manifest.of(Section::Packages);
     let have = machine::installed_packages();
@@ -277,6 +317,7 @@ fn apply(root: &Path, manifest: &Manifest) -> Result<(), String> {
     }
 
     machine::commit(root, "apply");
+    saying.done();
     println!("\n{GREEN}Done.{OFF}");
     Ok(())
 }
@@ -298,7 +339,7 @@ fn told_the_browsers() {
 /// Whether writing these files means this unit is now running the wrong thing.
 fn restarted_by(source: &Path, unit: &str, written: &[String]) -> bool {
     let its_own = format!("/etc/systemd/user/{unit}");
-    if written.iter().any(|path| *path == its_own) {
+    if written.contains(&its_own) {
         return true;
     }
     let held = std::fs::read_to_string(install::source_of(source, &its_own)).unwrap_or_default();

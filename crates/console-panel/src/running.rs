@@ -110,3 +110,12 @@ pub fn left_running(argv: &[String]) {
 
 /// How long anything started from a panel is given before it is given up on.
 pub const PATIENCE: Duration = Duration::from_secs(45);
+
+/// How long something left running is given to say that it has started.
+///
+/// A tab drawn in the same millisecond the player was started is a tab that
+/// says nothing is playing, which is the press appearing to have done nothing.
+/// Measured on the device, kew answers on the bus 25 milliseconds after it is
+/// asked for; this is ten times that, and it is a redraw rather than a wait,
+/// so nothing is held up by it either way.
+pub const SETTLING: Duration = Duration::from_millis(250);

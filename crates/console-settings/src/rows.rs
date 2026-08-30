@@ -7,6 +7,7 @@
 use std::sync::Arc;
 
 use console_defaults::engines;
+use console_notices::reading::QUIET;
 use console_panel::page::{Does, Level, NOW, Row, Showing, YET};
 
 use crate::level::{CELLS, bar, volume};
@@ -47,7 +48,7 @@ pub fn sound_rows(
         );
     }
     if playing.is_empty() {
-        rows.push(Row::said("Nothing else is playing", ""));
+        rows.push(Row::nothing("Nothing else is playing"));
     }
     rows
 }
@@ -207,6 +208,37 @@ pub fn system_rows() -> Vec<Row> {
     ]
 }
 
+/// Whether notifications are drawn on the screen as they arrive.
+///
+/// The switch is toggled rather than set, so nothing here has to know which
+/// way round it is: `-t` adds the mode if it is missing and takes it away if
+/// it is not. What the mode means is mako's own configuration's to say, under
+/// a criteria of the same name.
+///
+/// Which way round it stands is said beside the row as well as by the words in
+/// it. A desktop that has been quietened and does not say so is a desktop that
+/// appears to have stopped working, which is the fault `docs/notifications.md`
+/// is about, arrived at from the other end.
+pub fn notifications_rows(held_back: bool) -> Vec<Row> {
+    let says = match held_back {
+        true => "Show them on the screen as they arrive",
+        false => "Keep them off the screen",
+    };
+    let mark = match held_back {
+        true => "held back",
+        false => "",
+    };
+    let mut row = switch(says, &["makoctl", "mode", "-t", QUIET]);
+    row.aside = mark.to_string();
+    vec![
+        row,
+        // Nothing is lost while they are held back, and the bell is where
+        // they are, so the switch says where to go and does not pretend this
+        // is the only way to see them.
+        Row::said("The bell on the bar", "Everything that arrived, held back or not"),
+    ]
+}
+
 /// The words on the tabs, in the order they are drawn.
 ///
 /// The first four are the bar's own four, in the order the bar draws them.
@@ -218,15 +250,23 @@ pub fn system_rows() -> Vec<Row> {
 /// looking for the battery on the far side of the tabs from where it is on the
 /// bar.
 ///
+/// Notifications is the fifth because the bell is the fifth icon, and it is
+/// here at all because a preference is not a notification. It stood at the
+/// bottom of the bell's own Waiting tab, where on a desktop with nothing
+/// waiting -- which is the desktop nearly always -- it was the only thing that
+/// could be pressed: the bell opened onto one grey line saying nothing was
+/// waiting, and one switch about what would happen later.
+///
 /// The last three are nobody's icon. Wallpaper and Defaults are how it looks
 /// and what it opens things with, which are the two anybody changes once and
 /// then leaves alone. System is how it stops, and nothing that turns the
 /// machine off shares a page with anything you would touch every day.
-pub const TABS: [&str; 7] = [
+pub const TABS: [&str; 8] = [
     "Sound",
     "Bluetooth",
     "Wi-Fi",
     "Battery",
+    "Notifications",
     "Wallpaper",
     DEFAULTS,
     "System",

@@ -110,7 +110,11 @@ fn charge() -> String {
 pub fn battery(said: &str) -> Says {
     let mut words = said.split_whitespace();
     let Some(charge) = words.next().and_then(|word| word.parse::<u32>().ok()) else {
-        return Says::new("\u{f008e}", "");
+        // A machine with no battery, or one whose battery would not answer.
+        // Drawn the width of every other battery all the same: a reading that
+        // shrank when it had nothing to say would move the whole bar along at
+        // exactly the moment something had gone wrong with it.
+        return Says::new(format!("\u{f008e} {}", small(&wide(""))), "");
     };
     let filling = words.next().is_some_and(|word| word == "Charging" || word == "Full");
     let icon = match filling {
@@ -123,7 +127,46 @@ pub fn battery(said: &str) -> Says {
         (_, 11..=25) => "warning",
         _ => "",
     };
-    Says::new(format!("{icon} {charge}%"), class)
+    Says::new(format!("{icon} {}", small(&wide(&format!("{charge}%")))), class)
+}
+
+/// A reading, padded to the width of the widest reading there is.
+///
+/// 9%, 95% and 100% are three widths, and the bar packs the right side from
+/// the right, so every module left of the battery slid along a character's
+/// width each time it crossed 10 or 100. The pad is a figure space, which is
+/// the blank a font draws exactly as wide as one of its digits, so four cells
+/// is four cells at every charge.
+///
+/// Padded on the right rather than the left: the slack then falls at the
+/// module's outer edge, inside padding nobody can see, and the icon and the
+/// number themselves never move. Left-padding would have held the module
+/// still and walked the ink about inside it, which is the same shift in a
+/// smaller box.
+fn wide(reading: &str) -> String {
+    let short = WIDEST.saturating_sub(reading.chars().count());
+    format!("{reading}{}", FIGURE.repeat(short))
+}
+
+/// `100%`, and there is no charge wider than that.
+const WIDEST: usize = 4;
+
+/// U+2007 FIGURE SPACE, a blank the width of a digit.
+const FIGURE: &str = "\u{2007}";
+
+/// Drawn at the size of the words rather than the size of the icons.
+///
+/// The icons on this bar are set at 22px so the Mono cut's single-cell glyphs
+/// read at arm's length, and a number at 22px is a second shouting element
+/// beside them. Pango's relative sizes step down by 1.2 each, so `x-small`
+/// off 22 is 15.3px, which is the size the clock and every other word on this
+/// bar is set at. Relative rather than a figure, so it follows the icon size
+/// if that is ever changed rather than quietly disagreeing with it.
+///
+/// waybar hands a custom module's text to GTK as markup unless `escape` is
+/// set, which it is not, so this is drawn and not printed.
+fn small(what: &str) -> String {
+    format!(r#"<span size="x-small">{what}</span>"#)
 }
 
 /// Empty to full, which is the ramp waybar drew before this.
@@ -141,7 +184,7 @@ pub fn bluetooth(shown: &str, connected: usize) -> Says {
     match (powered, connected) {
         (false, _) => Says::new("\u{f00b2}", "off"),
         (true, 0) => Says::new("\u{f00af}", ""),
-        (true, many) => Says::new(format!("\u{f00b1} {many}"), "connected"),
+        (true, _) => Says::new("\u{f00b1}", "connected"),
     }
 }
 
@@ -168,14 +211,24 @@ pub fn network(devices: &str, wifi: &str) -> Says {
             .lines()
             .find(|line| line.starts_with('*'))
             .and_then(|line| line.split(':').nth(1))
-            .unwrap_or("0");
-        return Says::new(format!("\u{f05a9} {strength}%"), "wifi");
+            .and_then(|said| said.trim().parse::<u32>().ok())
+            .unwrap_or(0);
+        return Says::new(BARS[(strength.min(100) as usize * (BARS.len() - 1)) / 100], "wifi");
     }
     match connected("ethernet") {
         true => Says::new("\u{f0200}", "wired"),
         false => Says::new("\u{f05aa}", "off"),
     }
 }
+
+/// Faint to full, which is where the strength went when the number left it.
+///
+/// The same trick the battery has always used: a reading whose number is a
+/// picture takes one glyph of bar instead of five, and a bar of six evenly
+/// sized marks reads as one row of readings rather than as three icons with
+/// numbers stuck to them and three without.
+const BARS: [&str; 4] =
+    ["\u{f091f}", "\u{f0922}", "\u{f0925}", "\u{f0928}"];
 
 // --------------------------------------------------------------------- sound
 
@@ -202,17 +255,15 @@ pub fn sound(said: &str) -> Says {
         return Says::new(SILENT, "muted");
     }
     let percent = (volume * 100.0).round() as u32;
-    // The number stays, because a volume of nothing is still a volume and
-    // still steps: it is the one silence a scroll on the icon climbs out of.
     if percent == 0 {
-        return Says::new(format!("{SILENT} 0%"), "muted");
+        return Says::new(SILENT, "muted");
     }
     let icon = match percent {
         1..=33 => "\u{f057f}",
         34..=66 => "\u{f0580}",
         _ => "\u{f057e}",
     };
-    Says::new(format!("{icon} {percent}%"), "")
+    Says::new(icon, "")
 }
 
 #[cfg(test)]
@@ -299,6 +350,71 @@ mod tests {
         assert!(!says.text.contains('%'));
     }
 
+    /// What a reading is drawn as, with the markup taken back off, which is
+    /// what the eye is given and so what a width has to be counted over.
+    fn drawn(says: &Says) -> String {
+        let mut out = String::new();
+        let mut inside = false;
+        for letter in says.text.chars() {
+            match (letter, inside) {
+                ('<', _) => inside = true,
+                ('>', _) => inside = false,
+                (_, false) => out.push(letter),
+                (_, true) => {}
+            }
+        }
+        out
+    }
+
+    /// Nothing on this bar may change width when what it says changes.
+    ///
+    /// The right side is packed from the right, so a reading that grows a
+    /// character pushes every module left of it along -- the clock moves
+    /// because the battery crossed 10, the workspaces move because it crossed
+    /// 100. Which is the one thing the eye catches on a bar it is not reading.
+    ///
+    /// Counted in characters, which stands in for width because every icon
+    /// here is drawn from the Mono cut of the Nerd Font, where each glyph is
+    /// one cell of the same advance, and the only letters are digits and a
+    /// per-cent sign in a font whose digits are one width. The padding is a
+    /// figure space, which is a digit's width of nothing.
+    #[test]
+    fn no_reading_is_a_different_width_for_saying_a_different_thing() {
+        let one_width = |what: &str, said: Vec<Says>| {
+            let widths: std::collections::BTreeSet<usize> =
+                said.iter().map(|says| drawn(says).chars().count()).collect();
+            assert_eq!(widths.len(), 1, "{what} is drawn {widths:?} wide: {:?}",
+                said.iter().map(drawn).collect::<Vec<_>>());
+        };
+
+        let mut charges = vec![battery("")];
+        for charge in 0..=100 {
+            charges.push(battery(&format!("{charge} Discharging")));
+            charges.push(battery(&format!("{charge} Charging")));
+        }
+        one_width("the battery", charges);
+
+        let mut volumes = vec![sound(""), sound("Volume: 0.35 [MUTED]")];
+        for step in 0..=100 {
+            volumes.push(sound(&format!("Volume: {}.{:02}", step / 100, step % 100)));
+        }
+        one_width("the sound", volumes);
+
+        let mut networks =
+            vec![network("wifi:disconnected:", ""), network("ethernet:connected:wired", "")];
+        for strength in 0..=100 {
+            networks.push(network(DEVICES, &format!("*:{strength}")));
+        }
+        one_width("the network", networks);
+
+        one_width("bluetooth", vec![
+            bluetooth("Powered: no", 0),
+            bluetooth("\tPowered: yes", 0),
+            bluetooth("\tPowered: yes", 1),
+            bluetooth("\tPowered: yes", 9),
+        ]);
+    }
+
     /// Every charge lands on the ramp, including the ends.
     #[test]
     fn the_ramp_holds_every_charge() {
@@ -313,7 +429,10 @@ mod tests {
         assert_eq!(bluetooth("Powered: no", 0).class, "off");
         assert!(bluetooth("\tPowered: yes", 0).class.is_empty());
         assert_eq!(bluetooth("\tPowered: yes", 2).class, "connected");
-        assert!(bluetooth("\tPowered: yes", 2).text.ends_with('2'));
+        // The glyph says connected and the class colours it. How many were
+        // connected was a number nobody acted on, and it made this one
+        // reading wider than the five beside it.
+        assert_eq!(bluetooth("\tPowered: yes", 2).text, bluetooth("\tPowered: yes", 9).text);
     }
 
     const DEVICES: &str = "wifi:connected:home\nethernet:unavailable:\nloopback:connected:lo";
@@ -322,7 +441,29 @@ mod tests {
     fn the_wireless_this_machine_is_on_is_the_one_with_the_star() {
         let says = network(DEVICES, "*:72\n :41\n :12");
         assert_eq!(says.class, "wifi");
-        assert!(says.text.contains("72%"));
+        // 72 of 100 lands on the third of four bars, which is where the
+        // strength lives now that it is not written out beside the glyph.
+        assert_eq!(says.text, BARS[2]);
+    }
+
+    /// The strength is still readable, because the glyph moves with it. A
+    /// picture of the same size at every strength is a reading that says
+    /// nothing, and that is what dropping the number would have made this.
+    #[test]
+    fn every_strength_lands_on_a_bar_and_the_ends_are_not_the_same_bar() {
+        for strength in 0..=100 {
+            let says = network(DEVICES, &format!("*:{strength}"));
+            assert!(BARS.contains(&says.text.as_str()), "{strength}: {:?}", says.text);
+        }
+        assert_ne!(network(DEVICES, "*:5").text, network(DEVICES, "*:95").text);
+    }
+
+    /// Nothing readable where the strength should be is the faintest bar and
+    /// not a panic and not an empty module.
+    #[test]
+    fn a_strength_that_cannot_be_read_is_the_faintest_bar() {
+        assert_eq!(network(DEVICES, "*:").text, BARS[0]);
+        assert_eq!(network(DEVICES, "").text, BARS[0]);
     }
 
     #[test]
@@ -349,8 +490,7 @@ mod tests {
     #[test]
     fn a_volume_of_nothing_is_drawn_as_the_silence_it_is() {
         let nothing = sound("Volume: 0.00");
-        assert!(nothing.text.starts_with(SILENT), "it says {:?}", nothing.text);
-        assert!(nothing.text.contains("0%"), "and it still says which silence");
+        assert_eq!(nothing.text, SILENT, "it says {:?}", nothing.text);
         assert_eq!(nothing.class, sound("Volume: 0.35 [MUTED]").class);
     }
 
@@ -360,9 +500,18 @@ mod tests {
         assert!(!sound("Volume: 0.01").text.starts_with(SILENT));
     }
 
+    /// Quiet, middling and loud, which is the whole of what the icon was for.
+    /// The figure is said by the rocker that changes it, at the moment it
+    /// changes, where somebody pressing it is already looking.
     #[test]
-    fn the_volume_is_read_as_a_share_and_drawn_as_a_percentage() {
-        assert!(sound("Volume: 0.15").text.contains("15%"));
-        assert!(sound("Volume: 1.00").text.contains("100%"));
+    fn the_volume_is_read_as_a_share_and_drawn_as_one_of_three_marks() {
+        let quiet = sound("Volume: 0.15").text;
+        let middling = sound("Volume: 0.50").text;
+        let loud = sound("Volume: 1.00").text;
+        for said in [&quiet, &middling, &loud] {
+            assert!(!said.contains('%'), "the number is back on the bar: {said:?}");
+        }
+        assert_ne!(quiet, middling);
+        assert_ne!(middling, loud);
     }
 }

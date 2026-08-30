@@ -36,17 +36,19 @@ pub fn aside(notice: &Notice) -> String {
     }
 }
 
-/// What is on the screen now, the way to clear it, and the way to stop it.
+/// What is on the screen now, and the way to clear it.
 ///
-/// The notifications come first because they are what the panel was opened
-/// for: the highlight opens on the first row that does something, and that
-/// should be the thing the bell was about rather than a switch.
+/// Notifications and nothing else. The switch that keeps them off the screen
+/// used to stand at the bottom of this tab, and on a desktop with nothing
+/// waiting -- which is the desktop most of the time -- it was the only thing
+/// here that could be pressed at all: the bell opened onto one grey line
+/// saying nothing was waiting and one preference. A preference is not a
+/// notification, and the place for it is where the other preferences are, so
+/// it lives on the settings panel's own Notifications tab now.
 pub fn waiting_rows(
     held: &[Notice],
-    held_back: bool,
     open: impl Fn(&Notice) -> Does,
     clear: Does,
-    hush: Does,
 ) -> Vec<Row> {
     let mut rows: Vec<Row> = held
         .iter()
@@ -54,7 +56,7 @@ pub fn waiting_rows(
         .collect();
 
     if rows.is_empty() {
-        rows.push(Row::said("Nothing is waiting", ""));
+        rows.push(Row::nothing("Nothing is waiting"));
     } else {
         // No question asked before it. Everything cleared here is in Earlier a
         // moment later, so this is a row that moves things rather than one
@@ -62,22 +64,7 @@ pub fn waiting_rows(
         // walked back is a question somebody learns to answer without reading.
         rows.push(Row::new("Clear them all", "", clear));
     }
-    rows.push(hush_row(held_back, hush));
     rows
-}
-
-/// The switch that keeps cards off the screen, saying what pressing it does.
-///
-/// Last on the tab, because it is the one thing here that is not about a
-/// notification. Its state is said beside it as well as by which way round the
-/// row reads: a desktop that has been quietened and does not say so is a
-/// desktop that appears to have stopped working, which is the fault the whole
-/// of `docs/notifications.md` is about, arrived at from the other end.
-fn hush_row(held_back: bool, hush: Does) -> Row {
-    match held_back {
-        true => Row::new("Let them back on the screen", "held back", hush),
-        false => Row::new("Keep them off the screen", "", hush),
-    }
 }
 
 /// One notification, whole.
@@ -124,7 +111,7 @@ pub fn gone_rows(back: &Chosen) -> Vec<Row> {
     let going = Arc::clone(back);
     vec![
         Row::back(TABS[0], move |showing| going(showing)),
-        Row::said("It has gone", ""),
+        Row::nothing("It has gone"),
     ]
 }
 
@@ -136,7 +123,7 @@ pub fn gone_rows(back: &Chosen) -> Vec<Row> {
 /// whole tab can be gone down without opening anything.
 pub fn earlier_rows(held: &[Notice]) -> Vec<Row> {
     if held.is_empty() {
-        return vec![Row::said("Nothing has been cleared yet", "")];
+        return vec![Row::nothing("Nothing has been cleared yet")];
     }
     held.iter()
         .map(|notice| Row::said(&notice.says(), &earlier_aside(notice)))
@@ -192,7 +179,7 @@ mod tests {
     /// A has to land on that rather than on the switch under it.
     #[test]
     fn the_first_row_that_does_anything_is_a_notification() {
-        let rows = waiting_rows(&[fault()], false, opening, nothing(), nothing());
+        let rows = waiting_rows(&[fault()], opening, nothing());
         let first = rows.iter().position(Row::acts).expect("a row that acts");
         assert_eq!(rows[first].says, "Notifications fell over");
     }
@@ -200,7 +187,7 @@ mod tests {
     /// Every one of them opens onto the whole of what it said, and says so.
     #[test]
     fn a_notification_says_that_it_opens() {
-        let rows = waiting_rows(&[fault()], false, opening, nothing(), nothing());
+        let rows = waiting_rows(&[fault()], opening, nothing());
         assert!(rows[0].opens);
     }
 
@@ -217,35 +204,30 @@ mod tests {
     /// broken.
     #[test]
     fn there_is_nothing_to_clear_when_nothing_is_waiting() {
-        let rows = waiting_rows(&[], false, opening, nothing(), nothing());
+        let rows = waiting_rows(&[], opening, nothing());
         assert!(!rows.iter().any(|row| row.says == "Clear them all"));
         assert_eq!(rows[0].says, "Nothing is waiting");
     }
 
     #[test]
     fn what_is_waiting_can_be_cleared_in_one_press() {
-        let rows = waiting_rows(&[fault(), ordinary()], false, opening, nothing(), nothing());
+        let rows = waiting_rows(&[fault(), ordinary()], opening, nothing());
         assert!(rows.iter().any(|row| row.says == "Clear them all" && row.acts()));
     }
 
-    /// The switch is on the tab whether anything is waiting or not: it is
-    /// about what happens next rather than about what is on the screen.
+    /// Nothing but notifications. The switch that keeps them off the screen is
+    /// a preference and lives with the preferences: on a desktop with nothing
+    /// waiting it was the only thing on this tab anybody could press, which
+    /// made the bell open onto a page about itself.
     #[test]
-    fn the_way_to_quieten_the_desktop_is_there_with_nothing_waiting() {
+    fn the_tab_holds_notifications_and_no_preferences() {
         for held in [Vec::new(), vec![fault()]] {
-            let rows = waiting_rows(&held, false, opening, nothing(), nothing());
-            assert_eq!(rows.last().expect("a last row").says, "Keep them off the screen");
+            let rows = waiting_rows(&held, opening, nothing());
+            assert!(
+                !rows.iter().any(|row| row.says.contains("off the screen")),
+                "a preference is still standing on the notifications tab"
+            );
         }
-    }
-
-    /// A desktop that has been quietened says so, in the row and beside it.
-    /// Nothing else on the screen would tell you.
-    #[test]
-    fn a_desktop_holding_them_back_says_so_and_says_the_way_out() {
-        let rows = waiting_rows(&[], true, opening, nothing(), nothing());
-        let switch = rows.last().expect("a last row");
-        assert_eq!(switch.says, "Let them back on the screen");
-        assert_eq!(switch.aside, "held back");
     }
 
     /// The whole of a fault: who said it, what it said, and the line the card

@@ -25,6 +25,7 @@ use std::process::{Command, ExitCode};
 use std::sync::mpsc::{RecvTimeoutError, Sender, channel};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use console_again::keep;
 use console_sky::choose::{self, Outside, Set, Wanted};
 use console_sky::weather::Weather;
 use console_sky::{covered, here, moon, place, sun, weather};
@@ -290,27 +291,43 @@ fn up(picture: &Path) -> bool {
 /// answers leaves the loop running on its timeout alone, which is a wallpaper
 /// that follows the sun and stops noticing windows, and is worth more than a
 /// program that refuses to start.
+///
+/// Connected to again for as long as this runs. The comment that used to stand
+/// here said that carrying on without the socket left "a wallpaper that follows
+/// the sun and never notices a window again, which from the outside is
+/// indistinguishable from one that is working", and that was the whole of it:
+/// the state was permanent, and the only way out of it was noticing and
+/// restarting the daemon by hand. It is a wait now rather than the rest of the
+/// session.
 fn listen(say: Sender<Woke>) {
-    std::thread::spawn(move || {
-        // Said on the way out. Carrying on without this is deliberate, and
-        // what it leaves is a wallpaper that follows the sun and never notices
-        // a window again, which from the outside is indistinguishable from one
-        // that is working.
-        let Some(socket) = covered::events() else {
-            eprintln!("there is no compositor socket to listen to: windows will not be noticed");
-            return;
-        };
+    // The one thing here that waiting cannot mend: this program was started
+    // without a compositor named in its environment, and nothing it does later
+    // will name one.
+    let Some(socket) = covered::events() else {
+        eprintln!("there is no compositor socket to listen to: windows will not be noticed");
+        return;
+    };
+    let mut said = false;
+    keep(move || {
         let Ok(stream) = UnixStream::connect(&socket) else {
-            eprintln!(
-                "{} would not open: windows will not be noticed",
-                socket.display()
-            );
-            return;
+            // Once, not once a minute: this is on its way to the journal every
+            // time round, and a daemon that repeats itself while it waits is
+            // how a journal stops being worth reading.
+            if !said {
+                eprintln!(
+                    "{} would not open: waiting for it, windows are not noticed until it does",
+                    socket.display()
+                );
+                said = true;
+            }
+            return true;
         };
+        said = false;
         for line in BufReader::new(stream).lines().map_while(Result::ok) {
             if covered::worth_waking_for(&line) && say.send(Woke::Compositor).is_err() {
-                return;
+                return false;
             }
         }
+        true
     });
 }

@@ -386,6 +386,9 @@ pub fn anything_said(wav: &[u8]) -> bool {
 /// rather than as nothing. Those marks are what somebody would have to delete
 /// by hand, on a device with no keyboard, which is the thing this exists to
 /// avoid.
+///
+/// And if what is left is short, the punctuation goes the same way and for the
+/// same reason. See [`plainly`].
 pub fn tidy(heard: &str) -> String {
     let words: Vec<&str> = heard
         .lines()
@@ -393,13 +396,90 @@ pub fn tidy(heard: &str) -> String {
         .filter(|line| !line.is_empty())
         .filter(|line| !is_a_noise(line))
         .collect();
-    words.join(" ").split_whitespace().collect::<Vec<&str>>().join(" ")
+    plainly(&words.join(" ").split_whitespace().collect::<Vec<&str>>().join(" "))
 }
 
 /// Whether a line is whisper describing the room rather than quoting it.
 fn is_a_noise(line: &str) -> bool {
     let bracketed = |open: char, close: char| line.starts_with(open) && line.ends_with(close);
     bracketed('[', ']') || bracketed('(', ')') || bracketed('*', '*')
+}
+
+/// How many words a thing can be and still be a name rather than a sentence.
+///
+/// Six, which is a guess at where one turns into the other and is meant to be.
+/// The two mistakes are not the same size: a stop left on a search term is a
+/// wrong search, and a stop taken off a message is a message somebody reads
+/// anyway.
+pub const SHORT: usize = 6;
+
+/// What was said, with the marks off it if it was short enough to want none.
+///
+/// Whisper writes prose. Everything it hears is a sentence to it, so it ends
+/// everything with a full stop and puts commas through the middle -- which is
+/// right for a paragraph and wrong for nearly everything the paddle on the
+/// back of this device is pressed for. What is dictated into it is a search
+/// box, a filename, a name to look somebody up by. "Settings." looks for a
+/// word this machine does not have, and the stop is then a backspace to be
+/// found on a device whose whole problem is that it has no keyboard.
+///
+/// So the short things come back bare and the long ones are left alone.
+/// Past [`SHORT`] words somebody is dictating a message rather than naming a
+/// thing, and a message with its stops taken out is one long run of words that
+/// they would have to punctuate by hand: the same chore, the other way round.
+pub fn plainly(said: &str) -> String {
+    if spoken(said) > SHORT {
+        return said.to_string();
+    }
+    let letters: Vec<char> = said.chars().collect();
+    let bare: String = letters
+        .iter()
+        .enumerate()
+        .map(|(at, one)| match is_a_word(*one, &letters, at) {
+            true => *one,
+            false => ' ',
+        })
+        .collect();
+    bare.split_whitespace().collect::<Vec<&str>>().join(" ")
+}
+
+/// Whether a character is part of what was said rather than a mark upon it.
+///
+/// Letters and numbers, in any script. And an apostrophe or a hyphen with a
+/// letter on either side of it, because between two letters those are spelling
+/// and not punctuation: "don't" and "well-known" are one word each, and a rule
+/// that pulled the marks out of them would be a rule that misspells things
+/// rather than one that stops writing full stops into a search box.
+///
+/// A mark is turned into a space rather than deleted, so that what was on both
+/// sides of it stays two words. "one, two" is not "one,two" with the comma
+/// gone.
+fn is_a_word(one: char, said: &[char], at: usize) -> bool {
+    if one.is_alphanumeric() || one.is_whitespace() {
+        return true;
+    }
+    let letter = |one: Option<&char>| one.is_some_and(|one| one.is_alphanumeric());
+    matches!(one, '\'' | '\u{2019}' | '-')
+        && at > 0
+        && letter(said.get(at - 1))
+        && letter(said.get(at + 1))
+}
+
+/// How many words were said.
+///
+/// Gaps, mostly. Chinese is the exception this machine actually hears: it puts
+/// no spaces between its words at all, so a sentence of it is one word to
+/// anything counting gaps and would come back stripped however long it ran. The
+/// characters of the scripts written without spaces count for themselves
+/// instead, which is not one word each but is the right order of magnitude, and
+/// what this number is asked is only which side of a line it falls.
+fn spoken(said: &str) -> usize {
+    said.split_whitespace().map(|word| word.chars().filter(unspaced).count().max(1)).sum()
+}
+
+/// Whether a character belongs to a script that puts no spaces in.
+fn unspaced(one: &char) -> bool {
+    one.is_alphanumeric() && ('\u{3040}'..='\u{9fff}').contains(one)
 }
 
 #[cfg(test)]
@@ -441,7 +521,40 @@ mod tests {
 
     #[test]
     fn what_was_heard_comes_back_as_one_line() {
-        assert_eq!(tidy("  Hello there.\n\n  How are you?  \n"), "Hello there. How are you?");
+        let said = "  Hello there, it has been a while.\n\n  How have you been keeping?  \n";
+        assert_eq!(tidy(said), "Hello there, it has been a while. How have you been keeping?");
+    }
+
+    /// The paddle is pressed at a search box far more often than at a
+    /// paragraph, and whisper ends everything it hears with a full stop.
+    #[test]
+    fn a_short_thing_comes_back_with_no_marks_on_it() {
+        assert_eq!(tidy("Settings."), "Settings");
+        assert_eq!(tidy("Blåhaj, please?"), "Blåhaj please");
+        assert_eq!(tidy("\"Where is it?\""), "Where is it");
+    }
+
+    /// Long enough to be a sentence is long enough to want the stops kept: a
+    /// message stripped of them is a message to be punctuated by hand.
+    #[test]
+    fn a_sentence_keeps_the_marks_it_came_with() {
+        let said = "I'll be there at six, but I might be late, so don't wait for me.";
+        assert_eq!(tidy(said), said);
+    }
+
+    /// A mark between two letters is spelling.
+    #[test]
+    fn the_marks_inside_words_are_part_of_the_words() {
+        assert_eq!(tidy("don't -- well-known, isn't it?"), "don't well-known isn't it");
+    }
+
+    /// Chinese writes no spaces between its words, so a sentence of it is one
+    /// word to anything counting gaps and would never be long enough.
+    #[test]
+    fn a_language_with_no_spaces_is_counted_by_its_characters() {
+        assert_eq!(tidy("你好。"), "你好");
+        let said = "我今天早上去了市场，买了一些水果。";
+        assert_eq!(tidy(said), said);
     }
 
     /// A room with nobody talking in it is nothing said, not a word to type.

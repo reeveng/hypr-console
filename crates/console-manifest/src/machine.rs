@@ -90,6 +90,31 @@ pub fn user_systemctl(args: &[&str]) -> Said {
     run(&argv)
 }
 
+/// Run something in the desktop's own session, from root.
+///
+/// `su` hands over the account and leaves the environment where it was, so a
+/// notification sent by a command started that way goes to root's bus, where
+/// nothing is listening and nobody is looking. The session is named here out
+/// of the account's own uid, which is the one thing root has to be told to
+/// speak into somebody else's desktop.
+///
+/// What it says is thrown away. Everything this is used for is worth saying
+/// and not worth stopping for, and the journal has the rest.
+pub fn in_the_session(command: &str) {
+    let owner = whoever();
+    let Some((uid, _)) = who(owner) else { return };
+    // `env` rather than a `VAR=value` prefix, and a shell named rather than
+    // taken: `su` runs the account's login shell, which on this device is
+    // fish, and what a shell makes of a line written for sh is the shell's
+    // own business. Neither of those is worth finding out about through a
+    // notification that silently never appeared.
+    let line = format!(
+        "env XDG_RUNTIME_DIR=/run/user/{uid} \
+         DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus {command}"
+    );
+    run(&["su", owner, "-s", "/bin/sh", "-c", &line]);
+}
+
 pub fn unit_state(unit: &str) -> (String, String) {
     (
         user_systemctl(&["is-enabled", unit]).out,

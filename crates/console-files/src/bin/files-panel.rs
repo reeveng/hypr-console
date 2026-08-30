@@ -69,6 +69,14 @@ struct Standing {
     holding: Option<Holding>,
     onto: Vec<Onto>,
     places: Vec<Place>,
+    /// The thing the panel was opened to show, and the tab it is in.
+    ///
+    /// Something else on the desktop opened this holding a path: the music
+    /// panel's Y, which is how a song is renamed or thrown away. The walk down
+    /// to its folder is done before anything is drawn; this is the last step of
+    /// it, and it is taken on arriving because where a row is is a question
+    /// about a list nobody has read yet.
+    stand_on: Option<(usize, String)>,
     /// What has been typed into each place's line, where anything has. One per
     /// place like the walks, so a word typed in Pictures is still there when the
     /// shoulders come back to it.
@@ -81,7 +89,7 @@ impl Standing {
         let walks = places.iter().map(|place| Walk::of(&place.path)).collect();
         let onto = places.iter().map(|_| Onto::Folder).collect();
         let typed = places.iter().map(|_| String::new()).collect();
-        Standing { holding: None, onto, places, typed, walks }
+        Standing { holding: None, onto, places, stand_on: None, typed, walks }
     }
 }
 
@@ -116,14 +124,51 @@ fn look_for(held: &Held, tab: usize, word: &str) {
 /// a folder's rows are numbered and nowhere else.
 const LINE: usize = 1;
 
-/// Where the first thing in a folder walked into stands.
+/// Where the first thing in the folder a tab is standing in stands.
 ///
 /// Past the line to type in, past the way out, past the folder's own name, and
 /// past what is being carried where anything is. A folder is walked into to see
 /// what is in it, and a highlight left on the way back is a second press of A
 /// taking her straight out of the folder the first one opened.
-fn first_thing(standing: &Standing) -> usize {
-    LINE + 2 + usize::from(standing.holding.is_some())
+///
+/// The way out and the folder's own name are only there below the top of a
+/// place, where there is a folder above to go back to. At the top the strip is
+/// already saying where you are and the things start directly under the line.
+fn first_thing(standing: &Standing, tab: usize) -> usize {
+    let below_top = standing.walks[tab].above(&standing.places[tab].title).is_some();
+    LINE + 2 * usize::from(below_top) + usize::from(standing.holding.is_some())
+}
+
+/// Where the thing of that name stands in the folder a tab is showing.
+///
+/// Counted the way `folder_rows` counts, because that list is what the number
+/// is a place in. A name that is not there any more stands on the first thing
+/// in the folder, which is where walking into it would have left you anyway.
+fn row_of(standing: &Standing, tab: usize, name: &str) -> usize {
+    let first = first_thing(standing, tab);
+    let at = read(standing.walks[tab].here()).iter().position(|thing| thing.name == name);
+    first + at.unwrap_or_default()
+}
+
+/// Stand on the thing the panel was opened to show, once and never again.
+///
+/// Done on arriving rather than before the panel is up, because which row a
+/// name is is a question about a list, and the list is read on the thread that
+/// draws.
+fn stand_where_asked(held: &Held, tab: usize, showing: &dyn Showing) {
+    let row = standing(held, |standing| {
+        let asked = standing.stand_on.take();
+        match asked {
+            Some((at, name)) if at == tab => Some(row_of(standing, tab, &name)),
+            other => {
+                standing.stand_on = other;
+                None
+            }
+        }
+    });
+    if let Some(row) = row {
+        showing.replace(row);
+    }
 }
 
 /// Look at something else, and stand on a given row of it.
@@ -326,7 +371,7 @@ fn found_rows(held: &Held, tab: usize, here: &Path, word: &str) -> Vec<Row> {
 
     let found = looking::under(here, word, &read);
     if found.is_empty() {
-        rows.push(Row::said("Nothing here answers to that", ""));
+        rows.push(Row::nothing("Nothing here answers to that"));
         return rows;
     }
     let store = thumbs::store(&glib::user_cache_dir());
@@ -355,7 +400,7 @@ fn found_row(held: &Held, tab: usize, one: &Found, picture: &Picture) -> Row {
                 // search any more.
                 showing.forget_typing();
                 let (here, onto) = standing(&held, |standing| {
-                    let onto = first_thing(standing);
+                    let onto = first_thing(standing, tab);
                     for step in &steps {
                         standing.walks[tab].enter(step, onto);
                     }
@@ -429,7 +474,7 @@ fn thing_row(held: &Held, tab: usize, thing: &Entry, at: usize, picture: &Pictur
             Row::new(&thing.name, &aside, Does::and_stay(move |showing| {
                 let (here, onto) = standing(&held, |standing| {
                     standing.walks[tab].enter(&name, at);
-                    (standing.walks[tab].here().to_path_buf(), first_thing(standing))
+                    (standing.walks[tab].here().to_path_buf(), first_thing(standing, tab))
                 });
                 // Onto the first thing in the folder rather than onto the row
                 // that comes back out of it, which is what walking in was for.
@@ -607,7 +652,7 @@ fn program_rows(held: &Held, tab: usize, thing: &Entry, from: usize, here: &Path
 
     let found = kind_of(&path).as_deref().map(programs).unwrap_or_default();
     if found.is_empty() {
-        rows.push(Row::said("Nothing here opens this", ""));
+        rows.push(Row::nothing("Nothing here opens this"));
         return rows;
     }
     for (says, id) in found {
@@ -784,6 +829,7 @@ fn page(held: &Held, tab: usize, title: &str) -> Page {
         .on_arriving(move |showing| {
             let here = standing(&arriving, |standing| standing.walks[tab].here().to_path_buf());
             wanting_pictures(showing, &here);
+            stand_where_asked(&arriving, tab, showing);
         })
         .on_back(move |showing| {
         // Out of what a word found, then out of the question, then out of the
@@ -831,9 +877,33 @@ fn page(held: &Held, tab: usize, title: &str) -> Page {
     })
 }
 
+/// Walk a place down to the thing named on the command line, and say which tab
+/// that turned out to be.
+///
+/// Nothing if the word was not a path, which is how a word that is the name of
+/// a place goes on meaning the place.
+fn went_to(standing: &mut Standing, said: &str) -> Option<String> {
+    let path = Path::new(said);
+    if !path.exists() {
+        return None;
+    }
+    let leading = places::leading_to(&standing.places, path, path.is_dir())?;
+    for step in &leading.steps {
+        // What the row above remembers, which is where B puts the highlight
+        // back. The folder it came out of is not known from here -- nobody has
+        // read the list it is in -- so it is the first thing in it, the same
+        // answer walking in from a search gives.
+        let onto = first_thing(standing, leading.place);
+        standing.walks[leading.place].enter(step, onto);
+    }
+    standing.stand_on = leading.stand_on.map(|name| (leading.place, name));
+    Some(standing.places[leading.place].title.clone())
+}
+
 fn main() {
-    // A place may be named, so something that means Pictures can open on it.
-    let place = std::env::args().nth(1);
+    // A place may be named, so something that means Pictures can open on it, or
+    // a path, so something holding one thing can open the files standing on it.
+    let asked = std::env::args().nth(1);
 
     if !chooser::alone("files", chooser::Again::Closes) {
         return;
@@ -843,7 +913,9 @@ fn main() {
     // tab that reads as empty, which is what it is.
     let mut places = home();
     places.extend(plugged_in());
-    let held: Held = Arc::new(Mutex::new(Standing::of(places)));
+    let mut standing = Standing::of(places);
+    let opened_at = asked.as_deref().and_then(|said| went_to(&mut standing, said));
+    let held: Held = Arc::new(Mutex::new(standing));
 
-    panel::show(Arc::new(move || pages(&held)), 0, place.as_deref());
+    panel::show(Arc::new(move || pages(&held)), 0, opened_at.as_deref().or(asked.as_deref()));
 }

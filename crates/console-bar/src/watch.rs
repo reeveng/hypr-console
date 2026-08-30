@@ -7,13 +7,13 @@
 //! is not running and for the battery, which nothing announces.
 
 use std::io::{BufRead, BufReader};
-use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Duration;
 
-use console_panel::door::{events, worth_asking_after};
+use console_again::keep;
+use console_panel::door::watching_layers;
 
 use crate::reading::What;
 
@@ -56,16 +56,12 @@ pub fn watching(what: What) -> Receiver<()> {
 }
 
 /// The compositor, which is how the icon knows a panel is over it.
+///
+/// It reconnects for as long as anything is listening, which is what keeps an
+/// icon lighting after the socket has been away. See
+/// `console_panel::door::watching_layers`.
 fn layers(say: Sender<()>) {
-    std::thread::spawn(move || {
-        let Some(socket) = events() else { return };
-        let Ok(stream) = UnixStream::connect(&socket) else { return };
-        for line in BufReader::new(stream).lines().map_while(Result::ok) {
-            if worth_asking_after(&line) && say.send(()).is_err() {
-                return;
-            }
-        }
-    });
+    watching_layers(say);
 }
 
 /// A word whenever a notification arrived or went, or the panel opened over it.
@@ -98,27 +94,92 @@ pub fn watching_notices() -> Receiver<()> {
 /// a `pactl subscribe` left behind by each of those is a wake-up a second for
 /// the rest of the session; twenty-five of them were found alive on the device
 /// once, the oldest four hours old.
+///
+/// It is started again whenever it ends. These programs are subscriptions to
+/// other daemons, and a daemon restarting takes its subscribers down with it:
+/// pipewire coming back after a resume ends every `pactl subscribe` on the
+/// machine, and NetworkManager does the same to `nmcli monitor`. Started once,
+/// the reading behind it went from something the machine announced to
+/// something noticed on the next tick, ten or thirty seconds later, for the
+/// rest of the session. Nothing reported that as broken, because it was not:
+/// it was slow, and only ever slow after something else had happened.
 pub fn lines(argv: Vec<&'static str>, say: Sender<()>) {
-    std::thread::spawn(move || {
-        let mut asking = Command::new(argv[0]);
-        asking.args(&argv[1..]).stdout(Stdio::piped()).stderr(Stdio::null());
-        // SAFETY: one call, to a function that is async-signal-safe, between
-        // the fork and the exec.
-        unsafe {
-            asking.pre_exec(|| {
-                libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
-                Ok(())
-            });
+    keep(move || once(&argv, &say));
+}
+
+/// One run of it, and whether anybody still wants another.
+///
+/// False only when nothing is listening any more. A program that would not
+/// start is true: it may be a daemon that is not up yet, and the waiting above
+/// is what that costs.
+fn once(argv: &[&'static str], say: &Sender<()>) -> bool {
+    let mut asking = Command::new(argv[0]);
+    asking.args(&argv[1..]).stdout(Stdio::piped()).stderr(Stdio::null());
+    // SAFETY: one call, to a function that is async-signal-safe, between
+    // the fork and the exec.
+    unsafe {
+        asking.pre_exec(|| {
+            libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
+            Ok(())
+        });
+    }
+    let Ok(mut running) = asking.spawn() else {
+        return true;
+    };
+    let Some(out) = running.stdout.take() else {
+        let _ = running.kill();
+        let _ = running.wait();
+        return true;
+    };
+    for _ in BufReader::new(out).lines().map_while(Result::ok) {
+        if say.send(()).is_err() {
+            let _ = running.kill();
+            let _ = running.wait();
+            return false;
         }
-        let Ok(mut running) = asking.spawn() else {
-            return;
-        };
-        let Some(out) = running.stdout.take() else { return };
-        for _ in BufReader::new(out).lines().map_while(Result::ok) {
-            if say.send(()).is_err() {
-                let _ = running.kill();
-                return;
-            }
+    }
+    // Its output ended, so it is on its way out or already gone. Waited for
+    // rather than left: this starts another one every time round, and a child
+    // nobody asks after stays as a zombie.
+    let _ = running.kill();
+    let _ = running.wait();
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The whole of what a watcher is for. `echo` prints its line and ends,
+    /// which is every one of these programs on the day the daemon behind it
+    /// restarts. Run against a watcher that started its program once, this
+    /// hears the first word and then waits until the timeout.
+    #[test]
+    fn a_watcher_whose_program_ends_is_started_again() {
+        let (say, heard) = channel();
+        lines(vec!["echo", "something happened"], say);
+        for word in 1..=2 {
+            heard
+                .recv_timeout(Duration::from_secs(10))
+                .unwrap_or_else(|_| panic!("word {word} of 2"));
         }
-    });
+    }
+
+    /// And it stops when nobody is listening, rather than starting a
+    /// `pactl subscribe` every second for the rest of the session on behalf of
+    /// a reading that has gone.
+    #[test]
+    fn a_watcher_nobody_is_listening_to_stops() {
+        let (say, heard) = channel::<()>();
+        drop(heard);
+        assert!(!once(&["echo", "anything"], &say));
+    }
+
+    /// A program that is not on this machine is a daemon that might yet be
+    /// started, not a reason to give up on the reading for the session.
+    #[test]
+    fn a_program_that_will_not_start_is_worth_another_try() {
+        let (say, _heard) = channel::<()>();
+        assert!(once(&["console-nothing-is-called-this"], &say));
+    }
 }

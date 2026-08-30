@@ -10,6 +10,46 @@ machine and there is usually somebody holding it.
 
 ## Needs the device
 
+- **The two music modes and the search have not been pressed on the device.**
+  Both halves are settled here as far as a laptop can settle them. kew answers
+  `Shuffle` and `LoopStatus` on MPRIS, and it takes a set of either as a press
+  of its own key without ever reading the value: `set_property_callback` in
+  `src/sys/mpris.c` calls `toggle_shuffle` and `toggle_repeat`, and the repeat
+  key is a round of three. So `player::repeat` asks first and presses as many
+  times as the round makes it, which was watched round twice on this machine
+  with busctl. The reading was pressed too: 1330 songs read in 79 seconds, and
+  the second run over the same library is fifteen milliseconds.
+
+  Playing at all was watched on the device and is settled: the panel used to
+  press A into silence because kew had never been told where the music is, and
+  it asks that question on a terminal a panel does not have. The folder is
+  written into `kewrc` now, and kew was watched playing a song on the device
+  with the desktop's own session around it.
+
+  `make deploy`, then Music in the menu. On **Playing**, take **Play them in
+  any order** with something on: the row should turn into *Play them in the
+  order they are in* with **any order** beside it, and the song after this one
+  should not be the song after it in the folder. Then take **Play this one
+  over** and let a song end. Both of them again to put them back, and once more
+  from kew left repeating the whole list, which is the state the panel offers
+  no way into and has to be able to come out of in one press.
+
+  Y is the other half of it, and it needs the fork rebuilt and installed: the
+  kew on the device has to be one that answers `xesam:url`, or the row for the
+  song playing now will rightly offer nothing. Press Y on a song in the folder
+  and the files panel should open on Music, standing on that file; press it
+  again from **Playing** with something on and it should open standing on the
+  song you are listening to. Both were watched here in the nested desktop, the
+  first with a path handed to `files-panel` by hand, the second only as far as
+  the property: kew says the file it is playing now, which it did not before.
+
+  Then **Music**. Arriving on the tab is what sends the library to be read, and
+  the corner says how many songs that is. What is worth measuring is how long
+  it takes on the device: it is minutes of ffprobe and it is the one thing here
+  a handheld will feel. Press X and type an artist nothing is named after, and
+  check the songs by them arrive -- until the reading has finished only the
+  filenames answer, which is the difference to watch for.
+
 - **Nothing on the Download panel has been pressed on the device.** The card
   opens and draws its list in the nested desktop here, and both fetches have
   been run on a laptop: a song arrives in Music as an opus with its cover and

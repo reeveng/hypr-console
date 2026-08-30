@@ -18,6 +18,7 @@ name = "sky-press"
 path = "src/bin/sky-press.rs"
 
 [dependencies]
+console-again.workspace = true
 console-colour.workspace = true
 console-garden.workspace = true
 console-screen.workspace = true

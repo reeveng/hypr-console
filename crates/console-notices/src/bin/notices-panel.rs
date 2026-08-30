@@ -12,7 +12,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use console_notices::reading::{self, Notice, QUIET};
+use console_notices::reading::{self, Notice};
 use console_notices::rows::{Chosen, TABS, earlier_rows, gone_rows, one_rows, waiting_rows};
 use console_panel::page::{Does, Page, Row, Rows, Showing, Watch};
 use console_panel::running::said;
@@ -32,11 +32,6 @@ fn waiting() -> Vec<Notice> {
 /// says how many.
 fn earlier() -> Vec<Notice> {
     reading::read(&makoctl(&["history", "-j"]))
-}
-
-/// Whether cards are being kept off the screen.
-fn held_back() -> bool {
-    reading::held_back(&makoctl(&["mode"]))
 }
 
 // ------------------------------------------------------------------ looking
@@ -120,32 +115,12 @@ fn clear() -> Does {
     })
 }
 
-/// Keep cards off the screen, or let them back on.
-///
-/// Toggled rather than set, so the panel does not have to know which way round
-/// it is: `-t` adds the mode if it is missing and takes it away if it is not.
-/// What the mode means is in mako's own configuration, under a criteria of the
-/// same name; without that this would be a switch that changes a word and
-/// nothing else.
-fn hush() -> Does {
-    Does::and_stay(|showing| {
-        makoctl(&["mode", "-t", QUIET]);
-        showing.refresh();
-    })
-}
-
 // ---------------------------------------------------------------- the tabs
 
 fn waiting_tab(looking: &Looking) -> Vec<Row> {
     let held = waiting();
     match looking_at(looking) {
-        Onto::List => waiting_rows(
-            &held,
-            held_back(),
-            |notice| open(looking, notice.id),
-            clear(),
-            hush(),
-        ),
+        Onto::List => waiting_rows(&held, |notice| open(looking, notice.id), clear()),
         // The one it was opened on, if mako still has it. It can go while its
         // own page is up -- a thumb on the card, or the seconds running out --
         // and a page that emptied itself would be the panel moving under

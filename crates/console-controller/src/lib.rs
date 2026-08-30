@@ -14,6 +14,7 @@
 //! asked of it twice and answered the same way.
 
 pub mod buttons;
+pub mod clock;
 pub mod doing;
 pub mod finding;
 pub mod reading;

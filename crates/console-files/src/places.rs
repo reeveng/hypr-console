@@ -50,6 +50,56 @@ pub fn wanted_at(home: &Path, said: &[(&str, Option<PathBuf>)]) -> Vec<Place> {
         .collect()
 }
 
+/// What a path asked for on the command line comes to.
+///
+/// Something else on the desktop has a thing in mind and wants the files
+/// opened standing on it: the music panel has a song, and everything a person
+/// does to a song that is not playing it -- renaming it, throwing it away --
+/// lives here rather than there.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Leading {
+    /// Which place it is in, as a number into the places offered.
+    pub place: usize,
+    /// The folders to walk into from the top of that place, in order.
+    pub steps: Vec<String>,
+    /// What to stand on once the walk is done, where the thing asked for was a
+    /// file rather than a folder.
+    pub stand_on: Option<String>,
+}
+
+/// Which place a path is in, and the way down to it from the top of that place.
+///
+/// The most particular place wins. A song is under Home as surely as it is
+/// under Music, and arriving at Home three folders up from the thing asked for
+/// is arriving somewhere nobody asked to be.
+///
+/// Whether it is a folder is handed in rather than asked of the disk, because
+/// this is the sort of thing that is easier to be sure of with a table than
+/// with a temporary directory.
+pub fn leading_to(places: &[Place], path: &Path, folder: bool) -> Option<Leading> {
+    let (into, stand_on) = match folder {
+        true => (path.to_path_buf(), None),
+        false => (
+            path.parent()?.to_path_buf(),
+            path.file_name().map(|name| name.to_string_lossy().to_string()),
+        ),
+    };
+    let (place, within) = places
+        .iter()
+        .enumerate()
+        .filter_map(|(at, place)| Some((at, into.strip_prefix(&place.path).ok()?)))
+        .max_by_key(|(at, _)| places[*at].path.components().count())?;
+
+    Some(Leading {
+        place,
+        steps: within
+            .components()
+            .map(|step| step.as_os_str().to_string_lossy().to_string())
+            .collect(),
+        stand_on,
+    })
+}
+
 /// The ones that are actually there, in the order they were asked for.
 ///
 /// A folder that does not exist is left out rather than shown empty. Nothing on
@@ -120,5 +170,52 @@ mod tests {
         let mut rest = WANTED[1..].to_vec();
         rest.sort_by_key(|title| title.to_lowercase());
         assert_eq!(rest, WANTED[1..]);
+    }
+
+    fn two_places() -> Vec<Place> {
+        vec![
+            Place::new("Home", home()),
+            Place::new("Music", home().join("Music")),
+        ]
+    }
+
+    /// A song is under Home as surely as it is under Music, and the tab worth
+    /// opening is the one that lands nearest the thing asked for.
+    #[test]
+    fn a_path_arrives_in_the_most_particular_place_that_holds_it() {
+        let song = home().join("Music/Nujabes/aruarian dance.mp3");
+        let leading = leading_to(&two_places(), &song, false).expect("the way to it");
+        assert_eq!(leading.place, 1);
+        assert_eq!(leading.steps, ["Nujabes"]);
+        assert_eq!(leading.stand_on.as_deref(), Some("aruarian dance.mp3"));
+    }
+
+    /// Straight in the place itself: nothing to walk into, and the highlight
+    /// still lands on the song.
+    #[test]
+    fn a_thing_at_the_top_of_a_place_is_a_walk_of_no_steps() {
+        let song = home().join("Music/505.opus");
+        let leading = leading_to(&two_places(), &song, false).expect("the way to it");
+        assert_eq!(leading.place, 1);
+        assert!(leading.steps.is_empty());
+        assert_eq!(leading.stand_on.as_deref(), Some("505.opus"));
+    }
+
+    /// A folder is walked into rather than stood on, because what was asked
+    /// for is what is in it.
+    #[test]
+    fn a_folder_is_the_place_arrived_at_rather_than_the_row_stood_on() {
+        let leading =
+            leading_to(&two_places(), &home().join("Music/Nujabes"), true).expect("the way");
+        assert_eq!(leading.steps, ["Nujabes"]);
+        assert_eq!(leading.stand_on, None);
+    }
+
+    /// Which is what makes a path nothing here holds fall back to being read
+    /// as the name of a tab.
+    #[test]
+    fn a_path_under_none_of_the_places_leads_nowhere() {
+        assert_eq!(leading_to(&two_places(), Path::new("/etc/fstab"), false), None);
+        assert_eq!(leading_to(&two_places(), Path::new("/"), true), None);
     }
 }

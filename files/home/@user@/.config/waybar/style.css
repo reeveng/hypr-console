@@ -9,8 +9,33 @@
    which is written from theme/palette.toml and imported here. */
 @import url("../console/palette.css");
 
+/* The letters are Noto Sans and the icons are the Mono cut of the Nerd Font,
+   named here rather than left to fontconfig.
+
+   Every icon on this bar is a Material Design codepoint in the private use
+   area, which Noto Sans does not carry, so each one was drawn by whichever
+   installed font fontconfig reached for first. That was the double-width cut,
+   where the ink of a glyph is wider than the advance it is given -- measured
+   in the font at 18px, advances are all 9.32px and the ink runs from 6.75px
+   to 16.35px -- and the overflow hangs off the right. So every icon sat a
+   different distance right of centre: the grid 1.35px, the music note 2.46px,
+   the wifi fan 3.43px. Invisible until a slab is lit behind one, and plain
+   the moment it is, which is where this was noticed.
+
+   In the Mono cut every one of them is drawn centred in a single cell, all
+   24 the bar can draw, off centre by nothing at all. So there is no icon here
+   that has to be nudged, and no new icon will need nudging either.
+
+   Squeezing them into one cell makes the wide ones smaller, which is why the
+   icons below are set larger than the words around them: the widest glyph was
+   16.35px of ink and is now 9.32, and the font size is what buys that back.
+   The Propo cut would have kept the old widths and is centred just as well,
+   and was not taken because its advances vary within a single module -- the
+   volume icon alone swings 7.49px across its four states, and every one of
+   those would shift the whole right side of the bar along. An icon that moves
+   when the volume changes is worse than one that is small. */
 * {
-  font-family: "Noto Sans", sans-serif;
+  font-family: "Noto Sans", "FantasqueSansM Nerd Font Mono", sans-serif;
   font-size: 15px;
   font-weight: 500;
   border: none;
@@ -24,8 +49,8 @@ window#waybar {
 }
 
 #workspaces button {
-  padding: 0 12px;
-  margin: 4px 2px;
+  padding: 0 15px;
+  margin: 2px 2px;
   color: @soft;
   background: transparent;
   border-radius: 4px;
@@ -41,6 +66,16 @@ window#waybar {
   background: @coral;
 }
 
+/* What a thumb has to hit. The slab a module wears when it is lit is exactly
+   the area that answers a tap -- measured on the bar, the lit slab is 33.2
+   logical pixels across and the padding box that takes the press is 33.3 --
+   so this padding is not decoration, it is the size of the target.
+
+   At twelve it was 33 by 30, which on this panel is 6.1mm by 5.5mm against a
+   guideline of about nine, and the icons inside it are a third of that. Wider
+   here and shorter margins below buy back what can be bought without making
+   the bar taller: the whole strip is 38 logical pixels and the rest of the
+   target has to come out of that. */
 #clock,
 #custom-apps,
 #custom-battery,
@@ -51,7 +86,7 @@ window#waybar {
 #custom-notices,
 #custom-sound,
 #tray {
-  padding: 0 12px;
+  padding: 0 15px;
 }
 
 /* The two that are pressed rather than read. They are the size of everything
@@ -64,24 +99,9 @@ window#waybar {
 #custom-apps,
 #custom-keyboard {
   color: @pink;
-  font-size: 18px;
-  margin: 4px 2px;
+  font-size: 22px;
+  margin: 2px 2px;
   border-radius: 4px;
-}
-
-/* Neither glyph is centred in its own advance width. Measured off the screen,
-   the keyboard sits three pixels right of the middle of the slab drawn behind
-   it and the grid sits two, which is invisible until the slab is lit and
-   obvious afterwards. The padding is moved by that much rather than the
-   glyph, because there is nothing else to move. */
-#custom-apps {
-  padding-left: 10px;
-  padding-right: 14px;
-}
-
-#custom-keyboard {
-  padding-left: 9px;
-  padding-right: 15px;
 }
 
 /* Open, and lit exactly as the workspace you are on is lit. Both are the bar
@@ -119,8 +139,8 @@ window#waybar {
 #custom-notices,
 #custom-sound {
   color: @text;
-  font-size: 18px;
-  margin: 4px 2px;
+  font-size: 22px;
+  margin: 2px 2px;
   border-radius: 4px;
 }
 

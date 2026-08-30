@@ -2,4 +2,6 @@
 
 pub mod ascii;
 pub mod library;
+pub mod looking;
 pub mod player;
+pub mod tags;

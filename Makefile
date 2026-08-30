@@ -1,10 +1,14 @@
 # The loop: change something, run `make test`, and only then `make deploy`.
+#
+# Nothing has to be remembered before a deploy. `make ready` is the whole list
+# and `tools/console-deploy` runs it itself, so what reaches the device has
+# passed it whether or not anybody thought to.
 
 # The device, which only somebody with one can name. The tools read it too, and
 # say so if it is not set.
 HOST ?= $(CONSOLE_HOST)
 
-.PHONY: test theme garden sky live emulate checks device-checks desktop shot capture check deploy migrate pull clean
+.PHONY: test ready theme garden sky live emulate checks device-checks desktop shot capture check deploy migrate pull clean
 
 theme:                             ## write the palette into every file that spends it
 	cargo run --quiet --release --bin console-theme
@@ -17,6 +21,23 @@ sky:                               ## press the wallpapers the table names
 
 test:                              ## every test that can run on this machine
 	cargo test --quiet --workspace
+
+# What a deploy runs before it sends anything, and the only place the list
+# lives.
+#
+#   the tests       what the desktop promises about itself
+#   clippy          denied rather than printed, because a warning nobody is
+#                   made to read is a warning nobody reads
+#   --locked        the device builds with it. A Cargo.lock that is behind
+#                   would fail there instead, halfway through an apply, on a
+#                   handheld: the same answer, found in the worse place.
+#
+# `make checks` is deliberately not here. It runs the features against a
+# desktop of its own, which is minutes and a compositor, and a gate somebody
+# starts dreading is a gate somebody starts going around.
+ready:                             ## everything that must hold before a deploy
+	cargo test --quiet --locked --workspace
+	cargo clippy --quiet --locked --workspace --all-targets -- -D warnings
 
 live:                              ## the tier that makes real input devices, if it can
 	cargo test --quiet -p console-controller --test really_running -- --nocapture

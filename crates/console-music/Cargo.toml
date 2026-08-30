@@ -17,6 +17,12 @@ path = "src/bin/music-panel.rs"
 name = "music-bar"
 path = "src/bin/music-bar.rs"
 
+# Reading the whole library is minutes of ffprobe, so it is a program of its
+# own: the panel starts it and goes on drawing.
+[[bin]]
+name = "music-index"
+path = "src/bin/music-index.rs"
+
 # Draws a cover as characters into a terminal, which is how the port of kew's
 # renderer is checked against kew itself.
 [[bin]]

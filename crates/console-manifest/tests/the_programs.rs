@@ -47,6 +47,7 @@ const PROGRAMS: &[(&str, From_)] = &[
     ("cp", From_::Base),
     ("cmake", From_::Package("cmake")),
     ("curl", From_::Package("curl")),
+    ("echo", From_::Base),
     ("env", From_::Base),
     ("ffmpeg", From_::Package("ffmpeg")),
     ("ffprobe", From_::Package("ffmpeg")),

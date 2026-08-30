@@ -70,6 +70,15 @@ row.naming { background-color: transparent; padding: 14px 18px 6px 18px; }
 row.naming label { color: @soft; font-size: 15px; font-weight: bold; }
 row.naming #aside { color: @soft; font-size: 15px; font-weight: normal; }
 
+/* The panel saying the list is empty. It is not one of the options, so it is
+   not shaped like one: no card, no ink an option is written in, and the
+   highlight walks past it. Set across the middle rather than down the left
+   where the names line up, and given room above and below, so that a tab with
+   nothing on it reads as empty at a glance instead of as a tab holding one
+   thing whose only answer to a press is nothing. */
+row.nothing { background-color: transparent; padding: 30px 18px; }
+row.nothing label { color: @soft; font-size: 15px; }
+
 /* Held off the sides, and nothing above or below: space there is the
    scroller's to give. Given here it belongs to the list, which starts the
    rows that far down a viewport counted in whole rows and pushes the last

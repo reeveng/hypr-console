@@ -121,6 +121,7 @@ name = "console-bar"
 version = "0.1.0"
 dependencies = [
  "console-again",
+ "console-defaults",
  "console-notices",
  "console-panel",
  "libc",
@@ -131,6 +132,7 @@ dependencies = [
 name = "console-checks"
 version = "0.1.0"
 dependencies = [
+ "console-pad",
  "console-stage",
  "evdev",
  "serde",
@@ -145,9 +147,11 @@ version = "0.1.0"
 name = "console-controller"
 version = "0.1.0"
 dependencies = [
+ "console-door",
  "console-pad",
  "evdev",
  "libc",
+ "serde_json",
 ]
 
 [[package]]
@@ -164,6 +168,14 @@ dependencies = [
  "console-screen",
  "console-stage",
  "libc",
+ "serde_json",
+]
+
+[[package]]
+name = "console-door"
+version = "0.1.0"
+dependencies = [
+ "console-again",
  "serde_json",
 ]
 
@@ -210,9 +222,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "console-keyboard"
+version = "0.1.0"
+dependencies = [
+ "console-colour",
+]
+
+[[package]]
+name = "console-layout"
+version = "0.1.0"
+dependencies = [
+ "console-controller",
+ "console-pad",
+ "console-panel",
+ "evdev",
+ "gtk4",
+ "gtk4-layer-shell",
+]
+
+[[package]]
 name = "console-manifest"
 version = "0.1.0"
 dependencies = [
+ "console-controller",
+ "console-pad",
  "serde_json",
  "serde_yaml_ng",
  "toml 0.9.12+spec-1.1.0",
@@ -240,6 +273,7 @@ name = "console-notices"
 version = "0.1.0"
 dependencies = [
  "console-panel",
+ "libc",
  "serde",
  "serde_json",
 ]
@@ -252,6 +286,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml_ng",
+ "toml 0.9.12+spec-1.1.0",
 ]
 
 [[package]]
@@ -259,6 +294,7 @@ name = "console-panel"
 version = "0.1.0"
 dependencies = [
  "console-again",
+ "console-door",
  "gtk4",
  "gtk4-layer-shell",
  "libc",
@@ -278,6 +314,10 @@ name = "console-screen"
 version = "0.1.0"
 
 [[package]]
+name = "console-session"
+version = "0.1.0"
+
+[[package]]
 name = "console-settings"
 version = "0.1.0"
 dependencies = [
@@ -285,6 +325,7 @@ dependencies = [
  "console-notices",
  "console-panel",
  "console-sky",
+ "console-voice",
  "serde",
  "serde_json",
 ]
@@ -308,6 +349,7 @@ name = "console-stage"
 version = "0.1.0"
 dependencies = [
  "cairo-rs 0.21.5",
+ "console-colour",
  "console-controller",
  "console-pad",
  "console-screen",
@@ -330,7 +372,16 @@ dependencies = [
 name = "console-voice"
 version = "0.1.0"
 dependencies = [
+ "console-defaults",
  "libc",
+]
+
+[[package]]
+name = "console-web"
+version = "0.1.0"
+dependencies = [
+ "console-defaults",
+ "sha2",
 ]
 
 [[package]]

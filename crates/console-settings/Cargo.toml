@@ -13,10 +13,27 @@ path = "src/lib.rs"
 name = "settings-panel"
 path = "src/bin/settings-panel.rs"
 
+[[bin]]
+name = "console-battery"
+path = "src/bin/console-battery.rs"
+
+[[bin]]
+name = "console-brightness"
+path = "src/bin/console-brightness.rs"
+
+[[bin]]
+name = "console-volume"
+path = "src/bin/console-volume.rs"
+
+[[bin]]
+name = "console-warm"
+path = "src/bin/console-warm.rs"
+
 [dependencies]
 console-defaults.workspace = true
 console-notices.workspace = true
 console-panel.workspace = true
 console-sky.workspace = true
+console-voice.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

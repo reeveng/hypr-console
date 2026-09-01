@@ -1,8 +1,13 @@
-//! The palette as shell variables, for the keyboard.
+//! The palette as a list of names and colours.
 //!
-//! wvkbd takes its colours as arguments and has no configuration file, so
-//! something has to turn them into a command line. `osk-start` sources this
-//! and spends them by name.
+//! Written as shell assignments because the nested desktop sources it to set
+//! its ground before anything else is up, and a shell is what it has there.
+//! Everything else reads it as text: `console_colour::spent::read` is the one
+//! reader, and `osk-start` and the checks both go through it.
+//!
+//! It is still the keyboard's palette above all. wvkbd takes its colours as
+//! arguments and has no configuration file, so something has to turn them into
+//! a command line, and that something needs them by name.
 
 use crate::palette::Palette;
 use crate::spend::ROLES;
@@ -19,7 +24,8 @@ pub fn spend(palette: &Palette) -> String {
         .join("\n");
     format!(
         "# Written by console-theme from theme/palette.toml.\n\
-         # Sourced by osk-start, which holds no colour of its own.\n\n{body}\n"
+         # Read by the keyboard and the checks, and sourced by the nested\n\
+         # desktop. Nothing that reads it holds a colour of its own.\n\n{body}\n"
     )
 }
 
@@ -51,7 +57,7 @@ mod tests {
     #[test]
     fn a_value_is_six_hex_digits_with_no_hash_and_no_quotes() {
         // osk-start builds a command line out of these, and wvkbd wants the
-        // digits alone. A hash would start a comment.
+        // digits alone. A hash would start a comment in this file anyway.
         for line in spend(&blossom()).lines().filter(|l| l.contains('=')) {
             let (_, value) = line.split_once('=').expect("an assignment");
             assert_eq!(value.len(), 6, "{line:?}");

@@ -4,8 +4,8 @@ use std::collections::BTreeSet;
 
 use console_stage::checking::{Body, Check, Done, ought};
 use console_stage::desktop::Desktop;
-use console_stage::device::{Device, PATIENCE};
 use console_stage::here::{Here, TURNS};
+use console_stage::device::{Device, PATIENCE};
 use console_stage::palette::palette;
 
 use crate::chooser::opens;
@@ -35,8 +35,81 @@ pub const WITH_THE_KEYBOARD: Check = Check {
     about: "B closes a panel with the keyboard over it, and leaves the pad usable.",
     feature: "panel",
     since: "2026-08-28",
-    bodies: &[Body::Device(with_the_keyboard)],
+    bodies: &[Body::Here(without_a_screen), Body::Device(with_the_keyboard)],
 };
+
+/// What the compositor says while a keyboard is up over a panel, and again
+/// once the panel has gone from under it.
+///
+/// The device's own words, kept short. What matters is which namespaces are
+/// listed and that each has a height, because a layer with no height is a
+/// keyboard that is started hidden and stays for the session.
+const OVER_A_PANEL: &str = r#"{"eDP-1":{"levels":{
+    "0":[{"namespace":"awww-daemon","h":1600}],
+    "2":[{"namespace":"waybar","h":38}],
+    "3":[{"namespace":"settings-panel","h":1562},{"namespace":"wvkbd-mobintl","h":520}]}}}"#;
+
+const THE_PANEL_ALONE: &str = r#"{"eDP-1":{"levels":{
+    "0":[{"namespace":"awww-daemon","h":1600}],
+    "2":[{"namespace":"waybar","h":38}],
+    "3":[{"namespace":"settings-panel","h":1562}]}}}"#;
+
+const NOTHING_UP: &str = r#"{"eDP-1":{"levels":{
+    "0":[{"namespace":"awww-daemon","h":1600}],
+    "2":[{"namespace":"waybar","h":38}]}}}"#;
+
+/// The same thing the device is asked, without a device.
+///
+/// This was on hardware only, and it is the check for the fault that took the
+/// longest to find: a panel closed while the keyboard was over it had already
+/// put the desktop back, and the hook then laid the remembered profile over
+/// that, leaving the pad answering to a panel that was gone.
+///
+/// It can be asked here because the mode is read rather than remembered. The
+/// compositor's answer is a string, `Mode::seen` turns it into where you are,
+/// and everything after that -- whether this daemon acts, and which profile
+/// the pad wants -- is arithmetic on that. So the whole of it is askable with
+/// no compositor, no InputPlumber and no keyboard, against the real profiles
+/// and the real pad.
+///
+/// What it cannot ask is whether wvkbd actually drew, whether X reached it, or
+/// whether the pad survived the profile switch. Those are the device's, and
+/// `with_the_keyboard` is still the one that asks them.
+fn without_a_screen(stage: &mut Here) -> Done {
+    stage.showing(THE_PANEL_ALONE)?;
+    ought(stage.wanted() == console_pad::router::NAME, || {
+        format!("a panel up wants the {} profile", stage.wanted())
+    })?;
+
+    // The keyboard over it. Both read the same pad, so the daemon stands down
+    // -- which is what replaced one program sending another SIGSTOP.
+    stage.showing(OVER_A_PANEL)?;
+    stage.press("legion-right")?;
+    stage.press("b")?;
+    stage.settle(TURNS);
+    ought(stage.commands().is_empty(), || {
+        format!("the daemon acted under the keyboard: {:?}", stage.commands())
+    })?;
+
+    // The panel goes from under the keyboard. Nothing is restored, because
+    // nothing was remembered: what the pad wants is what is in front now. It
+    // is the same profile it was wearing under the panel, which is the whole
+    // of why opening a menu no longer destroys the pad and builds another --
+    // what a button means with a chooser up is the daemon's to say.
+    stage.showing(NOTHING_UP)?;
+    ought(stage.wanted() == console_pad::router::NAME, || {
+        format!("the keyboard went and the pad wants {}", stage.wanted())
+    })?;
+
+    // And with the keyboard gone the daemon is reading again, or standing down
+    // was a way of never starting.
+    let before = stage.commands().len();
+    stage.press("legion-right")?;
+    stage.settle(TURNS);
+    ought(stage.commands().len() > before, || {
+        "the keyboard went and the daemon never started acting again".to_string()
+    })
+}
 
 /// Down the left of the panel, past the tab strip and through the rows, in the
 /// coordinates the compositor lays out in. A band rather than a point: the
@@ -120,8 +193,8 @@ fn with_the_keyboard(stage: &mut Device) -> Done {
         "the keyboard would not go away".to_string()
     })?;
     let held = stage.profile();
-    ought(held == "Desktop", || {
-        format!("the pad still answers to the panel that closed; profile is {held}")
+    ought(held == crate::chooser::WORN, || {
+        format!("the keyboard went and the pad was left wearing {held}")
     })?;
 
     stage.press("legion-right");

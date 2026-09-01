@@ -110,6 +110,49 @@ pub fn kept(places: Vec<Place>, there: impl Fn(&Path) -> bool) -> Vec<Place> {
     places.into_iter().filter(|place| there(&place.path)).collect()
 }
 
+/// Where the home directory says one of its folders is.
+///
+/// The file names only the folders something has once had a reason to write
+/// down, and it writes them as shell: a name, an equals sign, and a quoted path
+/// that usually begins with `$HOME`. Nothing here runs a shell to read it --
+/// the one expansion that file ever uses is the one expanded below.
+///
+/// This is the answer `wanted_at` is given by the machine, read without a
+/// desktop library to ask. `console-screenshot` needs it and has none: a
+/// screenshot written to a folder called Pictures on a machine whose pictures
+/// are somewhere else is a screenshot nobody finds again.
+pub fn said_at(held: &str, name: &str, home: &Path) -> Option<PathBuf> {
+    let wanted = format!("{name}=");
+    let said = held
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.starts_with('#'))
+        .find_map(|line| line.strip_prefix(&wanted))?
+        .trim()
+        .trim_matches('"');
+    match said {
+        "" => None,
+        said => Some(match said.strip_prefix("$HOME/") {
+            Some(rest) => home.join(rest),
+            None => PathBuf::from(said),
+        }),
+    }
+}
+
+/// The file the answer is in.
+pub fn user_dirs(home: &Path) -> PathBuf {
+    home.join(".config/user-dirs.dirs")
+}
+
+/// One of the home directory's folders, wherever it is, made if it is not there.
+///
+/// The plain name under the home directory is the fallback and never the
+/// answer, so a machine that keeps its pictures somewhere else is believed.
+pub fn folder(home: &Path, name: &str, plain: &str) -> PathBuf {
+    let held = std::fs::read_to_string(user_dirs(home)).unwrap_or_default();
+    said_at(&held, name, home).unwrap_or_else(|| home.join(plain))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -217,5 +260,51 @@ mod tests {
     fn a_path_under_none_of_the_places_leads_nowhere() {
         assert_eq!(leading_to(&two_places(), Path::new("/etc/fstab"), false), None);
         assert_eq!(leading_to(&two_places(), Path::new("/"), true), None);
+    }
+
+    #[test]
+    fn where_the_home_directory_says_its_pictures_are() {
+        let held = "XDG_PICTURES_DIR=\"$HOME/Bilder\"\n";
+        assert_eq!(
+            said_at(held, "XDG_PICTURES_DIR", Path::new("/home/ada")),
+            Some(PathBuf::from("/home/ada/Bilder"))
+        );
+    }
+
+    /// A folder somewhere else entirely, which is a stick or another disk.
+    #[test]
+    fn a_path_that_is_not_under_the_home_directory_is_taken_as_it_is() {
+        let held = "XDG_PICTURES_DIR=\"/data/pictures\"\n";
+        assert_eq!(
+            said_at(held, "XDG_PICTURES_DIR", Path::new("/home/ada")),
+            Some(PathBuf::from("/data/pictures"))
+        );
+    }
+
+    /// The file names only what something has had a reason to write down, so
+    /// most of these are missing on most machines.
+    #[test]
+    fn a_folder_the_file_says_nothing_about_is_nothing() {
+        let held = "XDG_MUSIC_DIR=\"$HOME/Music\"\n";
+        assert_eq!(said_at(held, "XDG_PICTURES_DIR", Path::new("/home/ada")), None);
+        assert_eq!(said_at("", "XDG_PICTURES_DIR", Path::new("/home/ada")), None);
+    }
+
+    /// The file is written with a comment at the top of it by the tool that
+    /// generates it, and a commented-out line is not an answer.
+    #[test]
+    fn what_is_commented_out_is_not_read() {
+        let held = "# XDG_PICTURES_DIR=\"$HOME/Wrong\"\nXDG_PICTURES_DIR=\"$HOME/Right\"\n";
+        assert_eq!(
+            said_at(held, "XDG_PICTURES_DIR", Path::new("/home/ada")),
+            Some(PathBuf::from("/home/ada/Right"))
+        );
+    }
+
+    /// An empty value means the person has said this folder is their home
+    /// directory itself, which is not a folder to write screenshots into.
+    #[test]
+    fn a_folder_said_to_be_nothing_is_nothing() {
+        assert_eq!(said_at("XDG_PICTURES_DIR=\"\"", "XDG_PICTURES_DIR", Path::new("/home/ada")), None);
     }
 }

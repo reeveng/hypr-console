@@ -1,14 +1,15 @@
 //! What this desktop opens things with.
 //!
-//! Two questions with one answer each: which browser a link means, and which
-//! engine a question is asked of. Both used to be written into a program. A
-//! setting nobody can reach is a setting somebody has to be asked to change,
-//! and there is nobody to ask on a machine with one person on it.
+//! Which browser a link means, which engine a question is asked of, and where
+//! the battery starts saying something. All three used to be written into a
+//! program. A setting nobody can reach is a setting somebody has to be asked
+//! to change, and there is nobody to ask on a machine with one person on it.
 //!
 //! The browser is xdg-settings', because every program on the machine asks
-//! that and a second copy here would be a second answer. The engine has no
+//! that and a second copy here would be a second answer. The other two have no
 //! such place, so there is a file, and this is what reads and writes it.
 
+pub mod battery;
 pub mod browsers;
 pub mod engines;
 pub mod policies;

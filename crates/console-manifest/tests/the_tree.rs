@@ -83,6 +83,38 @@ fn the_paper_service_sets_a_ground_and_paints_no_picture_of_its_own() {
     );
 }
 
+/// The keyboard is started after the controller, because they share a pad that
+/// neither of them owns.
+///
+/// X is not turned into the keyboard by anything in this tree. Every profile
+/// passes it through as North and wvkbd reads the pad itself, so at login two
+/// programs go looking for one device -- and the controller's own ExecStartPost
+/// loads the desktop profile, which destroys that device and builds another.
+/// Started together, wvkbd could open the one about to be taken away, and X
+/// then did nothing until the next reboot.
+///
+/// After= and not Requires=, so a machine whose controller will not start still
+/// gets a keyboard. `240-the-keyboard-comes-back-with-the-desktop` is the other
+/// half of this and the only one that can see the fault happen; this is the
+/// half that runs on a laptop, and it is here so the line cannot be tidied away
+/// by somebody who reads it as a dependency nothing needs.
+#[test]
+fn the_keyboard_starts_after_the_controller_has_taken_the_pad() {
+    let unit = root().join("files/etc/systemd/user/console-keyboard.service");
+    let held = std::fs::read_to_string(&unit).expect("the keyboard service");
+    let after: Vec<&str> = held.lines().filter(|line| line.starts_with("After=")).collect();
+    assert!(
+        after.iter().any(|line| line.contains("console-controller.service")),
+        "the keyboard is not ordered after the controller, so wvkbd and the controller \
+         race for the pad at every login: {after:?}"
+    );
+    assert!(
+        !held.lines().any(|line| line.starts_with("Requires=")),
+        "the keyboard requires the controller rather than merely following it, so a \
+         machine whose controller will not start has no keyboard either"
+    );
+}
+
 /// Steam is asked to leave before the desktop is.
 ///
 /// The menu launches a game through Steam, so Steam can be running on the
@@ -97,29 +129,6 @@ fn the_way_to_game_mode_shuts_steam_down_before_the_compositor() {
     let asked = held.find("\n    settle\n").expect("nothing asks Steam to go");
     let left = held.find("hyprctl dispatch").expect("nothing leaves the compositor");
     assert!(asked < left, "Steam is asked to go once the desktop it was on has gone");
-}
-
-/// Neither way to a session does anything when the machine is already in it.
-///
-/// The desktop's controller daemon has been seen running through a whole Game
-/// Mode session, and it answers the left Legion button by running `game-mode`.
-/// One press over there would ask Steam to shut down, wait ten seconds for it,
-/// and then fail to leave a compositor that is not running. The daemon being
-/// there at all is a fault of its own; this is the half that makes the button
-/// harmless while it is.
-#[test]
-fn neither_way_to_a_session_acts_when_the_machine_is_already_in_it() {
-    for (script, switch) in
-        [("game-mode", "steamos-session-select gamescope"), ("desktop-mode", "plasma")]
-    {
-        let at = root().join("files/usr/local/bin").join(script);
-        let held = std::fs::read_to_string(&at).unwrap_or_else(|_| panic!("{script}"));
-        let asked = held
-            .find("is-active --quiet gamescope-session.target")
-            .unwrap_or_else(|| panic!("{script} switches sessions without asking where it is"));
-        let switches = held.find(switch).unwrap_or_else(|| panic!("{script} switches nothing"));
-        assert!(asked < switches, "{script} asks where it is after it has already left");
-    }
 }
 
 #[test]

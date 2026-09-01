@@ -1,0 +1,22 @@
+[package]
+name = "console-session"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_session"
+path = "src/lib.rs"
+
+[[bin]]
+name = "session-start"
+path = "src/bin/session-start.rs"
+
+[[bin]]
+name = "game-mode"
+path = "src/bin/game-mode.rs"
+
+[[bin]]
+name = "desktop-mode"
+path = "src/bin/desktop-mode.rs"

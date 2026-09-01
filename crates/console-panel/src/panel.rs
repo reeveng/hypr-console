@@ -66,6 +66,14 @@ struct State {
     /// The tab in front, and the row being stood on.
     here: usize,
     at: usize,
+    /// Whether the thumb is on the way out rather than on the strip.
+    ///
+    /// The × is the last place along the top of the panel, one press of a
+    /// shoulder past the last tab, and A there closes the card. Which tab is in
+    /// front does not change while somebody stands on it: the way out is a
+    /// place to be, not a tab, and stepping back off it leaves the panel
+    /// exactly where it was.
+    out: bool,
     /// The leftmost tab the strip is showing, how wide the card came out this
     /// time, how wide the widest tab is, and what the row spends on things that
     /// are not tabs. All of them are worked out when there is something to
@@ -353,6 +361,7 @@ impl Panel {
                 pages,
                 here,
                 at: 0,
+                out: false,
                 from_tab: 0,
                 wide: 0,
                 cell: None,
@@ -478,6 +487,10 @@ impl Panel {
                 self.left_alone();
             }
             Meaning::Choose if self.state.borrow().sure.is_some() => self.answered_sure(),
+            // The way out is stood on, which the shoulders can now do. A on it
+            // is the press that mark has always meant, said by a thumb instead
+            // of a finger.
+            Meaning::Choose if self.leaving() => self.shut(),
             Meaning::Choose => {
                 if let Some(row) = self.rows.selected_row() {
                     match self.typing_at(row.index()) {
@@ -490,12 +503,21 @@ impl Panel {
                     }
                 }
             }
-            Meaning::More => self.offered(),
+            Meaning::More => {
+                self.came_back();
+                self.offered();
+            }
             Meaning::Nothing => return glib::Propagation::Proceed,
             Meaning::Nudge(step) if self.state.borrow().sure.is_some() => self.lean(step),
-            Meaning::Nudge(step) => self.nudge(step),
+            Meaning::Nudge(step) => {
+                self.came_back();
+                self.nudge(step);
+            }
             Meaning::Shut => self.backed_out(),
-            Meaning::Step(step) => self.walk(step),
+            Meaning::Step(step) => {
+                self.came_back();
+                self.walk(step);
+            }
             Meaning::Tab(step) => self.turn(step),
         }
         glib::Propagation::Stop
@@ -567,6 +589,11 @@ impl Panel {
     }
 
     fn chose(self: &Rc<Self>, index: i32) {
+        // A row was tapped, which a finger can do while the thumb is standing
+        // on the way out. Where the thumb is is stale the moment the panel is
+        // acted on by hand, and left lit it would make the next A close the
+        // card rather than take the row.
+        self.came_back();
         let Ok(index) = usize::try_from(index) else { return };
         let does = self.state.borrow().placed.get(index).and_then(|row| row.does.clone());
         match does {
@@ -662,13 +689,61 @@ impl Panel {
         }
     }
 
+    /// One press of a shoulder, along the top of the panel.
+    ///
+    /// The tabs, and then the way out, which is a place like they are. Nothing
+    /// is read and nothing is drawn to arrive on it: the tab that was in front
+    /// stays in front and stays on the screen, and the only thing that has
+    /// moved is where the thumb is.
     fn turn(self: &Rc<Self>, step: i32) {
         let going = {
             let state = self.state.borrow();
-            let last = state.pages.len().saturating_sub(1) as i32;
-            (state.here as i32 + step).clamp(0, last) as usize
+            let from = match state.out {
+                true => strip::Stop::Out,
+                false => strip::Stop::Tab(state.here),
+            };
+            strip::along(state.pages.len(), from, step)
         };
-        self.went_to(going);
+        match going {
+            strip::Stop::Out => {
+                self.state.borrow_mut().out = true;
+                self.mark();
+            }
+            // Back onto the tab that was already in front, which is what one
+            // press left off the way out is. There is nothing to draw and the
+            // strip is marked again all the same, because where the thumb is
+            // has moved even though what is on the screen has not.
+            strip::Stop::Tab(index) => {
+                let front = {
+                    let mut state = self.state.borrow_mut();
+                    state.out = false;
+                    index == state.here
+                };
+                match front {
+                    true => self.mark(),
+                    false => self.went_to(index),
+                }
+            }
+        }
+    }
+
+    /// Whether the thumb is on the way out.
+    fn leaving(&self) -> bool {
+        self.state.borrow().out
+    }
+
+    /// Off the way out and back into the list.
+    ///
+    /// Everything but the shoulders and A belongs to the list, so the first
+    /// press of anything else hands the panel back to it. Without this the ×
+    /// stays lit while the d-pad walks the rows, and then A closes the panel
+    /// under a thumb that was choosing one, which is the worst press on here to
+    /// meet by accident: what was being read goes, and nothing says why.
+    fn came_back(&self) {
+        let was = std::mem::replace(&mut self.state.borrow_mut().out, false);
+        if was {
+            self.mark();
+        }
     }
 
     fn went_to(self: &Rc<Self>, index: usize) {
@@ -754,10 +829,30 @@ impl Panel {
         let state = self.state.borrow();
         for (index, button) in state.tabs.iter().enumerate() {
             button.set_visible(showing.contains(&index));
-            match index == state.here {
-                true => button.add_css_class("here"),
-                false => button.remove_css_class("here"),
+            // Which tab is in front, and whether the thumb is on it. They are
+            // the same thing until somebody walks one press past the last tab,
+            // and then the tab in front is still open and is no longer where
+            // you are standing: it says so quietly, and the highlight goes
+            // with the thumb onto the ×. Two pinks at the top of a card is the
+            // panel asking which of them A is about.
+            match (index == state.here, state.out) {
+                (true, false) => {
+                    button.add_css_class("here");
+                    button.remove_css_class("open");
+                }
+                (true, true) => {
+                    button.add_css_class("open");
+                    button.remove_css_class("here");
+                }
+                _ => {
+                    button.remove_css_class("here");
+                    button.remove_css_class("open");
+                }
             }
+        }
+        match state.out {
+            true => self.shut.add_css_class("here"),
+            false => self.shut.remove_css_class("here"),
         }
         // The way to what is not on the strip. There is no arrow towards
         // nothing: at the first tab the left one is a button that would do what
@@ -846,6 +941,9 @@ impl Panel {
             if row.nothing {
                 held.add_css_class("nothing");
             }
+            if row.transport {
+                held.add_css_class("transport");
+            }
             held.set_child(Some(&self.line(row)));
             self.rows.append(&held);
         }
@@ -901,6 +999,7 @@ impl Panel {
         match &row.picture {
             Picture::None => {}
             Picture::Written(markup) => line.append(&written(markup)),
+            Picture::Bar(bar) => line.append(&scrub(self, *bar, row.seek.clone())),
             picture => line.append(&shown(picture)),
         }
         let label = Label::new(Some(&row.says));
@@ -953,6 +1052,16 @@ impl Panel {
         }
         if let Some(level) = &row.level {
             line.append(&self.step(level.clone(), more, 1));
+        }
+        // A picture at the other end. Most rows have their picture of themselves
+        // on the left and nothing else; a few have a picture of the thing they
+        // are about on the right, because the row is about what is beside it.
+        if let Some(tail) = &row.tail {
+            match tail {
+                Picture::Written(markup) => line.append(&written(markup)),
+                Picture::None => {}
+                _ => line.append(&shown(tail)),
+            }
         }
         // Last, at the edge the list goes deeper through. A label rather than
         // something to press: the whole row is already the way in, and a mark
@@ -1641,6 +1750,61 @@ fn written(markup: &str) -> Label {
     drawn
 }
 
+/// A seek bar, drawn as one row of one colour with a dot at the position.
+///
+/// The bar is a `Label` wrapped in a `GestureClick`: a tap anywhere on it
+/// lands at that fraction of the song. The d-pad on the row moves it a step
+/// at a time, which is what `level` was always for; the bar only has to know
+/// about the tap, which is what goes through the gesture.
+fn scrub(panel: &Rc<Panel>, bar: crate::page::Bar, seek: Option<crate::page::Seek>) -> GtkBox {
+    let wide = bar.wide.max(2);
+    let at = bar.at.min(wide.saturating_sub(1));
+
+    // One line, one colour: a row of dashes with a dot where the song is. The
+    // bar is the thing that does not move, so the rest is what is there when
+    // the song is not playing.
+    let body = "─".repeat(wide);
+    let dot = if at < wide { "●" } else { " " };
+    let (left, right) = body.split_at(at);
+    let markup = format!("<span foreground=\"@pink\">{left}{dot}{right}</span>");
+
+    let drawn = Label::new(None);
+    drawn.set_widget_name(named::BAR);
+    drawn.set_markup(&markup);
+    drawn.set_xalign(0.0);
+    drawn.set_hexpand(true);
+    drawn.set_margin_start(2 * GAP);
+    drawn.set_margin_end(2 * GAP);
+
+    let outer = GtkBox::new(Orientation::Horizontal, 0);
+    outer.set_hexpand(true);
+    outer.append(&drawn);
+
+    if let Some(seek) = seek {
+        // A tap is a fraction of where the finger landed. The label is `wide`
+        // characters but the tap is a pixel anywhere on the widget, so the
+        // fraction is taken off the click's x against the widget's own width
+        // rather than off a count of characters: the row is wider than its
+        // monospace cell, and using characters would never reach the end.
+        //
+        // The seek callback is what reads the tap, computes the position, and
+        // asks the player to jump. The panel comes in alongside so the bar
+        // can ask to be redrawn with the dot where the song now is.
+        let touch = GestureClick::new();
+        let label = drawn.clone();
+        let panel = Rc::clone(panel);
+        touch.connect_pressed(move |_, _, x, _| {
+            let width = f64::from(label.allocated_width().max(1));
+            let frac = (x / width).clamp(0.0, 1.0);
+            seek(&panel, frac);
+            panel.redraw();
+        });
+        outer.add_controller(touch);
+    }
+
+    outer
+}
+
 fn shown(picture: &Picture) -> gtk4::Image {
     let held = gtk4::Image::new();
     held.set_widget_name(named::ICON);
@@ -1737,7 +1901,6 @@ pub fn show(build: Build, column: i32, start: Option<&str>) {
     let asked_of = Rc::clone(&panel);
     asked::stops_when_asked(move || asked_of.shut());
 
-    running::controller("tabs");
     panel.window.present();
     let opened = Rc::clone(&panel);
     glib::idle_add_local_once(move || {
@@ -1746,7 +1909,6 @@ pub fn show(build: Build, column: i32, start: Option<&str>) {
         chooser::drawn();
     });
     waiting.run();
-    running::controller("desktop");
 }
 
 #[cfg(test)]

@@ -30,13 +30,14 @@ pub mod panel;
 pub mod pointer;
 pub mod screenshot;
 pub mod services;
+pub mod volume;
 pub mod wallpaper;
 pub mod workspaces;
 
 use console_stage::checking::Check;
 
 /// Every check, oldest first, which is the order their names put them in.
-pub const CHECKS: [&Check; 25] = [
+pub const CHECKS: [&Check; 30] = [
     &workspaces::RIGHT,
     &workspaces::LEFT,
     &carry::CARRY,
@@ -45,9 +46,12 @@ pub const CHECKS: [&Check; 25] = [
     &launcher::MENU,
     &guide::GUIDE,
     &screenshot::SHOT,
+    &screenshot::ALONE,
     &panel::PANEL,
     &brightness::BRIGHTER,
     &brightness::DIMMER,
+    &volume::LOUDER,
+    &volume::QUIETER,
     &dpad::DPAD,
     &keyboard::KEYBOARD,
     &pointer::SCROLL,
@@ -62,6 +66,8 @@ pub const CHECKS: [&Check; 25] = [
     &services::STEADY,
     &notices::DRAWS,
     &download::DRAWS,
+    &keyboard::EVERY_TIME,
+    &keyboard::IN_A_PAGE,
 ];
 
 /// The checks named by these words, or all of them if nothing was named.

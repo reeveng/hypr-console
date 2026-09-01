@@ -13,6 +13,7 @@ use std::process::ExitCode;
 use std::sync::mpsc::RecvTimeoutError;
 use std::time::{Duration, Instant};
 
+use console_bar::dwindling::Watching;
 use console_bar::reading::{What, line};
 use console_bar::watch::{tick, watching};
 use console_panel::door::{is_open, tab};
@@ -48,9 +49,14 @@ fn main() -> ExitCode {
     };
     let heard = watching(what);
 
+    // The battery is the one reading that is also watched, so every reading of
+    // it is taken here and used twice: what the icon draws, and whether the
+    // machine has to say something or stop itself. See `console_bar::dwindling`.
+    let mut dwindling = Watching::default();
+
     // The two slow answers, kept between passes. Both are subprocesses, and
     // the loop below runs many times a second while the settings are up.
-    let mut says = what.says();
+    let mut says = taken(what, &mut dwindling);
     let mut up = is_open(SETTINGS);
     let mut due = Instant::now() + tick(what);
     let mut last = String::new();
@@ -83,11 +89,23 @@ fn main() -> ExitCode {
         };
 
         if told || Instant::now() >= due {
-            says = what.says();
+            says = taken(what, &mut dwindling);
             up = is_open(SETTINGS);
             due = Instant::now() + tick(what);
         }
     }
+}
+
+/// The reading, and what else this one is for.
+///
+/// Only the battery has a second half. Every other icon here says something
+/// and stops; this one is also the machine's only notice that its battery is
+/// going, so the same line is drawn and judged rather than read twice.
+fn taken(what: What, dwindling: &mut Watching) -> console_bar::reading::Says {
+    let What::Battery = what else { return what.says() };
+    let said = console_defaults::battery::charge();
+    dwindling.seen(&said);
+    console_bar::reading::battery(&said)
 }
 
 /// Whether the tab this icon opens is the one the panel is showing.

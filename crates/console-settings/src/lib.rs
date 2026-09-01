@@ -13,7 +13,11 @@
 pub mod bluetooth;
 pub mod defaults;
 pub mod level;
+pub mod rocker;
 pub mod rows;
+pub mod screen;
 pub mod sound;
+pub mod stopping;
 pub mod wallpaper;
+pub mod warm;
 pub mod wifi;

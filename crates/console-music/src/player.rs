@@ -239,6 +239,61 @@ pub fn previous() {
     call("Previous");
 }
 
+/// How many microseconds of the song have been played.
+///
+/// Zero is the honest answer to a song that has not started or one the player
+/// does not know how long it is. The two numbers a bar wants -- how long the
+/// song is, and where the dot is -- are the only ones worth asking for.
+pub fn position() -> i64 {
+    property("Position").as_ref().and_then(Value::as_i64).unwrap_or_default()
+}
+
+/// How long the song is, in microseconds.
+///
+/// Zero for a player that does not say -- which means the bar has nothing to
+/// draw a fraction of, and the dot sits at the start until somebody asks.
+pub fn length() -> i64 {
+    property("Metadata")
+        .as_ref()
+        .and_then(|metadata| metadata.get("data"))
+        .and_then(|data| data.get("mpris:length"))
+        .and_then(|held| held.get("data"))
+        .and_then(Value::as_i64)
+        .unwrap_or_default()
+}
+
+/// Jump to this fraction of the song, where 0 is the start and 1 the end.
+///
+/// Asked in fractions rather than microseconds so the panel can hand the
+/// same shape to the d-pad, to a tap on the bar, and to a future volume
+/// rocker. The fraction is the only thing that survives a song change.
+pub fn seek(fraction: f64) {
+    let Some(total) = std::num::NonZeroI64::new(length()) else { return };
+    let at = (fraction.clamp(0.0, 1.0) * total.get() as f64) as i64;
+    let id = track_id();
+    said(&[
+        "busctl", "--user", "call", NAME, OBJECT, PLAYER, "SetPosition",
+        "o", &id, "x", &at.to_string(),
+    ]);
+}
+
+/// The track the player is on, said as the object path MPRIS calls it by.
+///
+/// `SetPosition` takes the track id and the microseconds; the track id is
+/// what changes between songs, so it has to be asked each time. A player
+/// without one is a player we cannot seek through, which is the same as a
+/// seek that does nothing.
+fn track_id() -> String {
+    property("Metadata")
+        .as_ref()
+        .and_then(|metadata| metadata.get("data"))
+        .and_then(|data| data.get("mpris:trackid"))
+        .and_then(|held| held.get("data"))
+        .and_then(Value::as_str)
+        .unwrap_or("/")
+        .to_string()
+}
+
 /// What to run to play this.
 ///
 /// An argv rather than a thing done here, because the panel hands it to

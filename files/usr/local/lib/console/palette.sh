@@ -1,5 +1,6 @@
 # Written by console-theme from theme/palette.toml.
-# Sourced by osk-start, which holds no colour of its own.
+# Read by the keyboard and the checks, and sourced by the nested
+# desktop. Nothing that reads it holds a colour of its own.
 
 night=110b12
 ground=231b26

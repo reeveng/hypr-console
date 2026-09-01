@@ -1,62 +1,66 @@
-//! What arrives at the desktop while a chooser is open.
+//! That every job this desktop has is on a button that can reach it.
 //!
-//! The chooser profiles publish a pad, because the on-screen keyboard reads
-//! one and X has to reach it. A pad means every button arrives at one, so any
-//! button the controller daemon acts on has to be named there, either given a
-//! job or given none. Left out, it depends on whether InputPlumber passes an
-//! unmapped button through, which is not written down anywhere and is not
-//! worth a desktop resting on.
+//! This used to be a question about two profiles. A chooser wore one of its
+//! own, so a button given a job on the desktop and forgotten in the chooser
+//! reached whatever was underneath -- and whether an unmapped button passes
+//! through is not written down anywhere and was never worth resting on.
 //!
-//! The daemon's own tables are read for the answer, so a button given a job
-//! there and forgotten in a chooser is a failure rather than a surprise.
+//! There is one profile now and it names every button, so that half of the
+//! question is answered by the routing table. What is left is the other half,
+//! and it is the half that can still go wrong: a job bound to a button the
+//! profile does not route is a job nothing can ever reach, and the table of
+//! jobs and the table of routes are two files that have to agree.
 
-use std::collections::BTreeSet;
+use console_controller::means::{JOBS, Table};
+use console_controller::mode::Mode;
+use console_pad::jobs::Jobs;
+use console_pad::routing::arrives;
+use console_pad::vocabulary::button_name;
 
-use evdev::KeyCode;
-use console_controller::buttons::{BUTTONS, SHOULDERS};
-use console_pad::profile::{Source, load_all};
-use console_pad::vocabulary::{GAMEPAD_CODES, spoken_for};
-
-/// Every pad button the daemon does something about.
-fn acts_on() -> BTreeSet<KeyCode> {
-    BUTTONS
-        .iter()
-        .map(|(key, _)| *key)
-        .chain(SHOULDERS.iter().map(|(key, _)| *key))
-        .collect()
+/// Every job is on a button that arrives somewhere.
+#[test]
+fn every_job_is_on_a_button_that_reaches_the_daemon() {
+    for job in JOBS {
+        for (_, button) in job.bound {
+            let named = button_name(button).expect("a button this desktop has a word for");
+            assert!(arrives(named).is_some(), "{} is on {button}, which arrives nowhere", job.slug);
+        }
+    }
 }
 
+/// And every button a job is on can be pressed to reach that job, in the place
+/// the job is for. The table is asked the way the daemon asks it, so a job
+/// that is bound and unreachable is a failure here rather than a surprise on
+/// the machine.
 #[test]
-fn every_button_the_desktop_acts_on_is_named_in_a_chooser() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .expect("the repository");
-    let profiles = load_all(&root).expect("the profiles");
-    // As above: the chooser profiles, asked as a list because that is what
-    // the question is about.
-    #[allow(clippy::single_element_loop)]
-    for where_ in ["tabs"] {
-        let named: BTreeSet<KeyCode> = profiles[where_]
-            .mappings
-            .iter()
-            .filter_map(|mapping| match &mapping.source {
-                Source::Button(name) => GAMEPAD_CODES
-                    .iter()
-                    .find(|(said, _)| said == name)
-                    .map(|(_, code)| *code),
-                _ => None,
-            })
-            .collect();
-        let forgotten: Vec<&str> = GAMEPAD_CODES
-            .iter()
-            .filter(|(_, code)| acts_on().contains(code) && !named.contains(code))
-            .map(|(said, _)| spoken_for(said))
-            .collect();
-        assert!(
-            forgotten.is_empty(),
-            "{where_}: {} would reach the desktop behind an open chooser",
-            forgotten.join(", ")
-        );
+fn every_job_can_be_reached_by_pressing_what_it_is_bound_to() {
+    let table = Table::of(&Jobs::none());
+    for job in JOBS {
+        let mode = match job.when {
+            console_controller::means::When::WithAChooserUp => Mode::Tabs,
+            _ => Mode::Desktop,
+        };
+        for (layer, button) in job.bound {
+            let found = table.what(button, *layer, mode);
+            assert_eq!(found.map(|found| found.slug), Some(job.slug), "{} is unreachable", job.slug);
+        }
+    }
+}
+
+/// The one thing the on-screen keyboard needs of all this: while it is up, the
+/// pad is its own. It reads the pad itself, and a daemon acting on the same
+/// presses would move the highlight twice.
+#[test]
+fn the_keyboard_keeps_the_pad_while_it_is_up() {
+    let table = Table::of(&Jobs::none());
+    for job in JOBS {
+        for (layer, button) in job.bound {
+            assert!(
+                console_controller::buttons::job_for(&table, Mode::Keyboard, button, *layer)
+                    .is_none(),
+                "{} acts while the keyboard is up",
+                job.slug
+            );
+        }
     }
 }

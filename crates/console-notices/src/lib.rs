@@ -15,6 +15,13 @@
 //! Reading mako and knowing what to draw from it are kept apart, as everywhere
 //! else here: `reading` is what `makoctl` says, and `rows` is the panel that
 //! makes of it, which is the half that can be asked without a mako to ask.
+//!
+//! `saying` is the other half and points the other way: what this desktop
+//! raises, rather than what it has raised. The three programs that put a notice
+//! on the screen are here too, because a notice that replaces the one before it
+//! and a notice that stops repeating itself were worked out three times in
+//! three shell scripts before any of them was written down once.
 
 pub mod reading;
 pub mod rows;
+pub mod saying;

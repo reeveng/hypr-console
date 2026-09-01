@@ -19,6 +19,7 @@ path = "src/bin/bar-say.rs"
 
 [dependencies]
 console-again.workspace = true
+console-defaults.workspace = true
 console-notices.workspace = true
 console-panel.workspace = true
 libc = "0.2"

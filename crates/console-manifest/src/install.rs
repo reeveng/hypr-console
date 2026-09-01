@@ -2,6 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
+
 /// The mark that stands for whoever this desktop belongs to.
 ///
 /// The manifest does not name them. This source is published, and a stranger
@@ -86,10 +87,17 @@ pub fn source_of(source: &Path, live: &str) -> PathBuf {
 ///
 /// Only text is rewritten. The rest of what this lays down is compiled
 /// programs, which are carried byte for byte and never looked inside.
-pub fn content_on_machine(held: &[u8], user: &str) -> Vec<u8> {
-    match std::str::from_utf8(held) {
-        Ok(text) if text.contains(USER) => text.replace(USER, user).into_bytes(),
-        _ => held.to_vec(),
+///
+/// Nothing else is filled in. A profile used to be, because it was written in
+/// the buttons of the device this desktop grew on and a device with its buttons
+/// elsewhere needed them moved on the way past. The profile this desktop is
+/// driven by is not in the tree at all now -- it is made out of the machine it
+/// is for -- so there is nothing here to move.
+pub fn content_on_machine(held: &[u8], user: &str, _live: &str) -> Vec<u8> {
+    let Ok(text) = std::str::from_utf8(held) else { return held.to_vec() };
+    match text.contains(USER) {
+        true => text.replace(USER, user).into_bytes(),
+        false => held.to_vec(),
     }
 }
 
@@ -114,7 +122,7 @@ pub fn state(source: &Path, live: &str, user: &str) -> State {
     match (std::fs::read(&from), std::fs::read(to)) {
         (Err(_), _) => State::Unsourced,
         (Ok(_), Err(_)) => State::Missing,
-        (Ok(held), Ok(there)) if content_on_machine(&held, user) == there => State::Ok,
+        (Ok(held), Ok(there)) if content_on_machine(&held, user, live) == there => State::Ok,
         (Ok(_), Ok(_)) => State::Differs,
     }
 }
@@ -235,9 +243,22 @@ mod tests {
     fn the_mark_is_filled_in_inside_a_file_as_well_as_in_its_name() {
         let held = b"@user@ ALL=(root) NOPASSWD: /usr/local/bin/console-engine\n";
         assert_eq!(
-            content_on_machine(held, SOMEBODY),
+            content_on_machine(held, SOMEBODY, "/etc/sudoers.d/console"),
             b"ada ALL=(root) NOPASSWD: /usr/local/bin/console-engine\n".to_vec()
         );
+    }
+
+    /// The mark, and nothing else. A profile used to be rewritten on the way
+    /// past, because it was written in the buttons of the device this desktop
+    /// grew on; the profile is made out of the machine it is for now, and no
+    /// file in the tree is changed by whose machine it is going to beyond the
+    /// name of the person who owns it.
+    #[test]
+    fn nothing_but_the_mark_is_filled_in() {
+        let held = b"    source_event:\n      gamepad:\n        button: LeftPaddle1\n";
+        for live in ["/etc/inputplumber/profiles/game.yaml", "/usr/local/bin/osk"] {
+            assert_eq!(content_on_machine(held, SOMEBODY, live), held.to_vec());
+        }
     }
 
     #[test]
@@ -254,7 +275,10 @@ mod tests {
     #[test]
     fn what_is_not_text_is_carried_through_untouched() {
         let held = [0x7f, b'E', b'L', b'F', 0xff, 0xfe];
-        assert_eq!(content_on_machine(&held, SOMEBODY), held.to_vec());
+        assert_eq!(
+            content_on_machine(&held, SOMEBODY, "/usr/local/bin/launcher"),
+            held.to_vec()
+        );
         assert_eq!(content_as_declared(&held, SOMEBODY), held.to_vec());
     }
 

@@ -11,7 +11,8 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-use console_pad::profile::{Kind, Profile, load_all};
+use console_pad::profile::{Kind, Profile};
+use console_pad::router::every_profile;
 use console_pad::vocabulary;
 
 use crate::checking::{Done, cannot};
@@ -112,7 +113,7 @@ impl Device {
             host: host.to_string(),
             dry,
             done: Vec::new(),
-            profiles: load_all(&crate::root())?,
+            profiles: every_profile(&crate::root())?,
             taken: None,
             kept: None,
             whom: None,
@@ -371,6 +372,32 @@ impl Device {
         named
     }
 
+    /// What the windows call themselves.
+    ///
+    /// The class says which program a window belongs to and the title says what
+    /// it has been asked to show, which is the one thing a check can read from
+    /// the far side of a page: a page that sets `document.title` has said
+    /// something out loud, and `hyprctl` repeats it.
+    pub fn titles(&mut self) -> Vec<String> {
+        self.clients()
+            .iter()
+            .map(|client| client["title"].as_str().unwrap_or_default().to_string())
+            .collect()
+    }
+
+    /// Type the way the on-screen keyboard types.
+    ///
+    /// wvkbd does not type into a window. It makes a virtual keyboard at the
+    /// compositor and the compositor hands the keys to whatever has the focus,
+    /// so nothing on the far side can tell them from the real keyboard's. wtype
+    /// speaks that same protocol, `zwp_virtual_keyboard_v1`, which makes this
+    /// the keyboard's own path with a program where a thumb would be.
+    pub fn types(&mut self, words: &str) -> String {
+        let whom = self.whoever();
+        let asked = format!("{} && wtype {}", session_env(&whom), quoted(words));
+        self.user(&asked)
+    }
+
     /// How many are on the workspace being looked at, which is the only number
     /// that says whether anything is covering the wallpaper.
     pub fn windows_here(&mut self) -> i64 {
@@ -402,6 +429,27 @@ impl Device {
         said.lines()
             .next()
             .and_then(|line| line.trim().parse().ok())
+            .unwrap_or(0)
+    }
+
+    /// What the machine says the volume is, as a percentage.
+    ///
+    /// Asked of pactl rather than of `console-volume`, for the same reason
+    /// `brightness` reads the backlight rather than asking
+    /// `console-brightness`: a check that reads the machine through the
+    /// program it is checking cannot tell a working program from a broken one
+    /// that lies the same way twice.
+    ///
+    /// The field is the one `console_settings::rocker::level` takes, and that
+    /// is where the reading is decided. It is read again here rather than
+    /// imported because the stage would have to carry the whole settings panel
+    /// -- and GTK behind it -- into the fast suite to borrow four words.
+    pub fn volume(&mut self) -> i64 {
+        let said = self.user("pactl get-sink-volume @DEFAULT_SINK@");
+        said.lines()
+            .next()
+            .and_then(|line| line.split_whitespace().nth(4))
+            .and_then(|word| word.trim_end_matches('%').parse().ok())
             .unwrap_or(0)
     }
 
@@ -611,8 +659,8 @@ impl Device {
             self.press("b");
             std::thread::sleep(Duration::from_secs_f64(0.8));
         }
-        if self.profile() != "Desktop" {
-            self.load_profile("desktop");
+        if self.profile() != "Router" {
+            self.load_profile(console_pad::router::NAME);
             std::thread::sleep(Duration::from_secs_f64(0.5));
         }
     }
@@ -675,26 +723,32 @@ mod tests {
     /// keys sees nothing at all.
     #[test]
     fn a_button_is_sent_as_what_the_loaded_profile_makes_of_it() {
-        let profiles = load_all(&crate::root()).expect("the profiles");
+        let profiles = every_profile(&crate::root()).expect("the profiles");
         assert_eq!(
-            capability_under(profiles.get("desktop"), "right-paddle-top"),
+            capability_under(profiles.get("router"), "right-paddle-top"),
             Some("Keyboard:KeyF15".to_string())
         );
     }
 
-    /// Under a chooser that is a deliberate silence, and sending the button
-    /// itself would put it on the pad, which is the accident the naming exists
-    /// to prevent.
+    /// A button that means nothing with a chooser up is still sent. There was
+    /// a profile once that named such buttons and sent them nowhere, because
+    /// what a button meant was the profile's to say and the only way to say
+    /// "not here" was silence. What a press comes to is the daemon's now, so
+    /// the profile sends the button and the daemon is what has nothing to do
+    /// with it.
     #[test]
-    fn a_button_a_profile_names_and_sends_nowhere_is_not_sent_at_all() {
-        let profiles = load_all(&crate::root()).expect("the profiles");
-        assert_eq!(capability_under(profiles.get("tabs"), "view"), None);
+    fn a_button_that_means_nothing_in_a_chooser_is_still_sent() {
+        let profiles = every_profile(&crate::root()).expect("the profiles");
+        assert_eq!(
+            capability_under(profiles.get("router"), "view"),
+            Some("Gamepad:Button:Select".to_string())
+        );
     }
 
     /// Which is what the device does with it too.
     #[test]
     fn a_button_a_profile_says_nothing_about_is_sent_as_itself() {
-        let profiles = load_all(&crate::root()).expect("the profiles");
+        let profiles = every_profile(&crate::root()).expect("the profiles");
         assert_eq!(
             capability_under(profiles.get("keyboard"), "a"),
             Some("Gamepad:Button:South".to_string())

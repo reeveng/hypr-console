@@ -26,7 +26,7 @@ use evdev::{Device, EventType, InputEvent};
 use console_pad::capture::captured;
 use console_pad::devices::Devices;
 use console_pad::go::{Held, LegionGo};
-use console_pad::profile::load_all;
+use console_pad::router::every_profile;
 use console_pad::uinput::Uinput;
 
 /// The three of the four the daemon reads, by what it calls them. The mouse is
@@ -126,7 +126,7 @@ impl Running {
 
         let devices = Devices::new(captured(), Uinput::of(&captured())?);
         let paths = devices.paths();
-        let go = LegionGo::new(load_all(&root)?, devices, Held::default(), "desktop")?;
+        let go = LegionGo::new(every_profile(&root)?, devices, Held::default(), console_pad::router::NAME)?;
 
         let was = every_device();
         let path = std::env::var("PATH").unwrap_or_default();

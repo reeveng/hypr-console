@@ -5,8 +5,13 @@
 //! Nothing about a song is worked out in this program: the title, the artist
 //! and the cover are what the player says they are.
 //!
-//! Under what is playing are the two modes, which are the player's as well: the
-//! order the songs come in, and whether the one on now comes round again.
+//! The Playing tab is the song, the cover, the bar, and the row of buttons.
+//! The cover is on the right of the row that names the song -- the only
+//! picture a panel puts on the right is the thing the row is about. Under
+//! them is a bar showing where the song is: a tap scrubs it, the d-pad
+//! scrubs it a step at a time. Under that are the five buttons, said five
+//! times so each is its own press for the d-pad: shuffle on the left,
+//! repeat on the right, and the three that move between songs in the middle.
 //!
 //! Y is the files panel, standing on the song the row is about: renaming a
 //! song, copying it to a stick and throwing it away all live there already,
@@ -27,15 +32,8 @@ use console_music::library::{self, Thing};
 use console_music::looking::{self, Song};
 use console_music::player::{self, Over, Playing};
 use console_music::{ascii, library::folder};
-use console_panel::page::{Does, Level, Page, Picture, Row, Rows, Showing};
+use console_panel::page::{Bar, Does, Level, Page, Picture, Row, Rows, Showing, Watch};
 use console_panel::{chooser, panel, running};
-
-/// Geometry rather than the media characters, which every font on this machine
-/// draws as an orange emoji.
-const BACK: &str = "\u{25c2}\u{25c2}";
-const ON: &str = "\u{25b8}\u{25b8}";
-const PLAYING: &str = "\u{25b8} playing";
-const PAUSED: &str = "\u{2016} paused";
 
 /// How tall a cover is drawn, in characters.
 ///
@@ -64,6 +62,13 @@ const LINE: usize = 1;
 /// and the ones worth reading are at the top of it either way.
 const MANY: usize = 120;
 
+/// How wide the seek bar is drawn, in characters.
+///
+/// Wide enough that a finger on a touch screen lands on the moment the
+/// thumb wanted, rather than on the closest character. The panel knows the
+/// real width once it has been laid out; this is what it asks for first.
+const BAR_WIDE: usize = 40;
+
 /// What the panel holds between one drawing and the next.
 ///
 /// The rows are read on a thread of the panel's own, which is why there is a
@@ -86,105 +91,183 @@ fn standing<T>(held: &Held, then: impl FnOnce(&mut Standing) -> T) -> T {
 
 fn playing_rows() -> Vec<Row> {
     let asked = player::playing();
-    let mut rows = match asked.as_ref() {
-        Some(playing) if !playing.stopped => vec![now(playing)],
+    match asked.as_ref() {
+        Some(playing) if !playing.stopped => playing_card(playing),
         _ => vec![Row::nothing("Nothing is playing")],
-    };
-    // The two modes, and only where there is a player to be told them. A
-    // switch that goes nowhere is worse than no switch at all.
-    if asked.is_some() {
-        rows.push(order_row(player::shuffling()));
-        rows.push(again_row(player::over()));
     }
+}
+
+/// What the player has to say: the song, where the song is, and the row of
+/// buttons the panel offers for it.
+///
+/// Three parts. The song and its cover are a heading the d-pad walks past --
+/// reading it is what the row is for, choosing it is nothing. The bar is one
+/// row the d-pad stands on: it scrubs a fraction at a time with left and right
+/// and lands wherever a finger lands. The five buttons underneath are the
+/// row, said five times: shuffle on the left, repeat on the right, the three
+/// that move between songs in the middle.
+fn playing_card(playing: &Playing) -> Vec<Row> {
+    let cover = playing.art.as_deref().and_then(|art| ascii::read(art, TALL));
+    let tail = match &cover {
+        Some(cover) => Picture::Written(cover.markup()),
+        None => Picture::Space,
+    };
+    let mut rows = vec![info_row(playing, tail), scrub_row()];
+    rows.extend(transport_rows(playing));
     rows
 }
 
-/// The song before this one, and the song after it.
-fn along() -> Level {
-    Arc::new(|step| match step > 0 {
-        true => player::next(),
-        false => player::previous(),
+/// The song, with its cover on the right.
+///
+/// A heading rather than a thing to choose: the d-pad walks past it, and a
+/// press of A on it does nothing because the cover is the part worth looking
+/// at and the words are the part worth reading. The cover goes on the right so
+/// the words stack on the left where a hand reading the panel meets them first.
+fn info_row(playing: &Playing, tail: Picture) -> Row {
+    let mut row = Row::naming(&playing.title, &playing.artist);
+    if let Some(path) = playing.path.as_deref() {
+        // The song on now is offered Y as well, for the same reason every
+        // other song is: the files panel is where renaming, copying and
+        // throwing away already live, and a song that is playing is a song
+        // somebody might want gone.
+        row.more = Some(Arc::new(shown_in_the_files(path)));
+    }
+    row.tail = Some(tail);
+    row
+}
+
+/// The bar that says where the song is, and the row the d-pad stands on to
+/// move it.
+///
+/// The position is read from the player as a fraction of the length, both of
+/// which the player knows and neither of which the panel has been told yet.
+/// A bar with a length of zero is the honest answer to a question nobody has
+/// asked -- the dot sits at the start, and the row is still a thing to scrub
+/// because the d-pad can take it from there.
+fn scrub_row() -> Row {
+    let (pos, total) = (player::position(), player::length());
+    let at = match total > 0 {
+        true => (pos as f64 / total as f64).clamp(0.0, 1.0),
+        false => 0.0,
+    };
+    let wide = BAR_WIDE;
+    let char_at = (at * (wide as f64 - 1.0)).round() as usize;
+
+    Row::new("", "", Does::and_stay(|_| {}))
+        .picturing(Picture::Bar(Bar { at: char_at, wide }))
+        .levelled(scrub_step(pos, total))
+        .seeking(|showing, frac| {
+            player::seek(frac);
+            showing.refresh();
+        })
+}
+
+/// One press of left or right on the scrub bar, in microseconds.
+///
+/// A step is one twentieth of the song. Long enough to be worth taking, short
+/// enough to land within reach of where the dot already is. A bar with no
+/// length takes a second instead, which is the same kind of step the panel
+/// takes when the player has not told it anything.
+fn scrub_step(pos: i64, total: i64) -> Level {
+    Arc::new(move |dir| {
+        let step = match total > 0 {
+            true => total / 20,
+            false => 1_000_000,
+        };
+        let dir = dir as i64;
+        let target = (pos + dir * step).clamp(0, total);
+        let denom = total.max(1) as f64;
+        player::seek(target as f64 / denom);
     })
 }
 
-/// The song, with its cover. A stops and starts it, left is the song before and
-/// right is the song after.
-fn now(playing: &Playing) -> Row {
-    let said = match playing.paused {
-        true => PAUSED,
-        false => PLAYING,
-    };
-    let mut row = Row::new(&playing.title, said, stepping(player::play_pause))
-        .levelled(along())
-        .ended(BACK, ON);
-
-    // And Y is the file it is, so the song on now can be renamed or thrown
-    // away without going and finding it in a list of nine hundred. Only where
-    // the player says which file it is playing: a row with nothing to offer
-    // says nothing, which is better than a guess between two songs of the same
-    // name.
-    if let Some(path) = playing.path.as_deref() {
-        row = row.offering(shown_in_the_files(path));
-    }
-    let cover = playing.art.as_deref().and_then(|art| ascii::read(art, TALL));
-
-    match cover {
-        Some(cover) => row.picturing(Picture::Written(cover.markup())),
-        None => row.picturing(Picture::Space),
-    }
-}
-
-/// What order the songs come in.
+/// The five buttons, said as five rows.
 ///
-/// The two modes wear the mark of the state they are in, which is the same
-/// four marks every music player draws: the crossed arrows and the straight
-/// ones, the loop and the loop with a one in it. Everywhere else on this panel
-/// a switch is a sentence saying what pressing it does, because a mode that can
-/// only be read off which way round the row is written is a mode nobody is
-/// sure of -- and a mark that changes says it better than the sentence did, in
-/// the width of an icon rather than the width of the card. So here the row is
-/// named for the mode, the mark says how it stands, and the words beside it say
-/// the same thing for anybody who does not read the mark.
-///
-/// Out of the icon theme rather than out of a font. Every other picture on this
-/// panel comes from there, symbolic so it is drawn in the row's own ink, and
-/// the alternative is a private-use codepoint drawn by whichever font
-/// fontconfig reaches for -- which is the bug the bar's stylesheet is half
-/// written about.
-fn order_row(any_order: bool) -> Row {
-    let aside = match any_order {
-        true => "any order",
-        false => "as they are",
-    };
-    let mark = match any_order {
+/// Each is its own row because that is how the d-pad reaches it. The icons
+/// are the four marks every player draws: crossed arrows and straight ones,
+/// the loop and the loop with a one in it; the play and pause marks for the
+/// middle. The middle one is the bigger, because that is the one a hand comes
+/// here for and a thumb is what finds it.
+fn transport_rows(playing: &Playing) -> Vec<Row> {
+    let shuffle_icon = match player::shuffling() {
         true => "media-playlist-shuffle-symbolic",
         false => "media-playlist-consecutive-symbolic",
     };
-    Row::new("Order", aside, stepping(move || player::shuffle(!any_order)))
-        .picturing(Picture::Named(mark))
+    vec![
+        shuffle_button(shuffle_icon),
+        transport_button("media-skip-backward-symbolic", player::previous),
+        play_row(playing),
+        transport_button("media-skip-forward-symbolic", player::next),
+        repeat_button(),
+    ]
 }
 
-/// Whether the song on now comes round again when it ends.
-fn again_row(over: Over) -> Row {
-    let again = over == Over::Again;
-    let aside = match again {
-        true => "play it again",
-        false => "go on",
-    };
-    let mark = match again {
-        true => "media-playlist-repeat-song-symbolic",
-        false => "media-playlist-repeat-symbolic",
-    };
-    Row::new("When it ends", aside, stepping(move || player::repeat(!again)))
-        .picturing(Picture::Named(mark))
+/// Shuffle: the only button that has to be told the icon it wears, because
+/// the icon is the only part of it that changes between presses.
+fn shuffle_button(icon: &'static str) -> Row {
+    Row::new("", "", Does::and_stay(move |showing| {
+        player::shuffle(!player::shuffling());
+        showing.refresh();
+    }))
+    .picturing(Picture::Named(icon))
+    .offering(no_more)
+    .transport()
 }
 
-/// A button of the player's, and the card drawn again once it has answered.
-fn stepping(press: impl Fn() + Send + Sync + 'static) -> Does {
-    Does::and_stay(move |showing| {
+/// One of the five, as a row with an icon at the front.
+fn transport_button(icon: &'static str, press: impl Fn() + Send + Sync + 'static) -> Row {
+    Row::new("", "", Does::and_stay(move |showing| {
         press();
         showing.refresh();
-    })
+    }))
+    .picturing(Picture::Named(icon))
+    .offering(no_more)
+    .transport()
+}
+
+/// A row whose icon is the play or the pause, depending on what the player
+/// is doing. The middle of the row is bigger than the others, because that is
+/// the press a hand reaches for.
+fn play_row(playing: &Playing) -> Row {
+    let icon = match playing.paused {
+        true => "media-playback-start-symbolic",
+        false => "media-playback-pause-symbolic",
+    };
+    Row::new("", "", Does::and_stay(move |showing| {
+        player::play_pause();
+        showing.refresh();
+    }))
+    .picturing(Picture::Named(icon))
+    .offering(no_more)
+    .transport()
+}
+
+/// The repeat button, with the mark that says how the player is set up.
+///
+/// Three states, three marks: nothing on repeat (the loop with no one in it),
+/// this one on repeat (the loop with the one), and the whole list on repeat
+/// (the loop with the whole bar). The panel offers two and the player keeps
+/// the third; the row is read off the player rather than off what the panel
+/// last said, because the player is the only one who knows.
+fn repeat_button() -> Row {
+    let icon = match player::over() {
+        Over::Again => "media-playlist-repeat-song-symbolic",
+        Over::Round => "media-playlist-repeat-symbolic",
+        Over::On => "media-playlist-no-repeat-symbolic",
+    };
+    Row::new("", "", Does::and_stay(move |showing| {
+        player::repeat(player::over() != Over::Again);
+        showing.refresh();
+    }))
+    .picturing(Picture::Named(icon))
+    .offering(no_more)
+    .transport()
+}
+
+/// What Y does on a transport button: nothing. The press is the whole of what
+/// the button is for, and a menu on top of it is a menu nobody asked for.
+fn no_more(_: &dyn Showing) -> bool {
+    false
 }
 
 // ----------------------------------------------------- what there is to play
@@ -332,7 +415,18 @@ fn stopped(held: &Held, showing: &dyn Showing) {
 // ------------------------------------------------------------------ the tabs
 
 fn pages(held: &Held) -> Vec<Page> {
-    vec![Page::new("Playing", Rows::asked(playing_rows)), music_page(held)]
+    vec![
+        Page::new("Playing", Rows::asked(playing_rows))
+            // One second is what an ear hears as "the bar moved", and shorter
+            // than that wastes cycles drawing what did not change. The watch
+            // is one shell loop ticking the playing tab; the panel reads the
+            // player's position on every redraw.
+            .watching(Watch::on(
+                &["sh", "-c", "while true; do echo tick; sleep 1; done"],
+                "tick",
+            )),
+        music_page(held),
+    ]
 }
 
 fn music_page(held: &Held) -> Page {

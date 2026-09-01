@@ -4,7 +4,7 @@
 //! rules can be held to a capture of the real devices without a device in the
 //! room.
 
-use evdev::{AbsoluteAxisCode, KeyCode};
+use evdev::{AbsoluteAxisCode, Device, KeyCode};
 
 /// What a device says about itself, which is all these rules have to go on.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -30,6 +30,28 @@ impl Says {
     /// one somebody is holding.
     fn made(&self) -> bool {
         self.phys.is_empty()
+    }
+}
+
+/// What one device says about itself, in the words these rules are written in.
+///
+/// The one place a real device is turned into something the rules can be asked
+/// about, so a program that wants to know which pad is which does not have to
+/// know how to ask a device what it is. Everything below this line is asked of
+/// a list and never of the machine.
+pub fn says(path: &str, device: &Device) -> Says {
+    Says {
+        path: path.to_string(),
+        name: device.name().unwrap_or_default().to_string(),
+        phys: device.physical_path().unwrap_or_default().to_string(),
+        keys: device
+            .supported_keys()
+            .map(|keys| keys.iter().map(|key| key.0).collect())
+            .unwrap_or_default(),
+        axes: device
+            .supported_absolute_axes()
+            .map(|axes| axes.iter().map(|axis| axis.0).collect())
+            .unwrap_or_default(),
     }
 }
 

@@ -36,13 +36,7 @@ fn main() -> std::process::ExitCode {
 
     let said = |place: &Where| match place.file == CHROMIUM.file {
         true => policies::chromium(engine),
-        false => {
-            let known = match place.file == FIREFOX.file {
-                true => &engine.firefox,
-                false => &engine.librewolf,
-            };
-            policies::mozilla(engine, known, &shipped(place))
-        }
+        false => policies::mozilla(place, engine, &shipped(place)),
     };
 
     for place in [&CHROMIUM, &FIREFOX, &LIBREWOLF] {

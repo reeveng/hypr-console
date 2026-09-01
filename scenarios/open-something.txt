@@ -1,15 +1,12 @@
-# Open the menu, walk down it, and choose. The profile changes partway
-# through because the panel changes it: while a chooser is up the pad drives
-# the highlight rather than the pointer.
-profile desktop
+# Open the menu, walk down it, and choose. One profile throughout: what a
+# button means with a chooser up is the controller daemon's to say, and it can
+# see the chooser. The pad used to be destroyed and rebuilt at this point.
+profile router
 press left-paddle-top
 wait 0.6
 
-profile tabs
 press dpad-down
 press dpad-down
 wait 0.2
 press a
 wait 0.5
-
-profile desktop

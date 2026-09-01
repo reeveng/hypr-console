@@ -68,6 +68,78 @@ everything `console-say` raises is critical, because the whole point of it is
 that a thing which broke while nobody was looking is still there when somebody
 looks.
 
+## The one reading that raises its own card
+
+The screen and the volume both say where they got to, and both are raised by
+the press that caused them. The battery has the same shape of reading and no
+press: it moves while nobody is doing anything, so something has to be watching
+and whatever watches has to decide when a crossing happened rather than when a
+number was read.
+
+Three crossings, and each is a number a person sets on the Battery tab. Getting
+low is a card that goes by itself; getting really low is a card that stays,
+because it is asking for a cable; and the third stops the machine before the
+battery does. The first two sit where the icon on the bar already changes
+colour, so the card and the icon say the same thing at the same moment. Any of
+them can be walked down to *never*.
+
+`bar-say battery` is what watches, and it is the only thing on the machine
+reading the battery at all: it takes a reading every thirty seconds for the
+icon it draws, and a second program on a second clock would be two opinions
+about when one battery crossed something. What a crossing *is* --
+`console_defaults::battery` -- is a function of the reading, the levels and
+what has already been said, so it can be asked without a battery. What is done
+about one is `console-battery`, a program of its own, because the third of them
+waits a quarter of a minute under a card and a bar module is not a thing that
+should hold still for that.
+
+Which couples the battery to the bar, and that is worth saying out loud: if
+waybar is not running, nothing is reading the battery and none of the three
+happens. It is the right trade all the same. A watcher of its own would be a
+second program reading the same two files on a second clock, which is the thing
+this desktop keeps arriving at as the mistake, and a machine with no bar on it
+is a machine with rather more wrong than an unwatched battery.
+
+What is said once is not said again while the charge stays under it, so a
+machine sitting at nineteen per cent says so once; a charge that climbs three
+points clear arms it again, which is more than a reading wobbles and less than
+a step of the level; a reading that falls through two steps owes the deeper
+card, because being told the machine is stopping and then that it is getting
+low is a machine reading its own list out backwards; and on the mains nothing
+is said at all, since a machine that stopped itself while it was filling would
+be doing the one thing this is here to prevent. What has been said is kept in
+the runtime directory rather than in the process, because waybar starts a
+module again the moment it exits.
+
+### What "stop" means depends on the machine
+
+Hibernating is the answer everybody wants: the session goes to disk, the
+machine goes off, and plugging in puts it all back. This handheld cannot. Its
+only swap is zram, which is memory, and nothing on the kernel command line
+names a device to come back from -- `/sys/power/resume` reads `0:0` -- so
+logind answers `na` when it is asked, and it is right to.
+
+So `console_settings::stopping` asks the kernel what this machine can do and
+the card says which of the two it will be. A device with a real swap partition
+hibernates and is told everything will be where it left it. This one shuts
+down, and is told plainly that what is open will not be saved, because a card
+that promised otherwise would be a lie written where somebody goes to trust it.
+
+Shutting down is still the right answer of the three available. Sleeping keeps
+the session in the memory the failing battery is what powers, so a suspend at
+five per cent is the session lost in an hour and a hard cut when the cell
+empties -- and `hypridle.conf` already refuses to sleep this machine
+unattended, for the separate reason that nothing here has ever proved it wakes.
+Doing nothing is the same loss with a dirty filesystem and a cell taken to
+nought, which is the one thing that damages a battery rather than merely
+emptying it.
+
+Fifteen seconds sit between the card and the stopping, and the card says how
+many. At five per cent there are minutes left rather than seconds, so the wait
+costs nothing; the battery is looked at once a second through it, and a cable
+going in replaces the card with one saying nothing was stopped. The journal is
+told either way, because a machine found off in the morning is a question.
+
 ## The bell
 
 `bar-notice` counts what mako is holding and the bar draws it on the right,

@@ -12,6 +12,11 @@ window { background-color: transparent; }
        color: @soft; padding: 10px 22px; border-radius: 9px; font-weight: bold; }
 #tab:hover { color: @text; }
 #tab.here { background-color: @pink; color: @night; }
+/* The tab in front while the thumb is one press past it, on the way out. It is
+   still the tab you are looking at and it is no longer where you are, so it
+   keeps no card and says which one it is in the ink this panel uses for what
+   is already true. */
+#tab.open { background-color: transparent; color: @mint; }
 
 /* The way out, for a hand with no B under its thumb. It is a tab's height and
    sits at the end of the strip, which is the corner a thumb reaches for. */
@@ -19,6 +24,10 @@ window { background-color: transparent; }
         box-shadow: none; color: @soft; font-weight: bold;
         padding: 10px 20px; border-radius: 12px; }
 #shut:hover { background-color: @pink; color: @night; }
+/* Stood on, which one press of a shoulder past the last tab now is. It wears
+   what a tab wears there, because it is the same walk and A means the same
+   thing on it: take what the highlight is on. */
+#shut.here { background-color: @pink; color: @night; }
 
 /* The way to the tabs the strip has no room for. They are the shoulders said
    in the other language, and they appear only at an end there is something
@@ -128,6 +137,25 @@ row:selected #sought { border-color: @mint; }
    and half of them vanish against the pink a row wears while it is stood on. */
 #cover { font-family: monospace; font-size: 14px; line-height: 1;
          background-color: @night; padding: 10px 12px; border-radius: 9px; }
+
+/* The seek bar. One row of one colour with one dot at the position. Held at
+   one because the bar is one line, and given its own padding rather than
+   relying on the row's -- the row's padding is for the d-pad card, not the
+   touch target a finger lands on. */
+#bar { font-family: monospace; font-size: 16px; line-height: 1;
+       padding: 14px 6px; letter-spacing: 0; }
+row:selected #bar { color: @pink; }
+
+/* A transport button row: a row that is just an icon, centred in the card.
+   The card it sits in is wider than the icon, which is what makes five of
+   them a row to tap across rather than five things to chase down. The icon
+   is large enough to be the thing a hand comes to this tab for, which is
+   why the row's own padding is held back: a small icon on a big card reads
+   as the panel saying "nothing here", not "press here". */
+row.transport { padding: 8px 0; background-color: transparent; }
+row.transport:selected { background-color: transparent; }
+row.transport #icon { font-size: 28px; padding: 4px 18px; border-radius: 9px; }
+row.transport:selected #icon { background-color: @pink; color: @night; }
 
 /* A word in the corner, over the card rather than in it. It stands where a
    notification would stand if this surface were not a layer over everything,

@@ -16,7 +16,28 @@
 # back to this, so choosing a browser on the Web tab is a file of her own laid
 # over this one, and a machine put back together from the manifest still opens
 # a link in something.
+# Music is here for the same reason and a sharper one. A browser says it opens
+# audio, because a browser can play a sound in a page, so a song opened from
+# the files panel landed in one: a whole window, a black rectangle with a
+# scrubber in it, and nothing on this device that knows what album it is from.
+#
+# An `.opus` file is the case that made it obvious. It is not `audio/ogg` to
+# the mime database, it is `audio/x-opus+ogg`, and nothing on this machine had
+# ever said that type out loud -- not the music panel's own desktop file, not
+# the settings, not here -- so it fell through everything to whatever claimed
+# it last. The rule is that a kind of thing is a family of types and every one
+# of them has to be named, because the one that is left out is the one that
+# opens somewhere surprising.
 [Default Applications]
 text/html=librewolf.desktop
 x-scheme-handler/http=librewolf.desktop
 x-scheme-handler/https=librewolf.desktop
+audio/mpeg=console-music.desktop
+audio/flac=console-music.desktop
+audio/ogg=console-music.desktop
+audio/x-opus+ogg=console-music.desktop
+audio/x-vorbis+ogg=console-music.desktop
+audio/x-flac+ogg=console-music.desktop
+audio/mp4=console-music.desktop
+audio/aac=console-music.desktop
+audio/vnd.wave=console-music.desktop

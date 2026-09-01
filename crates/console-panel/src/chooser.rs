@@ -1,12 +1,18 @@
 //! One chooser at a time, and the door that opened it closes it.
 //!
-//! A chooser takes the controller while it is up: the buttons stop being the
-//! desktop's and become move the highlight, confirm, and back out. It gives
-//! them back when it goes. Two choosers at once and that is no longer true of
-//! either of them. The second to open takes the profile the first was relying
-//! on, and the first to close hands the desktop's buttons back while the other
-//! is still on screen, so what you are looking at is being driven by the
-//! buttons of something you cannot see.
+//! A chooser changes what the buttons do while it is up: they stop being the
+//! desktop's and become move the highlight, confirm, and back out. The daemon
+//! decides that by asking the compositor whether a chooser is on the screen,
+//! which is one question with one answer -- so with two of them up, the answer
+//! is right and the chooser it is about is the wrong one. What you are looking
+//! at is being driven for something you cannot see.
+//!
+//! It used to be worse and it is worth knowing what it was, because the shape
+//! of the fix is left over from it: each chooser loaded a profile of its own on
+//! the way in and put the desktop's back on the way out, so the second to open
+//! took the profile the first was relying on and the first to close handed the
+//! buttons back over the top of the other. Nothing loads a profile to open a
+//! menu any more.
 //!
 //! It is invisible while it happens. Two of the same chooser are drawn in the
 //! same place, so backing out of one leaves you looking at what appears to be
@@ -29,8 +35,8 @@
 //! long as the process lives. The kernel drops it when the process ends however
 //! it ends, so a chooser that is killed outright leaves nothing behind to
 //! clear, and waiting for the lock rather than for the process is what puts the
-//! two in order: the one going hands the controller back before it dies, and
-//! the lock is not free until it has.
+//! two in order: the one going holds it until the kernel closes its files, so
+//! the lock being free is the screen being free.
 
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -47,8 +53,14 @@ use std::time::Duration;
 /// it does it. Waiting less than that turns a panel asked for right after
 /// another closed into a panel that never draws.
 pub const BREATH: Duration = Duration::from_millis(20);
-pub const PATIENCE: usize =
-    2 * (crate::running::A_WORD.as_millis() / BREATH.as_millis()) as usize;
+
+/// How long to keep trying, in breaths.
+///
+/// Ten seconds. Nothing between two choosers is slow -- the one going drops the
+/// lock as the kernel closes its files -- so this is not a budget for the
+/// handover, it is the point at which a panel that cannot get the lock gives up
+/// and says so rather than hanging on a lock nothing is going to release.
+pub const PATIENCE: usize = (Duration::from_secs(10).as_millis() / BREATH.as_millis()) as usize;
 
 /// How long a chooser that has the screen but has not drawn on it is given to
 /// appear.

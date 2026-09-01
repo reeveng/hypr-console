@@ -1,0 +1,324 @@
+#!/bin/sh
+# Which hearing this device should be using, measured on this device.
+#
+#     tools/voice-compare --record     say the six clips, once
+#     tools/voice-compare --models     fetch the models
+#     tools/voice-compare --build      build the second engine, which is slow
+#     tools/voice-compare --fetch      both of those
+#     tools/voice-compare              read every clip with every model
+#
+# This runs ON the handheld, as the person whose session it is -- not as root
+# over ssh. Recording needs the microphone, and the microphone belongs to a
+# PipeWire that belongs to a session. `ssh user@device`, or a terminal on the
+# machine itself.
+#
+# What it is for. The model was chosen because it worked, which is not the same
+# as having been compared against anything, and `docs/voice.md` now names two
+# things it was never asked:
+#
+#   Turbo is large-v3 with the decoder cut from thirty-two layers to four, and
+#   OpenAI's own note on it is that it holds up everywhere except a few
+#   languages, of which Thai is one. Thai is a third of what is said to this
+#   device. And turbo's saving is in the decoder, which on a two-second
+#   sentence is a hundredth of the work here -- so it is plausible that this
+#   desktop is paying for Thai and getting nothing back.
+#
+#   Qwen3-ASR is the first local model since whisper that hears all three of
+#   these languages, and llama.cpp can run it on this machine's graphics.
+#
+# Both are answered by saying six things into it once. Nothing here is part of
+# the desktop: it fetches into the same directory `dictate` keeps its model in,
+# it is run by hand, and what it leaves behind can be deleted.
+set -e
+
+kept=${XDG_DATA_HOME:-$HOME/.local/share}/console/voice
+clips=$kept/compare/clips
+made=$kept/compare
+: "${XDG_RUNTIME_DIR:=/run/user/$(id -u)}"
+export XDG_RUNTIME_DIR
+
+# The engine already here, built for this machine's graphics on the first press
+# that wanted it. If it is missing, the packaged one is not a fair comparison --
+# it speaks nothing but the processor -- so this stops rather than measuring the
+# wrong thing.
+whisper=$kept/whisper-cli
+# The second engine, which nothing on this machine builds yet.
+llama=$kept/llama-mtmd-cli
+
+# What is said, and what each is for.
+#
+# Not a benchmark. A benchmark is a corpus somebody else recorded, read by
+# somebody being careful, and what it measures is not this. What is here is the
+# few things this paddle is actually asked to do and the few places it is known
+# to be able to fail.
+#
+# Four groups. The one-word clips are the complaint that started this:
+# detection is a guess made on what was said, and one word is not much to guess
+# from. The sentences are the baseline nobody disputes -- if the models differ
+# there, something is wrong with the measurement. The middle group is where
+# they are expected to differ at all, Thai tones above all, which is where a
+# cut-down decoder should show if it shows anywhere. The last group is the room
+# rather than the language.
+#
+# The word clips matter more than the sentences, which is the opposite of how
+# transcription is usually measured. Nearly everything said to this button is
+# one or two words into a search box.
+CLIPS='en-word|en|ONE English word, as into a search box -- "Settings"
+nl-word|nl|ONE Dutch word with an English word behind it -- "zeven". If "seven" comes back, detection went to English where you can watch it happen
+th-word|th|ONE short Thai thing -- a greeting, a thank you
+en-line|en|an English sentence, ten words or so, at ordinary speed
+nl-line|nl|a Dutch sentence, ten words or so, at ordinary speed
+th-line|th|a Thai sentence, ten words or so, at ordinary speed
+th-tones|th|three words differing only in tone, with a gap between them -- dog, horse, come. The clip turbo is expected to lose on
+th-marks|th|two or three words carrying the marks that are not letters: a silent-letter word, a sara am word
+nl-hard|nl|a Dutch sentence heavy in ui, eu and oo -- "Het huis heeft een nieuwe voordeur"
+nl-mixed|nl|a Dutch sentence with the English words left in, the way it is really spoken -- "Ik heb de update gedownload naar mijn desktop". This is what pinning the language costs
+th-mixed|th|the same the other way: a Thai sentence with an English word or two in it
+en-name|en|a name or a filename rather than a sentence -- what this paddle is mostly pressed for
+nl-number|nl|a number and a date said aloud in Dutch. Models disagree wildly about digits
+quiet|en|anything, said quietly, at arm length. This is the guard that decides whether a recording is speech at all
+pause|en|a sentence with a two-second silence through the middle of it
+nothing|en|say NOTHING. Start, wait three seconds, stop. Whisper answers an empty room with "Thank you." and this is the guard that stops it'
+
+# The four contenders. Size is not the question here, so the two turbos are
+# both listed: q5_0 is what this desktop runs today and the unquantised one
+# says how much of any difference was the quantising rather than the model.
+#
+#   name        engine   file
+MODELS='turbo-q5|whisper|ggml-large-v3-turbo-q5_0.bin
+turbo|whisper|ggml-large-v3-turbo.bin
+large-v3|whisper|ggml-large-v3.bin
+qwen3-asr|llama|Qwen3-ASR-1.7B-Q8_0.gguf'
+
+WHISPER_FROM=https://huggingface.co/ggerganov/whisper.cpp/resolve/main
+QWEN_FROM=https://huggingface.co/ggml-org/Qwen3-ASR-1.7B-GGUF/resolve/main
+QWEN_MMPROJ=mmproj-Qwen3-ASR-1.7B-Q8_0.gguf
+
+# The tag this was written against. A compiler pointed at somebody else's
+# repository is pointed at a tag, for the reason `docs/voice.md` gives about
+# the other one: a branch is whatever it happens to be on the morning somebody
+# runs this.
+LLAMA_FROM=https://github.com/ggml-org/llama.cpp
+LLAMA_AT=v0.3.0
+
+# The same threads `dictate` gives the hearing, so what is measured here is
+# what the paddle would do rather than a benchmark of the machine.
+THREADS=12
+
+now_ms() { date +%s%3N; }
+
+fetch_one() {
+    from=$1
+    into=$2
+    [ -f "$into" ] && return 0
+    echo "   fetching $(basename "$into")"
+    # Beside the name rather than over it, so an interrupted fetch leaves
+    # nothing that looks like a model.
+    curl --location --fail --progress-bar --output "$into.coming" "$from"
+    mv "$into.coming" "$into"
+}
+
+models() {
+    mkdir -p "$kept"
+    echo "== the models"
+    echo "$MODELS" | while IFS='|' read -r name engine file; do
+        case $engine in
+        whisper) fetch_one "$WHISPER_FROM/$file" "$kept/$file" ;;
+        llama)
+            fetch_one "$QWEN_FROM/$file" "$kept/$file"
+            fetch_one "$QWEN_FROM/$QWEN_MMPROJ" "$kept/$QWEN_MMPROJ"
+            ;;
+        esac
+    done
+}
+
+built() {
+    mkdir -p "$kept"
+    echo "== the second engine"
+    if [ -x "$llama" ]; then
+        echo "   already built"
+        return 0
+    fi
+    echo "   llama.cpp $LLAMA_AT, pointed at this machine's graphics."
+    echo "   This is a C++ project and a handheld. It takes a while."
+    at=$XDG_RUNTIME_DIR/console/voice/llama.cpp
+    rm -rf "$at"
+    mkdir -p "$(dirname "$at")"
+    git clone --quiet --depth 1 --branch "$LLAMA_AT" "$LLAMA_FROM" "$at"
+    # The same shape the hearing is built in: Vulkan because that is what the
+    # drivers here speak, static because there is already a libllama on this
+    # machine and a build that finds its own first is a build that quietly
+    # decides which one is running.
+    cmake -S "$at" -B "$at/build" \
+        -DGGML_VULKAN=ON \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DLLAMA_CURL=OFF \
+        -DLLAMA_BUILD_TESTS=OFF \
+        -DLLAMA_BUILD_EXAMPLES=OFF
+    cmake --build "$at/build" --target llama-mtmd-cli --parallel
+    cp "$at/build/bin/llama-mtmd-cli" "$llama.coming"
+    mv "$llama.coming" "$llama"
+    rm -rf "$at"
+    echo "   built"
+}
+
+recorded() {
+    mkdir -p "$clips"
+    echo "Six things, once each. ENTER starts, ENTER stops."
+    echo "Say them the way you would say them at the paddle: no slower, and no"
+    echo "clearer. A benchmark read carefully is a benchmark of somebody being"
+    echo "careful."
+    echo "$CLIPS" | while IFS='|' read -r name language says; do
+        printf '\n%s (%s)\n  %s\n  ENTER to start' "$name" "$language" "$says"
+        read -r _ </dev/tty
+        pw-record --rate 16000 --channels 1 --format s16 "$clips/$name.wav" &
+        pid=$!
+        printf '  listening, ENTER to stop'
+        read -r _ </dev/tty
+        kill -INT "$pid" 2>/dev/null || true
+        wait "$pid" 2>/dev/null || true
+        printf '  kept\n'
+    done
+    echo
+    echo "Recorded. Now: tools/voice-compare"
+}
+
+# What whisper thinks it is hearing, asked on its own.
+#
+# This is the question the setting was added for. Detection is a guess made on
+# what was said, and one word is not much to guess from -- so this says, per
+# clip and in the voice of the person who owns the machine, how often the guess
+# is English when it should not be.
+detected() {
+    "$whisper" --model "$kept/ggml-large-v3-turbo-q5_0.bin" --file "$1" \
+        --detect-language 2>&1 |
+        sed -n 's/.*auto-detected language: \([a-z][a-z]*\).*/\1/p' | tail -1
+}
+
+# Whether any of this is being measured on the graphics card at all.
+#
+# Worth one line at the top of the report, because the whole comparison is
+# meaningless if it is not. The packaged whisper reports no backend beside the
+# CPU and is nineteen seconds a sentence; if that is what ran, every number
+# below is about the wrong program.
+backend() {
+    "$whisper" --model "$kept/ggml-large-v3-turbo-q5_0.bin" --file "$1" \
+        --language en 2>&1 |
+        sed -n 's/^\(ggml_vulkan: [0-9].*\)/\1/p' | head -1
+}
+
+heard_by_whisper() {
+    "$whisper" --model "$1" --file "$2" --language "$3" \
+        --threads "$THREADS" --no-timestamps --no-prints 2>/dev/null |
+        tr '\n' ' ' | sed 's/  */ /g; s/^ //; s/ $//'
+}
+
+heard_by_llama() {
+    "$llama" -m "$1" --mmproj "$kept/$QWEN_MMPROJ" --audio "$2" \
+        -p 'Transcribe the audio.' -ngl 99 -t "$THREADS" --temp 0 2>/dev/null |
+        tr '\n' ' ' | sed 's/  */ /g; s/^ //; s/ $//'
+}
+
+# Three times, and the best of them kept.
+#
+# The first run of anything here pays for a model coming off the disk and
+# shaders being compiled, which is a real cost exactly once per boot and not
+# the cost of a press. Both are printed: the first is what the first press of
+# the day feels like, the best is what every press after it feels like.
+timed() {
+    engine=$1
+    model=$2
+    clip=$3
+    language=$4
+    first=
+    best=
+    said=
+    for _ in 1 2 3; do
+        began=$(now_ms)
+        case $engine in
+        whisper) said=$(heard_by_whisper "$model" "$clip" "$language") ;;
+        llama) said=$(heard_by_llama "$model" "$clip") ;;
+        esac
+        took=$(($(now_ms) - began))
+        [ -z "$first" ] && first=$took
+        if [ -z "$best" ] || [ "$took" -lt "$best" ]; then best=$took; fi
+    done
+    printf '%s|%s|%s' "$first" "$best" "$said"
+}
+
+compared() {
+    [ -x "$whisper" ] || {
+        echo "The hearing this machine built for itself is not there:" >&2
+        echo "  $whisper" >&2
+        echo "Press the paddle once, or run: dictate --fetch" >&2
+        echo "The packaged whisper-cli speaks nothing but the processor, so" >&2
+        echo "measuring against it would be measuring the wrong thing." >&2
+        exit 1
+    }
+    [ -d "$clips" ] || {
+        echo "Nothing has been recorded yet: tools/voice-compare --record" >&2
+        exit 1
+    }
+
+    report=$made/said-$(date +%Y-%m-%d-%H%M).txt
+    mkdir -p "$made"
+    {
+        echo "voice-compare, $(date), on $(uname -n)"
+        card=$(backend "$clips/en-word.wav" 2>/dev/null || true)
+        case $card in
+        "") echo "graphics: NONE FOUND -- this ran on the processor, so the" \
+            "numbers below are about the wrong program" ;;
+        *) echo "graphics: $card" ;;
+        esac
+        echo
+
+        echo "$CLIPS" | while IFS='|' read -r name language says; do
+            clip=$clips/$name.wav
+            [ -f "$clip" ] || continue
+            guessed=$(detected "$clip")
+            printf '== %s   spoken: %s   auto heard: %s' "$name" "$language" "$guessed"
+            [ "$guessed" = "$language" ] || printf '   <-- wrong'
+            printf '\n'
+            echo "$MODELS" | while IFS='|' read -r model engine file; do
+                [ -f "$kept/$file" ] || { printf '   %-11s not fetched\n' "$model"; continue; }
+                [ "$engine" = llama ] && [ ! -x "$llama" ] && {
+                    printf '   %-11s no engine built\n' "$model"
+                    continue
+                }
+                answer=$(timed "$engine" "$kept/$file" "$clip" "$language")
+                first=${answer%%|*}
+                rest=${answer#*|}
+                best=${rest%%|*}
+                said=${rest#*|}
+                printf '   %-11s %5s ms  (first %5s ms)  %s\n' \
+                    "$model" "$best" "$first" "$said"
+            done
+            echo
+        done
+    } 2>&1 | tee "$report"
+
+    echo "Written to $report"
+    echo
+    echo "What to read out of it. The times are the easy half and mostly will"
+    echo "not decide anything: anything under about two seconds is a paddle"
+    echo "that feels immediate. The half that decides it is the Thai lines,"
+    echo "read by somebody who speaks Thai. If large-v3 is better there and"
+    echo "costs a few hundred milliseconds, it is the one to keep."
+}
+
+case "${1:-}" in
+--record) recorded ;;
+--models) models ;;
+--build) built ;;
+--fetch)
+    models
+    echo
+    built
+    ;;
+"") compared ;;
+*)
+    echo "voice-compare: $1 is not a word this takes" >&2
+    exit 2
+    ;;
+esac

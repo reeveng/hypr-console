@@ -6,3 +6,4 @@ Exec=/usr/local/bin/files-panel
 Icon=folder
 Terminal=false
 Categories=System;FileTools;
+MimeType=inode/directory;

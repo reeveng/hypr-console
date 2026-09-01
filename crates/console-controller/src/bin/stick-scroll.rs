@@ -7,6 +7,7 @@
 
 use std::collections::BTreeMap;
 use std::process::{Child, Command, Stdio};
+use std::sync::mpsc::{Receiver, channel};
 use std::time::Duration;
 
 use evdev::uinput::VirtualDevice;
@@ -15,7 +16,10 @@ use evdev::{
 };
 use console_controller::clock::since_boot;
 use console_controller::doing::Doing;
-use console_controller::finding::Says;
+use console_controller::finding::{Says, says};
+use console_controller::means::{self, Table};
+use console_controller::mode::Mode;
+use console_controller::profile::{Asked, wanted};
 use console_controller::reading::{From, Ranges};
 use console_controller::turning::{Gone, Plugged, READ, Turning};
 
@@ -30,9 +34,41 @@ fn main() -> std::process::ExitCode {
 
     let mut machine = Machine::default();
     let mut turning = Turning::pointed_at(told());
+    // What every job is bound to on this machine, and when the file it comes
+    // out of was last written. Read here rather than in the library, which
+    // opens nothing.
+    let mut bound = Bound::default();
+    bound.look(&mut turning);
     let mut holding: BTreeMap<From, String> = BTreeMap::new();
     let mut running: Vec<Child> = Vec::new();
+
+    // What is in front of you, which is what the buttons are for. Asked once
+    // at the start and again whenever the compositor says a layer opened or
+    // closed, which is the only thing that can change the answer.
+    let changed = watching();
+    let mut wearing = Wearing::default();
+    look(&mut turning, &mut wearing);
+
     loop {
+        // Asked again when the compositor says a layer opened or closed, and
+        // again when the load this started lands. The second is not the same
+        // question answered twice: what should be worn when a load finishes is
+        // whatever is in front then, which may be neither what was in front
+        // when it started nor what it loaded.
+        let landed = wearing.loading.is_some() && !wearing.in_flight();
+        if changed.try_recv().is_ok() {
+            // Everything queued behind it says the same thing: ask again.
+            while changed.try_recv().is_ok() {}
+            look(&mut turning, &mut wearing);
+        } else if landed {
+            look(&mut turning, &mut wearing);
+        }
+        // Somebody may have moved a button while this was running. The setup
+        // screen writes the file and nothing else; watching when it was last
+        // written is the whole of the telling, and it is asked at the rate the
+        // loop already runs at because a `stat` is cheaper than deciding how
+        // often to do one.
+        bound.look(&mut turning);
         // Counting the time the machine spent asleep, which is the whole of
         // why `turning::AWAY_SECONDS` can tell a suspend from a slow turn. See
         // `console_controller::clock`.
@@ -42,6 +78,130 @@ fn main() -> std::process::ExitCode {
         running = reaped(running);
         say_what_changed(&mut holding, &turning);
         std::thread::sleep(Duration::from_secs_f64(turning.poll()));
+    }
+}
+
+/// The table of jobs, and when the file it came out of was last written.
+///
+/// Kept rather than read every turn, and re-read only when the file has
+/// changed underneath. A file that will not parse leaves what was already
+/// loaded where it is and says so once: a machine whose buttons all stopped
+/// working because of a typo in a table is worse than one still doing what it
+/// was doing.
+#[derive(Default)]
+struct Bound {
+    written: Option<std::time::SystemTime>,
+    read: bool,
+}
+
+impl Bound {
+    fn look(&mut self, turning: &mut Turning) {
+        let at = console_pad::jobs::path_in(&std::env::var("HOME").unwrap_or_default());
+        let written = std::fs::metadata(&at).and_then(|held| held.modified()).ok();
+        if self.read && written == self.written {
+            return;
+        }
+        self.written = written;
+        self.read = true;
+        let said = std::fs::read_to_string(&at).unwrap_or_default();
+        match console_pad::jobs::Jobs::read(&said) {
+            Ok(jobs) => {
+                if jobs.moved() {
+                    eprintln!("stick-scroll: {} moves {} of them", at.display(), jobs.moved.len());
+                }
+                turning.bound_by(Table::of(&jobs));
+            }
+            Err(fault) => eprintln!("stick-scroll: {}: {fault}", at.display()),
+        }
+    }
+}
+
+/// A word whenever a layer surface opened or closed.
+///
+/// The compositor and nothing else. Which mode this daemon is in used to be
+/// three things nobody owned -- the pad's InputPlumber profile, a file naming
+/// the profile from before the keyboard came up, and a SIGSTOP -- and every
+/// one of them was a note a program left for another program to read. See
+/// `console_controller::mode`.
+fn watching() -> Receiver<()> {
+    let (say, heard) = channel();
+    console_door::watching_layers(say);
+    heard
+}
+
+/// The load this daemon has going, if it has one.
+///
+/// The one thing the daemon has to remember about the pad, and it is about its
+/// own doing rather than about the machine: everything else it needs is read
+/// off the compositor or off the bus. Kept because a load is not instant and a
+/// daemon that has forgotten it asked for one will ask the bus, be told what
+/// was true before it asked, and agree with it.
+#[derive(Default)]
+struct Wearing {
+    loading: Option<Child>,
+    asked: Asked,
+}
+
+impl Wearing {
+    /// Whether the load this started is still going.
+    ///
+    /// Reaped here rather than left to the general reaping, because whether it
+    /// has finished is the question `look` is about to ask.
+    fn in_flight(&mut self) -> bool {
+        let Some(load) = self.loading.as_mut() else { return false };
+        match load.try_wait() {
+            Ok(None) => true,
+            _ => {
+                self.loading = None;
+                false
+            }
+        }
+    }
+}
+
+/// Ask the compositor what is in front, tell the daemon, and put the pad on
+/// the profile that goes with it.
+///
+/// A compositor that cannot be asked leaves the mode where it was. Falling
+/// back to the desktop here would mean a keyboard up and a `hyprctl` that
+/// failed once put the pad back under this daemon while wvkbd still has it,
+/// which is the fight the mode exists to end.
+///
+/// The profile is loaded only when it is not the one already on. A load
+/// destroys the pad and builds another every time, so a load that changes
+/// nothing is not free: it is this daemon and wvkbd both losing the device
+/// they are reading, for nothing.
+///
+/// It is also not loaded over one that has not landed. `controller-profile` is
+/// spawned and let go of -- waiting for it is a daemon that stops reading the
+/// pad for as long as InputPlumber takes -- so between asking and the pad
+/// wearing it, the bus still answers with what came before. Deciding against
+/// that answer is deciding against the past. See `console_controller::profile`.
+fn look(turning: &mut Turning, wearing: &mut Wearing) {
+    let Some(screens) = console_door::screens() else { return };
+    let mode = Mode::seen(&screens);
+    turning.held.now_in(mode);
+
+    let in_flight = wearing.in_flight();
+    let worn = loaded();
+    let Some(asking) = wanted(mode.profile(), worn.as_deref(), in_flight, &wearing.asked) else {
+        return;
+    };
+    wearing.loading = run(&["controller-profile".to_string(), asking.profile.clone()]);
+    wearing.asked = asking;
+}
+
+/// Which profile the pad has, as the machine answers.
+///
+/// `None` where it would not answer, which is not the same as some other
+/// profile and is not written down as one. The bus is least askable exactly
+/// while a load is tearing the pad down and building another.
+fn loaded() -> Option<String> {
+    let said = Command::new("controller-profile").output().ok()?;
+    match said.status.success() {
+        false => None,
+        true => Some(String::from_utf8_lossy(&said.stdout).trim().to_string())
+            .filter(|worn| !worn.is_empty()),
     }
 }
 
@@ -115,23 +275,6 @@ impl Plugged for Machine {
     }
 }
 
-/// What one device says about itself, in the words the rules are written in.
-fn says(path: &str, device: &Device) -> Says {
-    Says {
-        path: path.to_string(),
-        name: device.name().unwrap_or_default().to_string(),
-        phys: device.physical_path().unwrap_or_default().to_string(),
-        keys: device
-            .supported_keys()
-            .map(|keys| keys.iter().map(|key| key.0).collect())
-            .unwrap_or_default(),
-        axes: device
-            .supported_absolute_axes()
-            .map(|axes| axes.iter().map(|axis| axis.0).collect())
-            .unwrap_or_default(),
-    }
-}
-
 /// A device this was pointed at rather than left to find.
 fn told() -> BTreeMap<From, String> {
     let named = |which| match which {
@@ -168,10 +311,18 @@ fn say_what_changed(holding: &mut BTreeMap<From, String>, turning: &Turning) {
     *holding = now.clone();
 }
 
-/// The device this daemon publishes: a wheel, a pointer and one button.
+/// The device this daemon publishes: a wheel, a pointer, and every key and
+/// button anything on this desktop is bound to.
+///
+/// The keys are read out of the table rather than listed here. A device that
+/// does not claim a key cannot send it -- the press goes nowhere and the
+/// button reads as dead -- so a job given a new key would otherwise be a job
+/// that silently did nothing.
 fn published() -> Result<VirtualDevice, String> {
     let mut keys = AttributeSet::<KeyCode>::new();
-    keys.insert(KeyCode::BTN_LEFT);
+    for key in means::sends() {
+        keys.insert(key);
+    }
     let mut axes = AttributeSet::<RelativeAxisCode>::new();
     for axis in [
         RelativeAxisCode::REL_HWHEEL,
@@ -230,9 +381,8 @@ fn reaped(running: Vec<Child>) -> Vec<Child> {
 ///
 /// Whatever this starts is in this service's control group and stays there: a
 /// control group is inherited by every child, and nothing a program can do to
-/// itself leaves one. So a signal sent to the unit reaches all of it, which is
-/// why `osk-hook` names --kill-whom=main when it stops this daemon to raise
-/// the keyboard.
+/// itself leaves one. So restarting this daemon takes down whatever it has
+/// opened, and a panel raised from a button goes when the daemon goes.
 ///
 /// It keeps what they say on the way out. This daemon's stderr is the journal,
 /// and a chooser that refuses to open is otherwise a button reported as broken

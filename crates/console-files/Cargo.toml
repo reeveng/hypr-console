@@ -17,6 +17,10 @@ path = "src/bin/files-panel.rs"
 name = "files-thumbs"
 path = "src/bin/files-thumbs.rs"
 
+[[bin]]
+name = "console-screenshot"
+path = "src/bin/console-screenshot.rs"
+
 [dependencies]
 gtk4 = "0.11"
 console-panel.workspace = true

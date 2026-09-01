@@ -2,19 +2,39 @@
 Description=On-screen keyboard, driven by the controller
 PartOf=console.target
 
+# After the controller, because both of them go looking for the same pad and
+# neither of them owns it.
+#
+# The keyboard reads the controller itself: X arrives on the pad as North,
+# every profile passes it through untouched, and wvkbd finds the pad in
+# /dev/input and opens it. The controller daemon's own ExecStartPost loads the
+# desktop profile, and a profile switch destroys the pad and builds a new one --
+# `console_controller::turning::Gone` is that, called the ordinary state of
+# things because for the daemon it is: it opens the new one a turn or two later.
+#
+# Started together, wvkbd could open the pad that switch was about to take away,
+# in the one moment it has no answer for. What that looked like is X not raising
+# the keyboard until the next reboot, and coming back on the one after that.
+#
+# After= and not Requires=: this is about the order they start in and nothing
+# else. A machine whose controller will not start still gets a keyboard, and a
+# keyboard on this device is reachable by thumb as well as by button.
+After=console-controller.service
+
 [Service]
 Type=simple
-# Quoted, because systemd splits an unquoted Environment= line on whitespace.
-# Without the quotes this set WVKBD_ON_SHOW to "osk-hook" and threw "show"
-# away, so every time the keyboard appeared the hook ran with no argument,
-# printed its usage and did nothing: the controller was never handed over and
-# the keyboard and the scroll daemon both acted on the pad at once.
-Environment="WVKBD_ON_SHOW=osk-hook show"
-Environment="WVKBD_ON_HIDE=osk-hook hide"
+# No WVKBD_ON_SHOW or WVKBD_ON_HIDE. The keyboard used to run `osk-hook` at
+# both ends to hand the pad over and take it back, and the hook is gone: it
+# stopped the controller daemon with a signal, which the daemon now decides
+# for itself, and it loaded the pad profile the keyboard needs, which the
+# daemon now does because the profile is a function of what is on the screen.
+#
+# So there is nothing to strand either. The hook had to run on the way out as
+# well -- ExecStopPost -- or a keyboard that died left the pad on a profile
+# nothing was listening to. A keyboard that dies takes its layer off the
+# screen, the compositor says so, and the daemon puts the pad where the screen
+# now says it belongs. See `console_controller::mode`.
 ExecStart=/usr/local/bin/osk-start
-# It hands the controller back on the way out, so a restart cannot strand the
-# desktop holding a profile nothing is listening to.
-ExecStopPost=/usr/local/bin/osk-hook hide
 ExecStopPost=-/usr/local/bin/console-fell %n
 Restart=always
 RestartSec=2

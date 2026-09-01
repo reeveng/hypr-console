@@ -32,12 +32,20 @@ test:                              ## every test that can run on this machine
 #                   would fail there instead, halfway through an apply, on a
 #                   handheld: the same answer, found in the worse place.
 #
-# `make checks` is deliberately not here. It runs the features against a
-# desktop of its own, which is minutes and a compositor, and a gate somebody
-# starts dreading is a gate somebody starts going around.
+#   the checks      the features, pressed against the emulator rather than
+#                   read about. A third of a second for sixteen of them,
+#                   because no machine takes part: the real profiles, the real
+#                   pad, and the daemon running in this process.
+#
+# `make emulate` is deliberately not here. That one runs the features against a
+# nested desktop of its own, which is minutes and a compositor, and a gate
+# somebody starts dreading is a gate somebody starts going around. The device
+# tier is not here either, for a better reason: it is somebody's machine, and
+# it belongs at the end of a deploy rather than before one.
 ready:                             ## everything that must hold before a deploy
 	cargo test --quiet --locked --workspace
 	cargo clippy --quiet --locked --workspace --all-targets -- -D warnings
+	cargo run --quiet --bin console-check
 
 live:                              ## the tier that makes real input devices, if it can
 	cargo test --quiet -p console-controller --test really_running -- --nocapture

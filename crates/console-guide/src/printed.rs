@@ -59,17 +59,19 @@ pub fn guide(sections: &[Section], ink: Ink) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use console_controller::means::Table;
+
     use crate::guide::{Line, sections};
 
     #[test]
     fn a_terminal_that_is_not_one_is_given_no_escapes() {
-        let said = guide(&sections(None, ""), PLAIN);
+        let said = guide(&sections(&Table::ours(), ""), PLAIN);
         assert!(!said.contains('\u{1b}'), "an escape reached something reading a file");
     }
 
     #[test]
     fn every_line_is_the_button_and_what_it_does() {
-        let said = guide(&sections(None, ""), PLAIN);
+        let said = guide(&sections(&Table::ours(), ""), PLAIN);
         assert!(said.contains("  Touchpad              move the pointer"));
     }
 
@@ -77,13 +79,13 @@ mod tests {
     /// look for the rest of.
     #[test]
     fn a_section_with_nothing_in_it_is_not_printed() {
-        let said = guide(&sections(None, ""), PLAIN);
+        let said = guide(&sections(&Table::ours(), ""), PLAIN);
         assert!(!said.contains("Shortcuts"));
     }
 
     #[test]
     fn a_section_with_something_in_it_is() {
-        let mut every = sections(None, "");
+        let mut every = sections(&Table::ours(), "");
         every.last_mut().expect("a section").lines.push(Line::new("Super Q", "close"));
         assert!(guide(&every, PLAIN).contains("Shortcuts"));
     }

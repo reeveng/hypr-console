@@ -1,4 +1,4 @@
-# What the desktop user may do as root, which is one program.
+# What the desktop user may do as root, which is two programs.
 #
 # The Web tab writes the chosen search engine into every browser on the
 # machine, and all three of them read their policy out of /etc. The panel runs
@@ -14,3 +14,11 @@
 # `@user@` is the mark the manifest writes for whoever this desktop belongs to.
 # `console apply` fills it in on the way here, because sudo wants a name.
 @user@ ALL=(root) NOPASSWD: /usr/local/bin/console-engine
+# The second is the setup screen's. Somebody moving the menu onto a button
+# their device actually has writes that into a table in their own home, and the
+# profiles it changes are in /etc, which is not theirs. `buttons` is the whole
+# of what it may do: it takes no argument, what it writes is decided by that
+# table and by the tree, and there is nothing to hand it that would make it
+# write anything else. `console apply` is not this line and cannot be reached
+# through it -- sudo matches the words as well as the program.
+@user@ ALL=(root) NOPASSWD: /usr/local/bin/console buttons

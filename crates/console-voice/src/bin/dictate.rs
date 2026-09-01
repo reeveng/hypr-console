@@ -14,8 +14,8 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 use console_voice::{
-    anything_said, cloning, compiling, configuring, fetching, hearing, made, making, model,
-    recording, said, taken, taking, tidy, told_by, typing, whisper,
+    anything_said, cloning, compiling, configuring, fetching, hearing, languages, made, making,
+    model, recording, said, taken, taking, tidy, told_by, typing, whisper,
 };
 use std::path::PathBuf;
 
@@ -165,7 +165,7 @@ fn heard(recorded: &Path) -> Result<String, String> {
     if !anything_said(&wav) {
         return Ok(String::new());
     }
-    let argv = hearing(&engine(), &model(), recorded);
+    let argv = hearing(&engine(), &model(), recorded, &languages::chosen());
     let answered = Command::new(&argv[0])
         .args(&argv[1..])
         .stderr(Stdio::null())

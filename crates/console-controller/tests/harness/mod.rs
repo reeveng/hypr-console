@@ -14,7 +14,7 @@ use console_controller::turning::{Gone, Plugged, Turning};
 use console_pad::capture::{Descriptor, captured};
 use console_pad::devices::Devices;
 use console_pad::go::{Held, LegionGo};
-use console_pad::profile::load_all;
+use console_pad::router::every_profile;
 use console_pad::world::World;
 
 /// The front of a Legion Go, and the four devices behind it.
@@ -31,7 +31,7 @@ pub fn root() -> std::path::PathBuf {
 /// A machine holding a profile, and nothing of this one taking part.
 pub fn go(profile: &str) -> Go {
     let devices = Devices::new(captured(), World::of(captured()));
-    LegionGo::new(load_all(&root()).expect("the profiles"), devices, Held::default(), profile)
+    LegionGo::new(every_profile(&root()).expect("the profiles"), devices, Held::default(), profile)
         .expect("a pad")
 }
 

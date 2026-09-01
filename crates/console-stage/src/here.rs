@@ -10,11 +10,12 @@
 
 use evdev::EventType;
 use console_controller::doing::{Doing, Out};
+use console_controller::mode::Mode;
 use console_controller::turning::Turning;
 use console_pad::capture::captured;
 use console_pad::devices::Devices;
 use console_pad::go::{Held, LegionGo};
-use console_pad::profile::load_all;
+use console_pad::router::every_profile;
 use console_pad::world::World;
 
 use crate::plug::Plug;
@@ -38,7 +39,8 @@ pub struct Here {
 impl Here {
     pub fn new() -> Result<Self, String> {
         let devices = Devices::new(captured(), World::of(captured()));
-        let go = LegionGo::new(load_all(&crate::root())?, devices, Held::default(), "desktop")?;
+        let go =
+            LegionGo::new(every_profile(&crate::root())?, devices, Held::default(), console_pad::router::NAME)?;
         Ok(Here {
             go,
             turning: Turning::default(),
@@ -83,6 +85,42 @@ impl Here {
 
     pub fn load_profile(&mut self, name: &str) -> Result<(), String> {
         self.go.load_profile(name)
+    }
+
+    /// Say what is in front of the daemon, in the compositor's own words.
+    ///
+    /// On the device the daemon asks `hyprctl layers -j` and reads the answer.
+    /// There is no compositor here, so the answer is handed over instead --
+    /// and it is the same answer, read by the same `Mode::seen`, so what is
+    /// being checked is the reading and not a second opinion about it.
+    ///
+    /// Without this, everything the mode decides could only be asked on the
+    /// device: whether the daemon acts at all, and which profile the pad wants.
+    /// That is most of what was written the night the keyboard was untangled,
+    /// and none of it could be pressed anywhere but on hardware.
+    pub fn showing(&mut self, layers: &str) -> Result<(), String> {
+        let said = serde_json::from_str(layers).map_err(|fault| format!("layers: {fault}"))?;
+        self.in_front(Mode::seen(&said));
+        Ok(())
+    }
+
+    /// Say what is in front, having already worked it out.
+    pub fn in_front(&mut self, mode: Mode) {
+        self.turning.held.now_in(mode);
+    }
+
+    /// What the daemon takes to be in front of it.
+    pub fn mode(&self) -> Mode {
+        self.turning.held.mode
+    }
+
+    /// Which profile the pad wants, given what is in front.
+    ///
+    /// What the daemon would ask for. `profile` is the other half -- the one
+    /// the pad is actually wearing -- and the two being different is the whole
+    /// of what a load is for.
+    pub fn wanted(&self) -> &'static str {
+        self.mode().profile()
     }
 
     /// Let the daemon read what was sent.

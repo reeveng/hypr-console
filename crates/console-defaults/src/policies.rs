@@ -72,15 +72,41 @@ pub struct Addon {
 /// an on-screen keyboard, which is the slowest way there is to type one and the
 /// best reason there is not to.
 ///
+/// Dark Reader, because everything else on this desktop is dark and a page that
+/// is not is a lamp in the face at arm's length. It darkens the page itself
+/// rather than asking the site to, which is the only way that works on a web
+/// that mostly does not ask. It is on from the moment it arrives, which is the
+/// whole of what is wanted from it.
+///
+/// This desktop's own add-on is not in this list, and the reason is worth
+/// writing down because it cost a day to find. A policy will not install an
+/// add-on nobody has signed. `xpinstall.signatures.required` is false in
+/// LibreWolf and that is not enough: the pref governs a sideload, and the
+/// policy path checks the signature whatever it says. Watched on the device --
+/// a signed add-on from a `file://` URL installed, ours from the same kind of
+/// URL did not, and nothing anywhere said why. So ours is put into the profile
+/// instead, by `console-web`, and `crates/console-web` is what it does.
+///
+/// Both of these go to every browser of the family. Firefox is built with
+/// MOZ_REQUIRE_SIGNING and no pref talks it out of that, so a browser-specific
+/// list would only ever have held ours, and ours is no longer here.
+///
 /// Installed rather than forced, the way LibreWolf itself ships uBlock: the
-/// browser fetches it on its next start and she can take it out again. An
-/// add-on that cannot be removed is a thing on somebody's machine that is not
-/// theirs.
-pub const ADDONS: [Addon; 1] = [Addon {
-    says: "Bitwarden",
-    id: "{446900e4-71c2-419f-a6a7-df9c091e268b}",
-    from: "https://addons.mozilla.org/firefox/downloads/latest/bitwarden-password-manager/latest.xpi",
-}];
+/// browser fetches them on its next start and she can take either out again.
+/// An add-on that cannot be removed is a thing on somebody's machine that is
+/// not theirs.
+pub const ADDONS: [Addon; 2] = [
+    Addon {
+        says: "Bitwarden",
+        id: "{446900e4-71c2-419f-a6a7-df9c091e268b}",
+        from: "https://addons.mozilla.org/firefox/downloads/latest/bitwarden-password-manager/latest.xpi",
+    },
+    Addon {
+        says: "Dark Reader",
+        id: "addon@darkreader.org",
+        from: "https://addons.mozilla.org/firefox/downloads/latest/darkreader/latest.xpi",
+    },
+];
 
 /// Chromium's, which says the engine outright rather than naming one it has.
 pub fn chromium(engine: &Engine) -> String {
@@ -105,7 +131,11 @@ pub fn chromium(engine: &Engine) -> String {
 ///
 /// The preferences this desktop holds a browser to go in the same way, and for
 /// the same reason.
-pub fn mozilla(engine: &Engine, known: &Known, beneath: &str) -> String {
+pub fn mozilla(place: &Where, engine: &Engine, beneath: &str) -> String {
+    let known: &Known = match place.file == FIREFOX.file {
+        true => &engine.firefox,
+        false => &engine.librewolf,
+    };
     let mut searching = Map::new();
     if known.given {
         searching.insert(
@@ -139,7 +169,7 @@ pub fn mozilla(engine: &Engine, known: &Known, beneath: &str) -> String {
         *installed = json!({});
     }
     let installed = installed.as_object_mut().expect("an object");
-    for addon in &ADDONS {
+    for addon in ADDONS.iter() {
         installed.insert(
             addon.id.to_string(),
             json!({
@@ -217,8 +247,8 @@ mod tests {
     #[test]
     fn a_browser_is_told_the_name_it_knows_the_engine_by() {
         let duckduckgo = engine("duckduckgo");
-        let firefox = read(&mozilla(duckduckgo, &duckduckgo.firefox, ""));
-        let librewolf = read(&mozilla(duckduckgo, &duckduckgo.librewolf, ""));
+        let firefox = read(&mozilla(&FIREFOX, duckduckgo, ""));
+        let librewolf = read(&mozilla(&LIBREWOLF, duckduckgo, ""));
         assert_eq!(firefox["policies"]["SearchEngines"]["Default"], "DuckDuckGo");
         assert_eq!(librewolf["policies"]["SearchEngines"]["Default"], "DuckDuckGo No-AI");
     }
@@ -226,14 +256,14 @@ mod tests {
     #[test]
     fn an_engine_the_browser_has_is_chosen_and_not_handed_over() {
         let wikipedia = engine("wikipedia");
-        let said = read(&mozilla(wikipedia, &wikipedia.librewolf, ""));
+        let said = read(&mozilla(&LIBREWOLF, wikipedia, ""));
         assert!(said["policies"]["SearchEngines"]["Add"].is_null());
     }
 
     #[test]
     fn an_engine_the_browser_has_not_is_handed_over_first() {
         let startpage = engine("startpage");
-        let said = read(&mozilla(startpage, &startpage.firefox, ""));
+        let said = read(&mozilla(&FIREFOX, startpage, ""));
         let added = &said["policies"]["SearchEngines"]["Add"][0];
         assert_eq!(added["Name"], "Startpage");
         assert_eq!(added["URLTemplate"], "https://www.startpage.com/sp/search?query={searchTerms}");
@@ -246,7 +276,7 @@ mod tests {
     fn what_the_browser_ships_is_carried_through() {
         let shipped = r#"{"policies": {"DisableTelemetry": true, "SearchEngines": {"Default": "Gone"}}}"#;
         let duckduckgo = engine("duckduckgo");
-        let said = read(&mozilla(duckduckgo, &duckduckgo.librewolf, shipped));
+        let said = read(&mozilla(&LIBREWOLF, duckduckgo, shipped));
         assert_eq!(said["policies"]["DisableTelemetry"], true);
         assert_eq!(said["policies"]["SearchEngines"]["Default"], "DuckDuckGo No-AI");
     }
@@ -254,10 +284,60 @@ mod tests {
     #[test]
     fn the_add_ons_are_installed_and_can_still_be_taken_out() {
         let duckduckgo = engine("duckduckgo");
-        let said = read(&mozilla(duckduckgo, &duckduckgo.librewolf, ""));
+        let said = read(&mozilla(&LIBREWOLF, duckduckgo, ""));
         let bitwarden = &said["policies"]["ExtensionSettings"][ADDONS[0].id];
         assert_eq!(bitwarden["installation_mode"], "normal_installed");
         assert_eq!(bitwarden["install_url"], ADDONS[0].from);
+    }
+
+    /// Every add-on named here goes to both, because both can fetch them: a
+    /// password is typed with a thumb in either, and a page is as bright in one
+    /// as in the other.
+    #[test]
+    fn every_add_on_named_here_goes_to_all_of_them() {
+        let duckduckgo = engine("duckduckgo");
+        for place in [&FIREFOX, &LIBREWOLF] {
+            let said = read(&mozilla(place, duckduckgo, ""));
+            for addon in ADDONS.iter() {
+                let held = &said["policies"]["ExtensionSettings"][addon.id];
+                assert_eq!(held["install_url"], addon.from, "{} in {}", addon.says, place.file);
+                assert_eq!(held["installation_mode"], "normal_installed", "{}", addon.says);
+            }
+        }
+    }
+
+    /// Nothing named here may be a file, and that is the whole of the lesson.
+    /// A policy will not install an unsigned add-on, and every add-on that
+    /// comes off this disk is unsigned, so one named here would be a policy
+    /// that silently does nothing. Ours goes into the profile instead.
+    #[test]
+    fn nothing_a_policy_installs_comes_off_the_disk() {
+        for addon in ADDONS.iter() {
+            assert!(
+                addon.from.starts_with("https://"),
+                "{} is installed from {}, which a policy will not do unsigned",
+                addon.says,
+                addon.from
+            );
+        }
+    }
+
+    /// A page that is not dark is a lamp in the face on a screen held at arm's
+    /// length, so it arrives with the rest and is on the moment it does.
+    #[test]
+    fn the_one_that_darkens_a_page_is_installed_in_both() {
+        let duckduckgo = engine("duckduckgo");
+        let dark = ADDONS.iter().find(|addon| addon.says == "Dark Reader").expect("Dark Reader");
+        assert_eq!(dark.id, "addon@darkreader.org");
+        for place in [&FIREFOX, &LIBREWOLF] {
+            let said = read(&mozilla(place, duckduckgo, ""));
+            assert_eq!(
+                said["policies"]["ExtensionSettings"][dark.id]["installation_mode"],
+                "normal_installed",
+                "{}",
+                place.file
+            );
+        }
     }
 
     /// LibreWolf's own list says which kinds of thing may be installed at all,
@@ -270,7 +350,7 @@ mod tests {
             "uBlock0@raymondhill.net": {"installation_mode": "normal_installed"}
         }}}"#;
         let duckduckgo = engine("duckduckgo");
-        let said = read(&mozilla(duckduckgo, &duckduckgo.librewolf, shipped));
+        let said = read(&mozilla(&LIBREWOLF, duckduckgo, shipped));
         let installed = &said["policies"]["ExtensionSettings"];
         assert_eq!(installed["*"]["installation_mode"], "allowed");
         assert_eq!(installed["uBlock0@raymondhill.net"]["installation_mode"], "normal_installed");
@@ -282,7 +362,7 @@ mod tests {
     #[test]
     fn the_desktops_own_preferences_are_locked() {
         let duckduckgo = engine("duckduckgo");
-        let said = read(&mozilla(duckduckgo, &duckduckgo.firefox, ""));
+        let said = read(&mozilla(&FIREFOX, duckduckgo, ""));
         let held = &said["policies"]["Preferences"];
         assert_eq!(held["ui.prefersReducedMotion"]["Value"], 1);
         assert_eq!(held["ui.prefersReducedMotion"]["Status"], "locked");
@@ -296,7 +376,7 @@ mod tests {
     fn nothing_underneath_is_still_a_policy() {
         let duckduckgo = engine("duckduckgo");
         for beneath in ["", "not json at all", "[]"] {
-            let said = read(&mozilla(duckduckgo, &duckduckgo.firefox, beneath));
+            let said = read(&mozilla(&FIREFOX, duckduckgo, beneath));
             assert_eq!(said["policies"]["SearchEngines"]["Default"], "DuckDuckGo");
         }
     }

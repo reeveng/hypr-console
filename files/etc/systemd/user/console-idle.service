@@ -1,0 +1,24 @@
+[Unit]
+Description=The screen, when nothing is happening
+PartOf=console.target
+# hypridle's own unit is not used, for the reason none of the others are: what
+# runs on this machine is decided in one place, and its unit is wanted by a
+# target this desktop never starts. Bound to console.target also settles Game
+# Mode without a word about it -- that target is stopped behind the switch, so
+# the screen there is Steam's to dim and this is not running to disagree.
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/hypridle
+# Put the screen back on the way out. A desktop that stopped while dimmed --
+# because the machine left for Game Mode, or because this unit was restarted --
+# would otherwise hand over a screen at its floor with nothing left running
+# that remembers why, and the note saying where it was would be read by the
+# next dim as a machine that is already dim.
+ExecStopPost=-/usr/local/bin/console-brightness undim
+ExecStopPost=-/usr/local/bin/console-fell %n
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=console.target

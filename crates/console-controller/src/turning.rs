@@ -11,6 +11,7 @@ use evdev::InputEvent;
 
 use crate::doing::Doing;
 use crate::finding::{self, Says};
+use crate::means::Table;
 use crate::reading::{Controller, From, Ranges};
 
 /// A device that is no longer there.
@@ -156,7 +157,10 @@ impl Turning {
                         }
                     }
                     Err(Gone) => {
-                        self.went(which);
+                        // What the pad was holding down goes up with it. The
+                        // release is never going to arrive, and a mouse button
+                        // left down drags everything the pointer touches.
+                        doing.extend(self.went(which));
                         break;
                     }
                 }
@@ -168,6 +172,15 @@ impl Turning {
         doing.extend(self.held.finger.carried());
         doing.extend(self.held.tick(since));
         doing
+    }
+
+    /// What each thing this desktop does is bound to, as somebody has it.
+    ///
+    /// Handed in from outside, because nothing in this crate opens a file.
+    /// Read again whenever the file changes, so a button moved on the setup
+    /// screen is moved on the machine before the screen has finished saying so.
+    pub fn bound_by(&mut self, table: Table) {
+        self.held.table = table;
     }
 
     /// How long to wait before turning again.
@@ -185,10 +198,11 @@ impl Turning {
         &self.open
     }
 
-    fn went(&mut self, which: From) {
+    fn went(&mut self, which: From) -> Vec<Doing> {
         self.open.remove(&which);
-        if which == From::Pad {
-            self.held.pad_went();
+        match which == From::Pad {
+            true => self.held.pad_went(),
+            false => Vec::new(),
         }
     }
 

@@ -42,6 +42,7 @@ pub mod named {
     pub const ANSWER: &str = "answer";
     pub const ASIDE: &str = "aside";
     pub const ASKED: &str = "asked";
+    pub const BAR: &str = "bar";
     pub const CARD: &str = "card";
     pub const COVER: &str = "cover";
     pub const ICON: &str = "icon";
@@ -59,8 +60,8 @@ pub mod named {
     pub const TOP: &str = "top";
 
     /// Every one of them, which is what the stylesheet is checked against.
-    pub const EVERY: [&str; 19] = [
-        ABOUT, ANSWER, ASIDE, ASKED, CARD, COVER, ICON, INTO, MORE, NOTE, PANEL, SAID, SHUT,
+    pub const EVERY: [&str; 20] = [
+        ABOUT, ANSWER, ASIDE, ASKED, BAR, CARD, COVER, ICON, INTO, MORE, NOTE, PANEL, SAID, SHUT,
         SOUGHT, STEP, STRIP, SURE, TAB, TOP,
     ];
 }

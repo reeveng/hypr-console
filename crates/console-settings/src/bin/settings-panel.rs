@@ -9,18 +9,21 @@
 
 use std::sync::{Arc, Mutex};
 
+use console_defaults::battery;
 use console_panel::page::{Does, Level, Page, Rows, Showing};
 use console_panel::running::{said, say};
 use console_panel::{chooser, panel};
 use console_settings::defaults::{self, Program};
 use console_settings::level::stepped;
 use console_settings::rows::{
-    Chosen, TABS, battery_rows, bluetooth_rows, engine_says, notifications_rows, search_rows,
+    Chosen, TABS, battery_rows, bluetooth_rows, dictation_rows, dictation_says, engine_says,
+    notifications_rows, search_rows,
     sound_rows, system_rows,
     wifi_rows,
 };
 use console_settings::wallpaper::{Found, Offered, wallpaper_rows};
-use console_settings::{bluetooth, sound, wifi};
+use console_settings::warm::{self, Warmth};
+use console_settings::{bluetooth, screen, sound, wifi};
 use console_sky::choose::{Set, Wanted};
 use console_sky::place;
 
@@ -77,20 +80,48 @@ fn sound_tab() -> Vec<console_panel::page::Row> {
 
 // ----------------------------------------------------------------- battery
 
-/// How bright the screen is, asked of the program that owns the range.
+/// How bright the screen is, in the range that screen actually shows.
 ///
 /// The panel takes numbers up to 65535 and goes dark near the top of them, so
-/// what counts as full is a decision, and it is made once in console-brightness.
-/// Reading the file here would be a second opinion about the same screen, and
-/// the two would part company the day one of them moved.
+/// what counts as full is a decision, and it is made once in
+/// `console_settings::screen`. This used to run `console-brightness get` to
+/// reach that decision, because it lived in a shell script and a shell script
+/// is only reachable by running it. It is a function now, so the panel and the
+/// program the d-pad runs are the same opinion rather than two that agree.
 fn brightness() -> i32 {
-    said(&["console-brightness", "get"]).parse().unwrap_or(0)
+    screen::now().map(screen::as_points).unwrap_or(0) as i32
 }
 
 /// One step of the screen, the same step the d-pad takes under L2.
+///
+/// The function and no longer the program, now that the program says so. What
+/// the button runs raises a notice with the level on it, because a press under
+/// L2 has a game in front of it and nowhere else to report; this row is that
+/// report already, and a card drawn over the top of it would be the panel
+/// telling somebody what they are looking at.
+///
+/// It is still one opinion rather than two that agree. `screen::stepped` is the
+/// arithmetic either way -- the program calls the same function -- which is
+/// what running the program was for.
 fn dim() -> Level {
     Arc::new(|step| {
-        said(&["console-brightness", if step > 0 { "up" } else { "down" }]);
+        let way = if step > 0 { screen::Way::Up } else { screen::Way::Down };
+        if let Some(now) = screen::now() {
+            let _ = screen::set(screen::stepped(now, way));
+        }
+    })
+}
+
+/// What moving one of the three battery thresholds does.
+///
+/// Read again on every press rather than held, because the row under the
+/// thumb is one of three that constrain each other: a step that stopped where
+/// the one below it was would stop at where it was when the tab was drawn,
+/// which is a row that goes stiff for no reason a person can see.
+fn guard(step: battery::Step) -> Level {
+    Arc::new(move |way| {
+        let levels = battery::Levels::here();
+        levels.set(step, stepped(levels.at(step), way));
     })
 }
 
@@ -99,16 +130,30 @@ fn battery_tab() -> Vec<console_panel::page::Row> {
         Some(brightness()),
         Some(&said(&["powerprofilesctl", "get"])),
         dim(),
+        warmth(),
+        battery::Levels::here(),
+        guard,
     )
 }
 
-/// The tab before either of its two readings is back.
+/// Which way the warm switch is standing.
 ///
-/// Both are a subprocess away: the screen is asked of console-brightness and the
-/// profile of powerprofilesctl. The four rows are the four rows whatever they
-/// answer, so they go up at once and the answers land in them.
+/// Read out of the file rather than asked of `console-warm`, because it is the
+/// one reading on this tab that is not a subprocess: the daemon cannot be asked
+/// what colour it is wearing, so the answer only ever existed as this file, and
+/// the panel may as well read it where it is.
+fn warmth() -> Warmth {
+    let Ok(home) = std::env::var("HOME") else { return Warmth::Ordinary };
+    Warmth::read(&std::fs::read_to_string(warm::at(&home)).unwrap_or_default())
+}
+
+/// The tab before its readings are back.
+///
+/// The profile is a subprocess away, in powerprofilesctl. The four rows are the
+/// four rows whatever it answers, so they go up at once and the answer lands in
+/// them.
 fn battery_meanwhile() -> Vec<console_panel::page::Row> {
-    battery_rows(None, None, dim())
+    battery_rows(None, None, dim(), warmth(), battery::Levels::here(), guard)
 }
 
 // ------------------------------------------------------------------- wi-fi
@@ -440,20 +485,36 @@ fn opening(mime: &str) -> String {
 
 /// Make it the one that opens this kind of thing.
 ///
-/// A browser is set twice. `xdg-mime` writes the one handler asked for, and
-/// `xdg-settings` writes the whole family a browser is expected to answer for:
-/// http, https, and the html files somebody saved. Setting only the first
-/// leaves a machine that opens links in one browser and saved pages in another.
+/// The whole family, not the one type the row is read by. A kind of thing is
+/// several types -- Music is mp3 and flac and opus and more -- and setting only
+/// the first was a setting that appeared to have worked: the tab said Music
+/// opened in the music panel and an `.opus` file went on opening in a browser,
+/// because nothing had ever named `audio/x-opus+ogg`.
+///
+/// A browser is set a second way on top of that. `xdg-mime` writes the handler
+/// asked for, and `xdg-settings` writes the family a browser is expected to
+/// answer for: http, https, and the html files somebody saved. That one stays
+/// where it is, because xdg-settings knows what that family is and this does
+/// not.
+///
+/// Every type is written, including any the chosen program does not itself
+/// claim. That is deliberate and it is the lesser of the two wrongs: a program
+/// handed a file it cannot play fails in front of somebody, where a type left
+/// unset fails by opening in a browser and looking like the setting did not
+/// take.
 ///
 /// Then back up to the tab, standing on the setting it was about, which now
 /// says the name that was just chosen.
 fn use_it(looking: &Looking, kind: &defaults::Kind, program: &Program) -> Does {
-    let mime = kind.mime.to_string();
+    let every: Vec<String> = kind.every().map(str::to_string).collect();
+    let scheme = kind.mime.starts_with("x-scheme-handler/");
     let id = program.id.clone();
     let looking = Arc::clone(looking);
     Does::and_stay(move |showing| {
-        said(&["xdg-mime", "default", &id, &mime]);
-        if mime.starts_with("x-scheme-handler/") {
+        for mime in &every {
+            said(&["xdg-mime", "default", &id, mime]);
+        }
+        if scheme {
             said(&["xdg-settings", "set", "default-web-browser", &id]);
         }
         went_up(&looking, showing);
@@ -471,6 +532,7 @@ fn use_it(looking: &Looking, kind: &defaults::Kind, program: &Program) -> Does {
 enum Onto {
     Settings,
     Search,
+    Dictation,
     Kind(usize),
 }
 
@@ -492,12 +554,24 @@ fn went_up(held: &Looking, showing: &dyn Showing) {
     look(held, Onto::Settings, showing, row);
 }
 
-/// Which row of the tab a list belongs to. Search is written first, and the
-/// kinds follow it in the order they are declared.
+/// Which row of the tab a list belongs to.
+///
+/// The tab is written in `setting_rows` and read here, which are two places
+/// that have to agree about a list of rows. They did not: the kinds were
+/// counted from the row under Search, and a heading and the buttons had been
+/// written in between since, so leaving the list under Music put the highlight
+/// back on Video. Hence the names -- a row put in above these moves them, and
+/// a row put in above them without moving them is the same fault again.
+const SEARCH: usize = 0;
+const DICTATION: usize = 1;
+/// Past the heading and the buttons under it.
+const FIRST_KIND: usize = 4;
+
 fn row_of(onto: Onto) -> usize {
     match onto {
-        Onto::Kind(at) => at + 1,
-        _ => 0,
+        Onto::Dictation => DICTATION,
+        Onto::Kind(at) => FIRST_KIND + at,
+        _ => SEARCH,
     }
 }
 
@@ -526,6 +600,9 @@ fn defaults_tab(looking: &Looking) -> Vec<console_panel::page::Row> {
     match looking_at(looking) {
         Onto::Settings => setting_rows(looking),
         Onto::Search => search_rows(&console_defaults::engines::chosen(), back_up(looking)),
+        Onto::Dictation => {
+            dictation_rows(&console_voice::languages::chosen(), back_up(looking))
+        }
         Onto::Kind(at) => {
             let leaving = Arc::clone(looking);
             let chosen = Arc::clone(looking);
@@ -548,7 +625,9 @@ fn defaults_tab(looking: &Looking) -> Vec<console_panel::page::Row> {
 fn defaults_meanwhile(looking: &Looking) -> Vec<console_panel::page::Row> {
     match looking_at(looking) {
         Onto::Settings => {
-            let mut rows = vec![search_row(looking)];
+            let mut rows = vec![search_row(looking), dictation_row(looking)];
+            rows.push(console_panel::page::Row::naming("On this device", ""));
+            rows.push(buttons_row());
             rows.extend(defaults::meanwhile_rows(|at| open(looking, Onto::Kind(at))));
             rows
         }
@@ -557,17 +636,52 @@ fn defaults_meanwhile(looking: &Looking) -> Vec<console_panel::page::Row> {
 }
 
 /// Which engine a question is asked of, which is read off a file of hers rather
-/// than out of the machine, so it is known before anything has been asked.
+/// than out of the machine, so it is known before anything has been chosen.
 fn search_row(looking: &Looking) -> console_panel::page::Row {
     let engine = console_defaults::engines::chosen();
     console_panel::page::Row::new("Search", &engine_says(&engine), open(looking, Onto::Search))
         .opening()
 }
 
+/// Which language the paddle on the back is listening for, read off the same
+/// file as the engine and for the same reason: it is hers rather than the
+/// machine's, and it is known before anything has been chosen.
+///
+/// Under Search because they are the same kind of question -- one answer,
+/// chosen once, and nothing on the machine to ask about it -- and above the
+/// buttons because a language is a setting and the buttons page is a thing to
+/// read.
+fn dictation_row(looking: &Looking) -> console_panel::page::Row {
+    let language = console_voice::languages::chosen();
+    let says = dictation_says(&language);
+    console_panel::page::Row::new("Dictation", &says, open(looking, Onto::Dictation)).opening()
+}
+
+/// Where the buttons on this device are, and which one plays what.
+///
+/// The profiles bind four paddles and Legion right, and on hardware without
+/// them the menu, closing, dictation, the screenshot and the settings are on
+/// buttons nobody can press. `console check` says so and an apply raises a
+/// notice; this is the row the notice sends somebody to. A on a row asks for
+/// the button by putting a card up and waiting for a press.
+///
+/// Said to open, like every other row on this tab that leads somewhere. It is
+/// a panel of its own rather than a list this one grows, which is a difference
+/// to the machine and none at all to the person holding it: what they see is a
+/// tab of six rows carrying the mark that says there is more through here and
+/// one that does not, and the one that does not is the only row on the tab
+/// with nothing beside it either.
+fn buttons_row() -> console_panel::page::Row {
+    console_panel::page::Row::new("Buttons", "", Does::run(&["/usr/local/bin/layout-panel"]))
+        .opening()
+}
+
 /// The tab itself: every setting, what it is set to, and the way into changing
 /// it.
 fn setting_rows(looking: &Looking) -> Vec<console_panel::page::Row> {
-    let mut rows = vec![search_row(looking)];
+    let mut rows = vec![search_row(looking), dictation_row(looking)];
+    rows.push(console_panel::page::Row::naming("On this device", ""));
+    rows.push(buttons_row());
     rows.extend(defaults::defaults_rows(&programs(), &opening, |at| {
         open(looking, Onto::Kind(at))
     }));

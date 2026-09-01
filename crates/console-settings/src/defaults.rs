@@ -18,7 +18,7 @@ use std::collections::BTreeMap;
 
 use console_panel::page::{Does, NOW, Row, Showing, YET};
 
-use crate::rows::DEFAULTS;
+use crate::rows::CONFIGURATION;
 
 /// A kind of thing that gets opened, and the type it is asked for by.
 ///
@@ -27,16 +27,74 @@ use crate::rows::DEFAULTS;
 /// a machine that has a setting for the thing somebody complained about.
 pub struct Kind {
     pub says: &'static str,
+    /// The type the kind is read by: what the machine is asked to name the
+    /// program for, and what a program has to claim to be offered on the list.
     pub mime: &'static str,
+    /// The rest of the family, set alongside it and never asked about.
+    ///
+    /// A kind of thing is not one type. Music is mp3 and flac and opus and
+    /// several more, and a setting that wrote only the first of them was a
+    /// setting that appeared to work: the tab said Music opened in the music
+    /// panel, and an `.opus` file went on opening in a browser, because
+    /// nothing on the machine had ever been told anything about
+    /// `audio/x-opus+ogg`.
+    ///
+    /// Which is the worst shape a setting can have. It is not that the answer
+    /// was wrong; it is that the answer was right and the machine did not do
+    /// it, so the place somebody would go to fix it is the place that already
+    /// says what they want.
+    ///
+    /// Written down here rather than read off the machine, because there is
+    /// nothing to read: the mime database knows that `.opus` is
+    /// `audio/x-opus+ogg`, and knows nothing about that being music to a
+    /// person. Which types belong together is this desktop's opinion.
+    pub and: &'static [&'static str],
+}
+
+impl Kind {
+    /// Every type this kind is, the one it is read by first.
+    pub fn every(&self) -> impl Iterator<Item = &'static str> + use<> {
+        std::iter::once(self.mime).chain(self.and.iter().copied())
+    }
 }
 
 /// What this tab offers, in the order it offers them.
-pub const KINDS: [Kind; 5] = [
-    Kind { says: "Links", mime: "x-scheme-handler/https" },
-    Kind { says: "Pictures", mime: "image/png" },
-    Kind { says: "Video", mime: "video/mp4" },
-    Kind { says: "Music", mime: "audio/mpeg" },
-    Kind { says: "Text", mime: "text/plain" },
+///
+/// The families are the extensions somebody on this device actually has, not
+/// everything the mime database will name. There are ninety-odd audio types in
+/// it and nobody here owns a `.mo3`.
+pub const KINDS: [Kind; 6] = [
+    // Links are set a second way as well -- see `use_it` -- because a browser
+    // has a family of its own that xdg-settings knows and this does not.
+    Kind { says: "Links", mime: "x-scheme-handler/https", and: &[] },
+    Kind {
+        says: "Pictures",
+        mime: "image/png",
+        and: &["image/jpeg", "image/webp", "image/gif", "image/avif", "image/heif", "image/tiff"],
+    },
+    Kind {
+        says: "Video",
+        mime: "video/mp4",
+        and: &["video/matroska", "video/webm", "video/quicktime", "video/vnd.avi", "video/ogg"],
+    },
+    Kind {
+        says: "Music",
+        mime: "audio/mpeg",
+        and: &[
+            "audio/flac",
+            "audio/ogg",
+            // The one that started this. An .opus file is this, not audio/ogg,
+            // and it is the type nothing here had ever named.
+            "audio/x-opus+ogg",
+            "audio/x-vorbis+ogg",
+            "audio/x-flac+ogg",
+            "audio/mp4",
+            "audio/aac",
+            "audio/vnd.wave",
+        ],
+    },
+    Kind { says: "Folders", mime: "inode/directory", and: &[] },
+    Kind { says: "Text", mime: "text/plain", and: &[] },
 ];
 
 /// A program, as its own desktop file describes it.
@@ -161,7 +219,7 @@ pub fn choice_rows(
     back: impl Fn(&dyn Showing) + Send + Sync + 'static,
     use_: impl Fn(&Kind, &Program) -> Does,
 ) -> Vec<Row> {
-    let mut rows = vec![Row::back(DEFAULTS, back), Row::naming(kind.says, "")];
+    let mut rows = vec![Row::back(CONFIGURATION, back), Row::naming(kind.says, "")];
     let default = now(kind.mime);
     let mut opening: Vec<&Program> =
         programs.iter().filter(|program| program.opens_a(kind.mime)).collect();
@@ -274,7 +332,7 @@ mod tests {
     #[test]
     fn every_kind_is_a_row_of_the_tab_in_the_order_it_is_written_down() {
         let rows = defaults_rows(&programs(), &|_| String::new(), opens);
-        assert_eq!(says(&rows), ["Links", "Pictures", "Video", "Music", "Text"]);
+        assert_eq!(says(&rows), ["Links", "Pictures", "Video", "Music", "Folders", "Text"]);
     }
 
     /// Otherwise there is nothing to say a row is a way in but pressing it.
@@ -302,7 +360,7 @@ mod tests {
     #[test]
     fn a_list_under_a_setting_is_the_way_back_and_then_what_it_is_about() {
         let rows = choices("");
-        assert!(rows[0].says.ends_with(DEFAULTS), "{:?} is not the way back", rows[0].says);
+        assert!(rows[0].says.ends_with(CONFIGURATION), "{:?} is not the way back", rows[0].says);
         assert_eq!(rows[1].says, "Links");
         assert!(rows[1].heading(), "the kind is read rather than chosen");
     }

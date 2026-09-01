@@ -3,7 +3,7 @@
 #
 #     tools/console-deploy --check    what would change, and change nothing
 #     tools/console-deploy            that, then ask, then apply
-#     tools/console-deploy --yes      that, without asking
+#     tools/console-deploy --yes      that, without asking, and check the device
 #
 # The device's /etc/console is a git repository and this pushes into it, so the
 # history of what the desktop is made of stays one history whether a change was
@@ -67,6 +67,17 @@ fi
 # update the tree as well, and it is still refused if that tree has changes of
 # its own, which is the protection worth keeping: a `console save` nobody
 # committed is not overwritten from here.
+#
+# That protection has a sharp edge, and the fetch above is what blunts it.
+# Anything that commits on the device makes a branch that has diverged, and a
+# divergence does not arrive saying "somebody changed a file on the device": it
+# arrives days later as a push refused for not fast-forwarding, in git's
+# vocabulary rather than the machine's. So the device is asked what it has
+# before anything is sent, and those commits are printed as themselves. Nothing
+# on the device commits on its own -- `console apply` writes to the machine and
+# not to this tree, and `console save` commits only the files it took back --
+# so a commit here that nobody remembers making is worth reading before it is
+# pulled.
 ssh "$host" git -C /etc/console config receive.denyCurrentBranch updateInstead
 git push "ssh://$host/etc/console" HEAD:master
 
@@ -77,10 +88,48 @@ git push "ssh://$host/etc/console" HEAD:master
 # keeps whatever engine it was given the day it was set up, and every later
 # improvement to `apply` sits in the history doing nothing.
 #
-# Nothing compiled is sent. The device has the source and the toolchain, so it
-# makes its own, which is also what keeps this repository free of binaries.
+# Nothing compiled is sent from here. The device has the source and the
+# toolchain, so every crate the manifest lists is built there, including the
+# engine above.
+#
+# Which is not the same as this repository holding no binaries, and the
+# sentence here used to say it was. `files/usr/local/bin/hyprsession` and
+# `files/usr/local/bin/wvkbd-mobintl` are tracked, 1.8 MB and 1 MB of them:
+# forks of other people's GPL programs, carried built because nothing in this
+# tree can build them, and `docs/rename.md` says so plainly. They travel in the
+# history like any other file the manifest names. `console-publish` excludes
+# both by path, so the public copy has never carried them.
+#
+# The rule, then, is narrower than it read: what we write is built on the
+# machine that runs it, and what somebody else wrote and we only forked is
+# carried. The second half stops being true for wvkbd the day its source comes
+# into the tree, which `docs/programs.md` recommends and nobody has decided.
 echo
 echo "== the engine"
 ssh "$host" cargo build --release --locked --manifest-path /etc/console/Cargo.toml --bin console
 ssh "$host" install -m 755 /etc/console/target/release/console /usr/local/bin/console
 ssh "$host" console apply
+
+# The features, pressed on the machine that has them, now that it is the new
+# one. Everything that could be asked without the device was asked before
+# anything was sent -- `make ready` runs the emulated tier, which is most of
+# them and costs a third of a second. What is left needs this machine: whether
+# the units came up, whether wvkbd is holding the pad X arrives on, and whether
+# the desktop comes back the same way twenty restarts running.
+#
+# At the end rather than the beginning, because until the apply has happened
+# the thing being asked about is the old release. This is the only moment the
+# question means what it says.
+#
+# Asked rather than assumed. It takes over the screen for several minutes and
+# restarts the session repeatedly, which is not a thing to start under somebody
+# who is holding the machine.
+if [ "$1" != "--yes" ]; then
+    printf '\ncheck the features on %s now? it takes the screen for a few minutes [Y/n] ' "$host"
+    read -r answer
+    case "$answer" in n | N | no) echo "not checked; tools/console-deploy --check asks later"; exit 0 ;; esac
+fi
+
+echo
+echo "== the features, on the machine that has them"
+CONSOLE_HOST=$host cargo run --quiet --bin console-check -- --stage device --yes

@@ -7,8 +7,11 @@ description: >
   the controller itself, so everything is passed through untouched: without
   this the same press would both move the cursor and click the mouse.
 
-  wvkbd loads this on show and puts the desktop profile back on hide, through
-  WVKBD_ON_SHOW and WVKBD_ON_HIDE.
+  The controller daemon puts this on when it sees the keyboard on the screen
+  and takes it off again when the keyboard goes, which is read rather than
+  remembered. wvkbd used to load it itself through WVKBD_ON_SHOW and
+  WVKBD_ON_HIDE, and a keyboard that went away without saying so left the pad
+  wearing this.
 
 # The mouse and the keyboard are listed in every profile, whether or not that
 # profile sends anything to them. InputPlumber destroys a target that a profile

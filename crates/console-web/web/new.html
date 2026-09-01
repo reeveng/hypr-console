@@ -1,0 +1,41 @@
+<!doctype html>
+<html data-console="new">
+  <head>
+    <meta charset="utf-8" />
+    <title>A new tab</title>
+    <!-- The palette, which is the browser's own copy of it, packed in beside
+         this page. There is no colour in this file. -->
+    <link rel="stylesheet" href="palette.css" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background-color: var(--night);
+        color: var(--soft);
+        font-family: "Noto Sans", sans-serif;
+        font-size: 18px;
+      }
+      /* Nothing to look at. The card is up over this the moment the tab
+         opens, and what is behind it is the ground the rest of this desktop
+         is drawn on. A new tab on this device is a question being asked, so
+         it opens with the line to type the question into already there and
+         already holding the keys. */
+      p {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 40px;
+        text-align: center;
+      }
+      * {
+        transition: none !important;
+        animation: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <p>Press X for the keyboard. B puts this away.</p>
+    <script src="pad.js"></script>
+  </body>
+</html>

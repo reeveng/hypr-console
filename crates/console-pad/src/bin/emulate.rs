@@ -18,7 +18,8 @@ use std::process::ExitCode;
 use console_pad::capture::captured;
 use console_pad::devices::Devices;
 use console_pad::go::{LegionGo, Passing};
-use console_pad::profile::{Profile, load_all};
+use console_pad::profile::Profile;
+use console_pad::router::every_profile;
 use console_pad::script::{self, VERBS};
 use console_pad::uinput::Uinput;
 
@@ -62,7 +63,7 @@ fn run() -> Result<ExitCode, String> {
 
     match &asked.doing {
         Doing::What(buttons) => {
-            what(buttons, &load_all(&asked.root)?);
+            what(buttons, &every_profile(&asked.root)?);
             return Ok(ExitCode::SUCCESS);
         }
         Doing::Devices => {
@@ -80,7 +81,7 @@ fn run() -> Result<ExitCode, String> {
         )
     })?;
     let mut go = LegionGo::new(
-        load_all(&asked.root)?,
+        every_profile(&asked.root)?,
         Devices::new(descriptors, sink),
         Passing,
         &asked.profile,
@@ -101,7 +102,7 @@ fn run() -> Result<ExitCode, String> {
 
 /// The arguments, read. Nothing at all is the help.
 fn read(args: Vec<String>) -> Result<Option<Asked>, String> {
-    let mut profile = "desktop".to_string();
+    let mut profile = console_pad::router::NAME.to_string();
     let mut root = PathBuf::from(".");
     let mut rest: Vec<String> = Vec::new();
     let mut waiting = args.into_iter();

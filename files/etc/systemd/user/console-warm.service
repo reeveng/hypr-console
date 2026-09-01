@@ -1,0 +1,23 @@
+[Unit]
+Description=The colour of the screen
+PartOf=console.target
+
+[Service]
+Type=simple
+# At rest it changes nothing: with no arguments hyprsunset sits at 6000K, which
+# is the neutral it would be without it. So it is running whether or not
+# anybody has asked for warm colours, and the switch on the Battery tab is a
+# message to something already listening rather than a daemon started and
+# stopped under a person's thumb.
+ExecStart=/usr/bin/hyprsunset
+# The daemon forgets. It comes up neutral every time, so what somebody decided
+# last night is said to it again here, once it is up to hear it. Without this
+# the switch would be a setting that lasts until the next restart, which is the
+# kind of setting people stop trusting.
+ExecStartPost=-/usr/local/bin/console-warm again
+ExecStopPost=-/usr/local/bin/console-fell %n
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=console.target

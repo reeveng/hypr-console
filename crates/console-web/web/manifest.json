@@ -1,0 +1,30 @@
+{
+  "manifest_version": 2,
+  "name": "Console",
+  "version": "@version@",
+  "description": "The pad, in a page. Y labels everything that can be pressed, the d-pad walks between them, and B goes back.",
+
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "web@console",
+      "strict_min_version": "115.0"
+    }
+  },
+
+  "permissions": ["tabs", "search", "find", "sessions"],
+
+  "background": { "scripts": ["browser.js"] },
+
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["pad.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+
+  "web_accessible_resources": ["pad.css", "palette.css"],
+
+  "chrome_url_overrides": { "newtab": "new.html" }
+}

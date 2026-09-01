@@ -10,7 +10,8 @@ use evdev::{EventType, KeyCode};
 use console_pad::capture::captured;
 use console_pad::devices::Devices;
 use console_pad::go::{Held, LegionGo};
-use console_pad::profile::{Profile, load_all};
+use console_pad::profile::Profile;
+use console_pad::router::every_profile;
 use console_pad::world::{World, Written};
 
 fn root() -> PathBuf {
@@ -19,7 +20,7 @@ fn root() -> PathBuf {
 
 fn go(profile: &str) -> LegionGo<World, Held> {
     let devices = Devices::new(captured(), World::of(captured()));
-    LegionGo::new(load_all(&root()).expect("the profiles"), devices, Held::default(), profile)
+    LegionGo::new(every_profile(&root()).expect("the profiles"), devices, Held::default(), profile)
         .expect("a pad")
 }
 
@@ -55,21 +56,33 @@ fn keys(go: &LegionGo<World, Held>, role: &str) -> Vec<(u16, i32)> {
         .collect()
 }
 
+/// Under the router a face button arrives as itself, and as nothing else. It
+/// used to arrive as a mouse click, because the profile said what a button
+/// meant; the click is the daemon's to send now, and this is the whole of what
+/// the profile has to do: get the press there, once, as itself.
 #[test]
 fn a_press_becomes_what_the_profile_says_it_is() {
-    let mut pad = go("desktop");
+    let mut pad = go(console_pad::router::NAME);
     pad.press("a").expect("a");
-    assert_eq!(keys(&pad, "mouse"), [(KeyCode::BTN_LEFT.0, 1), (KeyCode::BTN_LEFT.0, 0)]);
-    assert!(keys(&pad, "pad").is_empty(), "a mapped button does not also reach the pad");
+    assert_eq!(keys(&pad, "pad"), [(KeyCode::BTN_SOUTH.0, 1), (KeyCode::BTN_SOUTH.0, 0)]);
+    assert!(keys(&pad, "mouse").is_empty(), "the click is not the profile's to send");
 }
 
+/// And a paddle arrives as a key, because the emulated pad has four
+/// interchangeable paddle codes and nothing anywhere records which paddle is
+/// which. Under the keyboard's own profile the same press passes through as a
+/// paddle button, which is the difference between a profile that routes and a
+/// profile that translates nothing.
 #[test]
 fn the_same_press_means_something_else_under_another_profile() {
-    let mut chooser = go("tabs");
-    chooser.press("a").expect("a");
-    let under_a_chooser = keys(&chooser, "keyboard");
-    assert!(!under_a_chooser.is_empty(), "a does something while a chooser is up");
-    assert!(keys(&chooser, "mouse").is_empty(), "and it is not a click");
+    let mut routed = go(console_pad::router::NAME);
+    routed.press("right-paddle-top").expect("a paddle");
+    assert_eq!(keys(&routed, "keyboard"), [(KeyCode::KEY_F15.0, 1), (KeyCode::KEY_F15.0, 0)]);
+    assert!(keys(&routed, "pad").is_empty(), "a routed button does not also reach the pad");
+
+    let mut passed = go("keyboard");
+    passed.press("right-paddle-top").expect("a paddle");
+    assert!(keys(&passed, "keyboard").is_empty(), "nothing is translated under the keyboard's");
 }
 
 /// What an empty profile means. `keyboard.yaml` has no mappings at all and is
@@ -98,7 +111,7 @@ fn nothing_reaches_a_device_the_profile_does_not_publish() {
 
 #[test]
 fn holding_is_held_until_it_is_let_go() {
-    let mut pad = go("desktop");
+    let mut pad = go(console_pad::router::NAME);
     pad.hold("l1").expect("l1");
     assert_eq!(pad.holding(), ["l1"]);
     pad.release_all().expect("let go");
@@ -146,7 +159,7 @@ fn a_stick_only_moves_where_the_profile_publishes_a_pad() {
 /// alone here too: no profile is in the way.
 #[test]
 fn the_touchpad_is_not_in_the_profile_loop_at_all() {
-    let mut pad = go("tabs");
+    let mut pad = go(console_pad::router::NAME);
     pad.tap(300, 400);
     let touched = pad.devices.sink.written("touchpad");
     assert_eq!(touched.first().map(|w| (w.kind, w.code, w.value)), Some((EventType::KEY, KeyCode::BTN_TOUCH.0, 1)));
@@ -155,7 +168,7 @@ fn the_touchpad_is_not_in_the_profile_loop_at_all() {
 
 #[test]
 fn a_drag_reports_every_step_of_the_way() {
-    let mut pad = go("desktop");
+    let mut pad = go(console_pad::router::NAME);
     pad.drag((0, 0), (80, 0), 8, 0.0);
     let along: Vec<i32> = pad
         .devices
@@ -169,14 +182,14 @@ fn a_drag_reports_every_step_of_the_way() {
 
 #[test]
 fn a_profile_nothing_has_says_which_there_are() {
-    let mut pad = go("desktop");
+    let mut pad = go(console_pad::router::NAME);
     let fault = pad.load_profile("gaming").expect_err("no such profile");
-    assert!(fault.contains("desktop") && fault.contains("gaming"), "{fault}");
+    assert!(fault.contains("router") && fault.contains("gaming"), "{fault}");
 }
 
 #[test]
 fn a_button_nothing_is_called_says_so_rather_than_pressing_something_else() {
-    let mut pad = go("desktop");
+    let mut pad = go(console_pad::router::NAME);
     assert!(pad.press("triangle").is_err());
 }
 

@@ -27,7 +27,7 @@ use std::time::Duration;
 use evdev::{EventType, KeyCode};
 
 use crate::devices::{Devices, Sink};
-use crate::profile::{Profile, Target};
+use crate::profile::{Kind, Profile, Target};
 use crate::vocabulary;
 
 /// How long a press is held before it is let go.
@@ -167,12 +167,9 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
 
     /// No mapping: the press reaches the pad as itself, if there is a pad.
     fn passthrough(&mut self, name: &str, value: i32) -> Result<(), String> {
-        let code = vocabulary::gamepad_code(name);
-        match code {
-            Some(code) if self.profile().publishes("xbox-elite") => {
-                self.emit_key("pad", code, value)
-            }
-            _ => Ok(()),
+        match self.profile().publishes("xbox-elite") {
+            true => self.on_the_pad(name, value),
+            false => Ok(()),
         }
     }
 
@@ -181,9 +178,36 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
             Some(role) if self.profile().publishes(target.kind.needs()) => role,
             _ => return Ok(()),
         };
+        if target.kind == Kind::GamepadButton {
+            return match self.devices.has(role) {
+                true => self.on_the_pad(&target.name, value),
+                false => Ok(()),
+            };
+        }
         match (target.code(), self.devices.has(role)) {
             (Some(code), true) => self.emit_key(role, code, value),
             _ => Ok(()),
+        }
+    }
+
+    /// One button, as the pad itself publishes it.
+    ///
+    /// Two shapes, because the pad has two. Most buttons are buttons. The
+    /// d-pad is a hat -- two axes with three positions each -- so pressing one
+    /// of its four is standing one axis at one of its ends, and letting go is
+    /// bringing it back to the middle.
+    fn on_the_pad(&mut self, name: &str, value: i32) -> Result<(), String> {
+        if let Some((axis, end)) = vocabulary::hat_code(name) {
+            let at = match value {
+                0 => 0,
+                _ => end,
+            };
+            self.devices.emit("pad", EventType::ABSOLUTE, axis.0, at, true);
+            return Ok(());
+        }
+        match vocabulary::gamepad_code(name) {
+            Some(code) => self.emit_key("pad", code, value),
+            None => Ok(()),
         }
     }
 

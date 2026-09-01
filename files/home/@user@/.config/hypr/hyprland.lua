@@ -1,9 +1,9 @@
 -- The Legion Go desktop.
 --
--- The controller map lives in /etc/inputplumber/profiles/desktop.yaml, below
--- the compositor, so every button means the same thing in every program. That
--- profile turns the buttons that need a compositor into F13-F20, which nothing
--- else on this system uses. Those are bound at the bottom of this file.
+-- The controller is read below the compositor, so every button means the same
+-- thing in every program. /etc/inputplumber/profiles/router.yaml sends each
+-- button somewhere it can be told from the others, and the controller daemon
+-- decides what any of it means; nothing about the pad is bound in this file.
 --
 -- Reload after an edit with:  hyprctl reload
 
@@ -21,6 +21,15 @@ hl.monitor({
 hl.env("XCURSOR_SIZE", "48")
 hl.env("HYPRCURSOR_SIZE", "48")
 hl.env("MOZ_ENABLE_WAYLAND", "1")
+
+-- A browser of the Firefox family makes itself a fresh profile per installation
+-- and records it in profiles.ini under an [Install<hash>] heading, which then
+-- outranks the Default=1 this desktop ships. So the profile named `console` --
+-- the one holding the colours, the preferences and this desktop's own add-on --
+-- was written, installed into, and never once opened: the browser had quietly
+-- made itself another one and was running that. This is the switch that turns
+-- the behaviour off, and it is the documented one.
+hl.env("MOZ_LEGACY_PROFILES", "1")
 
 -- Qt has no Plasma session here to ask, so without this it chooses a platform
 -- theme of its own and never reads ~/.config/kdeglobals, where this palette is
@@ -171,8 +180,9 @@ end)
 -- Nothing from the controller is bound here. InputPlumber emits a modifier and
 -- a key in one frame, so the key was often acted on alone and landed in
 -- whatever window had focus, which is how X typed a k into a terminal. What a
--- button does is decided in desktop.yaml and run by the controller daemon; the
--- binds below are for a real keyboard, and for fixing things over ssh.
+-- button does is decided in one table in the controller daemon, which is the
+-- only thing that acts on the pad; the binds below are for a real keyboard,
+-- and for fixing things over ssh.
 
 ------------------------------------------------------------------ keyboard
 

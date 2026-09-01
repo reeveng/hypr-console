@@ -1,5 +1,5 @@
 # Move between workspaces, then carry a window to the one on the left.
-profile desktop
+profile router
 press r1
 wait 0.4
 press r1

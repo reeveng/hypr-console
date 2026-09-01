@@ -28,12 +28,20 @@ to keep.
 | **L1** and **R1** | the place before and the place after |
 | **Right paddle, top** | closes whatever is up |
 
-A means the highlighted row only because a panel takes the chooser's buttons for
-as long as it is up. On the desktop A is a mouse click where the pointer is,
-because there is no highlight out there to confirm. `console_panel::panel::show`
-asks for the `tabs` profile before it draws and gives the desktop's back as it
-goes, and that switch is the single reason a list on this device can be walked
-with a thumb. A program that cannot ask for it cannot be driven this way, which
+A means the highlighted row only for as long as a chooser is up. On the desktop
+A is a mouse click where the pointer is, because there is no highlight out there
+to confirm. That difference is a column in the controller daemon's table --
+`When::WithAChooserUp` against `When::OnTheDesktop` -- and the daemon knows
+which it is by asking the compositor whether a chooser is on the screen. A panel
+does not ask for anything and cannot get it wrong; it draws, and it is seen.
+
+It used to be two InputPlumber profiles swapped on the way in and out of every
+menu, and every swap destroyed the pad and built another. What the swap bought
+is what the column buys now: a list on this device can be walked with a thumb.
+What it cost was the on-screen keyboard's device and the daemon's, several times
+a minute.
+
+A window that cannot be recognised as a chooser cannot be driven this way, which
 is the whole of why the files are ours and not Dolphin's.
 
 ## Row nought is the way back
@@ -102,6 +110,14 @@ Pictures, Downloads.
 Never a thing they do. A shoulder that submits a form on one panel and turns a
 page on another is two buttons wearing one name, and the thumb that learnt the
 first one is wrong on the second.
+
+The way out is the last of those places, one press past the last tab. Standing
+on it draws nothing and reads nothing: the tab that was in front is still in
+front and still on the screen, it says so in mint rather than wearing the
+highlight, and the **×** takes the highlight instead. A closes the card from
+there, which is the shoulder still going somewhere and A still doing the thing.
+The d-pad hands the panel back to the list, so nobody is left standing on a
+button that closes it.
 
 ## Y is about the row, never about the selection
 
@@ -225,10 +241,13 @@ twice in the same place.
 
 ## What is kept honest, and what is not
 
-`crates/console-pad/tests/the_button_contract.rs` reads the four profiles and
-holds the button table to them. Change what A does in a profile and it fails.
-It reads the profiles rather than a copy of them, which is why it does not go
-stale.
+`crates/console-controller/tests/what_reaches_the_desktop.rs` presses buttons
+against the one table that decides what they do, on the desktop and with a
+chooser up. Change what A does and it fails. It reads the table the daemon
+itself reads rather than a copy of it, which is why it does not go stale.
+`crates/console-pad/tests/the_button_contract.rs` keeps the part that is about
+the files: every profile the switcher names exists, and every one of them
+publishes all three devices.
 
 `crates/console-checks` opens each surface in a nested desktop and asks whether
 anything was drawn. That is what catches a panel that raises a window and then

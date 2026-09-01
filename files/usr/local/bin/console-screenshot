@@ -1,7 +1,0 @@
-#!/bin/sh
-# A screenshot, into Pictures, named for when it was taken. Plain grim writes
-# to the working directory, which for a button press is wherever the daemon
-# happened to start.
-dir="${XDG_PICTURES_DIR:-$HOME/Pictures}"
-mkdir -p "$dir"
-exec grim "$dir/screenshot-$(date +%Y-%m-%d-%H%M%S).png"

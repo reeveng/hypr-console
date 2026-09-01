@@ -1,0 +1,23 @@
+# The buzz under a thumb on the pad is the controller's own, and it is off here.
+#
+# Moving across the touchpad makes it tick. That is not something this desktop
+# sends: with force feedback disabled and every path a program could use held
+# under a kernel probe -- evdev effects, hidraw writes, feature reports, and
+# the wire itself -- nothing left this machine at all while it was buzzing. The
+# right controller does it in its own firmware, at whatever `hid-lenovo-go` has
+# it set to, and what it leaves the factory at is on, and high.
+#
+# Which of the controller's three HID interfaces carries the settings group
+# changes as the controllers come and go, so the group itself is what is
+# matched on here rather than the number in the name.
+#
+# The file is then handed to the desktop user, because `controller-profile`
+# runs in their session and turns it back on for `game`: a tick under a thumb
+# is feedback for a pointer, and a game is the one place here that might want
+# to be felt. sysfs carries no ACL -- setfacl answers "Operation not supported"
+# on it -- so this is a chown, and not the uaccess and setfacl that
+# 91-console-touchpad.rules needs for a device node. `@user@` is the mark
+# `console apply` fills in, the same as there.
+SUBSYSTEM=="hid", DRIVER=="hid-lenovo-go", ATTR{touchpad/vibration_enabled}=="?*", \
+  ATTR{touchpad/vibration_enabled}="false", \
+  RUN+="/usr/bin/chown @user@ %S%p/touchpad/vibration_enabled"

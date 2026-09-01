@@ -6,3 +6,4 @@ Exec=/usr/local/bin/music-panel
 Icon=multimedia-player
 Terminal=false
 Categories=AudioVideo;Audio;Player;
+MimeType=audio/mpeg;audio/flac;audio/ogg;audio/x-opus+ogg;audio/x-vorbis+ogg;audio/x-flac+ogg;audio/mp4;audio/aac;audio/vnd.wave;

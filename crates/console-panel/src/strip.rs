@@ -66,6 +66,41 @@ pub fn showing(tabs: usize, here: usize, from: usize, fits: usize) -> Range<usiz
     first..first + fits
 }
 
+/// One place along the top of the panel, which is what a shoulder moves
+/// between.
+///
+/// The tabs in the order they are drawn, and then the way out. The × is drawn
+/// beside the strip and was reachable only by a finger, so a thumb walking the
+/// top of the panel came to the last tab and stopped in front of a mark that
+/// plainly meant something. B closes a panel, so nothing was ever shut in;
+/// what it was was a part of the panel that could be looked at and not
+/// pressed, which is the thing said the other way round in the button
+/// contract.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Stop {
+    Tab(usize),
+    Out,
+}
+
+/// Where one press of a shoulder leaves you.
+///
+/// It stops at both ends, the way the list does. A strip that came round again
+/// would put the way out one press to the left of the first tab, and a panel
+/// that closes itself while somebody is looking for the Wi-Fi is worse than
+/// one that takes two more presses to walk back.
+pub fn along(tabs: usize, from: Stop, step: i32) -> Stop {
+    // The way out stands after the last tab, so it is the tabs' own count.
+    let out = tabs as i32;
+    let at = match from {
+        Stop::Tab(index) => (index as i32).min(out),
+        Stop::Out => out,
+    };
+    match (at + step).clamp(0, out) {
+        going if going == out => Stop::Out,
+        going => Stop::Tab(going as usize),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -101,5 +136,28 @@ mod tests {
     #[test]
     fn the_room_is_the_card_less_everything_that_is_not_a_tab() {
         assert_eq!(room(900, 120), 900 - 2 * EDGE - 2 * MARGIN - 2 * PAD - 120);
+    }
+
+    /// The way out is a place along the top like a tab is, so the thumb that
+    /// walks to the last tab can take one more press and be on it.
+    #[test]
+    fn a_shoulder_walks_the_tabs_and_then_the_way_out() {
+        assert_eq!(along(3, Stop::Tab(0), 1), Stop::Tab(1));
+        assert_eq!(along(3, Stop::Tab(2), 1), Stop::Out);
+        assert_eq!(along(3, Stop::Out, -1), Stop::Tab(2));
+    }
+
+    #[test]
+    fn the_walk_stops_at_both_ends() {
+        assert_eq!(along(3, Stop::Tab(0), -1), Stop::Tab(0));
+        assert_eq!(along(3, Stop::Out, 1), Stop::Out);
+    }
+
+    /// A panel of one page is a panel whose whole strip is one word, and the
+    /// way out is still the press after it.
+    #[test]
+    fn the_way_out_is_there_on_a_panel_with_one_tab() {
+        assert_eq!(along(1, Stop::Tab(0), 1), Stop::Out);
+        assert_eq!(along(1, Stop::Out, -1), Stop::Tab(0));
     }
 }

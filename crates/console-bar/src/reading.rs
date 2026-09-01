@@ -1,5 +1,6 @@
 //! The four readings, each as the bar draws it.
 
+use console_defaults::battery::Charge;
 use console_panel::running::said;
 
 /// One reading: what it says, and what it is called while it says it.
@@ -48,7 +49,7 @@ impl What {
     /// What is asked, and how the answer is read.
     pub fn says(self) -> Says {
         match self {
-            What::Battery => battery(&charge()),
+            What::Battery => battery(&console_defaults::battery::charge()),
             What::Bluetooth => bluetooth(&said(&["bluetoothctl", "show"]), connections()),
             What::Network => network(&said(&["nmcli", "-t", "-f", "TYPE,STATE,CONNECTION", "device", "status"]), &wifi()),
             What::Sound => sound(&said(&["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"])),
@@ -88,35 +89,23 @@ pub fn line(says: &Says, open: bool) -> String {
 
 // ------------------------------------------------------------------- battery
 
-/// The charge and whether it is on the mains, out of the kernel.
-fn charge() -> String {
-    let Ok(supplies) = std::fs::read_dir("/sys/class/power_supply") else {
-        return String::new();
-    };
-    supplies
-        .flatten()
-        .map(|supply| supply.path())
-        .filter(|at| at.file_name().is_some_and(|name| name.to_string_lossy().starts_with("BAT")))
-        .filter_map(|at| {
-            let capacity = std::fs::read_to_string(at.join("capacity")).ok()?;
-            let status = std::fs::read_to_string(at.join("status")).ok()?;
-            Some(format!("{} {}", capacity.trim(), status.trim()))
-        })
-        .next()
-        .unwrap_or_default()
-}
-
 /// How full it is, and whether it is filling.
+///
+/// The two files behind this are read by `console_defaults::battery` and not
+/// here, because this is no longer the only thing that wants them. One reading
+/// draws this icon and decides whether the machine has to say something about
+/// the battery or stop itself, and two readers on two clocks would be two
+/// opinions about one battery.
 pub fn battery(said: &str) -> Says {
-    let mut words = said.split_whitespace();
-    let Some(charge) = words.next().and_then(|word| word.parse::<u32>().ok()) else {
+    let reading = Charge::of(said);
+    let Some(charge) = reading.percent.and_then(|percent| u32::try_from(percent).ok()) else {
         // A machine with no battery, or one whose battery would not answer.
         // Drawn the width of every other battery all the same: a reading that
         // shrank when it had nothing to say would move the whole bar along at
         // exactly the moment something had gone wrong with it.
         return Says::new(format!("\u{f008e} {}", small(&wide(""))), "");
     };
-    let filling = words.next().is_some_and(|word| word == "Charging" || word == "Full");
+    let filling = reading.filling;
     let icon = match filling {
         true => "\u{f0084}",
         false => LEVELS[(charge as usize * (LEVELS.len() - 1)) / 100],

@@ -3,11 +3,18 @@
 //! One list, read twice: printed as headings in a terminal, and drawn as tabs
 //! on the device. A section that exists in one and not the other is how a guide
 //! starts lying.
+//!
+//! What a button does is read off the one table that decides it, grouped by
+//! what is held with the button: a section for a press on its own, and one for
+//! each trigger held. Nothing here is written by hand about a button, which is
+//! the whole point -- a job somebody has moved is a job this guide names on the
+//! button they moved it to, and a layer nobody has put anything on is a heading
+//! that never appears.
 
-use evdev::KeyCode;
-use console_controller::buttons::{BUTTONS, KEYS};
+use console_controller::doing::Doing;
+use console_controller::means::{Job, Table, What, When};
 use console_files::doing::{self, Deed};
-use console_pad::profile::Profile;
+use console_pad::jobs::{ALONE, Binding, Layer};
 
 use crate::binds::binds;
 
@@ -18,6 +25,22 @@ use crate::binds::binds;
 /// not remember a button: a title that has to be read twice has already cost
 /// more than it saves.
 pub const DOABLE: &str = "Anywhere";
+
+/// The section about what is in front of you when a chooser is up.
+pub const MENUS: &str = "Menus";
+
+/// The layers, and what each of them is headed.
+///
+/// The layer with nothing held is not in here: it is the whole of the rest of
+/// the guide. These three are the second thing a button does, and nothing is
+/// on R2 or on both triggers as this desktop ships -- so those two headings do
+/// not appear at all until somebody puts something there, which is a section
+/// read out of the table doing exactly what it should.
+const HELD: [(Layer, &str); 3] = [
+    (Layer::of(true, false), "L2"),
+    (Layer::of(false, true), "R2"),
+    (Layer::of(true, true), "L2 + R2"),
+];
 
 /// One line of the guide: a button, and what it does.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,36 +70,76 @@ impl Section {
     }
 }
 
-/// Each mapping in the profile, named "Button - what it does", and what the
-/// desktop does about it.
+/// A button, said the way this guide says it.
 ///
-/// The daemon's own table is the answer to the second half, so a button that is
-/// given something new to do becomes something new to press here without
-/// anybody remembering to say so twice.
-pub fn mapped(profile: &Profile) -> Vec<Line> {
-    profile
-        .mappings
-        .iter()
-        .map(|mapping| {
-            let (button, does) = mapping.label.split_once(" - ").unwrap_or((&mapping.label, ""));
-            let does = match does.trim().is_empty() {
-                true => "nothing yet",
-                false => does.trim(),
-            };
-            // The last target is the one the desktop sees: a mapping that
-            // sends two things sends the pad's own button last.
-            let runs = mapping.targets.last().and_then(|target| target.code()).and_then(runs_for);
-            Line { button: button.trim().to_string(), does: does.to_string(), runs }
-        })
+/// The words on the machine with the dashes taken out and the first letter
+/// raised. The d-pad keeps its dash, because that is how it is written
+/// everywhere else here and how anybody says it out loud.
+pub fn said(button: &str) -> String {
+    let said = match button.strip_prefix("dpad-") {
+        Some(way) => format!("d-pad {way}"),
+        None => button.replace('-', " "),
+    };
+    let mut letters = said.chars();
+    match letters.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + letters.as_str(),
+        None => String::new(),
+    }
+}
+
+/// The jobs on one layer, as lines, in the order the table holds them.
+///
+/// A job with nothing on this layer is not a line here, which is what makes a
+/// heading with no rows under it a heading nothing prints.
+fn lines(table: &Table, layer: Layer, wanted: impl Fn(&Job) -> bool) -> Vec<Line> {
+    table
+        .every()
+        .filter(|(job, _)| wanted(job))
+        .filter_map(|(job, bound)| line(job, bound, layer))
         .collect()
 }
 
-/// What the desktop runs when one key or button arrives.
-pub fn runs_for(code: KeyCode) -> Option<Vec<String>> {
-    KEYS.iter()
-        .chain(BUTTONS.iter())
-        .find(|(key, _)| *key == code)
-        .map(|(_, argv)| argv.iter().map(|word| (*word).to_string()).collect())
+/// One job, where anything on this layer plays it.
+///
+/// Two buttons doing one job is one line naming both, which is how the guide
+/// has always said the shoulders and how somebody reads it: the button with a
+/// keyboard drawn on it and X are not two things to learn.
+fn line(job: &Job, bound: &[Binding], layer: Layer) -> Option<Line> {
+    let on: Vec<String> = bound
+        .iter()
+        .filter(|one| one.played() && one.layer == layer)
+        .map(|one| said(&one.button))
+        .collect();
+    match on.is_empty() {
+        // A job with no button at all is not a line. This is a guide to what
+        // pressing something comes to, and somebody who has taken the button
+        // off a job is told about it on the screen where they took it off.
+        true => None,
+        false => Some(Line {
+            button: on.join(" / "),
+            does: job.what.says().to_string(),
+            runs: runs_for(job.what),
+        }),
+    }
+}
+
+/// What the desktop runs when a job is asked for, where it runs anything.
+///
+/// Read off the one table that says what a button is for, so the guide cannot
+/// promise something the desktop does not do -- and, since that table now
+/// carries the jobs this desktop does not itself carry out, cannot quietly
+/// omit one either. X was exactly that omission: the guide could only report
+/// what the profile said, and the profile said `North`.
+///
+/// Asked on the way down, because a row that does what it describes is doing
+/// the press and not the release. A job that sends a key rather than starting
+/// something is nothing a row can do for you: pressing Enter at a guide is not
+/// choosing the row the guide is describing.
+pub fn runs_for(what: What) -> Option<Vec<String>> {
+    match what.does(true)? {
+        Doing::Run(argv) => Some(argv),
+        Doing::Frame(_) => None,
+    }
 }
 
 /// What Y offers on a thing in the files, read off the list the panel offers.
@@ -90,8 +153,10 @@ fn what_can_be_done() -> String {
 }
 
 /// The whole guide.
-pub fn sections(profile: Option<&Profile>, lua: &str) -> Vec<Section> {
-    let mut around = profile.map(mapped).unwrap_or_default();
+pub fn sections(table: &Table, lua: &str) -> Vec<Section> {
+    // What a press comes to on its own, and then the things on this device
+    // that are not buttons at all and so are in no table.
+    let mut around = lines(table, ALONE, |job| job.when != When::WithAChooserUp);
     around.extend([
         Line::new("Volume rocker", "louder, quieter, unmute"),
         Line::new("Touchpad", "move the pointer"),
@@ -100,16 +165,30 @@ pub fn sections(profile: Option<&Profile>, lua: &str) -> Vec<Section> {
         Line::new("The screen", "tap to click, drag to scroll"),
         Line::new("The bar", "tap its icons"),
     ]);
-    vec![
-        Section::of(DOABLE, around),
-        Section::of(
-            "L2",
-            vec![
-                Line::new("L1 / R1", "carry the window with you"),
-                Line::new("D-pad left", "screen dimmer"),
-                Line::new("D-pad right", "screen brighter"),
-            ],
-        ),
+    // What a chooser makes of the same buttons, and then the ways of driving
+    // one that are the panel's own doing rather than any button's.
+    let mut menus = lines(table, ALONE, |job| job.when == When::WithAChooserUp);
+    menus.extend([
+        Line::new("D-pad", "move the highlight"),
+        Line::new("B", "back out"),
+        Line::new("X", "show or hide the keyboard"),
+        Line::new("Typing", "the top row of a menu that has one"),
+        Line::new("D-pad left / right", "move a level"),
+        Line::new("Right paddle, top", "close the menu"),
+        Line::new("Legion right", "the settings"),
+        Line::new("Menu", "this guide"),
+        Line::new("Tap a row", "the same as A"),
+        Line::new("\u{2039} and \u{203a}", "the tab before or after"),
+        Line::new("\u{2212} and +", "move a level with a finger"),
+        Line::new("\u{d7}", "close, the same as B"),
+        Line::new("Its bar icon", "tap it again to close"),
+    ]);
+
+    let mut every = vec![Section::of(DOABLE, around)];
+    every.extend(
+        HELD.iter().map(|(layer, title)| Section::of(title, lines(table, *layer, |_| true))),
+    );
+    every.extend([
         Section::of(
             "Keyboard",
             vec![
@@ -123,27 +202,7 @@ pub fn sections(profile: Option<&Profile>, lua: &str) -> Vec<Section> {
                 Line::new("Stick press", "press the key you are on"),
             ],
         ),
-        Section::of(
-            "Menus",
-            vec![
-                Line::new("D-pad", "move the highlight"),
-                Line::new("A", "choose it"),
-                Line::new("B", "back out"),
-                Line::new("X", "show or hide the keyboard"),
-                Line::new("Y", "what else can be done with a row"),
-                Line::new("Typing", "the top row of a menu that has one"),
-                Line::new("L1 / R1", "the tab left or right"),
-                Line::new("D-pad left / right", "move a level"),
-                Line::new("Right paddle, top", "close the menu"),
-                Line::new("Legion right", "the settings"),
-                Line::new("Menu", "this guide"),
-                Line::new("Tap a row", "the same as A"),
-                Line::new("\u{2039} and \u{203a}", "the tab before or after"),
-                Line::new("\u{2212} and +", "move a level with a finger"),
-                Line::new("\u{d7}", "close, the same as B"),
-                Line::new("Its bar icon", "tap it again to close"),
-            ],
-        ),
+        Section::of(MENUS, menus),
         Section::of(
             "Files",
             vec![
@@ -168,6 +227,24 @@ pub fn sections(profile: Option<&Profile>, lua: &str) -> Vec<Section> {
                 Line::new("Play this one over", "on Playing, under what is on"),
             ],
         ),
+        // What the buttons come to inside a page, which is the one place on
+        // this device where they are not the table's doing. The add-on this
+        // desktop packs for the browser is what makes them mean this, and no
+        // table mentions any of it, so these rows are hand-written and are a
+        // promise somebody has to keep by hand. docs/browser.md is the rest.
+        Section::of(
+            "Browser",
+            vec![
+                Line::new("Y", "label everything on the page that can be pressed"),
+                Line::new("D-pad", "walk between those things, one at a time"),
+                Line::new("A", "take the one you are standing on"),
+                Line::new("B", "put the labels away, and then go back a page"),
+                Line::new("Y again", "the same labels, opening in a new tab"),
+                Line::new("Along the bottom", "look for something, the tabs, a new tab, close this one"),
+                Line::new("A new tab", "opens on the line to type a question into"),
+                Line::new("X", "the keyboard, for the line being typed into"),
+            ],
+        ),
         // What the front of the machine means once Steam has the screen, which
         // is almost nothing: it is Steam's there, down to the button that left
         // for it. The one thing this desktop keeps is the hold, and a hold is
@@ -187,74 +264,99 @@ pub fn sections(profile: Option<&Profile>, lua: &str) -> Vec<Section> {
                 .map(|bind| Line { button: bind.keys, does: bind.does, runs: Some(bind.runs) })
                 .collect(),
         ),
-    ]
+    ]);
+    every
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
+    use console_pad::jobs::Jobs;
 
-    const PROFILE: &str = "
-name: Desktop
-target_devices:
-  - keyboard
-  - mouse
-  - xbox-elite
-mapping:
-  - name: Right paddle, top - close this window
-    source_event:
-      gamepad:
-        button: RightPaddle1
-    target_events:
-      - keyboard: KeyF15
-  - name: Legion left - Game Mode
-    source_event:
-      gamepad:
-        button: LeftPaddle2
-    target_events:
-      - gamepad:
-          button: Guide
-  - name: View
-    source_event:
-      gamepad:
-        button: Select
-    target_events: []
-";
+    fn ours() -> Table {
+        Table::ours()
+    }
 
-    fn profile() -> Profile {
-        Profile::read(Path::new("desktop.yaml"), PROFILE).expect("a profile")
+    fn section<'a>(every: &'a [Section], title: &str) -> &'a Section {
+        every.iter().find(|section| section.title == title).expect("a section")
+    }
+
+    fn line<'a>(section: &'a Section, button: &str) -> &'a Line {
+        section.lines.iter().find(|line| line.button == button).expect("a line")
+    }
+
+    /// The second thing a button does is read out of the table rather than
+    /// written down here, which is what makes it true.
+    #[test]
+    fn what_a_trigger_held_makes_of_a_button_comes_from_the_table() {
+        let every = sections(&ours(), "");
+        let held = section(&every, "L2");
+        assert_eq!(line(held, "D-pad up").does, "louder");
+        assert_eq!(line(held, "Right paddle bottom").does, "a screenshot");
+    }
+
+    /// A layer nobody has put anything on is a heading nothing prints. R2 is
+    /// the whole of this desktop's second trigger as it ships: empty.
+    #[test]
+    fn a_layer_with_nothing_on_it_has_nothing_under_it() {
+        let every = sections(&ours(), "");
+        assert!(section(&every, "R2").lines.is_empty());
+        assert!(section(&every, "L2 + R2").lines.is_empty());
+    }
+
+    /// The one thing the whole rework is for: a job somebody moved is named on
+    /// the button they moved it to, in the section for the layer they put it
+    /// on, and nowhere else.
+    #[test]
+    fn a_job_somebody_moved_is_named_where_they_moved_it() {
+        let said = Jobs::read("[jobs]\nscreenshot = \"r2 + a\"\n").expect("a table");
+        let every = sections(&Table::of(&said), "");
+        assert_eq!(line(section(&every, "R2"), "A").does, "a screenshot");
+        assert!(
+            !section(&every, "L2").lines.iter().any(|line| line.does == "a screenshot"),
+            "the screenshot is still where it was"
+        );
+    }
+
+    /// A job left with no button at all is not a line. This is a guide to what
+    /// pressing something comes to.
+    #[test]
+    fn a_job_with_no_button_is_not_something_to_press() {
+        let said = Jobs::read("[jobs]\nmenu = \"\"\n").expect("a table");
+        let every = sections(&Table::of(&said), "");
+        assert!(!section(&every, DOABLE).lines.iter().any(|line| line.does == "the menu"));
+    }
+
+    /// Two buttons doing one job is one line naming both.
+    #[test]
+    fn two_buttons_that_do_one_thing_are_one_line() {
+        let every = sections(&ours(), "");
+        assert_eq!(line(section(&every, DOABLE), "X / Keyboard").does, "show or hide the keyboard");
+    }
+
+    /// The table is the answer to what a row does, so a button given something
+    /// new to do becomes something new to press here without anybody saying so
+    /// twice.
+    #[test]
+    fn what_a_button_runs_comes_from_the_table_that_runs_it() {
+        assert_eq!(runs_for(What::PutAway), Some(vec!["put-away".to_string()]));
+        assert_eq!(runs_for(What::GameMode), Some(vec!["game-mode".to_string()]));
+        // A key is not something a row can do for you.
+        assert_eq!(runs_for(What::Back), None);
+    }
+
+    /// A button said the way somebody would say it out loud.
+    #[test]
+    fn a_button_is_said_the_way_it_is_spoken() {
+        assert_eq!(said("dpad-up"), "D-pad up");
+        assert_eq!(said("right-paddle-bottom"), "Right paddle bottom");
+        assert_eq!(said("l1"), "L1");
+        assert_eq!(said("legion-right"), "Legion right");
     }
 
     #[test]
-    fn a_mapping_is_read_as_the_button_and_what_it_does() {
-        let lines = mapped(&profile());
-        assert_eq!(lines[0].button, "Right paddle, top");
-        assert_eq!(lines[0].does, "close this window");
-    }
-
-    /// The daemon's own table is the answer, so a button given something new to
-    /// do becomes something new to press here without anybody saying so twice.
-    #[test]
-    fn what_a_button_runs_comes_from_the_daemon_that_runs_it() {
-        let lines = mapped(&profile());
-        assert_eq!(lines[0].runs, Some(vec!["put-away".to_string()]));
-        assert_eq!(lines[1].runs, Some(vec!["game-mode".to_string()]));
-    }
-
-    /// A button in the profile that says nothing about itself is still a button
-    /// somebody will press.
-    #[test]
-    fn a_mapping_with_nothing_after_the_dash_says_so() {
-        let lines = mapped(&profile());
-        assert_eq!(lines[2].button, "View");
-        assert_eq!(lines[2].does, "nothing yet");
-        assert_eq!(lines[2].runs, None);
-    }
-
-    #[test]
-    fn the_guide_holds_together_without_a_profile_to_read() {
-        let sections = sections(None, "");
+    fn the_guide_holds_together_with_nothing_read_off_the_machine() {
+        let sections = sections(&ours(), "");
         assert_eq!(sections[0].title, DOABLE);
         assert!(!sections[0].lines.is_empty(), "the parts nothing has to be read for");
         assert!(sections.last().expect("a section").lines.is_empty(), "no keyboard, no binds");
@@ -269,7 +371,7 @@ mapping:
 hl.bind(mod .. \"R\", hl.dsp.exec_cmd(\"/usr/local/bin/launcher\"))
 hl.bind(mod .. \"W\", hl.dsp.window.close())
 ";
-        let typed = &sections(None, lua).last().expect("a section").lines.clone();
+        let typed = &sections(&ours(), lua).last().expect("a section").lines.clone();
         assert_eq!(typed[0].runs, Some(vec!["/usr/local/bin/launcher".to_string()]));
         assert!(typed.iter().all(|line| line.runs.is_some()), "a key nobody can press and nothing can ask for");
     }
@@ -279,7 +381,7 @@ hl.bind(mod .. \"W\", hl.dsp.window.close())
     /// all: they have to work out which of the two they are looking at.
     #[test]
     fn nothing_is_answered_twice_in_one_section() {
-        for section in sections(Some(&profile()), "") {
+        for section in sections(&ours(), "") {
             let mut said: Vec<&str> = section.lines.iter().map(|line| line.button.as_str()).collect();
             said.sort_unstable();
             let mut once = said.clone();
@@ -293,9 +395,9 @@ hl.bind(mod .. \"W\", hl.dsp.window.close())
     /// learn is a deed the guide names.
     #[test]
     fn the_guide_names_every_deed_the_files_offer() {
-        let sections = sections(None, "");
-        let files = sections.iter().find(|section| section.title == "Files").expect("the files");
-        let said = &files.lines.iter().find(|line| line.button == "Y").expect("what Y does").does;
+        let sections = sections(&ours(), "");
+        let files = section(&sections, "Files");
+        let said = &line(files, "Y").does;
         for deed in doing::EVERY {
             assert!(said.contains(Deed::says(deed)), "the guide does not name {}", Deed::says(deed));
         }
@@ -303,7 +405,7 @@ hl.bind(mod .. \"W\", hl.dsp.window.close())
 
     #[test]
     fn every_section_is_named() {
-        for section in sections(Some(&profile()), "") {
+        for section in sections(&ours(), "") {
             assert!(!section.title.is_empty());
         }
     }

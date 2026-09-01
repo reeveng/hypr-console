@@ -16,11 +16,29 @@ use std::str::FromStr;
 
 use evdev::{AbsoluteAxisCode, KeyCode};
 
+/// How InputPlumber names a source when a machine is asked what it has.
+///
+/// `Gamepad:Button:South`. This is the vocabulary the bus answers in, and the
+/// one the capability lists in `front` are written in.
+pub const BUTTON: &str = "Gamepad:Button:";
+pub const AXIS: &str = "Gamepad:Axis:";
+pub const TRIGGER: &str = "Gamepad:Trigger:";
+
+/// The button an InputPlumber name is about, where it is a button at all.
+pub fn button_of(capability: &str) -> Option<&str> {
+    capability.strip_prefix(BUTTON)
+}
+
+/// The same, the other way: the capability a button is asked for under.
+pub fn capability_of(button: &str) -> String {
+    format!("{BUTTON}{button}")
+}
+
 /// What a person calls it, and what InputPlumber's profiles call it.
 ///
 /// The left column is what you would say out loud. The right is the `button:`
 /// name in a profile, which is the only name InputPlumber answers to.
-pub const BUTTONS: [(&str, &str); 21] = [
+pub const BUTTONS: [(&str, &str); 23] = [
     ("a", "South"),
     ("b", "East"),
     ("x", "North"),
@@ -42,6 +60,13 @@ pub const BUTTONS: [(&str, &str); 21] = [
     ("left-paddle-bottom", "LeftPaddle2"),
     ("right-paddle-top", "RightPaddle1"),
     ("right-paddle-bottom", "RightPaddle2"),
+    // Two this device sends that nobody who wrote these files has held. They
+    // are named after what InputPlumber calls them, because a word invented
+    // for a button nobody has found would be a word that has to be unlearned:
+    // the setup screen's card is what settles where they are, by somebody
+    // pressing one and reading what it says back.
+    ("quick-access-2", "QuickAccess2"),
+    ("right-paddle-3", "RightPaddle3"),
 ];
 
 /// The two analogue sticks, under the names a profile uses.
@@ -86,6 +111,25 @@ pub const TRIGGER_CODES: [(&str, AbsoluteAxisCode); 2] = [
     ("LeftTrigger", AbsoluteAxisCode::ABS_Z),
     ("RightTrigger", AbsoluteAxisCode::ABS_RZ),
 ];
+
+/// The d-pad, as the hat the emulated pad publishes it on.
+///
+/// Not a button. An xbox pad has no d-pad buttons: it has a hat, which is two
+/// axes with three positions each, and the four directions are the two ends of
+/// each. Nothing here is a choice -- it is what a press of DPadUp comes out of
+/// InputPlumber as -- and it is written down because a table that stopped at
+/// `GAMEPAD_CODES` would say a d-pad press comes out as nothing at all.
+pub const HAT_CODES: [(&str, (AbsoluteAxisCode, i32)); 4] = [
+    ("DPadUp", (AbsoluteAxisCode::ABS_HAT0Y, -1)),
+    ("DPadDown", (AbsoluteAxisCode::ABS_HAT0Y, 1)),
+    ("DPadLeft", (AbsoluteAxisCode::ABS_HAT0X, -1)),
+    ("DPadRight", (AbsoluteAxisCode::ABS_HAT0X, 1)),
+];
+
+/// Which end of which axis a d-pad direction is, if that is what was named.
+pub fn hat_code(name: &str) -> Option<(AbsoluteAxisCode, i32)> {
+    found(&HAT_CODES, name)
+}
 
 /// Both triggers also report as a button when they are pulled far enough,
 /// which is how the daemon learns that L2 is being held.
@@ -169,6 +213,22 @@ mod tests {
         // The one thing in this file worth a test: X is north and Y is west.
         assert_eq!(gamepad_code(button_name("x").expect("x")), Some(KeyCode::BTN_NORTH));
         assert_eq!(gamepad_code(button_name("y").expect("y")), Some(KeyCode::BTN_WEST));
+    }
+
+    /// The d-pad is a hat and not four buttons, which is the one thing about
+    /// this pad that a table of button codes cannot say.
+    #[test]
+    fn the_dpad_is_a_hat() {
+        assert_eq!(gamepad_code("DPadUp"), None);
+        assert_eq!(hat_code("DPadUp"), Some((AbsoluteAxisCode::ABS_HAT0Y, -1)));
+        assert_eq!(hat_code("DPadRight"), Some((AbsoluteAxisCode::ABS_HAT0X, 1)));
+    }
+
+    #[test]
+    fn only_a_button_is_a_button() {
+        assert_eq!(button_of("Gamepad:Button:South"), Some("South"));
+        assert_eq!(button_of("Gamepad:Axis:LeftStick"), None);
+        assert_eq!(capability_of("South"), "Gamepad:Button:South");
     }
 
     #[test]

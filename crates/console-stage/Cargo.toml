@@ -12,6 +12,7 @@ path = "src/lib.rs"
 [dependencies]
 cairo-rs = { version = "0.21", features = ["png"] }
 evdev = "0.13"
+console-colour.workspace = true
 console-controller.workspace = true
 console-pad.workspace = true
 console-screen.workspace = true

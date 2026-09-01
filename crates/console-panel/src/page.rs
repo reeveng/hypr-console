@@ -175,7 +175,36 @@ pub enum Picture {
     /// picture on this machine stands, at the front of the row that says what
     /// it is a picture of.
     Written(String),
+    /// A bar showing where the song is, with a dot at its current position.
+    ///
+    /// Tapped or scrubbed with the d-pad. A bar of one colour with one dot is
+    /// the only thing on it that moves, so a finger on a touch screen lands
+    /// where the song is going and the player jumps to it.
+    Bar(Bar),
 }
+
+/// A progress bar drawn across the full width of its row.
+///
+/// `at` is the position of the dot in characters from the left; the rest of
+/// the row is the bar itself. A bar that has not been told how long the song is
+/// has the dot at the start: empty is the honest answer to a question the panel
+/// has not asked yet.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct Bar {
+    /// Where the dot is, in characters from the left edge of the row.
+    pub at: usize,
+    /// How many characters the whole bar is drawn across.
+    pub wide: usize,
+}
+
+/// A seek callback, given the panel and a fraction of the song from the start.
+///
+/// Called when the bar is tapped and the touch lands at that fraction. The
+/// row's `level` is what the d-pad moves, which is a step rather than a
+/// position; the fraction is what a tap wants to land at. The panel is the
+/// other thing it has to know about, because the dot has to redraw once the
+/// song has been told to move.
+pub type Seek = Arc<dyn Fn(&dyn Showing, f64) + Send + Sync>;
 
 /// One row.
 #[derive(Clone, Default)]
@@ -197,6 +226,13 @@ pub struct Row {
     /// selected.
     pub more: Option<Act>,
     pub picture: Picture,
+    /// A picture at the other end of the row, where one is wanted.
+    ///
+    /// The usual picture is on the left because most rows have their picture of
+    /// themselves. A few carry one on the right because the row is about what
+    /// sits beside it -- the song on now, with its cover drawn where the hand
+    /// reads it as the album rather than as another icon on the left.
+    pub tail: Option<Picture>,
     /// Whether choosing this row opens another list rather than doing something
     /// where it stands.
     ///
@@ -243,6 +279,20 @@ pub struct Row {
     /// options line up. It declares nothing because there is nothing to
     /// declare, and now it looks like nothing as well.
     pub nothing: bool,
+    /// A seek callback for a row holding a bar.
+    ///
+    /// `level` is what the d-pad moves -- a step. A tap on the bar wants a
+    /// fraction rather than a step, and this is where it goes: handed the
+    /// fraction of the way through, asked to land there.
+    pub seek: Option<Seek>,
+    /// Whether this row is one of a row of buttons rather than a list item.
+    ///
+    /// A transport bar is a row of presses, not a list of choices. The card
+    /// the row sits in is wider than the icon so the whole row reads as one
+    /// strip of buttons across the panel. Walked over by the d-pad like any
+    /// other row, but drawn differently so a hand on a touch screen meets a
+    /// wide target rather than a thin line.
+    pub transport: bool,
 }
 
 impl Row {
@@ -309,6 +359,16 @@ impl Row {
         self
     }
 
+    /// The same, with a picture at the other end of the row.
+    ///
+    /// Where the row is about the thing beside it. The info a player reads off
+    /// the file comes with a cover; the cover is part of what the row says,
+    /// not a part of the row's icon.
+    pub fn tailing(mut self, tail: Picture) -> Self {
+        self.tail = Some(tail);
+        self
+    }
+
     /// The same, saying that it opens onto another list.
     pub fn opening(mut self) -> Self {
         self.opens = true;
@@ -318,6 +378,27 @@ impl Row {
     /// The same, with more behind Y than the one thing A does.
     pub fn offering(mut self, more: impl Fn(&dyn Showing) -> bool + Send + Sync + 'static) -> Self {
         self.more = Some(Arc::new(more));
+        self
+    }
+
+    /// The same, with a tap on the bar going to a fraction of the song.
+    ///
+    /// The row's `level` is what the d-pad scrubs by -- a step. A finger on
+    /// the bar wants a fraction rather than a step, and this is what tells the
+    /// player where the finger said to go. The panel is handed in too, because
+    /// the dot has to redraw once the song has been told to move.
+    pub fn seeking(mut self, seek: impl Fn(&dyn Showing, f64) + Send + Sync + 'static) -> Self {
+        self.seek = Some(Arc::new(seek));
+        self
+    }
+
+    /// The same, drawn as one of a row of buttons across the panel.
+    ///
+    /// Where the row is part of a strip of presses rather than one of a list
+    /// of choices. The card is wider than the icon, the icon is bigger than
+    /// the words on other rows, and the highlight is a pill on the icon.
+    pub fn transport(mut self) -> Self {
+        self.transport = true;
         self
     }
 
@@ -332,7 +413,7 @@ impl Row {
     /// held at a level and chosen for nothing, so a row with no `does` on it is
     /// as often the one thing on its tab anybody touches as it is a heading.
     pub fn acts(&self) -> bool {
-        self.does.is_some() || self.level.is_some()
+        self.does.is_some() || self.level.is_some() || self.seek.is_some()
     }
 
     /// Whether the row is a heading: a word over the rows under it.

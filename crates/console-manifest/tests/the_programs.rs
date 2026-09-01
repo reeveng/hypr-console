@@ -47,15 +47,23 @@ const PROGRAMS: &[(&str, From_)] = &[
     ("cp", From_::Base),
     ("cmake", From_::Package("cmake")),
     ("curl", From_::Package("curl")),
+    // coreutils. A moment in local time, written most-significant first, is a
+    // timezone database and a calendar, and neither is worth carrying here to
+    // name a screenshot.
+    ("date", From_::Base),
     ("echo", From_::Base),
     ("env", From_::Base),
     ("ffmpeg", From_::Package("ffmpeg")),
     ("ffprobe", From_::Package("ffmpeg")),
     ("gio", From_::Package("glib2")),
     ("git", From_::Package("git")),
+    ("grim", From_::Package("grim")),
     ("hostname", From_::Here),
     ("hyprctl", From_::Package("hyprland")),
     ("id", From_::Base),
+    // util-linux, and so the operating system. It reaches the journal with a
+    // tag on it, which is what `journalctl -t console` is asking after.
+    ("logger", From_::Base),
     ("makoctl", From_::Package("mako")),
     ("mkdir", From_::Base),
     ("mv", From_::Base),
@@ -65,6 +73,10 @@ const PROGRAMS: &[(&str, From_)] = &[
     ("pactl", From_::Package("libpulse")),
     ("powerprofilesctl", From_::Package("power-profiles-daemon")),
     ("pw-record", From_::Package("pipewire-audio")),
+    // util-linux. `console apply` is root, and the one thing it does inside the
+    // browser's profile has to be done as her or the directory it makes is
+    // root's and the browser cannot write its own add-ons into it.
+    ("runuser", From_::Base),
     ("scp", From_::Here),
     ("sh", From_::Base),
     ("ssh", From_::Here),
@@ -72,6 +84,7 @@ const PROGRAMS: &[(&str, From_)] = &[
     ("su", From_::Base),
     ("sudo", From_::Package("sudo")),
     ("systemctl", From_::Base),
+    ("systemd-run", From_::Base),
     ("true", From_::Base),
     ("whisper-cli", From_::Package("whisper-cpp")),
     ("wpctl", From_::Package("wireplumber")),

@@ -7,18 +7,18 @@
 //! ```
 
 use std::io::IsTerminal;
-use std::path::Path;
 use std::sync::Arc;
 
 use evdev::{Device, EventType, KeyCode};
+use console_controller::finding::{Says, gamepad, keyboard, says};
+use console_controller::means::Table;
 use console_guide::guide::{DOABLE, Line, Section, sections};
 use console_guide::printed::{COLOURED, PLAIN, guide};
 use console_panel::page::{Does, Page, Row, Rows};
 use console_panel::{chooser, panel};
-use console_pad::profile::Profile;
-
-/// The two files the guide is read out of, which are the two that decide it.
-const PROFILE: &str = "/etc/inputplumber/profiles/desktop.yaml";
+use console_pad::jobs::{Jobs, path_in};
+use console_pad::routing;
+use console_pad::vocabulary::spoken_for;
 
 /// The compositor's declaration, in the home of whoever is running this.
 ///
@@ -31,16 +31,21 @@ fn hypr() -> String {
     format!("{home}/.config/hypr/hyprland.lua")
 }
 
-/// The unit the daemon runs as, which has to be held off the pad while a button
-/// is being named.
-const DAEMON: &str = "console-controller.service";
-
 fn read() -> Vec<Section> {
-    let profile = std::fs::read_to_string(PROFILE)
-        .ok()
-        .and_then(|yaml| Profile::read(Path::new(PROFILE), &yaml).ok());
     let lua = std::fs::read_to_string(hypr()).unwrap_or_default();
-    sections(profile.as_ref(), &lua)
+    sections(&table(), &lua)
+}
+
+/// What each thing this desktop does is bound to on this machine.
+///
+/// This desktop's own answers, with whatever the person whose desktop it is
+/// has said over them. A file that will not read is read as no file at all:
+/// what the guide would otherwise print is nothing, and a guide that prints
+/// nothing is worse than one that prints where the buttons started.
+fn table() -> Table {
+    let at = path_in(&std::env::var("HOME").unwrap_or_default());
+    let said = std::fs::read_to_string(at).unwrap_or_default();
+    Table::of(&Jobs::read(&said).unwrap_or_default())
 }
 
 fn main() {
@@ -130,41 +135,129 @@ fn capitalised(said: &str) -> String {
 
 /// Name whatever button is pressed next.
 ///
-/// The controller daemon is paused first. It reads the same pad, and the
-/// close-window paddle is the one people most want to identify, which would
-/// otherwise shut the window they are reading this in.
+/// The devices are taken while this is naming them, so nothing else acts on a
+/// press. The controller daemon reads the same two, and the close-window
+/// paddle is the one people most want to identify, which would otherwise shut
+/// the window they are reading this in.
+///
+/// Taken and not silenced. This used to stop the daemon with SIGSTOP and start
+/// it again with SIGCONT, which was wrong three ways, and the repository had
+/// already written down all three.
+///
+/// The SIGCONT was unreachable. The only way out this program offers is
+/// Ctrl-C, which kills it before the line that sends it, so on the documented
+/// path the daemon was always left stopped, and "Controller resumed." is a
+/// line almost nobody has seen. The signal named no `--kill-whom=main`, so it
+/// reached everything in the daemon's control group -- the menu this may have
+/// been opened from, and anything opened from that. And stopped is not deaf:
+/// the devices stay open and the kernel goes on queueing, so every button
+/// pressed while identifying was waiting to arrive at once against a desktop
+/// that had moved on, except that with no SIGCONT it never arrived at all.
+///
+/// A grab has none of that shape, and the reason is the whole argument for it:
+/// the kernel holds it, and the kernel lets go when this process does, however
+/// it goes. There is nothing to undo, so there is no path on which undoing is
+/// missed.
 fn identify() {
-    let Some(mut pad) = a_pad() else {
+    let mut taken = held();
+    if taken.is_empty() {
         eprintln!("No controller found.");
         std::process::exit(1);
-    };
-    told(DAEMON, "STOP");
+    }
     println!("Press a button. Ctrl-C to stop.\n");
     let ink = ink();
     loop {
-        let Ok(arrived) = pad.fetch_events() else { break };
-        for event in arrived {
-            if event.event_type() == EventType::KEY && event.value() == 1 {
-                let code = event.code();
-                println!("  {}{:?}{}  (code {code})", ink.bold, KeyCode::new(code), ink.off);
+        for device in &mut taken {
+            let Ok(arrived) = device.fetch_events() else { continue };
+            for event in arrived {
+                let Some(said) = pressed(event.event_type(), event.code(), event.value()) else {
+                    continue;
+                };
+                println!("  {}{said}{}", ink.bold, ink.off);
             }
         }
+        std::thread::sleep(WAIT);
     }
-    told(DAEMON, "CONT");
-    println!("\nController resumed.");
 }
 
-/// The first thing plugged in that has a face button on it.
-fn a_pad() -> Option<Device> {
-    evdev::enumerate()
-        .map(|(_, device)| device)
-        .find(|device| {
-            device.supported_keys().is_some_and(|keys| keys.contains(KeyCode::BTN_SOUTH))
+/// What to say about one event, where it is a press worth naming.
+///
+/// The words on the machine, because that is what somebody holding it is
+/// trying to find out and what every screen here answers in. The routing
+/// table is what turns an arrival back into a button, so this says the same
+/// thing the daemon would: a press of the paddle that arrives as `KeyF15` is
+/// `right-paddle-top` here and on the setup screen and in the guide.
+///
+/// The raw code follows it, for the case this program is most often reached
+/// for -- a button this repository has no word for, on a device nobody here
+/// has held. Named or not, a press says something.
+fn pressed(kind: EventType, code: u16, value: i32) -> Option<String> {
+    let button = match kind {
+        EventType::KEY if value == 1 => match routing::button_of_pad(code) {
+            Some(button) => Some(button),
+            None => routing::button_of_key(code),
+        },
+        // A d-pad is a hat, and a hat comes back to the middle. Only the way
+        // out is a press; the way back is the thumb coming off it.
+        EventType::ABSOLUTE if routing::is_hat(code) && value != 0 => {
+            routing::button_of_hat(code, value)
+        }
+        _ => return None,
+    };
+    let raw = match kind {
+        EventType::KEY => format!("code {code}, {:?}", KeyCode::new(code)),
+        _ => format!("axis {code} at {value}"),
+    };
+    Some(match button {
+        Some(button) => format!("{}  ({raw})", spoken_for(button)),
+        None => format!("a button with no name here  ({raw})"),
+    })
+}
+
+/// How long between looks, with nothing to read.
+///
+/// The devices are non-blocking because there are two of them and blocking on
+/// one is not reading the other. Slow enough that this is not a program that
+/// spins, and far quicker than anybody can press twice.
+const WAIT: std::time::Duration = std::time::Duration::from_millis(10);
+
+/// The two devices a button can arrive on, opened and taken.
+///
+/// Two, because the front of the machine and the back of it are not the same
+/// device. InputPlumber publishes a gamepad carrying the face buttons and the
+/// shoulders, and a keyboard carrying the paddles, and a program that opened
+/// only one of them could not name half the buttons it is asked about --
+/// including the paddles, which are the ones somebody is most likely to be
+/// asking about.
+///
+/// Which is which is `console_controller::finding`, where the rules are
+/// written once and held to a capture of the real devices. Asked here by the
+/// first device with a face button on it, this found the physical controller,
+/// which InputPlumber has grabbed and which would have reported nothing.
+fn held() -> Vec<Device> {
+    let seen: Vec<(String, Device)> = evdev::enumerate()
+        .map(|(path, device)| (path.display().to_string(), device))
+        .collect();
+    let said: Vec<Says> = seen.iter().map(|(path, device)| says(path, device)).collect();
+
+    let wanted: Vec<&str> = [gamepad(&said), keyboard(&said)]
+        .into_iter()
+        .flatten()
+        .map(|says| says.path.as_str())
+        .collect();
+
+    seen.into_iter()
+        .filter(|(path, _)| wanted.contains(&path.as_str()))
+        .filter_map(|(path, mut device)| {
+            if let Err(fault) = device.grab() {
+                // Said rather than swallowed. Read without the grab, every
+                // press is also acted on, and the paddle being named closes
+                // the window the naming is being read in.
+                eprintln!("{path}: cannot take it, so a press will also do what it does: {fault}");
+                return None;
+            }
+            device.set_nonblocking(true).ok()?;
+            Some(device)
         })
-}
-
-fn told(unit: &str, signal: &str) {
-    let _ = std::process::Command::new("systemctl")
-        .args(["--user", "kill", &format!("--signal={signal}"), unit])
-        .status();
+        .collect()
 }

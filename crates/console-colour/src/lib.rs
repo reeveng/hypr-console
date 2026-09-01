@@ -12,6 +12,8 @@
 //! reads it, so a binary search on it converges on the answer from either side
 //! and the hue does not drift while it happens.
 
+pub mod spent;
+
 use std::fmt;
 
 /// A pairing that does not clear what it was asked to clear.

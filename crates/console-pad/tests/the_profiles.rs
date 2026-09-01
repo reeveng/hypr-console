@@ -1,8 +1,13 @@
-//! The four profiles this desktop actually ships, read.
+//! The profiles this desktop actually has, read.
+//!
+//! Two are in the tree and two are made out of the device by an apply, so
+//! `every_profile` is what a machine is asked for rather than what a checkout
+//! holds. The made ones stand in for the machine this desktop grew on.
 
 use std::path::Path;
 
-use console_pad::profile::{Source, load_all};
+use console_pad::profile::Source;
+use console_pad::router::every_profile as load_all;
 
 fn root() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().expect("the repository")
@@ -11,7 +16,7 @@ fn root() -> std::path::PathBuf {
 #[test]
 fn every_profile_in_the_checkout_reads() {
     let profiles = load_all(&root()).expect("the profiles read");
-    assert!(profiles.contains_key("desktop"), "there is a desktop profile");
+    assert!(profiles.contains_key(console_pad::router::NAME), "there is a profile to be driven by");
     for (stem, profile) in &profiles {
         assert!(!profile.name.is_empty(), "{stem} has no name");
         for mapping in &profile.mappings {
@@ -54,3 +59,10 @@ fn every_button_a_profile_maps_is_one_we_have_a_word_for() {
         }
     }
 }
+
+// What a device that is not a Legion Go is handed is not one of these files at
+// all. It is the router, made out of what that machine says it can send, and
+// `router::what_it_writes_is_a_profile_that_reads_back` is where it is held to
+// being a profile. There were two tests here about rewriting these files
+// through a table of moved buttons; there is no such rewriting now, because a
+// button's meaning is not in a profile to be moved.

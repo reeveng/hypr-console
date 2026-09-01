@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use console_pad::capture::captured;
 use console_pad::devices::Devices;
 use console_pad::go::{Held, LegionGo};
-use console_pad::profile::load_all;
+use console_pad::router::every_profile;
 use console_pad::script::play;
 use console_pad::world::World;
 
@@ -44,10 +44,10 @@ fn every_scenario_plays() {
         let world = World::of(captured());
         let devices = Devices::new(captured(), world);
         let mut go = LegionGo::new(
-            load_all(&root()).expect("the profiles"),
+            every_profile(&root()).expect("the profiles"),
             devices,
             Held::default(),
-            "desktop",
+            console_pad::router::NAME,
         )
         .expect("a pad");
         let said = std::fs::read_to_string(&path).expect("a scenario");

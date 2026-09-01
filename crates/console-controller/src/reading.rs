@@ -6,13 +6,29 @@
 
 use evdev::{AbsoluteAxisCode, EventType, KeyCode};
 
+use console_pad::jobs::Layer;
+use console_pad::routing;
+use console_pad::vocabulary::spoken_for;
+
 use crate::buttons;
 use crate::doing::Doing;
+use crate::means::{Job, Table};
+use crate::mode::Mode;
 use crate::scroll::{Wheel, pushed};
 use crate::touch::Finger;
 
-/// How far L2 must be pulled to count as held.
+/// How far a trigger must be pulled to count as held.
 pub const CARRY_HELD: f64 = 0.5;
+
+/// How many buttons can be down at once before this stops remembering them.
+///
+/// Ten, which is more fingers than anybody has. What is remembered is which
+/// job took each press, so that the release goes to the same job: a button
+/// pressed on the desktop and let go with a menu open would otherwise put a
+/// key down as one thing and lift it as another, and the one that matters is
+/// the mouse button -- a click that goes down and never comes up is a pointer
+/// dragging everything it touches until the machine is restarted.
+pub const AT_ONCE: usize = 10;
 
 /// Which device something arrived on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -40,13 +56,30 @@ impl Default for Ranges {
 }
 
 /// Everything the daemon is holding between one event and the next.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Controller {
-    /// Whether L2 is pulled far enough that a button does its second thing.
-    pub carrying: bool,
+    /// What is in front of you, which is what the buttons are for.
+    ///
+    /// Read off the compositor rather than remembered, and set from outside
+    /// by whatever is watching the screen. Default is the desktop, which is
+    /// where this daemon starts and what it falls back to when the compositor
+    /// cannot be asked.
+    pub mode: Mode,
+    /// Which triggers are pulled far enough to be a layer.
+    pub layer: Layer,
     pub wheel: Wheel,
     pub finger: Finger,
     pub ranges: Ranges,
+    /// What each thing this desktop does is bound to on this machine.
+    ///
+    /// Handed in rather than read here, for the same reason nothing else in
+    /// this crate opens a file: what a press comes to has to be a question
+    /// that can be asked twice and answered the same way.
+    pub table: Table,
+    /// Which job took the press of each button that is down.
+    holding: Vec<(&'static str, &'static Job)>,
+    /// Where the d-pad's two axes are standing.
+    hat: (i32, i32),
     stick: (f64, f64),
 }
 
@@ -56,12 +89,20 @@ impl Controller {
         self.ranges = ranges;
     }
 
+    /// What is in front of you has changed.
+    pub fn now_in(&mut self, mode: Mode) {
+        self.mode = mode;
+    }
+
     /// The pad has gone, which a profile switch does every time.
     ///
     /// Reading from nothing is what used to end this process, and it took the
     /// workspace buttons with it.
-    pub fn pad_went(&mut self) {
+    pub fn pad_went(&mut self) -> Vec<Doing> {
         self.stick = (0.0, 0.0);
+        self.hat = (0, 0);
+        self.layer = Layer::default();
+        self.let_go()
     }
 
     /// One event, and what it comes to.
@@ -86,18 +127,42 @@ impl Controller {
     fn on_pad(&mut self, kind: EventType, code: u16, value: i32) -> Vec<Doing> {
         match kind {
             EventType::ABSOLUTE => self.on_axis(code, value),
-            EventType::KEY => self.on_pad_key(code, value),
+            EventType::KEY => match routing::button_of_pad(code) {
+                Some(button) => self.pressed(button, value),
+                None => self.on_trigger_button(code, value),
+            },
             _ => Vec::new(),
         }
     }
 
+    /// A trigger reported as a button, which some pads do and this one does
+    /// not.
+    ///
+    /// Kept because it costs a line and because the pad this reads is not the
+    /// hardware: it is whatever InputPlumber publishes, and what that reports
+    /// a pulled trigger as is its business rather than ours.
+    fn on_trigger_button(&mut self, code: u16, value: i32) -> Vec<Doing> {
+        if code == KeyCode::BTN_TL2.0 {
+            self.layer.l2 = value == 1;
+        } else if code == KeyCode::BTN_TR2.0 {
+            self.layer.r2 = value == 1;
+        }
+        Vec::new()
+    }
+
     fn on_axis(&mut self, code: u16, value: i32) -> Vec<Doing> {
-        // Both triggers report as an axis, and L2 is the one that carries.
-        if code == AbsoluteAxisCode::ABS_Z.0 || code == AbsoluteAxisCode::ABS_HAT2Y.0 {
-            let (low, high) = self.ranges.trigger;
-            let span = f64::from((high - low).max(1));
-            self.carrying = f64::from(value - low) / span > CARRY_HELD;
+        // The two triggers, which are the two layers. How far each is pulled
+        // is the whole of what makes a chord a chord.
+        if code == AbsoluteAxisCode::ABS_Z.0 || code == AbsoluteAxisCode::ABS_RZ.0 {
+            let held = self.pulled(value);
+            match code == AbsoluteAxisCode::ABS_Z.0 {
+                true => self.layer.l2 = held,
+                false => self.layer.r2 = held,
+            }
             return Vec::new();
+        }
+        if routing::is_hat(code) {
+            return self.on_hat(code, value);
         }
         if code == AbsoluteAxisCode::ABS_RX.0 {
             self.stick.0 = pushed(value, self.ranges.stick);
@@ -107,21 +172,99 @@ impl Controller {
         Vec::new()
     }
 
-    fn on_pad_key(&mut self, code: u16, value: i32) -> Vec<Doing> {
-        if code == KeyCode::BTN_TL2.0 {
-            self.carrying = value == 1;
+    /// How far a trigger is pulled, as held or not held.
+    ///
+    /// Both triggers are read against the range the pad reported for the left
+    /// one. They are the same two ends on this hardware, and a pad that
+    /// reported two different ranges for its two triggers would be a pad worth
+    /// asking about rather than one worth guessing at.
+    fn pulled(&self, value: i32) -> bool {
+        let (low, high) = self.ranges.trigger;
+        let span = f64::from((high - low).max(1));
+        f64::from(value - low) / span > CARRY_HELD
+    }
+
+    /// The d-pad, which arrives as a hat: two axes with three positions each.
+    ///
+    /// Rolling from one end to the other without passing through the middle is
+    /// one event, so what was down is let go of before what is down now is
+    /// taken. A thumb rolling around a d-pad does exactly that.
+    fn on_hat(&mut self, code: u16, value: i32) -> Vec<Doing> {
+        let was = match code == AbsoluteAxisCode::ABS_HAT0X.0 {
+            true => std::mem::replace(&mut self.hat.0, value),
+            false => std::mem::replace(&mut self.hat.1, value),
+        };
+        if was == value {
+            return Vec::new();
         }
-        match value == 1 {
-            true => buttons::on_pad(code, self.carrying).into_iter().collect(),
-            false => Vec::new(),
+        let mut done = Vec::new();
+        if let Some(button) = routing::button_of_hat(code, was) {
+            done.extend(self.pressed(button, 0));
         }
+        if let Some(button) = routing::button_of_hat(code, value) {
+            done.extend(self.pressed(button, 1));
+        }
+        done
     }
 
     fn on_keys(&mut self, kind: EventType, code: u16, value: i32) -> Vec<Doing> {
-        match kind == EventType::KEY && value == 1 {
-            true => buttons::on_keyboard(code, self.carrying).into_iter().collect(),
-            false => Vec::new(),
+        if kind != EventType::KEY {
+            return Vec::new();
         }
+        match routing::button_of_key(code) {
+            Some(button) => self.pressed(button, value),
+            None => Vec::new(),
+        }
+    }
+
+    /// One button, down or up, and what it comes to.
+    ///
+    /// The job is looked up when the button goes down and remembered until it
+    /// comes back up. Not looked up twice, because the answer can change while
+    /// a thumb is still on the button: a menu opens under it, or the other
+    /// hand lets go of a trigger. Looked up twice, A pressed on the desktop
+    /// and released with a chooser up would put the mouse button down and lift
+    /// Enter, and the mouse button would stay down for ever.
+    ///
+    /// A repeat -- the kernel's, value 2 -- is not a press. Whatever this
+    /// sends is held for as long as the button is, and the compositor is what
+    /// repeats a held key.
+    fn pressed(&mut self, button: &'static str, value: i32) -> Vec<Doing> {
+        let button = spoken_for(button);
+        match value {
+            1 => {
+                if self.holding.iter().any(|(down, _)| *down == button) {
+                    return Vec::new();
+                }
+                let Some(job) = buttons::job_for(&self.table, self.mode, button, self.layer) else {
+                    return Vec::new();
+                };
+                if self.holding.len() < AT_ONCE {
+                    self.holding.push((button, job));
+                }
+                buttons::acted(job, true).into_iter().collect()
+            }
+            0 => {
+                let Some(at) = self.holding.iter().position(|(down, _)| *down == button) else {
+                    return Vec::new();
+                };
+                let (_, job) = self.holding.remove(at);
+                buttons::acted(job, false).into_iter().collect()
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    /// Everything still down, let go of.
+    ///
+    /// What is sent when a button goes down is held until it comes up, and the
+    /// device it was coming from can be taken away in between -- which a
+    /// profile switch does every time. Without this, the last thing pressed
+    /// before a switch is held down for ever by a daemon that will never see
+    /// its release.
+    fn let_go(&mut self) -> Vec<Doing> {
+        let held = std::mem::take(&mut self.holding);
+        held.into_iter().filter_map(|(_, job)| buttons::acted(job, false)).collect()
     }
 
     fn on_touch(&mut self, kind: EventType, code: u16, value: i32, now: f64) -> Vec<Doing> {
@@ -188,7 +331,7 @@ mod tests {
     }
 
     #[test]
-    fn a_button_acts_when_it_goes_down_and_not_when_it_comes_up() {
+    fn a_button_that_starts_something_acts_when_it_goes_down_and_not_when_it_comes_up() {
         let mut held = controller();
         assert_eq!(
             held.saw(From::Keys, EventType::KEY, KeyCode::KEY_F13.0, 1, 1000.0),
@@ -197,12 +340,64 @@ mod tests {
         assert!(held.saw(From::Keys, EventType::KEY, KeyCode::KEY_F13.0, 0, 1000.0).is_empty());
     }
 
+    /// A key follows the button, both ways. Anything else is a key that is
+    /// held down by a daemon rather than by a thumb.
+    #[test]
+    fn a_button_that_sends_a_key_sends_it_down_and_up() {
+        let mut held = controller();
+        let down = held.saw(From::Pad, EventType::KEY, KeyCode::BTN_SOUTH.0, 1, 1000.0);
+        assert_eq!(down, [Doing::Frame(vec![Out::key(KeyCode::BTN_LEFT.0, 1)])]);
+        let up = held.saw(From::Pad, EventType::KEY, KeyCode::BTN_SOUTH.0, 0, 1000.0);
+        assert_eq!(up, [Doing::Frame(vec![Out::key(KeyCode::BTN_LEFT.0, 0)])]);
+    }
+
+    /// The d-pad is a hat, and a thumb rolling from one end to the other in
+    /// one event lets go of where it was before it takes where it is.
+    #[test]
+    fn the_dpad_arrives_as_a_hat_and_is_read_as_four_buttons() {
+        let mut held = controller();
+        let up = held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_HAT0Y.0, -1, 1000.0);
+        assert_eq!(up, [Doing::Frame(vec![Out::key(KeyCode::KEY_UP.0, 1)])]);
+        let over = held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_HAT0Y.0, 1, 1000.0);
+        assert_eq!(
+            over,
+            [
+                Doing::Frame(vec![Out::key(KeyCode::KEY_UP.0, 0)]),
+                Doing::Frame(vec![Out::key(KeyCode::KEY_DOWN.0, 1)]),
+            ]
+        );
+        let middle = held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_HAT0Y.0, 0, 1000.0);
+        assert_eq!(middle, [Doing::Frame(vec![Out::key(KeyCode::KEY_DOWN.0, 0)])]);
+    }
+
+    /// The release goes to the job that took the press, whatever has happened
+    /// since. The one that matters is the mouse button: a click that goes down
+    /// and never comes up drags everything it touches.
+    #[test]
+    fn a_button_is_let_go_of_by_the_job_that_took_it() {
+        let mut held = controller();
+        held.saw(From::Pad, EventType::KEY, KeyCode::BTN_SOUTH.0, 1, 1000.0);
+        held.now_in(Mode::Tabs);
+        let up = held.saw(From::Pad, EventType::KEY, KeyCode::BTN_SOUTH.0, 0, 1000.0);
+        assert_eq!(up, [Doing::Frame(vec![Out::key(KeyCode::BTN_LEFT.0, 0)])], "not Enter");
+    }
+
+    /// And a pad taken away under a held button lets go of it, because the
+    /// release is never going to arrive.
+    #[test]
+    fn a_pad_that_went_away_lets_go_of_what_was_held() {
+        let mut held = controller();
+        held.saw(From::Pad, EventType::KEY, KeyCode::BTN_SOUTH.0, 1, 1000.0);
+        assert_eq!(held.pad_went(), [Doing::Frame(vec![Out::key(KeyCode::BTN_LEFT.0, 0)])]);
+        assert!(held.pad_went().is_empty(), "and only the once");
+    }
+
     #[test]
     fn the_shoulders_carry_the_window_while_l2_is_held() {
         let mut held = controller();
         assert_eq!(pressed(&mut held, From::Pad, KeyCode::BTN_TR), [Doing::workspace("+1", false)]);
         held.saw(From::Pad, EventType::KEY, KeyCode::BTN_TL2.0, 1, 1000.0);
-        assert!(held.carrying);
+        assert!(held.layer.l2);
         assert_eq!(pressed(&mut held, From::Pad, KeyCode::BTN_TR), [Doing::workspace("+1", true)]);
     }
 
@@ -212,9 +407,12 @@ mod tests {
     fn pulling_l2_past_halfway_is_holding_it() {
         let mut held = controller();
         held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_Z.0, 400, 1000.0);
-        assert!(!held.carrying, "not far enough");
+        assert!(!held.layer.l2, "not far enough");
         held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_Z.0, 900, 1000.0);
-        assert!(held.carrying);
+        assert!(held.layer.l2);
+        // And the right trigger is the other layer, read the same way.
+        held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_RZ.0, 900, 1000.0);
+        assert!(held.layer.r2);
     }
 
     #[test]

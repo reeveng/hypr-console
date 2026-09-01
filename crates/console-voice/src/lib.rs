@@ -14,12 +14,14 @@
 //! Nothing in this file touches a device or starts a program, so what would be
 //! run can be asked for and looked at without a microphone in the room.
 
+pub mod languages;
+
 use std::path::{Path, PathBuf};
 
 /// The words model, and where it is kept.
 ///
-/// Large-v3-turbo, because what is dictated into this is English, Dutch, Thai
-/// and Chinese, and the small models are good at two of those.
+/// Large-v3-turbo, because what is dictated into this is English, Dutch and
+/// Thai, and the small models are good at one of those.
 ///
 /// It was small for a few hours, and the reason is worth keeping. On the
 /// processor this model spent 19.4 seconds reading a two-second sentence,
@@ -246,10 +248,12 @@ pub fn recording(into: &Path) -> Vec<String> {
 
 /// Turn a recording into words.
 ///
-/// The language is asked for rather than said, because what is dictated into
-/// this is four of them and which one is a thing the recording knows and the
-/// button does not.
-pub fn hearing(whisper: &Path, model: &Path, said: &Path) -> Vec<String> {
+/// The language is whatever was chosen, which is `auto` until somebody
+/// chooses. Asking the recording is the right question about a sentence and
+/// the wrong one about a word: there is not enough of one or two words to
+/// guess a language from, and what whisper guesses without enough is English.
+/// See [`languages`].
+pub fn hearing(whisper: &Path, model: &Path, said: &Path, language: &str) -> Vec<String> {
     [
         &whisper.to_string_lossy(),
         "--model",
@@ -257,7 +261,7 @@ pub fn hearing(whisper: &Path, model: &Path, said: &Path) -> Vec<String> {
         "--file",
         &said.to_string_lossy(),
         "--language",
-        "auto",
+        language,
         "--threads",
         THREADS,
         "--no-timestamps",
@@ -445,41 +449,78 @@ pub fn plainly(said: &str) -> String {
 
 /// Whether a character is part of what was said rather than a mark upon it.
 ///
-/// Letters and numbers, in any script. And an apostrophe or a hyphen with a
-/// letter on either side of it, because between two letters those are spelling
-/// and not punctuation: "don't" and "well-known" are one word each, and a rule
-/// that pulled the marks out of them would be a rule that misspells things
-/// rather than one that stops writing full stops into a search box.
+/// Letters and numbers, in any script, and the marks that stand on a letter
+/// rather than beside it. And an apostrophe or a hyphen with a letter on either
+/// side of it, because between two letters those are spelling and not
+/// punctuation: "don't" and "well-known" are one word each, and a rule that
+/// pulled the marks out of them would be a rule that misspells things rather
+/// than one that stops writing full stops into a search box.
 ///
 /// A mark is turned into a space rather than deleted, so that what was on both
 /// sides of it stays two words. "one, two" is not "one,two" with the comma
 /// gone.
 fn is_a_word(one: char, said: &[char], at: usize) -> bool {
-    if one.is_alphanumeric() || one.is_whitespace() {
+    if one.is_alphanumeric() || one.is_whitespace() || is_upon_a_letter(one) {
         return true;
     }
     let letter = |one: Option<&char>| one.is_some_and(|one| one.is_alphanumeric());
-    matches!(one, '\'' | '\u{2019}' | '-')
-        && at > 0
-        && letter(said.get(at - 1))
-        && letter(said.get(at + 1))
+    let inside_a_word = at > 0 && letter(said.get(at - 1)) && letter(said.get(at + 1));
+    matches!(one, '\'' | '\u{2019}' | '-') && (inside_a_word || starts_a_word(said, at))
+}
+
+/// Whether an apostrophe is the front of a word rather than a quote around one.
+///
+/// Dutch writes several of its commonest words that way -- `'s ochtends`, `'t
+/// huis`, `'n beetje` -- and the rule above sees only that nothing letterish
+/// stands to the left of the mark, which is also what it sees at the front of a
+/// quotation. So it took the apostrophe off, and `'s ochtends` was typed as `s
+/// ochtends`: the Thai fault again, in another language and a smaller way.
+///
+/// Told apart by how much follows. These are an apostrophe, one letter, and
+/// then the end of the word; a quotation is an apostrophe and then a word. That
+/// keeps `'s` and leaves the mark on `'hello'`, which is the way round that
+/// matters, because one of the two is a word somebody said and the other is a
+/// mark nobody dictated.
+fn starts_a_word(said: &[char], at: usize) -> bool {
+    let boundary = |one: Option<&char>| one.is_none_or(|one| !one.is_alphanumeric());
+    boundary(said.get(at.wrapping_sub(1)).filter(|_| at > 0))
+        && said.get(at + 1).is_some_and(|one| one.is_alphabetic())
+        && boundary(said.get(at + 2))
+}
+
+/// Whether a character is a mark that stands on a letter rather than beside it.
+///
+/// Thai writes its vowels and its tones as marks upon the consonants, and to
+/// anything asking whether a character is a letter they are not: they are
+/// nonspacing marks, which is the same answer a comma gets. So the rule above,
+/// left to itself, takes the vowels out of every Thai word it is given and
+/// breaks what is left into pieces at each place one stood. "สวัสดีค่ะ" came
+/// back as "สว สด ค ะ" -- four fragments of a word, none of them a word, typed
+/// into whatever was waiting for it.
+///
+/// It is every short thing said in Thai, which is what this paddle is mostly
+/// pressed for, failing in the way that is hardest to see: something arrives,
+/// it is in the right script, and it is not what was said.
+fn is_upon_a_letter(one: char) -> bool {
+    ('\u{0e31}'..='\u{0e3a}').contains(&one) || ('\u{0e47}'..='\u{0e4e}').contains(&one)
 }
 
 /// How many words were said.
 ///
-/// Gaps, mostly. Chinese is the exception this machine actually hears: it puts
-/// no spaces between its words at all, so a sentence of it is one word to
-/// anything counting gaps and would come back stripped however long it ran. The
-/// characters of the scripts written without spaces count for themselves
-/// instead, which is not one word each but is the right order of magnitude, and
-/// what this number is asked is only which side of a line it falls.
+/// Gaps, mostly. Thai is the exception this machine hears: it puts no spaces
+/// between its words at all -- they go between phrases instead -- so a
+/// sentence of it is one word to anything counting gaps and would come back
+/// stripped however long it ran. The characters of a script written without
+/// spaces count for themselves instead, which is not one word each but is the
+/// right order of magnitude, and what this number is asked is only which side
+/// of a line it falls.
 fn spoken(said: &str) -> usize {
     said.split_whitespace().map(|word| word.chars().filter(unspaced).count().max(1)).sum()
 }
 
 /// Whether a character belongs to a script that puts no spaces in.
 fn unspaced(one: &char) -> bool {
-    one.is_alphanumeric() && ('\u{3040}'..='\u{9fff}').contains(one)
+    ('\u{0e00}'..='\u{0e7f}').contains(one)
 }
 
 #[cfg(test)]
@@ -497,7 +538,8 @@ mod tests {
 
     #[test]
     fn the_hearing_is_told_the_model_the_file_and_to_say_nothing_else() {
-        let argv = hearing(Path::new("/keep/whisper-cli"), Path::new("/keep/model.bin"), Path::new("/run/said.wav"));
+        let (whisper, model) = (Path::new("/keep/whisper-cli"), Path::new("/keep/model.bin"));
+        let argv = hearing(whisper, model, Path::new("/run/said.wav"), "auto");
         assert_eq!(argv.first().map(String::as_str), Some("/keep/whisper-cli"));
         assert!(argv.windows(2).any(|pair| pair == ["--model", "/keep/model.bin"]));
         assert!(argv.windows(2).any(|pair| pair == ["--file", "/run/said.wav"]));
@@ -505,11 +547,19 @@ mod tests {
         assert!(argv.iter().any(|word| word == "--no-prints"));
     }
 
-    /// Four languages are dictated into this and the button cannot know which.
+    /// The whole of what the setting does: whatever was chosen is what the
+    /// hearing is told, and `auto` is a choice like the others rather than a
+    /// separate way of asking.
     #[test]
-    fn the_language_is_asked_of_the_recording_rather_than_assumed() {
-        let argv = hearing(Path::new("w"), Path::new("m"), Path::new("s"));
-        assert!(argv.windows(2).any(|pair| pair == ["--language", "auto"]));
+    fn the_hearing_listens_for_the_language_that_was_chosen() {
+        for language in &languages::EVERY {
+            let argv = hearing(Path::new("w"), Path::new("m"), Path::new("s"), language.key);
+            assert!(
+                argv.windows(2).any(|pair| pair == ["--language", language.key]),
+                "{} was not asked for",
+                language.says
+            );
+        }
     }
 
     /// A double dash, because what was said is a sentence and a sentence can
@@ -548,13 +598,88 @@ mod tests {
         assert_eq!(tidy("don't -- well-known, isn't it?"), "don't well-known isn't it");
     }
 
-    /// Chinese writes no spaces between its words, so a sentence of it is one
-    /// word to anything counting gaps and would never be long enough.
+    /// Thai writes no spaces between its words, so a sentence of it is one word
+    /// to anything counting gaps and would never be long enough.
     #[test]
     fn a_language_with_no_spaces_is_counted_by_its_characters() {
-        assert_eq!(tidy("你好。"), "你好");
-        let said = "我今天早上去了市场，买了一些水果。";
+        let said = "ฉันไปตลาดเมื่อเช้านี้ และซื้อผลไม้มาด้วย ทั้งหมดสดมาก";
         assert_eq!(tidy(said), said);
+    }
+
+    /// Thai hangs its vowels and tones on the consonants, and nothing asking
+    /// whether a character is a letter says yes to those. Taking them out is
+    /// not a full stop off a search term: it is the word misspelled, in
+    /// pieces, and typed anyway.
+    #[test]
+    fn the_marks_a_thai_word_is_written_with_are_part_of_the_word() {
+        assert_eq!(tidy("สวัสดีค่ะ"), "สวัสดีค่ะ");
+        assert_eq!(tidy("ขอบคุณ"), "ขอบคุณ");
+        assert_eq!(tidy("ไปไหน?"), "ไปไหน");
+    }
+
+    /// Dutch writes its plurals of vowel-final words with an apostrophe, and
+    /// that apostrophe stands between two letters, which is the rule that
+    /// keeps "don't" whole. It is the same rule and it is worth its own test,
+    /// because "autos" and "fotos" are misspellings rather than plain words.
+    #[test]
+    fn a_dutch_plural_keeps_the_apostrophe_that_makes_it_one() {
+        assert_eq!(tidy("Ik heb twee auto's."), "Ik heb twee auto's");
+        assert_eq!(tidy("Waar zijn de foto's?"), "Waar zijn de foto's");
+    }
+
+    /// Dutch puts an apostrophe at the front of several of its commonest
+    /// words, where the rule for "don't" cannot see it: nothing letterish
+    /// stands to the left of the mark. So they were typed with the mark gone,
+    /// which is the Thai fault again in a smaller way -- a real word, spelled
+    /// wrong, typed anyway.
+    #[test]
+    fn a_dutch_word_that_begins_with_an_apostrophe_keeps_it() {
+        assert_eq!(tidy("'s Ochtends drink ik koffie"), "'s Ochtends drink ik koffie");
+        assert_eq!(tidy("'t Is koud vandaag"), "'t Is koud vandaag");
+        assert_eq!(tidy("Geef me 'n moment."), "Geef me 'n moment");
+    }
+
+    /// And a mark that is a quotation rather than a word still goes. The two
+    /// are told apart by what follows: one letter and the end of the word, or
+    /// a whole word.
+    #[test]
+    fn a_quotation_is_not_a_word_that_begins_with_an_apostrophe() {
+        assert_eq!(tidy("'hello' she said"), "hello she said");
+    }
+
+    /// Six is the line and the line is a guess, so both sides of it are
+    /// written down: a thing that is asked for and a thing that is said.
+    #[test]
+    fn the_line_between_a_name_and_a_sentence_falls_where_it_says_it_does() {
+        let asked = "Waar heb ik de sleutels gelaten?";
+        assert_eq!(tidy(asked), "Waar heb ik de sleutels gelaten", "six words is a name");
+        let said = "Waar heb ik de blauwe sleutels gelaten?";
+        assert_eq!(tidy(said), said, "seven words is a sentence");
+    }
+
+    /// The marks Thai hangs on its letters, one of each kind that is not a
+    /// letter to anything counting them: the silent-letter mark on the end of
+    /// a word, and a tone mark under a vowel that is itself written as a mark.
+    #[test]
+    fn the_thai_marks_that_are_not_letters_survive_a_short_thing() {
+        assert_eq!(tidy("จันทร์"), "จันทร์", "the silent-letter mark");
+        assert_eq!(tidy("สัตว์"), "สัตว์", "the same, after a vowel mark");
+        assert_eq!(tidy("น้ำ"), "น้ำ", "a tone mark and a sara am");
+    }
+
+    /// And a mark that really is punctuation still goes, in Thai as in
+    /// anything else. The question is only which marks are which.
+    #[test]
+    fn a_thai_word_still_loses_the_punctuation_beside_it() {
+        assert_eq!(tidy("น้ำ?"), "น้ำ");
+    }
+
+    /// Three words that differ only in tone, which is the clip the models are
+    /// expected to disagree about. Here it is only the counting: eight
+    /// characters across three words is past the line, so nothing is stripped.
+    #[test]
+    fn a_thai_line_is_counted_by_characters_across_the_gaps() {
+        assert_eq!(tidy("หมา ม้า มา"), "หมา ม้า มา");
     }
 
     /// A room with nobody talking in it is nothing said, not a word to type.
@@ -721,3 +846,4 @@ mod tests {
         assert_eq!(told_by("not a number at all"), None);
     }
 }
+

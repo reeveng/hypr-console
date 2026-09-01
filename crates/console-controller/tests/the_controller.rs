@@ -23,7 +23,7 @@ const LEFT: (EventType, u16) = (EventType::KEY, KeyCode::BTN_LEFT.0);
 
 /// A machine and the daemon reading it, on the profile the desktop runs.
 fn desktop() -> (Go, Daemon) {
-    (go("desktop"), Daemon::default())
+    (go(console_pad::router::NAME), Daemon::default())
 }
 
 fn total(daemon: &Daemon, (kind, code): (EventType, u16)) -> i32 {
@@ -55,12 +55,25 @@ fn the_top_left_paddle_opens_the_menu() {
     assert_eq!(daemon.did.names(), ["launcher"]);
 }
 
+/// Held with L2, like the brightness. On its own this paddle is under the
+/// finger that holds the machine up, and it took ninety-six pictures in two
+/// days that nobody asked for.
 #[test]
-fn the_bottom_right_paddle_takes_a_screenshot() {
+fn l2_and_the_bottom_right_paddle_take_a_screenshot() {
     let (mut go, mut daemon) = desktop();
+    go.trigger("l2", 1.0).expect("a trigger");
     go.press("right-paddle-bottom").expect("a paddle");
     daemon.run(&mut go, 2);
     assert_eq!(daemon.did.names(), ["console-screenshot"]);
+}
+
+/// And the half of that which is the whole point of it.
+#[test]
+fn the_bottom_right_paddle_alone_takes_nothing() {
+    let (mut go, mut daemon) = desktop();
+    go.press("right-paddle-bottom").expect("a paddle");
+    daemon.run(&mut go, 2);
+    assert!(daemon.did.commands.is_empty(), "it ran {:?}", daemon.did.names());
 }
 
 /// The settings sit beside the face buttons, where a thumb already is. The
@@ -277,6 +290,22 @@ fn l2_and_the_dpad_are_the_brightness() {
     );
 }
 
+#[test]
+fn l2_and_the_dpad_are_the_volume() {
+    let (mut go, mut daemon) = desktop();
+    go.trigger("l2", 1.0).expect("a trigger");
+    go.press("dpad-up").expect("the dpad");
+    go.press("dpad-down").expect("the dpad");
+    daemon.run(&mut go, 2);
+    assert_eq!(
+        daemon.did.commands,
+        [
+            ["/usr/local/bin/console-volume", "up"],
+            ["/usr/local/bin/console-volume", "down"],
+        ]
+    );
+}
+
 /// It is the arrow keys, which nothing here has to act on.
 #[test]
 fn the_dpad_alone_is_not_the_brightness() {
@@ -399,28 +428,133 @@ fn the_pad_is_picked_up_again_when_it_comes_back() {
     assert_eq!(daemon.did.dispatched(), ["hl.dsp.focus({workspace = \"+1\"})"]);
 }
 
-/// The on-screen keyboard takes the pad by signalling this daemon's unit. A
-/// signal to a unit reaches every process in its control group unless it is
-/// told otherwise, and the menu, the panel and anything opened from the menu
-/// are all in that group: a control group is inherited by every child and
-/// nothing a program can do to itself leaves one. Named wrongly, raising the
-/// keyboard over a panel stopped the panel.
+/// Nothing hands the pad to the keyboard, because there is nothing to hand.
+///
+/// `osk-hook` ran at both ends of the on-screen keyboard and did two things.
+/// It stopped this daemon with SIGSTOP and started it again with SIGCONT, so
+/// that this and wvkbd did not both act on the right stick -- which navigates
+/// and scrolls at once, and flickers. And it loaded the pad profile the
+/// keyboard needs, remembering the one that was there in a file so it could be
+/// put back.
+///
+/// Both are the daemon's now, and neither is remembered. It asks the
+/// compositor what is in front of it: under the keyboard it acts on nothing,
+/// and the profile the pad wants is a function of that answer rather than of
+/// what somebody wrote down when the keyboard went up.
+///
+/// This holds all of it out at once, because each piece put back brings a
+/// fault with it. A signal is the backlog -- stopped is not deaf, the kernel
+/// went on queueing, and every button pressed while typing arrived in one
+/// instant against a desktop that had moved on, which is how the machine once
+/// left for Game Mode on its own -- and it is the control group, since a
+/// signal to a unit reaches everything the menu opened unless told otherwise.
+/// A remembered profile is the stale one: a panel closed while the keyboard
+/// was over it had already put the desktop back, and laying the remembered
+/// profile over that left the pad answering to a panel that was gone.
 #[test]
-fn the_keyboard_stops_the_daemon_and_nothing_the_daemon_started() {
-    let hook = harness::root().join("files/usr/local/bin/osk-hook");
-    let read = std::fs::read_to_string(&hook).expect("osk-hook");
-    let signals: Vec<&str> = read
-        .lines()
-        .filter(|line| line.contains("systemctl") && line.contains("kill"))
-        .filter(|line| !line.trim_start().starts_with('#'))
-        .collect();
-    assert!(!signals.is_empty(), "osk-hook no longer signals the daemon at all");
-    for line in signals {
-        assert!(
-            line.contains("--kill-whom=main"),
-            "osk-hook signals the whole control group: {}",
-            line.trim()
-        );
+fn nothing_signals_the_daemon_or_remembers_a_profile_for_it() {
+    let files = harness::root().join("files");
+    let mut signals = Vec::new();
+    let mut remembers = Vec::new();
+    let mut walk = vec![files.clone()];
+    while let Some(at) = walk.pop() {
+        let Ok(reading) = std::fs::read_dir(&at) else { continue };
+        for child in reading.filter_map(Result::ok) {
+            let path = child.path();
+            if path.is_dir() {
+                walk.push(path);
+                continue;
+            }
+            let Ok(held) = std::fs::read_to_string(&path) else { continue };
+            let here = path.strip_prefix(&files).unwrap_or(&path).display().to_string();
+            for line in held.lines().filter(|line| !line.trim_start().starts_with('#')) {
+                if line.contains("systemctl") && line.contains("kill") {
+                    signals.push(format!("{here}: {}", line.trim()));
+                }
+                if line.contains("console-profile-before-keyboard") {
+                    remembers.push(format!("{here}: {}", line.trim()));
+                }
+            }
+        }
     }
+    assert!(signals.is_empty(), "something signals a unit again: {signals:?}");
+    assert!(
+        remembers.is_empty(),
+        "something remembers the profile from before the keyboard again: {remembers:?}"
+    );
+}
+
+/// And no program stops the daemon either, which is where one still did.
+///
+/// The test above walks `files/`, because that is where the two programs that
+/// did this lived. `console-buttons --identify` is a crate, so it was never
+/// looked at, and it went on sending SIGSTOP and SIGCONT for months after the
+/// shell scripts that did the same thing were deleted for it.
+///
+/// It was the worst of the three, and only because nobody presses it often.
+/// The SIGCONT sat after a loop the program tells you to leave with Ctrl-C, so
+/// on the documented way out it never ran: the daemon was not sometimes left
+/// stopped, it was always left stopped, until somebody restarted the unit. And
+/// with no `--kill-whom=main` the signal took the whole control group, so run
+/// from the menu it stopped the menu it was opened from, and the second press
+/// -- the one that would have told you what the button was -- arrived at a
+/// stopped program.
+///
+/// What replaces it is a grab, and the reason is that a grab cannot be left
+/// behind. The kernel holds it and the kernel releases it when the process
+/// goes, however it goes, so there is no path on which the undoing is missed.
+/// That is the property SIGSTOP never had and could not be given.
+#[test]
+fn no_program_here_stops_a_unit_with_a_signal() {
+    let crates = harness::root().join("crates");
+    let mut signals = Vec::new();
+    let mut walk = vec![crates.clone()];
+    while let Some(at) = walk.pop() {
+        let Ok(reading) = std::fs::read_dir(&at) else { continue };
+        for child in reading.filter_map(Result::ok) {
+            let path = child.path();
+            if path.is_dir() {
+                if path.file_name().is_some_and(|name| name == "target") {
+                    continue;
+                }
+                walk.push(path);
+                continue;
+            }
+            if path.extension().is_none_or(|kind| kind != "rs") {
+                continue;
+            }
+            // The programs, which is what ships. A test naming the signal is a
+            // test about the signal being gone, and this is one of those.
+            if !path.components().any(|part| part.as_os_str() == "src") {
+                continue;
+            }
+            let Ok(held) = std::fs::read_to_string(&path) else { continue };
+            let here = path.strip_prefix(&crates).unwrap_or(&path).display().to_string();
+            for line in held.lines().filter(|line| !line.trim_start().starts_with("//")) {
+                // The words as they are passed, so a comment recording why this
+                // is gone does not read as this being back.
+                if line.contains("\"STOP\"") || line.contains("signal=STOP") {
+                    signals.push(format!("{here}: {}", line.trim()));
+                }
+            }
+        }
+    }
+    assert!(signals.is_empty(), "a program stops a unit again: {signals:?}");
+}
+
+/// And the keyboard is not asked to run anything at either end.
+///
+/// wvkbd runs WVKBD_ON_SHOW and WVKBD_ON_HIDE itself, so a hook put back there
+/// would be a second opinion about the pad that this daemon never hears about.
+#[test]
+fn the_keyboard_runs_no_hook_when_it_appears_or_goes() {
+    let unit = harness::root().join("files/etc/systemd/user/console-keyboard.service");
+    let held = std::fs::read_to_string(&unit).expect("the keyboard service");
+    let hooks: Vec<&str> = held
+        .lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+        .filter(|line| line.contains("WVKBD_ON_") || line.contains("osk-hook"))
+        .collect();
+    assert!(hooks.is_empty(), "the keyboard hands the pad over again: {hooks:?}");
 }
 

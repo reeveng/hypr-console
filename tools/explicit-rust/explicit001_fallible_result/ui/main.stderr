@@ -1,0 +1,19 @@
+error: `unwrap_or` swallows a failure in a function that does not return `Result`
+  --> $DIR/main.rs:11:5
+   |
+LL |     fallible().unwrap_or(0)
+   |     ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: return `Result<T, E>` and propagate with `?`, so the caller is told there was a failure
+   = note: `#[deny(explicit001_fallible_result)]` on by default
+
+error: `is_ok` swallows a failure in a function that does not return `Result`
+  --> $DIR/main.rs:17:5
+   |
+LL |     fallible().is_ok()
+   |     ^^^^^^^^^^^^^^^^^^
+   |
+   = help: return `Result<T, E>` and propagate with `?`, so the caller is told there was a failure
+
+error: aborting due to 2 previous errors
+

@@ -6,8 +6,18 @@
    against a soft dark ground, warm rather than clinical.
 
    There is no colour in this file. Every name below comes from the palette,
-   which is written from theme/palette.toml and imported here. */
+   which is written from theme/palette.toml and imported here.
+
+   The second import is how wide the screen is, which is a thing this file
+   cannot know: the Screen tab of the settings can change the density the
+   desktop is laid out at, and the apply strip below has to be as wide as
+   whatever that leaves. console-scale writes it, and writes it at every login
+   so that it is there to be imported. GTK takes @import only at the top of a
+   file, so the rule in it cannot win on order and is written to outrank this
+   one instead. What is here is the size this device is set up as, which is
+   what the strip is if that file ever goes missing. */
 @import url("../console/palette.css");
+@import url("../console/bar.css");
 
 /* The letters are Noto Sans and the icons are the Mono cut of the Nerd Font,
    named here rather than left to fontconfig.
@@ -190,4 +200,126 @@ window#waybar {
 
 #network.disconnected {
   color: @coral;
+}
+
+/* ------------------------------------------------------------ the strip
+
+   The thin row under the bar, which fills from the left while an apply runs
+   and is the colour of the bar the rest of the time.
+
+   `font-size: 0` is what keeps it thin. The module's text is a space -- there
+   to keep the box on the screen, because waybar hides a module whose text is
+   empty -- and a space set in a font is as tall as a line of that font. The
+   bar's own `height` is a floor and cannot bring it back down, so a label left
+   at a font size makes the strip as tall as its text the moment it has a
+   background to draw. Nothing here is read, so the size it is set in is nought.
+
+   The fill is a gradient with a hard stop in it rather than anything that
+   knows what a percentage is, because nothing in waybar or GTK does: a custom
+   module hands over a class and the stylesheet decides what a class looks
+   like. So there is one rule below per step `bar-updating` can send, and
+   `every_step_the_bar_can_send_is_one_the_style_paints` holds the two lists
+   against each other.
+
+   The right of the stop is `transparent` rather than the ground colour, so the
+   unfilled part is the strip's own background and follows the bar if the theme
+   ever moves it.
+
+   `min-width` is the width of the screen in logical pixels: this panel is
+   1600x2560 turned a quarter and divided by a scale of 2.5, which is 1024
+   across. It is written here because a gradient's percentages are percentages
+   of the box, and a box that is only as wide as its contents would fit the
+   whole apply into one space. `the_strip_is_as_wide_as_the_screen` holds this
+   number against the monitor hyprland is told to set up. */
+#custom-updating {
+  min-width: 1024px;
+  min-height: 0;
+  font-size: 0;
+  padding: 0;
+  margin: 0;
+  background-image: linear-gradient(to right, @fill 0%, transparent 0%);
+}
+
+#custom-updating.at-0 {
+  background-image: linear-gradient(to right, @fill 0%, transparent 0%);
+}
+
+#custom-updating.at-5 {
+  background-image: linear-gradient(to right, @fill 5%, transparent 5%);
+}
+
+#custom-updating.at-10 {
+  background-image: linear-gradient(to right, @fill 10%, transparent 10%);
+}
+
+#custom-updating.at-15 {
+  background-image: linear-gradient(to right, @fill 15%, transparent 15%);
+}
+
+#custom-updating.at-20 {
+  background-image: linear-gradient(to right, @fill 20%, transparent 20%);
+}
+
+#custom-updating.at-25 {
+  background-image: linear-gradient(to right, @fill 25%, transparent 25%);
+}
+
+#custom-updating.at-30 {
+  background-image: linear-gradient(to right, @fill 30%, transparent 30%);
+}
+
+#custom-updating.at-35 {
+  background-image: linear-gradient(to right, @fill 35%, transparent 35%);
+}
+
+#custom-updating.at-40 {
+  background-image: linear-gradient(to right, @fill 40%, transparent 40%);
+}
+
+#custom-updating.at-45 {
+  background-image: linear-gradient(to right, @fill 45%, transparent 45%);
+}
+
+#custom-updating.at-50 {
+  background-image: linear-gradient(to right, @fill 50%, transparent 50%);
+}
+
+#custom-updating.at-55 {
+  background-image: linear-gradient(to right, @fill 55%, transparent 55%);
+}
+
+#custom-updating.at-60 {
+  background-image: linear-gradient(to right, @fill 60%, transparent 60%);
+}
+
+#custom-updating.at-65 {
+  background-image: linear-gradient(to right, @fill 65%, transparent 65%);
+}
+
+#custom-updating.at-70 {
+  background-image: linear-gradient(to right, @fill 70%, transparent 70%);
+}
+
+#custom-updating.at-75 {
+  background-image: linear-gradient(to right, @fill 75%, transparent 75%);
+}
+
+#custom-updating.at-80 {
+  background-image: linear-gradient(to right, @fill 80%, transparent 80%);
+}
+
+#custom-updating.at-85 {
+  background-image: linear-gradient(to right, @fill 85%, transparent 85%);
+}
+
+#custom-updating.at-90 {
+  background-image: linear-gradient(to right, @fill 90%, transparent 90%);
+}
+
+#custom-updating.at-95 {
+  background-image: linear-gradient(to right, @fill 95%, transparent 95%);
+}
+
+#custom-updating.at-100 {
+  background-image: linear-gradient(to right, @fill 100%, transparent 100%);
 }

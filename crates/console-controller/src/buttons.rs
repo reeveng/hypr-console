@@ -12,8 +12,8 @@
 use console_pad::jobs::Layer;
 
 use crate::doing::Doing;
-use crate::means::{Job, Table};
-use crate::mode::Mode;
+use crate::means::{Job, Press, Table};
+use crate::mode::{Acts, Mode};
 
 /// The job a press lands on, if this daemon is reading and anything is bound.
 pub fn job_for(
@@ -23,13 +23,13 @@ pub fn job_for(
     layer: Layer,
 ) -> Option<&'static Job> {
     match mode.acts() {
-        true => table.what(button, layer, mode),
-        false => None,
+        Acts::OnPresses => table.what(button, layer, mode),
+        Acts::NotReading => None,
     }
 }
 
 /// What that job does about a press, on the way down or on the way back up.
-pub fn acted(job: &Job, down: bool) -> Option<Doing> {
+pub fn acted(job: &Job, down: Press) -> Option<Doing> {
     job.what.does(down)
 }
 

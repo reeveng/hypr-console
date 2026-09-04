@@ -42,6 +42,24 @@ confirmed. The short ones are handed out first: on a page with five links,
 three of them are one press, and it takes a page with more than sixty things on
 it before any label is longer than three.
 
+### Where one goes
+
+A label has to say two things at once -- what to press, and what it belongs to
+-- and the second is the harder one on a page that is mostly links. Each one
+takes the top-left corner of its own thing and bites into it, far enough to be
+plainly attached and not so far as to cover what is written there: a label that
+hides the word *Home* has answered the first question by destroying the answer
+to the second. A thing too thin to be bitten into -- a link in the middle of a
+sentence -- has its label hung just above instead, touching the top of the
+word, because a label sitting on a word is a word nobody can read, and what is
+above a line of prose is usually more prose rather than another thing to press.
+
+Where that corner is already taken, the label moves on to the next corner of
+the same thing that is free, and a thing wide enough to hold several -- a nav
+bar, a row -- offers the places along its own top edge. Two labels drawn in the
+same place are two labels nobody can read, which on a page of small links used
+to be most of them.
+
 ## What is along the bottom
 
 The labels are for the page. The bar along the bottom is for the browser
@@ -51,13 +69,24 @@ length. It carries the same kind of label, drawn from the same pool, so there
 is one thing to press and not two:
 
     Look for something      Find on this page       The tabs
-    A new tab               Close this tab          The tab that was closed
+    The address bar         The browser's menu      A new tab
+    Close this tab          The tab that was closed
     Load it again           The top of the page
 
-Pressed a second time, **Y** says the labels again and says at the top what
-taking one will do now: *open in a new tab*. That is the second thing a link
-can do, on the button whose job is what else can be done with the thing in
-front of you, rather than on a modifier nobody would find.
+Pressed a second time, **Y** asks the other question: *open in a new tab*.
+That is the second thing a link can do, on the button whose job is what else
+can be done with the thing in front of you, rather than on a modifier nobody
+would find.
+
+It used to be the same screen with a different line of text along the bottom,
+which is a mode nobody sees: the eyes are on the labels, and the labels had not
+changed. So the second press draws a different page. Only links are labelled,
+because opening in a new tab is the one thing only a link can do and a label on
+a button would have been a label that lies -- the press would have been the
+ordinary press. The labels are drawn in sky rather than pink, the bar keeps the
+one line saying what this is, and the deeds go away, because *close this tab*
+is not something that opens in a new tab. Fewer things also means shorter
+labels, so the second press is quicker than the first.
 
 ## A finger still gets the browser's own menu
 
@@ -72,6 +101,15 @@ Every deed along the bottom can also simply be tapped, and every card draws a
 **×**. A button with no answer for a hand holding nothing is the thing
 [`docs/button-contract.md`](button-contract.md) is most insistent about.
 
+So do the bars themselves, which for a while were the exception. Both of them
+said which arrows to press and offered the glass nothing: the labels could be
+put away with B or by taking a deed, and not by simply deciding against them,
+and the bar the find draws counted its matches and let only the d-pad walk
+between them. Each now carries a **×** at its right end, in the same place the
+card's is, and the find's carries **↑** and **↓** beside the count. The rest of
+a bar is read rather than aimed at, so those are the only things on one sized
+for a thumb.
+
 ## The card is the same card
 
 *Look for something* and *The tabs* draw a card, and it is deliberately the
@@ -81,7 +119,15 @@ who has used the menu has used this. It is drawn in a shadow root out of the
 browser's own palette file, so a site's stylesheet cannot dress it and it
 cannot break the site.
 
-X raises the keyboard over it, as it does everywhere.
+The keyboard comes up with it. A card with a line to type into is a card
+somebody came to type into, so it is raised with the card rather than waited
+for: the surface used to arrive having made every decision except the one it
+was drawn for, and the press of X afterwards was a press that only ever had one
+answer. X still works, and now what it does is put the keyboard away.
+
+The same rule reaches a field on the page. Taking one with A focuses it and
+raises the keyboard, because that is the same decision made about somebody
+else's form.
 
 ## Where a question goes is the browser's own answer
 
@@ -98,18 +144,64 @@ browser's own find. What is found stays on the screen with the count beside it
 and the d-pad steps through the matches, because a count nobody can walk to is
 not an answer.
 
-There is no way to type an address here, and that is on purpose. The menu is
-where a question is typed on this device -- a line that narrows to nothing is a
-question, and it opens in the browser -- so the address bar has an answer
-already, and it is one press of the left paddle away.
+There is no way to type an address into this card, and that is on purpose: a
+card that both searches and navigates is a card that has to guess which one was
+meant. The menu is where a question is typed on this device -- a line that
+narrows to nothing is a question, and it opens in the browser -- and the
+browser's own address bar is a row on the bar along the bottom.
 
 ## A new tab is a question being asked
 
-The new tab is a page of the add-on's own, and it opens with the search card up
-and the line already holding the keys. There was nothing else it could
+The new tab is a page of the add-on's own, and it opens with the search card up,
+the keyboard up, and the line already holding the keys. There was nothing else it could
 usefully be: a new tab on a handheld is somebody about to ask something, and
 the alternative was a blank page with an address bar at the top of it that
 takes a pointer to reach.
+
+It is the home page as well, and that is not the same claim. A browser started
+with nothing to restore does not open a new tab, it opens the home page, so a
+machine switched on in the morning got LibreWolf's own page and not this one --
+the one moment a person is most likely to be about to ask something. The
+manifest claims both. A browser normally asks about that on first start, and is
+told not to by `extensions.installedDistroAddon.web@console` in `user.js`: that
+question is worth asking about an add-on that arrived from a store, and this one
+arrived by the same apply that wrote the file asking.
+
+## The browser around the page
+
+The bar along the bottom offers the address bar and the browser's own menu, and
+for a long time it could not. Those are chrome, and an add-on written in the
+ordinary way cannot touch chrome at all -- it can ask the browser to open a tab,
+and it cannot put the focus in the address bar of the window it is running in.
+
+`crates/console-web/web/around.js` is how it does now. An experiment API runs
+in the parent process with the browser's own privileges rather than an add-on's,
+and it is allowed here for exactly the reason the add-on is unsigned here: a
+build without `MOZ_REQUIRE_SIGNING` is one where `EXPERIMENTS_ENABLED` follows a
+pref, and `user.js` sets it. Release Firefox refuses both in the same breath.
+
+Three functions, and deliberately only three. Everything that can be done from
+inside a page is done from inside a page, where a mistake is a broken label
+rather than a broken browser; this holds what nothing else can reach. *The
+address bar* takes what is in it, so the keyboard types over the address rather
+than into the end of it, and *the browser's menu* is a list of rows the arrows
+already walk.
+
+The third is not the browser at all. The on-screen keyboard is a program of
+this desktop's, raised by a signal, and no page and no ordinary add-on may send
+one -- which is the same test the other two pass. `keyboard-show` is what it
+runs, and it is deliberately not `keyboard-toggle`: a program asking on
+somebody's behalf is asking for a keyboard, not for the other side of a switch,
+and a card opening while the keyboard happened to be up would otherwise have
+taken it away from the person it was drawn for. Nothing waits on the answer. A
+keyboard that did not come up leaves a card that still draws, still takes a
+row, and still has the pad.
+
+The pref has to be true before an add-on carrying an experiment is installed. A
+browser that reads such a manifest with it switched off does not disable the
+experiment, it refuses the whole add-on -- and a page would lose its labels
+along with everything else. `console apply` writes `user.js` and packs the
+add-on in that order, so one restart has both.
 
 ## How it gets onto the machine
 
@@ -152,7 +244,8 @@ The browser's own pages. Nothing runs on `about:` pages, on the add-on store,
 or on the handful of sites Mozilla keeps content scripts off. The new tab is
 ours and works; `about:config` is not and does not.
 
-The chrome. Nothing here can move the browser's focus into the address bar or
-open its menus: an add-on is not allowed to, and the way to those is a finger.
-Everything the bar along the bottom offers is there because it is something a
-page can ask the browser for and a thumb otherwise could not reach.
+The chrome was the third of these and is not any more --
+[the section above](#the-browser-around-the-page) is what became of it -- but
+the labels themselves still stop at the edge of the page. The address bar and
+the menu are reached by name, from a row along the bottom, rather than by a
+label drawn on the thing itself. Everything else up there still wants a finger.

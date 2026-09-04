@@ -3,32 +3,32 @@
 
 [colors.primary]
 background = "0x110b12"
-foreground = "0xebdce7"
+foreground = "0xf7e7f3"
 
 [colors.cursor]
-cursor = "0xffbac5"
+cursor = "0xffc5ce"
 text = "0x110b12"
 
 [colors.selection]
-background = "0xffb5e2"
+background = "0xffc2e7"
 text = "0x110b12"
 
 [colors.normal]
-black = "0x916f8d"
-red = "0xffbbba"
-green = "0xaae0ac"
-yellow = "0xe2d086"
-blue = "0x9dd8ff"
-magenta = "0xffb5e2"
-cyan = "0x95e1cf"
-white = "0xcdb6c9"
+black = "0xae8baa"
+red = "0xffc6c4"
+green = "0xaae1ad"
+yellow = "0xe6d48a"
+blue = "0xa4dbff"
+magenta = "0xffc2e7"
+cyan = "0x95e2d0"
+white = "0xe5cde0"
 
 [colors.bright]
-black = "0xa784a2"
-red = "0xffdcdb"
-green = "0xc0f7c2"
-yellow = "0xf9e79c"
-blue = "0xceebff"
-magenta = "0xffdaf0"
-cyan = "0xacf8e6"
-white = "0xebdce7"
+black = "0xc4a0c0"
+red = "0xffe7e6"
+green = "0xc0f8c3"
+yellow = "0xfdeba0"
+blue = "0xd5eeff"
+magenta = "0xffe6f5"
+cyan = "0xacf9e7"
+white = "0xf7e7f3"

@@ -2,10 +2,10 @@
 
 use std::collections::BTreeSet;
 
-use console_stage::checking::{Body, Check, Done, ought};
+use console_stage::checking::{Body, Check, Done, empty, happened, more_than, not_empty, same, seen};
 use console_stage::desktop::Desktop;
 use console_stage::here::{Here, TURNS};
-use console_stage::device::{Device, PATIENCE};
+use console_stage::device::{Device, PATIENCE, Seen};
 use console_stage::palette::palette;
 
 use crate::chooser::opens;
@@ -44,19 +44,24 @@ pub const WITH_THE_KEYBOARD: Check = Check {
 /// The device's own words, kept short. What matters is which namespaces are
 /// listed and that each has a height, because a layer with no height is a
 /// keyboard that is started hidden and stays for the session.
+///
+/// Kept short is what let the strip under the bar out of them, and out of
+/// `NOTHING_UP` below, which is the fixture that is supposed to be the idle
+/// desktop. Whatever is up on the device while nothing is up belongs in all
+/// three, or this asks a question about a machine nobody has.
 const OVER_A_PANEL: &str = r#"{"eDP-1":{"levels":{
     "0":[{"namespace":"awww-daemon","h":1600}],
-    "2":[{"namespace":"waybar","h":38}],
-    "3":[{"namespace":"settings-panel","h":1562},{"namespace":"wvkbd-mobintl","h":520}]}}}"#;
+    "2":[{"namespace":"waybar","h":38},{"namespace":"updating","h":2}],
+    "3":[{"namespace":"settings-panel","h":1562},{"namespace":"virtual-keyboard","h":520}]}}}"#;
 
 const THE_PANEL_ALONE: &str = r#"{"eDP-1":{"levels":{
     "0":[{"namespace":"awww-daemon","h":1600}],
-    "2":[{"namespace":"waybar","h":38}],
+    "2":[{"namespace":"waybar","h":38},{"namespace":"updating","h":2}],
     "3":[{"namespace":"settings-panel","h":1562}]}}}"#;
 
 const NOTHING_UP: &str = r#"{"eDP-1":{"levels":{
     "0":[{"namespace":"awww-daemon","h":1600}],
-    "2":[{"namespace":"waybar","h":38}]}}}"#;
+    "2":[{"namespace":"waybar","h":38},{"namespace":"updating","h":2}]}}}"#;
 
 /// The same thing the device is asked, without a device.
 ///
@@ -72,12 +77,12 @@ const NOTHING_UP: &str = r#"{"eDP-1":{"levels":{
 /// no compositor, no InputPlumber and no keyboard, against the real profiles
 /// and the real pad.
 ///
-/// What it cannot ask is whether wvkbd actually drew, whether X reached it, or
-/// whether the pad survived the profile switch. Those are the device's, and
-/// `with_the_keyboard` is still the one that asks them.
+/// What it cannot ask is whether the keyboard actually drew, whether X reached
+/// it, or whether the pad survived the profile switch. Those are the device's,
+/// and `with_the_keyboard` is still the one that asks them.
 fn without_a_screen(stage: &mut Here) -> Done {
     stage.showing(THE_PANEL_ALONE)?;
-    ought(stage.wanted() == console_pad::router::NAME, || {
+    same(&stage.wanted(), &console_pad::router::NAME, || {
         format!("a panel up wants the {} profile", stage.wanted())
     })?;
 
@@ -87,7 +92,7 @@ fn without_a_screen(stage: &mut Here) -> Done {
     stage.press("legion-right")?;
     stage.press("b")?;
     stage.settle(TURNS);
-    ought(stage.commands().is_empty(), || {
+    empty(stage.commands(), || {
         format!("the daemon acted under the keyboard: {:?}", stage.commands())
     })?;
 
@@ -97,7 +102,7 @@ fn without_a_screen(stage: &mut Here) -> Done {
     // of why opening a menu no longer destroys the pad and builds another --
     // what a button means with a chooser up is the daemon's to say.
     stage.showing(NOTHING_UP)?;
-    ought(stage.wanted() == console_pad::router::NAME, || {
+    same(&stage.wanted(), &console_pad::router::NAME, || {
         format!("the keyboard went and the pad wants {}", stage.wanted())
     })?;
 
@@ -106,7 +111,7 @@ fn without_a_screen(stage: &mut Here) -> Done {
     let before = stage.commands().len();
     stage.press("legion-right")?;
     stage.settle(TURNS);
-    ought(stage.commands().len() > before, || {
+    more_than(stage.commands().len(), before, || {
         "the keyboard went and the daemon never started acting again".to_string()
     })
 }
@@ -137,18 +142,25 @@ pub fn drew(stage: &mut Desktop) -> Done {
         .map(|y| stage.colour(ACROSS, f64::from(y)))
         .collect::<Result<_, _>>()?;
 
-    let is = |name: &str| down.contains(&wanted[name]);
-    ought(is("panel") || is("ground"), || {
+    let any_of = |names: &[&str]| match names.iter().any(|name| down.contains(&wanted[*name])) {
+        true => Seen::Yes,
+        false => Seen::NotYet,
+    };
+
+    seen(any_of(&["panel", "ground"]), || {
         format!("nothing of the panel is on the screen where it should be: {down:?}")
     })?;
-    ought(is("pink"), || format!("the panel drew but nothing on it is highlighted: {down:?}"))
+
+    seen(any_of(&["pink"]), || {
+        format!("the panel drew but nothing on it is highlighted: {down:?}")
+    })
 }
 
 fn here(stage: &mut Here) -> Done {
     stage.press("legion-right")?;
     stage.settle(TURNS);
     let ran = stage.names();
-    ought(ran == ["settings-panel"], || format!("it ran {ran:?}"))
+    same(&ran, &["settings-panel"], || format!("it ran {ran:?}"))
 }
 
 fn there(stage: &mut Device) -> Done {
@@ -162,10 +174,10 @@ fn draws(stage: &mut Desktop) -> Done {
 
 /// The keyboard is over the panel and B still means back.
 ///
-/// Nothing translates it: while wvkbd is up the keyboard profile maps nothing,
-/// so B arrives as the keyboard's backspace, and the panel, which holds the
-/// keyboard focus, reads backspace as back. The thumb's habit works without
-/// anybody being told.
+/// Nothing translates it: while the keyboard is up the keyboard profile maps
+/// nothing, so B arrives as the keyboard's backspace, and the panel, which
+/// holds the keyboard focus, reads backspace as back. The thumb's habit works
+/// without anybody being told.
 ///
 /// Two faults hid behind each other here. The panel used to be stopped for as
 /// long as the keyboard was up, since the signal that takes the pad from the
@@ -177,28 +189,28 @@ fn draws(stage: &mut Desktop) -> Done {
 /// the machine still works.
 fn with_the_keyboard(stage: &mut Device) -> Done {
     stage.press("legion-right");
-    ought(stage.drawn(PATIENCE), || "the panel did not draw".to_string())?;
+    happened(stage.drawn(PATIENCE), || "the panel did not draw".to_string())?;
 
     stage.press("x");
-    ought(stage.until(Device::keyboard, PATIENCE), || {
+    happened(stage.until(Device::keyboard, PATIENCE), || {
         "the keyboard did not come up over the panel".to_string()
     })?;
-    ought(!stage.menus().is_empty(), || "the keyboard came up and the panel went".to_string())?;
+    not_empty(&stage.menus(), || "the keyboard came up and the panel went".to_string())?;
 
     stage.press("b");
-    ought(stage.gone(PATIENCE), || "B did not close the panel".to_string())?;
+    happened(stage.gone(PATIENCE), || "B did not close the panel".to_string())?;
 
     stage.press("x");
-    ought(stage.until(|seen| !seen.keyboard(), PATIENCE), || {
+    happened(stage.until(|seen| seen.keyboard().flipped(), PATIENCE), || {
         "the keyboard would not go away".to_string()
     })?;
     let held = stage.profile();
-    ought(held == crate::chooser::WORN, || {
+    same(&held, &crate::chooser::WORN, || {
         format!("the keyboard went and the pad was left wearing {held}")
     })?;
 
     stage.press("legion-right");
-    ought(stage.drawn(PATIENCE), || "the settings button stopped drawing anything".to_string())?;
+    happened(stage.drawn(PATIENCE), || "the settings button stopped drawing anything".to_string())?;
     stage.press("b");
-    ought(stage.gone(PATIENCE), || "the panel would not close again".to_string())
+    happened(stage.gone(PATIENCE), || "the panel would not close again".to_string())
 }

@@ -90,6 +90,21 @@ row as well as a dark one. Anything that has no picture worth making keeps the
 room and puts nothing in it, because a page of documents each wearing a small
 grey rectangle is harder to read than a page of names.
 
+The picture itself comes out of one file. A row that opened its own was a file
+opened, a format worked out and an image scaled -- on the loop that draws,
+because that is where rows are built -- and the menu did that once per
+application installed before its first frame. Measured, it was most of what
+opening the menu cost, and none of the work was new: the same icons, at the same
+size, every time. So they are decoded once into `console_panel::pictures`, at
+the size a row draws them, and an opening reads that file once and hands out
+slices of it.
+
+`panel-pictures` makes it, off the panel and behind it, the way `files-thumbs`
+makes the thumbnails and for the same reason. A panel asks for what its own rows
+wanted once the real ones have arrived, so what is made is what a list actually
+asked for; and a picture the store has not got is opened the old way, which is
+slower and never wrong.
+
 ## B unwinds, one step at a time
 
 B is not "close". It is "back", and back is a stack.
@@ -134,6 +149,14 @@ way back is the folder, and Y over it asks for a new folder in it. That is still
 the row answering. What Y must never become is a menu about the screen, offered
 the same wherever the highlight happens to be, because then what it does is a
 guess about what was last touched.
+
+A card about one thing is the case that looks like the exception and is not. The
+now-playing card is one song from the sleeve to the row of buttons, so every row
+of it a thumb can stand on offers the same Y and opens the files panel on that
+song. Every row of that card is about the same thing, so the row is still what
+answered. What it must not do is put Y on the row a card is *titled* with: a
+title is a heading, the highlight walks past it, and a button offered only there
+is a button that cannot be pressed from anywhere.
 
 ## The name of a list is not one of its rows
 
@@ -207,6 +230,26 @@ where the obvious thing is a photograph thrown away by a thumb that pressed A
 twice. The answers that do something are drawn after it and wear the warmer
 colour.
 
+## A card about one thing opens on the press it is for
+
+A list opens on the first row something happens to, which is the right answer
+for a list: the first thing on it is the first thing a thumb wants.
+
+A card is not a list. Walking down the now-playing card, the first row anything
+happens to is the bar the song is scrubbed with — one row above play, which is
+the press a hand opened the card to make. So every opening of that tab began
+with a press of down.
+
+`Row::chief` is the row saying which press that is, the way `Press::chief` is
+the press a strip is for. It is asked only while the highlight has not been put
+anywhere yet: the playing tab is drawn again every second, and a card that went
+back to its own press on every reading would take the highlight off whatever the
+thumb had walked to a second after it got there.
+
+A row nothing happens to cannot be the row a card opens on, whatever it says
+about itself. The highlight would be standing where A does nothing, which is the
+fault this rule exists to avoid rather than one to introduce by another door.
+
 ## What is slow does not happen where the drawing happens
 
 A panel that is waiting is a panel that has stopped answering the buttons, which
@@ -228,6 +271,114 @@ has been set going, so there is nothing to answer and nothing to dismiss.
 Drawn by the panel rather than raised as a notification. Every one of these
 surfaces is a layer over everything on the screen, so a notification raised from
 a panel is drawn behind the panel that raised it.
+
+## A tab that cannot be drawn in advance is drawn as it was last time
+
+`Page::meanwhile` is the tab as it stands before the machine has answered
+anything, and it works because most of a tab is known without asking: the three
+power profiles are the same three whatever powerprofilesctl says, and all the
+answer decides is which of them is marked.
+
+Some tabs are not like that. Sound is whatever is plugged in and whatever is
+playing, Wi-Fi is whatever is in the air, Bluetooth is whatever has ever been
+paired, the menu is whatever is installed. There is nothing to draw in advance,
+so those went up empty and filled in — which is the whole card changing height
+a moment after it appeared, under a thumb already moving down it. Of the two,
+that is the worse one: a reading that lands late moves nothing, and a row that
+lands late moves every row under it.
+
+They are not unknowable, though. They were known last time. `console_panel::before`
+writes down what a command said as it answers, and the tab's `meanwhile` builds
+its rows out of what was written down. The menu keeps its own list the same way,
+under `console_menu::kept`.
+
+Three things make it honest rather than a guess drawn as an answer:
+
+**It is the same builder, fed an older reading.** Never a second list that has
+to be kept in step with the first. `wifi_at` draws the tab from three readings
+and does not know which of the two it is doing; a row added to it cannot go
+missing from the other.
+
+**The rows work.** This is the whole reason the reading is remembered and not
+the row. A row built from a remembered reading carries the same `Does` as the
+row that replaces it, so A on it does what it says while the machine is still
+being read. A greyed-out list of last time's words would keep the card the right
+height and be a page of things that cannot be pressed, which is the fault the
+empty list at least declared.
+
+**What goes stale is not remembered.** A sink is a fact about the machine that
+keeps; a stream is something that was playing once, so the speakers row is drawn
+from memory and what is playing is not. The list of applications keeps and the
+count of how often each was opened is one file already, so the list is remembered
+and the order it comes out in is read fresh.
+
+It is a cache and it says so. `~/.cache/console`, and not beside the notes under
+`~/.local/state/console` where a panel keeps the tab it was left on and the room
+it was granted: those are things the desktop remembers about itself and could
+not work out again, and this is the machine's own answer to a question anybody
+can ask it again. Clearing it costs one opening, drawn the way every opening was
+drawn before any of this.
+
+## What an opening costs is written down as it happens
+
+Every one of the decisions above was made about a wait nobody had measured. The
+remembered rows, the reading on a thread of its own, the note in the corner:
+each of them is somebody's account of which part was slow, and none of them
+could be checked afterwards on the machine it was decided for.
+
+So a panel times itself, and writes one line when it appears. From the press --
+the daemon stamps the moment it decided, in the child's environment, so what is
+timed is what the thumb waited and not what the program took -- through the
+loader, the wait for whatever chooser had the screen, GTK coming up, the card
+being built, the rows going on it, and the first frame. One line per opening,
+with the stretches as its fields, so a question about the menu is a question
+anybody can ask the file rather than a print somebody adds and takes out again.
+`console_timings` is the writing and `console-timings` is the reading.
+
+It is on always. Timings that have to be asked for are timings nobody has when
+they want them, because the opening worth reading about already happened.
+
+Two things it says that reading the code does not. The first is that most of an
+opening is the rows: they are built one at a time and each of them opens its own
+picture before the first frame, so what a tab costs to appear is decided by how
+many rows it has and how many of those wear a photograph or an icon rather than
+a space. The second is that the same work is done twice on every opening -- once
+for the tab as it was last time, and again when the reading lands -- which is
+the price of the card being up at once, and worth knowing the size of.
+
+The store is `~/.local/state/console/waited.jsonl`, beside the tab a panel was
+left on, and not under `~/.cache` with the readings a tab draws itself from:
+those are the machine's own answers to questions anybody can ask it again, and
+this is the only record that the menu was slow on Tuesday.
+
+## Most of what an opening cost was the machine being asleep
+
+The first thing the store said, once there was enough of it to read, was that
+no part of an opening was slow. Every part of it was: the loader, GTK coming
+up, the card being built, the rows going on it, the first frame — all of them
+over by the same factor, which is not what a slow function looks like. It is
+what a slow processor looks like.
+
+This is a handheld and it idles at the bottom of its range, and a processor
+that decides how fast to run by watching how busy it has been is always
+deciding about the moment before. A panel is a moment's work and then nothing,
+so the whole of it is answered at whatever clock the machine happened to be at
+when the thumb arrived, and by the time the load it made could have been
+noticed there is nothing left to hurry.
+
+So the daemon that reads the pad asks for speed as it starts a panel, before
+the fork rather than from inside the program it started — most of an opening is
+spent before the panel has a line of its own running, and a program that asks
+on its own behalf has already missed the part it would have helped most. It
+puts back what was there a moment later. `console_haste` is that, and it is one
+word per processor: there is no per-task version of it on this machine, so what
+is raised is the machine's own hint and it has to be given back or the profile
+somebody chose stops meaning anything.
+
+None of it is a reason not to do the other work. The rows are still built one
+at a time, the tab is still drawn twice, and both are still worth what they
+cost. It is a reason to measure a change against a machine that is awake, since
+otherwise half of what any change appears to buy is the clock.
 
 ## One card, one size
 

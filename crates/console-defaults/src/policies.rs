@@ -137,6 +137,7 @@ pub fn mozilla(place: &Where, engine: &Engine, beneath: &str) -> String {
         false => &engine.librewolf,
     };
     let mut searching = Map::new();
+
     if known.given {
         searching.insert(
             "Add".to_string(),
@@ -147,28 +148,25 @@ pub fn mozilla(place: &Where, engine: &Engine, beneath: &str) -> String {
             }]),
         );
     }
+
     searching.insert("Default".to_string(), json!(known.called));
 
-    let mut said = serde_json::from_str::<Value>(beneath).unwrap_or_else(|_| json!({}));
-    if !said.is_object() {
-        said = json!({});
-    }
-    let policies = said
-        .as_object_mut()
-        .expect("an object")
-        .entry("policies")
-        .or_insert_with(|| json!({}));
-    if !policies.is_object() {
-        *policies = json!({});
-    }
-    let policies = policies.as_object_mut().expect("an object");
+    // Each nesting is taken out of the map, filled in, and put back, rather
+    // than reached into where it lies. `serde_json` has no way to ask for the
+    // object at a key that cannot come back empty-handed, so reaching in meant
+    // the same three lines and the same assertion at every level -- guard that
+    // what is there is an object, replace it if it is not, and then insist that
+    // it now is. Taking it out says the same thing in the types: what comes
+    // back is a map either way.
+    let mut top = taken_from(match serde_json::from_str::<Value>(beneath) {
+        Ok(v) => v,
+        Err(_) => json!({}),
+    });
+    let mut policies = taken(&mut top, "policies");
     policies.insert("SearchEngines".to_string(), Value::Object(searching));
 
-    let installed = policies.entry("ExtensionSettings").or_insert_with(|| json!({}));
-    if !installed.is_object() {
-        *installed = json!({});
-    }
-    let installed = installed.as_object_mut().expect("an object");
+    let mut installed = taken(&mut policies, "ExtensionSettings");
+
     for addon in ADDONS.iter() {
         installed.insert(
             addon.id.to_string(),
@@ -179,18 +177,44 @@ pub fn mozilla(place: &Where, engine: &Engine, beneath: &str) -> String {
             }),
         );
     }
-    let held = policies.entry("Preferences").or_insert_with(|| json!({}));
-    if !held.is_object() {
-        *held = json!({});
-    }
-    let held = held.as_object_mut().expect("an object");
+
+    policies.insert("ExtensionSettings".to_string(), Value::Object(installed));
+
+    let mut held = taken(&mut policies, "Preferences");
+
     for (name, value) in preferred() {
         held.insert(name.to_string(), json!({ "Status": "locked", "Value": value }));
     }
+
+    policies.insert("Preferences".to_string(), Value::Object(held));
+
     for named in ["DisableFirefoxStudies", "DisablePocket"] {
         policies.insert(named.to_string(), json!(true));
     }
-    pretty(&said)
+
+    top.insert("policies".to_string(), Value::Object(policies));
+    pretty(&Value::Object(top))
+}
+
+/// Whatever object that was, or an empty one.
+///
+/// A policies file that is a list, or a number, or a word, is a file nothing
+/// can be merged into. What this desktop is about to write is the part that has
+/// to survive, so what was there is given up rather than written around.
+fn taken_from(said: Value) -> Map<String, Value> {
+    match said {
+        Value::Object(map) => map,
+        _ => Map::new(),
+    }
+}
+
+/// The object at `name`, lifted out of the map so it can be filled in.
+///
+/// Put back by the caller. Taken out rather than borrowed in place because the
+/// next thing is another level down, and two nested borrows of the same map is
+/// the shape that wanted an assertion at every step.
+fn taken(from: &mut Map<String, Value>, name: &str) -> Map<String, Value> {
+    from.remove(name).map(taken_from).unwrap_or_default()
 }
 
 /// What this desktop holds a browser of the Firefox family to, whatever engine
@@ -218,7 +242,18 @@ fn preferred() -> Vec<(&'static str, Value)> {
 }
 
 fn pretty(said: &Value) -> String {
-    format!("{}\n", serde_json::to_string_pretty(said).unwrap_or_default())
+    match serde_json::to_string_pretty(said) {
+        Ok(written) => format!("{written}\n"),
+        // These values are built in this file out of literals, so there is no
+        // value of them serde cannot write. If that ever stops being true, an
+        // empty policy file is a browser with no policy rather than a browser
+        // with a broken one, and the journal says which.
+        Err(fault) => {
+            eprintln!("console-defaults: writing the policies: {fault}");
+
+            String::new()
+        }
+    }
 }
 
 #[cfg(test)]

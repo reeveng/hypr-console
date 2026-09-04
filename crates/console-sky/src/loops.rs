@@ -29,6 +29,9 @@
 //! encoded. The frames are muxed to neither blend nor dispose, so a rectangle
 //! painted over the still leaves the rest of the still exactly where it was.
 
+
+use console_number::{Float, fitted};
+
 /// A part of the picture.
 ///
 /// The offsets are even because that is how a WebP animation stores them: the
@@ -63,13 +66,15 @@ impl Patch {
 pub fn apart(one: &[u8], other: &[u8]) -> f64 {
     let mut total = 0u64;
     let mut counted = 0u64;
+
     for (a, b) in one.iter().step_by(7).zip(other.iter().step_by(7)) {
         total += u64::from(a.abs_diff(*b));
         counted += 1;
     }
+
     match counted {
         0 => 0.0,
-        _ => total as f64 / counted as f64,
+        _ => total.float() / counted.float(),
     }
 }
 
@@ -84,6 +89,7 @@ pub fn stir(frames: &[Vec<u8>], want: usize) -> (usize, usize) {
     if frames.len() <= want || want == 0 {
         return (0, frames.len().saturating_sub(1));
     }
+
     let best = (0..frames.len() - want)
         .min_by(|one, other| {
             apart(&frames[*one], &frames[one + want])
@@ -100,15 +106,17 @@ pub fn stir(frames: &[Vec<u8>], want: usize) -> (usize, usize) {
 /// still, and a tolerance of zero would find the whole frame changed every
 /// time and undo the entire saving.
 pub fn changed(before: &[u8], after: &[u8], wide: u32, tolerance: u8) -> Option<Patch> {
-    let tall = (before.len() / 3) as u32 / wide.max(1);
+    let tall = fitted::<usize, u32>(before.len() / 3) / wide.max(1);
     let (mut left, mut right) = (wide, 0u32);
     let (mut top, mut bottom) = (tall, 0u32);
+
     for row in 0..tall {
         for column in 0..wide {
-            let at = ((row * wide + column) * 3) as usize;
+            let at: usize = fitted((row * wide + column) * 3);
             let moved = (0..3).any(|channel| {
                 before[at + channel].abs_diff(after[at + channel]) > tolerance
             });
+
             if moved {
                 left = left.min(column);
                 right = right.max(column);
@@ -117,9 +125,11 @@ pub fn changed(before: &[u8], after: &[u8], wide: u32, tolerance: u8) -> Option<
             }
         }
     }
+
     if left > right {
         return None;
     }
+
     // Grown outwards to an even corner, which is the only corner the container
     // can name, and never past the edge of the picture.
     let x = left & !1;
@@ -129,11 +139,13 @@ pub fn changed(before: &[u8], after: &[u8], wide: u32, tolerance: u8) -> Option<
 
 /// One rectangle of a frame, copied out on its own.
 pub fn cut(frame: &[u8], wide: u32, patch: &Patch) -> Vec<u8> {
-    let mut out = Vec::with_capacity((patch.area() * 3) as usize);
+    let mut out = Vec::with_capacity(fitted(patch.area() * 3));
+
     for row in patch.y..patch.y + patch.tall {
-        let from = ((row * wide + patch.x) * 3) as usize;
-        out.extend_from_slice(&frame[from..from + (patch.wide * 3) as usize]);
+        let from: usize = fitted((row * wide + patch.x) * 3);
+        out.extend_from_slice(&frame[from..from + fitted::<u32, usize>(patch.wide * 3)]);
     }
+
     out
 }
 

@@ -14,7 +14,21 @@ pub const SPENT: &str = "files/usr/local/lib/console/palette.sh";
 
 /// The palette this repository spends.
 pub fn palette() -> BTreeMap<String, String> {
-    let said = std::fs::read_to_string(crate::root().join(SPENT)).unwrap_or_default();
+    let at = crate::root().join(SPENT);
+
+    // No colours at all is what an empty file reads as, and it is what every
+    // check that spends this treats as "the palette is not here". A file that
+    // is there and will not be read is a different fact and used to arrive as
+    // the same empty table.
+    let said = match std::fs::read_to_string(&at) {
+        Ok(said) => said,
+        Err(fault) => {
+            eprintln!("console-stage: {}: {fault}", at.display());
+
+            String::new()
+        }
+    };
+
     read(&said)
 }
 

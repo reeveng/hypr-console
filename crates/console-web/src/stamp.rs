@@ -24,6 +24,7 @@ pub const FIRST: &str = "1.0.0";
 /// The note, read.
 pub fn read(said: &str) -> Option<Stamp> {
     let (hash, version) = said.trim().split_once(' ')?;
+
     match hash.is_empty() || version.is_empty() {
         true => None,
         false => Some(Stamp { hash: hash.to_string(), version: version.to_string() }),
@@ -38,7 +39,9 @@ pub fn written(stamp: &Stamp) -> String {
 /// The next version after this one, which is the last number and one.
 pub fn next(was: Option<&str>) -> String {
     let Some(was) = was else { return FIRST.to_string() };
+
     let Some((front, last)) = was.rsplit_once('.') else { return FIRST.to_string() };
+
     match last.parse::<u32>() {
         Ok(number) => format!("{front}.{}", number + 1),
         Err(_) => FIRST.to_string(),
@@ -58,7 +61,18 @@ pub fn packed(bytes: &[u8]) -> Option<String> {
     let at = bytes.windows(mark.len()).position(|window| window == mark)? + mark.len();
     let rest = &bytes[at..];
     let end = rest.iter().position(|byte| *byte == b'"')?;
-    String::from_utf8(rest[..end].to_vec()).ok().filter(|said| !said.is_empty())
+
+    // Bytes between the quotes that are not text mean this is not the manifest
+    // it looks like, which is the same answer to the caller as no version in
+    // it at all: there is nothing here to compare a browser's copy against.
+    let Ok(said) = String::from_utf8(rest[..end].to_vec()) else {
+        return None;
+    };
+
+    match said.is_empty() {
+        true => None,
+        false => Some(said),
+    }
 }
 
 #[cfg(test)]

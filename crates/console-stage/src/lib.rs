@@ -33,9 +33,21 @@ pub mod picture;
 pub mod plug;
 
 /// The repository this is all read out of.
+///
+/// Tidied by `canonicalize` where that works and left as it stands where it
+/// does not: what `CARGO_MANIFEST_DIR` gives is already absolute and already
+/// right, and canonicalizing only takes the `../..` out of the middle. It does
+/// fail -- under a sandbox that will not let a process resolve a path it can
+/// otherwise read -- and a check that stops dead there reports the sandbox as a
+/// broken repository.
 pub fn root() -> std::path::PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .expect("the repository")
+    let from = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+
+    match from.canonicalize() {
+        Ok(tidied) => tidied,
+        // The doc above, in one line: a sandbox that will not resolve a path it
+        // will otherwise read is not a broken repository, and the path as it
+        // stands is already absolute and already right.
+        Err(_sandboxed) => from,
+    }
 }

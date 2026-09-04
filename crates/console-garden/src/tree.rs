@@ -3,8 +3,10 @@
 use cairo::{
     Context, Filter, Format, ImageSurface, LinearGradient, Matrix, RadialGradient, SurfacePattern,
 };
+use console_number::toward_zero_i32;
 use console_random::Random;
 
+use crate::fault::Drawing;
 use crate::garden::Garden;
 use crate::paint::{Wash, curve, dip, petal_at, stop, stop_wash};
 
@@ -43,7 +45,7 @@ pub struct Standing {
 /// A stroke would give every branch the same thickness from the trunk to the
 /// tip. A tree does not do that, so each limb is drawn as its own tapering
 /// quadrilateral and the next one starts narrower.
-pub fn limb(ctx: &Context, tips: &mut Vec<Tip>, reach: Reach, rng: &mut Random, depth: u32) {
+pub fn limb(ctx: &Context, tips: &mut Vec<Tip>, reach: Reach, rng: &mut Random, depth: u32) -> Drawing<()> {
     let Reach {
         x,
         y,
@@ -79,11 +81,11 @@ pub fn limb(ctx: &Context, tips: &mut Vec<Tip>, reach: Reach, rng: &mut Random, 
         (x - out * width, y - back * width),
     );
     ctx.close_path();
-    ctx.fill().expect("a limb");
+    ctx.fill()?;
 
     if depth == 0 {
         tips.push((end_x, end_y, length));
-        return;
+        return Ok(());
     }
 
     // A cherry does not reach for the sky, it reaches sideways and then leans
@@ -100,9 +102,11 @@ pub fn limb(ctx: &Context, tips: &mut Vec<Tip>, reach: Reach, rng: &mut Random, 
                 width: tip_width * rng.uniform(0.58, 0.76),
                 bow: length * rng.uniform(-0.10, 0.10),
             };
-            limb(ctx, tips, next, rng, depth - 1);
+            limb(ctx, tips, next, rng, depth - 1)?;
         }
     }
+
+    Ok(())
 }
 
 /// The one limb the rest of the tree comes off, in a trunk's proportions.
@@ -111,7 +115,7 @@ pub fn limb(ctx: &Context, tips: &mut Vec<Tip>, reach: Reach, rng: &mut Random, 
 /// lying on the ground as its own shadow. Written down in both places the two
 /// could be different trees, and the day somebody makes this one lean further
 /// is the day its shadow does not.
-pub fn trunk(ctx: &Context, tips: &mut Vec<Tip>, standing: &Standing, rng: &mut Random) {
+pub fn trunk(ctx: &Context, tips: &mut Vec<Tip>, standing: &Standing, rng: &mut Random) -> Drawing<()> {
     let reach = Reach {
         x: standing.x,
         y: standing.base,
@@ -120,7 +124,7 @@ pub fn trunk(ctx: &Context, tips: &mut Vec<Tip>, standing: &Standing, rng: &mut 
         width: standing.height * 0.036,
         bow: standing.height * 0.070,
     };
-    limb(ctx, tips, reach, rng, standing.depth);
+    limb(ctx, tips, reach, rng, standing.depth)
 }
 
 /// A trunk from the ground and everything that comes off it.
@@ -129,9 +133,9 @@ pub fn trunk(ctx: &Context, tips: &mut Vec<Tip>, standing: &Standing, rng: &mut 
 /// across the whole tree rather than a flat fill. A branch on the near side of
 /// the trunk then comes out lighter than one behind it without anything having
 /// to know which side it is on.
-pub fn tree(ctx: &Context, garden: &Garden, standing: &Standing, rng: &mut Random) -> Vec<Tip> {
+pub fn tree(ctx: &Context, garden: &Garden, standing: &Standing, rng: &mut Random) -> Drawing<Vec<Tip>> {
     let mut tips = Vec::new();
-    let bark = garden.paint.get("bark");
+    let bark = garden.paint.get("bark")?;
     let lit = LinearGradient::new(
         standing.x - standing.height * 0.10,
         0.0,
@@ -139,15 +143,15 @@ pub fn tree(ctx: &Context, garden: &Garden, standing: &Standing, rng: &mut Rando
         0.0,
     );
     stop_wash(&lit, 0.0, Wash { alpha: 1.0, ..bark });
-    stop_wash(&lit, 1.0, garden.paint.washed("bark_lit", "bark", None));
-    ctx.set_source(&lit).expect("a gradient");
+    stop_wash(&lit, 1.0, garden.paint.washed("bark_lit", "bark", None)?);
+    ctx.set_source(&lit)?;
 
-    trunk(ctx, &mut tips, standing, rng);
-    tips
+    trunk(ctx, &mut tips, standing, rng)?;
+    Ok(tips)
 }
 
 /// The mass of it first, then the few that catch the light on top.
-pub fn blossom(ctx: &Context, garden: &Garden, tips: &[Tip], rng: &mut Random, size: f64) {
+pub fn blossom(ctx: &Context, garden: &Garden, tips: &[Tip], rng: &mut Random, size: f64) -> Drawing<()> {
     for (x, y, reach) in tips.iter().copied() {
         for _ in 0..4 {
             let radius = reach * rng.uniform(0.5, 1.15) * size;
@@ -156,14 +160,15 @@ pub fn blossom(ctx: &Context, garden: &Garden, tips: &[Tip], rng: &mut Random, s
                 y + rng.gauss(0.0, reach * 0.8),
             );
             let cloud = RadialGradient::new(from_x, from_y, 0.0, x, y, radius);
-            stop(&cloud, 0.0, &garden.paint, "bloom", 1.0);
-            stop(&cloud, 0.55, &garden.paint, "bloom_deep", 1.0);
-            stop(&cloud, 1.0, &garden.paint, "bloom", 0.0);
-            ctx.set_source(&cloud).expect("a gradient");
+            stop(&cloud, 0.0, &garden.paint, "bloom", 1.0)?;
+            stop(&cloud, 0.55, &garden.paint, "bloom_deep", 1.0)?;
+            stop(&cloud, 1.0, &garden.paint, "bloom", 0.0)?;
+            ctx.set_source(&cloud)?;
             ctx.arc(x, y, radius, 0.0, std::f64::consts::TAU);
-            ctx.fill().expect("a cloud of blossom");
+            ctx.fill()?;
         }
     }
+
     for (x, y, reach) in tips.iter().copied() {
         for petal in 0..7 {
             let px = x + rng.gauss(0.0, reach * 0.62);
@@ -172,11 +177,13 @@ pub fn blossom(ctx: &Context, garden: &Garden, tips: &[Tip], rng: &mut Random, s
                 0 => "petal_pale",
                 _ => "petal",
             };
-            dip(ctx, &garden.paint, which, rng.uniform(0.55, 1.0));
+            dip(ctx, &garden.paint, which, rng.uniform(0.55, 1.0))?;
             let wide = (reach * 0.085 * size + garden.across(0.0013)) * rng.uniform(0.68, 1.38);
-            petal_at(ctx, px, py, wide, rng.uniform(0.0, std::f64::consts::PI));
+            petal_at(ctx, px, py, wide, rng.uniform(0.0, std::f64::consts::PI))?;
         }
     }
+
+    Ok(())
 }
 
 /// Where the light comes from, said as the direction of a shadow.
@@ -217,14 +224,13 @@ const SOFTEN: i32 = 8;
 /// The blossom is thrown with it, as a mass at every branch tip. What stops the
 /// light is the flower and not the twig, and a tree that threw only its
 /// branches would be a tree in winter.
-fn thrown(garden: &Garden, standing: &Standing, stretch: f64) -> ImageSurface {
+fn thrown(garden: &Garden, standing: &Standing, stretch: f64) -> Drawing<ImageSurface> {
     let mask = ImageSurface::create(
         Format::A8,
-        garden.width as i32 / SOFTEN,
-        garden.height as i32 / SOFTEN,
-    )
-    .expect("a mask");
-    let ctx = Context::new(&mask).expect("a brush");
+        toward_zero_i32(garden.width) / SOFTEN,
+        toward_zero_i32(garden.height) / SOFTEN,
+    )?;
+    let ctx = Context::new(&mask)?;
     ctx.scale(1.0 / f64::from(SOFTEN), 1.0 / f64::from(SOFTEN));
     ctx.translate(standing.x, standing.base);
     ctx.transform(Matrix::new(
@@ -244,7 +250,8 @@ fn thrown(garden: &Garden, standing: &Standing, stretch: f64) -> ImageSurface {
         &mut tips,
         standing,
         &mut Random::seeded(standing.seed),
-    );
+    )?;
+
     for (tip_x, tip_y, reach) in tips {
         ctx.arc(
             tip_x,
@@ -253,9 +260,10 @@ fn thrown(garden: &Garden, standing: &Standing, stretch: f64) -> ImageSurface {
             0.0,
             std::f64::consts::TAU,
         );
-        ctx.fill().expect("a mass of blossom");
+        ctx.fill()?;
     }
-    mask
+
+    Ok(mask)
 }
 
 /// What a tree throws.
@@ -263,25 +271,28 @@ fn thrown(garden: &Garden, standing: &Standing, stretch: f64) -> ImageSurface {
 /// Nothing is clipped. A shadow leaves the foot of what casts it going down
 /// the picture, and down the picture is nearer, so there is no ground behind
 /// it for it to climb.
-pub fn shadow(ctx: &Context, garden: &Garden, standing: &Standing) {
-    let cast = garden.paint.get("shadow");
+pub fn shadow(ctx: &Context, garden: &Garden, standing: &Standing) -> Drawing<()> {
+    let cast = garden.paint.get("shadow")?;
+
     for (stretch, weight) in SPREADS {
-        let laid = SurfacePattern::create(thrown(garden, standing, stretch));
+        let laid = SurfacePattern::create(thrown(garden, standing, stretch)?);
         laid.set_filter(Filter::Good);
-        ctx.save().expect("a brush can be put down");
+        ctx.save()?;
         ctx.scale(f64::from(SOFTEN), f64::from(SOFTEN));
         ctx.set_source_rgba(cast.red, cast.green, cast.blue, cast.alpha * weight);
-        ctx.mask(&laid).expect("a shadow");
-        ctx.restore().expect("a brush comes back");
+        ctx.mask(&laid)?;
+        ctx.restore()?;
     }
+
+    Ok(())
 }
 
 /// One tree, everything it is made of, in the order the ground sees it: what
 /// it throws, then what throws it, then what is in flower on it.
-pub fn planted(ctx: &Context, garden: &Garden, standing: &Standing) -> Vec<Tip> {
-    shadow(ctx, garden, standing);
+pub fn planted(ctx: &Context, garden: &Garden, standing: &Standing) -> Drawing<Vec<Tip>> {
+    shadow(ctx, garden, standing)?;
     let mut rng = Random::seeded(standing.seed);
-    let tips = tree(ctx, garden, standing, &mut rng);
-    blossom(ctx, garden, &tips, &mut rng, standing.size);
-    tips
+    let tips = tree(ctx, garden, standing, &mut rng)?;
+    blossom(ctx, garden, &tips, &mut rng, standing.size)?;
+    Ok(tips)
 }

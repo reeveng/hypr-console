@@ -107,6 +107,7 @@ pub fn picture_of(cache: &Path, id: &str) -> Option<PathBuf> {
 /// rather than cleaned up, because a cleaned-up id is one two things can share.
 pub fn named(id: &str) -> Option<String> {
     let plain = |letter: char| letter.is_ascii_alphanumeric() || letter == '-' || letter == '_';
+
     match !id.is_empty() && id.chars().all(plain) {
         true => Some(id.to_string()),
         false => None,

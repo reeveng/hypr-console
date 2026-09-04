@@ -12,10 +12,20 @@ name = "console"
 path = "src/main.rs"
 
 [dependencies]
+console-number.workspace = true
 console-controller.workspace = true
+# For the battery, which is the one reading that moves while an apply runs.
+console-defaults.workspace = true
+# For the one file the engine and the bar share: how far along an apply is.
+console-notices.workspace = true
 console-pad.workspace = true
+# The one place a file is written whole: beside, synced, renamed, dir synced.
+console-writing.workspace = true
 
 [dev-dependencies]
 serde_json = "1"
 serde_yaml_ng = "0.10"
 toml = { version = "0.9", default-features = false, features = ["parse", "serde"] }
+
+[lints]
+workspace = true

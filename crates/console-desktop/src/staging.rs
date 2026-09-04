@@ -1,5 +1,7 @@
 //! Every file the desktop reads, in one place, pointing at each other.
 
+
+use console_number::toward_zero_u32;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
@@ -32,21 +34,26 @@ pub fn mode_of(live: &str, head: &[u8]) -> u32 {
 /// Every file under a directory, deepest last, following nothing.
 pub fn walk(at: &Path) -> Vec<PathBuf> {
     let mut found = Vec::new();
+
     let Ok(entries) = std::fs::read_dir(at) else { return found };
+
     for path in entries.flatten().map(|entry| entry.path()) {
         match path.is_dir() && !path.is_symlink() {
             true => found.extend(walk(&path)),
             false => found.push(path),
         }
     }
+
     found.sort();
     found
 }
 
 fn copied(from: &Path, to: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(to)?;
+
     for entry in std::fs::read_dir(from)?.flatten() {
         let (source, target) = (entry.path(), to.join(entry.file_name()));
+
         match (source.is_symlink(), source.is_dir()) {
             (true, _) => {
                 let at = std::fs::read_link(&source)?;
@@ -59,6 +66,7 @@ fn copied(from: &Path, to: &Path) -> std::io::Result<()> {
             }
         }
     }
+
     Ok(())
 }
 
@@ -69,11 +77,34 @@ fn copied(from: &Path, to: &Path) -> std::io::Result<()> {
 /// daemon missing from it. Whatever is beside this program is what cargo built,
 /// which is what somebody working on it wants to look at.
 pub fn built() -> Vec<(String, PathBuf)> {
-    let Some(beside) = std::env::current_exe().ok().and_then(|at| at.parent().map(Path::to_path_buf))
-    else {
-        return Vec::new();
+    // Without knowing where this program is there is nothing beside it to
+    // stage, which is the empty list below. Worth a line either way: what
+    // follows is a desktop with the menu and the panel missing from it, and no
+    // other clue as to why.
+    let beside = match std::env::current_exe() {
+        Ok(at) => at.parent().map(Path::to_path_buf),
+        Err(fault) => {
+            eprintln!("console-desktop: where this program is: {fault}");
+
+            None
+        }
     };
-    let held = std::fs::read_to_string(root().join("desktop.conf")).unwrap_or_default();
+
+    let Some(beside) = beside else { return Vec::new() };
+
+    // Not this repository, or a manifest that is here and will not be read.
+    // Nothing is staged out of it either way, and which of the two it was is
+    // the difference between being in the wrong directory and a broken file.
+    let at = root().join("desktop.conf");
+    let held = match std::fs::read_to_string(&at) {
+        Ok(held) => held,
+        Err(fault) => {
+            eprintln!("console-desktop: {}: {fault}", at.display());
+
+            String::new()
+        }
+    };
+
     section(&held, "build")
         .into_iter()
         .map(|name| (name.clone(), beside.join(name)))
@@ -93,6 +124,7 @@ fn section(held: &str, wanted: &str) -> Vec<String> {
                     if at == wanted {
                         out.push(line.to_string());
                     }
+
                     (out, at)
                 }
             }
@@ -113,17 +145,23 @@ fn rewritten(said: &str, here: &str) -> String {
 /// point is that the machine looking is not the machine being looked at. If it
 /// cannot be asked, nothing is given up and the window is the device's own size,
 /// which is right on a screen large enough and obvious on one that is not.
-pub fn room_here() -> (u32, u32) {
-    let go = screen();
-    let said = std::process::Command::new("hyprctl")
-        .args(["monitors", "-j"])
-        .output()
-        .ok()
-        .map(|done| String::from_utf8_lossy(&done.stdout).into_owned())
-        .unwrap_or_default();
+///
+/// The device's screen is handed in rather than read again here. It is the
+/// answer when this machine's compositor has nothing to say, and the one caller
+/// has already had to read it.
+pub fn room_here(go: &console_screen::Screen) -> (u32, u32) {
+    // No compositor here to ask is ordinary off the device, and is exactly what
+    // the screen handed in is for. Nothing is said about it because on this
+    // machine it is the usual case rather than a fault.
+    let said = match std::process::Command::new("hyprctl").args(["monitors", "-j"]).output() {
+        Ok(done) => String::from_utf8_lossy(&done.stdout).into_owned(),
+        Err(_no_compositor_here) => String::new(),
+    };
+
     let Ok(monitors) = serde_json::from_str::<serde_json::Value>(&said) else {
         return go.pixels();
     };
+
     let largest = |what: &str| {
         monitors
             .as_array()?
@@ -136,16 +174,36 @@ pub fn room_here() -> (u32, u32) {
             .fold(f64::NAN, f64::max)
             .into()
     };
+
     match (largest("width"), largest("height")) {
         (Some(wide), Some(tall)) if wide.is_finite() && tall.is_finite() => {
-            ((wide * ROOM) as u32, (tall * ROOM) as u32)
+            (toward_zero_u32(wide * ROOM), toward_zero_u32(tall * ROOM))
         }
         _ => go.pixels(),
     }
 }
 
+/// Whether staging says where it put things.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Told {
+    /// Somebody asked for a stage, so they are told where it is.
+    Aloud,
+    /// It is being staged on the way to something else, and the line would be
+    /// noise in front of whatever that is.
+    Quietly,
+}
+
+/// Whether the nested session has a screen of its own or a window on this one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Screen {
+    /// The device's own pixels, all of them, with nothing to fit inside.
+    Headless,
+    /// A window on the screen somebody is sitting in front of.
+    InAWindow,
+}
+
 /// The staged copy, and the nested config inside it.
-pub fn staged(quiet: bool, headless: bool) -> Result<PathBuf, String> {
+pub fn staged(told: Told, headless: Screen) -> Result<PathBuf, String> {
     let here = stage();
     let fault = |what: &'static str| move |e: std::io::Error| format!("{what}: {e}");
     let _ = std::fs::remove_dir_all(&here);
@@ -155,12 +213,16 @@ pub fn staged(quiet: bool, headless: bool) -> Result<PathBuf, String> {
     copied(&files.join("usr"), &here.join("usr")).map_err(fault("the system"))?;
 
     let said_here = here.display().to_string();
+
     for path in walk(&here) {
         if path.is_symlink() {
             continue;
         }
+
         let Ok(was) = std::fs::read_to_string(&path) else { continue };
+
         let now = rewritten(&was, &said_here);
+
         if now != was {
             std::fs::write(&path, now).map_err(fault("a staged file"))?;
         }
@@ -177,21 +239,23 @@ pub fn staged(quiet: bool, headless: bool) -> Result<PathBuf, String> {
         if path.is_symlink() {
             continue;
         }
+
         let head: Vec<u8> = std::fs::read(&path).unwrap_or_default().into_iter().take(4).collect();
         let live = path.strip_prefix(&here).unwrap_or(&path).display().to_string();
         let mode = mode_of(&format!("/{live}"), &head);
         let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode));
     }
 
-    let go = screen();
+    let go = screen()?;
     let device_config = here.join("home/.config/hypr/hyprland.lua");
     let said = match headless {
         // A picture of the device is the device's own pixels, all of them.
         // Nothing is given up here: this is the one that gets measured.
-        true => nested::headless(&go),
-        false => {
-            let scale = go.cut_to(room_here());
-            if !quiet && (scale - go.scale).abs() > f64::EPSILON {
+        Screen::Headless => nested::headless(&go),
+        Screen::InAWindow => {
+            let scale = go.cut_to(room_here(&go));
+
+            if told == Told::Aloud && (scale - go.scale).abs() > f64::EPSILON {
                 let (wide, tall) = go.pixels();
                 eprintln!(
                     "this screen cannot hold {wide}x{tall}, so the window is at a scale of \
@@ -199,15 +263,34 @@ pub fn staged(quiet: bool, headless: bool) -> Result<PathBuf, String> {
                     go.scale
                 );
             }
+
             nested::in_a_window(&go, scale)
         }
     };
+    // The bar's stylesheet imports this, and on the device console-scale writes
+    // it at every login. Nothing in a stage does, so it is written here: without
+    // it the staged bar starts by failing to import a file, which is a line in
+    // the journal about a stage rather than about the desktop being staged.
+    //
+    // At the scale the device is laid out at, not the one this window is drawn
+    // at. Cutting a screen down to fit gives up the density and keeps the
+    // logical size, so the strip is the same width here as it is over there.
+    let bar = here.join("home/.config/console/bar.css");
+
+    if let Some(holding) = bar.parent() {
+        let _ = std::fs::create_dir_all(holding);
+    }
+
+    std::fs::write(&bar, console_screen::bar_css(&go, go.scale)).map_err(fault("the bar's width"))?;
+
     let config = here.join("home/.config/hypr/nested.lua");
     std::fs::write(&config, nested::config(&said, &device_config.display().to_string()))
         .map_err(fault("the nested config"))?;
-    if !quiet {
+
+    if told == Told::Aloud {
         println!("staged in {}", here.display());
     }
+
     Ok(config)
 }
 
@@ -215,7 +298,7 @@ pub fn staged(quiet: bool, headless: bool) -> Result<PathBuf, String> {
 pub fn environment() -> Vec<(String, String)> {
     let here = stage();
     let at = |what: &str| here.join(what).display().to_string();
-    let path = std::env::var("PATH").unwrap_or_default();
+    let path = crate::said("PATH").unwrap_or_default();
     vec![
         ("HOME".into(), at("home")),
         ("PATH".into(), format!("{}:{path}", at("usr/local/bin"))),

@@ -1,5 +1,8 @@
 //! A folder, in the order it is read and the words it is read in.
 
+
+use console_number::{Float, whole_u64};
+
 /// One thing in a folder.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Entry {
@@ -31,8 +34,14 @@ impl Entry {
     /// its name faster than by a picture of it, and a page of documents each
     /// wearing a small grey rectangle is a page that is harder to read than one
     /// without.
-    pub fn worth_a_picture(&self) -> bool {
-        !self.folder && (self.kind.starts_with("image/") || self.kind.starts_with("video/"))
+    pub fn worth_a_picture(&self) -> Worth {
+        let drawn =
+            !self.folder && (self.kind.starts_with("image/") || self.kind.starts_with("video/"));
+
+        match drawn {
+            true => Worth::APicture,
+            false => Worth::ItsNameAlone,
+        }
     }
 
     /// Whether it is a picture, which a film is not.
@@ -40,9 +49,48 @@ impl Entry {
     /// A wallpaper is one still image, and the machine draws it once and leaves
     /// it there. Offering to make a film into one is offering something that
     /// cannot be done.
-    pub fn a_picture(&self) -> bool {
-        !self.folder && self.kind.starts_with("image/")
+    pub fn a_picture(&self) -> Still {
+        match !self.folder && self.kind.starts_with("image/") {
+            true => Still::APicture,
+            false => Still::NotOne,
+        }
     }
+}
+
+/// Whether a thing is drawn as a picture of itself or as its name alone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Worth {
+    /// A photograph or a film, which is quicker to know by sight.
+    APicture,
+    /// Anything else, which is quicker to know by its name.
+    ItsNameAlone,
+}
+
+/// Whether a thing is one still image.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Still {
+    /// It is, so it can be a wallpaper.
+    APicture,
+    /// It is a film or a folder, and neither can be drawn once and left there.
+    NotOne,
+}
+
+/// Whether a listing keeps room at the front of its rows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Room {
+    /// Something in it is drawn, so every row leaves room for a picture.
+    Kept,
+    /// Nothing is, so the names start at the edge.
+    Spared,
+}
+
+/// Whether a name is one to show.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Shown {
+    /// Somebody put it there.
+    Yes,
+    /// It is a dotfile, which is a program's own business.
+    No,
 }
 
 /// Whether a listing keeps room at the front of its rows.
@@ -55,8 +103,14 @@ impl Entry {
 /// A folder is something to draw: it wears the mark that says it is one and
 /// opens like one, which is the difference a listing of nothing but folders
 /// used to make you press A to find out.
-pub fn wants_room(things: &[Entry]) -> bool {
-    things.iter().any(|thing| thing.folder || thing.worth_a_picture())
+pub fn wants_room(things: &[Entry]) -> Room {
+    let drawn =
+        things.iter().any(|thing| thing.folder || thing.worth_a_picture() == Worth::APicture);
+
+    match drawn {
+        true => Room::Kept,
+        false => Room::Spared,
+    }
 }
 
 /// Whether a name is one to show.
@@ -65,8 +119,11 @@ pub fn wants_room(things: &[Entry]) -> bool {
 /// more of them in it than things anybody put there. Shown, the first screen of
 /// Home is a list of configuration nobody opened this to look at, and what she
 /// was looking for is three screens down.
-pub fn wanted(name: &str) -> bool {
-    !name.starts_with('.')
+pub fn wanted(name: &str) -> Shown {
+    match name.starts_with('.') {
+        true => Shown::No,
+        false => Shown::Yes,
+    }
 }
 
 /// Folders first, then everything else, each by name.
@@ -114,9 +171,10 @@ pub fn said(bytes: u64) -> String {
         .find(|(_, worth)| bytes >= *worth)
         .copied()
         .unwrap_or(UNITS[0]);
-    let much = bytes as f64 / worth as f64;
+    let much = bytes.float() / worth.float();
+
     match unit == "B" || much >= 10.0 {
-        true => format!("{} {unit}", much.round() as u64),
+        true => format!("{} {unit}", whole_u64(much)),
         false => format!("{much:.1} {unit}"),
     }
 }
@@ -154,9 +212,9 @@ mod tests {
 
     #[test]
     fn what_a_program_keeps_for_itself_is_not_shown() {
-        assert!(!wanted(".config"));
-        assert!(!wanted(".bashrc"));
-        assert!(wanted("holiday.jpg"));
+        assert_eq!(wanted(".config"), Shown::No);
+        assert_eq!(wanted(".bashrc"), Shown::No);
+        assert_eq!(wanted("holiday.jpg"), Shown::Yes);
     }
 
     #[test]
@@ -178,10 +236,10 @@ mod tests {
 
     #[test]
     fn a_photograph_and_a_film_are_worth_a_picture_and_nothing_else_is() {
-        assert!(Entry::file("beach.jpg", 1).of_kind("image/jpeg").worth_a_picture());
-        assert!(Entry::file("holiday.mp4", 1).of_kind("video/mp4").worth_a_picture());
-        assert!(!Entry::file("notes.txt", 1).of_kind("text/plain").worth_a_picture());
-        assert!(!Entry::folder("Holiday").of_kind("inode/directory").worth_a_picture());
+        assert_eq!(Entry::file("beach.jpg", 1).of_kind("image/jpeg").worth_a_picture(), Worth::APicture);
+        assert_eq!(Entry::file("holiday.mp4", 1).of_kind("video/mp4").worth_a_picture(), Worth::APicture);
+        assert_eq!(Entry::file("notes.txt", 1).of_kind("text/plain").worth_a_picture(), Worth::ItsNameAlone);
+        assert_eq!(Entry::folder("Holiday").of_kind("inode/directory").worth_a_picture(), Worth::ItsNameAlone);
     }
 
     /// Otherwise a folder holding both would have its names starting in two
@@ -190,10 +248,10 @@ mod tests {
     fn one_thing_worth_drawing_gives_the_whole_listing_room_for_it() {
         let photo = Entry::file("beach.jpg", 1).of_kind("image/jpeg");
         let notes = Entry::file("notes.txt", 1).of_kind("text/plain");
-        assert!(wants_room(&[Entry::folder("Holiday"), photo]));
-        assert!(wants_room(&[Entry::folder("Holiday"), notes.clone()]));
-        assert!(!wants_room(&[notes]));
-        assert!(!wants_room(&[]));
+        assert_eq!(wants_room(&[Entry::folder("Holiday"), photo]), Room::Kept);
+        assert_eq!(wants_room(&[Entry::folder("Holiday"), notes.clone()]), Room::Kept);
+        assert_eq!(wants_room(&[notes]), Room::Spared);
+        assert_eq!(wants_room(&[]), Room::Spared);
     }
 
     #[test]

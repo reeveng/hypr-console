@@ -1,6 +1,6 @@
 //! Held with L2, the bottom right paddle takes a screenshot.
 
-use console_stage::checking::{Body, Check, Done, ought};
+use console_stage::checking::{Body, Check, Done, empty, more_than, same};
 use console_stage::device::Device;
 use console_stage::here::{Here, TURNS};
 
@@ -31,14 +31,14 @@ fn here(stage: &mut Here) -> Done {
     stage.press("right-paddle-bottom")?;
     stage.settle(TURNS);
     let ran = stage.commands().to_vec();
-    ought(ran == [["/usr/local/bin/console-screenshot"]], || format!("it ran {ran:?}"))
+    same(&ran, &[["/usr/local/bin/console-screenshot"]], || format!("it ran {ran:?}"))
 }
 
 fn alone_here(stage: &mut Here) -> Done {
     stage.press("right-paddle-bottom")?;
     stage.settle(TURNS);
     let ran = stage.commands().to_vec();
-    ought(ran.is_empty(), || format!("it ran {ran:?}"))
+    empty(&ran, || format!("it ran {ran:?}"))
 }
 
 fn there(stage: &mut Device) -> Done {
@@ -50,7 +50,7 @@ fn there(stage: &mut Device) -> Done {
     stage.trigger("l2", 0.0)?;
     stage.settle(2.5);
     let after = stage.files(&shots).len();
-    ought(after > before, || format!("no picture appeared in {shots}"))
+    more_than(after, before, || format!("no picture appeared in {shots}"))
 }
 
 /// The trigger is let go before the paddle is pressed rather than never
@@ -63,5 +63,5 @@ fn alone_there(stage: &mut Device) -> Done {
     stage.press("right-paddle-bottom");
     stage.settle(2.5);
     let after = stage.files(&shots).len();
-    ought(after == before, || format!("a picture arrived in {shots} unasked"))
+    same(&after, &before, || format!("a picture arrived in {shots} unasked"))
 }

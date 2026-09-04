@@ -24,9 +24,14 @@ pub const EVERY: [Browser; 3] = [
 
 /// Where a .desktop file is looked for, which is where the menu looks too.
 pub fn applications() -> Vec<PathBuf> {
-    let home = PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/root".to_string()));
-    let dirs = std::env::var("XDG_DATA_DIRS")
-        .unwrap_or_else(|_| "/usr/local/share:/usr/share".to_string());
+    let home = PathBuf::from(match std::env::var("HOME") {
+        Ok(h) => h,
+        Err(_) => "/root".to_string(),
+    });
+    let dirs = match std::env::var("XDG_DATA_DIRS") {
+        Ok(d) => d,
+        Err(_) => "/usr/local/share:/usr/share".to_string(),
+    };
     let mut every = vec![home.join(".local/share/applications")];
     every.extend(dirs.split(':').filter(|at| !at.is_empty()).map(|at| Path::new(at).join("applications")));
     every

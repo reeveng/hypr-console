@@ -1,0 +1,13 @@
+[workspace]
+members = ["explicit001_fallible_result", "explicit002_infallible_result", "explicit003_no_never_error", "explicit004_no_panic", "explicit005_handle_fallible", "explicit006_option_not_error", "explicit007_no_bool_return", "explicit008_no_bool_param", "explicit009_explicit_discard", "explicit010_no_numeric_into", "explicit011_no_as_cast", "explicit012_safety_doc", "explicit013_breathing_room", "explicit014_no_index_slice", "explicit015_no_bare_arithmetic", "explicit016_no_wildcard_arm", "explicit017_question_mark_alone", "explicit018_allow_with_reason", "explicit019_no_if"]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+
+[workspace.dependencies]
+clippy_utils = { git = "https://github.com/rust-lang/rust-clippy", rev = "9fca3bc9fc2bc83c60bde26d18ed68f11564b228" }
+dylint_linting = "6.0"
+dylint_testing = "6.0"

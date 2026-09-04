@@ -3,6 +3,7 @@
 pub mod asking;
 pub mod capture;
 pub mod devices;
+pub mod finding;
 pub mod front;
 pub mod go;
 pub mod jobs;

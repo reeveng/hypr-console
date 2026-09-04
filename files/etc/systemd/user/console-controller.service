@@ -1,5 +1,5 @@
 [Unit]
-Description=Controller: scrolling, workspaces, and the buttons the compositor answers
+Description=Controller: the buttons, the sticks and scrolling
 PartOf=console.target
 
 [Service]

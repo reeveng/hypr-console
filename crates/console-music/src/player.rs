@@ -4,9 +4,13 @@
 //! `org.mpris.MediaPlayer2.kew`. Everything a surface needs is a property or a
 //! method there, so nothing here reads a file kew wrote.
 
+
+use console_number::{Float, toward_zero_i64};
 use std::path::PathBuf;
 
 use console_panel::running::said;
+
+use crate::library::Kind;
 use serde_json::Value;
 
 /// The name kew answers to.
@@ -54,8 +58,29 @@ impl Default for Playing {
 }
 
 /// Whether the player is there to be asked.
-pub fn about() -> bool {
-    said(&["busctl", "--user", "--no-legend", "list"]).contains(NAME)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum About {
+    /// It is on the bus, so it can be asked and told.
+    Yes,
+    /// It is not running.
+    No,
+}
+
+/// Whether the player is taking the songs in any order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Order {
+    /// Any order, which is what the shuffle row turns on.
+    Any,
+    /// The order they are in.
+    AsListed,
+}
+
+/// Whether the player is there to be asked.
+pub fn about() -> About {
+    match said(&["busctl", "--user", "--no-legend", "list"]).contains(NAME) {
+        true => About::Yes,
+        false => About::No,
+    }
 }
 
 /// What the player is playing.
@@ -68,7 +93,10 @@ pub fn playing() -> Option<Playing> {
 /// A property, as busctl prints it.
 fn property(name: &str) -> Option<Value> {
     let said = said(&["busctl", "--user", "--json=short", "get-property", NAME, OBJECT, PLAYER, name]);
-    serde_json::from_str::<Value>(&said).ok()?.get("data").cloned()
+
+    let Ok(held) = serde_json::from_str::<Value>(&said) else { return None };
+
+    held.get("data").cloned()
 }
 
 /// What those two properties come to.
@@ -110,9 +138,12 @@ fn unescaped(said: &str) -> String {
     while let Some(letter) = letters.next() {
         let escape = || {
             let (high, low) = (letters.clone().next()?, letters.clone().nth(1)?);
-            let byte = u8::from_str_radix(&format!("{high}{low}"), 16).ok()?;
-            Some(byte as char)
+
+            let Ok(byte) = u8::from_str_radix(&format!("{high}{low}"), 16) else { return None };
+
+            Some(char::from(byte))
         };
+
         match letter {
             '%' => match escape() {
                 Some(byte) => {
@@ -125,6 +156,7 @@ fn unescaped(said: &str) -> String {
             _ => out.push(letter),
         }
     }
+
     out
 }
 
@@ -173,8 +205,11 @@ impl Over {
 }
 
 /// Whether the player is taking the songs in any order.
-pub fn shuffling() -> bool {
-    property("Shuffle").as_ref().and_then(Value::as_bool).unwrap_or_default()
+pub fn shuffling() -> Order {
+    match property("Shuffle").as_ref().and_then(Value::as_bool).unwrap_or_default() {
+        true => Order::Any,
+        false => Order::AsListed,
+    }
 }
 
 /// What the player will do when this song ends.
@@ -204,9 +239,9 @@ pub fn presses(from: Over, to: Over) -> usize {
 /// player already taking them in any order would be put back in order by being
 /// told to take them in any order. What is sent is still what is wanted, so a
 /// player that does read the value gets it right in one.
-pub fn shuffle(any_order: bool) {
+pub fn shuffle(any_order: Order) {
     if shuffling() != any_order {
-        press("Shuffle", "b", &any_order.to_string());
+        press("Shuffle", "b", &(any_order == Order::Any).to_string());
     }
 }
 
@@ -216,14 +251,112 @@ pub fn shuffle(any_order: bool) {
 /// leaves the player depends on where the player was. Going on is `On` rather
 /// than `Round`: the panel offers two modes, and the one that is not repeating
 /// a song is the one where a list plays through.
-pub fn repeat(one: bool) {
-    let wanted = match one {
-        true => Over::Again,
-        false => Over::On,
-    };
+pub fn repeat(wanted: Over) {
     for _ in 0..presses(over(), wanted) {
         press("LoopStatus", "s", wanted.said());
     }
+}
+
+/// How long a player that has just been started is given to answer.
+///
+/// It is a process being launched and a bus name being taken, and neither is
+/// instant. Given up on rather than waited on for ever: the music is playing
+/// either way by then, and the worst this can come to is a song that plays in
+/// the order it was listed.
+const COMES_UP: std::time::Duration = std::time::Duration::from_secs(6);
+
+/// How often it is asked while it is coming up.
+const BREATH: std::time::Duration = std::time::Duration::from_millis(150);
+
+/// What choosing a song leaves the player playing: the whole library, in any
+/// order, going round for ever, starting on the song that was chosen.
+///
+/// This is what a music player does when nobody has said otherwise. Choosing
+/// one song and being handed silence four minutes later is the machine
+/// stopping in the middle of the evening and waiting to be asked again; a
+/// handheld that is being carried about is the last place anybody wants to go
+/// back to the panel to hear a second song.
+///
+/// The two modes are pressed rather than set, which is what `shuffle` and
+/// `repeat` already do about a player whose keys are flips. Either of them can
+/// be turned off again from the transport, and turning one off is somebody
+/// saying what they want rather than the machine having never decided.
+///
+/// They are pressed before the song is handed over, because the player builds
+/// the list it is going to play at the moment it is given one: told to open a
+/// song with shuffling on, the library falls in behind that song and every
+/// other song in it plays once before any of them plays twice. Told with
+/// shuffling off, the song is played where it stands and what is around it in
+/// the folder is what comes next.
+///
+/// Then the song, again. The panel has already asked for it -- that is the
+/// press answering at once -- and this asks a second time because the first
+/// went to a player that was not there yet. Where it was there, the song
+/// starts over a fraction of a second in, which is the cost of the two paths
+/// being one.
+pub fn onward(song: &std::path::Path) {
+    if onward_only() == About::No {
+        return;
+    }
+
+    open(song);
+}
+
+/// The two modes and no song, for a player that is already playing one.
+///
+/// Says whether there was a player there to press them on, so the caller
+/// knows whether anything it does next has anybody to hear it.
+pub fn onward_only() -> About {
+    if waited_for() == About::No {
+        return About::No;
+    }
+
+    shuffle(Order::Any);
+    repeat(Over::Round);
+    About::Yes
+}
+
+/// Hand the player a song, which is the player being told what to play.
+///
+/// One song to this end, and the whole library out of the other: the fork
+/// answers `OpenUri` on a song by building the playlist out of the library
+/// around it, so what a press of A means is *play this, and then everything
+/// else*. The kew in the repositories has no `OpenUri` at all, and on that one
+/// this says nothing and changes nothing.
+///
+/// The path is handed over as it is rather than as a URI. Ours takes an
+/// absolute path as it stands, which saves escaping a filename here only to
+/// unescape it there, and every filename in a music folder is somebody's
+/// punctuation.
+pub fn open(song: &std::path::Path) {
+    said(&[
+        "busctl", "--user", "call", NAME, OBJECT, PLAYER, "OpenUri",
+        "s", &song.to_string_lossy(),
+    ]);
+}
+
+/// What is run after a song is chosen, and the song it is run about.
+///
+/// Its own program rather than two more lines in the panel because it has to
+/// wait, and a panel that waits is a panel that has stopped answering the
+/// buttons.
+pub fn onward_for(song: &std::path::Path) -> Vec<String> {
+    vec!["music-onward".to_string(), song.to_string_lossy().to_string()]
+}
+
+/// Wait for the player to be there to be asked, or give up.
+fn waited_for() -> About {
+    let by = std::time::Instant::now() + COMES_UP;
+
+    while std::time::Instant::now() < by {
+        if about() == About::Yes {
+            return About::Yes;
+        }
+
+        std::thread::sleep(BREATH);
+    }
+
+    About::No
 }
 
 /// Play what is loaded, or stop playing it.
@@ -253,10 +386,22 @@ pub fn position() -> i64 {
 /// Zero for a player that does not say -- which means the bar has nothing to
 /// draw a fraction of, and the dot sits at the start until somebody asks.
 pub fn length() -> i64 {
-    property("Metadata")
-        .as_ref()
-        .and_then(|metadata| metadata.get("data"))
-        .and_then(|data| data.get("mpris:length"))
+    how_long(&property("Metadata").unwrap_or(Value::Null))
+}
+
+/// How long, out of the map the player answered with.
+///
+/// Apart from the asking so it can be tried against a map somebody wrote down.
+/// It read one layer too deep for as long as it existed -- `property` has
+/// already taken the `data` off what busctl said, and this took it off again,
+/// which is a map that has no key of that name and so a length of nought. A
+/// song of no length is a bar with nothing to divide by: the dot sat at the
+/// start of every song, no song said how long it was, and seeking gave up
+/// before it began. Nothing said any of that; it just looked like a player
+/// that had only ever been told the time.
+fn how_long(metadata: &Value) -> i64 {
+    metadata
+        .get("mpris:length")
         .and_then(|held| held.get("data"))
         .and_then(Value::as_i64)
         .unwrap_or_default()
@@ -269,7 +414,8 @@ pub fn length() -> i64 {
 /// rocker. The fraction is the only thing that survives a song change.
 pub fn seek(fraction: f64) {
     let Some(total) = std::num::NonZeroI64::new(length()) else { return };
-    let at = (fraction.clamp(0.0, 1.0) * total.get() as f64) as i64;
+
+    let at = toward_zero_i64(fraction.clamp(0.0, 1.0) * total.get().float());
     let id = track_id();
     said(&[
         "busctl", "--user", "call", NAME, OBJECT, PLAYER, "SetPosition",
@@ -284,10 +430,16 @@ pub fn seek(fraction: f64) {
 /// without one is a player we cannot seek through, which is the same as a
 /// seek that does nothing.
 fn track_id() -> String {
-    property("Metadata")
-        .as_ref()
-        .and_then(|metadata| metadata.get("data"))
-        .and_then(|data| data.get("mpris:trackid"))
+    track(&property("Metadata").unwrap_or(Value::Null))
+}
+
+/// Which track, out of the map the player answered with. One layer too deep
+/// in the same way [`how_long`] was, and wrong in the same quiet way: every
+/// song was the track at `/`, so every seek was aimed at a song that is not
+/// one.
+fn track(metadata: &Value) -> String {
+    metadata
+        .get("mpris:trackid")
         .and_then(|held| held.get("data"))
         .and_then(Value::as_str)
         .unwrap_or("/")
@@ -304,7 +456,15 @@ fn track_id() -> String {
 /// Every kew answers to `--noui` and only ours answers to OpenUri, so this
 /// works against the one in the repositories and gets a playlist that never
 /// stops once the fork is on the machine.
-pub fn opening(path: &std::path::Path, folder: bool) -> Vec<String> {
+///
+/// Which is the whole difference between the two halves of this line. Told
+/// over the bus, the fork builds the playlist out of the library around the
+/// song, so next and previous walk the library from wherever the thumb landed.
+/// Started with a word instead -- which is what a player that is not running
+/// has to be given -- kew looks that word up and plays what answers to it,
+/// which for most songs is one song and a playlist of one. That is the state
+/// [`onward`] is sent to undo the moment the player has a name on the bus.
+pub fn opening(path: &std::path::Path, folder: Kind) -> Vec<String> {
     let where_ = single_quoted(&path.to_string_lossy());
     let name = single_quoted(&sought(path, folder));
     let told = format!("busctl --user call {NAME} {OBJECT} {PLAYER} OpenUri s {where_}");
@@ -328,11 +488,14 @@ pub fn opening(path: &std::path::Path, folder: bool) -> Vec<String> {
 /// before the extension of a song's. The id a download leaves at the end of a
 /// name is kept rather than tidied away, because it is the half that tells two
 /// songs of the same title apart.
-pub fn sought(path: &std::path::Path, folder: bool) -> String {
+pub fn sought(path: &std::path::Path, folder: Kind) -> String {
     let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+
     match folder {
-        true => name,
-        false => name.rsplit_once('.').map_or(name.as_str(), |(stem, _)| stem).to_string(),
+        Kind::AFolder => name,
+        Kind::ASong => {
+            name.rsplit_once('.').map_or(name.as_str(), |(stem, _)| stem).to_string()
+        }
     }
 }
 
@@ -344,6 +507,18 @@ fn single_quoted(said: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The song goes to `music-onward` whole and unquoted: it is handed to a
+    /// process rather than to a shell, and a name that had been made safe for
+    /// a shell would arrive with the quoting still in it and open nothing.
+    #[test]
+    fn what_is_handed_to_a_program_is_the_path_itself() {
+        let awkward = std::path::Path::new("/home/x/Don't Stop (Live) [a b].flac");
+        assert_eq!(
+            onward_for(awkward),
+            vec!["music-onward".to_string(), awkward.display().to_string()],
+        );
+    }
 
     /// A name with a quote in it is a name somebody has, and the shell would
     /// otherwise read the rest of it as a command.
@@ -365,7 +540,7 @@ mod tests {
             "/home/x/quote\"and\"brace}.wav",
         ];
         for path in awkward {
-            for folder in [true, false] {
+            for folder in [Kind::AFolder, Kind::ASong] {
                 let argv = opening(std::path::Path::new(path), folder);
                 let checked = std::process::Command::new("sh")
                     .arg("-n")
@@ -385,7 +560,7 @@ mod tests {
 
     #[test]
     fn a_name_the_shell_would_read_as_words_stays_one_word() {
-        let argv = opening(std::path::Path::new("/home/x/Don't Stop.mp3"), false);
+        let argv = opening(std::path::Path::new("/home/x/Don't Stop.mp3"), Kind::ASong);
         assert_eq!(argv[0], "sh");
         assert!(argv[2].contains(r"'/home/x/Don'\''t Stop.mp3'"));
         assert!(argv[2].contains(r"'Don'\''t Stop'"));
@@ -395,7 +570,7 @@ mod tests {
     /// which is the kew in the repositories.
     #[test]
     fn a_player_that_will_not_be_told_is_started_again() {
-        let argv = opening(std::path::Path::new("/music"), true);
+        let argv = opening(std::path::Path::new("/music"), Kind::AFolder);
         assert!(argv[2].contains("OpenUri"));
         assert!(argv[2].contains("pkill -x kew"));
         assert!(argv[2].contains("kew --noui"));
@@ -407,8 +582,8 @@ mod tests {
     #[test]
     fn a_player_that_will_not_take_a_path_is_given_the_name() {
         let song = std::path::Path::new("/m/505 [qU9mHegkTc4].opus");
-        assert_eq!(sought(song, false), "505 [qU9mHegkTc4]");
-        assert_eq!(sought(std::path::Path::new("/m/Vol. 2"), true), "Vol. 2");
+        assert_eq!(sought(song, Kind::ASong), "505 [qU9mHegkTc4]");
+        assert_eq!(sought(std::path::Path::new("/m/Vol. 2"), Kind::AFolder), "Vol. 2");
     }
 
     #[test]
@@ -442,8 +617,28 @@ mod tests {
             "xesam:artist": {"type": "as", "data": ["Arctic Monkeys"]},
             "xesam:album": {"type": "s", "data": "Favourite Worst Nightmare"},
             "mpris:artUrl": {"type": "s", "data": "file:///tmp/kew/cover.jpg"},
-            "xesam:url": {"type": "s", "data": "file:///nowhere/505.opus"}
+            "xesam:url": {"type": "s", "data": "file:///nowhere/505.opus"},
+            "mpris:length": {"type": "x", "data": 253_000_000_i64},
+            "mpris:trackid": {"type": "o", "data": "/org/kew/track/7"}
         })
+    }
+
+    /// The two the bar is drawn from, read out of the same map every other
+    /// part of the song is read out of.
+    #[test]
+    fn how_long_a_song_is_comes_out_of_the_map_the_rest_of_it_does() {
+        assert_eq!(how_long(&metadata()), 253_000_000);
+        assert_eq!(track(&metadata()), "/org/kew/track/7");
+    }
+
+    /// A player that says nothing about either. Nought is a bar that cannot
+    /// be divided and so is not drawn, and `/` is the track that is no track,
+    /// which is what seeking checks for.
+    #[test]
+    fn a_player_that_says_neither_leaves_the_bar_with_nothing_to_divide() {
+        assert_eq!(how_long(&serde_json::json!({})), 0);
+        assert_eq!(how_long(&Value::Null), 0);
+        assert_eq!(track(&serde_json::json!({})), "/");
     }
 
     /// The file itself, which is what Y over the song on now hands to the

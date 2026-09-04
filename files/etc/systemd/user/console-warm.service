@@ -1,20 +1,27 @@
 [Unit]
-Description=The colour of the screen
+Description=Warmer screen colours in the evening
 PartOf=console.target
 
 [Service]
 Type=simple
-# At rest it changes nothing: with no arguments hyprsunset sits at 6000K, which
-# is the neutral it would be without it. So it is running whether or not
-# anybody has asked for warm colours, and the switch on the Battery tab is a
-# message to something already listening rather than a daemon started and
-# stopped under a person's thumb.
+# Whether the screen follows the clock at all, asked before anything is
+# started. It is the switch on the Battery tab, and it has to be here rather
+# than in something sent to the daemon: hyprsunset re-applies its profile at
+# every step of the curve, so a temperature sent to it is undone within minutes
+# during dusk and not until morning at midnight -- one switch behaving two ways
+# depending on when it was pressed. A daemon that is not running is the same
+# answer at every hour, and it survives a reboot without anybody re-asserting
+# it.
+#
+# A condition that says no leaves the unit inactive and not failed, so nothing
+# is restarted and `console-fell` says nothing.
+ExecCondition=/usr/local/bin/console-warm wanted
+# The whole curve is in ~/.config/hypr/hyprsunset.conf, read once at startup.
+# Nothing has to tell it anything afterwards, which is why there is no
+# ExecStartPost here any more: what somebody decided last night is in the file
+# this asks about, and where in the curve the clock is is the daemon's own
+# business.
 ExecStart=/usr/bin/hyprsunset
-# The daemon forgets. It comes up neutral every time, so what somebody decided
-# last night is said to it again here, once it is up to hear it. Without this
-# the switch would be a setting that lasts until the next restart, which is the
-# kind of setting people stop trusting.
-ExecStartPost=-/usr/local/bin/console-warm again
 ExecStopPost=-/usr/local/bin/console-fell %n
 Restart=always
 RestartSec=5

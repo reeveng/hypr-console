@@ -6,11 +6,14 @@
 //! device already uses. So there is no second pad for the daemons to find and
 //! nothing to clean up if a check stops halfway.
 
+
+use console_number::{fitted, toward_zero_u32};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
+use console_controller::means::Press;
 use console_pad::profile::{Kind, Profile};
 use console_pad::router::every_profile;
 use console_pad::vocabulary;
@@ -81,9 +84,42 @@ pub const PATIENCE: f64 = 4.0;
 /// How long a window is given to open.
 pub const OPENING: f64 = 12.0;
 
-/// The layers that are always there: the bar, the wallpaper, the keyboard.
-/// Anything else drawn over the desktop is something a person opened.
-pub const FURNITURE: [&str; 4] = ["awww-daemon", "hyprpaper", "waybar", "wvkbd"];
+/// The layers that are always there: the bar, the strip under it, the
+/// wallpaper, the keyboard. Anything else drawn over the desktop is something
+/// a person opened.
+///
+/// `updating` is the strip, which is a second waybar under the first and
+/// arrives under its own name. Left out, every check that waits for the menus
+/// to be gone waits for a strip that is never going away.
+///
+/// `notifications` is not furniture and is not a chooser either: a card is
+/// raised by the desktop rather than opened by anybody, and it goes on its own
+/// six seconds later. Counted, it made three checks fail at once on a device
+/// where a service had just restarted and said so -- B had closed the menu,
+/// and what was left on the screen was the desktop telling somebody about
+/// something else.
+/// The daemon's own list plus the wallpaper this device does not run.
+///
+/// Kept as the daemon's list and not as a copy of it. A second list is a list
+/// that drifts, and this one had: the home screen was added to the desktop and
+/// to `console_controller::mode::FURNITURE` and not to here, so every check
+/// that waited for the menus to be gone was waiting for a surface that is up
+/// for every minute the machine is running -- and said "something was already
+/// up" about the desktop itself.
+pub const FURNITURE: [&str; console_controller::mode::FURNITURE.len() + 1] = {
+    let mut every = [""; console_controller::mode::FURNITURE.len() + 1];
+    let mut at = 0;
+
+    while at < console_controller::mode::FURNITURE.len() {
+        every[at] = console_controller::mode::FURNITURE[at];
+        at += 1;
+    }
+
+    // The wallpaper under another name. This desktop draws its own, and
+    // hyprpaper is what a machine that has not been applied to yet is running.
+    every[at] = "hyprpaper";
+    every
+};
 
 /// What a target event is called when it is sent rather than received.
 fn spoken_as(kind: Kind, name: &str) -> Option<String> {
@@ -107,11 +143,60 @@ pub struct Device {
     kept: Option<PathBuf>,
 }
 
+/// Whether any chooser is on the screen, as the wait wants it.
+///
+/// A free function rather than a method because both `drawn` and `gone` hand
+/// it to `until` as the closure, and one of them reads it the other way round.
+fn menus_up(seen: &mut Device) -> Seen {
+    match seen.menus().is_empty() {
+        true => Seen::NotYet,
+        false => Seen::Yes,
+    }
+}
+
+/// Whether the thing being waited for is true yet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Seen {
+    /// It is there.
+    Yes,
+    /// Not yet, which is not the same as never.
+    NotYet,
+}
+
+impl Seen {
+    /// The opposite, for a wait that is for something to stop rather than to
+    /// start. `gone` is `drawn` read this way round.
+    pub fn flipped(self) -> Self {
+        match self {
+            Seen::Yes => Seen::NotYet,
+            Seen::NotYet => Seen::Yes,
+        }
+    }
+}
+
+/// How a wait ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Waited {
+    /// The thing happened, and the wait stopped early because of it.
+    Happened,
+    /// The time ran out first, and the thing may still be coming.
+    RanOut,
+}
+
+/// Whether the device is really being touched.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Dry {
+    /// Say what would be done and do none of it.
+    Pretend,
+    /// Do it.
+    Really,
+}
+
 impl Device {
-    pub fn new(host: &str, dry: bool) -> Result<Self, String> {
+    pub fn new(host: &str, dry: Dry) -> Result<Self, String> {
         Ok(Device {
             host: host.to_string(),
-            dry,
+            dry: dry == Dry::Pretend,
             done: Vec::new(),
             profiles: every_profile(&crate::root())?,
             taken: None,
@@ -132,6 +217,7 @@ impl Device {
         if let Some(known) = &self.whom {
             return known.clone();
         }
+
         let said = match std::env::var("CONSOLE_USER") {
             Ok(said) if !said.trim().is_empty() => said.trim().to_string(),
             _ => self.ssh(
@@ -154,14 +240,26 @@ impl Device {
 
     pub fn ssh(&mut self, command: &str) -> String {
         self.done.push(command.to_string());
+
         if self.dry {
             return String::new();
         }
+
         let done = Command::new("ssh")
             .args(["-o", "BatchMode=yes", &self.host, command])
             .output();
-        done.map(|done| String::from_utf8_lossy(&done.stdout).trim().to_string())
-            .unwrap_or_default()
+
+        match done {
+            Ok(done) => String::from_utf8_lossy(&done.stdout).trim().to_string(),
+            // Nothing, which every caller of this reads as the device having no
+            // answer. An ssh that will not run at all is not the device saying
+            // nothing, and the two used to leave by the same line.
+            Err(fault) => {
+                eprintln!("console-stage: ssh {}: {fault}", self.host);
+
+                String::new()
+            }
+        }
     }
 
     /// As the person whose session the desktop is.
@@ -213,10 +311,12 @@ impl Device {
 
     pub fn press(&mut self, button: &str) {
         self.taken = None;
+
         // Named here, and sent nowhere, on purpose.
         let Some(capability) = self.capability(button) else {
             return;
         };
+
         let asked = format!(
             "busctl --system call {} {} {} SendButtonChord as 1 {}",
             BUS.0,
@@ -227,7 +327,7 @@ impl Device {
         self.ssh(&asked);
     }
 
-    fn send(&mut self, capability: &str, down: bool) {
+    fn send(&mut self, capability: &str, down: Press) {
         self.taken = None;
         let asked = format!(
             "busctl --system call {} {} {} SendEvent sv {} b {}",
@@ -235,21 +335,25 @@ impl Device {
             BUS.1,
             BUS.2,
             quoted(capability),
-            down
+            match down {
+                Press::Down => "true",
+                Press::Up => "false",
+            }
         );
         self.ssh(&asked);
     }
 
     pub fn hold(&mut self, button: &str) {
         if let Some(capability) = self.capability(button) {
-            self.send(&capability, true);
+            self.send(&capability, Press::Down);
         }
     }
 
     pub fn release(&mut self, button: Option<&str>) {
         let Some(button) = button else { return };
+
         if let Some(capability) = self.capability(button) {
-            self.send(&capability, false);
+            self.send(&capability, Press::Up);
         }
     }
 
@@ -281,6 +385,74 @@ impl Device {
         cannot("the touchpad is not InputPlumber's to send")
     }
 
+    /// A finger on the glass, at a place on the picture.
+    ///
+    /// The one thing a check could not do until there was a program to do it
+    /// with, and the reason is in `console-poke`: InputPlumber publishes the
+    /// pad and nothing publishes the screen, so every check that wanted to
+    /// know whether a surface answers a touch had to ask something else
+    /// instead -- and everything else says yes about a surface nothing can
+    /// press.
+    ///
+    /// Said in the size the desktop is laid out in, which is what `hyprctl
+    /// layers` answers in and what anything drawing a surface thinks in.
+    /// Turning that into a place on the digitizer is `console_screen`, once,
+    /// for everybody.
+    pub fn touch(&mut self, at: (u32, u32)) -> Done {
+        // Root, because /dev/uinput is. The pad goes through InputPlumber's
+        // bus and needs no such thing; a touchscreen is made rather than
+        // spoken to.
+        let said = self.ssh(&format!("console-poke {} {}", at.0, at.1));
+
+        match said.contains("console-poke:") {
+            true => cannot(&format!("nothing could be pressed at {at:?}: {}", said.trim())),
+            false => Ok(()),
+        }
+    }
+
+    /// Whether the home screen is holding a highlight.
+    ///
+    /// Its own answer about itself, which is the one thing about the home
+    /// screen the compositor cannot be asked: the surface is drawn asleep and
+    /// awake alike, and what changes is whose button A is.
+    pub fn home_awake(&mut self) -> Seen {
+        match self.user("test -e \"$XDG_RUNTIME_DIR/console/home-awake\" && echo awake").contains("awake") {
+            true => Seen::Yes,
+            false => Seen::NotYet,
+        }
+    }
+
+    /// Where a layer surface is, in the size the desktop is laid out in.
+    ///
+    /// So that a check can press what is drawn rather than a number somebody
+    /// wrote down: where the bar's icons are is the bar's business, and a
+    /// check that hard-codes it is a check that fails the day the bar changes
+    /// height and says the wrong thing about why.
+    pub fn layer(&mut self, namespace: &str) -> Option<(u32, u32, u32, u32)> {
+        let said = self.hypr("layers -j");
+        let found = read(&said)?;
+
+        for screen in found.as_object().into_iter().flat_map(|screens| screens.values()) {
+            for level in screen["levels"].as_object().into_iter().flat_map(|levels| levels.values())
+            {
+                for layer in level.as_array().into_iter().flatten() {
+                    if layer["namespace"].as_str() != Some(namespace) {
+                        continue;
+                    }
+
+                    // A place on the screen, held inside what a place is: the
+                    // compositor answers these as signed and a layer hung off
+                    // the top or the left is a number no finger can be put on.
+                    let at = |name: &str| layer[name].as_i64().map(fitted::<i64, u32>);
+
+                    return Some((at("x")?, at("y")?, at("w")?, at("h")?));
+                }
+            }
+        }
+
+        None
+    }
+
     pub fn load_profile(&mut self, name: &str) {
         let asked = format!("controller-profile {}", quoted(name));
         self.user(&asked);
@@ -304,20 +476,23 @@ impl Device {
     /// A check that needs a window has to be able to make one. The device is
     /// usually sitting on an empty desktop, and a check that refuses unless
     /// somebody happened to leave something open is a check that never runs.
-    pub fn open(&mut self, command: &str, seconds: f64) -> bool {
+    pub fn open(&mut self, command: &str, seconds: f64) -> Waited {
         if self.dry {
             self.exec_cmd(command);
-            return true;
+            return Waited::Happened;
         }
+
         let was: Vec<String> = self.clients().iter().filter_map(address).collect();
         self.exec_cmd(command);
         let until = Instant::now() + Duration::from_secs_f64(seconds);
+
         while Instant::now() < until {
             self.taken = None;
             let now = self.clients();
             let new = now
                 .iter()
                 .find(|client| address(client).is_some_and(|found| !was.contains(&found)));
+
             if let Some(new) = new {
                 // And look at it. Every window here opens on a workspace of its
                 // own, so one that has just opened is not the one being looked
@@ -333,11 +508,13 @@ impl Device {
                 self.hypr(&asked);
                 // Drawn, not only mapped.
                 std::thread::sleep(Duration::from_secs_f64(0.6));
-                return true;
+                return Waited::Happened;
             }
+
             std::thread::sleep(Duration::from_secs_f64(0.4));
         }
-        false
+
+        Waited::RanOut
     }
 
     pub fn settle(&mut self, seconds: f64) {
@@ -387,7 +564,7 @@ impl Device {
 
     /// Type the way the on-screen keyboard types.
     ///
-    /// wvkbd does not type into a window. It makes a virtual keyboard at the
+    /// The keyboard does not type into a window. It makes a virtual keyboard at the
     /// compositor and the compositor hands the keys to whatever has the focus,
     /// so nothing on the far side can tell them from the real keyboard's. wtype
     /// speaks that same protocol, `zwp_virtual_keyboard_v1`, which makes this
@@ -408,14 +585,18 @@ impl Device {
     }
 
     /// Whether the on-screen keyboard is on screen, not merely running.
-    pub fn keyboard(&mut self) -> bool {
-        self.hypr("layers -j").contains("wvkbd")
+    pub fn keyboard(&mut self) -> Seen {
+        match self.hypr("layers -j").contains("virtual-keyboard") {
+            true => Seen::Yes,
+            false => Seen::NotYet,
+        }
     }
 
     pub fn profile(&mut self) -> String {
         if self.dry {
             return String::new();
         }
+
         let asked = format!(
             "busctl --system get-property {} {} {} ProfileName",
             BUS.0, BUS.1, BUS.2
@@ -426,10 +607,20 @@ impl Device {
 
     pub fn brightness(&mut self) -> i64 {
         let said = self.ssh("cat /sys/class/backlight/*/brightness");
-        said.lines()
-            .next()
-            .and_then(|line| line.trim().parse().ok())
-            .unwrap_or(0)
+
+        let Some(line) = said.lines().next() else { return 0 };
+
+        match line.trim().parse() {
+            Ok(brightness) => brightness,
+            // Nought, which a check reads as "the machine did not say". A
+            // backlight that answered with something which is not a number is
+            // a different fault from one that did not answer at all.
+            Err(fault) => {
+                eprintln!("console-stage: the backlight said {line:?}: {fault}");
+
+                0
+            }
+        }
     }
 
     /// What the machine says the volume is, as a percentage.
@@ -446,11 +637,21 @@ impl Device {
     /// -- and GTK behind it -- into the fast suite to borrow four words.
     pub fn volume(&mut self) -> i64 {
         let said = self.user("pactl get-sink-volume @DEFAULT_SINK@");
-        said.lines()
-            .next()
-            .and_then(|line| line.split_whitespace().nth(4))
-            .and_then(|word| word.trim_end_matches('%').parse().ok())
-            .unwrap_or(0)
+        let word = said.lines().next().and_then(|line| line.split_whitespace().nth(4));
+
+        let Some(word) = word else { return 0 };
+
+        match word.trim_end_matches('%').parse() {
+            Ok(volume) => volume,
+            // As above: nought is "it did not say", and pactl answering with
+            // something that is not a percentage is worth telling apart from
+            // pactl not answering.
+            Err(fault) => {
+                eprintln!("console-stage: pactl said {word:?} where the level goes: {fault}");
+
+                0
+            }
+        }
     }
 
     pub fn services(&mut self) -> Vec<String> {
@@ -501,10 +702,13 @@ impl Device {
     /// about the profile passes with a menu on the screen.
     pub fn menus(&mut self) -> Vec<String> {
         let said = self.hypr("layers -j");
+
         let Some(found) = read(&said) else {
             return Vec::new();
         };
+
         let mut named = Vec::new();
+
         for screen in found
             .as_object()
             .into_iter()
@@ -517,12 +721,14 @@ impl Device {
             {
                 for layer in level.as_array().into_iter().flatten() {
                     let namespace = layer["namespace"].as_str().unwrap_or_default();
+
                     if !FURNITURE.contains(&namespace) {
                         named.push(namespace.to_string());
                     }
                 }
             }
         }
+
         named.sort();
         named
     }
@@ -535,24 +741,26 @@ impl Device {
     ///
     /// Answers whether it happened rather than raising, so a check says what it
     /// was waiting for in its own words.
-    pub fn until(&mut self, mut what: impl FnMut(&mut Self) -> bool, seconds: f64) -> bool {
-        for _ in 0..(seconds / 0.5) as u32 {
+    pub fn until(&mut self, mut what: impl FnMut(&mut Self) -> Seen, seconds: f64) -> Waited {
+        for _ in 0..toward_zero_u32(seconds / 0.5) {
             self.settle(0.5);
-            if what(self) {
-                return true;
+
+            if what(self) == Seen::Yes {
+                return Waited::Happened;
             }
         }
-        false
+
+        Waited::RanOut
     }
 
     /// Wait for a chooser to be on screen.
-    pub fn drawn(&mut self, seconds: f64) -> bool {
-        self.until(|seen| !seen.menus().is_empty(), seconds)
+    pub fn drawn(&mut self, seconds: f64) -> Waited {
+        self.until(menus_up, seconds)
     }
 
     /// Wait for every chooser to have left the screen.
-    pub fn gone(&mut self, seconds: f64) -> bool {
-        self.until(|seen| seen.menus().is_empty(), seconds)
+    pub fn gone(&mut self, seconds: f64) -> Waited {
+        self.until(|seen| menus_up(seen).flipped(), seconds)
     }
 
     /// When the decoded frames were written, and when the picture was.
@@ -569,10 +777,18 @@ impl Device {
         ));
         let mut halves = said.split("--");
         let last = |half: Option<&str>| {
-            half.unwrap_or_default()
-                .split_whitespace()
-                .filter_map(|word| word.parse::<i64>().ok())
-                .next_back()
+            let mut found = None;
+
+            // Most of the words here are not numbers. That is what is being
+            // looked past rather than a failure to report, and the last one
+            // that is a number is the answer.
+            for word in half.unwrap_or_default().split_whitespace() {
+                if let Ok(number) = word.parse::<i64>() {
+                    found = Some(number);
+                }
+            }
+
+            found
         };
         (last(halves.next()), last(halves.next()))
     }
@@ -612,7 +828,11 @@ impl Device {
             self.taken = Some(Picture::read(&shot)?);
             self.kept = Some(here);
         }
-        Ok(self.taken.as_ref().expect("a picture"))
+
+        // Set just above, on the one road that reaches here without one. Said
+        // rather than unwrapped, because "it was set a moment ago" is a claim
+        // about code that goes on being true until somebody edits the road.
+        self.taken.as_ref().ok_or_else(|| "the device took a picture and then had none".to_string())
     }
 
     /// What colour most of the device's screen is.
@@ -649,16 +869,20 @@ impl Device {
     /// tier rather than fail one check.
     pub fn fresh(&mut self) {
         self.taken = None;
+
         if self.dry {
             return;
         }
+
         for _ in 0..3 {
             if self.menus().is_empty() {
                 break;
             }
+
             self.press("b");
             std::thread::sleep(Duration::from_secs_f64(0.8));
         }
+
         if self.profile() != "Router" {
             self.load_profile(console_pad::router::NAME);
             std::thread::sleep(Duration::from_secs_f64(0.5));
@@ -674,15 +898,25 @@ impl Device {
 
 /// The same, as a question about one profile rather than about the machine.
 pub fn capability_under(here: Option<&Profile>, button: &str) -> Option<String> {
-    let itself = vocabulary::button_name(button)
-        .ok()
-        .map(|name| format!("Gamepad:Button:{name}"));
+    let itself = match vocabulary::button_name(button) {
+        Ok(name) => Some(format!("Gamepad:Button:{name}")),
+        // A button this vocabulary has no name for, which is the question being
+        // asked rather than a failure to answer it.
+        Err(_unnamed) => None,
+    };
+
     let Some(here) = here else { return itself };
-    let named = here.for_button(button).unwrap_or_default();
+
+    // A button the vocabulary does not know cannot be mapped by a profile
+    // either, so the answer is the button's own name -- which is where the
+    // empty case at the bottom of this function arrives anyway.
+    let Ok(named) = here.for_button(button) else { return itself };
+
     let sent = named
         .iter()
         .flat_map(|mapping| &mapping.targets)
         .find_map(|target| spoken_as(target.kind, &target.name));
+
     match (sent, named.is_empty()) {
         (Some(sent), _) => Some(sent),
         (None, false) => None,
@@ -695,7 +929,17 @@ fn address(client: &serde_json::Value) -> Option<String> {
 }
 
 fn read(said: &str) -> Option<serde_json::Value> {
-    serde_json::from_str(said).ok()
+    match serde_json::from_str(said) {
+        Ok(parsed) => Some(parsed),
+        // For a check, an answer that is not JSON is the device not having
+        // answered. Said out loud, because no answer and a malformed one are
+        // two different faults on the machine and only one of them is quiet.
+        Err(fault) => {
+            eprintln!("console-stage: the device answered with something that is not JSON: {fault}");
+
+            None
+        }
+    }
 }
 
 /// One word for a shell, whatever is in it.
@@ -709,7 +953,7 @@ mod tests {
 
     /// A device nothing is sent to, so its address is any address.
     fn dry() -> Device {
-        Device::new("root@handheld", true).expect("a stage")
+        Device::new("root@handheld", Dry::Pretend).expect("a stage")
     }
 
     #[test]

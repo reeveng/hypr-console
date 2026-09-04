@@ -49,6 +49,7 @@ impl Watching {
     pub fn seen(&mut self, said: &str) {
         self.reap();
         let reading = Charge::of(said);
+
         let Some(charge) = reading.percent else { return };
 
         let kept = Kept::named(SAID);
@@ -74,6 +75,7 @@ impl Watching {
             Some(doing) => matches!(doing.try_wait(), Ok(Some(_)) | Err(_)),
             None => false,
         };
+
         if done {
             self.doing = None;
         }
@@ -86,12 +88,24 @@ impl Watching {
 /// its own stdout for every change the bar draws, and a word from a child on
 /// the same handle is a bar module that stops drawing.
 fn run(step: Step) -> Option<Child> {
-    Command::new(DOES)
+    let started = Command::new(DOES)
         .arg(step.word())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .spawn()
-        .ok()
+        .spawn();
+
+    match started {
+        Ok(child) => Some(child),
+        // Nothing to hold on to, and nothing this can do about it either: the
+        // step has been reached and the program that answers for it is not on
+        // the machine. Said where the journal keeps it, because a battery
+        // warning that never appears is not something anybody notices until
+        // the machine has gone off in their hands.
+        Err(fault) => {
+            eprintln!("{DOES} would not start for {}: {fault}", step.word());
+            None
+        },
+    }
 }
 
 #[cfg(test)]

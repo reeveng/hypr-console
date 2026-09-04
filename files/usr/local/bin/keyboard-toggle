@@ -1,0 +1,18 @@
+#!/bin/sh
+# Show or hide the on-screen keyboard. Bound to X on the controller.
+#
+# The keyboard toggles itself on SIGRTMIN, so it owns the answer to "is it up?".
+# An earlier version of this script kept that in a file and guessed wrong every
+# other press.
+#
+# Matched on the path and not on the name. `pkill -x` compares against the
+# kernel's `comm`, which is fifteen characters, and `virtual-keyboard` is
+# sixteen: `pkill -x virtual-keyboard` matches nothing at all, silently, and
+# what that looks like is X doing nothing for ever. The old name fitted and
+# hid the rule. `-f` matches the whole command line, which begins with the
+# path the unit started, and the anchor keeps it from finding anything that
+# merely mentions the keyboard.
+#
+# `crates/console-manifest/tests/the_tree.rs` holds this: nothing in
+# files/usr/local/bin may match a name longer than fifteen characters.
+exec pkill -RTMIN -f '^/usr/local/bin/virtual-keyboard( |$)'

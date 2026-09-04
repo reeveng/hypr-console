@@ -31,9 +31,11 @@ fn main() -> std::process::ExitCode {
     let mut hunted: Option<f64> = None;
     let mut running: Vec<Child> = Vec::new();
     let mut last: Option<f64> = None;
+
     loop {
         // The clock that counts a suspend, as the desktop's own daemon uses.
         let now = since_boot();
+
         // A gap means the machine was not running, and a button that was down
         // when it stopped is not a button somebody is holding now. Left to
         // stand, the hold is however long the machine slept and coming back is
@@ -41,14 +43,18 @@ fn main() -> std::process::ExitCode {
         if last.is_some_and(|was| now - was > AWAY_SECONDS) {
             returning.gone();
         }
+
         last = Some(now);
+
         if pad.is_none() && hunted.is_none_or(|was| now - was >= HUNT_SECONDS) {
             hunted = Some(now);
             pad = found();
+
             if let Some((path, _)) = &pad {
                 eprintln!("game-return: reading the pad at {path}");
             }
         }
+
         if let Some((path, device)) = pad.as_mut() {
             match drain(device) {
                 Ok(arrived) => {
@@ -63,10 +69,12 @@ fn main() -> std::process::ExitCode {
                 }
             }
         }
+
         if let Some(Doing::Run(argv)) = returning.turn(now) {
             eprintln!("game-return: {}", argv.join(" "));
             running.extend(run(&argv));
         }
+
         running = reaped(running);
         std::thread::sleep(Duration::from_secs_f64(POLL));
     }
@@ -93,6 +101,7 @@ fn found() -> Option<(String, Device)> {
         device.set_nonblocking(true)?;
         Ok(device)
     });
+
     match opened {
         Ok(device) => Some((path, device)),
         Err(fault) => {
@@ -133,6 +142,7 @@ fn drain(device: &mut Device) -> Result<Vec<InputEvent>, Gone> {
 /// reported as broken against a journal showing the hold arriving.
 fn run(argv: &[String]) -> Option<Child> {
     let (program, rest) = argv.split_first()?;
+
     match Command::new(program).args(rest).stdout(Stdio::null()).stderr(Stdio::inherit()).spawn() {
         Ok(child) => Some(child),
         Err(fault) => {

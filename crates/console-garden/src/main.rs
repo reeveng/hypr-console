@@ -7,6 +7,8 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use console_number::{Float, toward_zero_u32};
+
 use console_garden::garden::{self, Garden};
 use console_garden::probe::{self, PROBES, Pixels};
 use console_garden::{SEED, palette, scene, stamp, webp};
@@ -64,18 +66,26 @@ fn run() -> Result<ExitCode, String> {
 
     let canvas = root.join("files/usr/share/backgrounds/console.webp");
     let stamped = root.join("theme/garden.stamp");
+
     if doing == Doing::Check {
-        let held = std::fs::read_to_string(&stamped)
-            .ok()
-            .as_deref()
-            .and_then(stamp::drawn_from);
+        // A stamp that is not there is the answer "nothing has been drawn
+        // yet", which is an absence. A stamp that is there and will not read
+        // is a failure, and it is not the same answer: it would otherwise
+        // come out as a redraw, silently, every time.
+        let held = match std::fs::read_to_string(&stamped) {
+            Ok(said) => stamp::drawn_from(&said),
+            Err(why) if why.kind() == std::io::ErrorKind::NotFound => None,
+            Err(why) => {
+                return Err(format!("{} could not be read: {why}", stamped.display()));
+            }
+        };
         return match canvas.is_file() && held.as_deref() == Some(wanted.as_str()) {
             true => {
                 println!("the garden is drawn from the palette as it stands.");
                 Ok(ExitCode::SUCCESS)
             }
             false => {
-                Err("the garden is out of step with the palette; run `make garden`".to_string())
+                Err("the garden is out of step with the palette; run `just garden`".to_string())
             }
         };
     }
@@ -89,16 +99,17 @@ fn run() -> Result<ExitCode, String> {
         frames_per_second: spec.garden.frames_per_second,
     };
 
-    let mut drawn = scene::draw(&garden, SEED, &webp::encode);
-    let picture = webp::animation(size.0 as i32, size.1 as i32, &drawn.frames)?;
-    let pixels = Pixels::of(&mut drawn.still);
+    let mut drawn = scene::draw(&garden, SEED, &webp::encode).map_err(|fault| fault.to_string())?;
+    let picture = webp::animation(across(size.0)?, across(size.1)?, &drawn.frames)?;
+    let pixels = Pixels::of(&mut drawn.still).map_err(|fault| fault.to_string())?;
 
     let probes: Vec<((f64, f64), String)> = PROBES
         .iter()
         .map(|where_| (*where_, probe::probe(&pixels, where_.0, where_.1, 0.02)))
         .collect();
     let nothing = colours.get("night").ok_or("the palette names no night")?;
-    let dark = probe::blind(&probes, nothing);
+    let dark = probe::blind(&probes, nothing)?;
+
     if !dark.is_empty() {
         dark.iter().for_each(|found| {
             println!(
@@ -116,6 +127,7 @@ fn run() -> Result<ExitCode, String> {
         std::fs::create_dir_all(holding)
             .map_err(|fault| format!("{} could not be made: {fault}", holding.display()))?;
     }
+
     std::fs::write(&canvas, &picture)
         .map_err(|fault| format!("{} could not be written: {fault}", canvas.display()))?;
     std::fs::write(
@@ -123,6 +135,7 @@ fn run() -> Result<ExitCode, String> {
         stamp::written(&wanted, &probe::commonest(&pixels), size, &probes),
     )
     .map_err(|fault| format!("{} could not be written: {fault}", stamped.display()))?;
+
     if let Doing::Draw { still: Some(path) } = &doing {
         let mut out = std::fs::File::create(path)
             .map_err(|fault| format!("{} could not be written: {fault}", path.display()))?;
@@ -132,7 +145,7 @@ fn run() -> Result<ExitCode, String> {
             .map_err(|fault| format!("the picture would not write: {fault}"))?;
     }
 
-    let rest = spec.garden.rest_seconds as u32;
+    let rest = toward_zero_u32(spec.garden.rest_seconds);
     println!(
         "the garden: {}x{}, still for {}m{:02}s, then {} frames of wind.",
         size.0,
@@ -148,7 +161,7 @@ fn run() -> Result<ExitCode, String> {
     println!(
         "  {} is {:.0} KiB.",
         canvas.strip_prefix(&root).unwrap_or(&canvas).display(),
-        picture.len() as f64 / 1024.0
+        picture.len().float() / 1024.0
     );
     Ok(ExitCode::SUCCESS)
 }
@@ -157,6 +170,16 @@ const HELP: &str = "\
 console-garden               draw files/usr/share/backgrounds/console.webp
 console-garden --check       say whether it has fallen out of step, draw nothing
 console-garden --still PATH  also write the resting picture as a PNG, to look at";
+
+/// A pixel count as the signed number cairo and WebP both measure in.
+///
+/// No screen is two billion pixels across, so this does not fail. It is a
+/// conversion rather than a cast because the width comes from a config file
+/// that a person edits, and the one place a nonsense width should stop is
+/// here, not several fields into a container nothing will open.
+fn across(pixels: u32) -> Result<i32, String> {
+    i32::try_from(pixels).map_err(|_| format!("{pixels} pixels is wider than a picture can be"))
+}
 
 /// The repository this is being run inside.
 ///

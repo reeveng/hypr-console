@@ -1,0 +1,14 @@
+#!/bin/sh
+# Raise the on-screen keyboard, and leave it alone if it is already up.
+#
+# `keyboard-toggle` is the button's, and a toggle is the wrong shape for a
+# program asking on somebody's behalf: the browser's search card opening while
+# the keyboard happened to be up would have put it away, which is the card
+# asking for a keyboard and taking one instead. So this is the half of the
+# toggle that only ever shows -- SIGUSR2, which the keyboard answers by
+# checking whether it is already up.
+#
+# Matched on the path and not on the name, for the reason `keyboard-toggle`
+# says at length: `pkill -x` compares against the kernel's fifteen-character
+# `comm`, and `virtual-keyboard` is sixteen.
+exec pkill -USR2 -f '^/usr/local/bin/virtual-keyboard( |$)'

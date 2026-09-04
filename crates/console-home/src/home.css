@@ -1,0 +1,102 @@
+/* The home screen: applications on the wallpaper.
+ *
+ * The palette is the machine's own, written by `console-theme`, and imported
+ * absolutely because a stylesheet loaded from a string has no directory for a
+ * relative import to be relative to. */
+@import url("{palette}");
+
+/* The numbers in braces are written in by `console-home` and are not fixed.
+ * A square is a share of the room the screen has, so everything about it --
+ * the space inside the plate, its corners, the gap to the next one, the size
+ * of the name -- is worked out from the picture's size and written here on
+ * every redraw. `console_home::shape` is where they come from and where the
+ * proportions are held to. */
+
+window#home,
+#home {
+  background-color: transparent;
+}
+
+/* Inset at the sides, and thin above and below.
+ *
+ * The rows are what the height is spent on, and a row cannot give any of it
+ * back: a square's minimum is its picture plus its name, and stacking those
+ * minima already accounts for most of what is left under the bar. A generous
+ * margin all round pushed the whole arrangement past the bottom edge -- a
+ * layer taller than the screen it is anchored to, with the pane dots hanging
+ * off it -- because a layer surface cannot be smaller than what it holds, and
+ * what it holds does not shrink. Across, there is room to spare, so that is
+ * where the inset goes. */
+#squares {
+  margin: 16px 40px;
+}
+
+/* Every square carries a plate of its own. The applications stand on a
+   photograph, and a photograph has light parts: an icon and a name with
+   nothing behind them are legible over one corner of it and not over another.
+   The plate is dark and thin enough that the picture reads through it, which
+   is the whole point of standing them on a picture at all.
+
+   It is not a highlight, and it has to stay clearly under one -- what says
+   where the d-pad is standing is the rule below, and if these two are close
+   enough to be confused then the screen has fifteen selected squares. */
+#square {
+  padding: {padding}px;
+  border-radius: {rounding}px;
+  border: 2px solid transparent;
+  background-color: alpha(@night, 0.34);
+
+  /* The gap is what makes these plates rather than a sheet. The grid is
+     homogeneous and gives every square the whole of its cell, so a background
+     without a margin meets its neighbours exactly and fifteen plates draw as
+     one dark panel with icons on it -- which is the thing standing them on a
+     photograph was meant to avoid. */
+  margin: {margin}px;
+}
+
+/* Where the d-pad is standing: solid rather than a wash, and edged. Solid
+   because it is the one square whose plate is not there to be seen through --
+   it is the answer to "which one am I on", asked of a screen where every other
+   square is a window onto the picture. */
+#square.here {
+  background-color: @panel;
+  border-color: @mint;
+}
+
+/* An empty square says so only while it is being stood on: fifteen dotted
+   outlines on a wallpaper is a form, and one is an offer. */
+#square.empty.here {
+  background-color: alpha(@panel, 0.55);
+  border-style: dashed;
+}
+
+#square.empty {
+  background-color: transparent;
+}
+
+#named {
+  color: @text;
+  font-size: {named}px;
+  text-shadow: 0 1px 3px @night;
+}
+
+#panes {
+  margin-bottom: 28px;
+}
+
+#pane {
+  color: alpha(@text, 0.3);
+  font-size: {dot}px;
+}
+
+#pane.here {
+  color: @pink;
+}
+
+/* Something picked up: lifted off the wallpaper, and pink rather than mint,
+   because it is being carried rather than merely stood on. */
+#square.carrying {
+  background-color: alpha(@pink, 0.22);
+  border-color: @pink;
+  border-style: solid;
+}

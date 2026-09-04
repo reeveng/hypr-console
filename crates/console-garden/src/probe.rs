@@ -8,6 +8,20 @@
 use cairo::ImageSurface;
 use indexmap::IndexMap;
 
+use console_number::{Float, toward_zero_usize, whole_u8};
+
+use crate::fault::{Drawing, Fault};
+
+/// One of cairo's dimensions, as a count of pixels.
+///
+/// Cairo says a size in `i32` and has never said a negative one, so this does
+/// not fail in practice. It is written as a conversion that can rather than as
+/// a cast that cannot, because the first says what happens if cairo is ever
+/// wrong and the second only says that nobody thought about it.
+fn measured(size: i32) -> Drawing<usize> {
+    usize::try_from(size).map_err(|_| Fault::Sized(size))
+}
+
 /// Places to look, as fractions of the picture.
 ///
 /// Chosen to be flat: no tree, no petal, no crest, so what is read there is
@@ -40,20 +54,25 @@ pub struct Pixels {
 }
 
 impl Pixels {
-    pub fn of(surface: &mut ImageSurface) -> Self {
+    /// The bytes of a drawn picture.
+    ///
+    /// Borrowing them fails while a brush is still holding the surface, which
+    /// is a caller that has not dropped its `Context` yet. That is a mistake in
+    /// the calling code rather than anything about the picture, and it says so.
+    pub fn of(surface: &mut ImageSurface) -> Drawing<Self> {
         let (stride, width, height) = (
-            surface.stride() as usize,
-            surface.width() as usize,
-            surface.height() as usize,
+            measured(surface.stride())?,
+            measured(surface.width())?,
+            measured(surface.height())?,
         );
         surface.flush();
-        let data = surface.data().expect("the picture is drawn").to_vec();
-        Pixels {
+        let data = surface.data()?.to_vec();
+        Ok(Pixels {
             data,
             stride,
             width,
             height,
-        }
+        })
     }
 
     /// One pixel, as red, green and blue. The bytes are laid down the other
@@ -90,10 +109,10 @@ pub fn commonest(pixels: &Pixels) -> String {
 /// An average and not a pixel, so that a petal or a blade of grass that
 /// strayed into the patch moves the answer by less than a lossy encoder does.
 pub fn probe(pixels: &Pixels, across: f64, down: f64, patch: f64) -> String {
-    let half_x = (pixels.width as f64 * patch / 2.0) as usize;
-    let half_y = (pixels.height as f64 * patch / 2.0) as usize;
-    let x0 = (pixels.width as f64 * across) as usize;
-    let y0 = (pixels.height as f64 * down) as usize;
+    let half_x = toward_zero_usize(pixels.width.float() * patch / 2.0);
+    let half_y = toward_zero_usize(pixels.height.float() * patch / 2.0);
+    let x0 = toward_zero_usize(pixels.width.float() * across);
+    let y0 = toward_zero_usize(pixels.height.float() * down);
     let (total, seen) = (y0.saturating_sub(half_y)..(y0 + half_y).min(pixels.height))
         .flat_map(|y| {
             (x0.saturating_sub(half_x)..(x0 + half_x).min(pixels.width)).map(move |x| (x, y))
@@ -102,24 +121,36 @@ pub fn probe(pixels: &Pixels, across: f64, down: f64, patch: f64) -> String {
             let colour = pixels.at(x, y);
             (
                 [
-                    total[0] + colour[0] as usize,
-                    total[1] + colour[1] as usize,
-                    total[2] + colour[2] as usize,
+                    total[0] + usize::from(colour[0]),
+                    total[1] + usize::from(colour[1]),
+                    total[2] + usize::from(colour[2]),
                 ],
                 seen + 1,
             )
         });
-    let average = |channel: usize| (channel as f64 / seen as f64).round() as u8;
+    let average = |channel: usize| whole_u8(channel.float() / seen.float());
     hexcode([average(total[0]), average(total[1]), average(total[2])])
 }
 
 /// How far two colours are apart, by their furthest channel.
-fn apart(one: &str, other: &str) -> i32 {
-    let channel = |code: &str, at: usize| i32::from_str_radix(&code[at..at + 2], 16).unwrap_or(0);
-    (0..3)
-        .map(|which| (channel(one, which * 2) - channel(other, which * 2)).abs())
-        .max()
-        .unwrap_or(0)
+///
+/// Fallible because one of the two comes from the palette rather than from a
+/// picture, and a palette that says something which is not a colour should
+/// stop the drawing rather than be read as black and quietly pass.
+fn apart(one: &str, other: &str) -> Result<i32, String> {
+    let channel = |code: &str, at: usize| -> Result<i32, String> {
+        let pair = code
+            .get(at..at + 2)
+            .ok_or_else(|| format!("{code} is not six hex digits"))?;
+
+        i32::from_str_radix(pair, 16).map_err(|_| format!("{code} is not six hex digits"))
+    };
+
+    let channels = (0..3)
+        .map(|which| Ok((channel(one, which * 2)? - channel(other, which * 2)?).abs()))
+        .collect::<Result<Vec<i32>, String>>()?;
+
+    Ok(channels.into_iter().max().unwrap_or(0))
 }
 
 /// A probe that could not tell this picture from an unpainted screen.
@@ -138,17 +169,26 @@ pub struct Blind {
 /// blindness a check cannot see for itself: a probe on the dark part of the
 /// sky reads exactly what a bare screen reads. So it is caught here, where
 /// moving the composition is what would cause it.
-pub fn blind(probes: &[((f64, f64), String)], fallback: &str) -> Vec<Blind> {
-    probes
-        .iter()
-        .map(|((across, down), colour)| Blind {
-            across: *across,
-            down: *down,
-            colour: colour.clone(),
-            apart: apart(colour, fallback),
-        })
-        .filter(|found| found.apart < CLEAR_OF_NOTHING)
-        .collect()
+pub fn blind(probes: &[((f64, f64), String)], fallback: &str) -> Result<Vec<Blind>, String> {
+    // Written out rather than folded into the iterator chain: the `?` belongs
+    // to `apart`, and a closure that can fail cannot hand it to the `filter`
+    // that comes after it.
+    let mut found = Vec::new();
+
+    for ((across, down), colour) in probes {
+        let apart = apart(colour, fallback)?;
+
+        if apart < CLEAR_OF_NOTHING {
+            found.push(Blind {
+                across: *across,
+                down: *down,
+                colour: colour.clone(),
+                apart,
+            });
+        }
+    }
+
+    Ok(found)
 }
 
 #[cfg(test)]
@@ -196,6 +236,7 @@ mod tests {
             ((0.3, 0.4), "ffffff".to_string()),
         ];
         let dark = blind(&probes, "121212");
+        let dark = dark.expect("colours that read");
         assert_eq!(dark.len(), 1);
         assert_eq!((dark[0].across, dark[0].apart), (0.1, 2));
     }

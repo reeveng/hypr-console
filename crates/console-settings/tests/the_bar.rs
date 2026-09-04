@@ -10,10 +10,19 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use console_settings::rows::TABS;
+use console_settings::rows::tabs;
 
 fn root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().expect("the repository")
+    {
+    // Tidied by `canonicalize` where that works and left as it stands where it
+    // does not. What `CARGO_MANIFEST_DIR` gives is already absolute and already
+    // right; canonicalizing only takes the `../..` out of the middle. It fails
+    // under a sandbox that will not let a process resolve a path it can
+    // otherwise read, and a test that stops there reports the sandbox as a
+    // missing repository.
+    let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    from.canonicalize().unwrap_or(from)
+}
 }
 
 /// The bar's own file, with what is said about it taken out.
@@ -85,7 +94,7 @@ fn every_tab_the_bar_asks_for_exists() {
             continue;
         }
         assert!(
-            TABS.contains(&argument.as_str()),
+            tabs().contains(&argument),
             "the bar opens the {argument} tab, which does not exist"
         );
     }
@@ -107,10 +116,9 @@ fn the_tabs_the_bar_opens_stand_in_the_order_the_bar_draws_them() {
         .into_iter()
         .filter_map(|icon| opens.get(&icon).cloned())
         .collect();
-    let along_the_tabs: Vec<String> = TABS
-        .iter()
-        .filter(|tab| along_the_bar.iter().any(|opened| opened == *tab))
-        .map(|tab| (*tab).to_string())
+    let along_the_tabs: Vec<String> = tabs()
+        .into_iter()
+        .filter(|tab| along_the_bar.contains(tab))
         .collect();
     assert_eq!(along_the_bar.len(), opens.len(), "an icon that opens a tab and is not drawn");
     assert_eq!(along_the_bar, along_the_tabs, "the bar and the tabs are in two orders");

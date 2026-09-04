@@ -12,6 +12,7 @@ fn png(head: &[u8]) -> Option<(u32, u32)> {
     if head.get(..8)? != b"\x89PNG\r\n\x1a\n" {
         return None;
     }
+
     Some((four(head, 16)?, four(head, 20)?))
 }
 
@@ -20,13 +21,17 @@ fn jpeg(head: &[u8]) -> Option<(u32, u32)> {
     if head.get(..2)? != b"\xff\xd8" {
         return None;
     }
+
     let mut at = 2;
+
     while at + 9 < head.len() {
         if head[at] != 0xFF {
             at += 1;
             continue;
         }
+
         let marker = head[at + 1];
+
         match marker {
             0xC0..=0xC3 => {
                 let height = two(head, at + 5)?;
@@ -34,18 +39,32 @@ fn jpeg(head: &[u8]) -> Option<(u32, u32)> {
                 return Some((width, height));
             }
             0xD0..=0xD9 => at += 2,
-            _ => at += 2 + two(head, at + 2)? as usize,
+            _ => {
+                let Ok(length) = usize::try_from(two(head, at + 2)?) else {
+                    return None;
+                };
+
+                at += 2 + length;
+            }
         }
     }
+
     None
 }
 
+// The slice asked for above is exactly the width of the array below, so neither
+// conversion can fail. Both are written out rather than assumed, because the
+// two widths are on the same line and nothing but reading it checks they agree.
 fn two(head: &[u8], at: usize) -> Option<u32> {
-    Some(u32::from(u16::from_be_bytes(head.get(at..at + 2)?.try_into().ok()?)))
+    let Ok(pair) = head.get(at..at + 2)?.try_into() else { return None };
+
+    Some(u32::from(u16::from_be_bytes(pair)))
 }
 
 fn four(head: &[u8], at: usize) -> Option<u32> {
-    Some(u32::from_be_bytes(head.get(at..at + 4)?.try_into().ok()?))
+    let Ok(quad) = head.get(at..at + 4)?.try_into() else { return None };
+
+    Some(u32::from_be_bytes(quad))
 }
 
 #[cfg(test)]

@@ -20,6 +20,50 @@ host=$CONSOLE_HOST
 here=$(cd "$(dirname "$0")/.." && pwd)
 cd "$here"
 
+# One deploy at a time in this checkout.
+#
+# Three sessions share this working tree and none of them can see what the
+# others are doing. A deploy reads the tree, decides it is still, and then
+# spends minutes in `just ready` and an ssh round trip before it pushes -- and
+# twice it has been beaten in that window by a file appearing from a session
+# that had no way to know. What went to the device was not what was looked at.
+#
+# `mkdir` because it is the one filesystem operation that is atomic and tells
+# you whether it was you who made it, which is what a lock is. Under `.git`
+# because a lock anywhere else is a file in the working tree, and a lock that
+# makes the tree dirty is a lock that fails the check it exists to protect.
+#
+# Held for `--check` as well as for a deploy. A check asks the device what it
+# looks like, and halfway through somebody else's apply there is no answer to
+# that worth reading.
+lock=$here/.git/console-deploy.lock
+if ! mkdir "$lock" 2>/dev/null; then
+    pid=$(cat "$lock/pid" 2>/dev/null || true)
+    on=$(cat "$lock/on" 2>/dev/null || true)
+    since=$(cat "$lock/since" 2>/dev/null || true)
+    # A lock whose process is gone was left behind by a deploy that was killed,
+    # and taking it over is right. Only where this is the machine that made it:
+    # a pid from somewhere else says nothing about what is running here.
+    if [ -n "$pid" ] && [ "$on" = "$(hostname)" ] && ! kill -0 "$pid" 2>/dev/null; then
+        echo "a deploy started $since left its lock behind; taking it over" >&2
+        rm -rf "$lock"
+        mkdir "$lock"
+    else
+        echo "somebody is already deploying this checkout." >&2
+        echo "  started $since by pid $pid on $on" >&2
+        echo "wait for it to finish: what it sends is decided while it runs," >&2
+        echo "and a file written here meanwhile is a file it may or may not send." >&2
+        exit 1
+    fi
+fi
+# Released however this ends, including the prompts below that answer no.
+trap 'rm -rf "$lock"' EXIT
+trap 'rm -rf "$lock"; exit 130' INT
+trap 'rm -rf "$lock"; exit 143' TERM HUP
+printf '%s\n' "$$" >"$lock/pid"
+hostname >"$lock/on"
+date >"$lock/since"
+
 if [ -n "$(git status --porcelain)" ]; then
     echo "there are changes here that are not committed:" >&2
     git status --short >&2
@@ -30,8 +74,13 @@ if [ -n "$(git status --porcelain)" ]; then
     exit 1
 fi
 
+# What the tree was when it was looked at. Compared again below, because
+# everything between here and the push takes minutes and the lock only keeps
+# other deploys out -- it does not stop somebody editing a file.
+was=$(git rev-parse HEAD)
+
 echo "== everything that must hold, before anything is sent"
-make --no-print-directory ready
+just ready
 
 echo
 echo "== what the device has that this does not"
@@ -78,6 +127,29 @@ fi
 # not to this tree, and `console save` commits only the files it took back --
 # so a commit here that nobody remembers making is worth reading before it is
 # pulled.
+# The tree, asked once more, because this is the last moment the answer can
+# change anything. `just ready` and the fetch are minutes, and the lock keeps
+# other deploys out rather than other people out: a session that wrote a file
+# while this ran is exactly the fault this is here for, and the difference
+# between catching it now and not is whether the device gets what was checked.
+if [ -n "$(git status --porcelain)" ]; then
+    echo >&2
+    echo "something appeared here while this deploy was running:" >&2
+    git status --short >&2
+    echo "nothing sent. What was checked above is no longer what is here." >&2
+    echo "commit it and start again, or send the history alone out of a clone:" >&2
+    echo "  clone=\$(mktemp -d)/console && git clone . \"\$clone\" && cd \"\$clone\"" >&2
+    echo "  CONSOLE_HOST=$host tools/console-deploy" >&2
+    exit 1
+fi
+if [ "$(git rev-parse HEAD)" != "$was" ]; then
+    echo >&2
+    echo "the branch moved while this deploy was running:" >&2
+    git log --oneline "$was..HEAD" >&2
+    echo "nothing sent. Those commits were not in what \`just ready\` passed." >&2
+    exit 1
+fi
+
 ssh "$host" git -C /etc/console config receive.denyCurrentBranch updateInstead
 git push "ssh://$host/etc/console" HEAD:master
 
@@ -93,17 +165,27 @@ git push "ssh://$host/etc/console" HEAD:master
 # engine above.
 #
 # Which is not the same as this repository holding no binaries, and the
-# sentence here used to say it was. `files/usr/local/bin/hyprsession` and
-# `files/usr/local/bin/wvkbd-mobintl` are tracked, 1.8 MB and 1 MB of them:
-# forks of other people's GPL programs, carried built because nothing in this
-# tree can build them, and `docs/rename.md` says so plainly. They travel in the
-# history like any other file the manifest names. `console-publish` excludes
-# both by path, so the public copy has never carried them.
+# sentence here used to say it was. `files/usr/local/bin/hyprsession` is
+# tracked, 1.8 MB of it: somebody else's GPL program, carried built, and
+# `docs/rename.md` says so. It travels in the history like any other file the
+# manifest names, and `console-publish` excludes it by path, so the public copy
+# has never carried it.
 #
-# The rule, then, is narrower than it read: what we write is built on the
+# The keyboard used to be the second of those and is not any more. It is a crate
+# now, in `[build]`, compiled on the device out of what this push sends like
+# every other program a person touches. The C it was ported from has gone with
+# the port, so there is no half of that fork left for the copy to hold back.
+#
+# So the rule is the one it always meant to be: what we write is built on the
 # machine that runs it, and what somebody else wrote and we only forked is
-# carried. The second half stops being true for wvkbd the day its source comes
-# into the tree, which `docs/programs.md` recommends and nobody has decided.
+# carried. Two forks left, and neither is the keyboard.
+#
+# The gap this comment used to describe -- the manifest not naming the toolchain
+# a C build leans on -- closed by not needing one. There is no C to build on the
+# device. What did have to be named is `xkeyboard-config`, which is where every
+# alphabet the keyboard offers comes from now that it composes its keymap rather
+# than shipping one, and it is in `[packages]`.
+
 echo
 echo "== the engine"
 ssh "$host" cargo build --release --locked --manifest-path /etc/console/Cargo.toml --bin console
@@ -112,10 +194,10 @@ ssh "$host" console apply
 
 # The features, pressed on the machine that has them, now that it is the new
 # one. Everything that could be asked without the device was asked before
-# anything was sent -- `make ready` runs the emulated tier, which is most of
+# anything was sent -- `just ready` runs the emulated tier, which is most of
 # them and costs a third of a second. What is left needs this machine: whether
-# the units came up, whether wvkbd is holding the pad X arrives on, and whether
-# the desktop comes back the same way twenty restarts running.
+# the units came up, whether the keyboard is holding the pad X arrives on, and
+# whether the desktop comes back the same way twenty restarts running.
 #
 # At the end rather than the beginning, because until the apply has happened
 # the thing being asked about is the old release. This is the only moment the

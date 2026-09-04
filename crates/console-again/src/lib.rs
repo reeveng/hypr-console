@@ -58,24 +58,36 @@ pub fn longer(waited: Duration) -> Duration {
     (waited * 2).min(LONGEST)
 }
 
+/// Whether a retry loop has any reason to go round again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Round {
+    /// Somebody is still listening, so try again after the wait.
+    Another,
+    /// Nobody is, or what was asked for can never arrive. This is the end of it.
+    Done,
+}
+
 /// Do something over and over, waiting longer each time it comes to nothing.
 ///
 /// `once` is one attempt, from making the subscription to the moment it ends,
-/// and it answers whether another is wanted. False is the end of it: nobody is
-/// listening any more, or what was asked for is not a thing that can ever
+/// and it answers whether another is wanted. `Done` is the end of it: nobody
+/// is listening any more, or what was asked for is not a thing that can ever
 /// arrive.
 ///
 /// The thread is the point. Every caller here already has a loop of its own
 /// that has to go on answering while this waits, and a socket cannot be read
 /// on the same thread as a timeout.
-pub fn keep(mut once: impl FnMut() -> bool + Send + 'static) {
+pub fn keep(mut once: impl FnMut() -> Round + Send + 'static) {
     std::thread::spawn(move || {
         let mut waited = FIRST;
+
         loop {
             let began = Instant::now();
-            if !once() {
+
+            if once() == Round::Done {
                 return;
             }
+
             waited = after(waited, began.elapsed());
             std::thread::sleep(waited);
             waited = longer(waited);
@@ -128,7 +140,10 @@ mod tests {
     #[test]
     fn something_that_ends_is_done_again() {
         let (say, heard) = std::sync::mpsc::channel();
-        keep(move || say.send(()).is_ok());
+        keep(move || match say.send(()) {
+            Ok(()) => Round::Another,
+            Err(_) => Round::Done,
+        });
         for turn in 1..=3 {
             heard
                 .recv_timeout(Duration::from_secs(10))
@@ -143,7 +158,7 @@ mod tests {
         let (say, heard) = std::sync::mpsc::channel();
         keep(move || {
             say.send(()).ok();
-            false
+            Round::Done
         });
         heard.recv_timeout(Duration::from_secs(5)).expect("the one turn");
         assert!(

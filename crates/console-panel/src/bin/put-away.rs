@@ -14,8 +14,9 @@ use std::process::Command;
 use console_panel::chooser;
 
 fn main() {
-    if chooser::put_away() {
+    if chooser::put_away() == chooser::Away::Told {
         return;
     }
+
     let _ = Command::new("hyprctl").args(["dispatch", "hl.dsp.window.close()"]).status();
 }

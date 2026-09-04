@@ -9,5 +9,6 @@ fn main() {
     if here(GAME_TARGET) == Session::Desktop {
         return;
     }
+
     run(Session::Game, Session::Desktop);
 }

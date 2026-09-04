@@ -4,9 +4,11 @@
 //! rescale. `src/utils/img_utils.c` in the fork is the original, and a change
 //! there is a change here.
 
+
+use console_number::{Float, fitted, toward_zero_u8, whole_usize};
 use std::path::Path;
 
-use gtk4::gdk_pixbuf::Pixbuf;
+use gtk4::gdk_pixbuf::{InterpType, Pixbuf};
 
 /// The ramp a pixel's brightness is read off, densest first.
 pub const RAMP: &str = "$@&B%8WM#ZO0QoahkbdpqwmLCJUYXIjft/\\|()1{}[]l?zcvunxr!<>i;:*-+~_,\"^`'.";
@@ -22,10 +24,18 @@ fn levels() -> usize {
 /// How tall a character cell is against its width.
 ///
 /// A monospace cell is taller than it is wide, so a square sleeve drawn one
-/// character to a pixel comes out standing up. The number is this font at this
-/// size: the advance is three fifths of the line, and the panel's stylesheet
-/// holds the line at one.
-pub const CELL_ASPECT: f64 = 5.0 / 3.0;
+/// character to a pixel comes out standing up. The number is the font the
+/// stylesheet names for a cover, at the size it names: twenty points of line
+/// against eight of advance.
+///
+/// It was five thirds, which is the advance against the *size* -- and the line
+/// is not the size. `line-height: 1` is the font's own line, which at fourteen
+/// points is twenty of them and not fourteen, so the grid was a third too
+/// narrow for what was drawn on it. The size is pinned in the stylesheet and
+/// the family is named there rather than left to whichever monospace font
+/// answers first, because both halves of this number are somebody else's font
+/// otherwise.
+pub const CELL_ASPECT: f64 = 20.0 / 8.0;
 
 /// One cell: the character, and the colour the pixel under it was.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -59,11 +69,14 @@ impl Cover {
                     close(&mut out, &run, colour);
                     (colour, run) = (Some(cell.rgb), String::new());
                 }
+
                 run.push_str(&escaped(cell.ch));
             }
+
             close(&mut out, &run, colour);
             out.push('\n');
         }
+
         out.trim_end().to_string()
     }
 
@@ -100,36 +113,76 @@ fn escaped(ch: char) -> String {
 
 /// What a pixel is written as.
 pub fn character(rgb: (u8, u8, u8)) -> char {
-    let (levels, lit) = (levels(), luminance(rgb) as usize);
+    let (levels, lit) = (levels(), usize::from(luminance(rgb)));
     let step = lit * levels / 256;
     RAMP.chars().nth(levels - step).unwrap_or(' ')
 }
 
 /// How bright a pixel is, by Rec. 709.
 pub fn luminance((r, g, b): (u8, u8, u8)) -> u8 {
-    (0.2126 * f64::from(r) + 0.7152 * f64::from(g) + 0.0722 * f64::from(b)) as u8
+    toward_zero_u8(0.2126 * f64::from(r) + 0.7152 * f64::from(g) + 0.0722 * f64::from(b))
 }
 
 /// A picture file, read as characters `rows` tall.
 ///
-/// The picture keeps its shape and is centred in the grid. Where kew fills the
-/// margin with black, which the ramp draws as its faintest character, this
-/// leaves it blank: the panel has a card behind it and a border of stippling
-/// would read as part of the sleeve.
+/// The middle square of it, drawn to fill the grid. What a player writes out
+/// for a cover is not always a cover: kew hands over a wide picture with the
+/// record in the middle of it and a margin either side, and drawn as it came
+/// that is a letterbox with two bands of punctuation where a sleeve should be.
+///
+/// The grid is `CELL_ASPECT` wider than it is tall and the square is stretched
+/// across it, which is the same correction kew makes in
+/// `draw_square_bitmap_to_buf`: the cell does the standing up, so the picture
+/// must not. Fitted into the grid on its own pixels instead -- which is what
+/// this did -- a square sleeve took as many columns as it had rows and left
+/// the rest of the grid empty either side, and what was drawn stood up by the
+/// whole of the cell's own shape.
 pub fn read(path: &Path, rows: usize) -> Option<Cover> {
-    let cols = ((rows as f64) * CELL_ASPECT).round() as usize;
-    let (wide, tall) = (i32::try_from(cols).ok()?, i32::try_from(rows).ok()?);
-    let picture = Pixbuf::from_file_at_scale(path, wide, tall, true).ok()?;
+    let cols = whole_usize(rows.float() * CELL_ASPECT);
+
+    let (Ok(wide), Ok(tall)) = (i32::try_from(cols), i32::try_from(rows)) else {
+        return None;
+    };
+
+    let Ok(whole) = Pixbuf::from_file(path) else { return None };
+
+    let square = middle(&whole);
+    let picture = square.scale_simple(wide, tall, InterpType::Bilinear)?;
+
     Some(laid_out(&picture, cols, rows))
+}
+
+/// The middle square of a picture, which is where the record is.
+fn middle(whole: &Pixbuf) -> Pixbuf {
+    let side = whole.width().min(whole.height());
+    whole.new_subpixbuf((whole.width() - side) / 2, (whole.height() - side) / 2, side, side)
+}
+
+/// The room a cover takes, with nothing in it.
+///
+/// A player says what is playing before it says where the picture is, so the
+/// square is held from the moment the song changes: a card that kept no room
+/// until the picture arrived grew a sleeve's worth taller under a thumb that
+/// had already started reading it.
+///
+/// Written in no-break spaces rather than ordinary ones. The room is the whole
+/// of what this is for, and a run of ordinary spaces at the end of a line is a
+/// run the layout is free not to measure -- an empty sleeve that measured
+/// nothing would be no room at all.
+pub fn room(rows: usize) -> Cover {
+    let cols = whole_usize(rows.float() * CELL_ASPECT);
+    let blank = Cell { ch: '\u{a0}', rgb: (0, 0, 0) };
+
+    Cover { cols, rows, cells: vec![blank; cols * rows] }
 }
 
 /// The scaled picture, centred in a grid of that many columns and rows.
 fn laid_out(picture: &Pixbuf, cols: usize, rows: usize) -> Cover {
     let blank = Cell { ch: ' ', rgb: (0, 0, 0) };
     let mut cells = vec![blank; cols * rows];
-    let (bytes, stride) = (picture.read_pixel_bytes(), picture.rowstride() as usize);
-    let channels = picture.n_channels() as usize;
-    let (wide, tall) = (picture.width() as usize, picture.height() as usize);
+    let (bytes, stride) = (picture.read_pixel_bytes(), fitted::<i32, usize>(picture.rowstride()));
+    let channels: usize = fitted(picture.n_channels());
+    let (wide, tall) = (fitted::<i32, usize>(picture.width()), fitted::<i32, usize>(picture.height()));
     let (left, top) = ((cols.saturating_sub(wide)) / 2, (rows.saturating_sub(tall)) / 2);
 
     for down in 0..tall.min(rows) {
@@ -142,6 +195,7 @@ fn laid_out(picture: &Pixbuf, cols: usize, rows: usize) -> Cover {
             cells[(top + down) * cols + left + across] = Cell { ch: character(rgb), rgb };
         }
     }
+
     Cover { cols, rows, cells }
 }
 

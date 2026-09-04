@@ -21,15 +21,24 @@ pub mod mako;
 pub mod paper;
 pub mod shell;
 
+use console_colour::Short;
 use std::path::{Path, PathBuf};
 
 use crate::palette::Palette;
 use crate::terminal::Terminal;
 
 /// The colours every palette file writes out, in the order they are written.
-pub const ROLES: [&str; 16] = [
-    "night", "ground", "panel", "edge", "text", "soft", "pink", "rose", "mauve", "lilac", "sky",
-    "mint", "leaf", "butter", "peach", "coral",
+///
+/// A colour left out of here is a colour no stylesheet defines, and GTK
+/// answers a name nobody defined by dropping that one declaration and carrying
+/// on -- so the rule using it is simply never drawn, with nothing logged and
+/// nothing failed. `fill` sat outside this list while the strip under the bar
+/// asked for it by name, and the strip painted at no percentage an apply ever
+/// reported. `every_name_the_desktop_asks_for_is_defined` holds this list
+/// against the files that name colours.
+pub const ROLES: [&str; 17] = [
+    "night", "ground", "panel", "fill", "edge", "text", "soft", "pink", "rose", "mauve", "lilac",
+    "sky", "mint", "leaf", "butter", "peach", "coral",
 ];
 
 /// The column a list of names is aligned into.
@@ -60,7 +69,11 @@ pub struct Written {
 /// Five of these are the palette itself, one per language that has to be
 /// spoken. The rest of the desktop imports whichever of them speaks its own,
 /// so this list is nearly the whole of where a colour appears on the machine.
-pub fn everywhere(files: &Path, palette: &Palette, terminal: &Terminal) -> Vec<Written> {
+pub fn everywhere(
+    files: &Path,
+    palette: &Palette,
+    terminal: &Terminal,
+) -> Result<Vec<Written>, Short> {
     let home = files.join("home/@user@");
     let chrome = home.join(".librewolf/console/chrome");
     let whole = |path: PathBuf, body: String| Written {
@@ -74,45 +87,45 @@ pub fn everywhere(files: &Path, palette: &Palette, terminal: &Terminal) -> Vec<W
         body,
     };
 
-    vec![
+    Ok(vec![
         // The palette, once per language.
-        whole(home.join(".config/console/palette.css"), gtk::spend(palette)),
+        whole(home.join(".config/console/palette.css"), gtk::spend(palette)?),
         whole(
             home.join(".config/console/palette.toml"),
             alacritty::spend(terminal),
         ),
-        whole(chrome.join("palette.css"), librewolf::stylesheet(palette)),
+        whole(chrome.join("palette.css"), librewolf::stylesheet(palette)?),
         whole(
             files.join("usr/local/lib/console/palette.sh"),
-            shell::spend(palette),
+            shell::spend(palette)?,
         ),
         // The three that cannot import anything. KDE's ini format has no
         // include and neither has mako's, and a user.js is a list of literals.
-        region(home.join(".config/kdeglobals"), kde::spend(palette)),
-        region(home.join(".config/mako/config"), mako::spend(palette)),
+        region(home.join(".config/kdeglobals"), kde::spend(palette)?),
+        region(home.join(".config/mako/config"), mako::spend(palette)?),
         region(
             home.join(".librewolf/console/user.js"),
-            librewolf::prefs(palette),
+            librewolf::prefs(palette)?,
         ),
         // The compositor. Written rather than imported: a Lua file that fails
         // to load takes the whole session with it, and the session is the
         // thing the person holding this device is standing on.
         region(
             home.join(".config/hypr/hyprland.lua"),
-            hyprland::spend(palette),
+            hyprland::spend(palette)?,
         ),
         // The unit that starts the wallpaper daemon, which sets the colour
         // behind everything for the moment before `console-sky` has chosen.
         region(
             files.join("etc/systemd/user/console-paper.service"),
-            paper::spend(palette),
+            paper::spend(palette)?,
         ),
         // Drawn.
         whole(
             files.join("usr/share/icons/console-placeholder.svg"),
-            icon::spend(palette),
+            icon::spend(palette)?,
         ),
-    ]
+    ])
 }
 
 #[cfg(test)]
@@ -133,8 +146,8 @@ pub mod tests {
 
     fn spent() -> Vec<Written> {
         let (spec, palette) = (palette_spec(), blossom());
-        let terminal = Terminal::of(&spec, &palette);
-        everywhere(Path::new("files"), &palette, &terminal)
+        let terminal = Terminal::of(&spec, &palette).expect("the terminal table is declared");
+        everywhere(Path::new("files"), &palette, &terminal).expect("every colour it spends is declared")
     }
 
     #[test]

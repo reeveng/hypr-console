@@ -64,6 +64,7 @@ impl Stop {
     pub fn of(state: &str, resume: &str) -> Self {
         let can = state.split_whitespace().any(|word| word == "disk");
         let somewhere = !matches!(resume.trim(), "" | "0:0");
+
         match can && somewhere {
             true => Stop::Hibernate,
             false => Stop::PowerOff,
@@ -100,7 +101,14 @@ pub const RESUME: &str = "/sys/power/resume";
 
 /// The same, off this machine.
 pub fn stop() -> Stop {
-    let said = |at: &str| std::fs::read_to_string(at).unwrap_or_default();
+    // A kernel with neither file is one that cannot be stopped, and `Stop::of`
+    // reads the empty answer as exactly that.
+    let said = |at: &str| {
+        let Ok(said) = std::fs::read_to_string(at) else { return String::new() };
+
+        said
+    };
+
     Stop::of(&said(STATE), &said(RESUME))
 }
 
@@ -117,12 +125,13 @@ pub fn stop() -> Stop {
 /// that times out is a card that was not read.
 pub fn card(step: Step, charge: i32, stop: Stop) -> Notice {
     let left = format!("{charge}% left.");
+
     match step {
-        Step::Low => Notice::new("Battery getting low", &left).lasting(6000).valued(charge.into()),
+        Step::Low => Notice::new("Battery getting low", &left).lasting(6000).valued(i64::from(charge)),
         Step::Lower => Notice::new("Battery getting really low", &format!("{left} Time to find the cable."))
             .urgent()
             .staying()
-            .valued(charge.into()),
+            .valued(i64::from(charge)),
         Step::Protect => stopping(charge, stop),
     }
 }
@@ -149,7 +158,7 @@ fn stopping(charge: i32, stop: Stop) -> Notice {
             ),
         ),
     };
-    Notice::new(&summary, &body).urgent().staying().valued(charge.into())
+    Notice::new(&summary, &body).urgent().staying().valued(i64::from(charge))
 }
 
 /// The card that replaces it when the cable goes in.

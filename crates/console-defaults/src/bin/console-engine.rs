@@ -29,6 +29,7 @@ use console_defaults::policies::{self, CHROMIUM, FIREFOX, LIBREWOLF, Where};
 
 fn main() -> std::process::ExitCode {
     let key = std::env::args().nth(1).unwrap_or_else(engines::chosen);
+
     let Some(engine) = engines::one(&key) else {
         eprintln!("{key}: not an engine this machine knows");
         return std::process::ExitCode::from(1);
@@ -40,14 +41,16 @@ fn main() -> std::process::ExitCode {
     };
 
     for place in [&CHROMIUM, &FIREFOX, &LIBREWOLF] {
-        if !here(place.program) {
+        if here(place.program) == Installed::No {
             continue;
         }
+
         match wrote(Path::new(place.file), &said(place)) {
             Ok(()) => println!("{}: {}", engine.says, place.file),
             Err(why) => eprintln!("{}: {why}", place.file),
         }
     }
+
     std::process::ExitCode::SUCCESS
 }
 
@@ -58,14 +61,55 @@ fn main() -> std::process::ExitCode {
 fn shipped(place: &Where) -> String {
     match place.beneath.is_empty() {
         true => String::new(),
-        false => std::fs::read_to_string(place.beneath).unwrap_or_default(),
+        // Nothing where the browser ships no list of its own, which is the
+        // ordinary case and is what the caller merges against. A list that is
+        // there and will not be read gives the same empty answer and means
+        // something else: ours is about to go out of date against it in silence.
+        false => match std::fs::read_to_string(place.beneath) {
+            Ok(said) => said,
+            Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(fault) => {
+                eprintln!("console-engine: {}: {fault}", place.beneath);
+
+                String::new()
+            }
+        },
     }
 }
 
 /// Whether a program is on this machine.
-fn here(program: &str) -> bool {
-    let path = std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/usr/local/bin".to_string());
-    path.split(':').filter(|at| !at.is_empty()).any(|at| PathBuf::from(at).join(program).exists())
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Installed {
+    /// It is somewhere on the PATH, so there is a browser to write a policy for.
+    Yes,
+    /// It is not, and there is nothing here to configure.
+    No,
+}
+
+fn here(program: &str) -> Installed {
+    // No PATH is a session that named none, and the two directories below are
+    // where a browser is on this machine. A PATH set to something that is not
+    // text is somebody's environment being wrong rather than absent, and it
+    // used to reach here as the same fallback without a word.
+    let path = match std::env::var("PATH") {
+        Ok(path) => path,
+        Err(std::env::VarError::NotPresent) => "/usr/bin:/usr/local/bin".to_string(),
+        Err(fault) => {
+            eprintln!("console-engine: PATH: {fault}");
+
+            "/usr/bin:/usr/local/bin".to_string()
+        }
+    };
+
+    let found = path
+        .split(':')
+        .filter(|at| !at.is_empty())
+        .any(|at| PathBuf::from(at).join(program).exists());
+
+    match found {
+        true => Installed::Yes,
+        false => Installed::No,
+    }
 }
 
 /// Write one policy, making the directory it goes in if the browser's package
@@ -74,5 +118,6 @@ fn wrote(at: &Path, said: &str) -> std::io::Result<()> {
     if let Some(parent) = at.parent() {
         std::fs::create_dir_all(parent)?;
     }
+
     std::fs::write(at, said)
 }

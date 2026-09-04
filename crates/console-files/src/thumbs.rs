@@ -35,8 +35,18 @@ pub fn store(cache: &Path) -> PathBuf {
 /// never found walking in the other. Following the links first means a thing
 /// has one picture however it was arrived at.
 pub fn address(path: &Path) -> Option<String> {
-    let real = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    glib::filename_to_uri(real, None).ok().map(|uri| uri.to_string())
+    // A path that will not resolve is one nothing is behind -- a link to
+    // something removed, most often -- and the name as given is the best
+    // address there is for it. Walked past in silence: this runs once per
+    // thing in a listing, and a folder of them would say it hundreds of times.
+    let real = match path.canonicalize() {
+        Ok(real) => real,
+        Err(_) => path.to_path_buf(),
+    };
+
+    let Ok(uri) = glib::filename_to_uri(real, None) else { return None };
+
+    Some(uri.to_string())
 }
 
 /// The picture of that address, in the store.
@@ -54,16 +64,34 @@ pub fn of(store: &Path, address: &str) -> Option<PathBuf> {
 /// Made before the thing last changed, it is a picture of what that thing used
 /// to be. A photograph edited on this device would go on showing the version
 /// before the edit for as long as the store was believed.
-pub fn fresh(made: SystemTime, changed: SystemTime) -> bool {
-    made >= changed
+pub fn fresh(made: SystemTime, changed: SystemTime) -> Fresh {
+    match made >= changed {
+        true => Fresh::Yes,
+        false => Fresh::Stale,
+    }
+}
+
+/// Whether a picture in the store is still a picture of what it names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Fresh {
+    /// It was made after the thing last changed.
+    Yes,
+    /// The thing has changed since, so the picture is of what it used to be.
+    Stale,
 }
 
 /// The one on disk, if there is one and it is still true.
 pub fn found(store: &Path, path: &Path) -> Option<PathBuf> {
     let picture = of(store, &address(path)?)?;
-    let made = picture.metadata().ok()?.modified().ok()?;
-    let changed = path.metadata().ok()?.modified().ok()?;
-    fresh(made, changed).then_some(picture)
+
+    let Ok(made) = picture.metadata().and_then(|held| held.modified()) else { return None };
+
+    let Ok(changed) = path.metadata().and_then(|held| held.modified()) else { return None };
+
+    match fresh(made, changed) {
+        Fresh::Yes => Some(picture),
+        Fresh::Stale => None,
+    }
 }
 
 #[cfg(test)]
@@ -116,8 +144,8 @@ mod tests {
     fn a_picture_made_before_the_thing_changed_is_out_of_date() {
         let then = SystemTime::UNIX_EPOCH;
         let now = then + Duration::from_secs(60);
-        assert!(fresh(now, then));
-        assert!(fresh(then, then));
-        assert!(!fresh(then, now));
+        assert_eq!(fresh(now, then), Fresh::Yes);
+        assert_eq!(fresh(then, then), Fresh::Yes);
+        assert_eq!(fresh(then, now), Fresh::Stale);
     }
 }

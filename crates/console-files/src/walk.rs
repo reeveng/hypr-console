@@ -25,6 +25,15 @@ pub struct Walk {
     marks: Vec<usize>,
 }
 
+/// Whether a walk is at the top of its place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Top {
+    /// It is, so the row that goes back goes to the tab's own name.
+    Yes,
+    /// It is not, so there is a folder above this one.
+    No,
+}
+
 impl Walk {
     /// A tab standing at the top of its place.
     pub fn of(top: &Path) -> Self {
@@ -37,8 +46,11 @@ impl Walk {
     }
 
     /// Whether there is anywhere above this.
-    pub fn at_top(&self) -> bool {
-        self.marks.is_empty()
+    pub fn at_top(&self) -> Top {
+        match self.marks.is_empty() {
+            true => Top::Yes,
+            false => Top::No,
+        }
     }
 
     /// What the folder being shown is called, given what its place is called.
@@ -50,8 +62,8 @@ impl Walk {
     /// folder's own name is the only name it has.
     pub fn called(&self, place: &str) -> String {
         match self.at_top() {
-            true => place.to_string(),
-            false => named(&self.at),
+            Top::Yes => place.to_string(),
+            Top::No => named(&self.at),
         }
     }
 
@@ -76,9 +88,11 @@ impl Walk {
     /// and that back means the panel.
     pub fn up(&mut self) -> Option<usize> {
         let back_to = self.marks.pop()?;
+
         if let Some(above) = self.at.parent().map(Path::to_path_buf) {
             self.at = above;
         }
+
         Some(back_to)
     }
 }
@@ -105,7 +119,7 @@ mod tests {
     #[test]
     fn a_tab_starts_at_the_top_of_its_place() {
         let walk = pictures();
-        assert!(walk.at_top());
+        assert_eq!(walk.at_top(), Top::Yes);
         assert_eq!(walk.above("Pictures"), None);
     }
 
@@ -114,7 +128,7 @@ mod tests {
         let mut walk = pictures();
         walk.enter("2026", 4);
         assert_eq!(walk.here(), Path::new("/home/ada/Pictures/2026"));
-        assert!(!walk.at_top());
+        assert_eq!(walk.at_top(), Top::No);
         assert_eq!(walk.above("Pictures").as_deref(), Some("Pictures"));
     }
 

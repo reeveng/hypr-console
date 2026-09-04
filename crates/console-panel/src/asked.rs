@@ -32,8 +32,10 @@ unsafe extern "C" {
 /// Do this on the main loop, the first time any of them arrives.
 pub fn stops_when_asked(then: impl Fn() + 'static) {
     let shared: Rc<dyn Fn()> = Rc::new(then);
+
     for number in STOPPING {
-        let held = Box::into_raw(Box::new(Rc::clone(&shared))) as glib::ffi::gpointer;
+        let held = Box::into_raw(Box::new(Rc::clone(&shared))).cast::<std::ffi::c_void>();
+
         // SAFETY: the box is handed over with the notify that frees it, and
         // the source is the main loop's from here on.
         unsafe {
@@ -50,11 +52,17 @@ pub fn stops_when_asked(then: impl Fn() + 'static) {
 
 /// The signal, arrived somewhere it is safe to do something about.
 unsafe extern "C" fn answer(data: glib::ffi::gpointer) -> glib::ffi::gboolean {
-    let then = unsafe { &*(data as *const Rc<dyn Fn()>) };
+    // SAFETY: `data` is the box `stops_when_asked` leaked, and glib hands back
+    // the same pointer it was given. It stays alive until `forget` runs, which
+    // glib does after the last call to this, so the borrow cannot outlive it.
+    let then = unsafe { &*data.cast::<Rc<dyn Fn()>>() };
     then();
     glib::ffi::GFALSE
 }
 
 unsafe extern "C" fn forget(data: glib::ffi::gpointer) {
-    drop(unsafe { Box::from_raw(data as *mut Rc<dyn Fn()>) });
+    // SAFETY: the same pointer again, and this is the notify glib calls once
+    // when the source is gone. Taking the box back is what frees it, and
+    // nothing can reach it afterwards.
+    drop(unsafe { Box::from_raw(data.cast::<Rc<dyn Fn()>>()) });
 }

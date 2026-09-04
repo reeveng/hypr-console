@@ -10,7 +10,8 @@
 
 use evdev::EventType;
 use console_controller::doing::{Doing, Out};
-use console_controller::mode::Mode;
+use console_controller::means::Table;
+use console_controller::mode::{Awake, Mode};
 use console_controller::turning::Turning;
 use console_pad::capture::captured;
 use console_pad::devices::Devices;
@@ -18,6 +19,7 @@ use console_pad::go::{Held, LegionGo};
 use console_pad::router::every_profile;
 use console_pad::world::World;
 
+use crate::device::Seen;
 use crate::plug::Plug;
 
 /// How many turns of the loop a settle is, when a check does not say.
@@ -34,11 +36,25 @@ pub struct Here {
     pub commands: Vec<Vec<String>>,
     /// Everything it wrote to the device it publishes.
     pub written: Vec<Out>,
+    /// Every word it said to the home screen, in the order it said them.
+    pub told: Vec<console_door::Said>,
+    /// What the compositor last said was on the screen, kept so that the mode
+    /// can be worked out again when the home screen wakes or sleeps.
+    layers: Option<serde_json::Value>,
+    /// Whether the home screen is holding a highlight.
+    ///
+    /// Modelled here rather than asked of a file, because the home screen is
+    /// not running: what wakes it is a word the daemon said, and this is what
+    /// hearing that word would have come to. Without it a check could press
+    /// the d-pad and then A and get the answer for a home screen that had
+    /// never been woken -- which is the fault this was written for, tested
+    /// from the wrong side.
+    awake: Awake,
 }
 
 impl Here {
     pub fn new() -> Result<Self, String> {
-        let devices = Devices::new(captured(), World::of(captured()));
+        let devices = Devices::new(captured()?, World::of(captured()?));
         let go =
             LegionGo::new(every_profile(&crate::root())?, devices, Held::default(), console_pad::router::NAME)?;
         Ok(Here {
@@ -47,6 +63,9 @@ impl Here {
             now: STARTED,
             commands: Vec::new(),
             written: Vec::new(),
+            told: Vec::new(),
+            layers: None,
+            awake: Awake::No,
         })
     }
 
@@ -87,6 +106,17 @@ impl Here {
         self.go.load_profile(name)
     }
 
+    /// Hand the daemon a table somebody has said something about.
+    ///
+    /// On the device the daemon reads `~/.config/console/buttons.toml` itself
+    /// and rebuilds the table when the file changes underneath it. There is no
+    /// home here, so the table is handed over already built -- and it is the
+    /// same table, built by the same `Table::of`, so what is being checked is
+    /// what somebody's answers come to and not a second reading of them.
+    pub fn bound_by(&mut self, table: Table) {
+        self.turning.bound_by(table);
+    }
+
     /// Say what is in front of the daemon, in the compositor's own words.
     ///
     /// On the device the daemon asks `hyprctl layers -j` and reads the answer.
@@ -100,8 +130,22 @@ impl Here {
     /// and none of it could be pressed anywhere but on hardware.
     pub fn showing(&mut self, layers: &str) -> Result<(), String> {
         let said = serde_json::from_str(layers).map_err(|fault| format!("layers: {fault}"))?;
-        self.in_front(Mode::seen(&said));
+        self.layers = Some(said);
+        self.reckons();
         Ok(())
+    }
+
+    /// Work out where you are again, from what is on the screen and whether
+    /// the home screen has a highlight up.
+    fn reckons(&mut self) {
+        let Some(layers) = self.layers.clone() else { return };
+
+        self.in_front(Mode::seen(&layers, self.awake));
+    }
+
+    /// Whether the home screen is awake, as far as this stage is concerned.
+    pub fn awake(&self) -> Awake {
+        self.awake
     }
 
     /// Say what is in front, having already worked it out.
@@ -127,12 +171,26 @@ impl Here {
     pub fn settle(&mut self, turns: usize) {
         for _ in 0..turns {
             let mut plug = Plug { devices: &mut self.go.devices };
+
             for what in self.turning.turn(&mut plug, self.now) {
                 match what {
                     Doing::Run(argv) => self.commands.push(argv),
                     Doing::Frame(frame) => self.written.extend(frame),
+                    // What the home screen would have done about it. The
+                    // d-pad raises the highlight and B puts it away, and both
+                    // change what A means -- which is the whole reason the
+                    // stage has to model it rather than collect it.
+                    Doing::Tell(said) => {
+                        self.told.push(said);
+                        self.awake = match said {
+                            console_door::Said::Back => Awake::No,
+                            _ => Awake::Yes,
+                        };
+                        self.reckons();
+                    }
                 }
             }
+
             self.now += self.turning.poll();
         }
     }
@@ -176,16 +234,28 @@ impl Here {
     }
 
     /// Whether it ever sent exactly that.
-    pub fn sent(&self, kind: EventType, code: u16, value: i32) -> bool {
-        self.written
+    pub fn sent(&self, kind: EventType, code: u16, value: i32) -> Seen {
+        let found = self
+            .written
             .iter()
-            .any(|out| out.kind == kind && out.code == code && out.value == value)
+            .any(|out| out.kind == kind && out.code == code && out.value == value);
+
+        match found {
+            true => Seen::Yes,
+            false => Seen::NotYet,
+        }
     }
 
     /// Forget what the last check did; another one is next.
     pub fn fresh(&mut self) {
         self.commands.clear();
         self.written.clear();
+        self.told.clear();
+    }
+
+    /// Every word said to the home screen since the last clearing.
+    pub fn told(&self) -> &[console_door::Said] {
+        &self.told
     }
 }
 

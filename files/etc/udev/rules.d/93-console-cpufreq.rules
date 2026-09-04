@@ -1,0 +1,47 @@
+# Let the session tell the processors to hurry while somebody is waiting.
+#
+# This machine sits at its lowest clock between presses, and a panel is a
+# moment's work: the whole of an opening is over before a processor watching
+# how busy it has been has noticed there was anything to do. So the daemon that
+# reads the pad raises the hint as it starts a panel and puts back what was
+# there a moment later. `console-timings` is what says whether it helped.
+#
+# The hint is `energy_performance_preference`, one per processor. It belongs to
+# root and it has a second writer: power-profiles-daemon writes all of them
+# whenever somebody changes the power profile.
+#
+# Which is why this is a group and not an owner. Handed over the way the
+# touchpad's buzz is -- chowned to the desktop user -- it worked for this
+# desktop and took the profile switch away from the machine: that daemon runs
+# as root with `CapabilityBoundingSet=CAP_SYS_ADMIN` and `NoNewPrivileges`, so
+# it has no `CAP_DAC_OVERRIDE` to fall back on, and root that cannot override
+# permissions is just another user who does not own the file. Every profile
+# switch failed, with `Could not open ... for writing` in its journal and
+# nothing at all on the screen. Owner root and group write is the shape that
+# has two writers: the daemon writes as the owner, this desktop as the group.
+#
+# `@user@` is the mark `console apply` fills in, and it is a group here as well
+# as a user because this account has a group of its own name, which is what
+# `useradd` makes. 90-console-backlight.rules does the same thing with `video`,
+# a group that already existed for the purpose; there is no such group for the
+# processors, so the person's own is the one that means only them.
+#
+# A rule is read when a device appears, and processors appear once, at boot. So
+# the apply that first writes this file changes nothing on the machine it is
+# writing to: the files stay as they were until something triggers the rule,
+# and the daemon quietly cannot raise the hint until the next boot. On this
+# device that was done by hand, once:
+#
+#     udevadm control --reload && udevadm trigger --subsystem-match=cpu --action=add
+#
+# Not in `console_manifest::units::WAKES` with the bar and the wallpaper, because
+# what would go there is a trigger across every device on a running desktop, and
+# this one is about the only subsystem here that never appears twice.
+#
+# Matched on the processor rather than on its cpufreq directory, and guarded by
+# the hint existing: on this kernel the driver is built in, so the file is
+# there long before udev looks, and on a machine where it is not the rule
+# quietly does not apply -- which is the desktop as it was, slower and working.
+SUBSYSTEM=="cpu", ACTION=="add", ATTR{cpufreq/energy_performance_preference}=="?*", \
+  RUN+="/usr/bin/chgrp @user@ %S%p/cpufreq/energy_performance_preference", \
+  RUN+="/usr/bin/chmod g+w %S%p/cpufreq/energy_performance_preference"

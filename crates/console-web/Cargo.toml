@@ -10,5 +10,9 @@ name = "console-web"
 path = "src/bin/console-web.rs"
 
 [dependencies]
+console-number.workspace = true
 console-defaults.workspace = true
 sha2 = "0.10"
+
+[lints]
+workspace = true

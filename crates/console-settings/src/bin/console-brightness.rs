@@ -26,7 +26,7 @@
 
 use console_notices::saying::{Kept, Notice, raise_kept};
 use console_settings::screen::{
-    self, DIMMED, Way, as_points, now, remembered, set, stepped, undimming,
+    self, DIMMED, Moved, Way, as_points, now, remembered, set, stepped, undimming,
 };
 
 fn main() -> std::process::ExitCode {
@@ -55,10 +55,12 @@ fn main() -> std::process::ExitCode {
     };
 
     let going = stepped(now, way);
-    if !set(going) {
+
+    if set(going) == Moved::No {
         eprintln!("console-brightness: the screen would not take it");
         return std::process::ExitCode::FAILURE;
     }
+
     said(going);
     std::process::ExitCode::SUCCESS
 }
@@ -89,17 +91,33 @@ fn dim(now: i64) -> std::process::ExitCode {
         eprintln!("console-brightness: no XDG_RUNTIME_DIR, so nothing could be remembered");
         return std::process::ExitCode::FAILURE;
     };
+
     if kept.exists() {
         return std::process::ExitCode::SUCCESS;
     }
-    if std::fs::write(&kept, format!("{now}\n")).is_err() {
-        eprintln!("console-brightness: could not write {}", kept.display());
+
+    if let Err(fault) = std::fs::write(&kept, format!("{now}\n")) {
+        eprintln!("console-brightness: could not write {}: {fault}", kept.display());
+
         return std::process::ExitCode::FAILURE;
     }
+
     match set(DIMMED) {
-        true => std::process::ExitCode::SUCCESS,
-        false => std::process::ExitCode::FAILURE,
+        Moved::Yes => std::process::ExitCode::SUCCESS,
+        Moved::No => std::process::ExitCode::FAILURE,
     }
+}
+
+/// What the note says, or nothing where there is none and nothing to put back.
+///
+/// A note that will not open and a note that is not a number are the same news
+/// here: there is no level to go back to, and the screen stays where it is.
+fn kept_at(kept: &std::path::Path) -> Option<i64> {
+    let Ok(held) = std::fs::read_to_string(kept) else { return None };
+
+    let Ok(was) = held.trim().parse::<i64>() else { return None };
+
+    Some(was)
 }
 
 /// Put it back, unless a hand has been on it since.
@@ -109,12 +127,14 @@ fn dim(now: i64) -> std::process::ExitCode {
 /// that nothing will ever take down again.
 fn undim(now: i64) -> std::process::ExitCode {
     let Some(kept) = remembered() else { return std::process::ExitCode::SUCCESS };
-    let was = std::fs::read_to_string(&kept).ok().and_then(|held| held.trim().parse().ok());
+
+    let was = kept_at(&kept);
     let _ = std::fs::remove_file(&kept);
+
     match was.and_then(|was| undimming(now, was)) {
         Some(back) => match set(back) {
-            true => std::process::ExitCode::SUCCESS,
-            false => std::process::ExitCode::FAILURE,
+            Moved::Yes => std::process::ExitCode::SUCCESS,
+            Moved::No => std::process::ExitCode::FAILURE,
         },
         None => std::process::ExitCode::SUCCESS,
     }

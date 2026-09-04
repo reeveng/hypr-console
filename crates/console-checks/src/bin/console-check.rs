@@ -6,6 +6,7 @@
 //! console-check brightness               only the checks about that
 //! console-check --stage device --dry     what it would do to the device
 //! console-check --stage device --yes     do it
+//! console-check --stage device --yes --all   every check written for it
 //! ```
 //!
 //! The device is the last stage and it is somebody's machine. Nothing is sent to
@@ -13,6 +14,14 @@
 //! before it is run. The pressing goes through InputPlumber's own SendEvent,
 //! which is how the hardware's own buttons arrive, so nothing is created on the
 //! device and nothing is left behind if this stops halfway.
+//!
+//! It is also the slow stage, and most of what is written for it was already
+//! answered here a second earlier. So asked for nothing in particular, the
+//! machine is asked only what nothing else can answer, and says of the rest
+//! where it was answered instead. --all is the whole tier for when the answer
+//! wanted is about the hardware rather than the desktop. Naming a check is
+//! asking for it: `--stage device brightness` runs brightness there whatever
+//! the emulator thinks.
 
 use std::collections::BTreeMap;
 use std::io::IsTerminal;
@@ -20,7 +29,7 @@ use std::io::IsTerminal;
 use console_checks::chosen;
 use console_stage::checking::{self, Check, How};
 use console_stage::desktop::Desktop;
-use console_stage::device::{self, Device};
+use console_stage::device::{self, Device, Dry};
 use console_stage::here::Here;
 
 /// What was asked for on the command line.
@@ -30,6 +39,7 @@ struct Asked {
     list: bool,
     dry: bool,
     yes: bool,
+    all: bool,
 }
 
 fn asked(words: Vec<String>) -> Asked {
@@ -48,6 +58,7 @@ fn asked(words: Vec<String>) -> Asked {
         list: said("--list"),
         dry: said("--dry"),
         yes: said("--yes"),
+        all: said("--all"),
     }
 }
 
@@ -81,6 +92,7 @@ fn main() -> std::process::ExitCode {
         true => COLOURED,
         false => PLAIN,
     };
+
     match run(asked(std::env::args().skip(1).collect()), &ink) {
         Ok(code) => code,
         Err(why) => {
@@ -90,8 +102,23 @@ fn main() -> std::process::ExitCode {
     }
 }
 
+/// One check on the machine, unless somewhere cheaper is written for it.
+///
+/// The tier is minutes of somebody's handheld, and most of it is a second
+/// question about a feature the emulator answered before the deploy went out.
+/// What is left is what only the hardware knows. A spared check still prints,
+/// because a line that says where it was answered is the difference between a
+/// short tier and a tier with holes nobody can see.
+fn spared(check: &Check, stage: &mut Device) -> How {
+    match check.without_the_device() {
+        None => checking::device(check, stage),
+        Some(where_) => How::Skipped(format!("{} answers this", where_.name())),
+    }
+}
+
 fn run(asked: Asked, ink: &Ink) -> Result<std::process::ExitCode, String> {
     let checks = chosen(&asked.only);
+
     if checks.is_empty() {
         return Err("no checks by that name".to_string());
     }
@@ -100,6 +127,7 @@ fn run(asked: Asked, ink: &Ink) -> Result<std::process::ExitCode, String> {
         for check in checks {
             println!("{:<28} {}", check.name, check.about);
         }
+
         return Ok(std::process::ExitCode::SUCCESS);
     }
 
@@ -123,12 +151,23 @@ fn run(asked: Asked, ink: &Ink) -> Result<std::process::ExitCode, String> {
 
     match asked.stage.as_str() {
         "device" => {
-            let mut stage = Device::new(&device::host()?, asked.dry)?;
+            let touching = match asked.dry {
+                true => Dry::Pretend,
+                false => Dry::Really,
+            };
+            let mut stage = Device::new(&device::host()?, touching)?;
+            let whole = asked.all || !asked.only.is_empty();
+
             for check in checks {
-                said(check, checking::device(check, &mut stage));
+                said(check, match whole {
+                    true => checking::device(check, &mut stage),
+                    false => spared(check, &mut stage),
+                });
             }
+
             if asked.dry {
                 println!("\n{}it would have run:{}", ink.yellow, ink.off);
+
                 for command in &stage.done {
                     println!("  {command}");
                 }
@@ -138,9 +177,11 @@ fn run(asked: Asked, ink: &Ink) -> Result<std::process::ExitCode, String> {
         }
         "desktop" => {
             let mut stage = Desktop::new();
+
             for check in checks {
                 said(check, checking::desktop(check, &mut stage));
             }
+
             stage.close();
         }
         // Here is cheap and holds nothing anybody else wants, so each check gets

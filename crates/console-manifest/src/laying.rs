@@ -95,21 +95,53 @@ pub fn undoing(laid: &[Laid]) -> Vec<&Laid> {
 pub trait Lays {
     /// Write a file beside where it goes.
     fn stage(&mut self, from: &Path, live: &str) -> Result<(), String>;
+
     /// Move a staged file over the live one, keeping what was there.
     fn swap(&mut self, live: &str) -> Result<Back, String>;
+
     /// Put one file back the way it was.
     fn put_back(&mut self, laid: &Laid) -> Result<(), String>;
+
     /// Throw away a staged file that is not going to be used.
     fn drop_staged(&mut self, live: &str);
+
     /// Throw away the copy kept in case a file had to go back.
     fn drop_kept(&mut self, live: &str);
+
+    /// What putting this file back would mean, asked before anything moves.
+    ///
+    /// `swap` answers the same question as it goes, and that answer lives in
+    /// this process. This one is asked of every file first, so the whole plan
+    /// can be written down while it is still true of a machine nothing has
+    /// happened to yet.
+    fn standing(&self, live: &str) -> Back;
+
+    /// Write the plan somewhere a machine that stopped can be read.
+    fn note(&mut self, laid: &[Laid]) -> Result<(), String>;
+
+    /// Take it away, the release having stood up or been walked back.
+    fn forget_note(&mut self);
 }
 
-/// One file put back, and whether it went.
+/// One file put back, and what became of it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Undone {
     pub at: String,
-    pub fault: Option<String>,
+    pub put: Put,
+}
+
+/// What became of one file that was asked to go back.
+///
+/// Two states rather than an `Option` holding a fault. Most files go back and
+/// have nothing to report, and an absence is a fair way to write that -- but
+/// the other half of it is a machine still carrying a file from a release that
+/// was walked back, which is not a value that is missing. It is the news.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Put {
+    /// It is where it was before the release.
+    Back,
+    /// It is not, and this is why.
+    NotBack(String),
 }
 
 /// One release, staged and then put in place.
@@ -151,6 +183,24 @@ impl Deploy {
     /// down is the state this whole arrangement exists to make impossible, and
     /// it is not made better by being the state the failure leaves behind.
     pub fn swap(&mut self, lays: &mut impl Lays) -> Result<Vec<Undone>, String> {
+        // The plan, written down before the first rename and true of the
+        // machine as it stands at this moment. Until this existed the only
+        // record of what an apply had done lived in this process, which is the
+        // right lifetime for undoing the run it belongs to and the wrong one
+        // for a machine that stopped: a power cut inside the renames left some
+        // of one release and some of another with nothing on disk saying which
+        // files had gone or what they had been.
+        //
+        // It is written and not merely attempted. A swap that cannot say what
+        // it is about to do is one nobody could walk back, and the moment to
+        // find that out is while the machine is still untouched.
+        let plan: Vec<Laid> = self
+            .staged
+            .iter()
+            .map(|live| Laid { at: live.clone(), back: lays.standing(live) })
+            .collect();
+        lays.note(&plan)?;
+
         for live in std::mem::take(&mut self.staged) {
             match lays.swap(&live) {
                 Ok(back) => self.laid.push(Laid { at: live, back }),
@@ -164,6 +214,7 @@ impl Deploy {
                 }
             }
         }
+
         Ok(Vec::new())
     }
 
@@ -185,10 +236,21 @@ impl Deploy {
     /// of rather than a second version of it.
     pub fn undo(&mut self, lays: &mut impl Lays) -> Vec<Undone> {
         let laid = std::mem::take(&mut self.laid);
-        undoing(&laid)
+        let undone: Vec<Undone> = undoing(&laid)
             .into_iter()
-            .map(|one| Undone { at: one.at.clone(), fault: lays.put_back(one).err() })
-            .collect()
+            .map(|one| Undone {
+                at: one.at.clone(),
+                put: match lays.put_back(one) {
+                    Ok(()) => Put::Back,
+                    Err(fault) => Put::NotBack(fault),
+                },
+            })
+            .collect();
+
+        // The machine is back where it started, so there is no half-laid
+        // release for anybody to find a note about.
+        lays.forget_note();
+        undone
     }
 
     /// Let go of what was kept, the release having stood up.
@@ -196,6 +258,11 @@ impl Deploy {
         for one in std::mem::take(&mut self.laid) {
             lays.drop_kept(&one.at);
         }
+
+        // Last, and after the kept copies are gone. The note is what says a
+        // release is in the middle of being laid down; while any of this is
+        // still half done it should be there to be found.
+        lays.forget_note();
     }
 }
 
@@ -298,6 +365,10 @@ mod tests {
         waiting: std::collections::BTreeMap<String, String>,
         /// What was there before something went over it.
         aside: std::collections::BTreeMap<String, String>,
+        /// What has been written down about a swap in progress.
+        noted: Vec<Laid>,
+        /// Whether this machine refuses to write the plan down at all.
+        wont_note: bool,
         /// Paths this machine refuses, and at which half.
         wont_stage: Vec<String>,
         wont_swap: Vec<String>,
@@ -364,6 +435,29 @@ mod tests {
         fn drop_kept(&mut self, live: &str) {
             self.asked.push(format!("drop kept {live}"));
             self.aside.remove(live);
+        }
+
+        fn standing(&self, live: &str) -> Back {
+            match self.on.contains_key(live) {
+                true => Back::Kept,
+                false => Back::Gone,
+            }
+        }
+
+        fn note(&mut self, laid: &[Laid]) -> Result<(), String> {
+            self.asked.push(format!("note {}", laid.len()));
+
+            if self.wont_note {
+                return Err("the plan could not be written down".to_string());
+            }
+
+            self.noted = laid.to_vec();
+            Ok(())
+        }
+
+        fn forget_note(&mut self) {
+            self.asked.push("forget note".to_string());
+            self.noted.clear();
         }
     }
 
@@ -459,7 +553,7 @@ mod tests {
         paper.asked.clear();
         deploy.undo(&mut paper);
 
-        assert_eq!(paper.asked, ["put back /bin/two", "put back /bin/one"]);
+        assert_eq!(paper.asked, ["put back /bin/two", "put back /bin/one", "forget note"]);
     }
 
     /// One file refusing to go back does not stop the rest going back. Stopping
@@ -477,8 +571,8 @@ mod tests {
 
         let undone = deploy.undo(&mut paper);
         assert_eq!(undone.len(), 2);
-        assert!(undone[0].fault.is_some(), "the one that refuses says so");
-        assert!(undone[1].fault.is_none(), "the one that can go back went back");
+        assert!(matches!(undone[0].put, Put::NotBack(_)), "the one that refuses says so");
+        assert_eq!(undone[1].put, Put::Back, "the one that can go back went back");
         assert_eq!(paper.holding("/bin/one"), Some("old one"));
         assert_eq!(paper.holding("/bin/two"), Some("new two"));
     }
@@ -498,6 +592,81 @@ mod tests {
         assert!(paper.aside.is_empty(), "something is still kept: {:?}", paper.aside);
         deploy.undo(&mut paper);
         assert_eq!(paper.holding("/bin/one"), Some("new one"));
+    }
+
+    /// The plan is written down before a single file moves, and it describes
+    /// the machine as it stands before any of them has.
+    ///
+    /// The fault it answers: a power cut inside the renames used to leave some
+    /// of one release and some of another, with the only record of what had
+    /// happened in a process that was no longer running.
+    #[test]
+    fn the_plan_is_written_down_before_anything_moves() {
+        let mut paper = machine_with(&[("/bin/one", "old one")]);
+        let mut deploy = Deploy::default();
+
+        deploy.stage(&mut paper, &from("new one"), "/bin/one").expect("staged");
+        deploy.stage(&mut paper, &from("brand new"), "/bin/two").expect("staged");
+        paper.asked.clear();
+        deploy.swap(&mut paper).expect("swapped");
+
+        assert_eq!(paper.asked.first().map(String::as_str), Some("note 2"), "{:?}", paper.asked);
+        // And it says what each file would mean if it had to go back, decided
+        // while the machine was still untouched: one replaced something, one
+        // replaced nothing. It is still there, because the release has been
+        // swapped in and has not yet stood up.
+        assert_eq!(
+            paper.noted,
+            [
+                Laid { at: "/bin/one".into(), back: Back::Kept },
+                Laid { at: "/bin/two".into(), back: Back::Gone },
+            ]
+        );
+    }
+
+    /// What the plan says about each file, asked of the machine before it
+    /// changes. One replaced something and goes back to it; one replaced
+    /// nothing and has to be taken away.
+    #[test]
+    fn the_plan_says_which_files_replaced_something_and_which_replaced_nothing() {
+        let paper = machine_with(&[("/bin/one", "old one")]);
+        assert_eq!(paper.standing("/bin/one"), Back::Kept);
+        assert_eq!(paper.standing("/bin/two"), Back::Gone);
+    }
+
+    /// A machine that cannot write the plan down does not swap at all.
+    ///
+    /// The moment to find out that nobody could walk this back is while the
+    /// machine is still the one that was working.
+    #[test]
+    fn a_swap_that_cannot_be_written_down_does_not_happen() {
+        let mut paper = machine_with(&[("/bin/one", "old one")]);
+        paper.wont_note = true;
+        let mut deploy = Deploy::default();
+
+        deploy.stage(&mut paper, &from("new one"), "/bin/one").expect("staged");
+        assert!(deploy.swap(&mut paper).is_err(), "it swapped with no way back");
+        assert_eq!(paper.holding("/bin/one"), Some("old one"));
+    }
+
+    /// The note goes when the release stands up, and when it is walked back.
+    /// Either way there is no half-laid release left for anybody to find.
+    #[test]
+    fn the_note_goes_whether_the_release_stood_up_or_was_put_back() {
+        let mut paper = machine_with(&[("/bin/one", "old one")]);
+        let mut deploy = Deploy::default();
+        deploy.stage(&mut paper, &from("new one"), "/bin/one").expect("staged");
+        deploy.swap(&mut paper).expect("swapped");
+        deploy.settle(&mut paper);
+        assert!(paper.asked.contains(&"forget note".to_string()), "{:?}", paper.asked);
+
+        let mut paper = machine_with(&[("/bin/one", "old one")]);
+        let mut deploy = Deploy::default();
+        deploy.stage(&mut paper, &from("new one"), "/bin/one").expect("staged");
+        deploy.swap(&mut paper).expect("swapped");
+        paper.asked.clear();
+        deploy.undo(&mut paper);
+        assert!(paper.asked.contains(&"forget note".to_string()), "{:?}", paper.asked);
     }
 
     /// Backwards, so a file is put back before the directory it needed.

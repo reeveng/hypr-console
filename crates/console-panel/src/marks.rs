@@ -50,8 +50,13 @@ pub mod named {
     pub const MORE: &str = "more";
     pub const NOTE: &str = "note";
     pub const PANEL: &str = "panel";
+    pub const PRESS: &str = "press";
     pub const SAID: &str = "said";
+    pub const SHOWING: &str = "showing";
+    /// The moving picture on a card that is about watching it.
+    pub const PLAYING: &str = "playing";
     pub const SHUT: &str = "shut";
+    pub const SLEEVE: &str = "sleeve";
     pub const SOUGHT: &str = "sought";
     pub const STEP: &str = "step";
     pub const STRIP: &str = "strip";

@@ -66,6 +66,7 @@ const SETTING: &str = "dictation";
 /// which would be a paddle that has silently stopped working.
 pub fn chosen() -> String {
     let said = console_defaults::setting(SETTING).unwrap_or_default();
+
     match one(&said).is_some() {
         true => said,
         false => UNLESS_TOLD.to_string(),

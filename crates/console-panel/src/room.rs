@@ -40,9 +40,11 @@ pub fn last(program: &str) -> (i32, i32) {
 pub fn keep(program: &str, room: (i32, i32)) {
     let before = last(program);
     let room = (room.0.max(before.0), room.1.max(before.1));
+
     if room.0 <= 1 || room.1 <= 1 || before == room {
         return;
     }
+
     notes::write(program, ROOM, &said(room));
 }
 
@@ -51,13 +53,27 @@ fn said(room: (i32, i32)) -> String {
     format!("{} {}\n", room.0, room.1)
 }
 
+/// One of the two, or nought where the word is not a number.
+///
+/// Nought and not a guess: the check below turns either nought into the pair
+/// that means "no size was written down", so a file with one good number in it
+/// is read as no file at all rather than as half a size.
+fn number(word: Option<&str>) -> i32 {
+    let Some(word) = word else { return 0 };
+
+    let Ok(number) = word.parse::<i32>() else { return 0 };
+
+    number
+}
+
 /// The two numbers, as they are read. Nothing at all if the file says anything
 /// else, so a file somebody edited by hand cannot make a panel open at a size
 /// no screen has.
 fn read(held: &str) -> (i32, i32) {
     let mut words = held.split_whitespace();
-    let wide = words.next().and_then(|word| word.parse().ok()).unwrap_or(0);
-    let tall = words.next().and_then(|word| word.parse().ok()).unwrap_or(0);
+    let wide = number(words.next());
+    let tall = number(words.next());
+
     match wide > 1 && tall > 1 {
         true => (wide, tall),
         false => (0, 0),

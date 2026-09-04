@@ -47,8 +47,8 @@ hl.env("QT_QPA_PLATFORMTHEME", "kde")
 -- ssh.
 -- console-theme:begin
 local blossom = {
-    active   = "rgba(ffb5e2ff)",
-    inactive = "rgba(807485ff)",
+    active   = "rgba(ffc2e7ff)",
+    inactive = "rgba(8a7d8eff)",
     behind   = "rgba(110b12ff)",
 }
 -- console-theme:end
@@ -66,6 +66,46 @@ hl.config({
     },
     decoration = {
         rounding = 0,
+        -- Blur is Hyprland's default and was never chosen here, which is the
+        -- whole reason it lasted: nothing in this file mentioned it, so
+        -- nothing in this file argued for it. It is the same bargain as an
+        -- animation, and the paragraph below refuses that one in as many
+        -- words -- work done every frame for something nobody asked to see.
+        --
+        -- It buys nothing on this desktop. Blur shows through what is on top
+        -- of it, and nothing here is transparent: every surface in the palette
+        -- is opaque, the windows are full screen with no gaps, and the bar and
+        -- the panels are solid `panel` on solid `night`. There has never been
+        -- anything to see through.
+        --
+        -- It is also the suspect for the workspace switch, which is what sent
+        -- somebody looking. Switching workspaces showed both of them for a few
+        -- milliseconds, on a desktop with animations off where that should be
+        -- one frame to the next. The screen is 144Hz, so "a few milliseconds"
+        -- is one frame; blur samples the framebuffer behind a surface, and the
+        -- bar and the wallpaper are layer surfaces over the windows, so a
+        -- blurred layer sampling the workspace being left is a mechanism that
+        -- would look exactly like that. Suspect and not culprit: it has not
+        -- been watched with blur off and then on again. If the switch still
+        -- shows both, the cause is elsewhere and this is still right.
+        blur = {
+            enabled = false,
+        },
+        -- Shadows go for the same reason and one of their own. A shadow is a
+        -- dark edge drawn to lift a window off what is behind it, and it is
+        -- read by seeing it darker than its surroundings. This desktop is dark
+        -- first: `night` is #110b12 and the ground behind every window is that
+        -- colour, so a shadow is a dark edge on an almost black field. There
+        -- is next to nothing to see, and what little there is, is not worth
+        -- drawing every frame.
+        --
+        -- What actually lifts a window here is the border: three pixels of
+        -- `pink` on the one being typed into, which is the same pink a
+        -- highlighted row is everywhere else on this machine. That is the
+        -- affordance, it is deliberate, and it does not need a shadow's help.
+        shadow = {
+            enabled = false,
+        },
     },
     -- Nothing slides, fades or bounces. A window appears where it is going to
     -- be. On a handheld an animation is time spent between deciding something
@@ -82,6 +122,29 @@ hl.config({
         -- went looking. Told the palette, the desktop is the right colour
         -- even with nothing painting on it.
         background_color        = blossom.behind,
+    },
+    -- Redraw the whole screen whenever any of it changes, rather than the
+    -- rectangle that changed.
+    --
+    -- A menu was found painted on the screen with no menu behind it: no
+    -- process, nothing in the compositor's list of layers, nothing in its list
+    -- of windows. The pixels were simply still there, minutes after the thing
+    -- that drew them had gone, and the bar above them went on ticking over the
+    -- top. Somebody holding the device pressed every button on it and the
+    -- picture never changed, which is a machine that looks broken; the buttons
+    -- were working the whole time, and the panels they opened and closed were
+    -- opening and closing under a photograph of one of them.
+    --
+    -- Drawing only what changed is right when what changed is known. This is
+    -- the setting that stops trusting that, and it is worth what it costs: the
+    -- screen is small, the desktop repaints when a person does something
+    -- rather than sixty times a second, and the flip to the panel happens
+    -- either way -- what grows is the area shaded on the way there. Against
+    -- that, a screen that can go on showing something that is not there is the
+    -- one fault a person cannot work around, because everything they would try
+    -- looks like it did nothing.
+    debug = {
+        damage_tracking = 1,
     },
     input = {
         kb_layout    = "us",
@@ -191,8 +254,8 @@ hl.bind(mod .. " + Q",     hl.dsp.exec_cmd("alacritty"))
 hl.bind(mod .. " + R",     hl.dsp.exec_cmd("/usr/local/bin/launcher"))
 hl.bind(mod .. " + W",     hl.dsp.window.close())
 hl.bind(mod .. " + F",     hl.dsp.window.fullscreen())
-hl.bind(mod .. " + K",     hl.dsp.exec_cmd("/usr/local/bin/osk"))
-hl.bind("XF86Calculator",  hl.dsp.exec_cmd("/usr/local/bin/osk"))
+hl.bind(mod .. " + K",     hl.dsp.exec_cmd("/usr/local/bin/keyboard-toggle"))
+hl.bind("XF86Calculator",  hl.dsp.exec_cmd("/usr/local/bin/keyboard-toggle"))
 hl.bind(mod .. " + Tab",   hl.dsp.window.cycle_next())
 hl.bind(mod .. " + S",     hl.dsp.exec_cmd("/usr/local/bin/console-screenshot"))
 hl.bind(mod .. " + left",  hl.dsp.focus({ direction = "left" }))

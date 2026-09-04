@@ -12,7 +12,12 @@ use evdev::{AbsoluteAxisCode, Device, EventType, KeyCode, MiscCode, PropType, Re
 use console_pad::capture::{Axis, Capabilities, Descriptor, ROLES};
 
 /// Everything the kernel says about one device.
-fn described(device: &Device) -> Descriptor {
+///
+/// A failure here is the run rather than one field. What this writes is what
+/// the emulator will pretend to be, and a descriptor that quietly lost its
+/// axes is a pad that reports no sticks -- which looks like a capture that
+/// worked until something tries to push one.
+fn described(device: &Device) -> Result<Descriptor, String> {
     let id = device.input_id();
     let listed = |kind: EventType| -> Vec<u16> {
         match kind {
@@ -41,6 +46,7 @@ fn described(device: &Device) -> Descriptor {
     properties.sort_unstable();
     let mut abs: Vec<Axis> = device
         .get_absinfo()
+        .map_err(|why| format!("its axes would not be read: {why}"))
         .map(|every| {
             every
                 .map(|(AbsoluteAxisCode(code), info)| Axis {
@@ -52,11 +58,10 @@ fn described(device: &Device) -> Descriptor {
                     resolution: info.resolution(),
                 })
                 .collect()
-        })
-        .unwrap_or_default();
+        })?;
     abs.sort_unstable_by_key(|axis| axis.code);
 
-    Descriptor {
+    Ok(Descriptor {
         bustype: id.bus_type().0,
         capabilities: Capabilities {
             abs,
@@ -77,19 +82,32 @@ fn described(device: &Device) -> Descriptor {
         uniq: String::new(),
         vendor: id.vendor(),
         version: id.version(),
-    }
+    })
 }
 
 fn main() -> ExitCode {
     let mut found: Vec<(usize, Descriptor)> = Vec::new();
+
     for (_, device) in evdev::enumerate() {
         let name = device.name().unwrap_or_default().to_string();
+
         let Some(at) = ROLES.iter().position(|(wanted, _)| *wanted == name) else { continue };
+
         if found.iter().any(|(already, _)| *already == at) {
             continue;
         }
-        found.push((at, described(&device)));
+
+        let said = match described(&device) {
+            Ok(said) => said,
+            Err(why) => {
+                eprintln!("{name} would not be read: {why}");
+                return ExitCode::from(1);
+            },
+        };
+
+        found.push((at, said));
     }
+
     found.sort_by_key(|(at, _)| *at);
 
     let missing: Vec<&str> = ROLES
@@ -98,11 +116,13 @@ fn main() -> ExitCode {
         .filter(|(at, _)| !found.iter().any(|(there, _)| there == at))
         .map(|(_, (name, _))| *name)
         .collect();
+
     if !missing.is_empty() {
         eprintln!("not present: {}", missing.join(", "));
     }
 
     let written: Vec<Descriptor> = found.into_iter().map(|(_, device)| device).collect();
+
     match serde_json::to_string_pretty(&written) {
         Ok(said) => println!("{said}"),
         Err(fault) => {
@@ -110,5 +130,6 @@ fn main() -> ExitCode {
             return ExitCode::from(1);
         }
     }
+
     ExitCode::from(u8::from(!missing.is_empty()))
 }

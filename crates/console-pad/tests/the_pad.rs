@@ -8,18 +8,27 @@ use std::path::{Path, PathBuf};
 
 use evdev::{EventType, KeyCode};
 use console_pad::capture::captured;
-use console_pad::devices::Devices;
+use console_pad::devices::{Devices, Has};
 use console_pad::go::{Held, LegionGo};
 use console_pad::profile::Profile;
 use console_pad::router::every_profile;
 use console_pad::world::{World, Written};
 
 fn root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().expect("the repository")
+    {
+    // Tidied by `canonicalize` where that works and left as it stands where it
+    // does not. What `CARGO_MANIFEST_DIR` gives is already absolute and already
+    // right; canonicalizing only takes the `../..` out of the middle. It fails
+    // under a sandbox that will not let a process resolve a path it can
+    // otherwise read, and a test that stops there reports the sandbox as a
+    // missing repository.
+    let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    from.canonicalize().unwrap_or(from)
+}
 }
 
 fn go(profile: &str) -> LegionGo<World, Held> {
-    let devices = Devices::new(captured(), World::of(captured()));
+    let devices = Devices::new(captured().expect("the capture carried in this program parses"), World::of(captured().expect("the capture carried in this program parses")));
     LegionGo::new(every_profile(&root()).expect("the profiles"), devices, Held::default(), profile)
         .expect("a pad")
 }
@@ -42,7 +51,7 @@ mapping:
 fn go_of(yaml: &str, stem: &str) -> LegionGo<World, Held> {
     let path = PathBuf::from(format!("{stem}.yaml"));
     let profile = Profile::read(&path, yaml).expect("a profile");
-    let devices = Devices::new(captured(), World::of(captured()));
+    let devices = Devices::new(captured().expect("the capture carried in this program parses"), World::of(captured().expect("the capture carried in this program parses")));
     LegionGo::new([(stem.to_string(), profile)].into(), devices, Held::default(), stem)
         .expect("a pad")
 }
@@ -104,7 +113,7 @@ fn a_button_with_no_mapping_reaches_the_pad_as_itself() {
 #[test]
 fn nothing_reaches_a_device_the_profile_does_not_publish() {
     let mut pad = go_of(WITHOUT_A_MOUSE, "spare");
-    assert!(!pad.profile().publishes("mouse"));
+    assert_eq!(pad.profile().publishes("mouse"), Has::No);
     pad.press("a").expect("a");
     assert!(keys(&pad, "mouse").is_empty());
 }
@@ -149,7 +158,7 @@ fn a_stick_is_one_frame_of_two_numbers() {
 #[test]
 fn a_stick_only_moves_where_the_profile_publishes_a_pad() {
     let mut pad = go_of(WITHOUT_A_MOUSE, "spare");
-    assert!(!pad.profile().publishes("xbox-elite"));
+    assert_eq!(pad.profile().publishes("xbox-elite"), Has::No);
     pad.stick("left-stick", 1.0, 0.0).expect("a push");
     assert!(pad.devices.sink.of_kind("pad", EventType::ABSOLUTE, None).is_empty());
 }

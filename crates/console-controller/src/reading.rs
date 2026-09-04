@@ -7,18 +7,41 @@
 use evdev::{AbsoluteAxisCode, EventType, KeyCode};
 
 use console_pad::jobs::Layer;
-use console_pad::routing;
+use console_pad::routing::{self, Hat};
 use console_pad::vocabulary::spoken_for;
 
 use crate::buttons;
 use crate::doing::Doing;
-use crate::means::{Job, Table};
+use crate::means::{Job, Press, Repeats, Table};
+use crate::touch::Axis;
 use crate::mode::Mode;
 use crate::scroll::{Wheel, pushed};
 use crate::touch::Finger;
 
 /// How far a trigger must be pulled to count as held.
 pub const CARRY_HELD: f64 = 0.5;
+
+/// How long a step job is held before it starts repeating.
+///
+/// Long enough that one press is one step and never two. A thumb that means a
+/// single notch is off the button well inside this; a thumb that means "keep
+/// going" is still on it.
+pub const STEP_AFTER: f64 = 0.400;
+
+/// The gap between the first repeats, and the shortest it gathers to.
+///
+/// It accelerates because the distance somebody wants is not known when they
+/// start: a nudge is one or two steps and a reach for silent is twenty, and a
+/// rate that suits either one is wrong for the other. Starting slow keeps the
+/// first repeats countable, and gathering means the far end arrives without
+/// the thumb having to stay down all day.
+pub const STEP_FIRST: f64 = 0.180;
+pub const STEP_FASTEST: f64 = 0.080;
+
+/// What each repeat takes off the gap before the next one.
+///
+/// Not so steep that a scale runs away from a thumb that meant three steps.
+const STEP_GATHER: f64 = 0.85;
 
 /// How many buttons can be down at once before this stops remembering them.
 ///
@@ -49,10 +72,35 @@ pub struct Ranges {
     pub trigger: (i32, i32),
 }
 
+/// Whether a trigger is far enough in to count as held.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Trigger {
+    /// Past the point where it reads as a press.
+    Held,
+    /// Not yet, however far it has travelled.
+    Loose,
+}
+
 impl Default for Ranges {
     fn default() -> Self {
         Ranges { stick: 1, trigger: (0, 1) }
     }
+}
+
+/// A step job being held down, and when the next step is due.
+///
+/// The job is the one that took the press and not the one the table would
+/// answer now, for the same reason `holding` keeps it: what a button means can
+/// change under a thumb that has not moved, and a scale that changed direction
+/// halfway through a hold would be a scale nobody could aim.
+#[derive(Debug, Clone, PartialEq)]
+struct Stepping {
+    button: &'static str,
+    job: &'static Job,
+    /// Seconds until the next step goes out.
+    until: f64,
+    /// The gap being waited out, which shortens as the thumb stays on.
+    gap: f64,
 }
 
 /// Everything the daemon is holding between one event and the next.
@@ -78,6 +126,8 @@ pub struct Controller {
     pub table: Table,
     /// Which job took the press of each button that is down.
     holding: Vec<(&'static str, &'static Job)>,
+    /// The step job with a thumb still on it, where there is one.
+    stepping: Option<Stepping>,
     /// Where the d-pad's two axes are standing.
     hat: (i32, i32),
     stick: (f64, f64),
@@ -147,6 +197,7 @@ impl Controller {
         } else if code == KeyCode::BTN_TR2.0 {
             self.layer.r2 = value == 1;
         }
+
         Vec::new()
     }
 
@@ -154,21 +205,26 @@ impl Controller {
         // The two triggers, which are the two layers. How far each is pulled
         // is the whole of what makes a chord a chord.
         if code == AbsoluteAxisCode::ABS_Z.0 || code == AbsoluteAxisCode::ABS_RZ.0 {
-            let held = self.pulled(value);
+            let held = self.pulled(value) == Trigger::Held;
+
             match code == AbsoluteAxisCode::ABS_Z.0 {
                 true => self.layer.l2 = held,
                 false => self.layer.r2 = held,
             }
+
             return Vec::new();
         }
-        if routing::is_hat(code) {
+
+        if routing::is_hat(code) == Hat::Axis {
             return self.on_hat(code, value);
         }
+
         if code == AbsoluteAxisCode::ABS_RX.0 {
             self.stick.0 = pushed(value, self.ranges.stick);
         } else if code == AbsoluteAxisCode::ABS_RY.0 {
             self.stick.1 = pushed(value, self.ranges.stick);
         }
+
         Vec::new()
     }
 
@@ -178,10 +234,14 @@ impl Controller {
     /// one. They are the same two ends on this hardware, and a pad that
     /// reported two different ranges for its two triggers would be a pad worth
     /// asking about rather than one worth guessing at.
-    fn pulled(&self, value: i32) -> bool {
+    fn pulled(&self, value: i32) -> Trigger {
         let (low, high) = self.ranges.trigger;
         let span = f64::from((high - low).max(1));
-        f64::from(value - low) / span > CARRY_HELD
+
+        match f64::from(value - low) / span > CARRY_HELD {
+            true => Trigger::Held,
+            false => Trigger::Loose,
+        }
     }
 
     /// The d-pad, which arrives as a hat: two axes with three positions each.
@@ -194,16 +254,21 @@ impl Controller {
             true => std::mem::replace(&mut self.hat.0, value),
             false => std::mem::replace(&mut self.hat.1, value),
         };
+
         if was == value {
             return Vec::new();
         }
+
         let mut done = Vec::new();
+
         if let Some(button) = routing::button_of_hat(code, was) {
             done.extend(self.pressed(button, 0));
         }
+
         if let Some(button) = routing::button_of_hat(code, value) {
             done.extend(self.pressed(button, 1));
         }
+
         done
     }
 
@@ -211,6 +276,7 @@ impl Controller {
         if kind != EventType::KEY {
             return Vec::new();
         }
+
         match routing::button_of_key(code) {
             Some(button) => self.pressed(button, value),
             None => Vec::new(),
@@ -231,25 +297,47 @@ impl Controller {
     /// repeats a held key.
     fn pressed(&mut self, button: &'static str, value: i32) -> Vec<Doing> {
         let button = spoken_for(button);
+
         match value {
             1 => {
                 if self.holding.iter().any(|(down, _)| *down == button) {
                     return Vec::new();
                 }
+
                 let Some(job) = buttons::job_for(&self.table, self.mode, button, self.layer) else {
                     return Vec::new();
                 };
+
                 if self.holding.len() < AT_ONCE {
                     self.holding.push((button, job));
+
+                    // Only what is remembered is repeated. A press this is too
+                    // full to hold is one no release will be matched against,
+                    // and a step nothing can stop is worse than a step missed.
+                    if job.what.repeats() == Repeats::WhileHeld {
+                        self.stepping = Some(Stepping {
+                            button,
+                            job,
+                            until: STEP_AFTER,
+                            gap: STEP_FIRST,
+                        });
+                    }
                 }
-                buttons::acted(job, true).into_iter().collect()
+
+                buttons::acted(job, Press::Down).into_iter().collect()
             }
             0 => {
                 let Some(at) = self.holding.iter().position(|(down, _)| *down == button) else {
                     return Vec::new();
                 };
+
                 let (_, job) = self.holding.remove(at);
-                buttons::acted(job, false).into_iter().collect()
+
+                if self.stepping.as_ref().is_some_and(|held| held.button == button) {
+                    self.stepping = None;
+                }
+
+                buttons::acted(job, Press::Up).into_iter().collect()
             }
             _ => Vec::new(),
         }
@@ -263,33 +351,69 @@ impl Controller {
     /// before a switch is held down for ever by a daemon that will never see
     /// its release.
     fn let_go(&mut self) -> Vec<Doing> {
+        self.stepping = None;
         let held = std::mem::take(&mut self.holding);
-        held.into_iter().filter_map(|(_, job)| buttons::acted(job, false)).collect()
+        held.into_iter().filter_map(|(_, job)| buttons::acted(job, Press::Up)).collect()
     }
 
     fn on_touch(&mut self, kind: EventType, code: u16, value: i32, now: f64) -> Vec<Doing> {
         match (kind, code) {
             (EventType::KEY, code) if code == KeyCode::BTN_TOUCH.0 => {
-                self.finger.touched(value == 1, now)
+                let down = match value == 1 {
+                    true => Press::Down,
+                    false => Press::Up,
+                };
+
+                self.finger.touched(down, now)
             }
             (EventType::KEY, code) if code == KeyCode::BTN_0.0 => self.finger.pressed(value),
             (EventType::ABSOLUTE, code)
                 if code == AbsoluteAxisCode::ABS_X.0 || code == AbsoluteAxisCode::ABS_Y.0 =>
             {
-                self.finger.at(code == AbsoluteAxisCode::ABS_X.0, value);
+                let along = match code == AbsoluteAxisCode::ABS_X.0 {
+                    true => Axis::Sideways,
+                    false => Axis::Down,
+                };
+
+                self.finger.at(along, value);
                 Vec::new()
             }
             _ => Vec::new(),
         }
     }
 
-    /// A moment has passed. The stick is where it was, so the wheel turns.
+    /// A moment has passed. The stick is where it was, so the wheel turns,
+    /// and a step job under a thumb takes its next step.
     pub fn tick(&mut self, seconds: f64) -> Vec<Doing> {
+        let mut done = self.stepped(seconds);
         let notches = self.wheel.turned(self.stick.0, self.stick.1, seconds);
-        match notches.is_empty() {
-            true => Vec::new(),
-            false => vec![Doing::Frame(notches)],
+
+        if !notches.is_empty() {
+            done.push(Doing::Frame(notches));
         }
+
+        done
+    }
+
+    /// A scale with a thumb held on it, stepped again.
+    ///
+    /// One step a tick at most. The gap gathers towards `STEP_FASTEST` and
+    /// stops there rather than going on shortening, because a scale that ends
+    /// up stepping faster than it can be watched is one that overshoots every
+    /// time.
+    fn stepped(&mut self, seconds: f64) -> Vec<Doing> {
+        let Some(held) = &mut self.stepping else { return Vec::new() };
+
+        held.until -= seconds;
+
+        if held.until > 0.0 {
+            return Vec::new();
+        }
+
+        held.gap = (held.gap * STEP_GATHER).max(STEP_FASTEST);
+        held.until = held.gap;
+        let job = held.job;
+        buttons::acted(job, Press::Down).into_iter().collect()
     }
 
     /// How long to wait before reading again.
@@ -309,6 +433,7 @@ pub const POLL: f64 = 0.02;
 
 #[cfg(test)]
 mod tests {
+    use crate::doing::Carry;
     use super::*;
     use crate::doing::Out;
     use evdev::RelativeAxisCode;
@@ -328,6 +453,90 @@ mod tests {
         let down = held.saw(from, EventType::KEY, code.0, 1, 1000.0);
         held.saw(from, EventType::KEY, code.0, 0, 1000.0);
         down
+    }
+
+    /// L2 and the d-pad right, which is the screen getting brighter.
+    fn brighter(held: &mut Controller) -> Vec<Doing> {
+        held.saw(From::Pad, EventType::KEY, KeyCode::BTN_TL2.0, 1, 1000.0);
+        held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_HAT0X.0, 1, 1000.0)
+    }
+
+    /// Ticks at the rate the daemon really polls at, and counts what came out.
+    fn ticked(held: &mut Controller, seconds: f64) -> usize {
+        let mut steps = 0;
+        let mut left = seconds;
+        while left > 0.0 {
+            steps += held.tick(POLL).len();
+            left -= POLL;
+        }
+        steps
+    }
+
+    /// A thumb left on a scale goes on moving it.
+    ///
+    /// Five percent a press is twenty presses from silent to loud, and the
+    /// thumb is already on the button.
+    #[test]
+    fn a_scale_held_down_goes_on_stepping() {
+        let mut held = controller();
+        let step = Doing::run(&["/usr/local/bin/console-brightness", "up"]);
+        assert_eq!(brighter(&mut held), std::slice::from_ref(&step), "the press itself");
+        assert_eq!(ticked(&mut held, STEP_AFTER - 0.1), 0, "before the delay is up");
+        assert!(ticked(&mut held, 0.4) > 0, "after it");
+    }
+
+    /// And one press is one step. A thumb that meant a single notch is off
+    /// the button well inside the delay, and nothing follows it.
+    #[test]
+    fn one_press_of_a_scale_is_one_step() {
+        let mut held = controller();
+        assert_eq!(brighter(&mut held).len(), 1);
+        held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_HAT0X.0, 0, 1000.0);
+        assert_eq!(ticked(&mut held, 3.0), 0, "a press that was let go went on stepping");
+    }
+
+    /// The menu is not a scale. Holding it opens one menu.
+    #[test]
+    fn a_job_that_is_not_a_scale_does_not_repeat_when_it_is_held() {
+        let mut held = controller();
+        let down = held.saw(From::Keys, EventType::KEY, KeyCode::KEY_F13.0, 1, 1000.0);
+        assert_eq!(down, [Doing::run(&["launcher", "--keep"])]);
+        assert_eq!(ticked(&mut held, 3.0), 0, "the menu opened again on its own");
+    }
+
+    /// A pad taken away under a held scale stops it. The release is never
+    /// going to arrive, and a scale nothing can stop runs to one end.
+    #[test]
+    fn a_pad_that_went_away_stops_a_scale() {
+        let mut held = controller();
+        assert_eq!(brighter(&mut held).len(), 1);
+        held.pad_went();
+        assert_eq!(ticked(&mut held, 3.0), 0);
+    }
+
+    /// It gathers, and then it stops gathering.
+    ///
+    /// A nudge is one or two steps and a reach for silent is twenty, so the
+    /// rate cannot suit both without changing. It must not go on changing:
+    /// a scale stepping faster than it can be watched overshoots every time.
+    #[test]
+    fn a_held_scale_gathers_pace_and_then_holds_it() {
+        let mut held = controller();
+        brighter(&mut held);
+        ticked(&mut held, STEP_AFTER);
+        let first = ticked(&mut held, 1.0);
+        let later = ticked(&mut held, 1.0);
+        assert!(later > first, "it did not gather: {first} then {later}");
+        let most = (1.0 / STEP_FASTEST).ceil() as usize;
+        assert!(later <= most, "{later} steps in a second is past {most}");
+        // Settled, rather than identical: the gap does not divide the poll, so
+        // a step that falls either side of a second's edge counts in one of
+        // them and not the other.
+        let settled = ticked(&mut held, 1.0);
+        assert!(
+            later.abs_diff(settled) <= 1,
+            "it went on gathering past the floor: {later} then {settled}",
+        );
     }
 
     #[test]
@@ -395,10 +604,10 @@ mod tests {
     #[test]
     fn the_shoulders_carry_the_window_while_l2_is_held() {
         let mut held = controller();
-        assert_eq!(pressed(&mut held, From::Pad, KeyCode::BTN_TR), [Doing::workspace("+1", false)]);
+        assert_eq!(pressed(&mut held, From::Pad, KeyCode::BTN_TR), [Doing::workspace("+1", Carry::Nothing)]);
         held.saw(From::Pad, EventType::KEY, KeyCode::BTN_TL2.0, 1, 1000.0);
         assert!(held.layer.l2);
-        assert_eq!(pressed(&mut held, From::Pad, KeyCode::BTN_TR), [Doing::workspace("+1", true)]);
+        assert_eq!(pressed(&mut held, From::Pad, KeyCode::BTN_TR), [Doing::workspace("+1", Carry::Window)]);
     }
 
     /// L2 is an axis before it is a button, and how far it is pulled is what
@@ -422,7 +631,13 @@ mod tests {
         assert!(held.tick(1.0).is_empty(), "the left stick is not a wheel");
         held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_RY.0, -32767, 1000.0);
         let turned = held.tick(1.0);
-        assert!(matches!(turned.as_slice(), [Doing::Frame(notches)] if notches.len() == 22));
+
+        // A second at full deflection is `MAX_HZ` notches. Named rather than
+        // written out: a number here is one that goes stale the first time
+        // somebody changes how fast the stick scrolls, and it did.
+        let wanted = console_number::toward_zero_usize(crate::scroll::MAX_HZ);
+
+        assert!(matches!(turned.as_slice(), [Doing::Frame(notches)] if notches.len() == wanted));
     }
 
     /// The pad goes away whenever a profile is switched. The stick has to stop

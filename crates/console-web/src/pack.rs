@@ -10,6 +10,9 @@
 //! out, and the numbers in it are little-endian, which is the whole of what
 //! there is to know.
 
+
+use console_number::fitted;
+
 /// One file, once it is in the archive.
 struct Entry {
     name: String,
@@ -36,9 +39,9 @@ pub fn zip(files: &[(String, Vec<u8>)]) -> Vec<u8> {
         two(&mut out, 0); // the time, which nothing here has an opinion about
         two(&mut out, 0); // and the date, for the same reason
         four(&mut out, entry.crc);
-        four(&mut out, entry.size as u32);
-        four(&mut out, entry.size as u32);
-        two(&mut out, entry.name.len() as u16);
+        four(&mut out, fitted(entry.size));
+        four(&mut out, fitted(entry.size));
+        two(&mut out, fitted(entry.name.len()));
         two(&mut out, 0); // nothing extra
         out.extend_from_slice(entry.name.as_bytes());
         out.extend_from_slice(body);
@@ -46,6 +49,7 @@ pub fn zip(files: &[(String, Vec<u8>)]) -> Vec<u8> {
     }
 
     let directory = out.len();
+
     for entry in &entries {
         four(&mut out, CENTRAL);
         two(&mut out, 20); // written by
@@ -55,26 +59,27 @@ pub fn zip(files: &[(String, Vec<u8>)]) -> Vec<u8> {
         two(&mut out, 0);
         two(&mut out, 0);
         four(&mut out, entry.crc);
-        four(&mut out, entry.size as u32);
-        four(&mut out, entry.size as u32);
-        two(&mut out, entry.name.len() as u16);
+        four(&mut out, fitted(entry.size));
+        four(&mut out, fitted(entry.size));
+        two(&mut out, fitted(entry.name.len()));
         two(&mut out, 0); // nothing extra
         two(&mut out, 0); // and nothing to say about it
         two(&mut out, 0); // one disk, this one
         two(&mut out, 0);
         four(&mut out, 0);
-        four(&mut out, entry.at as u32);
+        four(&mut out, fitted(entry.at));
         out.extend_from_slice(entry.name.as_bytes());
     }
+
     let listed = out.len() - directory;
 
     four(&mut out, END);
     two(&mut out, 0);
     two(&mut out, 0);
-    two(&mut out, entries.len() as u16);
-    two(&mut out, entries.len() as u16);
-    four(&mut out, listed as u32);
-    four(&mut out, directory as u32);
+    two(&mut out, fitted(entries.len()));
+    two(&mut out, fitted(entries.len()));
+    four(&mut out, fitted(listed));
+    four(&mut out, fitted(directory));
     two(&mut out, 0); // and nothing to say about the whole of it
     out
 }
@@ -93,16 +98,20 @@ fn four(out: &mut Vec<u8>, said: u32) {
 /// archive around it: it is nine lines, and it is the only arithmetic here.
 pub fn crc32(bytes: &[u8]) -> u32 {
     let mut crc = 0xFFFF_FFFFu32;
+
     for byte in bytes {
         crc ^= u32::from(*byte);
+
         for _ in 0..8 {
             let odd = crc & 1 == 1;
             crc >>= 1;
+
             if odd {
                 crc ^= 0xEDB8_8320;
             }
         }
     }
+
     !crc
 }
 

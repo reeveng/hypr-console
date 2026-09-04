@@ -11,7 +11,16 @@
 //! Oklch in, sRGB out. Lightness in oklch is close to lightness as an eye
 //! reads it, so a binary search on it converges on the answer from either side
 //! and the hue does not drift while it happens.
+//!
+//! What "clears it" means is two things at once. WCAG's ratio is the one the
+//! law asks for and the one every checker reports. APCA is the one that knows
+//! which of the two colours is the paper, and on a dark desktop that is the
+//! difference that decides whether a shade is actually readable. They
+//! disagree, and where they disagree this asks for both and takes whichever
+//! binds harder. See `Floor`.
 
+
+use console_number::toward_zero_u8;
 pub mod spent;
 
 use std::fmt;
@@ -58,22 +67,20 @@ const FROM_LCH: [[f64; 2]; 3] = [
 /// moves a channel that lands exactly between two values in a direction that
 /// depends on nothing, and two colours a blend apart then differ by a bit for
 /// no reason anybody can point at.
-// The three cases are the rule written out, and the last two agreeing on the
-// answer is the rule rather than a repetition to be folded away: a value
-// exactly between two integers goes to the even one, which is `floor` when
-// `floor` is even and `floor + 1` when it is odd.
-#[allow(clippy::if_same_then_else)]
 fn round_half_even(value: f64) -> f64 {
     let floor = value.floor();
     let rest = value - floor;
-    if rest > 0.5 {
-        floor + 1.0
-    } else if rest < 0.5 {
-        floor
-    } else if (floor / 2.0).fract() == 0.0 {
-        floor
-    } else {
-        floor + 1.0
+    // Exactly between the two integers is the case this function exists for,
+    // and it goes to the even one: `floor` where floor is even, the one above
+    // it where floor is odd. Anywhere else is simply the nearer of the two.
+    let up = match rest == 0.5 {
+        true => (floor / 2.0).fract() != 0.0,
+        false => rest > 0.5,
+    };
+
+    match up {
+        true => floor + 1.0,
+        false => floor,
     }
 }
 
@@ -108,17 +115,33 @@ pub fn oklch_to_rgb(lightness: f64, chroma: f64, hue: f64) -> [f64; 3] {
         .map(|row| (lightness + row[0] * a + row[1] * b).powf(3.0))
         .collect();
     let mut rgb = [0.0; 3];
+
     for (channel, row) in rgb.iter_mut().zip(FROM_LMS) {
         *channel = to_srgb((0..3).map(|i| row[i] * cubed[i]).sum());
     }
+
     rgb
 }
 
+/// Whether a screen can actually show a colour.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Gamut {
+    /// Every channel lands inside sRGB, so the screen shows what was asked for.
+    Inside,
+    /// At least one does not, and the screen would clip it to something else.
+    Outside,
+}
+
 /// Whether a screen can actually show it.
-pub fn in_gamut(lightness: f64, chroma: f64, hue: f64) -> bool {
-    oklch_to_rgb(lightness, chroma, hue)
+pub fn in_gamut(lightness: f64, chroma: f64, hue: f64) -> Gamut {
+    let inside = oklch_to_rgb(lightness, chroma, hue)
         .iter()
-        .all(|channel| (-0.0001..=1.0001).contains(channel))
+        .all(|channel| (-0.0001..=1.0001).contains(channel));
+
+    match inside {
+        true => Gamut::Inside,
+        false => Gamut::Outside,
+    }
 }
 
 /// The same colour with just enough chroma taken out of it to be real.
@@ -127,18 +150,21 @@ pub fn in_gamut(lightness: f64, chroma: f64, hue: f64) -> bool {
 /// saturation gives way. A pastel that has lost a little chroma is still the
 /// colour it was meant to be; one that has lost lightness is a different one.
 pub fn fit(lightness: f64, chroma: f64, hue: f64) -> f64 {
-    if in_gamut(lightness, chroma, hue) {
+    if in_gamut(lightness, chroma, hue) == Gamut::Inside {
         return chroma;
     }
+
     let (mut low, mut high) = (0.0, chroma);
+
     for _ in 0..40 {
         let middle = (low + high) / 2.0;
-        if in_gamut(lightness, middle, hue) {
-            low = middle;
-        } else {
-            high = middle;
+
+        match in_gamut(lightness, middle, hue) {
+            Gamut::Inside => low = middle,
+            Gamut::Outside => high = middle,
         }
     }
+
     low
 }
 
@@ -147,25 +173,49 @@ pub fn hexcode(lightness: f64, chroma: f64, hue: f64) -> String {
     oklch_to_rgb(lightness, fit(lightness, chroma, hue), hue)
         .iter()
         .map(|channel| {
-            format!("{:02x}", round_half_even(channel.clamp(0.0, 1.0) * 255.0) as u32)
+            format!("{:02x}", toward_zero_u8(round_half_even(channel.clamp(0.0, 1.0) * 255.0)))
         })
         .collect()
 }
 
 /// The three channels of six hex digits, as the bytes they are written as.
+///
+/// Everything that reaches here is a code this crate generated or one out of a
+/// palette it generated, so a pair that will not read is a bug upstream rather
+/// than somebody's input. The channel is nought and the run goes on -- the
+/// arithmetic below has no way to say "this is not a colour" and every caller
+/// of it is drawing something -- but it is said out loud, because a theme that
+/// comes out with one channel quietly black is a fault nobody would think to
+/// look for here.
 fn bytes(code: &str) -> [u8; 3] {
     let code = code.trim_start_matches('#').as_bytes();
     let mut out = [0u8; 3];
+
     for (channel, i) in out.iter_mut().zip([0, 2, 4]) {
-        let pair = std::str::from_utf8(&code[i..i + 2]).unwrap_or("00");
-        *channel = u8::from_str_radix(pair, 16).unwrap_or(0);
+        let pair = match std::str::from_utf8(&code[i..i + 2]) {
+            Ok(said) => said,
+            Err(_) => {
+                eprintln!("a colour holds bytes that are not text; read as nought");
+                *channel = 0;
+                continue;
+            },
+        };
+
+        *channel = match u8::from_str_radix(pair, 16) {
+            Ok(number) => number,
+            Err(_) => {
+                eprintln!("{pair:?} in a colour is not a hex number; read as nought");
+                0
+            },
+        };
     }
+
     out
 }
 
 /// The same three, as floats from zero to one.
 fn channels(code: &str) -> [f64; 3] {
-    bytes(code).map(|channel| channel as f64 / 255.0)
+    bytes(code).map(|channel| f64::from(channel) / 255.0)
 }
 
 /// Relative luminance, as WCAG defines it, from six hex digits.
@@ -180,6 +230,146 @@ pub fn contrast(one: &str, other: &str) -> f64 {
     (first.max(second) + 0.05) / (first.min(second) + 0.05)
 }
 
+/// Where APCA stops trusting a luminance, and the shape of the lift it gives
+/// it instead.
+///
+/// The disagreement between the two measures lives almost entirely in these
+/// two numbers. WCAG adds a flat term to both sides of its ratio, standing in
+/// for the light the room throws on the screen; the effect is that two dark
+/// colours are divided by a constant that swamps them and the ratio comes out
+/// generous. This lifts the dark end rather than flattening it, so the
+/// difference between two near-blacks is scored as the small thing it is.
+const BLACK_THRESHOLD: f64 = 0.022;
+const BLACK_CLAMP: f64 = 1.414;
+
+/// The exponents either side of the polarity, the scale that puts the answer
+/// on a hundred-point run, and the offset taken off it at the end.
+///
+/// Ink and ground are raised to different powers, and to different powers
+/// again depending on which of them is the darker. That asymmetry is the whole
+/// point of the measure: pale ink on a dark ground bleeds into the ground and
+/// reads thinner than the same pair turned the other way up, and a ratio
+/// cannot say so, because a ratio does not know which one is the paper.
+const GROUND_ON_LIGHT: f64 = 0.56;
+const INK_ON_LIGHT: f64 = 0.57;
+const INK_ON_DARK: f64 = 0.62;
+const GROUND_ON_DARK: f64 = 0.65;
+const SCALE: f64 = 1.14;
+const OFFSET: f64 = 0.027;
+
+/// Under this, the answer is not a faint contrast. It is none, and saying so
+/// is more honest than reporting a number nobody could have seen.
+const CLIP: f64 = 0.1;
+
+/// Two luminances nearer than this are one colour written twice.
+const SAME: f64 = 0.0005;
+
+/// Luminance as APCA reads it, which is not luminance as WCAG reads it.
+///
+/// A plain power rather than sRGB's piecewise curve, because the piecewise
+/// segment near black describes an encoding and not an eye, and then the soft
+/// clamp above.
+fn apca_luminance(code: &str) -> f64 {
+    let [red, green, blue] = channels(code);
+    let luminance =
+        0.2126729 * red.powf(2.4) + 0.7151522 * green.powf(2.4) + 0.0721750 * blue.powf(2.4);
+
+    match luminance > BLACK_THRESHOLD {
+        true => luminance,
+        false => luminance + (BLACK_THRESHOLD - luminance).powf(BLACK_CLAMP),
+    }
+}
+
+/// How far apart two colours are as APCA reads them, as a signed `Lc`.
+///
+/// The sign is the polarity rather than an error: dark ink on a light ground
+/// comes back positive, pale ink on a dark ground negative, and the two are
+/// not interchangeable. Everything on this desktop is the second kind.
+///
+/// The magnitude does not convert to a ratio and there is no table that turns
+/// one into the other, because the two measures disagree about the thing being
+/// measured. What the magnitude means is set out in `Floor`.
+pub fn lc(ink: &str, ground: &str) -> f64 {
+    let (ink, ground) = (apca_luminance(ink), apca_luminance(ground));
+
+    if (ground - ink).abs() < SAME {
+        return 0.0;
+    }
+
+    let (raw, offset) = match ground > ink {
+        true => (
+            (ground.powf(GROUND_ON_LIGHT) - ink.powf(INK_ON_LIGHT)) * SCALE,
+            -OFFSET,
+        ),
+        false => (
+            (ground.powf(GROUND_ON_DARK) - ink.powf(INK_ON_DARK)) * SCALE,
+            OFFSET,
+        ),
+    };
+
+    match raw.abs() < CLIP {
+        true => 0.0,
+        false => (raw + offset) * 100.0,
+    }
+}
+
+/// What a pairing has to clear, in both measures at once.
+///
+/// Not either of them, and not whichever is convenient. WCAG is what the law
+/// asks for and what a checker will report; APCA is what the eye does. On a
+/// palette this dark they disagree in one direction, and it is not the
+/// flattering one: the ratio's flare term means a pair of dark colours can
+/// clear AAA and still sit under what APCA calls readable at all. Asking for
+/// both and letting whichever is harder decide is the only reading of "as
+/// strong as we can make it" that does not quietly drop one of them.
+///
+/// `lc` is unsigned. Which way round a pairing sits is a fact about the
+/// pairing, not something a floor is entitled to ask for.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Floor {
+    /// WCAG 2.x, from 1:1 to 21:1. AAA for text is 7, AA is 4.5, and 3 is the
+    /// floor for a line that carries meaning without being read.
+    pub ratio: f64,
+    /// APCA `Lc`. Body text is wanted at 75 and preferred at 90, a headline or
+    /// something deliberately quiet at 45, a border at 30. Nought asks for
+    /// nothing, which is right for a pairing that only has to be seen as a
+    /// different thing and is wrong everywhere else.
+    pub lc: f64,
+}
+
+/// Whether a colour is far enough from what it is read against.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Clears {
+    /// It clears the floor, on both measures at once.
+    Yes,
+    /// It falls short on at least one of them.
+    No,
+}
+
+impl Floor {
+    /// Whether one colour clears this against another, both ways at once.
+    pub fn cleared_by(self, ink: &str, ground: &str) -> Clears {
+        match contrast(ink, ground) >= self.ratio && lc(ink, ground).abs() >= self.lc {
+            true => Clears::Yes,
+            false => Clears::No,
+        }
+    }
+
+    /// Whether it clears against every ground it is read on.
+    pub fn clears_all(self, ink: &str, grounds: &[String]) -> Clears {
+        match grounds.iter().all(|ground| self.cleared_by(ink, ground) == Clears::Yes) {
+            true => Clears::Yes,
+            false => Clears::No,
+        }
+    }
+}
+
+impl fmt::Display for Floor {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(out, "{}:1 and Lc {}", self.ratio, self.lc)
+    }
+}
+
 /// `top` laid on `bottom` at `alpha`, as the screen would blend them.
 ///
 /// Anything painted with transparency is a colour in its own right once it is
@@ -189,54 +379,57 @@ pub fn over(top: &str, bottom: &str, alpha: f64) -> String {
     top.iter()
         .zip(bottom)
         .map(|(front, back)| {
-            let mixed = *front as f64 * alpha + back as f64 * (1.0 - alpha);
-            format!("{:02x}", round_half_even(mixed) as u32)
+            let mixed = f64::from(*front) * alpha + f64::from(back) * (1.0 - alpha);
+            format!("{:02x}", toward_zero_u8(round_half_even(mixed)))
         })
         .collect()
 }
 
-/// The darkest lightness at which a hue clears `ratio` against every ground.
+/// The darkest lightness at which a hue clears `floor` against every ground.
 ///
 /// Darkest, because a pastel that is lighter than it needs to be is a pastel
-/// on its way to white, and ten of those are one colour. Contrast against a
-/// dark ground climbs with lightness and never falls, so the answer is found
-/// by halving.
+/// on its way to white, and ten of those are one colour. Both measures climb
+/// with lightness against a dark ground and neither falls, so the answer is
+/// still found by halving even though there are now two of them: a shade that
+/// clears the harder of the two clears the other on the way.
 pub fn lightest_clearing(
     chroma: f64,
     hue: f64,
     grounds: &[String],
-    ratio: f64,
-    floor: f64,
+    floor: Floor,
+    from: f64,
 ) -> Result<f64, Short> {
     if grounds.is_empty() {
-        return Ok(floor);
+        return Ok(from);
     }
-    let clears = |lightness: f64| {
-        let code = hexcode(lightness, chroma, hue);
-        grounds.iter().all(|ground| contrast(&code, ground) >= ratio)
-    };
 
-    if clears(floor) {
-        return Ok(floor);
+    let clears = |lightness: f64| floor.clears_all(&hexcode(lightness, chroma, hue), grounds);
+
+    if clears(from) == Clears::Yes {
+        return Ok(from);
     }
-    let (mut low, mut high) = (floor, 1.0);
-    if !clears(high) {
+
+    let (mut low, mut high) = (from, 1.0);
+
+    if clears(high) == Clears::No {
         return Err(Short(format!(
-            "nothing at hue {hue} clears {ratio}:1 against {grounds:?}"
+            "nothing at hue {hue} clears {floor} against {grounds:?}"
         )));
     }
+
     for _ in 0..48 {
         let middle = (low + high) / 2.0;
-        if clears(middle) {
-            high = middle;
-        } else {
-            low = middle;
+
+        match clears(middle) {
+            Clears::Yes => high = middle,
+            Clears::No => low = middle,
         }
     }
+
     Ok(high)
 }
 
-/// The lightest lightness at which a hue clears `ratio` under every ceiling.
+/// The lightest lightness at which a hue clears `floor` under every ceiling.
 ///
 /// The mirror of the one above, for ink that is painted on top of a fill: the
 /// fill is already decided and the ink has to be dark enough against it.
@@ -244,32 +437,31 @@ pub fn darkest_clearing(
     chroma: f64,
     hue: f64,
     ceilings: &[String],
-    ratio: f64,
+    floor: Floor,
 ) -> Result<f64, Short> {
-    let clears = |lightness: f64| {
-        let code = hexcode(lightness, chroma, hue);
-        ceilings
-            .iter()
-            .all(|ceiling| contrast(&code, ceiling) >= ratio)
-    };
+    let clears = |lightness: f64| floor.clears_all(&hexcode(lightness, chroma, hue), ceilings);
 
-    if ceilings.is_empty() || clears(1.0) {
+    if ceilings.is_empty() || clears(1.0) == Clears::Yes {
         return Ok(1.0);
     }
+
     let (mut low, mut high) = (0.0, 1.0);
-    if !clears(low) {
+
+    if clears(low) == Clears::No {
         return Err(Short(format!(
-            "nothing at hue {hue} clears {ratio}:1 under {ceilings:?}"
+            "nothing at hue {hue} clears {floor} under {ceilings:?}"
         )));
     }
+
     for _ in 0..48 {
         let middle = (low + high) / 2.0;
-        if clears(middle) {
-            low = middle;
-        } else {
-            high = middle;
+
+        match clears(middle) {
+            Clears::Yes => low = middle,
+            Clears::No => high = middle,
         }
     }
+
     Ok(low)
 }
 

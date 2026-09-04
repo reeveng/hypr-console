@@ -2,6 +2,8 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::settled::Settled;
+
 
 /// The mark that stands for whoever this desktop belongs to.
 ///
@@ -50,6 +52,16 @@ pub enum State {
     Differs,
     /// The source has it and the machine does not.
     Missing,
+    /// The machine has it and whoever is asking may not read it.
+    ///
+    /// Not a fault and not drift: it is a question this process cannot answer.
+    /// `/etc/sudoers.d` is `drwxr-x---` and belongs to root, which is exactly
+    /// right and means a check running as the person using the machine cannot
+    /// open the one file in it this desktop writes. Read as `Missing`, that
+    /// was a card at every boot and every hour after saying the machine had
+    /// drifted, on a machine that was perfectly well -- which is the failure
+    /// `well` exists to avoid rather than to cause.
+    Unreadable,
     /// The manifest names it and nothing holds its content.
     Unsourced,
 }
@@ -60,12 +72,16 @@ impl State {
             State::Ok => "ok",
             State::Differs => "differs",
             State::Missing => "missing",
+            State::Unreadable => "cannot read",
             State::Unsourced => "unsourced",
         }
     }
 
-    pub fn settled(self) -> bool {
-        self == State::Ok
+    pub fn settled(self) -> Settled {
+        match self == State::Ok {
+            true => Settled::Yes,
+            false => Settled::No,
+        }
     }
 }
 
@@ -95,6 +111,7 @@ pub fn source_of(source: &Path, live: &str) -> PathBuf {
 /// is for -- so there is nothing here to move.
 pub fn content_on_machine(held: &[u8], user: &str, _live: &str) -> Vec<u8> {
     let Ok(text) = std::str::from_utf8(held) else { return held.to_vec() };
+
     match text.contains(USER) {
         true => text.replace(USER, user).into_bytes(),
         false => held.to_vec(),
@@ -119,8 +136,16 @@ pub fn content_as_declared(held: &[u8], user: &str) -> Vec<u8> {
 pub fn state(source: &Path, live: &str, user: &str) -> State {
     let on = on_machine(live, user);
     let (from, to) = (source_of(source, live), Path::new(&on));
+
     match (std::fs::read(&from), std::fs::read(to)) {
         (Err(_), _) => State::Unsourced,
+        // Not allowed to look is not the same answer as not there, and it used
+        // to be. Both come back as an error from one call, and taking either
+        // for the other means a root-only file is reported as gone from a
+        // machine that has it.
+        (Ok(_), Err(fault)) if fault.kind() == std::io::ErrorKind::PermissionDenied => {
+            State::Unreadable
+        }
         (Ok(_), Err(_)) => State::Missing,
         (Ok(held), Ok(there)) if content_on_machine(&held, user, live) == there => State::Ok,
         (Ok(_), Ok(_)) => State::Differs,
@@ -178,11 +203,6 @@ pub fn mode_of(live: &str, head: &[u8]) -> u32 {
     }
 }
 
-/// The first bytes of a file, for deciding whether it is meant to be run.
-pub fn head_of(path: &Path) -> Vec<u8> {
-    std::fs::read(path).map(|held| held.into_iter().take(4).collect()).unwrap_or_default()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -199,6 +219,49 @@ mod tests {
     /// Whoever the machine running the tests belongs to, which is not the
     /// machine this describes and does not need to be.
     const SOMEBODY: &str = "ada";
+
+    /// The one that put a card on somebody's screen every hour: a file the
+    /// machine has and the person checking is not allowed to open.
+    ///
+    /// This is not an edge case on this desktop. `/etc/sudoers.d` is
+    /// `drwxr-x---` and root's, `console well` is a user unit, and the one
+    /// file this tree keeps in there could never be read from where the check
+    /// runs. Read as `Missing`, it said the machine had drifted at every boot
+    /// and every hour after, for ever, on a machine that was perfectly well.
+    #[test]
+    fn a_file_nobody_here_may_read_is_not_a_file_that_is_missing() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let here = std::env::temp_dir().join(format!("console-shut-{}", std::process::id()));
+        let live = here.join("live/console");
+        let source = here.join("files");
+        std::fs::create_dir_all(source_of(&source, &live.to_string_lossy()).parent().expect("a parent"))
+            .expect("the source");
+        std::fs::write(source_of(&source, &live.to_string_lossy()), b"what it should be\n")
+            .expect("the source");
+        std::fs::create_dir_all(here.join("live")).expect("somewhere live");
+        std::fs::write(&live, b"what it should be\n").expect("the live file");
+
+        let said = state(&source, &live.to_string_lossy(), SOMEBODY);
+        assert_eq!(said, State::Ok, "the same file, while it can be read");
+
+        // Shut, the way /etc/sudoers.d is. Root can read it anyway and would
+        // rightly get the honest answer, so the test says nothing on a run
+        // that turns out to be root's.
+        std::fs::set_permissions(here.join("live"), std::fs::Permissions::from_mode(0o000))
+            .expect("shut");
+        let shut = std::fs::read(&live).is_err();
+        let said = state(&source, &live.to_string_lossy(), SOMEBODY);
+        std::fs::set_permissions(here.join("live"), std::fs::Permissions::from_mode(0o755)).ok();
+        std::fs::remove_dir_all(&here).ok();
+
+        if !shut {
+            return;
+        }
+
+        assert_eq!(said, State::Unreadable, "a file that cannot be read is not a file that is gone");
+        assert_ne!(said, State::Missing);
+    }
 
     #[test]
     fn a_file_in_a_home_belongs_to_whoever_lives_there() {
@@ -256,7 +319,7 @@ mod tests {
     #[test]
     fn nothing_but_the_mark_is_filled_in() {
         let held = b"    source_event:\n      gamepad:\n        button: LeftPaddle1\n";
-        for live in ["/etc/inputplumber/profiles/game.yaml", "/usr/local/bin/osk"] {
+        for live in ["/etc/inputplumber/profiles/game.yaml", "/usr/local/bin/keyboard-toggle"] {
             assert_eq!(content_on_machine(held, SOMEBODY, live), held.to_vec());
         }
     }

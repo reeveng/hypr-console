@@ -12,26 +12,40 @@ use std::path::PathBuf;
 
 /// One note, for one panel.
 pub fn beside(program: &str, note: &str) -> Option<PathBuf> {
-    let state = std::env::var("XDG_STATE_HOME")
-        .ok()
-        .map(PathBuf::from)
-        .or_else(|| std::env::var("HOME").ok().map(|home| PathBuf::from(home).join(".local/state")))?;
+    // Neither is a session with nowhere to keep a note, and a panel that
+    // cannot write one down opens on its first tab every time rather than not
+    // opening at all.
+    let state = match (std::env::var("XDG_STATE_HOME"), std::env::var("HOME")) {
+        (Ok(state), _) => PathBuf::from(state),
+        (Err(_), Ok(home)) => PathBuf::from(home).join(".local/state"),
+        (Err(_), Err(_)) => return None,
+    };
+
     Some(state.join("console/panel").join(format!("{program}.{note}")))
 }
 
 /// Write one down, making room for it if this is the first.
 pub fn write(program: &str, note: &str, said: &str) {
     let Some(path) = beside(program, note) else { return };
+
     let Some(holding) = path.parent() else { return };
-    if std::fs::create_dir_all(holding).is_err() {
+
+    if let Err(fault) = std::fs::create_dir_all(holding) {
+        eprintln!("console: {}: keeping a panel's note: {fault}", holding.display());
+
         return;
     }
+
     let _ = std::fs::write(path, said);
 }
 
 /// Read one back, if it has ever been written.
 pub fn read(program: &str, note: &str) -> Option<String> {
-    beside(program, note).and_then(|path| std::fs::read_to_string(path).ok())
+    let path = beside(program, note)?;
+
+    let Ok(said) = std::fs::read_to_string(path) else { return None };
+
+    Some(said)
 }
 
 #[cfg(test)]

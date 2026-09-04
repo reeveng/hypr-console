@@ -1,6 +1,6 @@
 //! The Menu button opens the guide to what every button does.
 
-use console_stage::checking::{Body, Check, Done, ought};
+use console_stage::checking::{Body, Check, Done, same};
 use console_stage::device::Device;
 use console_stage::here::{Here, TURNS};
 
@@ -18,7 +18,7 @@ fn here(stage: &mut Here) -> Done {
     stage.press("menu")?;
     stage.settle(TURNS);
     let ran = stage.commands().to_vec();
-    ought(ran == [["/usr/local/bin/console-buttons", "--menu"]], || format!("it ran {ran:?}"))
+    same(&ran, &[["/usr/local/bin/console-buttons", "--menu"]], || format!("it ran {ran:?}"))
 }
 
 /// The guide is a chooser, so the pad goes to the chooser profile and comes

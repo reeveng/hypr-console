@@ -13,6 +13,8 @@
 //! The reading is separate from the fetching, so what the service said can be
 //! tested without the service.
 
+
+use console_number::fitted;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// What a picture is chosen for.
@@ -85,9 +87,20 @@ pub fn asking(at: &crate::sun::Where) -> String {
 
 /// What the service said, if it said anything this understands.
 pub fn read(answer: &str) -> Option<Weather> {
-    let parsed: serde_json::Value = serde_json::from_str(answer).ok()?;
+    // A service that answered with something which is not JSON at all is not
+    // the same as one that answered about a code this does not know, and both
+    // used to leave by this line without a word.
+    let parsed: serde_json::Value = match serde_json::from_str(answer) {
+        Ok(parsed) => parsed,
+        Err(fault) => {
+            eprintln!("console-sky: the weather service answered with something that is not JSON: {fault}");
+
+            return None;
+        }
+    };
     let code = parsed.get("current")?.get("weather_code")?.as_u64()?;
-    Some(Weather::of_code(code as u32))
+
+    Some(Weather::of_code(fitted(code)))
 }
 
 /// Go and look, giving up rather than waiting.
@@ -138,6 +151,7 @@ fn complain(said: &str) -> Option<Weather> {
     if ANSWERED.swap(false, Ordering::Relaxed) {
         eprintln!("{said}");
     }
+
     None
 }
 

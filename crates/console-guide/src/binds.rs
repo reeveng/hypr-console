@@ -47,6 +47,7 @@ fn one(line: &str) -> Option<Bind> {
 fn whole(from: &str) -> Option<&str> {
     let mut depth = 0i32;
     let mut quoted = false;
+
     for (at, letter) in from.char_indices() {
         match letter {
             '"' => quoted = !quoted,
@@ -57,6 +58,7 @@ fn whole(from: &str) -> Option<&str> {
             _ => (),
         }
     }
+
     None
 }
 
@@ -71,6 +73,7 @@ fn command(does: &str) -> Option<Vec<String>> {
     let rest = does.split_once("exec_cmd(\"")?.1;
     let argv: Vec<String> =
         rest.split_once('"')?.0.split_whitespace().map(str::to_string).collect();
+
     match argv.is_empty() {
         true => None,
         false => Some(argv),

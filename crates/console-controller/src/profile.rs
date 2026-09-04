@@ -57,6 +57,16 @@ pub struct Asked {
 /// Whether to load a profile now, and which.
 ///
 /// Four ways to answer nothing, and they are worth telling apart. Something is
+/// Whether a profile load this daemon started is still going.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Loading {
+    /// One is in flight, and what the pad should wear when it lands is not
+    /// decided yet.
+    InFlight,
+    /// Nothing is loading, so what the pad wears now is what it wears.
+    Settled,
+}
+
 /// already on its way, so anything decided here would race it. The bus cannot
 /// be asked, so there is no answer to disagree with. The pad is already wearing
 /// what it should. Or this has asked for that same profile as often as it is
@@ -65,10 +75,11 @@ pub struct Asked {
 /// Nothing is queued while a load is in flight, because what the pad should
 /// wear when that load lands is whatever is in front of you then, not whatever
 /// was in front of you now. The caller looks again.
-pub fn wanted(want: &str, worn: Worn, in_flight: bool, asked: &Asked) -> Option<Asked> {
-    if in_flight {
+pub fn wanted(want: &str, worn: Worn, loading: Loading, asked: &Asked) -> Option<Asked> {
+    if loading == Loading::InFlight {
         return None;
     }
+
     match worn {
         None => None,
         Some(now) if now.eq_ignore_ascii_case(want) => None,
@@ -98,15 +109,15 @@ mod tests {
 
     #[test]
     fn a_pad_wearing_the_wrong_profile_is_given_the_right_one() {
-        assert_eq!(wanted("keyboard", Some("Router"), false, &nothing()), Some(asked("keyboard", 1)));
+        assert_eq!(wanted("keyboard", Some("Router"), Loading::Settled, &nothing()), Some(asked("keyboard", 1)));
     }
 
     /// InputPlumber answers `Desktop` where this says `desktop`, and has since
     /// before any of this was written.
     #[test]
     fn the_bus_answers_in_its_own_capitals() {
-        assert_eq!(wanted("router", Some("Router"), false, &nothing()), None);
-        assert_eq!(wanted("asking", Some("Asking"), false, &nothing()), None);
+        assert_eq!(wanted("router", Some("Router"), Loading::Settled, &nothing()), None);
+        assert_eq!(wanted("asking", Some("Asking"), Loading::Settled, &nothing()), None);
     }
 
     /// The whole of the fault. A card that came and went inside one load left
@@ -115,9 +126,9 @@ mod tests {
     /// with it, and did nothing.
     #[test]
     fn nothing_is_loaded_over_a_load_that_has_not_landed() {
-        assert_eq!(wanted("keyboard", Some("Keyboard"), true, &nothing()), None);
-        assert_eq!(wanted("keyboard", Some("Asking"), true, &nothing()), None);
-        assert_eq!(wanted("keyboard", None, true, &nothing()), None);
+        assert_eq!(wanted("keyboard", Some("Keyboard"), Loading::InFlight, &nothing()), None);
+        assert_eq!(wanted("keyboard", Some("Asking"), Loading::InFlight, &nothing()), None);
+        assert_eq!(wanted("keyboard", None, Loading::InFlight, &nothing()), None);
     }
 
     /// A bus that will not answer is not a bus that disagrees. Read as
@@ -126,7 +137,7 @@ mod tests {
     /// a rebuild is what makes the bus unanswerable.
     #[test]
     fn a_bus_that_says_nothing_is_not_a_bus_that_says_something_else() {
-        assert_eq!(wanted("router", None, false, &nothing()), None);
+        assert_eq!(wanted("router", None, Loading::Settled, &nothing()), None);
     }
 
     /// The other half of the fault, from the other side. A panel loads its
@@ -134,7 +145,7 @@ mod tests {
     /// taken away by one it never saw. Asking once more is what answers that.
     #[test]
     fn a_profile_taken_away_by_somebody_else_is_asked_for_once_more() {
-        let once = wanted("asking", Some("Tabs"), false, &asked("asking", 1));
+        let once = wanted("asking", Some("Tabs"), Loading::Settled, &asked("asking", 1));
         assert_eq!(once, Some(asked("asking", 2)));
     }
 
@@ -142,7 +153,7 @@ mod tests {
     /// the journal, not one to argue with fifty times a second.
     #[test]
     fn a_profile_that_will_not_load_is_left_alone_after_that() {
-        assert_eq!(wanted("asking", Some("Tabs"), false, &asked("asking", TRIES)), None);
+        assert_eq!(wanted("asking", Some("Tabs"), Loading::Settled, &asked("asking", TRIES)), None);
     }
 
     /// A different profile is a different question, so the count starts again.
@@ -150,7 +161,7 @@ mod tests {
     #[test]
     fn something_else_in_front_is_asked_for_from_the_start() {
         assert_eq!(
-            wanted("desktop", Some("Tabs"), false, &asked("asking", TRIES)),
+            wanted("desktop", Some("Tabs"), Loading::Settled, &asked("asking", TRIES)),
             Some(asked("desktop", 1))
         );
     }
@@ -161,9 +172,9 @@ mod tests {
     #[test]
     fn what_is_in_front_decides_the_profile_and_this_decides_the_load() {
         assert_eq!(
-            wanted(Mode::Asking.profile(), Some("Tabs"), false, &nothing()),
+            wanted(Mode::Asking.profile(), Some("Tabs"), Loading::Settled, &nothing()),
             Some(asked("asking", 1))
         );
-        assert_eq!(wanted(Mode::Desktop.profile(), Some("Router"), false, &nothing()), None);
+        assert_eq!(wanted(Mode::Desktop.profile(), Some("Router"), Loading::Settled, &nothing()), None);
     }
 }

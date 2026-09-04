@@ -15,6 +15,9 @@
 //! Almanac, good to about a hundredth of a degree for a century either side of
 //! 2000, which is a great deal more than a wallpaper needs.
 
+
+use console_number::toward_zero_u32;
+
 /// A place on the earth, in degrees.
 #[derive(Debug, Clone, Copy, PartialEq, serde::Deserialize)]
 pub struct Where {
@@ -165,15 +168,17 @@ pub fn along_the_year(unix: f64) -> f64 {
 
 /// What time of the year it is at a place.
 pub fn season(at: &Where, unix: f64) -> Season {
-    let northern = match (along_the_year(unix) / 90.0) as u32 {
+    let northern = match toward_zero_u32(along_the_year(unix) / 90.0) {
         0 => Season::Spring,
         1 => Season::Summer,
         2 => Season::Autumn,
         _ => Season::Winter,
     };
+
     if at.latitude >= 0.0 {
         return northern;
     }
+
     // The far side of the year, which is the far side of the world.
     match northern {
         Season::Autumn => Season::Spring,
@@ -196,13 +201,17 @@ const RISEN: f64 = 6.0;
 /// this reads.
 pub fn sky(at: &Where, unix: f64) -> Sky {
     let now = height(at, unix);
+
     if now < TWILIGHT {
         return Sky::Night;
     }
+
     if now > RISEN {
         return Sky::Day;
     }
+
     let rising = now > height(at, unix - 900.0);
+
     match (rising, now >= 0.0) {
         (true, false) => Sky::Dawn,
         (true, true) => Sky::Sunrise,
@@ -210,6 +219,7 @@ pub fn sky(at: &Where, unix: f64) -> Sky {
         (false, false) => Sky::Dusk,
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;

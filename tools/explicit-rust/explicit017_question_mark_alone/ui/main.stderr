@@ -1,0 +1,19 @@
+warning: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/main.rs:14:14
+   |
+LL |     Ok(frame(settle(x)?, 3))
+   |              ^^^^^^^^^^
+   |
+   = help: lift it out -- `let name = …?;` -- so the exit sits on the left margin where it can be seen
+   = note: `#[warn(explicit017_question_mark_alone)]` on by default
+
+warning: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/main.rs:20:16
+   |
+LL |     let kept = settle(x)?.checked_add(1).ok_or("full")?;
+   |                ^^^^^^^^^^
+   |
+   = help: lift it out -- `let name = …?;` -- so the exit sits on the left margin where it can be seen
+
+warning: 2 warnings emitted
+

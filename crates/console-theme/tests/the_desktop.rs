@@ -16,7 +16,16 @@ use console_colour as col;
 use regex::Regex;
 
 fn root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().expect("the repository")
+    {
+    // Tidied by `canonicalize` where that works and left as it stands where it
+    // does not. What `CARGO_MANIFEST_DIR` gives is already absolute and already
+    // right; canonicalizing only takes the `../..` out of the middle. It fails
+    // under a sandbox that will not let a process resolve a path it can
+    // otherwise read, and a test that stops there reports the sandbox as a
+    // missing repository.
+    let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    from.canonicalize().unwrap_or(from)
+}
 }
 
 /// Every way a colour is written down on this machine.
@@ -76,6 +85,156 @@ fn forms<'a>(codes: impl Iterator<Item = &'a str>) -> BTreeSet<String> {
         .collect()
 }
 
+/// The at-words GTK's stylesheet language has of its own, which name a rule
+/// rather than a colour. Everything else after an `@` is a colour somebody
+/// defined, or meant to.
+const AT_RULES: [&str; 16] = [
+    "import", "define-color", "media", "keyframes", "supports", "namespace", "charset",
+    "font-face", "layer", "property", "container", "page", "document", "scope", "starting-style",
+    "else",
+];
+
+mod the_names {
+    use super::*;
+
+    /// Every colour the desktop asks for by name is one something defines.
+    ///
+    /// GTK does not fail on `@fill` where nothing defined `fill`. It drops the
+    /// one declaration and carries on, so the file parses, the widget lays out,
+    /// and the only sign is a thing that never paints. The strip under the bar
+    /// spent a release like that: every one of its gradient rules named a
+    /// colour the palette did not write, so it filled to no percentage an apply
+    /// ever reported. Nothing logged, nothing failed, and it was never seen.
+    ///
+    /// So the two lists are held together here rather than by whoever next
+    /// reads both files: a name asked for, and a name defined.
+    #[test]
+    fn every_name_the_desktop_asks_for_is_defined() {
+        // Both trees. `files` is what is laid on the machine, and `crates` is
+        // where a program keeps the stylesheet it loads from a string of its
+        // own -- the home screen's is there, and asked for a colour nobody had
+        // defined for as long as it existed. A check that looked at only the
+        // first of these would have gone on passing over it.
+        let files = root().join("files");
+        let sheets: Vec<(PathBuf, String)> = [files.clone(), root().join("crates")]
+            .iter()
+            .flat_map(|tree| carrying(tree))
+            .filter(|(path, _)| path.extension().is_some_and(|end| end == "css"))
+            .collect();
+
+        assert!(!sheets.is_empty(), "no stylesheets under {}", files.display());
+
+        let at = Regex::new(r"@([A-Za-z_][A-Za-z0-9_-]*)").expect("a pattern");
+
+        // Every name defined anywhere among them. The sheets `@import` one
+        // another, so a name defined in the palette is a name the bar may use.
+        let defined: BTreeSet<String> = sheets
+            .iter()
+            .flat_map(|(_, said)| {
+                said.lines()
+                    .filter_map(|line| line.trim().strip_prefix("@define-color "))
+                    .filter_map(|rest| rest.split_whitespace().next())
+                    .map(str::to_string)
+            })
+            .collect();
+
+        assert!(defined.contains("fill"), "the palette defines no `fill`, and the strip asks for it");
+
+        let mut missing: Vec<String> = Vec::new();
+
+        for (path, said) in &sheets {
+            for line in said.lines() {
+                // A comment can hold an `@` as prose -- the strip's own
+                // stylesheet explains itself in one -- and prose is not a rule.
+                let code = line.split("/*").next().unwrap_or(line);
+
+                for found in at.captures_iter(code) {
+                    let name = &found[1];
+
+                    if AT_RULES.contains(&name) || defined.contains(name) {
+                        continue;
+                    }
+
+                    missing.push(format!(
+                        "{} asks for @{name}, which nothing defines",
+                        path.strip_prefix(&files).unwrap_or(path).display()
+                    ));
+                }
+            }
+        }
+
+        missing.dedup();
+
+        assert!(missing.is_empty(), "a colour nobody defined is a rule GTK drops:\n  {}", missing.join("\n  "));
+    }
+
+    /// The same, for the half of the desktop that speaks the browser's CSS.
+    ///
+    /// The add-on's stylesheets do not say `@name`; they say `var(--name)`, and
+    /// the palette written for them defines custom properties rather than GTK
+    /// colours. So the check above sweeps those files and finds nothing to look
+    /// at in them -- the names it knows how to read are not the names they use.
+    ///
+    /// The failure is the same failure. A `var()` naming a property nobody
+    /// defined is invalid at computed-value time, which is the browser's way of
+    /// dropping one declaration and carrying on: the rule parses, the element
+    /// lays out, and the colour is simply not the one anybody wrote. In a shadow
+    /// root nothing is even logged.
+    ///
+    /// A `var()` given a fallback is not this fault -- it named a second answer
+    /// on purpose -- so those are left alone.
+    #[test]
+    fn every_property_the_browser_asks_for_is_defined() {
+        let files = root().join("files");
+        let sheets: Vec<(PathBuf, String)> = [files.clone(), root().join("crates")]
+            .iter()
+            .flat_map(|tree| carrying(tree))
+            .filter(|(path, _)| path.extension().is_some_and(|end| end == "css"))
+            .collect();
+
+        let held = Regex::new(r"(?m)^\s*(--[A-Za-z0-9_-]+)\s*:").expect("a pattern");
+        let asked = Regex::new(r"var\(\s*(--[A-Za-z0-9_-]+)\s*([,)])").expect("a pattern");
+
+        let defined: BTreeSet<String> = sheets
+            .iter()
+            .flat_map(|(_, said)| held.captures_iter(said).map(|found| found[1].to_string()))
+            .collect();
+
+        assert!(defined.contains("--text"), "the browser's palette defines nothing");
+
+        let mut missing: Vec<String> = Vec::new();
+
+        for (path, said) in &sheets {
+            for line in said.lines() {
+                let code = line.split("/*").next().unwrap_or(line);
+
+                for found in asked.captures_iter(code) {
+                    // A comma is a fallback, which is somebody saying what to
+                    // do when the name is not there. That is an answer, not a
+                    // hole.
+                    if &found[2] == "," || defined.contains(&found[1]) {
+                        continue;
+                    }
+
+                    missing.push(format!(
+                        "{} asks for var({}), which nothing defines",
+                        path.strip_prefix(&files).unwrap_or(path).display(),
+                        &found[1]
+                    ));
+                }
+            }
+        }
+
+        missing.dedup();
+
+        assert!(
+            missing.is_empty(),
+            "a property nobody defined is a declaration the browser throws away:\n  {}",
+            missing.join("\n  ")
+        );
+    }
+}
+
 mod the_engine {
     use super::*;
 
@@ -110,6 +269,64 @@ mod the_engine {
             );
         }
     }
+
+    /// The three pairings APCA's own documentation states an answer for.
+    ///
+    /// The same argument as the vectors above and the more important half of
+    /// it: the ratio is arithmetic anybody can check by hand, and this is not.
+    /// It has two exponents, a soft clamp and an offset, and getting any of
+    /// them slightly wrong gives numbers that look entirely plausible and are
+    /// wrong everywhere. These are the published values, so they are the only
+    /// thing here that did not come out of this implementation.
+    const APCA: [(&str, &str, f64); 3] = [
+        ("000000", "ffffff", 106.04),
+        ("ffffff", "000000", -107.88),
+        ("888888", "ffffff", 63.06),
+    ];
+
+    #[test]
+    fn the_apca_numbers_are_the_published_ones() {
+        for (ink, ground, expected) in APCA {
+            let got = col::lc(ink, ground);
+            assert!(
+                (got - expected).abs() < 0.01,
+                "#{ink} on #{ground} is Lc {got:.3}, published as Lc {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_polarity_is_the_whole_point_and_is_not_symmetric() {
+        // The fact a ratio cannot express. Swap the ink and the ground and
+        // WCAG gives the same number back; APCA does not, and the difference
+        // is which of the two is the paper.
+        assert_eq!(col::contrast("000000", "ffffff"), col::contrast("ffffff", "000000"));
+        assert!(col::lc("ffffff", "000000").abs() != col::lc("000000", "ffffff").abs());
+    }
+
+    #[test]
+    fn a_colour_on_itself_is_no_contrast_in_either_measure() {
+        assert!((col::contrast("372c3a", "372c3a") - 1.0).abs() < 1e-12);
+        assert_eq!(col::lc("372c3a", "372c3a"), 0.0);
+    }
+
+    #[test]
+    fn wcag_flatters_a_dark_pair_and_apca_does_not() {
+        // The reason this palette asks for both, in one pair of assertions.
+        // The same grey is a better ratio on black than on white and a far
+        // worse Lc, and only one of those two claims matches what an eye does.
+        let (on_black, on_white) = (
+            col::contrast("767676", "000000"),
+            col::contrast("767676", "ffffff"),
+        );
+        assert!(on_black > on_white, "{on_black} should beat {on_white}");
+
+        let (lc_black, lc_white) = (
+            col::lc("767676", "000000").abs(),
+            col::lc("767676", "ffffff").abs(),
+        );
+        assert!(lc_black < lc_white, "Lc {lc_black} should be under Lc {lc_white}");
+    }
 }
 
 mod the_palette {
@@ -120,7 +337,7 @@ mod the_palette {
         // The whole promise, in one assertion.
         let done = check();
         assert!(done.status.success(), "{}{}", done.stdout, done.stderr);
-        assert!(done.stdout.contains("all clearing what they declare"), "{}", done.stdout);
+        assert!(done.stdout.contains("all clearing both measures"), "{}", done.stdout);
     }
 
     #[test]
@@ -129,7 +346,7 @@ mod the_palette {
         let done = check();
         assert!(
             done.status.success(),
-            "a themed file no longer matches theme/palette.toml. Run `make theme`.\n{}{}",
+            "a themed file no longer matches theme/palette.toml. Run `just theme`.\n{}{}",
             done.stdout,
             done.stderr
         );

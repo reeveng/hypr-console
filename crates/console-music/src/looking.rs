@@ -79,7 +79,13 @@ impl Song {
         if !self.tags.artist.is_empty() {
             return self.tags.artist.clone();
         }
-        let within = self.path.parent().and_then(|at| at.strip_prefix(folder).ok());
+
+        let within = self.path.parent().and_then(|at| {
+            let Ok(within) = at.strip_prefix(folder) else { return None };
+
+            Some(within)
+        });
+
         match within {
             Some(within) if !within.as_os_str().is_empty() => within.display().to_string(),
             _ => String::new(),
@@ -104,7 +110,9 @@ pub fn under(folder: &Path, read: &dyn Fn(&Path) -> Vec<Thing>) -> Vec<PathBuf> 
         if found.len() >= ENOUGH || read_so_far >= FAR {
             break;
         }
+
         read_so_far += 1;
+
         for thing in read(&at) {
             match thing.folder {
                 true => waiting.push_back(thing.path),
@@ -112,6 +120,7 @@ pub fn under(folder: &Path, read: &dyn Fn(&Path) -> Vec<Thing>) -> Vec<PathBuf> 
             }
         }
     }
+
     found
 }
 
@@ -162,15 +171,32 @@ pub fn written(songs: &[Song]) -> String {
             })
         })
         .collect();
-    serde_json::to_string(&json!({ "songs": held })).unwrap_or_default()
+
+    match serde_json::to_string(&json!({ "songs": held })) {
+        Ok(written) => written,
+
+        Err(fault) => {
+            eprintln!("music-index: writing down what was read about the songs: {fault}");
+            String::new()
+        }
+    }
 }
 
 /// What was written down, read back.
 pub fn kept(said: &str) -> Vec<Song> {
-    let held: Value = serde_json::from_str(said).unwrap_or(Value::Null);
+    let held: Value = match serde_json::from_str(said) {
+        Ok(held) => held,
+
+        // Not json is a file from an older version of this, or one written
+        // half way. The walk rebuilds it either way, and this is read on every
+        // draw of the panel, so it is not worth a line each time.
+        Err(_) => Value::Null,
+    };
+
     let Some(songs) = held.get("songs").and_then(Value::as_array) else {
         return Vec::new();
     };
+
     songs.iter().filter_map(one).collect()
 }
 
@@ -180,9 +206,11 @@ fn one(held: &Value) -> Option<Song> {
         held.get(key).and_then(Value::as_str).unwrap_or_default().to_string()
     };
     let path = said("path");
+
     if path.is_empty() {
         return None;
     }
+
     Some(Song {
         read: true,
         tags: Tags { title: said("title"), artist: said("artist"), rest: said("rest") },
@@ -223,15 +251,19 @@ pub fn how(said: &str, wanted: &str) -> Option<How> {
     if said.is_empty() || wanted.is_empty() {
         return None;
     }
+
     if said == wanted {
         return Some(How::Whole);
     }
+
     if said.starts_with(&wanted) {
         return Some(How::Start);
     }
+
     let at_a_word = said.match_indices(&wanted).any(|(at, _)| {
         said[..at].chars().next_back().is_some_and(|before| !before.is_alphanumeric())
     });
+
     match at_a_word {
         true => Some(How::Word),
         false => said.contains(&wanted).then_some(How::Anywhere),
@@ -270,6 +302,7 @@ pub fn ranked<'a>(songs: &'a [Song], word: &str) -> Vec<&'a Song> {
 
 #[cfg(test)]
 mod tests {
+    use crate::tags::Said;
     use super::*;
 
     /// A library with no disk under it: a folder, and what is in it.
@@ -354,7 +387,7 @@ mod tests {
     fn a_song_that_was_read_and_said_nothing_counts_as_read() {
         let songs = kept(&written(&[a_song("/music/quiet.opus", "", "", "")]));
         assert_eq!(unread(&songs), 0);
-        assert!(!songs[0].tags.anything());
+        assert_eq!(songs[0].tags.anything(), Said::Nothing);
     }
 
     #[test]

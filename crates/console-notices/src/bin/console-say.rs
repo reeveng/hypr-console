@@ -15,14 +15,17 @@ use console_notices::saying::{Kept, fault, for_the_journal, journal, raise};
 
 fn main() -> std::process::ExitCode {
     let said: Vec<String> = std::env::args().skip(1).collect();
+
     let [kind, summary, rest @ ..] = said.as_slice() else {
         eprintln!("usage: console-say KIND SUMMARY [BODY]");
         return std::process::ExitCode::from(2);
     };
+
     if kind.is_empty() || summary.is_empty() {
         eprintln!("usage: console-say KIND SUMMARY [BODY]");
         return std::process::ExitCode::from(2);
     }
+
     let body = rest.first().map(String::as_str).unwrap_or_default();
 
     journal(&for_the_journal(kind, summary, body));
@@ -33,5 +36,6 @@ fn main() -> std::process::ExitCode {
     if let Some(notice) = fault(summary, body, Kept::counting(kind).again()) {
         raise(&notice);
     }
+
     std::process::ExitCode::SUCCESS
 }

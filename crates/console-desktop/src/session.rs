@@ -23,36 +23,46 @@ const BREATH: Duration = Duration::from_millis(100);
 /// The Hyprlands running on this machine, by their signature.
 pub fn instances() -> BTreeSet<String> {
     let mut found = BTreeSet::new();
+
     let Ok(entries) = std::fs::read_dir(runtime().join("hypr")) else { return found };
+
     for path in entries.flatten().map(|entry| entry.path()) {
         if path.is_dir() && let Some(name) = path.file_name() {
             found.insert(name.to_string_lossy().to_string());
         }
     }
+
     found
 }
 
 /// The Wayland displays this machine is offering right now.
 pub fn sockets() -> BTreeSet<String> {
     let mut found = BTreeSet::new();
+
     let Ok(entries) = std::fs::read_dir(runtime()) else { return found };
+
     for path in entries.flatten().map(|entry| entry.path()) {
         let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+
         if name.starts_with("wayland-") && !name.ends_with(".lock") {
             found.insert(name);
         }
     }
+
     found
 }
 
 fn until<T>(patience: Duration, mut look: impl FnMut() -> Option<T>) -> Option<T> {
     let by = Instant::now() + patience;
+
     while Instant::now() < by {
         if let Some(found) = look() {
             return Some(found);
         }
+
         std::thread::sleep(BREATH);
     }
+
     None
 }
 
@@ -88,12 +98,15 @@ pub fn left_behind(signature: &str) {
 /// Stages belonging to sessions that are no longer running.
 pub fn abandoned() -> Vec<PathBuf> {
     let Ok(entries) = std::fs::read_dir(stages()) else { return Vec::new() };
+
     let mut found: Vec<PathBuf> = entries
         .flatten()
         .map(|entry| entry.path())
         .filter(|path| {
             let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+
             let Some(pid) = name.strip_prefix("session-") else { return false };
+
             pid.chars().all(|digit| digit.is_ascii_digit())
                 && !PathBuf::from("/proc").join(pid).exists()
         })
@@ -109,7 +122,7 @@ pub fn abandoned() -> Vec<PathBuf> {
 /// hyprctl; that is the whole test, and the one this session belongs to is left
 /// alone whatever it says.
 pub fn dead_instances() -> Vec<PathBuf> {
-    let ours = std::env::var("HYPRLAND_INSTANCE_SIGNATURE").unwrap_or_default();
+    let ours = crate::said("HYPRLAND_INSTANCE_SIGNATURE").unwrap_or_default();
     instances()
         .into_iter()
         .filter(|name| *name != ours)
@@ -137,11 +150,25 @@ pub struct Starting {
 impl Starting {
     pub fn now() -> Self {
         let _ = std::fs::create_dir_all(stages());
-        let held = File::create(stages().join("starting.lock")).ok();
+
+        // Without the lock, two sessions starting together can each watch the
+        // other's compositor appear and take it for their own. Rare, and not
+        // worth refusing to start over; said out loud because if it ever does
+        // happen this is the only line that will explain what followed.
+        let held = match File::create(stages().join("starting.lock")) {
+            Ok(file) => Some(file),
+            Err(fault) => {
+                eprintln!("console-desktop: the lock two sessions start under: {fault}");
+
+                None
+            }
+        };
+
         if let Some(file) = &held {
             // SAFETY: the descriptor is this file's, and open for the call.
             unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
         }
+
         Starting { held }
     }
 }

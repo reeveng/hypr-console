@@ -19,7 +19,15 @@ pub struct Thing {
 /// kew's own setting first, so that the panel and the player never disagree
 /// about which folder they are talking about.
 pub fn folder() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_default();
+    let home = match std::env::var("HOME") {
+        Ok(home) => home,
+
+        Err(fault) => {
+            eprintln!("console-music: HOME: {fault}; the music folder is looked for from here");
+            String::new()
+        }
+    };
+
     said_by_kew()
         .map(|said| PathBuf::from(said.replace('~', &home)))
         .unwrap_or_else(|| PathBuf::from(home).join("Music"))
@@ -27,7 +35,9 @@ pub fn folder() -> PathBuf {
 
 fn said_by_kew() -> Option<String> {
     let config = gtk4::glib::user_config_dir().join("kew/kewrc");
-    let said = std::fs::read_to_string(config).ok()?;
+
+    let Ok(said) = std::fs::read_to_string(config) else { return None };
+
     path_in(&said)
 }
 
@@ -50,8 +60,22 @@ pub fn path_in(kewrc: &str) -> Option<String> {
 /// it down before kew is ever asked to play.
 pub fn tell_kew(folder: &Path) {
     let config = gtk4::glib::user_config_dir().join("kew/kewrc");
-    let said = std::fs::read_to_string(&config).unwrap_or_default();
+    let said = match std::fs::read_to_string(&config) {
+        Ok(said) => said,
+
+        // Never having had the file is kew's first run, which is the whole
+        // case this exists for. A file that is there and will not open is not:
+        // it is about to be written over, so it is said first.
+        Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => String::new(),
+
+        Err(fault) => {
+            eprintln!("console-music: {}: reading kew's settings: {fault}", config.display());
+            String::new()
+        }
+    };
+
     let Some(writing) = with_path(&said, &folder.to_string_lossy()) else { return };
+
     let _ = std::fs::create_dir_all(config.parent().unwrap_or(&config));
     let _ = std::fs::write(&config, writing);
 }
@@ -65,18 +89,22 @@ pub fn with_path(kewrc: &str, folder: &str) -> Option<String> {
     if path_in(kewrc).is_some() {
         return None;
     }
+
     let told = format!("path={folder}");
     let mut lines: Vec<String> = kewrc.lines().map(|line| line.to_string()).collect();
+
     match lines.iter().position(|line| line.trim().starts_with("path=")) {
         Some(at) => lines[at] = told,
         None => lines.push(told),
     }
+
     Some(lines.join("\n") + "\n")
 }
 
 /// What is in a folder, folders first and each in name order.
 pub fn things(folder: &Path) -> Vec<Thing> {
     let Ok(reading) = std::fs::read_dir(folder) else { return Vec::new() };
+
     let mut things: Vec<Thing> = reading
         .flatten()
         .filter_map(|entry| about(&entry.path()))
@@ -93,20 +121,44 @@ fn about(path: &Path) -> Option<Thing> {
     if name.starts_with('.') {
         return None;
     }
+
     match path.is_dir() {
         true => Some(Thing { name, path: path.to_path_buf(), folder: true }),
-        false => playable(path).then(|| Thing {
-            name: named(&name),
-            path: path.to_path_buf(),
-            folder: false,
-        }),
+        false => match playable(path) {
+            Playable::Yes => {
+                Some(Thing { name: named(&name), path: path.to_path_buf(), folder: false })
+            }
+            Playable::No => None,
+        },
     }
 }
 
+/// Whether kew would play a file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Playable {
+    /// It is a kind kew reads.
+    Yes,
+    /// It is a cover, a note, or something else in the folder.
+    No,
+}
+
+/// Whether one thing to play is a folder or a song.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    /// Played whole, in the order it is in.
+    AFolder,
+    /// One song.
+    ASong,
+}
+
 /// Whether kew would play this file.
-pub fn playable(path: &Path) -> bool {
-    let Some(kind) = path.extension() else { return false };
-    KINDS.contains(&kind.to_string_lossy().to_lowercase().as_str())
+pub fn playable(path: &Path) -> Playable {
+    let Some(kind) = path.extension() else { return Playable::No };
+
+    match KINDS.contains(&kind.to_string_lossy().to_lowercase().as_str()) {
+        true => Playable::Yes,
+        false => Playable::No,
+    }
 }
 
 /// A filename, as a title.
@@ -116,6 +168,7 @@ pub fn playable(path: &Path) -> bool {
 /// song's.
 pub fn named(filename: &str) -> String {
     let name = filename.rsplit_once('.').map_or(filename, |(stem, _)| stem);
+
     match name.rsplit_once(" [") {
         Some((title, tail)) if tail.ends_with(']') => title.trim().to_string(),
         _ => name.trim().to_string(),
@@ -156,9 +209,9 @@ mod tests {
 
     #[test]
     fn only_what_the_player_plays_is_listed() {
-        assert!(playable(Path::new("/a/b.OPUS")));
-        assert!(playable(Path::new("/a/b.mp3")));
-        assert!(!playable(Path::new("/a/cover.jpg")));
-        assert!(!playable(Path::new("/a/notes")));
+        assert_eq!(playable(Path::new("/a/b.OPUS")), Playable::Yes);
+        assert_eq!(playable(Path::new("/a/b.mp3")), Playable::Yes);
+        assert_eq!(playable(Path::new("/a/cover.jpg")), Playable::No);
+        assert_eq!(playable(Path::new("/a/notes")), Playable::No);
     }
 }

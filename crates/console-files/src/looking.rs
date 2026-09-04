@@ -59,8 +59,20 @@ impl Found {
 /// a time off a keyboard covering half the screen, and a list that rearranges
 /// itself around a letter nobody meant to press is worse than one that simply
 /// gets shorter.
-pub fn answers(name: &str, word: &str) -> bool {
-    name.to_lowercase().contains(word.trim().to_lowercase().as_str())
+pub fn answers(name: &str, word: &str) -> Answers {
+    match name.to_lowercase().contains(word.trim().to_lowercase().as_str()) {
+        true => Answers::Yes,
+        false => Answers::No,
+    }
+}
+
+/// Whether a name is one the typed word was looking for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Answers {
+    /// The word is somewhere in it.
+    Yes,
+    /// It is not.
+    No,
 }
 
 /// Where a search gives up finding, and where it gives up looking.
@@ -82,6 +94,7 @@ pub fn under(here: &Path, word: &str, read: &dyn Fn(&Path) -> Vec<Entry>) -> Vec
     if word.trim().is_empty() {
         return Vec::new();
     }
+
     let mut found: Vec<Found> = Vec::new();
     let mut waiting = VecDeque::from([PathBuf::new()]);
     let mut read_so_far = 0;
@@ -90,6 +103,7 @@ pub fn under(here: &Path, word: &str, read: &dyn Fn(&Path) -> Vec<Entry>) -> Vec
         if found.len() >= ENOUGH || read_so_far >= FAR {
             break;
         }
+
         read_so_far += 1;
         // Joined onto nothing a path grows a separator, and a folder read as
         // "/home/" is a folder read twice under two names.
@@ -97,15 +111,18 @@ pub fn under(here: &Path, word: &str, read: &dyn Fn(&Path) -> Vec<Entry>) -> Vec
             true => here.to_path_buf(),
             false => here.join(&within),
         };
+
         for thing in read(&at) {
             if thing.folder {
                 waiting.push_back(within.join(&thing.name));
             }
-            if answers(&thing.name, word) {
+
+            if answers(&thing.name, word) == Answers::Yes {
                 found.push(Found { thing, within: within.clone() });
             }
         }
     }
+
     found
 }
 

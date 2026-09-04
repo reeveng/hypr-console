@@ -60,6 +60,7 @@ pub fn through(unix: f64) -> f64 {
 /// somebody who is not measuring it. The two halves between them are the rest.
 pub fn moon(unix: f64) -> Moon {
     let through = through(unix);
+
     match through {
         _ if through < 0.0625 || through >= 0.9375 => Moon::New,
         _ if through < 0.4375 => Moon::Waxing,

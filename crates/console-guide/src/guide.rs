@@ -12,9 +12,9 @@
 //! that never appears.
 
 use console_controller::doing::Doing;
-use console_controller::means::{Job, Table, What, When};
+use console_controller::means::{Job, Press, Table, What, When};
 use console_files::doing::{self, Deed};
-use console_pad::jobs::{ALONE, Binding, Layer};
+use console_pad::jobs::{ALONE, Binding, Held, Layer, Played};
 
 use crate::binds::binds;
 
@@ -37,9 +37,9 @@ pub const MENUS: &str = "Menus";
 /// not appear at all until somebody puts something there, which is a section
 /// read out of the table doing exactly what it should.
 const HELD: [(Layer, &str); 3] = [
-    (Layer::of(true, false), "L2"),
-    (Layer::of(false, true), "R2"),
-    (Layer::of(true, true), "L2 + R2"),
+    (Layer::of(Held::Down, Held::Up), "L2"),
+    (Layer::of(Held::Up, Held::Down), "R2"),
+    (Layer::of(Held::Down, Held::Down), "L2 + R2"),
 ];
 
 /// One line of the guide: a button, and what it does.
@@ -81,6 +81,7 @@ pub fn said(button: &str) -> String {
         None => button.replace('-', " "),
     };
     let mut letters = said.chars();
+
     match letters.next() {
         Some(first) => first.to_uppercase().collect::<String>() + letters.as_str(),
         None => String::new(),
@@ -107,9 +108,10 @@ fn lines(table: &Table, layer: Layer, wanted: impl Fn(&Job) -> bool) -> Vec<Line
 fn line(job: &Job, bound: &[Binding], layer: Layer) -> Option<Line> {
     let on: Vec<String> = bound
         .iter()
-        .filter(|one| one.played() && one.layer == layer)
+        .filter(|one| one.played() == Played::ByAButton && one.layer == layer)
         .map(|one| said(&one.button))
         .collect();
+
     match on.is_empty() {
         // A job with no button at all is not a line. This is a guide to what
         // pressing something comes to, and somebody who has taken the button
@@ -136,9 +138,14 @@ fn line(job: &Job, bound: &[Binding], layer: Layer) -> Option<Line> {
 /// something is nothing a row can do for you: pressing Enter at a guide is not
 /// choosing the row the guide is describing.
 pub fn runs_for(what: What) -> Option<Vec<String>> {
-    match what.does(true)? {
+    match what.does(Press::Down)? {
         Doing::Run(argv) => Some(argv),
-        Doing::Frame(_) => None,
+        // A key, or a word to the home screen. Neither is a program the guide
+        // could name, and neither is something a row of the guide could do
+        // for you: pressing Enter at a guide is not choosing the row the guide
+        // is describing, and moving the home screen's highlight from here
+        // would be moving a highlight nobody can see.
+        Doing::Frame(_) | Doing::Tell(_) => None,
     }
 }
 
@@ -156,7 +163,12 @@ fn what_can_be_done() -> String {
 pub fn sections(table: &Table, lua: &str) -> Vec<Section> {
     // What a press comes to on its own, and then the things on this device
     // that are not buttons at all and so are in no table.
-    let mut around = lines(table, ALONE, |job| job.when != When::WithAChooserUp);
+    let mut around = lines(table, ALONE, |job| {
+        !matches!(
+            job.when,
+            When::WithAChooserUp | When::OnTheHomeScreen | When::StandingOnASquare
+        )
+    });
     around.extend([
         Line::new("Volume rocker", "louder, quieter, unmute"),
         Line::new("Touchpad", "move the pointer"),
@@ -203,6 +215,34 @@ pub fn sections(table: &Table, lua: &str) -> Vec<Section> {
             ],
         ),
         Section::of(MENUS, menus),
+        // The desktop with the apps drawn on it. Its own buttons are read off
+        // the table like everything else, and under them the things a finger
+        // does, which are the same deeds said the other way round: everything
+        // here can be reached with the pad alone and with the screen alone,
+        // which is what a machine that is held rather than pointed at has to
+        // be.
+        //
+        // Both sets of jobs, because the ones that only apply once there is a
+        // highlight up are still the home screen's -- a guide that left them
+        // out would be a guide that does not mention A.
+        Section::of(
+            "Home screen",
+            {
+                let mut home = lines(table, ALONE, |job| {
+                    matches!(job.when, When::OnTheHomeScreen | When::StandingOnASquare)
+                });
+                home.extend([
+                    Line::new("D-pad, first press", "show where you are standing"),
+                    Line::new("D-pad off the side", "the pane before or after"),
+                    Line::new("Hold A", "pick an app up; press again to put it down"),
+                    Line::new("Tap an app", "the same as A"),
+                    Line::new("Hold a finger on one", "pick it up"),
+                    Line::new("Swipe sideways", "the pane before or after"),
+                    Line::new("Swipe up", "the menu"),
+                ]);
+                home
+            },
+        ),
         Section::of(
             "Files",
             vec![

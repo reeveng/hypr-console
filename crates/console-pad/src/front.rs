@@ -23,6 +23,8 @@
 //! every rule can be asked of a machine that is not in the room -- including
 //! the machine this desktop has never run on, which is the one that matters.
 
+
+use crate::devices::Has;
 use std::collections::BTreeSet;
 
 
@@ -93,10 +95,13 @@ impl Front {
     /// not an empty machine, and reading silence as "it has no buttons" is a
     /// desktop that tells somebody holding a working handheld that none of
     /// their buttons exist.
-    pub fn can_send(&self, button: &str) -> bool {
+    pub fn can_send(&self, button: &str) -> Has {
         match &self.capabilities {
-            Some(has) => has.contains(&crate::vocabulary::capability_of(button)),
-            None => true,
+            Some(has) => match has.contains(&crate::vocabulary::capability_of(button)) {
+                true => Has::Yes,
+                false => Has::No,
+            },
+            None => Has::Yes,
         }
     }
 
@@ -107,7 +112,7 @@ impl Front {
     /// list of everything is not the same claim as a list.
     pub fn missing<'a>(&self, buttons: &[&'a str]) -> Vec<&'a str> {
         match self.capabilities.is_some() {
-            true => buttons.iter().copied().filter(|button| !self.can_send(button)).collect(),
+            true => buttons.iter().copied().filter(|button| self.can_send(button) == Has::No).collect(),
             false => Vec::new(),
         }
     }
@@ -118,6 +123,7 @@ impl Front {
     /// with a button going spare is a device something can be moved onto.
     pub fn spare(&self, bound: &[&str]) -> Vec<String> {
         let Some(has) = &self.capabilities else { return Vec::new() };
+
         let taken: BTreeSet<String> =
             bound.iter().map(|button| crate::vocabulary::capability_of(button)).collect();
         has.iter()
@@ -142,6 +148,7 @@ pub fn capabilities(said: &str) -> Option<BTreeSet<String>> {
         .filter(|said| !said.trim().is_empty())
         .map(str::to_string)
         .collect();
+
     match found.is_empty() {
         true => None,
         false => Some(found),
@@ -159,14 +166,53 @@ pub fn touchscreen(devices: &str) -> Option<bool> {
     if devices.trim().is_empty() {
         return None;
     }
-    Some(devices.lines().filter_map(properties).any(|prop| prop & DIRECT != 0))
+
+    let mut unreadable = false;
+
+    for line in devices.lines() {
+        match properties(line) {
+            Properties::Bits(bits) if bits & DIRECT != 0 => return Some(true),
+            Properties::Unreadable => unreadable = true,
+            Properties::Bits(_) | Properties::Elsewhere => {},
+        }
+    }
+
+    // A line this could not read may have been the screen's. Unknown is the
+    // honest answer to that, and it is not the same answer as no screen: a
+    // kernel that writes something other than hex there would otherwise turn
+    // the touchscreen into a touchpad, silently, which is the one mistake
+    // this whole module exists to avoid.
+    match unreadable {
+        true => None,
+        false => Some(false),
+    }
 }
 
 /// `INPUT_PROP_DIRECT`, as the kernel writes it in that file.
 const DIRECT: u64 = 1 << 1;
 
-fn properties(line: &str) -> Option<u64> {
-    u64::from_str_radix(line.strip_prefix("B: PROP=")?.trim(), 16).ok()
+/// What one line of the kernel's list says about a device's properties.
+///
+/// Three answers rather than two. A line that is not the properties line is
+/// not an answer at all, and a properties line written in something other
+/// than hex is an answer that cannot be read -- which is a different fact
+/// from a device having no properties, and has to stay different.
+enum Properties {
+    /// Some other line of the block.
+    Elsewhere,
+    /// The properties line, in something this cannot read.
+    Unreadable,
+    /// The bits the kernel wrote.
+    Bits(u64),
+}
+
+fn properties(line: &str) -> Properties {
+    let Some(hex) = line.strip_prefix("B: PROP=") else { return Properties::Elsewhere };
+
+    match u64::from_str_radix(hex.trim(), 16) {
+        Ok(bits) => Properties::Bits(bits),
+        Err(_) => Properties::Unreadable,
+    }
 }
 
 #[cfg(test)]
@@ -210,8 +256,8 @@ B: ABS=10000000003
     fn a_button_this_machine_cannot_send_is_the_one_that_comes_back() {
         let front = Front::of(SAID, LISTED);
         assert_eq!(front.missing(&["South", "RightPaddle1"]), ["RightPaddle1"]);
-        assert!(front.can_send("South"));
-        assert!(!front.can_send("RightPaddle1"));
+        assert_eq!(front.can_send("South"), Has::Yes);
+        assert_eq!(front.can_send("RightPaddle1"), Has::No);
     }
 
     /// A machine that did not answer is not a machine with nothing on it.
@@ -224,7 +270,11 @@ B: ABS=10000000003
         assert_eq!(quiet.touchscreen, None);
         assert!(quiet.missing(&["South"]).is_empty());
         assert!(quiet.spare(&[]).is_empty());
-        assert!(quiet.can_send("RightPaddle1"), "a machine that said nothing has every button");
+        assert_eq!(
+            quiet.can_send("RightPaddle1"),
+            Has::Yes,
+            "a machine that said nothing has every button"
+        );
     }
 
     #[test]

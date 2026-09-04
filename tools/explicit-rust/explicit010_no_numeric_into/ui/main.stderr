@@ -1,0 +1,11 @@
+error: `into()` widens `u8` to `u32` without saying so at the call site
+  --> $DIR/main.rs:6:5
+   |
+LL |     small.into()
+   |     ^^^^^^^^^^^^
+   |
+   = help: write the destination out -- `i64::from(x)` -- so the reader sees which two widths are in play
+   = note: `#[deny(explicit010_no_numeric_into)]` on by default
+
+error: aborting due to 1 previous error
+

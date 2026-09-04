@@ -23,8 +23,10 @@ pub mod download;
 pub mod files;
 pub mod game_mode;
 pub mod guide;
+pub mod home;
 pub mod keyboard;
 pub mod launcher;
+pub mod music;
 pub mod notices;
 pub mod panel;
 pub mod pointer;
@@ -34,10 +36,10 @@ pub mod volume;
 pub mod wallpaper;
 pub mod workspaces;
 
-use console_stage::checking::Check;
+use console_stage::checking::{Check, Named};
 
 /// Every check, oldest first, which is the order their names put them in.
-pub const CHECKS: [&Check; 30] = [
+pub const CHECKS: [&Check; 33] = [
     &workspaces::RIGHT,
     &workspaces::LEFT,
     &carry::CARRY,
@@ -68,6 +70,9 @@ pub const CHECKS: [&Check; 30] = [
     &download::DRAWS,
     &keyboard::EVERY_TIME,
     &keyboard::IN_A_PAGE,
+    &home::WHOSE_BUTTONS,
+    &home::PRESSABLE,
+    &music::LIBRARY,
 ];
 
 /// The checks named by these words, or all of them if nothing was named.
@@ -76,7 +81,7 @@ pub fn chosen(words: &[String]) -> Vec<&'static Check> {
         true => CHECKS.to_vec(),
         false => CHECKS
             .into_iter()
-            .filter(|check| check.named_by(words))
+            .filter(|check| check.named_by(words) == Named::Yes)
             .collect(),
     }
 }

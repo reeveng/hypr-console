@@ -48,10 +48,31 @@
   letter-spacing: 1px;
 }
 
+/* The ones drawn over the page are smaller than the ones in the bar. The bar
+   has room and is read once; these are drawn thirty at a time over somebody
+   else's writing, and a label wider than the link it belongs to is a label
+   that has to be worked out rather than read. Small enough to sit on a word,
+   large enough to be read at arm's length, and ringed in the dark so it is
+   never a pink shape on a pink page. */
 .hint {
   position: absolute;
   box-shadow: 0 0 0 2px var(--night);
+  font-size: 15px;
+  letter-spacing: 0;
+  gap: 1px;
+  padding: 0 5px;
+  border-radius: 5px;
 }
+
+/* The second press of Y, which is the same page offering a different answer.
+   Every label changes colour, so what changed is where the eyes already are
+   rather than in a line along the bottom. Sky is the colour this desktop uses
+   for a link everywhere else. */
+.hint.new { background-color: var(--sky); }
+
+.bar.new { border-color: var(--sky); }
+
+.bar.new .saying { color: var(--sky); }
 
 /* What has already been pressed. Kept on the label rather than taken off it,
    so a thumb halfway through one can see how far it has got. */
@@ -110,6 +131,31 @@
 }
 
 .deed .says { color: var(--text); }
+
+/* What a finger presses on a bar. The pad has a label for every deed and an
+   arrow for every match; a hand on the glass had neither, so the two bars
+   along the bottom were the only surfaces this add-on draws that answered one
+   thumb and not the other.
+
+   Sized for a thumb rather than a pointer. Everything else on a bar is read,
+   and this is the only thing on one that is aimed at. */
+.bar .tap {
+  all: unset;
+  background-color: var(--night);
+  color: var(--text);
+  font-weight: bold;
+  min-width: 44px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  text-align: center;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.bar .tap:hover {
+  background-color: var(--pink);
+  color: var(--night);
+}
 
 /* ------------------------------------------------------------------- cards */
 

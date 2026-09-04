@@ -17,7 +17,7 @@ use console_guide::printed::{COLOURED, PLAIN, guide};
 use console_panel::page::{Does, Page, Row, Rows};
 use console_panel::{chooser, panel};
 use console_pad::jobs::{Jobs, path_in};
-use console_pad::routing;
+use console_pad::routing::{self, Hat};
 use console_pad::vocabulary::spoken_for;
 
 /// The compositor's declaration, in the home of whoever is running this.
@@ -27,12 +27,41 @@ use console_pad::vocabulary::spoken_for;
 /// of. A name here would be one more place that has to be edited when the
 /// desktop is somebody else's.
 fn hypr() -> String {
-    let home = std::env::var("HOME").unwrap_or_default();
-    format!("{home}/.config/hypr/hyprland.lua")
+    format!("{}/.config/hypr/hyprland.lua", home())
+}
+
+/// The home of whoever is running this, or the empty string.
+///
+/// Unset is ordinary and says nothing: the empty string builds the path this
+/// has always built, and a guide printed from a unit with no home still prints
+/// where the buttons started. A HOME set to something that is not text is
+/// somebody pointing at a home and missing, and that arrived here as the same
+/// silence.
+fn home() -> String {
+    match std::env::var("HOME") {
+        Ok(home) => home,
+        Err(std::env::VarError::NotPresent) => String::new(),
+
+        Err(fault) => {
+            eprintln!("HOME, looking for what the buttons do: {fault}");
+            String::new()
+        }
+    }
 }
 
 fn read() -> Vec<Section> {
-    let lua = std::fs::read_to_string(hypr()).unwrap_or_default();
+    let at = hypr();
+
+    let lua = match std::fs::read_to_string(&at) {
+        Ok(lua) => lua,
+        Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => String::new(),
+
+        Err(fault) => {
+            eprintln!("{at}: reading the compositor's declaration: {fault}");
+            String::new()
+        }
+    };
+
     sections(&table(), &lua)
 }
 
@@ -43,14 +72,32 @@ fn read() -> Vec<Section> {
 /// what the guide would otherwise print is nothing, and a guide that prints
 /// nothing is worse than one that prints where the buttons started.
 fn table() -> Table {
-    let at = path_in(&std::env::var("HOME").unwrap_or_default());
-    let said = std::fs::read_to_string(at).unwrap_or_default();
-    Table::of(&Jobs::read(&said).unwrap_or_default())
+    let at = path_in(&home());
+
+    let said = match std::fs::read_to_string(&at) {
+        Ok(said) => said,
+        Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => String::new(),
+
+        Err(fault) => {
+            eprintln!("{}: reading the button table: {fault}", at.display());
+            String::new()
+        }
+    };
+
+    match Jobs::read(&said) {
+        Ok(jobs) => Table::of(&jobs),
+
+        Err(fault) => {
+            eprintln!("{}: {fault}", at.display());
+            Table::of(&Jobs::default())
+        }
+    }
 }
 
 fn main() {
     let asked: Vec<String> = std::env::args().skip(1).collect();
     let asked_for = |what: &str| asked.iter().any(|word| word == what);
+
     match (asked_for("--identify"), asked_for("--menu")) {
         (true, _) => identify(),
         (_, true) => on_screen(),
@@ -74,9 +121,10 @@ fn on_screen() {
     // The guide is a chooser like the others: it takes the controller while it
     // is up, and the button that opens it pressed twice used to leave two of
     // them stacked.
-    if !chooser::alone("guide", chooser::Again::Closes) {
+    if chooser::alone("guide", chooser::Again::Closes) == chooser::Alone::No {
         return;
     }
+
     panel::show(Arc::new(pages), 250, None);
 }
 
@@ -127,6 +175,7 @@ fn row(says: &str, aside: &str, line: &Line) -> Row {
 
 fn capitalised(said: &str) -> String {
     let mut letters = said.chars();
+
     match letters.next() {
         None => String::new(),
         Some(first) => first.to_uppercase().collect::<String>() + letters.as_str(),
@@ -160,22 +209,28 @@ fn capitalised(said: &str) -> String {
 /// missed.
 fn identify() {
     let mut taken = held();
+
     if taken.is_empty() {
         eprintln!("No controller found.");
         std::process::exit(1);
     }
+
     println!("Press a button. Ctrl-C to stop.\n");
     let ink = ink();
+
     loop {
         for device in &mut taken {
             let Ok(arrived) = device.fetch_events() else { continue };
+
             for event in arrived {
                 let Some(said) = pressed(event.event_type(), event.code(), event.value()) else {
                     continue;
                 };
+
                 println!("  {}{said}{}", ink.bold, ink.off);
             }
         }
+
         std::thread::sleep(WAIT);
     }
 }
@@ -199,7 +254,7 @@ fn pressed(kind: EventType, code: u16, value: i32) -> Option<String> {
         },
         // A d-pad is a hat, and a hat comes back to the middle. Only the way
         // out is a press; the way back is the thumb coming off it.
-        EventType::ABSOLUTE if routing::is_hat(code) && value != 0 => {
+        EventType::ABSOLUTE if routing::is_hat(code) == Hat::Axis && value != 0 => {
             routing::button_of_hat(code, value)
         }
         _ => return None,
@@ -256,7 +311,12 @@ fn held() -> Vec<Device> {
                 eprintln!("{path}: cannot take it, so a press will also do what it does: {fault}");
                 return None;
             }
-            device.set_nonblocking(true).ok()?;
+
+            if let Err(fault) = device.set_nonblocking(true) {
+                eprintln!("{path}: it will not read without blocking: {fault}");
+                return None;
+            }
+
             Some(device)
         })
         .collect()

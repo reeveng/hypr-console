@@ -61,9 +61,10 @@ fn pages() -> Vec<Page> {
 }
 
 fn main() {
-    if !chooser::alone("buttons", chooser::Again::Closes) {
+    if chooser::alone("buttons", chooser::Again::Closes) == chooser::Alone::No {
         return;
     }
+
     // Opened by an apply, on a device nobody has answered for yet. Answering
     // is putting the screen up rather than moving anything: somebody who looks
     // at their buttons and finds them all where they should be has answered
@@ -72,5 +73,6 @@ fn main() {
     if std::env::args().any(|word| word == "--first") && !table::at().exists() {
         let _ = table::write(&Jobs::none());
     }
+
     panel::show(Arc::new(pages), 0, None);
 }

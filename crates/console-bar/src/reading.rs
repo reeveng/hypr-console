@@ -1,6 +1,8 @@
 //! The four readings, each as the bar draws it.
 
-use console_defaults::battery::Charge;
+use console_defaults::battery::{Charge, Filling};
+use console_number::whole_u32;
+use console_panel::door::Up;
 use console_panel::running::said;
 
 /// One reading: what it says, and what it is called while it says it.
@@ -76,10 +78,14 @@ impl What {
 /// whatever it is given and an empty name is a class nothing can be styled by.
 ///
 /// `open` is whether the panel this icon opens is the one in front. It is
-/// false for a reading that opens nothing, which is how the bell asks for a
-/// line without having to know what a tab is.
-pub fn line(says: &Says, open: bool) -> String {
-    let worn: Vec<&str> = says.class.split_whitespace().chain(open.then_some("open")).collect();
+/// `NotThere` for a reading that opens nothing, which is how the bell asks for
+/// a line without having to know what a tab is.
+pub fn line(says: &Says, open: Up) -> String {
+    let lit = match open {
+        Up::OnScreen => Some("open"),
+        Up::NotThere => None,
+    };
+    let worn: Vec<&str> = says.class.split_whitespace().chain(lit).collect();
     let class = match worn.is_empty() {
         true => String::new(),
         false => format!(r#","class":{}"#, serde_json::Value::from(worn)),
@@ -91,6 +97,30 @@ pub fn line(says: &Says, open: bool) -> String {
 
 /// How full it is, and whether it is filling.
 ///
+/// A percentage the way a bar draws one, which has no below-nought.
+///
+/// The kernel's two files have never reported one and there is no state of a
+/// battery that would mean it. A reading under nought is a battery that did
+/// not answer, which is the same news to this bar as having none.
+fn whole(percent: i32) -> Option<u32> {
+    let Ok(whole) = u32::try_from(percent) else { return None };
+
+    Some(whole)
+}
+
+/// A number out of a word another program printed, where the word is one.
+///
+/// Everything read in here is a line off `nmcli` or `wpctl`, and a field that
+/// is not the number it should be is a version of one of them this does not
+/// know. There is nothing to tell a person about that -- what is drawn is the
+/// reading with that field left out -- but it is not a field that was missing
+/// either, and the two are told apart here rather than by a method name.
+fn number<T: std::str::FromStr>(said: &str) -> Option<T> {
+    let Ok(number) = said.trim().parse::<T>() else { return None };
+
+    Some(number)
+}
+
 /// The two files behind this are read by `console_defaults::battery` and not
 /// here, because this is no longer the only thing that wants them. One reading
 /// draws this icon and decides whether the machine has to say something about
@@ -98,20 +128,22 @@ pub fn line(says: &Says, open: bool) -> String {
 /// opinions about one battery.
 pub fn battery(said: &str) -> Says {
     let reading = Charge::of(said);
-    let Some(charge) = reading.percent.and_then(|percent| u32::try_from(percent).ok()) else {
+
+    let Some(charge) = reading.percent.and_then(whole) else {
         // A machine with no battery, or one whose battery would not answer.
         // Drawn the width of every other battery all the same: a reading that
         // shrank when it had nothing to say would move the whole bar along at
         // exactly the moment something had gone wrong with it.
         return Says::new(format!("\u{f008e} {}", small(&wide(""))), "");
     };
+
     let filling = reading.filling;
     let icon = match filling {
-        true => "\u{f0084}",
-        false => LEVELS[(charge as usize * (LEVELS.len() - 1)) / 100],
+        Filling::Yes => "\u{f0084}",
+        Filling::No => stepped(&LEVELS, charge),
     };
     let class = match (filling, charge) {
-        (true, _) => "charging",
+        (Filling::Yes, _) => "charging",
         (_, 0..=10) => "critical",
         (_, 11..=25) => "warning",
         _ => "",
@@ -161,6 +193,22 @@ fn small(what: &str) -> String {
 /// Empty to full, which is the ramp waybar drew before this.
 const LEVELS: [&str; 5] = ["\u{f007a}", "\u{f007c}", "\u{f007e}", "\u{f0080}", "\u{f0079}"];
 
+/// The icon for a percentage, out of a list running from empty to full.
+///
+/// The percentage is held to 0..=100 before it is used, so the index is inside
+/// the list whatever the machine reported -- a battery that says 104 is a
+/// battery, not a panic.
+fn stepped(icons: &[&'static str], percent: u32) -> &'static str {
+    let last = icons.len().saturating_sub(1);
+    let at = match usize::try_from(percent.min(100)) {
+        Ok(percent) => percent * last / 100,
+        // A percentage too wide for a `usize` is a machine this does not run
+        // on. Empty is the safe thing to draw.
+        Err(_) => 0,
+    };
+    icons[at]
+}
+
 // ----------------------------------------------------------------- bluetooth
 
 fn connections() -> usize {
@@ -170,6 +218,7 @@ fn connections() -> usize {
 /// Off, on, or on with something connected to it.
 pub fn bluetooth(shown: &str, connected: usize) -> Says {
     let powered = shown.lines().any(|line| line.trim() == "Powered: yes");
+
     match (powered, connected) {
         (false, _) => Says::new("\u{f00b2}", "off"),
         (true, 0) => Says::new("\u{f00af}", ""),
@@ -195,15 +244,17 @@ pub fn network(devices: &str, wifi: &str) -> Says {
             })
             .any(|(type_, state)| type_ == kind && state == "connected")
     };
+
     if connected("wifi") {
         let strength = wifi
             .lines()
             .find(|line| line.starts_with('*'))
             .and_then(|line| line.split(':').nth(1))
-            .and_then(|said| said.trim().parse::<u32>().ok())
+            .and_then(number::<u32>)
             .unwrap_or(0);
-        return Says::new(BARS[(strength.min(100) as usize * (BARS.len() - 1)) / 100], "wifi");
+        return Says::new(stepped(&BARS, strength), "wifi");
     }
+
     match connected("ethernet") {
         true => Says::new("\u{f0200}", "wired"),
         false => Says::new("\u{f05aa}", "off"),
@@ -236,17 +287,21 @@ const SILENT: &str = "\u{f075f}";
 
 /// How loud it is, or that it is not.
 pub fn sound(said: &str) -> Says {
-    let Some(volume) = said.split_whitespace().nth(1).and_then(|word| word.parse::<f64>().ok())
+    let Some(volume) = said.split_whitespace().nth(1).and_then(number::<f64>)
     else {
         return Says::new(SILENT, "");
     };
+
     if said.contains("[MUTED]") {
         return Says::new(SILENT, "muted");
     }
-    let percent = (volume * 100.0).round() as u32;
+
+    let percent = whole_u32(volume * 100.0);
+
     if percent == 0 {
         return Says::new(SILENT, "muted");
     }
+
     let icon = match percent {
         1..=33 => "\u{f057f}",
         34..=66 => "\u{f0580}",
@@ -281,21 +336,21 @@ mod tests {
     /// says both at once.
     #[test]
     fn a_reading_with_nothing_to_say_about_itself_carries_no_class() {
-        let said = line(&saying("64%", ""), false);
+        let said = line(&saying("64%", ""), Up::NotThere);
         assert!(held(&said).get("class").is_none());
     }
 
     #[test]
     fn the_tab_in_front_is_the_only_thing_that_lights_it() {
-        assert_eq!(worn(&line(&saying("64%", ""), true)), ["open"]);
+        assert_eq!(worn(&line(&saying("64%", ""), Up::OnScreen)), ["open"]);
     }
 
     /// What the reading is doing and what the panel is doing are both classes,
     /// and the stylesheet expects them side by side.
     #[test]
     fn a_reading_that_says_something_says_it_beside_being_open() {
-        assert_eq!(worn(&line(&saying("muted", "muted"), true)), ["muted", "open"]);
-        assert_eq!(worn(&line(&saying("muted", "muted"), false)), ["muted"]);
+        assert_eq!(worn(&line(&saying("muted", "muted"), Up::OnScreen)), ["muted", "open"]);
+        assert_eq!(worn(&line(&saying("muted", "muted"), Up::NotThere)), ["muted"]);
     }
 
     /// The bug this file exists to have fixed once. waybar gives GTK whatever
@@ -305,7 +360,7 @@ mod tests {
     #[test]
     fn every_class_is_one_name_and_never_a_line_of_words() {
         for says in [saying("x", ""), saying("x", "muted"), saying("x", "wifi")] {
-            for open in [true, false] {
+            for open in [Up::OnScreen, Up::NotThere] {
                 let said = line(&says, open);
                 let Some(list) = held(&said).get("class").cloned() else { continue };
                 assert!(list.is_array(), "{said} writes the classes as {list}");
@@ -321,7 +376,7 @@ mod tests {
     /// in it has to survive being written down.
     #[test]
     fn the_text_is_written_as_json_rather_than_pasted_in() {
-        let said = line(&saying(r#"a "quoted" \ name"#, ""), false);
+        let said = line(&saying(r#"a "quoted" \ name"#, ""), Up::NotThere);
         assert_eq!(held(&said)["text"], r#"a "quoted" \ name"#);
     }
 

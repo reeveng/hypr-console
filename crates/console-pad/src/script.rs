@@ -16,6 +16,8 @@
 //! what it says without a device in the room, which is how a test can hold one
 //! to the buttons that exist.
 
+
+use console_number::toward_zero_i32;
 use crate::devices::Sink;
 use crate::go::{Clock, LegionGo, MIDDLE};
 
@@ -44,7 +46,7 @@ fn number(word: &str) -> Result<f64, String> {
 }
 
 fn whole(word: &str) -> Result<i32, String> {
-    number(word).map(|found| found as i32)
+    number(word).map(toward_zero_i32)
 }
 
 fn word(rest: &[&str], at: usize, what: &str) -> Result<String, String> {

@@ -18,7 +18,7 @@ use std::collections::BTreeMap;
 
 use console_panel::page::{Does, NOW, Row, Showing, YET};
 
-use crate::rows::CONFIGURATION;
+use crate::rows::configuration;
 
 /// A kind of thing that gets opened, and the type it is asked for by.
 ///
@@ -97,6 +97,15 @@ pub const KINDS: [Kind; 6] = [
     Kind { says: "Text", mime: "text/plain", and: &[] },
 ];
 
+/// Whether a program says it opens a kind of thing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Opens {
+    /// It names that kind, so it can be offered for it.
+    It,
+    /// It does not.
+    Not,
+}
+
 /// A program, as its own desktop file describes it.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Program {
@@ -108,8 +117,11 @@ pub struct Program {
 
 impl Program {
     /// Whether it says it opens this kind of thing.
-    pub fn opens_a(&self, mime: &str) -> bool {
-        self.opens.iter().any(|kind| kind == mime)
+    pub fn opens_a(&self, mime: &str) -> Opens {
+        match self.opens.iter().any(|kind| kind == mime) {
+            true => Opens::It,
+            false => Opens::Not,
+        }
     }
 }
 
@@ -125,10 +137,12 @@ impl Program {
 /// those opens anything.
 pub fn program(id: &str, held: &str) -> Option<Program> {
     let mut fields: BTreeMap<&str, &str> = BTreeMap::new();
+
     for line in held.lines().map(str::trim) {
         if line.starts_with('[') && !fields.is_empty() {
             break;
         }
+
         if let Some((name, value)) = line.split_once('=') {
             fields.entry(name.trim()).or_insert(value.trim());
         }
@@ -137,9 +151,11 @@ pub fn program(id: &str, held: &str) -> Option<Program> {
     if fields.get("Type") != Some(&"Application") {
         return None;
     }
+
     if fields.get("NoDisplay") == Some(&"true") || fields.get("Hidden") == Some(&"true") {
         return None;
     }
+
     let says = fields.get("Name").filter(|name| !name.is_empty())?;
     Some(Program {
         id: id.to_string(),
@@ -219,16 +235,17 @@ pub fn choice_rows(
     back: impl Fn(&dyn Showing) + Send + Sync + 'static,
     use_: impl Fn(&Kind, &Program) -> Does,
 ) -> Vec<Row> {
-    let mut rows = vec![Row::back(CONFIGURATION, back), Row::naming(kind.says, "")];
+    let mut rows = vec![Row::back(&configuration(), back), Row::naming(kind.says, "")];
     let default = now(kind.mime);
     let mut opening: Vec<&Program> =
-        programs.iter().filter(|program| program.opens_a(kind.mime)).collect();
+        programs.iter().filter(|program| program.opens_a(kind.mime) == Opens::It).collect();
     opening.sort_by_key(|program| program.says.to_lowercase());
 
     if opening.is_empty() {
         rows.push(Row::nothing("Nothing here opens these"));
         return rows;
     }
+
     for program in opening {
         rows.push(Row::new(
             &program.says,
@@ -239,11 +256,13 @@ pub fn choice_rows(
             use_(kind, program),
         ));
     }
+
     rows
 }
 
 #[cfg(test)]
 mod tests {
+    use console_panel::page::{Heading, InEffect};
     use super::*;
 
     fn nothing(_: &Kind, _: &Program) -> Does {
@@ -286,8 +305,8 @@ mod tests {
         )
         .expect("a program");
         assert_eq!(read.says, "LibreWolf");
-        assert!(read.opens_a("image/png"));
-        assert!(!read.opens_a("video/mp4"));
+        assert_eq!(read.opens_a("image/png"), Opens::It);
+        assert_eq!(read.opens_a("video/mp4"), Opens::Not);
     }
 
     /// The groups after the first are a program's right-click actions, and
@@ -323,8 +342,8 @@ mod tests {
         let rows = choices("chromium.desktop");
         let chromium = rows.iter().find(|row| row.says == "Chromium").expect("a row");
         let librewolf = rows.iter().find(|row| row.says == "LibreWolf").expect("a row");
-        assert!(chromium.now());
-        assert!(!librewolf.now());
+        assert_eq!(chromium.now(), InEffect::Yes);
+        assert_eq!(librewolf.now(), InEffect::No);
     }
 
     /// A tab that is a different shape on every machine is a tab nobody can be
@@ -360,9 +379,9 @@ mod tests {
     #[test]
     fn a_list_under_a_setting_is_the_way_back_and_then_what_it_is_about() {
         let rows = choices("");
-        assert!(rows[0].says.ends_with(CONFIGURATION), "{:?} is not the way back", rows[0].says);
+        assert!(rows[0].says.ends_with(&configuration()), "{:?} is not the way back", rows[0].says);
         assert_eq!(rows[1].says, "Links");
-        assert!(rows[1].heading(), "the kind is read rather than chosen");
+        assert_eq!(rows[1].heading(), Heading::Yes, "the kind is read rather than chosen");
     }
 
     #[test]

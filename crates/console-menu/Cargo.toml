@@ -16,3 +16,6 @@ path = "src/bin/launcher.rs"
 [dependencies]
 console-defaults.workspace = true
 console-panel.workspace = true
+
+[lints]
+workspace = true

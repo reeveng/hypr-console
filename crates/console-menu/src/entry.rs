@@ -22,48 +22,80 @@ pub struct Application {
 fn fields(said: &str) -> BTreeMap<String, String> {
     let mut found = BTreeMap::new();
     let mut inside = false;
+
     for line in said.lines().map(str::trim) {
         if line.starts_with('[') {
             inside = line == "[Desktop Entry]";
             continue;
         }
+
         if !inside {
             continue;
         }
+
         if let Some((key, value)) = line.split_once('=') {
             found.entry(key.to_string()).or_insert_with(|| value.to_string());
         }
     }
+
     found
 }
 
 /// Whether this is a thing to run, and whether it wants to be seen.
-fn worth_drawing(fields: &BTreeMap<String, String>) -> bool {
+/// Whether a program a .desktop file names is on this machine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Installed {
+    /// It is, so the entry stands.
+    Yes,
+    /// It is not, and the file asked to be left out in that case.
+    No,
+}
+
+/// Whether an entry is one the menu draws at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Worth {
+    /// An application, not hidden, not asked to be left out.
+    Drawing,
+    /// Anything else in the directory, which is most of what is in it.
+    Skipping,
+}
+
+fn worth_drawing(fields: &BTreeMap<String, String>) -> Worth {
     let says = |key: &str| fields.get(key).map(|said| said.to_lowercase());
-    fields.get("Type").is_some_and(|kind| kind == "Application")
+    let drawn = fields.get("Type").is_some_and(|kind| kind == "Application")
         && says("NoDisplay").as_deref() != Some("true")
-        && says("Hidden").as_deref() != Some("true")
+        && says("Hidden").as_deref() != Some("true");
+
+    match drawn {
+        true => Worth::Drawing,
+        false => Worth::Skipping,
+    }
 }
 
 /// The application, or nothing where there is nothing to draw.
 ///
 /// `here` says whether a program named in TryExec is on this machine, which is
 /// how a .desktop file for something uninstalled asks to be left out.
-pub fn read(said: &str, here: impl Fn(&str) -> bool) -> Option<Application> {
+pub fn read(said: &str, here: impl Fn(&str) -> Installed) -> Option<Application> {
     let fields = fields(said);
-    if !worth_drawing(&fields) {
+
+    if worth_drawing(&fields) == Worth::Skipping {
         return None;
     }
+
     if let Some(wanted) = fields.get("TryExec")
-        && !here(wanted)
+        && here(wanted) == Installed::No
     {
         return None;
     }
+
     let name = fields.get("Name")?;
     let command = fields.get("Exec")?;
+
     if name.is_empty() || command.is_empty() {
         return None;
     }
+
     Some(Application {
         name: name.clone(),
         command: without_field_codes(command),
@@ -78,23 +110,28 @@ pub fn files(home: &Path, data_dirs: &str) -> Vec<PathBuf> {
     let mut roots = vec![home.join(".local/share/applications")];
     roots.extend(data_dirs.split(':').filter(|dir| !dir.is_empty()).map(|dir| Path::new(dir).join("applications")));
     let mut found: BTreeMap<String, PathBuf> = BTreeMap::new();
+
     for root in roots {
         for path in under(&root) {
             let Some(name) = path.file_name().map(|name| name.to_string_lossy().to_string()) else {
                 continue;
             };
+
             found.entry(name).or_insert(path);
         }
     }
+
     found.into_values().collect()
 }
 
 /// Every .desktop file under one directory, in order, however deep.
 fn under(root: &Path) -> Vec<PathBuf> {
     let Ok(reading) = std::fs::read_dir(root) else { return Vec::new() };
+
     let mut found: Vec<PathBuf> = Vec::new();
     let mut names: Vec<PathBuf> = reading.filter_map(Result::ok).map(|entry| entry.path()).collect();
     names.sort();
+
     for path in names {
         if path.is_dir() {
             found.extend(under(&path));
@@ -102,6 +139,7 @@ fn under(root: &Path) -> Vec<PathBuf> {
             found.push(path);
         }
     }
+
     found
 }
 
@@ -125,8 +163,8 @@ Name=New Window
 Exec=firefox --new-window
 ";
 
-    fn anything(_: &str) -> bool {
-        true
+    fn anything(_: &str) -> Installed {
+        Installed::Yes
     }
 
     /// The same file, with one more line in the entry itself.
@@ -171,7 +209,7 @@ Exec=firefox --new-window
     #[test]
     fn something_that_names_a_program_this_machine_has_not_got_is_not_drawn() {
         let said = also("TryExec=firefox");
-        assert_eq!(read(&said, |_| false), None);
+        assert_eq!(read(&said, |_| Installed::No), None);
         assert!(read(&said, anything).is_some());
     }
 

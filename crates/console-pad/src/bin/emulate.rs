@@ -73,11 +73,11 @@ fn run() -> Result<ExitCode, String> {
         _ => (),
     }
 
-    let descriptors = captured();
+    let descriptors = captured().map_err(|why| format!("console-emulate: {why}"))?;
     let sink = Uinput::of(&descriptors).map_err(|fault| {
         format!(
             "console-emulate: {fault}. Tests that need no devices at all are \
-             `make test`; see docs/emulator.md for the one rule that grants this."
+             `just test`; see docs/emulator.md for the one rule that grants this."
         )
     })?;
     let mut go = LegionGo::new(
@@ -96,6 +96,7 @@ fn run() -> Result<ExitCode, String> {
         }
         _ => interactive(&mut go),
     }
+
     go.close();
     Ok(ExitCode::SUCCESS)
 }
@@ -106,6 +107,7 @@ fn read(args: Vec<String>) -> Result<Option<Asked>, String> {
     let mut root = PathBuf::from(".");
     let mut rest: Vec<String> = Vec::new();
     let mut waiting = args.into_iter();
+
     while let Some(word) = waiting.next() {
         match word.as_str() {
             "--help" | "-h" => return Ok(None),
@@ -114,6 +116,7 @@ fn read(args: Vec<String>) -> Result<Option<Asked>, String> {
             _ => rest.push(word),
         }
     }
+
     let root = match root == Path::new(".") {
         true => repository()?,
         false => root,
@@ -138,6 +141,7 @@ fn interactive<S: console_pad::devices::Sink>(go: &mut LegionGo<S, Passing>) {
         go.devices.paths().iter().map(|(role, path)| format!("{role} at {path}")).collect();
     println!("Devices are up. {}", where_.join(", "));
     println!("One command a line, or 'help'. Control-D stops.");
+
     for line in std::io::stdin().lock().lines().map_while(Result::ok) {
         match line.trim() {
             "help" | "?" => println!("{VERBS}"),
@@ -157,6 +161,7 @@ fn interactive<S: console_pad::devices::Sink>(go: &mut LegionGo<S, Passing>) {
 fn what(buttons: &[String], profiles: &std::collections::BTreeMap<String, Profile>) {
     for spoken in buttons {
         println!("{spoken}");
+
         for (name, profile) in profiles {
             let mappings = match profile.for_button(spoken) {
                 Ok(mappings) => mappings,
@@ -165,6 +170,7 @@ fn what(buttons: &[String], profiles: &std::collections::BTreeMap<String, Profil
                     break;
                 }
             };
+
             if mappings.is_empty() {
                 // A profile with no mappings at all passes everything through.
                 // A profile with mappings that has none for this button is a
@@ -176,6 +182,7 @@ fn what(buttons: &[String], profiles: &std::collections::BTreeMap<String, Profil
                 println!("  {name:<9} {does}");
                 continue;
             }
+
             for mapping in mappings {
                 let does = match mapping.does() {
                     "" => "nothing yet",
@@ -189,13 +196,22 @@ fn what(buttons: &[String], profiles: &std::collections::BTreeMap<String, Profil
                 println!("  {name:<9} {does}  {reaches}");
             }
         }
+
         println!();
     }
 }
 
 /// What the emulator publishes.
 fn devices() {
-    for (role, descriptor) in captured() {
+    let found = match captured() {
+        Ok(found) => found,
+        Err(why) => {
+            println!("console-emulate: {why}");
+            return;
+        }
+    };
+
+    for (role, descriptor) in found {
         let held = &descriptor.capabilities;
         let kinds: Vec<String> = [
             ("EV_ABS", held.abs.len()),

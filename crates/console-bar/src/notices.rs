@@ -15,7 +15,7 @@
 //! two ways of looking at one daemon, and two programs reading it two ways is
 //! two programs that agree until the day one of them is wrong.
 
-use console_notices::reading::Notice;
+use console_notices::reading::{Notice, Quiet, Wrong};
 
 use crate::reading::Says;
 
@@ -25,24 +25,25 @@ pub struct Waiting {
     /// How many notifications mako has.
     pub many: usize,
     /// Whether one of them is critical, which here means something broke.
-    pub wrong: bool,
+    pub wrong: Wrong,
     /// Whether they are being kept off the screen.
     ///
     /// Counted all the same. The mode stops the card being drawn and stops
     /// nothing else, so what is waiting is still waiting and the bell still
     /// says how much of it there is; what changes is the glyph, which says
     /// that nothing under it is going to interrupt anybody.
-    pub held_back: bool,
+    pub held_back: Quiet,
 }
 
 impl Waiting {
     /// The reading, off what mako answered.
-    pub fn of(held: &[Notice], held_back: bool) -> Self {
-        Waiting {
-            many: held.len(),
-            wrong: held.iter().any(Notice::wrong),
-            held_back,
-        }
+    pub fn of(held: &[Notice], held_back: Quiet) -> Self {
+        let wrong = match held.iter().any(|one| one.wrong() == Wrong::Yes) {
+            true => Wrong::Yes,
+            false => Wrong::No,
+        };
+
+        Waiting { many: held.len(), wrong, held_back }
     }
 }
 
@@ -61,10 +62,11 @@ impl Waiting {
 /// and the glyph is what says the card is not coming.
 pub fn notices(waiting: Waiting) -> Says {
     let bell = match (waiting.held_back, waiting.many) {
-        (true, _) => OFF,
-        (false, 0) => OUTLINE,
-        (false, _) => RINGING,
+        (Quiet::HeldBack, _) => OFF,
+        (Quiet::Coming, 0) => OUTLINE,
+        (Quiet::Coming, _) => RINGING,
     };
+
     // The count is gone, because the bell already carries it: outline for
     // nothing, ringing for something, struck through while they are being held
     // back. A number beside a glyph that says the same thing is the bar saying
@@ -72,8 +74,8 @@ pub fn notices(waiting: Waiting) -> Says {
     // numbers on and three without.
     match (waiting.many, waiting.wrong) {
         (0, _) => Says::new(bell, "quiet"),
-        (_, false) => Says::new(bell, ""),
-        (_, true) => Says::new(bell, "urgent"),
+        (_, Wrong::No) => Says::new(bell, ""),
+        (_, Wrong::Yes) => Says::new(bell, "urgent"),
     }
 }
 
@@ -107,7 +109,7 @@ mod tests {
 ]"#;
 
     fn of(said: &str) -> Waiting {
-        Waiting::of(&read(said), false)
+        Waiting::of(&read(said), Quiet::Coming)
     }
 
     #[test]
@@ -118,9 +120,9 @@ mod tests {
 
     #[test]
     fn a_fault_is_the_one_thing_that_waits_and_it_says_so() {
-        assert!(of(THREE).wrong);
+        assert_eq!(of(THREE).wrong, Wrong::Yes);
         let quiet = r#"[{"id":2,"summary":"One","urgency":"low"}]"#;
-        assert!(!of(quiet).wrong);
+        assert_eq!(of(quiet).wrong, Wrong::No);
     }
 
     /// A mako that is not running answers with nothing, and so does one that
@@ -145,7 +147,7 @@ Notification 3: Two
   App name: Console
   Urgency: critical";
         assert_eq!(of(plain).many, 2);
-        assert!(of(plain).wrong);
+        assert_eq!(of(plain).wrong, Wrong::Yes);
     }
 
     #[test]
@@ -170,7 +172,7 @@ Notification 3: Two
     /// bar says wrong in one colour everywhere.
     #[test]
     fn a_fault_among_them_colours_the_bell() {
-        assert_eq!(notices(Waiting { many: 3, wrong: true, held_back: false }).class, "urgent");
+        assert_eq!(notices(Waiting { many: 3, wrong: Wrong::Yes, held_back: Quiet::Coming }).class, "urgent");
     }
 
     /// Three glyphs, and they have to be three. Nothing waiting, something
@@ -179,10 +181,10 @@ Notification 3: Two
     fn quiet_and_waiting_and_held_back_are_not_drawn_the_same() {
         let quiet = notices(Waiting::default());
         let ringing = notices(Waiting { many: 1, ..Waiting::default() });
-        let held = notices(Waiting { many: 1, held_back: true, ..Waiting::default() });
+        let held = notices(Waiting { many: 1, held_back: Quiet::HeldBack, ..Waiting::default() });
         assert_ne!(quiet.text, ringing.text);
         assert_ne!(ringing.text, held.text);
-        assert_ne!(quiet.text, notices(Waiting { held_back: true, ..Waiting::default() }).text);
+        assert_ne!(quiet.text, notices(Waiting { held_back: Quiet::HeldBack, ..Waiting::default() }).text);
     }
 
     /// The bar is packed from the right, so a bell that grew a character when
@@ -193,9 +195,9 @@ Notification 3: Two
         let states = [
             Waiting::default(),
             Waiting { many: 1, ..Waiting::default() },
-            Waiting { many: 99, wrong: true, ..Waiting::default() },
-            Waiting { many: 1, held_back: true, ..Waiting::default() },
-            Waiting { held_back: true, ..Waiting::default() },
+            Waiting { many: 99, wrong: Wrong::Yes, ..Waiting::default() },
+            Waiting { many: 1, held_back: Quiet::HeldBack, ..Waiting::default() },
+            Waiting { held_back: Quiet::HeldBack, ..Waiting::default() },
         ];
         for waiting in states {
             assert_eq!(notices(waiting).text.chars().count(), 1, "{waiting:?}");
@@ -207,7 +209,7 @@ Notification 3: Two
     /// thing left that can say why.
     #[test]
     fn a_bell_that_is_holding_them_back_is_struck_through_and_still_says_wrong() {
-        let held = notices(Waiting { many: 2, wrong: true, held_back: true });
+        let held = notices(Waiting { many: 2, wrong: Wrong::Yes, held_back: Quiet::HeldBack });
         assert_eq!(held.text, OFF);
         assert_eq!(held.class, "urgent");
     }

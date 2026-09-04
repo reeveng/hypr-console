@@ -35,6 +35,7 @@ pub fn watched() -> (Vec<Watched>, Option<String>) {
     let mut names = Vec::new();
     let mut push = |name: String, what| {
         let name = name.trim().to_string();
+
         // A short or empty name is not a name. `contains("")` is true of
         // everything, and a two letter one is true of half of everything.
         if name.len() > 2 && !names.iter().any(|held: &Watched| held.name == name) {
@@ -45,13 +46,8 @@ pub fn watched() -> (Vec<Watched>, Option<String>) {
     push(said(&["id", "-un"]), "whoever is building this");
     push(said(&["hostname"]), "what this machine calls itself");
 
-    let missing = match std::env::var("CONSOLE_HOST").ok().filter(|at| !at.trim().is_empty()) {
-        None => Some(
-            "CONSOLE_HOST is not set, so the device's own name and the name of \
-             whoever it belongs to were not checked for."
-                .to_string(),
-        ),
-        Some(at) => {
+    let missing = match std::env::var("CONSOLE_HOST") {
+        Ok(at) if !at.trim().is_empty() => {
             // The address itself holds the device's name, and it is the one
             // name here that needs nothing asked of anything.
             push(at.rsplit('@').next().unwrap_or_default().to_string(), "the device");
@@ -65,6 +61,7 @@ pub fn watched() -> (Vec<Watched>, Option<String>) {
                 "hostname; set -- $(ls -1 /home 2>/dev/null); \
                  if [ $# -eq 1 ]; then echo \"$1\"; else id -nu 1000; fi",
             ]);
+
             match asked.is_empty() {
                 true => Some(format!(
                     "{at} did not answer, so the device's own name and the name \
@@ -81,13 +78,18 @@ pub fn watched() -> (Vec<Watched>, Option<String>) {
                 }
             }
         }
+        _ => Some(
+            "CONSOLE_HOST is not set, so the device's own name and the name of \
+             whoever it belongs to were not checked for."
+                .to_string(),
+        ),
     };
     (names, missing)
 }
 
 /// Whichever of the watched names something says, if it says any.
 pub fn leaks<'a>(text: &str, names: &'a [Watched]) -> Option<&'a Watched> {
-    names.iter().find(|watched| says(text, &watched.name))
+    names.iter().find(|watched| says(text, &watched.name) == Says::TheName)
 }
 
 /// Whether text says a name, rather than merely holding its letters.
@@ -106,25 +108,41 @@ pub fn leaks<'a>(text: &str, names: &'a [Watched]) -> Option<&'a Watched> {
 /// Said with no real name in it, because this file is carried into the copy and
 /// checked along with the rest of it. A test written against the machine this
 /// is built on would be the one file that fails its own check.
-fn says(text: &str, name: &str) -> bool {
+fn says(text: &str, name: &str) -> Says {
     let bytes = text.as_bytes();
-    text.match_indices(name).any(|(at, _)| {
+    let said = text.match_indices(name).any(|(at, _)| {
         let before = at.checked_sub(1).map(|i| bytes[i]);
         let after = bytes.get(at + name.len()).copied();
         ![before, after]
             .into_iter()
             .flatten()
             .any(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
-    })
+    });
+
+    match said {
+        true => Says::TheName,
+        false => Says::JustLetters,
+    }
+}
+
+/// Whether text says a name, or merely holds its letters inside a longer word.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Says {
+    /// The name stands on its own, with nothing wordlike either side of it.
+    TheName,
+    /// Its letters are there inside something else, which is not a mention.
+    JustLetters,
 }
 
 /// What a command said, or nothing at all.
 fn said(argv: &[&str]) -> String {
-    Command::new(argv[0])
+    match Command::new(argv[0])
         .args(&argv[1..])
         .output()
-        .map(|done| String::from_utf8_lossy(&done.stdout).trim().to_string())
-        .unwrap_or_default()
+    {
+        Ok(done) => String::from_utf8_lossy(&done.stdout).trim().to_string(),
+        Err(_) => String::new(),
+    }
 }
 
 #[cfg(test)]

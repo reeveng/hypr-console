@@ -9,8 +9,11 @@
 //! asks a person to pick a format anyway, and which file is fetched is decided
 //! in `getting` by a rule that never changes.
 
+
+use console_number::{Float, toward_zero_u64, whole_u64};
 use serde_json::{Value, json};
 
+use crate::getting::Have;
 use crate::store::Kind;
 
 /// How many things one search is worth.
@@ -71,6 +74,7 @@ pub struct Looked {
 /// thumb.
 pub fn target(asked: &str) -> String {
     let asked = asked.trim();
+
     match asked.starts_with("http://") || asked.starts_with("https://") {
         true => asked.to_string(),
         false => format!("ytsearch{MANY}:{asked}"),
@@ -105,6 +109,7 @@ pub fn found_in(said: &str) -> Vec<Found> {
     let Ok(held) = serde_json::from_str::<Value>(said) else {
         return Vec::new();
     };
+
     match held.get("entries").and_then(Value::as_array) {
         Some(entries) => entries.iter().filter_map(one).collect(),
         // A link rather than a search: one thing, and it is the whole answer.
@@ -117,16 +122,19 @@ fn one(entry: &Value) -> Option<Found> {
     let said = |key: &str| {
         entry.get(key).and_then(Value::as_str).unwrap_or_default().to_string()
     };
-    let counted = |key: &str| entry.get(key).and_then(Value::as_f64).unwrap_or_default() as u64;
+    let counted =
+        |key: &str| toward_zero_u64(entry.get(key).and_then(Value::as_f64).unwrap_or_default());
     let either = |key: &str, or: &str| match said(key).is_empty() {
         true => said(or),
         false => said(key),
     };
     let id = said("id");
     let title = said("title");
+
     if id.is_empty() || title.is_empty() {
         return None;
     }
+
     let url = match either("url", "webpage_url").is_empty() {
         true => format!("https://www.youtube.com/watch?v={id}"),
         false => either("url", "webpage_url"),
@@ -146,11 +154,14 @@ fn one(entry: &Value) -> Option<Found> {
 /// The smallest picture of a thing that is still worth drawing.
 pub fn picture_in(entry: &Value) -> String {
     let url = |one: &Value| one.get("url").and_then(Value::as_str).unwrap_or_default().to_string();
+
     let Some(many) = entry.get("thumbnails").and_then(Value::as_array) else {
         return entry.get("thumbnail").and_then(Value::as_str).unwrap_or_default().to_string();
     };
+
     let wide = |one: &&Value| one.get("width").and_then(Value::as_u64).unwrap_or_default();
     let big_enough = many.iter().filter(|one| wide(one) >= WIDE).min_by_key(wide);
+
     match big_enough {
         Some(one) => url(one),
         // Everything on offer is small, so the largest of them is the least
@@ -161,7 +172,7 @@ pub fn picture_in(entry: &Value) -> String {
 }
 
 /// A search, written down the way it is read back.
-pub fn written(looked: &Looked) -> String {
+pub fn written(looked: &Looked) -> Result<String, String> {
     let entries: Vec<Value> = looked
         .found
         .iter()
@@ -182,12 +193,20 @@ pub fn written(looked: &Looked) -> String {
         })
         .collect();
     let held = json!({ "asked": looked.asked, "fault": looked.fault, "entries": entries });
-    serde_json::to_string_pretty(&held).unwrap_or_default()
+
+    serde_json::to_string_pretty(&held)
+        .map_err(|fault| format!("writing down what the search found: {fault}"))
 }
 
 /// What was written down, read back.
 pub fn kept(said: &str) -> Looked {
-    let held: Value = serde_json::from_str(said).unwrap_or(Value::Null);
+    // A cache that is not JSON is a half-written file or one somebody edited,
+    // and the answer to both is the same as no file at all: nothing was found
+    // here, so the panel shows nothing and the next search writes over it.
+    let Ok(held) = serde_json::from_str::<Value>(said) else {
+        return Looked::default();
+    };
+
     let word = |key: &str| held.get(key).and_then(Value::as_str).unwrap_or_default().to_string();
     Looked { asked: word("asked"), fault: word("fault"), found: found_in(said) }
 }
@@ -197,7 +216,9 @@ pub fn clock(seconds: u64) -> String {
     if seconds == 0 {
         return String::new();
     }
+
     let (hours, minutes, seconds) = (seconds / 3600, (seconds % 3600) / 60, seconds % 60);
+
     match hours {
         0 => format!("{minutes}:{seconds:02}"),
         _ => format!("{hours}:{minutes:02}:{seconds:02}"),
@@ -212,12 +233,13 @@ pub fn clock(seconds: u64) -> String {
 pub fn counted(views: u64) -> String {
     let said = |many: f64, what: &str| match many < 10.0 {
         true => format!("{many:.1} {what} times"),
-        false => format!("{} {what} times", many.round() as u64),
+        false => format!("{} {what} times", whole_u64(many)),
     };
+
     match views {
         0 => String::new(),
-        views if views >= 1_000_000_000 => said(views as f64 / 1e9, "billion"),
-        views if views >= 1_000_000 => said(views as f64 / 1e6, "million"),
+        views if views >= 1_000_000_000 => said(views.float() / 1e9, "billion"),
+        views if views >= 1_000_000 => said(views.float() / 1e6, "million"),
         views if views >= 1_000 => format!("{} thousand times", views / 1_000),
         views => format!("{views} times"),
     }
@@ -234,6 +256,7 @@ pub fn counted(views: u64) -> String {
 pub fn complaint(said: &str) -> String {
     let last = said.lines().map(str::trim).rfind(|line| !line.is_empty());
     let said = last.unwrap_or(WENT_WRONG).trim_start_matches("ERROR:").trim();
+
     match said.char_indices().nth(SHORT) {
         Some((at, _)) => format!("{}\u{2026}", &said[..at]),
         None => said.to_string(),
@@ -255,7 +278,7 @@ pub const SHORT: usize = 90;
 /// by name and chosen by whose it is, so the Audio tab says who it is by; a
 /// video is chosen by whether it is the one everybody means, so the Video tab
 /// says how many have watched it.
-pub fn aside(kind: Kind, found: &Found, have: bool) -> String {
+pub fn aside(kind: Kind, found: &Found, have: Have) -> String {
     let when = match found.live {
         true => LIVE.to_string(),
         false => clock(found.seconds),
@@ -264,9 +287,10 @@ pub fn aside(kind: Kind, found: &Found, have: bool) -> String {
         Kind::Sound => joined(&[&found.by, &when]),
         Kind::Film => joined(&[&when, &counted(found.views)]),
     };
+
     match have {
-        true => joined(&[&said, HAVE_IT]),
-        false => said,
+        Have::It => joined(&[&said, HAVE_IT]),
+        Have::Not => said,
     }
 }
 
@@ -340,7 +364,7 @@ mod tests {
             fault: String::new(),
             found: found_in(SAID),
         };
-        let again = kept(&written(&looked));
+        let again = kept(&written(&looked).expect("a search this program built writes down"));
         assert_eq!(again.asked, looked.asked);
         assert_eq!(again.found, looked.found);
     }
@@ -352,7 +376,8 @@ mod tests {
             fault: "no network".to_string(),
             found: Vec::new(),
         };
-        assert_eq!(kept(&written(&looked)).fault, "no network");
+        let said = written(&looked).expect("a search this program built writes down");
+        assert_eq!(kept(&said).fault, "no network");
     }
 
     #[test]
@@ -376,20 +401,20 @@ mod tests {
     #[test]
     fn each_tab_says_the_thing_its_own_list_is_chosen_by() {
         let found = africa();
-        assert_eq!(aside(Kind::Sound, &found, false), "TOTO \u{00b7} 4:32");
-        assert_eq!(aside(Kind::Film, &found, false), "4:32 \u{00b7} 1.3 billion times");
+        assert_eq!(aside(Kind::Sound, &found, Have::Not), "TOTO \u{00b7} 4:32");
+        assert_eq!(aside(Kind::Film, &found, Have::Not), "4:32 \u{00b7} 1.3 billion times");
     }
 
     /// The one thing worth knowing before pressing A, said where the length is.
     #[test]
     fn a_thing_already_in_the_folder_says_so() {
-        assert!(aside(Kind::Sound, &africa(), true).ends_with(HAVE_IT));
+        assert!(aside(Kind::Sound, &africa(), Have::It).ends_with(HAVE_IT));
     }
 
     #[test]
     fn a_thing_still_happening_has_no_length_and_says_that_instead() {
         let live = Found { live: true, ..africa() };
-        assert!(aside(Kind::Film, &live, false).starts_with(LIVE));
+        assert!(aside(Kind::Film, &live, Have::Not).starts_with(LIVE));
     }
 
     #[test]

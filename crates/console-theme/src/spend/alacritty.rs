@@ -40,7 +40,7 @@ mod tests {
     use crate::spend::tests::{blossom, palette_spec};
 
     fn written() -> String {
-        spend(&Terminal::of(&palette_spec(), &blossom()))
+        spend(&Terminal::of(&palette_spec(), &blossom()).expect("the terminal table is declared"))
     }
 
     #[test]
@@ -68,7 +68,7 @@ mod tests {
         // Ink on a fill. The fill is what carries the contrast, so the letter
         // under the cursor is the terminal's own ground and not the foreground.
         let toml = written();
-        let terminal = Terminal::of(&palette_spec(), &blossom());
+        let terminal = Terminal::of(&palette_spec(), &blossom()).expect("the terminal table is declared");
         let carried = format!("text = \"0x{}\"", terminal.background);
         assert_eq!(toml.matches(&carried).count(), 2, "cursor and selection");
     }

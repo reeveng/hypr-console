@@ -1,5 +1,5 @@
 [Unit]
-Description=The password box for anything that asks permission
+Description=The password box, for anything that needs permission
 PartOf=console.target
 
 [Service]

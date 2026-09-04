@@ -10,7 +10,7 @@ use evdev::{AbsoluteAxisCode, EventType, InputEvent};
 use console_controller::doing::{Doing, Out};
 use console_controller::finding::Says;
 use console_controller::reading::Ranges;
-use console_controller::turning::{Gone, Plugged, Turning};
+use console_controller::turning::{Gone, Plugged, Took, Turning};
 use console_pad::capture::{Descriptor, captured};
 use console_pad::devices::Devices;
 use console_pad::go::{Held, LegionGo};
@@ -21,16 +21,22 @@ use console_pad::world::World;
 pub type Go = LegionGo<World, Held>;
 
 /// The repository, which is where the profiles are.
+///
+/// Tidied by `canonicalize` where that works and left as it stands where it
+/// does not, the way `console_stage::root` is. What `CARGO_MANIFEST_DIR` gives
+/// is already absolute and already right; canonicalizing only takes the `../..`
+/// out of the middle of it. It fails under a sandbox that will not let a
+/// process resolve a path it can otherwise read, and it failed here only when
+/// the whole workspace was tested at once -- thirty-six tests reporting a
+/// missing repository, on a machine holding the repository.
 pub fn root() -> std::path::PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .expect("the repository")
+    let from = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    from.canonicalize().unwrap_or(from)
 }
 
 /// A machine holding a profile, and nothing of this one taking part.
 pub fn go(profile: &str) -> Go {
-    let devices = Devices::new(captured(), World::of(captured()));
+    let devices = Devices::new(captured().expect("the capture carried in this program parses"), World::of(captured().expect("the capture carried in this program parses")));
     LegionGo::new(every_profile(&root()).expect("the profiles"), devices, Held::default(), profile)
         .expect("a pad")
 }
@@ -65,8 +71,11 @@ impl Plugged for Plug<'_> {
             .collect()
     }
 
-    fn open(&mut self, path: &str) -> bool {
-        self.devices.sink.role_at(path).is_some()
+    fn open(&mut self, path: &str) -> Took {
+        match self.devices.sink.role_at(path).is_some() {
+            true => Took::Held,
+            false => Took::Refused,
+        }
     }
 
     fn ranges(&self, path: &str) -> Ranges {
@@ -90,6 +99,8 @@ impl Plugged for Plug<'_> {
 pub struct Did {
     pub commands: Vec<Vec<String>>,
     pub written: Vec<Out>,
+    /// What was said to the home screen, in the order it was said.
+    pub told: Vec<console_door::Said>,
 }
 
 impl Did {
@@ -166,6 +177,7 @@ impl Daemon {
                 match what {
                     Doing::Run(argv) => self.did.commands.push(argv),
                     Doing::Frame(frame) => self.did.written.extend(frame),
+                    Doing::Tell(said) => self.did.told.push(said),
                 }
             }
             self.now += self.turning.poll();

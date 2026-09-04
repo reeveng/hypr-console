@@ -18,9 +18,11 @@
 /// it.
 pub fn matching(names: &[String], word: &str) -> Vec<String> {
     let wanted = word.trim().to_lowercase();
+
     if wanted.is_empty() {
         return names.to_vec();
     }
+
     let (starts, holds): (Vec<String>, Vec<String>) = names
         .iter()
         .filter(|name| name.to_lowercase().contains(&wanted))

@@ -67,13 +67,50 @@ fn l2_and_the_bottom_right_paddle_take_a_screenshot() {
     assert_eq!(daemon.did.names(), ["console-screenshot"]);
 }
 
-/// And the half of that which is the whole point of it.
+/// And the half of that which is the whole point of it: bare, it takes no
+/// picture. What it does instead is scroll, which runs nothing.
 #[test]
-fn the_bottom_right_paddle_alone_takes_nothing() {
+fn the_bottom_right_paddle_alone_takes_no_picture() {
     let (mut go, mut daemon) = desktop();
     go.press("right-paddle-bottom").expect("a paddle");
     daemon.run(&mut go, 2);
     assert!(daemon.did.commands.is_empty(), "it ran {:?}", daemon.did.names());
+}
+
+/// The finger is already resting on it and a page is read downwards.
+#[test]
+fn the_bottom_right_paddle_scrolls_the_page_down() {
+    let (mut go, mut daemon) = desktop();
+    go.press("right-paddle-bottom").expect("a paddle");
+    daemon.run(&mut go, 2);
+    assert_eq!(of_kind(&daemon, WHEEL), [-1], "one press is one notch, downwards");
+}
+
+/// Held, it goes on scrolling, which is what a page longer than a press is.
+/// The same repeat the volume has, and for the same reason: a thumb is already
+/// on the button and asking for it again is the part nobody wants to do.
+#[test]
+fn the_paddle_held_goes_on_scrolling() {
+    let (mut go, mut daemon) = desktop();
+    go.down("right-paddle-bottom").expect("a paddle");
+    daemon.run(&mut go, 60);
+    let notches = of_kind(&daemon, WHEEL);
+    assert!(notches.len() > 1, "held, it turned the wheel {} time(s)", notches.len());
+    assert!(notches.iter().all(|notch| *notch == -1), "every one of them downwards");
+}
+
+/// And it stops when the finger comes off, rather than scrolling on because
+/// nothing was there to hear the release.
+#[test]
+fn the_paddle_let_go_of_stops_scrolling() {
+    let (mut go, mut daemon) = desktop();
+    go.down("right-paddle-bottom").expect("a paddle");
+    daemon.run(&mut go, 60);
+    go.up("right-paddle-bottom").expect("a paddle");
+    daemon.run(&mut go, 2);
+    let so_far = of_kind(&daemon, WHEEL).len();
+    daemon.run(&mut go, 60);
+    assert_eq!(of_kind(&daemon, WHEEL).len(), so_far, "it went on scrolling with nothing on it");
 }
 
 /// The settings sit beside the face buttons, where a thumb already is. The
@@ -320,17 +357,35 @@ fn the_right_stick_turns_the_wheel() {
     let (mut go, mut daemon) = desktop();
     go.stick("right-stick", 0.0, -1.0).expect("a stick");
     daemon.run(&mut go, 11);
-    assert_eq!(total(&daemon, WHEEL), 4, "a second of full deflection is a known number of notches");
+
+    // The number tracks `scroll::MAX_HZ` and moved when the stick was slowed
+    // down. What is being held here is that a full push turns the wheel by a
+    // repeatable amount, not that the amount is this integer.
+    assert_eq!(total(&daemon, WHEEL), 2, "a full push turns the wheel by a known amount");
 }
 
 /// Small pushes are squared, so precision at the top of the range costs
 /// nothing at the bottom.
 #[test]
 fn a_half_pushed_stick_scrolls_less_than_a_quarter_as_fast() {
-    let (mut go, mut daemon) = desktop();
-    go.stick("right-stick", 0.0, -0.6).expect("a stick");
-    daemon.run(&mut go, 11);
-    assert_eq!(total(&daemon, WHEEL), 1);
+    let (mut full, mut turning_full) = desktop();
+    full.stick("right-stick", 0.0, -1.0).expect("a stick");
+    turning_full.run(&mut full, 44);
+
+    let (mut half, mut turning_half) = desktop();
+    half.stick("right-stick", 0.0, -0.6).expect("a stick");
+    turning_half.run(&mut half, 44);
+
+    // Asserted as the two against each other rather than as two numbers. The
+    // squaring is a relationship and the speed is not: both counts move when
+    // `scroll::MAX_HZ` changes and this does not, which is the difference
+    // between a test about the curve and a test about how fast the stick is.
+    // Written as a number it said 1, and slowing the stick made it 0 -- which
+    // failed while the thing it is named for was still true.
+    assert!(
+        total(&turning_half, WHEEL) * 4 <= total(&turning_full, WHEEL),
+        "a push of six tenths is a quarter of the travel once it is squared"
+    );
 }
 
 #[test]
@@ -432,10 +487,10 @@ fn the_pad_is_picked_up_again_when_it_comes_back() {
 ///
 /// `osk-hook` ran at both ends of the on-screen keyboard and did two things.
 /// It stopped this daemon with SIGSTOP and started it again with SIGCONT, so
-/// that this and wvkbd did not both act on the right stick -- which navigates
-/// and scrolls at once, and flickers. And it loaded the pad profile the
-/// keyboard needs, remembering the one that was there in a file so it could be
-/// put back.
+/// that this and the keyboard did not both act on the right stick -- which
+/// navigates and scrolls at once, and flickers. And it loaded the pad profile
+/// the keyboard needs, remembering the one that was there in a file so it
+/// could be put back.
 ///
 /// Both are the daemon's now, and neither is remembered. It asks the
 /// compositor what is in front of it: under the keyboard it acts on nothing,
@@ -544,7 +599,7 @@ fn no_program_here_stops_a_unit_with_a_signal() {
 
 /// And the keyboard is not asked to run anything at either end.
 ///
-/// wvkbd runs WVKBD_ON_SHOW and WVKBD_ON_HIDE itself, so a hook put back there
+/// The keyboard runs its own hooks on show/hide, so a hook put back there
 /// would be a second opinion about the pad that this daemon never hears about.
 #[test]
 fn the_keyboard_runs_no_hook_when_it_appears_or_goes() {

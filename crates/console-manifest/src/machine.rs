@@ -27,13 +27,28 @@ pub fn run(argv: &[&str]) -> Said {
     }
 }
 
+/// Whether a command run in front of somebody came back clean.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ran {
+    /// It ran and it succeeded.
+    Fine,
+    /// It failed, or it would not start at all.
+    Badly,
+}
+
 /// A command whose output the person running this should see.
-pub fn run_seen(argv: &[&str]) -> bool {
-    Command::new(argv[0])
-        .args(&argv[1..])
-        .status()
-        .map(|done| done.success())
-        .unwrap_or(false)
+pub fn run_seen(argv: &[&str]) -> Ran {
+    // `Badly` is written to mean both of these: a command that ran and failed
+    // and one that would not start are the same news to whoever asked for it.
+    let done = match Command::new(argv[0]).args(&argv[1..]).status() {
+        Ok(done) => done.success(),
+        Err(_) => false,
+    };
+
+    match done {
+        true => Ran::Fine,
+        false => Ran::Badly,
+    }
 }
 
 /// This desktop's own directory in whoever's home it is.
@@ -94,10 +109,21 @@ pub fn whoever() -> &'static str {
 /// Every directory in `/home` with an account of that name behind it.
 fn homes() -> Vec<String> {
     let Ok(reading) = std::fs::read_dir("/home") else { return Vec::new() };
+
     reading
         .flatten()
         .filter(|found| found.path().is_dir())
-        .filter_map(|found| found.file_name().into_string().ok())
+        // A directory whose name is not text is not a user this desktop can
+        // act on: every account it knows arrives as a string, from `id` and
+        // from the manifest. Passed over rather than guessed at.
+        .filter_map(|found| match found.file_name().into_string() {
+            Ok(name) => Some(name),
+
+            Err(name) => {
+                eprintln!("console: /home/{}: not a name this desktop can act on", name.to_string_lossy());
+                None
+            }
+        })
         .filter(|name| who(name).is_some())
         .collect()
 }
@@ -105,6 +131,7 @@ fn homes() -> Vec<String> {
 /// The one home in `/home`, if there is exactly one and somebody answers to it.
 fn the_one_home() -> Option<String> {
     let mut homes = homes();
+
     match homes.len() {
         1 => homes.pop(),
         _ => None,
@@ -122,6 +149,7 @@ fn the_home_it_is_already_in() -> Option<String> {
         .into_iter()
         .filter(|name| Path::new("/home").join(name).join(OURS).is_dir())
         .collect();
+
     match theirs.len() {
         1 => theirs.pop(),
         _ => None,
@@ -138,9 +166,11 @@ fn the_home_it_is_already_in() -> Option<String> {
 /// it.
 fn the_account_numbered_1000() -> Option<String> {
     let said = run(&["id", "-nu", "1000"]).out;
+
     if said.is_empty() {
         return None;
     }
+
     println!(
         "no desktop in anybody's home yet, so this is being installed for {said}, who is the \
          account numbered 1000"
@@ -158,6 +188,20 @@ pub fn user_systemctl(args: &[&str]) -> Said {
     run(&argv)
 }
 
+/// systemctl for the manager this process is already in.
+///
+/// The other one, `user_systemctl`, is root reaching into somebody else's
+/// manager, which is what an apply needs and what nothing else should use. This
+/// is for the questions asked by a program the desktop user is running as
+/// themselves -- `console well`, out of a unit in that same manager -- where
+/// reaching in from outside would need root the program has not got and would
+/// answer about the same manager anyway.
+pub fn mine(args: &[&str]) -> Said {
+    let argv: Vec<&str> =
+        ["systemctl", "--user"].into_iter().chain(args.iter().copied()).collect();
+    run(&argv)
+}
+
 /// Run something in the desktop's own session, from root.
 ///
 /// `su` hands over the account and leaves the environment where it was, so a
@@ -170,7 +214,9 @@ pub fn user_systemctl(args: &[&str]) -> Said {
 /// and not worth stopping for, and the journal has the rest.
 pub fn in_the_session(command: &str) {
     let owner = whoever();
+
     let Some((uid, _)) = who(owner) else { return };
+
     // `env` rather than a `VAR=value` prefix, and a shell named rather than
     // taken: `su` runs the account's login shell, which on this device is
     // fish, and what a shell makes of a line written for sh is the shell's
@@ -220,21 +266,31 @@ pub fn stage_file(from: &Path, live: &str) -> Result<(), String> {
         if holding.is_dir() {
             continue;
         }
+
         std::fs::create_dir(&holding).map_err(|fault| complain("its directory", fault))?;
         let owner = install::owner_of(&holding.to_string_lossy(), whoever());
         let (uid, gid) = who(&owner).ok_or_else(|| format!("{live}: no user called {owner}"))?;
         std::os::unix::fs::chown(&holding, Some(uid), Some(gid))
             .map_err(|fault| complain("its directory's owner", fault))?;
     }
+
     let staged = laying::staged(to);
     // Read and written rather than copied, because the mark standing for
     // whoever this desktop belongs to is filled in on the way past. A file
     // that holds no mark comes out the same bytes it went in as.
     let held = std::fs::read(from).map_err(|fault| complain("reading it", fault))?;
-    std::fs::write(&staged, install::content_on_machine(&held, whoever(), live))
-        .map_err(|fault| complain("writing", fault))?;
+    // Synced, not merely written. Everything staged here is renamed into place
+    // in one run at the end of the apply; bytes that were promised rather than
+    // written are bytes a machine that loses power during that run comes back
+    // without, under a name that says the release is installed.
+    console_writing::settled(&staged, &install::content_on_machine(&held, whoever(), live))
+        .map_err(|fault| format!("{live}: {fault}"))?;
 
-    let mode = install::mode_of(live, &install::head_of(from));
+    // The bytes that are about to be written, rather than a second read of
+    // the same file: what decides whether this is a program is what is going
+    // on the machine, and a file that changed between the two reads would
+    // otherwise be installed under the other one's mode.
+    let mode = install::mode_of(live, &held);
     std::fs::set_permissions(&staged, permissions(mode))
         .map_err(|fault| complain("its mode", fault))?;
 
@@ -271,6 +327,16 @@ pub fn swap_file(live: &str) -> Result<Back, String> {
     };
     std::fs::rename(laying::staged(to), to)
         .map_err(|fault| complain("moving it into place", fault))?;
+
+    // The name, made durable as well as the bytes. Without this a machine that
+    // stops inside the swap can come back holding the new file under the
+    // staging name with the old one still live -- which is the half-laid
+    // release this whole arrangement exists to make impossible, arriving after
+    // the renames rather than during them.
+    if let Err(fault) = console_writing::named(to) {
+        eprintln!("console apply: {fault}");
+    }
+
     Ok(back)
 }
 
@@ -279,6 +345,7 @@ pub fn put_back(laid: &Laid) -> Result<(), String> {
     let on = install::on_machine(&laid.at, whoever());
     let to = Path::new(&on);
     let complain = |what: &str, fault: std::io::Error| format!("{}: {what}: {fault}", laid.at);
+
     match laid.back {
         Back::Kept => std::fs::rename(laying::kept(to), to)
             .map_err(|fault| complain("putting back what was there", fault)),
@@ -307,7 +374,13 @@ fn permissions(mode: u32) -> std::fs::Permissions {
 /// A user's numbers, asked of the system rather than read out of a file, so
 /// that a machine which keeps its users somewhere else still answers.
 fn who(user: &str) -> Option<(u32, u32)> {
-    let number = |flag: &str| run(&["id", flag, user]).out.parse::<u32>().ok();
+    // `id` says nothing at all about a user that does not exist, and an answer
+    // that is not a number is that silence: there is no third thing it prints.
+    let number = |flag: &str| {
+        let Ok(number) = run(&["id", flag, user]).out.parse::<u32>() else { return None };
+
+        Some(number)
+    };
     Some((number("-u")?, number("-g")?))
 }
 
@@ -329,6 +402,7 @@ pub fn commit(root: &Path, what: &str, wrote: &[std::path::PathBuf]) {
     if !root.join(".git").exists() || wrote.is_empty() {
         return;
     }
+
     let root = root.display().to_string();
     let named: Vec<String> = wrote.iter().map(|at| at.display().to_string()).collect();
     let argv = |verb: &[&str]| -> Vec<String> {
@@ -344,6 +418,7 @@ pub fn commit(root: &Path, what: &str, wrote: &[std::path::PathBuf]) {
     // that, so an index somebody else has already staged into is not what gets
     // written down.
     said(&argv(&["add"]));
+
     if !said(&argv(&["status", "--porcelain"])).out.is_empty() {
         said(&argv(&["commit", "-m", what]));
     }
@@ -359,6 +434,7 @@ pub fn uncommitted(root: &Path) -> Vec<String> {
     if !root.join(".git").exists() {
         return Vec::new();
     }
+
     let root = root.display().to_string();
     run(&["git", "-C", &root, "status", "--porcelain"])
         .out
@@ -394,6 +470,68 @@ impl laying::Lays for Here {
 
     fn drop_kept(&mut self, live: &str) {
         drop_kept(live);
+    }
+
+    fn standing(&self, live: &str) -> Back {
+        let on = install::on_machine(live, whoever());
+
+        match Path::new(&on).exists() {
+            true => Back::Kept,
+            false => Back::Gone,
+        }
+    }
+
+    fn note(&mut self, laid: &[Laid]) -> Result<(), String> {
+        wrote_plan(Path::new(PLAN), laid)
+    }
+
+    fn forget_note(&mut self) {
+        forget_plan(Path::new(PLAN));
+    }
+}
+
+/// Where an apply writes down what it is in the middle of doing.
+///
+/// Under `/var/lib` rather than `/run`, and that is the whole point of it. A
+/// note in the runtime directory would be swept by the reboot, and a reboot is
+/// exactly what happens between a machine stopping inside a swap and anybody
+/// finding out. This has to outlive the thing it is a record of.
+pub const PLAN: &str = "/var/lib/console/laying";
+
+/// What one file's line in the plan says.
+///
+/// The word first and the path second, because a path can hold anything and the
+/// word is one of two. Split the other way round, a file with a space in its
+/// name would be read as a word nobody wrote.
+fn line_of(laid: &Laid) -> String {
+    let back = match laid.back {
+        Back::Kept => "kept",
+        Back::Gone => "gone",
+    };
+    format!("{back} {}
+", laid.at)
+}
+
+/// Write the plan down, whole and synced, before a single file moves.
+fn wrote_plan(at: &Path, laid: &[Laid]) -> Result<(), String> {
+    if let Some(holding) = at.parent() {
+        std::fs::create_dir_all(holding)
+            .map_err(|fault| format!("{}: its directory: {fault}", at.display()))?;
+    }
+
+    let written: String = laid.iter().map(line_of).collect();
+    console_writing::whole(at, written.as_bytes())
+}
+
+/// Take the plan away, there being no half-laid release to describe.
+fn forget_plan(at: &Path) {
+    match std::fs::remove_file(at) {
+        Ok(()) => {}
+        Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => {}
+        // Left behind, this reads as an apply that never finished, and `console
+        // well` will raise a card about it at every boot until somebody looks.
+        // Better that than silence, and better still to say so now.
+        Err(fault) => eprintln!("console apply: {} will not go away: {fault}", at.display()),
     }
 }
 

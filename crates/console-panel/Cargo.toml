@@ -23,10 +23,20 @@ path = "src/bin/second-chooser.rs"
 name = "bar-door"
 path = "src/bin/bar-door.rs"
 
+# The pictures every list draws, decoded once into the one file they read.
+[[bin]]
+name = "panel-pictures"
+path = "src/bin/panel-pictures.rs"
+
 [dependencies]
+console-number.workspace = true
 console-door.workspace = true
 console-again.workspace = true
+console-timings.workspace = true
 gtk4 = "0.11"
 gtk4-layer-shell = "0.8"
 libc = "0.2"
 serde_json = "1"
+
+[lints]
+workspace = true

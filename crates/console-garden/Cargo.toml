@@ -15,9 +15,13 @@ path = "src/main.rs"
 
 [dependencies]
 cairo-rs = { version = "0.21", features = ["png"] }
+console-number.workspace = true
 console-random.workspace = true
 console-screen.workspace = true
 indexmap = { version = "2", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 sha2 = "0.10"
 toml = { version = "0.9", default-features = false, features = ["parse", "serde", "preserve_order"] }
+
+[lints]
+workspace = true

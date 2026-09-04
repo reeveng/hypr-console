@@ -3,18 +3,20 @@
 //! ```text
 //! console-desktop verify     does the compositor config still parse
 //! console-desktop run        the desktop, nested, at the device's size
-//! console-desktop shot FILE  a picture of it
+//! console-desktop shot FILE  a picture of it, --settle N seconds after
 //! console-desktop probe      what the nested compositor thinks
 //! console-desktop stage      the staged copy, and nothing else
 //! console-desktop clean      forget what nobody is using
 //! ```
 
+
+use console_number::fitted;
 use std::path::PathBuf;
 use std::process::{Child, Command, ExitCode, Stdio};
 use std::time::Duration;
 
-use console_desktop::staging::{environment, staged};
-use console_desktop::talking::Inside;
+use console_desktop::staging::{Screen, Told, environment, staged};
+use console_desktop::talking::{Inside, Waited};
 use console_desktop::{screen, session, stage};
 use console_stage::picture::{Picture, where_};
 
@@ -23,6 +25,15 @@ struct Asked {
     command: String,
     file: Option<PathBuf>,
     seconds: Option<f64>,
+    /// How long to leave the screen alone before the picture is taken.
+    ///
+    /// The picture is taken the moment something asked for reaches the screen,
+    /// which is the right moment for asking whether it got there at all and the
+    /// wrong one for asking what it looks like after a press. A panel opened
+    /// out, a card that has been walked along, anything a `--open` command
+    /// types into it: all of them happen after the surface a shot is triggered
+    /// by, and without this they are photographed before they have happened.
+    settle: Option<f64>,
     open: Vec<String>,
     sample: Vec<String>,
     window: bool,
@@ -49,9 +60,25 @@ fn asked(words: Vec<String>) -> Asked {
             .first()
             .map_or_else(|| "run".to_string(), |word| (*word).clone()),
         file: bare.get(1).map(PathBuf::from),
-        seconds: every("--seconds")
-            .first()
-            .and_then(|said| said.parse().ok()),
+        seconds: every("--seconds").first().and_then(|said| match said.parse() {
+            Ok(seconds) => Some(seconds),
+            // A number somebody meant and mistyped is not the same as never
+            // having asked for one, and folded together it is a command that
+            // quietly does something other than what was typed.
+            Err(fault) => {
+                eprintln!("console-desktop: --seconds {said}: {fault}");
+
+                None
+            }
+        }),
+        settle: every("--settle").first().and_then(|said| match said.parse() {
+            Ok(seconds) => Some(seconds),
+            Err(fault) => {
+                eprintln!("console-desktop: --settle {said}: {fault}");
+
+                None
+            }
+        }),
         open: every("--open"),
         sample: every("--sample"),
         window: words.iter().any(|word| word == "--window"),
@@ -62,19 +89,21 @@ fn main() -> ExitCode {
     let asked = asked(std::env::args().skip(1).collect());
     let done = match asked.command.as_str() {
         "clean" => clean(),
-        "stage" => staged(false, false).map(|_| 0),
+        "stage" => staged(Told::Aloud, Screen::InAWindow).map(|_| 0),
         "verify" => verify(),
-        "probe" => run(&asked, None, true),
+        "probe" => run(&asked, None, Doing::Probing),
         "shot" => match asked.file.clone() {
-            Some(file) => run(&asked, Some(file), false),
+            Some(file) => run(&asked, Some(file), Doing::Running),
             None => Err("a picture wants somewhere to be written".to_string()),
         },
-        _ => run(&asked, None, false),
+        _ => run(&asked, None, Doing::Running),
     };
+
     // A stage is one session's, and the session is over.
     if asked.command != "stage" {
         let _ = std::fs::remove_dir_all(stage());
     }
+
     match done {
         Ok(code) => ExitCode::from(code),
         Err(why) => {
@@ -89,19 +118,23 @@ fn clean() -> Result<u8, String> {
         .into_iter()
         .chain(session::abandoned())
         .chain(session::dead_instances());
+
     for path in every {
         let _ = std::fs::remove_dir_all(path);
     }
+
     Ok(0)
 }
 
 fn verify() -> Result<u8, String> {
-    let nested = staged(true, false)?;
+    let nested = staged(Told::Quietly, Screen::InAWindow)?;
     let mut asking = Command::new("Hyprland");
     asking.args(["--verify-config", "-c"]).arg(&nested);
+
     for (name, value) in environment() {
         asking.env(name, value);
     }
+
     let done = asking.output().map_err(|fault| fault.to_string())?;
     let said = String::from_utf8_lossy(&done.stdout).trim().to_string();
     let complained = String::from_utf8_lossy(&done.stderr).trim().to_string();
@@ -109,10 +142,23 @@ fn verify() -> Result<u8, String> {
     Ok(u8::from(!done.status.success()))
 }
 
+/// Whether this run is a picture and a session, or a question about one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Doing {
+    /// Ask the compositor what it has and print the answers.
+    Probing,
+    /// Do whatever was asked of the session and leave.
+    Running,
+}
+
 /// The nested compositor, up, and whatever was asked of it.
-fn run(asked: &Asked, shot: Option<PathBuf>, probe: bool) -> Result<u8, String> {
+fn run(asked: &Asked, shot: Option<PathBuf>, probe: Doing) -> Result<u8, String> {
     let headless = !asked.window;
-    let nested = staged(true, headless && shot.is_some())?;
+    let showing = match headless && shot.is_some() {
+        true => Screen::Headless,
+        false => Screen::InAWindow,
+    };
+    let nested = staged(Told::Quietly, showing)?;
     let where_ = environment();
 
     let mut compositor = {
@@ -123,9 +169,11 @@ fn run(asked: &Asked, shot: Option<PathBuf>, probe: bool) -> Result<u8, String> 
             .arg("-c")
             .arg(&nested)
             .env_remove("HYPRLAND_INSTANCE_SIGNATURE");
+
         for (name, value) in &where_ {
             asking.env(name, value);
         }
+
         let started = asking.spawn().map_err(|fault| fault.to_string())?;
         (
             started,
@@ -138,25 +186,28 @@ fn run(asked: &Asked, shot: Option<PathBuf>, probe: bool) -> Result<u8, String> 
         let _ = compositor.0.kill();
         return Err("the nested compositor never came up".to_string());
     };
+
     eprintln!("the desktop is on {socket}");
 
     // Nothing to look at and nothing to take: this is somebody watching it.
-    if shot.is_none() && asked.seconds.is_none() && !probe {
+    if shot.is_none() && asked.seconds.is_none() && probe == Doing::Running {
         let ended = compositor.0.wait().map_err(|fault| fault.to_string())?;
         session::left_behind(&signature);
         return Ok(u8::from(!ended.success()));
     }
 
     let inside = Inside::new(where_, &socket, &signature);
-    let go = screen();
+    let go = screen()?;
     let looked_at = match headless {
         true => "HEADLESS-1",
         false => "WAYLAND-1",
     };
+
     if headless {
         inside.make_the_screen(&go);
     }
-    if !inside.wait_for_screen(looked_at) {
+
+    if inside.wait_for_screen(looked_at) == Waited::RanOut {
         stop(&mut compositor.0, &signature, &inside);
         return Err("the screen never appeared".to_string());
     }
@@ -168,30 +219,47 @@ fn run(asked: &Asked, shot: Option<PathBuf>, probe: bool) -> Result<u8, String> 
         .open
         .iter()
         .filter_map(|command| {
-            let started = inside
+            let started = match inside
                 .command("sh")
                 .args(["-c", command])
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .spawn()
-                .ok()?;
+            {
+                Ok(started) => started,
+                // Asked for and never started. Without this the run goes on to
+                // report that nothing reached the screen, which is true and is
+                // not the reason.
+                Err(fault) => {
+                    eprintln!("console-desktop: {command}: {fault}");
+
+                    return None;
+                }
+            };
+
             Some((command.clone(), started))
         })
         .collect();
+
     if !opened.is_empty() {
-        if !inside.wait_for_something(&was) {
+        if inside.wait_for_something(&was) == Waited::RanOut {
             eprintln!("nothing that was asked for reached the screen");
         }
+
         inside.show_a_window();
         say_what_died(opened);
     }
 
-    if probe {
+    if probe == Doing::Probing {
         for question in ["monitors", "workspaces", "clients"] {
             println!("== {question}");
             let said = inside.hyprctl(&[question, "-j"]);
             println!("{}", said.chars().take(1200).collect::<String>());
         }
+    }
+
+    if let Some(seconds) = asked.settle {
+        std::thread::sleep(Duration::from_secs_f64(seconds));
     }
 
     if let Some(file) = &shot {
@@ -201,6 +269,7 @@ fn run(asked: &Asked, shot: Option<PathBuf>, probe: bool) -> Result<u8, String> 
             .arg(file)
             .output()
             .map_err(|fault| fault.to_string())?;
+
         match taken.status.success() {
             true => {
                 println!("{}", file.display());
@@ -218,6 +287,7 @@ fn run(asked: &Asked, shot: Option<PathBuf>, probe: bool) -> Result<u8, String> 
     if let Some(seconds) = asked.seconds {
         std::thread::sleep(Duration::from_secs_f64(seconds));
     }
+
     stop(&mut compositor.0, &signature, &inside);
     Ok(0)
 }
@@ -228,16 +298,21 @@ fn stop(compositor: &mut Child, signature: &str, inside: &Inside) {
     // reasons. See Inside::stop_the_wallpaper and Inside::stop_the_bar.
     inside.stop_the_wallpaper();
     inside.stop_the_bar();
+
     // SAFETY: a signal to the compositor this started, by its own pid.
-    unsafe { libc::kill(compositor.id() as i32, libc::SIGTERM) };
+    unsafe { libc::kill(fitted(compositor.id()), libc::SIGTERM) };
+
     let by = std::time::Instant::now() + Duration::from_secs(10);
+
     while std::time::Instant::now() < by {
         if compositor.try_wait().is_ok_and(|ended| ended.is_some()) {
             session::left_behind(signature);
             return;
         }
+
         std::thread::sleep(Duration::from_millis(100));
     }
+
     let _ = compositor.kill();
     let _ = compositor.wait();
     session::left_behind(signature);
@@ -252,12 +327,15 @@ fn say_what_died(opened: Vec<(String, Child)>) {
         let Ok(Some(ended)) = process.try_wait() else {
             continue;
         };
+
         // Read off the pipe rather than through wait_with_output, which has
         // nothing to give for a child that has already been reaped.
         let mut said = String::new();
+
         if let Some(mut voice) = process.stderr.take() {
             let _ = std::io::Read::read_to_string(&mut voice, &mut said);
         }
+
         let said = said.trim().to_string();
         eprintln!(
             "{command} ended with {}: {}",
@@ -281,21 +359,26 @@ fn say_the_colours(shot: &std::path::Path, sample: &[String], go: &console_scree
     if sample.is_empty() {
         return;
     }
+
     let Ok(picture) = Picture::read(shot) else {
         return;
     };
+
     for place in sample {
         if place == "most" {
             println!("  most of it   #{}", picture.commonest());
             continue;
         }
+
         let Some((across, down)) = place.split_once(',') else {
             continue;
         };
+
         let (Ok(across), Ok(down)) = (across.trim().parse::<f64>(), down.trim().parse::<f64>())
         else {
             continue;
         };
+
         match where_(&picture, across, down, go) {
             Ok(colour) => println!("  {:<12} #{colour}", format!("{across},{down}")),
             Err(why) => eprintln!("  {place}: {why}"),

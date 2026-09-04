@@ -15,6 +15,22 @@ use std::path::{Path, PathBuf};
 /// The pictures the machine came with.
 pub const CAME_WITH: &str = "/usr/share/backgrounds/console";
 
+/// What the session says a name is, or nothing where it says nothing.
+///
+/// Unset is ordinary and every caller here has somewhere else to look. A name
+/// set to something that is not text is not ordinary, and folded in with unset
+/// it is a wallpaper kept somewhere nobody would think to go looking for it.
+pub(crate) fn said(name: &str) -> Option<String> {
+    match std::env::var(name) {
+        Ok(said) => Some(said),
+        Err(std::env::VarError::NotPresent) => None,
+        Err(fault) => {
+            eprintln!("console-sky: {name}: {fault}");
+            None
+        }
+    }
+}
+
 /// Where the manifest keeps itself on the device.
 ///
 /// The device holds this whole repository at this path: `console apply` builds
@@ -31,14 +47,24 @@ pub const TREE: &str = "/etc/console";
 /// palette in, and the reason is the same: a compiled program can be installed
 /// anywhere, and the tree that matters is the one being worked in.
 pub fn tree() -> PathBuf {
-    std::env::current_dir()
-        .ok()
-        .and_then(|here| {
-            here.ancestors()
-                .find(|at| at.join("theme/palette.toml").is_file())
-                .map(Path::to_path_buf)
-        })
-        .unwrap_or_else(|| PathBuf::from(TREE))
+    // A working directory that cannot be read is one that was deleted under a
+    // running program. The device's own tree is still the right answer; that it
+    // was arrived at this way is worth a line, because every path in this file
+    // is about to hang off it.
+    let here = match std::env::current_dir() {
+        Ok(here) => Some(here),
+        Err(fault) => {
+            eprintln!("console-sky: where this is running: {fault}");
+            None
+        }
+    };
+
+    here.and_then(|here| {
+        here.ancestors()
+            .find(|at| at.join("theme/palette.toml").is_file())
+            .map(Path::to_path_buf)
+    })
+    .unwrap_or_else(|| PathBuf::from(TREE))
 }
 
 /// The table saying which picture answers what.
@@ -48,7 +74,7 @@ pub fn table() -> PathBuf {
 
 /// Somebody's home, if the machine will say whose.
 fn home() -> Option<PathBuf> {
-    std::env::var("HOME").ok().map(PathBuf::from)
+    said("HOME").map(PathBuf::from)
 }
 
 /// The pictures she added, pressed.
@@ -73,8 +99,7 @@ pub fn asked() -> Option<PathBuf> {
 
 /// The frames the wallpaper daemon keeps, if the machine will say where.
 fn kept() -> Option<PathBuf> {
-    std::env::var("XDG_CACHE_HOME")
-        .ok()
+    said("XDG_CACHE_HOME")
         .map(PathBuf::from)
         .or_else(|| home().map(|at| at.join(".cache")))
         .map(|at| at.join("awww"))
@@ -117,8 +142,11 @@ fn freshen_in(kept: &Path, picture: &Path) {
     let Ok(full) = picture.canonicalize() else {
         return;
     };
+
     let Some(name) = kept_as(&full) else { return };
+
     let Ok(pressed) = written(&full) else { return };
+
     // A level down, because the daemon keeps its frames under a directory
     // named for its own version and an upgrade leaves the old one behind.
     for version in listed(kept) {
@@ -129,6 +157,7 @@ fn freshen_in(kept: &Path, picture: &Path) {
                 .to_string_lossy()
                 .to_string();
             let stale = written(&frames).is_ok_and(|kept| kept < pressed);
+
             if named.starts_with(&name) && stale {
                 // Said rather than swallowed. Frames that will not go are the
                 // old picture played over the new one for as long as the file
@@ -175,24 +204,52 @@ pub fn picture(name: &str) -> Option<(PathBuf, PathBuf)> {
 
 /// Every picture on the machine, by name, hers and the ones it came with.
 pub fn every() -> Vec<String> {
-    let mut names: Vec<String> = [hers(), Some(PathBuf::from(CAME_WITH))]
-        .into_iter()
-        .flatten()
-        .filter_map(|at| std::fs::read_dir(at).ok())
-        .flatten()
-        .filter_map(|found| found.ok())
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().is_some_and(|kind| kind == "webp"))
-        .filter_map(|path| {
-            let name = path.file_name()?.to_str()?;
+    let mut names: Vec<String> = Vec::new();
+
+    for at in [hers(), Some(PathBuf::from(CAME_WITH))].into_iter().flatten() {
+        // No directory at all is ordinary: she has added nothing yet. A
+        // directory that is there and will not be read is a fault, and told
+        // apart from the first it is a person being shown an empty list and
+        // told that is everything she has.
+        let found = match std::fs::read_dir(&at) {
+            Ok(found) => found,
+            Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(fault) => {
+                eprintln!("console-sky: {}: {fault}", at.display());
+
+                continue;
+            }
+        };
+
+        for entry in found {
+            let path = match entry {
+                Ok(entry) => entry.path(),
+                Err(fault) => {
+                    eprintln!("console-sky: {}: reading what is in it: {fault}", at.display());
+
+                    continue;
+                }
+            };
+
+            if !path.extension().is_some_and(|kind| kind == "webp") {
+                continue;
+            }
+
+            let Some(name) = path.file_name().and_then(|name| name.to_str()) else { continue };
+
             // The still is not a picture in its own right, it is the resting
             // frame of one, and offering both would offer everything twice.
-            name.strip_suffix(".webp").map(str::to_string)
-        })
-        .filter(|name| !name.ends_with(".still"))
-        .collect();
+            let Some(name) = name.strip_suffix(".webp") else { continue };
+
+            if !name.ends_with(".still") {
+                names.push(name.to_string());
+            }
+        }
+    }
+
     names.sort();
     names.dedup();
+
     names
 }
 

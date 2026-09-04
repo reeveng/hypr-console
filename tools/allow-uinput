@@ -4,7 +4,7 @@
 #     sudo tools/allow-uinput
 #
 # Only the slower half of the tests needs this, and only on the machine the
-# tests are run on. The Legion Go is not touched by any of it. `make test` runs
+# tests are run on. The Legion Go is not touched by any of it. `just test` runs
 # without it and covers what the daemons decide; what this buys is the other
 # half, where the devices are real ones the kernel published.
 set -e

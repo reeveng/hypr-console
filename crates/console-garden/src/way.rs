@@ -3,6 +3,7 @@
 use cairo::{Context, LinearGradient};
 use console_random::Random;
 
+use crate::fault::Drawing;
 use crate::garden::Garden;
 use crate::land::under;
 use crate::paint::{dip, petal_at, stop};
@@ -54,14 +55,14 @@ pub fn road(
     spread: f64,
     shift: f64,
     rng: &mut Random,
-) {
-    ctx.save().expect("a brush can be put down");
+) -> Drawing<()> {
+    ctx.save()?;
     under(ctx, garden, over);
 
     let steps = 160;
     let sides: Vec<((f64, f64), (f64, f64))> = (0..=steps)
         .map(|i| {
-            let down = FAR + (NEAR - FAR) * i as f64 / steps as f64;
+            let down = FAR + (NEAR - FAR) * f64::from(i) / f64::from(steps);
             let (x, half) = lane(garden, down, spread, shift);
             ((x - half, garden.down(down)), (x + half, garden.down(down)))
         })
@@ -70,45 +71,54 @@ pub fn road(
     let right: Vec<(f64, f64)> = sides.iter().map(|(_, other)| *other).collect();
 
     ctx.move_to(left[0].0, left[0].1);
+
     for point in &left[1..] {
         ctx.line_to(point.0, point.1);
     }
+
     for point in right.iter().rev() {
         ctx.line_to(point.0, point.1);
     }
+
     ctx.close_path();
 
-    dip(ctx, &garden.paint, "road", 1.0);
-    ctx.fill_preserve().expect("the path");
-    ctx.save().expect("a brush can be put down");
+    dip(ctx, &garden.paint, "road", 1.0)?;
+    ctx.fill_preserve()?;
+    ctx.save()?;
     ctx.clip();
 
     // Worn lighter towards the near end, where feet have been.
     let line = LinearGradient::new(0.0, garden.down(FAR), 0.0, garden.down(NEAR));
+
     for (offset, alpha) in [(0.0, 0.0), (0.55, 0.45), (1.0, 0.75)] {
-        stop(&line, offset, &garden.paint, "road_light", alpha);
+        stop(&line, offset, &garden.paint, "road_light", alpha)?;
     }
-    ctx.set_source(&line).expect("a gradient");
-    ctx.paint().expect("the wear");
-    ctx.restore().expect("a brush comes back");
+
+    ctx.set_source(&line)?;
+    ctx.paint()?;
+    ctx.restore()?;
 
     // Grass does not stop at a line. The edge is laid down as a few strokes
     // getting wider and fainter, which is the nearest a vector drawing comes
     // to something being out of focus.
     for width in [1.0, 3.0, 7.0] {
-        dip(ctx, &garden.paint, "verge", 0.45 / width);
+        dip(ctx, &garden.paint, "verge", 0.45 / width)?;
         ctx.set_line_width(garden.across(0.0010) * width);
+
         for edge in [&left, &right] {
             ctx.move_to(edge[0].0, edge[0].1);
+
             for point in &edge[1..] {
                 ctx.line_to(point.0, point.1);
             }
-            ctx.stroke().expect("a verge");
+
+            ctx.stroke()?;
         }
     }
 
-    fallen(ctx, garden, spread, shift, rng);
-    ctx.restore().expect("a brush comes back");
+    fallen(ctx, garden, spread, shift, rng)?;
+    ctx.restore()?;
+    Ok(())
 }
 
 /// The ground either side of the path, which is grass and not paper.
@@ -123,17 +133,19 @@ pub fn turf(
     spread: f64,
     shift: f64,
     rng: &mut Random,
-) {
-    ctx.save().expect("a brush can be put down");
+) -> Drawing<()> {
+    ctx.save()?;
     under(ctx, garden, over);
 
     for _ in 0..900 {
         let down = rng.uniform(FAR, 1.0);
         let x = rng.uniform(0.0, garden.width);
         let (middle, half) = lane(garden, down, spread, shift);
+
         if (x - middle).abs() < half {
             continue;
         }
+
         let part = (down - FAR) / (1.0 - FAR);
         let blade = garden.across(0.0008 + 0.0060 * part);
         dip(
@@ -141,32 +153,36 @@ pub fn turf(
             &garden.paint,
             "verge",
             rng.uniform(0.06, 0.20) * (0.3 + part),
-        );
+        )?;
         ctx.set_line_width(garden.across(0.0005 + 0.0016 * part));
         ctx.move_to(x, garden.down(down));
         ctx.line_to(x + rng.gauss(0.0, blade * 0.35), garden.down(down) - blade);
-        ctx.stroke().expect("a blade");
+        ctx.stroke()?;
     }
-    ctx.restore().expect("a brush comes back");
+
+    ctx.restore()?;
+    Ok(())
 }
 
 /// Blossom already down, lying on the path where it fell.
-pub fn fallen(ctx: &Context, garden: &Garden, spread: f64, shift: f64, rng: &mut Random) {
+pub fn fallen(ctx: &Context, garden: &Garden, spread: f64, shift: f64, rng: &mut Random) -> Drawing<()> {
     for _ in 0..200 {
         let down = FAR + (NEAR - FAR) * rng.random().powf(0.55);
         let (middle, half) = lane(garden, down, spread, shift);
         let x = middle + rng.uniform(-1.0, 1.0) * half * 0.92;
         let near = (down - FAR) / (NEAR - FAR);
         let size = (garden.across(0.0004) + garden.across(0.0028) * near) * rng.uniform(0.75, 1.25);
-        dip(ctx, &garden.paint, "fallen", 0.25 + 0.75 * near);
+        dip(ctx, &garden.paint, "fallen", 0.25 + 0.75 * near)?;
         petal_at(
             ctx,
             x,
             garden.down(down),
             size,
             rng.uniform(0.0, std::f64::consts::PI),
-        );
+        )?;
     }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -178,7 +194,7 @@ mod tests {
         Garden {
             width: 2560.0,
             height: 1600.0,
-            paint: Paints::of([("road".to_string(), Wash::of("ffffff", 1.0))]),
+            paint: Paints::of([("road".to_string(), Wash::of("ffffff", 1.0).expect("a colour"))]),
             rest_seconds: 420.0,
             gust_seconds: 3.6,
             frames_per_second: 12.0,

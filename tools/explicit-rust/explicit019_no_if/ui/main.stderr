@@ -1,0 +1,31 @@
+warning: `if` leaves an outcome implicit: the path not taken has no name here
+  --> $DIR/main.rs:6:5
+   |
+LL | /     if full {
+LL | |         return 0;
+LL | |     }
+   | |_____^
+   |
+   = help: write the decision as a `match` -- `match cond { true => …, false => … }`, or `match value { … }` for what an `if let` asks
+   = note: `#[warn(explicit019_no_if)]` on by default
+
+warning: `if` leaves an outcome implicit: the path not taken has no name here
+  --> $DIR/main.rs:16:17
+   |
+LL |     let width = if wide { 3 } else { 1 };
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: write the decision as a `match` -- `match cond { true => …, false => … }`, or `match value { … }` for what an `if let` asks
+
+warning: `if` leaves an outcome implicit: the path not taken has no name here
+  --> $DIR/main.rs:23:5
+   |
+LL | /     if let Some(n) = x {
+LL | |         return n;
+LL | |     }
+   | |_____^
+   |
+   = help: write the decision as a `match` -- `match cond { true => …, false => … }`, or `match value { … }` for what an `if let` asks
+
+warning: 3 warnings emitted
+

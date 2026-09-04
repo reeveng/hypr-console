@@ -14,18 +14,20 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 use console_voice::{
-    anything_said, cloning, compiling, configuring, fetching, hearing, languages, made, making,
+    Heard, anything_said, cloning, compiling, configuring, fetching, hearing, languages, made, making,
     model, recording, said, taken, taking, tidy, told_by, typing, whisper,
 };
 use std::path::PathBuf;
 
 fn main() {
     let asked: Vec<String> = std::env::args().skip(1).collect();
+
     match asked.first().map(String::as_str) {
         Some("--fetch") => {
             if let Err(why) = fetched() {
                 fell("model", "The words could not be fetched", &why);
             }
+
             if let Err(why) = built() {
                 fell("hearing", "The hearing could not be built", &why);
             }
@@ -40,15 +42,26 @@ fn main() {
             std::process::exit(2);
         }
         None => match listening() {
-            true => wrote_down(),
-            false => listen(),
+            Taken::Yes => wrote_down(),
+            Taken::No => listen(),
         },
     }
 }
 
 /// Whether the microphone is already being taken.
-fn listening() -> bool {
-    holder().is_some()
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Taken {
+    /// Something is recording, so this press is the one that ends it.
+    Yes,
+    /// Nothing is, so this press is the one that starts it.
+    No,
+}
+
+fn listening() -> Taken {
+    match holder().is_some() {
+        true => Taken::Yes,
+        false => Taken::No,
+    }
 }
 
 /// Which process is holding the microphone, and what it is filling.
@@ -58,7 +71,20 @@ fn listening() -> bool {
 /// behind, and a press reading that number alone would stop a recording that
 /// was never started and write down a file from an hour ago.
 fn holder() -> Option<(i32, u32)> {
-    let note = std::fs::read_to_string(taking()).ok()?;
+    let at = taking();
+
+    let note = match std::fs::read_to_string(&at) {
+        Ok(note) => note,
+        // No note is nobody holding the microphone, which is the ordinary
+        // answer and the one this is asked for.
+        Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => return None,
+
+        Err(fault) => {
+            eprintln!("{}: reading who is holding the microphone: {fault}", at.display());
+            return None;
+        }
+    };
+
     let (pid, press) = told_by(&note)?;
     Path::new(&format!("/proc/{pid}")).exists().then_some((pid, press))
 }
@@ -70,15 +96,18 @@ fn holder() -> Option<(i32, u32)> {
 fn listen() {
     let press = std::process::id();
     let into = said(press);
+
     if let Some(parent) = into.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
+
     let argv = recording(&into);
     let started = Command::new(&argv[0])
         .args(&argv[1..])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .spawn();
+
     match started {
         Err(why) => fell("microphone", "Nothing is listening", &why.to_string()),
         Ok(child) => {
@@ -97,8 +126,10 @@ fn listen() {
 /// press that starts the next one writes into a name of its own.
 fn wrote_down() {
     let Some((pid, press)) = holder() else { return };
+
     // SAFETY: a signal to a pid this desktop started and has not reaped.
     unsafe { libc::kill(pid, libc::SIGINT) };
+
     gone(pid);
     let _ = std::fs::remove_file(taking());
 
@@ -118,7 +149,9 @@ fn read_out(recorded: &Path) {
         fell("model", "The words could not be fetched", &why);
         return;
     }
+
     told("Writing it down", UNTIL_IT_CHANGES);
+
     match heard(recorded) {
         Err(why) => {
             // Both, and in this order. console-say raises its own notification
@@ -144,10 +177,12 @@ fn read_out(recorded: &Path) {
 /// silence for a sentence that is sitting on the disk.
 fn gone(pid: i32) {
     let at = format!("/proc/{pid}");
+
     for _ in 0..100 {
         if !Path::new(&at).exists() {
             return;
         }
+
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
 }
@@ -162,24 +197,29 @@ fn gone(pid: i32) {
 /// politeness into somebody's message.
 fn heard(recorded: &Path) -> Result<String, String> {
     let wav = std::fs::read(recorded).map_err(|why| why.to_string())?;
-    if !anything_said(&wav) {
+
+    if anything_said(&wav) == Heard::Nothing {
         return Ok(String::new());
     }
+
     let argv = hearing(&engine(), &model(), recorded, &languages::chosen());
     let answered = Command::new(&argv[0])
         .args(&argv[1..])
         .stderr(Stdio::null())
         .output()
         .map_err(|why| why.to_string())?;
+
     if !answered.status.success() {
         return Err(format!("whisper-cli said no: {}", answered.status));
     }
+
     Ok(tidy(&String::from_utf8_lossy(&answered.stdout)))
 }
 
 /// Type what was said into whatever holds the focus.
 fn write(words: &str) {
     let argv = typing(words);
+
     match Command::new(&argv[0]).args(&argv[1..]).status() {
         Err(why) => fell("typing", "What was said could not be typed", &why.to_string()),
         Ok(status) if !status.success() => {
@@ -202,9 +242,11 @@ fn write(words: &str) {
 /// more than the speed of the one after it.
 fn engine() -> PathBuf {
     let ours = whisper();
+
     if ours.exists() {
         return ours;
     }
+
     let _ = Command::new("dictate")
         .arg("--build")
         .stdin(Stdio::null())
@@ -220,19 +262,36 @@ fn engine() -> PathBuf {
 /// carried out of it, and the tree taken down again.
 fn built() -> Result<(), String> {
     let ours = whisper();
+
     if ours.exists() {
         return Ok(());
     }
+
     let Some(parent) = ours.parent() else { return Err("nowhere to keep it".to_string()) };
+
     std::fs::create_dir_all(parent).map_err(|why| why.to_string())?;
 
     // One builder. A press that arrives while the last one is still compiling
     // should use the packaged hearing and say nothing, not start a second
     // four-minute build over the top of the first.
     let alone = parent.join("building.lock");
-    if std::fs::OpenOptions::new().write(true).create_new(true).open(&alone).is_err() {
-        return Ok(());
+
+    match std::fs::OpenOptions::new().write(true).create_new(true).open(&alone) {
+        Ok(_) => {}
+        // The lock is already held: somebody is four minutes into the build
+        // this press would have started. Saying nothing is the point of it.
+        Err(fault) if fault.kind() == std::io::ErrorKind::AlreadyExists => return Ok(()),
+
+        // Any other reason the lock will not be taken -- nowhere to write it,
+        // no room left -- is not a build in progress, and it used to be read
+        // as one. It still declines to build, because a build nothing can lock
+        // is a build that races the next press, but it says why first.
+        Err(fault) => {
+            eprintln!("{}: {fault}", alone.display());
+            return Ok(());
+        }
     }
+
     let answer = build(&ours);
     let _ = std::fs::remove_file(&alone);
     answer
@@ -242,9 +301,11 @@ fn built() -> Result<(), String> {
 fn build(ours: &Path) -> Result<(), String> {
     let at = making();
     let _ = std::fs::remove_dir_all(&at);
+
     if let Some(parent) = at.parent() {
         std::fs::create_dir_all(parent).map_err(|why| why.to_string())?;
     }
+
     told("Building the hearing, once", UNTIL_IT_CHANGES);
 
     for argv in [cloning(&at), configuring(&at), compiling(&at)] {
@@ -254,6 +315,7 @@ fn build(ours: &Path) -> Result<(), String> {
             .stdout(Stdio::null())
             .status()
             .map_err(|why| format!("{} could not be run: {why}", argv[0]))?;
+
         if !answered.success() {
             let _ = std::fs::remove_dir_all(&at);
             return Err(format!("{} said no: {answered}", argv[0]));
@@ -278,10 +340,13 @@ fn build(ours: &Path) -> Result<(), String> {
 /// same thing asked for in advance.
 fn fetched() -> Result<(), String> {
     let model = model();
+
     if model.exists() {
         return Ok(());
     }
+
     let Some(parent) = model.parent() else { return Err("nowhere to keep it".to_string()) };
+
     std::fs::create_dir_all(parent).map_err(|why| why.to_string())?;
     told("Fetching the words, once", UNTIL_IT_CHANGES);
 
@@ -291,10 +356,12 @@ fn fetched() -> Result<(), String> {
     let argv = fetching(&coming);
     let answered =
         Command::new(&argv[0]).args(&argv[1..]).status().map_err(|why| why.to_string())?;
+
     if !answered.success() {
         let _ = std::fs::remove_file(&coming);
         return Err(format!("curl said no: {answered}"));
     }
+
     std::fs::rename(&coming, &model).map_err(|why| why.to_string())
 }
 

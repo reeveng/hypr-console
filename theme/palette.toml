@@ -1,7 +1,7 @@
 # The colours this desktop is made of, and nothing else.
 #
 # Every colour on the machine comes from here, and almost nothing on the
-# machine holds one: `make theme` writes the palette out once per language and
+# machine holds one: `just theme` writes the palette out once per language and
 # the bar, the menu, the panel, the keyboard, the terminal, GTK, Qt and the
 # browser import whichever of those speaks theirs. Change a number here and all
 # of them move, because none of them kept a copy.
@@ -13,10 +13,26 @@
 # that number and never let it fall below what `least` demands. So the palette
 # is pastel because it was asked to be, and readable because it was measured.
 #
-# The ratios are WCAG. 7:1 is AAA for text of any size, 4.5:1 is AA, and 3:1
-# is the floor for a line or an edge that carries meaning without being read.
-# Nothing here is allowed under 4.5, almost everything clears 7, and the
-# report `make theme` prints says which is which.
+# Every floor is written twice, because there are two measures and they
+# disagree.
+#
+# `ratio` is WCAG 2. 7:1 is AAA for text of any size, 4.5:1 is AA, and 3:1 is
+# the floor for a line or an edge that carries meaning without being read. It
+# is the one the law asks for and the one any checker will report, so it does
+# not get to be dropped.
+#
+# `lc` is APCA. It runs to about a hundred rather than being a ratio, and it
+# knows which of the two colours is the paper -- which WCAG cannot, because a
+# ratio is symmetric. Body text wants 75 and prefers 90; larger or bolder text
+# is allowed 60; something deliberately quiet 45; a border 30.
+#
+# The reason both are here rather than one: WCAG's ratio adds a flat term to
+# both sides to stand for the light in the room, and on dark colours that term
+# swamps the difference and the ratio comes out generous. This is a dark
+# desktop. Measured only against WCAG, every ink and every pastel here cleared
+# AAA with room to spare and sat under APCA's floor for body text at the same
+# time. So the engine asks for both and lifts a colour until it clears the
+# harder of the two, which on this palette is nearly always `lc`.
 
 [meta]
 name = "Blossom"
@@ -28,8 +44,9 @@ neutral_hue = 318
 
 
 # ---------------------------------------------------------------- the grounds
-# Three depths, and they only ever go under something. Text is never asked to
-# be readable against a colour that is not listed as a ground somewhere below.
+# Three depths and one fill, and they only ever go under something. Text is
+# never asked to be readable against a colour that is not listed as a ground
+# somewhere below.
 
 [colour.night]
 hue = 318
@@ -49,115 +66,138 @@ chroma = 0.030
 lightness = 0.310
 spent = "a window, a menu, a card, a key: whatever is in front of the wallpaper"
 
+# The fourth, which is not a depth. mako fills a notification to a proportion
+# in this and writes the sentence straight across it, so it goes under
+# something that has to be read and is therefore a ground like the three above.
+#
+# Pink, because the bar is the volume, the brightness and what is left in the
+# battery. Dark, because `text` is what is written across it: the one colour
+# here asked to be pink without being pale. It asks to sit halfway and is
+# pushed down until the ink clears, so it is the most visible bar that is still
+# AAA rather than the safest one.
+[colour.fill]
+hue = 342
+chroma = 0.090
+lightness = 0.500
+least = { carries = ["text"], carries_ratio = 7.0, carries_lc = 75.0 }
+spent = "the length a notification is filled to: the volume, the brightness, the battery"
+
 [colour.edge]
 hue = 318
 chroma = 0.030
-least = { on = ["ground", "panel"], ratio = 3.0 }
+least = { on = ["ground", "panel"], ratio = 3.0, lc = 30.0 }
 lightness = 0.480
 spent = "a line between two things. It is not read, so it clears the 3:1 an edge needs and no more"
 
 [colour.ash]
 hue = 330
 chroma = 0.062
-least = { on = ["night"], ratio = 4.5 }
+least = { on = ["night"], ratio = 4.5, lc = 45.0 }
 lightness = 0.560
 spent = "what a terminal means by black. A program that prints in it is asking for something quiet, and this is as quiet as a thing may be and still be read"
 
 
 # ------------------------------------------------------------------- the inks
-# What is written. Both clear AAA against every ground, so the difference
-# between them is tone and never whether you can read it.
+# What is written. Both clear AAA and the Lc for body text against every
+# ground, so the difference between them is tone and never whether you can read
+# it. `text` is held to the Lc that is preferred rather than merely wanted,
+# because it is the one colour on the machine that everything is read in.
 
 [colour.text]
 hue = 335
 chroma = 0.022
-least = { on = ["panel", "ground", "night"], ratio = 10.0 }
+least = { on = ["panel", "ground", "night"], ratio = 10.0, lc = 90.0 }
 lightness = 0.860
 spent = "everything that is read"
 
 [colour.soft]
 hue = 332
 chroma = 0.038
-least = { on = ["panel", "ground", "night"], ratio = 7.0 }
+least = { on = ["panel", "ground", "night"], ratio = 7.0, lc = 75.0 }
 lightness = 0.760
 spent = "what is beside the thing being read: a shortcut, a unit, a workspace you are not on"
 
 
 # --------------------------------------------------------------- the pastels
 # One lightness for all of them, so that no colour shouts over its neighbours,
-# and each one clears AAA against all three grounds and carries `night` on top
-# of it at AAA when it is used as a fill. `carries` is that second promise: a
-# highlighted row is dark ink on a pastel, and the pastel has to be light
-# enough for the ink.
+# and each one clears both measures against all three grounds and carries
+# `night` on top of it in both when it is used as a fill. `carries` is that
+# second promise: a highlighted row is dark ink on a pastel, and the pastel has
+# to be light enough for the ink.
+#
+# They asked to sit at one lightness and they no longer quite do. `lc` lifted
+# each of them by as much as its own hue needed and no more, and a hue APCA
+# already liked barely moved -- so the row is a little uneven now, in the
+# direction of the eye rather than of the arithmetic.
 
 [colour.pink]
 hue = 342
 chroma = 0.105
 lightness = 0.855
-least = { on = ["panel", "ground", "night"], ratio = 7.0, carries = ["night"], carries_ratio = 7.0 }
+least = { on = ["panel", "ground", "night"], ratio = 7.0, lc = 75.0, carries = ["night"], carries_ratio = 7.0, carries_lc = 75.0 }
 spent = "this one: the workspace you are on, the highlighted row, the key under your thumb, the window you are typing into"
 
 [colour.rose]
 hue = 8
 chroma = 0.095
 lightness = 0.855
-least = { on = ["panel", "ground", "night"], ratio = 7.0, carries = ["night"], carries_ratio = 7.0 }
+least = { on = ["panel", "ground", "night"], ratio = 7.0, lc = 75.0, carries = ["night"], carries_ratio = 7.0, carries_lc = 75.0 }
 spent = "the cursor in the terminal, and a selection"
 
 [colour.mauve]
 hue = 303
 chroma = 0.095
 lightness = 0.855
-least = { on = ["panel", "ground", "night"], ratio = 7.0, carries = ["night"], carries_ratio = 7.0 }
+least = { on = ["panel", "ground", "night"], ratio = 7.0, lc = 75.0, carries = ["night"], carries_ratio = 7.0, carries_lc = 75.0 }
 spent = "sound, and a key held down"
 
 [colour.lilac]
 hue = 278
 chroma = 0.090
 lightness = 0.855
-least = { on = ["panel", "ground", "night"], ratio = 7.0, carries = ["night"], carries_ratio = 7.0 }
+least = { on = ["panel", "ground", "night"], ratio = 7.0, lc = 75.0, carries = ["night"], carries_ratio = 7.0, carries_lc = 75.0 }
 spent = "bluetooth"
 
 [colour.sky]
 hue = 238
 chroma = 0.085
 lightness = 0.855
-least = { on = ["panel", "ground", "night"], ratio = 7.0, carries = ["night"], carries_ratio = 7.0 }
+least = { on = ["panel", "ground", "night"], ratio = 7.0, lc = 75.0, carries = ["night"], carries_ratio = 7.0, carries_lc = 75.0 }
 spent = "a link, and blue where a program asks for blue"
 
 [colour.mint]
 hue = 178
 chroma = 0.080
 lightness = 0.855
-least = { on = ["panel", "ground", "night"], ratio = 7.0, carries = ["night"], carries_ratio = 7.0 }
+least = { on = ["panel", "ground", "night"], ratio = 7.0, lc = 75.0, carries = ["night"], carries_ratio = 7.0, carries_lc = 75.0 }
 spent = "the network, and the setting that is in effect"
 
 [colour.leaf]
 hue = 146
 chroma = 0.090
 lightness = 0.855
-least = { on = ["panel", "ground", "night"], ratio = 7.0, carries = ["night"], carries_ratio = 7.0 }
+least = { on = ["panel", "ground", "night"], ratio = 7.0, lc = 75.0, carries = ["night"], carries_ratio = 7.0, carries_lc = 75.0 }
 spent = "charging, and anything that went well"
 
 [colour.butter]
 hue = 96
 chroma = 0.095
 lightness = 0.855
-least = { on = ["panel", "ground", "night"], ratio = 7.0, carries = ["night"], carries_ratio = 7.0 }
+least = { on = ["panel", "ground", "night"], ratio = 7.0, lc = 75.0, carries = ["night"], carries_ratio = 7.0, carries_lc = 75.0 }
 spent = "the battery getting low, and a warning"
 
 [colour.peach]
 hue = 58
 chroma = 0.090
 lightness = 0.855
-least = { on = ["panel", "ground", "night"], ratio = 7.0, carries = ["night"], carries_ratio = 7.0 }
+least = { on = ["panel", "ground", "night"], ratio = 7.0, lc = 75.0, carries = ["night"], carries_ratio = 7.0, carries_lc = 75.0 }
 spent = "a number, and orange where a program asks for orange"
 
 [colour.coral]
 hue = 20
 chroma = 0.095
 lightness = 0.855
-least = { on = ["panel", "ground", "night"], ratio = 7.0, carries = ["night"], carries_ratio = 7.0 }
+least = { on = ["panel", "ground", "night"], ratio = 7.0, lc = 75.0, carries = ["night"], carries_ratio = 7.0, carries_lc = 75.0 }
 spent = "the battery about to go, something disconnected, and anything that failed"
 
 
@@ -249,26 +289,52 @@ fallen = { colour = "rose", alpha = 0.26 }
 
 
 # ---------------------------------------------------- what has to hold true
-# Every pair the eye actually meets, and the ratio it has to clear. The engine
-# refuses to write a single file while one of these is short, so a palette
-# that reads badly cannot reach the device.
+# Every pair the eye actually meets, and what it has to clear in both measures.
+# The engine refuses to write a single file while one of these is short in
+# either of them, so a palette that reads badly cannot reach the device.
+#
+# A pairing that is read must say both. Only `kind = "seen"` may leave `lc` out,
+# because it is not a contrast claim: a bar against the wallpaper has to be a
+# different thing and not a readable one.
 
 [[pair]]
 front = "text"
 back = ["night", "ground", "panel"]
 ratio = 7.0
+lc = 90.0
 where = "everything that is read, on every ground it is read against"
 
 [[pair]]
 front = "soft"
 back = ["night", "ground", "panel"]
 ratio = 7.0
+lc = 75.0
 where = "every secondary label on the device"
+
+# The pair this palette went without. mako draws `progress-color` behind the
+# whole card and the sentence on top of it, so the fill is a ground and the
+# sentence is read on it. It was pink, the ink stayed `text`, and the two met
+# at 1.23:1 -- legible until the bar reached the words, then gone. Declared
+# here so the report measures it every time rather than trusting a comment.
+[[pair]]
+front = "text"
+back = ["fill"]
+ratio = 7.0
+lc = 75.0
+where = "the sentence on a notification filled to a length: the volume, the brightness, the battery"
+
+[[pair]]
+front = "fill"
+back = ["panel"]
+ratio = 1.05
+kind = "seen"
+where = "the filled part of a notification against the rest of the card, which only has to be seen as a different length"
 
 [[pair]]
 front = "night"
 back = ["pink", "rose", "mauve", "lilac", "sky", "mint", "leaf", "butter", "peach", "coral"]
 ratio = 7.0
+lc = 75.0
 where = "the ink on a highlighted row, a pressed key, an active workspace"
 
 # And the other way round. Every pastel is used as writing somewhere: the
@@ -279,18 +345,21 @@ where = "the ink on a highlighted row, a pressed key, an active workspace"
 front = ["pink", "rose", "mauve", "lilac", "sky", "mint", "leaf", "butter", "peach", "coral"]
 back = ["night", "ground", "panel"]
 ratio = 7.0
+lc = 75.0
 where = "a pastel used as writing rather than as a fill"
 
 [[pair]]
 front = "soft"
 back = ["ground"]
 ratio = 7.0
+lc = 75.0
 where = "the swipe trail across the keyboard, and the face of a key that is not a letter. Those keys are the slab's own colour, so what is written on them is read against it"
 
 [[pair]]
 front = "edge"
 back = ["ground", "panel"]
 ratio = 3.0
+lc = 30.0
 kind = "edge"
 where = "a border, which is looked at rather than read"
 
@@ -298,8 +367,9 @@ where = "a border, which is looked at rather than read"
 front = "ash"
 back = ["night"]
 ratio = 4.5
+lc = 45.0
 kind = "quiet"
-where = "a terminal printing in black. The one thing on the machine that is AA rather than AAA, because black at 7:1 would be lighter than half the palette and would stop meaning black"
+where = "a terminal printing in black. The one thing on the machine held below the floors everything else clears, because a black light enough to clear them would be lighter than half the palette and would stop meaning black. It is the Lc that places it now: the ratio it lands on is well past the AA it asks for"
 
 [[pair]]
 front = "ground"

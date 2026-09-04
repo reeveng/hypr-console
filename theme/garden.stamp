@@ -3,7 +3,7 @@
 # theme/palette.toml and of the drawing that read it, so that a colour changed
 # without the picture being drawn again is caught; `resting` is the picture
 # measured afterwards, the same as theme/report.md measures the palette.
-palette = "5b20fcda25d1368c2aad6bd10e3ed5bf6bbc82633d3faefb7323719b610ef9f9"
+palette = "42ccdfae025a8973de78cf9a2085d2f481eb06c423b7762972cf376a47677e38"
 resting = "#110b12"
 width = 2560
 height = 1600
@@ -17,15 +17,15 @@ height = 1600
 
 [[probe]]
 at = [0.06, 0.46]
-colour = "#65647f"
+colour = "#68667f"
 
 [[probe]]
 at = [0.95, 0.49]
-colour = "#5d5970"
+colour = "#5e5b71"
 
 [[probe]]
 at = [0.88, 0.62]
-colour = "#302937"
+colour = "#312a37"
 
 [[probe]]
 at = [0.52, 0.86]
@@ -33,4 +33,4 @@ colour = "#231d28"
 
 [[probe]]
 at = [0.24, 0.63]
-colour = "#302633"
+colour = "#322836"

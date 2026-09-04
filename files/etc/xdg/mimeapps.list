@@ -28,6 +28,23 @@
 # it last. The rule is that a kind of thing is a family of types and every one
 # of them has to be named, because the one that is left out is the one that
 # opens somewhere surprising.
+
+# Pictures and film are here for the third time the same thing happened, and
+# this is the entry that could not be written until now. Both were pointed at
+# programs that are not ours -- Gwenview and mpv -- and neither is in
+# desktop.conf's [packages], so the one file that is supposed to be the whole
+# truth about this machine had never mentioned either of them. A device
+# rebuilt from the manifest alone opened a photograph with nothing at all, and
+# the reason nobody met that is that a browser claimed the types instead.
+#
+# The answer is not to list somebody else's program in the manifest. It is that
+# this desktop now has a viewer of its own, drawn by the same crate as every
+# other panel and walked by the same four buttons, so a photograph opens the
+# way a song does.
+#
+# The whole family in one go, which is the rule this file exists for. Every
+# type the desktop file claims is set here and none of them is left behind,
+# because the one that is left out is the one that opens somewhere surprising.
 [Default Applications]
 text/html=librewolf.desktop
 x-scheme-handler/http=librewolf.desktop
@@ -41,3 +58,16 @@ audio/x-flac+ogg=console-music.desktop
 audio/mp4=console-music.desktop
 audio/aac=console-music.desktop
 audio/vnd.wave=console-music.desktop
+image/png=console-viewer.desktop
+image/jpeg=console-viewer.desktop
+image/webp=console-viewer.desktop
+image/gif=console-viewer.desktop
+image/avif=console-viewer.desktop
+image/heif=console-viewer.desktop
+image/tiff=console-viewer.desktop
+video/mp4=console-viewer.desktop
+video/matroska=console-viewer.desktop
+video/webm=console-viewer.desktop
+video/quicktime=console-viewer.desktop
+video/vnd.avi=console-viewer.desktop
+video/ogg=console-viewer.desktop

@@ -15,11 +15,13 @@ use std::path::Path;
 use console_controller::means::Table;
 use console_pad::asking::Asking;
 use console_pad::front::{DEVICES, Front, asking, loading, one_said, wearing};
-use console_pad::jobs::{Jobs, path_in};
+use console_pad::devices::Has;
+use console_pad::jobs::{Jobs, Played, path_in};
 use console_pad::router::{FILE, PROFILES, Router};
 use console_pad::vocabulary::button_name;
 
 use crate::machine;
+use crate::settled::Settled;
 
 /// Where the desktop and the device disagree about what can be pressed.
 pub struct Standing {
@@ -46,8 +48,11 @@ pub struct Standing {
 
 impl Standing {
     /// Nothing to say: every button the desktop binds is on this machine.
-    pub fn settled(&self) -> bool {
-        self.missing.is_empty()
+    pub fn settled(&self) -> Settled {
+        match self.missing.is_empty() {
+            true => Settled::Yes,
+            false => Settled::No,
+        }
     }
 
     /// The one line a notice leads with.
@@ -76,27 +81,40 @@ impl Standing {
 /// is the honest version of it: of everything this desktop does, what is on a
 /// button nothing on this machine can press?
 pub fn standing(_root: &Path, home: &str) -> Standing {
-    let front = Front::of(
-        &machine::run(&asking()).out,
-        &std::fs::read_to_string(DEVICES).unwrap_or_default(),
-    );
+    // Nothing at all where the kernel's list will not open. `Front::of` reads
+    // an empty answer as a machine that was not asked rather than as a machine
+    // with no touchscreen, which is the honest reading of both.
+    let devices = match std::fs::read_to_string(DEVICES) {
+        Ok(said) => said,
+
+        Err(fault) => {
+            eprintln!("console: {DEVICES}: what this machine can be pressed with: {fault}");
+            String::new()
+        }
+    };
+
+    let front = Front::of(&machine::run(&asking()).out, &devices);
     let told = path_in(home).exists();
     let said = read(home);
     let table = Table::of(&said);
     let mut missing: Vec<String> = Vec::new();
+
     for (job, bound) in table.every() {
         // A job on two buttons is reachable if either of them is here, and a
         // job somebody has taken the button off is not missing: it is where
         // they put it. Only a job whose every binding names a button this
         // machine has not got is something to say out loud.
         let played: Vec<&console_pad::jobs::Binding> =
-            bound.iter().filter(|one| one.played()).collect();
-        if played.is_empty() || played.iter().any(|one| here(&front, &one.button)) {
+            bound.iter().filter(|one| one.played() == Played::ByAButton).collect();
+
+        if played.is_empty() || played.iter().any(|one| here(&front, &one.button) == Has::Yes) {
             continue;
         }
+
         let where_ = played.iter().map(|one| one.to_string()).collect::<Vec<_>>().join(" or ");
         missing.push(format!("{}, on {where_}", job.what.says()));
     }
+
     Standing {
         missing,
         asked: front.capabilities.is_some(),
@@ -107,8 +125,11 @@ pub fn standing(_root: &Path, home: &str) -> Standing {
 }
 
 /// Whether this machine has the button a binding names.
-fn here(front: &Front, button: &str) -> bool {
-    button_name(button).is_ok_and(|named| front.can_send(named))
+fn here(front: &Front, button: &str) -> Has {
+    match button_name(button).is_ok_and(|named| front.can_send(named) == Has::Yes) {
+        true => Has::Yes,
+        false => Has::No,
+    }
 }
 
 /// Write the profile this desktop is driven by, out of this device's buttons.
@@ -127,13 +148,16 @@ pub fn wrote_router() -> Option<String> {
     let front = Front::of(&machine::run(&asking()).out, "");
     let capabilities = front.capabilities?;
     let router = Router::of(&capabilities);
+
     if !router.without.is_empty() {
         println!(
             "this device sends buttons this desktop has no word for, so nothing can be put on them: {}",
             router.without.join(", ")
         );
     }
+
     let live = format!("{PROFILES}{FILE}");
+
     match std::fs::write(&live, router.yaml()) {
         Ok(()) => Some(live),
         Err(fault) => {
@@ -158,6 +182,7 @@ pub fn wrote_asking() -> Option<String> {
     let front = Front::of(&machine::run(&asking()).out, "");
     let capabilities = front.capabilities?;
     let live = format!("{PROFILES}asking.yaml");
+
     match std::fs::write(&live, Asking::of(&capabilities).yaml()) {
         Ok(()) => Some(live),
         Err(fault) => {
@@ -209,7 +234,9 @@ pub fn wear_again() {
 /// it was built around.
 pub fn read(home: &str) -> Jobs {
     let at = path_in(home);
+
     let Ok(said) = std::fs::read_to_string(&at) else { return Jobs::none() };
+
     match Jobs::read(&said) {
         Ok(jobs) => jobs,
         Err(fault) => {

@@ -1,5 +1,5 @@
 [Unit]
-Description=The screen, when nothing is happening
+Description=Dim and lock the screen when nothing is happening
 PartOf=console.target
 # hypridle's own unit is not used, for the reason none of the others are: what
 # runs on this machine is decided in one place, and its unit is wanted by a
@@ -9,13 +9,31 @@ PartOf=console.target
 
 [Service]
 Type=simple
+# Start against a screen that is on, whoever turned it off.
+#
+# The dim is remembered and the blank is not: hypridle sends `dpms disable` on
+# its own timeout and `dpms enable` when it next sees something happen, and a
+# hypridle that has just started has seen no timeout of its own to resume from.
+# So a unit restarted while the panel was out came up next to a dark screen it
+# did not know was dark, and waited for activity it would answer by undimming a
+# screen that was already off. Nothing else on the machine puts the panel back,
+# and the way out was an ssh session and the Lua form of the dispatch below.
+#
+# That is not a thing a person holding it can do, so it is done here instead:
+# every start of this unit begins with the screen on. An apply restarts it, and
+# an apply is exactly when the machine has been sitting untouched long enough
+# for the blank to have happened.
+ExecStartPre=-/usr/bin/hyprctl dispatch 'hl.dsp.dpms({ action = "enable" })'
 ExecStart=/usr/bin/hypridle
-# Put the screen back on the way out. A desktop that stopped while dimmed --
-# because the machine left for Game Mode, or because this unit was restarted --
-# would otherwise hand over a screen at its floor with nothing left running
-# that remembers why, and the note saying where it was would be read by the
-# next dim as a machine that is already dim.
+# And put it back on the way out, for the same reason the brightness is put
+# back. A desktop that stopped while dimmed -- because the machine left for Game
+# Mode, or because this unit was restarted -- would otherwise hand over a screen
+# at its floor with nothing left running that remembers why, and the note saying
+# where it was would be read by the next dim as a machine that is already dim.
+# The blank is the same argument one step further on: a screen handed over dark
+# is one nothing is left to wake.
 ExecStopPost=-/usr/local/bin/console-brightness undim
+ExecStopPost=-/usr/bin/hyprctl dispatch 'hl.dsp.dpms({ action = "enable" })'
 ExecStopPost=-/usr/local/bin/console-fell %n
 Restart=always
 RestartSec=5

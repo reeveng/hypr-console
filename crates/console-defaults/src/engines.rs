@@ -76,6 +76,7 @@ pub const UNLESS_TOLD: &str = "duckduckgo";
 /// The key of the engine in use.
 pub fn chosen() -> String {
     let said = crate::setting("search").unwrap_or_default();
+
     match one(&said).is_some() {
         true => said,
         false => UNLESS_TOLD.to_string(),
@@ -95,21 +96,38 @@ pub fn choose(key: &str) {
 /// The web address a typed line means, or nothing if it means nothing.
 pub fn address(said: &str, engine: &Engine) -> Option<String> {
     let said = said.trim();
+
     if said.is_empty() {
         return None;
     }
+
     Some(match a_site(said) {
-        true => with_a_scheme(said),
-        false => engine.asking(&encoded(said)),
+        Typed::ASite => with_a_scheme(said),
+        Typed::AQuestion => engine.asking(&encoded(said)),
     })
 }
 
+/// Whether a typed line is somewhere to go, or something to ask about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Typed {
+    /// It names a place, so it is opened rather than searched for.
+    ASite,
+    /// It is words, and words go to the engine.
+    AQuestion,
+}
+
 /// Whether a line is somewhere rather than something to ask about.
-fn a_site(said: &str) -> bool {
+fn a_site(said: &str) -> Typed {
     if said.split_whitespace().count() != 1 {
-        return false;
+        return Typed::AQuestion;
     }
-    said.contains("://") || a_host(said.split(['/', '?', '#']).next().unwrap_or_default())
+
+    match said.contains("://")
+        || a_host(said.split(['/', '?', '#']).next().unwrap_or_default()) == Typed::ASite
+    {
+        true => Typed::ASite,
+        false => Typed::AQuestion,
+    }
 }
 
 /// Whether the front of a line is a machine's name.
@@ -117,13 +135,20 @@ fn a_site(said: &str) -> bool {
 /// Every label has something in it, and the last is letters. Without that last
 /// part a version number is a website: 3.14 has a dot in it and two labels
 /// either side of it, and nobody typing it wants a page.
-fn a_host(said: &str) -> bool {
+fn a_host(said: &str) -> Typed {
     let labels: Vec<&str> = said.split('.').collect();
-    let Some(last) = labels.last() else { return false };
-    labels.len() > 1
+
+    let Some(last) = labels.last() else { return Typed::AQuestion };
+
+    let named = labels.len() > 1
         && labels.iter().all(|label| !label.is_empty())
         && last.len() > 1
-        && last.chars().all(char::is_alphabetic)
+        && last.chars().all(char::is_alphabetic);
+
+    match named {
+        true => Typed::ASite,
+        false => Typed::AQuestion,
+    }
 }
 
 /// A bare host, given the scheme a browser would have to guess at anyway.

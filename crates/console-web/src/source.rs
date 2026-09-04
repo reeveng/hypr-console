@@ -12,12 +12,14 @@ use sha2::{Digest, Sha256};
 /// The palette is not among them. It is the browser's own, read off the
 /// machine as this is packed, so that the labels a page is dressed in are the
 /// same pink as the highlight on every panel of this desktop.
-pub const FILES: [(&str, &str); 5] = [
+pub const FILES: [(&str, &str); 7] = [
     ("manifest.json", include_str!("../web/manifest.json")),
     ("browser.js", include_str!("../web/browser.js")),
     ("pad.js", include_str!("../web/pad.js")),
     ("pad.css", include_str!("../web/pad.css")),
     ("new.html", include_str!("../web/new.html")),
+    ("around.js", include_str!("../web/around.js")),
+    ("around.json", include_str!("../web/around.json")),
 ];
 
 /// Where the version goes in the manifest.
@@ -61,10 +63,12 @@ pub fn every(version: &str, palette: &str) -> Vec<(String, Vec<u8>)> {
 /// difference and the browser reinstalled an add-on nobody had touched.
 pub fn hash(palette: &str) -> String {
     let mut asked = Sha256::new();
+
     for (name, body) in FILES {
         asked.update(name.as_bytes());
         asked.update(body.as_bytes());
     }
+
     asked.update(palette.as_bytes());
     format!("{:x}", asked.finalize())
 }

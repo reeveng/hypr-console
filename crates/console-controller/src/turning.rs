@@ -66,12 +66,21 @@ const DRY: usize = 64;
 pub const HUNT_SECONDS: f64 = 1.0;
 
 /// Whatever the devices are plugged into.
+/// Whether taking hold of a device worked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Took {
+    /// It is open and can be read from.
+    Held,
+    /// It could not be opened, and whoever tried has said why.
+    Refused,
+}
+
 pub trait Plugged {
     /// Everything plugged in just now, as each describes itself.
     fn every(&self) -> Vec<Says>;
 
     /// Take hold of one, and say whether that worked.
-    fn open(&mut self, path: &str) -> bool;
+    fn open(&mut self, path: &str) -> Took;
 
     /// The ranges one reports over.
     fn ranges(&self, path: &str) -> Ranges;
@@ -121,20 +130,25 @@ impl Turning {
         // it.
         let away = self.last.is_some() && since > AWAY_SECONDS;
         self.last = Some(now);
+
         if away {
             self.settling = Some(now + SETTLING_SECONDS);
         }
+
         // The turn it comes back on, and the moment after it while the rest of
         // the backlog is still arriving.
         let deaf = away || self.settling.is_some_and(|until| now < until);
+
         if !deaf {
             self.settling = None;
         }
 
         self.find(machine, now);
         let mut doing: Vec<Doing> = Vec::new();
+
         for which in READ {
             let Some(path) = self.open.get(&which).cloned() else { continue };
+
             // Read once when it is listening. Emptied, when it is not: one read
             // returns what fits in its buffer, and what is left behind is just
             // as stale as what came out.
@@ -145,13 +159,16 @@ impl Turning {
                 match machine.drain(&path) {
                     Ok(arrived) => {
                         let dry = arrived.is_empty();
+
                         for event in arrived {
                             let kind = event.event_type();
                             let did = self.held.saw(which, kind, event.code(), event.value(), now);
+
                             if !deaf {
                                 doing.extend(did);
                             }
                         }
+
                         if dry {
                             break;
                         }
@@ -166,9 +183,11 @@ impl Turning {
                 }
             }
         }
+
         if deaf {
             return Vec::new();
         }
+
         doing.extend(self.held.finger.carried());
         doing.extend(self.held.tick(since));
         doing
@@ -200,6 +219,7 @@ impl Turning {
 
     fn went(&mut self, which: From) -> Vec<Doing> {
         self.open.remove(&which);
+
         match which == From::Pad {
             true => self.held.pad_went(),
             false => Vec::new(),
@@ -209,17 +229,23 @@ impl Turning {
     fn find(&mut self, machine: &mut impl Plugged, now: f64) {
         for which in self.missing() {
             let looked = self.hunted.get(&which).copied().unwrap_or(f64::NEG_INFINITY);
+
             if now - looked < HUNT_SECONDS {
                 continue;
             }
+
             self.hunted.insert(which, now);
+
             let Some(path) = self.at(machine, which) else { continue };
-            if !machine.open(&path) {
+
+            if machine.open(&path) == Took::Refused {
                 continue;
             }
+
             if which == From::Pad {
                 self.held.reading(machine.ranges(&path));
             }
+
             self.open.insert(which, path);
         }
     }
@@ -228,6 +254,7 @@ impl Turning {
         if let Some(path) = self.told.get(&which) {
             return Some(path.clone());
         }
+
         let said = machine.every();
         let found = match which {
             From::Pad => finding::gamepad(&said),

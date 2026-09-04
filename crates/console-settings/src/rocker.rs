@@ -13,6 +13,8 @@
 //! anything -- so the figure is said at the moment it changes, where somebody
 //! is already looking.
 
+use crate::level::Muted;
+
 /// The sink every one of these is about.
 pub const SINK: &str = "@DEFAULT_SINK@";
 
@@ -44,6 +46,7 @@ impl Press {
 /// asked of it without a sound server: up unsilences and down does not.
 pub fn asks(press: Press) -> Vec<Vec<String>> {
     let words = |argv: &[&str]| argv.iter().map(|word| (*word).to_string()).collect();
+
     match press {
         Press::Up => vec![
             words(&["set-sink-mute", SINK, "0"]),
@@ -59,10 +62,10 @@ pub fn asks(press: Press) -> Vec<Vec<String>> {
 /// Silence is a word rather than a number, the same way it is on the settings
 /// panel: a volume turned down to nothing and a volume silenced at half are
 /// different states, and one of them comes back where it was.
-pub fn said(level: Option<&str>, muted: bool) -> String {
+pub fn said(level: Option<&str>, muted: Muted) -> String {
     match muted {
-        true => "Silent".to_string(),
-        false => format!("Volume {}", level.unwrap_or("?")),
+        Muted::Yes => "Silent".to_string(),
+        Muted::No => format!("Volume {}", level.unwrap_or("?")),
     }
 }
 
@@ -75,13 +78,18 @@ pub fn level(said: &str) -> Option<&str> {
 }
 
 /// Whether `pactl get-sink-mute` said it is silenced.
-pub fn muted(said: &str) -> bool {
-    said.trim().ends_with("yes")
+pub fn muted(said: &str) -> Muted {
+    match said.trim().ends_with("yes") {
+        true => Muted::Yes,
+        false => Muted::No,
+    }
 }
 
 /// The number a daemon that can draw a bar would want, out of the percentage.
 pub fn value(level: Option<&str>) -> Option<i64> {
-    level?.trim_end_matches('%').parse().ok()
+    let Ok(value) = level?.trim_end_matches('%').parse::<i64>() else { return None };
+
+    Some(value)
 }
 
 #[cfg(test)]
@@ -132,21 +140,21 @@ mod tests {
     fn nothing_pactl_says_is_ever_a_reason_to_fail() {
         assert_eq!(level(""), None);
         assert_eq!(value(None), None);
-        assert_eq!(said(None, false), "Volume ?");
+        assert_eq!(said(None, Muted::No), "Volume ?");
     }
 
     /// A volume turned down to nothing and a volume silenced at half are
     /// different states, and one of them comes back where it was.
     #[test]
     fn silence_is_said_rather_than_shown_as_a_number() {
-        assert_eq!(said(Some("50%"), true), "Silent");
-        assert_eq!(said(Some("50%"), false), "Volume 50%");
+        assert_eq!(said(Some("50%"), Muted::Yes), "Silent");
+        assert_eq!(said(Some("50%"), Muted::No), "Volume 50%");
     }
 
     #[test]
     fn what_mute_says_is_read_off_the_end_of_the_line() {
-        assert!(muted("Mute: yes"));
-        assert!(!muted("Mute: no"));
-        assert!(!muted(""));
+        assert_eq!(muted("Mute: yes"), Muted::Yes);
+        assert_eq!(muted("Mute: no"), Muted::No);
+        assert_eq!(muted(""), Muted::No);
     }
 }

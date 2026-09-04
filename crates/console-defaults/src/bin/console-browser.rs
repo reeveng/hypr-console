@@ -26,14 +26,17 @@ pub fn found(desktop: &str, among: &[PathBuf]) -> Option<PathBuf> {
     if desktop.is_empty() {
         return None;
     }
+
     among.iter().map(|at| at.join(desktop)).find(|at| at.is_file())
 }
 
 fn chosen() -> String {
     let asked = asking();
+
     let Ok(said) = Command::new(asked[0]).args(&asked[1..]).output() else {
         return String::new();
     };
+
     String::from_utf8_lossy(&said.stdout).trim().to_string()
 }
 

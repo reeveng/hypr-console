@@ -1,6 +1,6 @@
 //! The top right paddle closes what is in front of you.
 
-use console_stage::checking::{Body, Check, Done, ought};
+use console_stage::checking::{Body, Check, Done, less_than, same};
 use console_stage::device::Device;
 use console_stage::here::{Here, TURNS};
 
@@ -21,7 +21,7 @@ fn here(stage: &mut Here) -> Done {
     stage.press("right-paddle-top")?;
     stage.settle(TURNS);
     let asked = stage.names();
-    ought(asked == ["put-away"], || format!("it asked for {asked:?}"))
+    same(&asked, &["put-away"], || format!("it asked for {asked:?}"))
 }
 
 /// Only ever run with something open that can be lost without regret.
@@ -35,5 +35,5 @@ fn there(stage: &mut Device) -> Done {
     stage.press("right-paddle-top");
     stage.settle(1.2);
     let now = stage.windows_here();
-    ought(now < before, || format!("{before} window(s) before and {now} after"))
+    less_than(now, before, || format!("{before} window(s) before and {now} after"))
 }

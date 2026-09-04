@@ -11,6 +11,7 @@ pub fn split(said: &str) -> Option<Vec<String>> {
     let mut held: Option<char> = None;
     let mut started = false;
     let mut letters = said.chars();
+
     while let Some(letter) = letters.next() {
         match (held, letter) {
             (None, ' ' | '\t') if started => {
@@ -36,12 +37,15 @@ pub fn split(said: &str) -> Option<Vec<String>> {
             }
         }
     }
+
     if held.is_some() {
         return None;
     }
+
     if started {
         words.push(word);
     }
+
     Some(words)
 }
 
@@ -51,6 +55,7 @@ pub fn split(said: &str) -> Option<Vec<String>> {
 pub fn without_field_codes(command: &str) -> String {
     let mut said = String::new();
     let mut letters = command.chars().peekable();
+
     while let Some(letter) = letters.next() {
         if letter == '%'
             && letters.peek().is_some_and(|next| "cdDfFikmnNuUvm".contains(*next))
@@ -58,8 +63,10 @@ pub fn without_field_codes(command: &str) -> String {
             letters.next();
             continue;
         }
+
         said.push(letter);
     }
+
     said.trim().to_string()
 }
 

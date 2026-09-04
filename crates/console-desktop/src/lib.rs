@@ -26,20 +26,57 @@ pub mod talking;
 use std::path::{Path, PathBuf};
 
 /// The repository this is all read out of.
+///
+/// Tidied by `canonicalize` where that works and left as it stands where it
+/// does not. What comes out of `CARGO_MANIFEST_DIR` is already absolute and
+/// already right; canonicalizing only removes the `../..` from the middle of
+/// it, which is worth having and is not worth failing over. It does fail --
+/// under a sandbox that will not let a process resolve a path it can otherwise
+/// read -- and a dev tool that stops dead there is one that reports the
+/// sandbox as a broken repository.
+/// What the session says a name is, or nothing where it says nothing.
+///
+/// Unset is ordinary here: every caller below has a name of its own to fall
+/// back to, and falling back is what they are for. A name set to something that
+/// is not text is not ordinary, and folded in with unset it is a session staged
+/// somewhere nobody chose.
+pub(crate) fn said(name: &str) -> Option<String> {
+    match std::env::var(name) {
+        Ok(said) => Some(said),
+        Err(std::env::VarError::NotPresent) => None,
+        Err(fault) => {
+            eprintln!("console-desktop: {name}: {fault}");
+
+            None
+        }
+    }
+}
+
 pub fn root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .expect("the repository")
+    let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+
+    match from.canonicalize() {
+        Ok(tidied) => tidied,
+        // The doc above, in one line: a sandbox that will not resolve a path it
+        // will otherwise read is not a broken repository, and the path as it
+        // stands is already absolute and already right.
+        Err(_sandboxed) => from,
+    }
 }
 
 /// The device's screen, read out of the file the device reads: the mode, the
 /// quarter turn and the density everything is drawn at. Nothing here is a
 /// number about the screen; `console-screen` has them all, once.
-pub fn screen() -> console_screen::Screen {
-    let said = std::fs::read_to_string(root().join(console_screen::CONFIG))
-        .expect("the compositor's config");
-    console_screen::Screen::read(&said).expect("a screen")
+///
+/// Both ways of failing are the same kind of thing -- a tree that is not this
+/// repository, or one whose compositor config has been edited into something
+/// unreadable -- so both are said in words rather than panicked over. The
+/// caller is staging a desktop and has somewhere to put the reason.
+pub fn screen() -> Result<console_screen::Screen, String> {
+    let at = root().join(console_screen::CONFIG);
+    let said = std::fs::read_to_string(&at)
+        .map_err(|why| format!("{}: {why}", at.display()))?;
+    console_screen::Screen::read(&said)
 }
 
 /// Where a session's own copy lives, and where the sessions' copies live.
@@ -57,7 +94,8 @@ pub fn stages() -> PathBuf {
 /// your own that survives the command and is never swept up.
 pub fn stage() -> PathBuf {
     let named =
-        std::env::var("CONSOLE_STAGE").unwrap_or_else(|_| format!("session-{}", std::process::id()));
+        said("CONSOLE_STAGE").unwrap_or_else(|| format!("session-{}", std::process::id()));
+
     stages().join(named)
 }
 
@@ -65,8 +103,9 @@ pub fn stage() -> PathBuf {
 pub fn runtime() -> PathBuf {
     // SAFETY: getuid cannot fail and touches nothing.
     let uid = unsafe { libc::getuid() };
-    let said = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| format!("/run/user/{uid}"));
-    PathBuf::from(said)
+    let at = said("XDG_RUNTIME_DIR").unwrap_or_else(|| format!("/run/user/{uid}"));
+
+    PathBuf::from(at)
 }
 
 /// The home the tree writes, which is a mark rather than a name.

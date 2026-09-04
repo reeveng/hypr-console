@@ -44,33 +44,49 @@ static ANSWERING: AtomicBool = AtomicBool::new(true);
 /// The wallpaper daemon's own surface is the wallpaper. The bar is always up,
 /// at the top edge, over a picture that is sixteen times its height, and a
 /// wallpaper that never moved because the bar exists would never move at all.
+/// The strip under the bar is four more pixels of the same edge and is up just
+/// as permanently, so it goes here for the same reason and on pain of the same
+/// outcome: counted, it is a picture that never moved again, and the way that
+/// fails is the way a covered wallpaper is meant to look.
 ///
 /// Everything else counts.
-pub const BEHIND: [&str; 2] = ["awww-daemon", "waybar"];
+pub const BEHIND: [&str; 3] = ["awww-daemon", "waybar", "updating"];
 
 /// What the compositor says about the workspace being looked at.
 ///
 /// Taken from the text rather than a path, so what is parsed can be tested
 /// without a compositor to ask.
-pub fn holds_a_window(activeworkspace: &str) -> bool {
+pub fn holds_a_window(activeworkspace: &str) -> Covered {
     let Ok(workspace) = serde_json::from_str::<serde_json::Value>(activeworkspace) else {
         // A compositor that will not answer is one this cannot know about, and
         // a still picture is the safe thing to be wrong with.
-        return true;
+        return Covered::Yes;
     };
-    workspace
-        .get("windows")
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(1)
-        > 0
+
+    let held = workspace.get("windows").and_then(serde_json::Value::as_u64).unwrap_or(1) > 0;
+
+    match held {
+        true => Covered::Yes,
+        false => Covered::No,
+    }
+}
+
+/// Whether anything is in front of the wallpaper.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Covered {
+    /// Something is over it, so nobody is looking at the picture.
+    Yes,
+    /// Nothing is, so what it draws is what is on the screen.
+    No,
 }
 
 /// Whether anything but the wallpaper and the bar is up.
-pub fn something_over_it(layers: &str) -> bool {
+pub fn something_over_it(layers: &str) -> Covered {
     let Ok(screens) = serde_json::from_str::<serde_json::Value>(layers) else {
-        return true;
+        return Covered::Yes;
     };
-    screens
+
+    let over = screens
         .as_object()
         .into_iter()
         .flatten()
@@ -79,23 +95,41 @@ pub fn something_over_it(layers: &str) -> bool {
         .filter_map(|(_, level)| level.as_array())
         .flatten()
         .filter_map(|surface| surface.get("namespace")?.as_str())
-        .any(|namespace| !BEHIND.contains(&namespace))
+        .any(|namespace| !BEHIND.contains(&namespace));
+
+    match over {
+        true => Covered::Yes,
+        false => Covered::No,
+    }
 }
 
 /// Whether the wallpaper is covered, asked of the compositor.
-pub fn now() -> bool {
-    let ask = |what: &str| {
-        Command::new("hyprctl")
-            .args([what, "-j"])
-            .output()
-            .ok()
-            .filter(|said| said.status.success())
-            .map(|said| String::from_utf8_lossy(&said.stdout).into_owned())
+pub fn now() -> Covered {
+    let ask = |what: &str| match Command::new("hyprctl").args([what, "-j"]).output() {
+        Ok(said) if said.status.success() => {
+            Some(String::from_utf8_lossy(&said.stdout).into_owned())
+        }
+        // It ran and would not answer, which is the compositor's own business
+        // and is what the caller's default is for.
+        Ok(_) => None,
+        // It would not run at all, which is not the compositor saying anything.
+        Err(fault) => {
+            eprintln!("console-sky: asking hyprctl for {what}: {fault}");
+
+            None
+        }
     };
+
     match (ask("activeworkspace"), ask("layers")) {
         (Some(workspace), Some(layers)) => {
             ANSWERING.store(true, Ordering::Relaxed);
-            holds_a_window(&workspace) || something_over_it(&layers)
+
+            match holds_a_window(&workspace) == Covered::Yes
+                || something_over_it(&layers) == Covered::Yes
+            {
+                true => Covered::Yes,
+                false => Covered::No,
+            }
         }
         // Covered is the safe thing to be wrong about, and it is also the
         // answer that looks like nothing being wrong: the picture goes still
@@ -109,7 +143,8 @@ pub fn now() -> bool {
                      the picture stays still until it does"
                 );
             }
-            true
+
+            Covered::Yes
         }
     }
 }
@@ -132,14 +167,27 @@ pub const WORTH_WAKING_FOR: [&str; 8] = [
 ];
 
 /// Whether a line the compositor sent is one of them.
-pub fn worth_waking_for(line: &str) -> bool {
-    WORTH_WAKING_FOR.iter().any(|event| line.starts_with(event))
+pub fn worth_waking_for(line: &str) -> Worth {
+    match WORTH_WAKING_FOR.iter().any(|event| line.starts_with(event)) {
+        true => Worth::Waking,
+        false => Worth::Ignoring,
+    }
+}
+
+/// Whether a line from the compositor can change whether the wallpaper is seen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Worth {
+    /// A window or a layer moved, so the answer may have moved with it.
+    Waking,
+    /// Anything else, which is most of what the compositor says.
+    Ignoring,
 }
 
 /// Where the compositor sends them.
 pub fn events() -> Option<std::path::PathBuf> {
-    let run = std::env::var("XDG_RUNTIME_DIR").ok()?;
-    let instance = std::env::var("HYPRLAND_INSTANCE_SIGNATURE").ok()?;
+    let run = crate::place::said("XDG_RUNTIME_DIR")?;
+    let instance = crate::place::said("HYPRLAND_INSTANCE_SIGNATURE")?;
+
     Some(
         std::path::Path::new(&run)
             .join("hypr")
@@ -153,28 +201,30 @@ mod tests {
     use super::*;
 
     /// What the compositor answers on this machine with nothing up, taken off
-    /// the device rather than made up: the wallpaper on the background level
-    /// and the bar on the top one.
+    /// the device rather than made up: the wallpaper on the background level,
+    /// and the bar and the strip under it on the top one.
     const NOTHING_UP: &str = r#"{"eDP-1":{"levels":{
         "0":[{"address":"0x1","namespace":"awww-daemon"}],
-        "2":[{"address":"0x2","namespace":"waybar"}]}}}"#;
+        "2":[{"address":"0x2","namespace":"waybar"},
+             {"address":"0x3","namespace":"updating"}]}}}"#;
 
     #[test]
     fn a_workspace_with_a_window_on_it_covers_the_wallpaper() {
-        assert!(holds_a_window(r#"{"id":3,"name":"3","windows":1}"#));
-        assert!(holds_a_window(r#"{"id":3,"name":"3","windows":2}"#));
+        assert_eq!(holds_a_window(r#"{"id":3,"name":"3","windows":1}"#), Covered::Yes);
+        assert_eq!(holds_a_window(r#"{"id":3,"name":"3","windows":2}"#), Covered::Yes);
     }
 
     #[test]
     fn an_empty_workspace_does_not() {
-        assert!(!holds_a_window(r#"{"id":1,"name":"1","windows":0}"#));
+        assert_eq!(holds_a_window(r#"{"id":1,"name":"1","windows":0}"#), Covered::No);
     }
 
     /// The bar is up for as long as the machine is on, and a wallpaper that
-    /// counted it would never move at all.
+    /// counted it would never move at all. So is the strip under it, which is
+    /// what taking this fixture off the device again caught.
     #[test]
     fn the_wallpaper_and_the_bar_are_not_in_front_of_the_wallpaper() {
-        assert!(!something_over_it(NOTHING_UP));
+        assert_eq!(something_over_it(NOTHING_UP), Covered::No);
     }
 
     /// A menu is not a window, and it is the thing most often in front of this
@@ -185,7 +235,7 @@ mod tests {
             "0":[{"namespace":"awww-daemon"}],
             "2":[{"namespace":"waybar"}],
             "3":[{"namespace":"wofi"}]}}}"#;
-        assert!(something_over_it(menu));
+        assert_eq!(something_over_it(menu), Covered::Yes);
     }
 
     /// Named by what may be behind rather than by what may be in front, so a
@@ -195,34 +245,34 @@ mod tests {
         let new_thing = r#"{"eDP-1":{"levels":{
             "0":[{"namespace":"awww-daemon"}],
             "3":[{"namespace":"something-written-next-year"}]}}}"#;
-        assert!(something_over_it(new_thing));
+        assert_eq!(something_over_it(new_thing), Covered::Yes);
     }
 
     /// Being wrong towards the still picture costs a picture that did not move.
     /// Being wrong the other way costs the battery all day.
     #[test]
     fn a_compositor_that_will_not_answer_is_taken_as_covered() {
-        assert!(holds_a_window(""));
-        assert!(holds_a_window("no such option"));
-        assert!(holds_a_window(r#"{"id":1}"#));
-        assert!(something_over_it(""));
-        assert!(something_over_it("no such option"));
+        assert_eq!(holds_a_window(""), Covered::Yes);
+        assert_eq!(holds_a_window("no such option"), Covered::Yes);
+        assert_eq!(holds_a_window(r#"{"id":1}"#), Covered::Yes);
+        assert_eq!(something_over_it(""), Covered::Yes);
+        assert_eq!(something_over_it("no such option"), Covered::Yes);
     }
 
     #[test]
     fn a_window_or_a_layer_opening_is_worth_waking_up_for() {
-        assert!(worth_waking_for("openwindow>>a4f,3,alacritty,Alacritty"));
-        assert!(worth_waking_for("closewindow>>a4f"));
-        assert!(worth_waking_for("openlayer>>wofi"));
-        assert!(worth_waking_for("closelayer>>wofi"));
-        assert!(worth_waking_for("workspacev2>>3,3"));
+        assert_eq!(worth_waking_for("openwindow>>a4f,3,alacritty,Alacritty"), Worth::Waking);
+        assert_eq!(worth_waking_for("closewindow>>a4f"), Worth::Waking);
+        assert_eq!(worth_waking_for("openlayer>>wofi"), Worth::Waking);
+        assert_eq!(worth_waking_for("closelayer>>wofi"), Worth::Waking);
+        assert_eq!(worth_waking_for("workspacev2>>3,3"), Worth::Waking);
     }
 
     /// The commonest event there is, sent every time a thumb moves.
     #[test]
     fn a_mouse_moving_is_not() {
-        assert!(!worth_waking_for("activelayout>>keyboard,English"));
-        assert!(!worth_waking_for("mousemove>>640,400"));
-        assert!(!worth_waking_for(""));
+        assert_eq!(worth_waking_for("activelayout>>keyboard,English"), Worth::Ignoring);
+        assert_eq!(worth_waking_for("mousemove>>640,400"), Worth::Ignoring);
+        assert_eq!(worth_waking_for(""), Worth::Ignoring);
     }
 }

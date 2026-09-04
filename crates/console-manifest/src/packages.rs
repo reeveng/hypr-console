@@ -17,6 +17,8 @@
 //! `Held::Borrowed` is that state said out loud, and `console apply` settles it
 //! by telling pacman the desktop asked for the package too, which is true.
 
+use crate::settled::Settled;
+
 /// How the machine is holding a package the manifest names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Held {
@@ -37,8 +39,11 @@ impl Held {
         }
     }
 
-    pub fn settled(self) -> bool {
-        self == Held::Ok
+    pub fn settled(self) -> Settled {
+        match self == Held::Ok {
+            true => Settled::Yes,
+            false => Settled::No,
+        }
     }
 }
 
@@ -48,6 +53,7 @@ impl Held {
 /// that got installed, dependencies and all, so the second contains the first.
 pub fn held(installed: &[String], asked_for: &[String], package: &str) -> Held {
     let said = |names: &[String]| names.iter().any(|name| name == package);
+
     match (said(installed), said(asked_for)) {
         (_, true) => Held::Ok,
         (true, false) => Held::Borrowed,
@@ -109,9 +115,9 @@ mod tests {
     /// brought it in does and nothing here would have said so.
     #[test]
     fn only_a_package_somebody_asked_for_is_settled() {
-        assert!(Held::Ok.settled());
-        assert!(!Held::Borrowed.settled());
-        assert!(!Held::Missing.settled());
+        assert_eq!(Held::Ok.settled(), Settled::Yes);
+        assert_eq!(Held::Borrowed.settled(), Settled::No);
+        assert_eq!(Held::Missing.settled(), Settled::No);
     }
 
     #[test]

@@ -1,0 +1,19 @@
+error: `Result::ok()` turns an error into `None`
+  --> $DIR/main.rs:10:5
+   |
+LL |     fallible().ok()
+   |     ^^^^^^^^^^^^^^^
+   |
+   = help: propagate the error with `?`, or `match` it; `Option` should mean the value may not exist
+   = note: `#[deny(explicit006_option_not_error)]` on by default
+
+error: `Result::err()` throws away the value and keeps only the failure
+  --> $DIR/main.rs:16:5
+   |
+LL |     fallible().err()
+   |     ^^^^^^^^^^^^^^^^
+   |
+   = help: `match` the `Result` so both arms are written out
+
+error: aborting due to 2 previous errors
+

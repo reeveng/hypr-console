@@ -13,7 +13,10 @@
 //! This is the one thing here that is not immutable, and it cannot be: a
 //! generator is a value whose whole purpose is to be different next time.
 
+
+use console_number::fitted;
 const N: usize = 624;
+
 const M: usize = 397;
 const MATRIX_A: u32 = 0x9908b0df;
 const UPPER: u32 = 0x8000_0000;
@@ -32,11 +35,16 @@ impl Random {
     /// Seeded as python seeds from an integer: the number's own bytes, little
     /// end first, as the key array.
     pub fn seeded(seed: u64) -> Self {
-        let key: Vec<u32> = match seed {
-            0 => vec![0],
-            seed => (0..(64 - seed.leading_zeros()).div_ceil(32))
-                .map(|word| (seed >> (word * 32)) as u32)
-                .collect(),
+        // The number's own 32-bit words, little end first: one for a seed
+        // that fits in 32 bits and two for one that does not, which is what
+        // counting its significant bits came to. Taken as bytes because that
+        // is the one way to break a `u64` in two that needs no cast.
+        let bytes = seed.to_le_bytes();
+        let low = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+        let high = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
+        let key: Vec<u32> = match high {
+            0 => vec![low],
+            high => vec![low, high],
         };
         let mut made = Random { state: [0; N], at: N, spare: None };
         made.by_array(&key);
@@ -45,44 +53,52 @@ impl Random {
 
     fn init(&mut self, seed: u32) {
         self.state[0] = seed;
+
         for i in 1..N {
             let previous = self.state[i - 1];
             self.state[i] = 1812433253u32
                 .wrapping_mul(previous ^ (previous >> 30))
-                .wrapping_add(i as u32);
+                .wrapping_add(fitted(i));
         }
+
         self.at = N;
     }
 
     fn by_array(&mut self, key: &[u32]) {
         self.init(19650218);
         let (mut i, mut j) = (1usize, 0usize);
+
         for _ in 0..N.max(key.len()) {
             let previous = self.state[i - 1];
             self.state[i] = (self.state[i] ^ (previous ^ (previous >> 30)).wrapping_mul(1664525))
                 .wrapping_add(key[j])
-                .wrapping_add(j as u32);
+                .wrapping_add(fitted(j));
             i += 1;
             j += 1;
+
             if i >= N {
                 self.state[0] = self.state[N - 1];
                 i = 1;
             }
+
             if j >= key.len() {
                 j = 0;
             }
         }
+
         for _ in 0..N - 1 {
             let previous = self.state[i - 1];
             self.state[i] = (self.state[i]
                 ^ (previous ^ (previous >> 30)).wrapping_mul(1566083941))
-            .wrapping_sub(i as u32);
+            .wrapping_sub(fitted(i));
             i += 1;
+
             if i >= N {
                 self.state[0] = self.state[N - 1];
                 i = 1;
             }
         }
+
         self.state[0] = UPPER;
     }
 
@@ -95,6 +111,7 @@ impl Random {
                 _ => mixed ^ MATRIX_A,
             };
         }
+
         self.at = 0;
     }
 
@@ -103,6 +120,7 @@ impl Random {
         if self.at >= N {
             self.twist();
         }
+
         let mut drawn = self.state[self.at];
         self.at += 1;
         drawn ^= drawn >> 11;
@@ -126,8 +144,8 @@ impl Random {
     /// two and throws away eleven. Spending one would give a different number
     /// and half the resolution.
     pub fn random(&mut self) -> f64 {
-        let high = (self.bits32() >> 5) as f64;
-        let low = (self.bits32() >> 6) as f64;
+        let high = f64::from(self.bits32() >> 5);
+        let low = f64::from(self.bits32() >> 6);
         (high * 67108864.0 + low) * (1.0 / 9007199254740992.0)
     }
 
@@ -138,8 +156,13 @@ impl Random {
             0 => 0,
             n => {
                 let width = usize::BITS - n.leading_zeros();
+
                 loop {
-                    let drawn = self.bits(width) as usize;
+                    // `width` is at most the width of a `usize`, so the draw
+                    // always fits one and the holding in `fitted` is never
+                    // reached.
+                    let drawn: usize = fitted(self.bits(width));
+
                     if drawn < n {
                         return drawn;
                     }

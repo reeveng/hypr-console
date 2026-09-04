@@ -63,19 +63,34 @@ impl Session {
 /// It is also what makes a button held a moment too long harmless. The session
 /// takes a while to go, the hold is acted on once, and a second call arriving
 /// from anywhere else finds the first one has already happened and stops.
-pub fn worth_going(now: Session, to: Session) -> bool {
-    now != to
+pub fn worth_going(now: Session, to: Session) -> Going {
+    match now != to {
+        true => Going::Worth,
+        false => Going::Already,
+    }
+}
+
+/// Whether a session is worth changing to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Going {
+    /// The machine is somewhere else, so the steps are worth taking.
+    Worth,
+    /// It is already there, and every step would be undoing what is up.
+    Already,
 }
 
 /// The steps, in the order they happen, or nothing if the machine is there.
 pub fn steps(now: Session, to: Session) -> Vec<Vec<String>> {
-    if !worth_going(now, to) {
+    if worth_going(now, to) == Going::Already {
         return Vec::new();
     }
+
     let mut steps = Vec::new();
+
     if let Some(profile) = to.buttons() {
         steps.push(vec!["controller-profile".to_string(), profile.to_string()]);
     }
+
     steps.push(vec![SWITCHER.to_string(), to.word().to_string()]);
     steps
 }
@@ -109,6 +124,16 @@ pub fn starting() -> Vec<Vec<String>> {
     handing.extend(HANDED_OVER.iter().map(|name| (*name).to_string()));
     vec![
         handing,
+        // Before the desktop, so the bar comes up already knowing how wide the
+        // screen is. It puts back the size the machine was left at, which the
+        // compositor's own file cannot hold: that file is this repository's
+        // byte for byte, and a machine that wrote its own preference into it
+        // would be reported as drift for ever after.
+        //
+        // It cannot fail, and that is the program's job rather than this list's:
+        // the step after it is the whole desktop, and `run_each` stops at the
+        // first step that will not run.
+        vec![SIZE.to_string(), "apply".to_string()],
         vec![
             "systemctl".to_string(),
             "--user".to_string(),
@@ -118,6 +143,12 @@ pub fn starting() -> Vec<Vec<String>> {
         ],
     ]
 }
+
+/// What puts the screen back to the size it was left at.
+///
+/// Named in full, because this runs before anything has told the session what
+/// its PATH is.
+const SIZE: &str = "/usr/local/bin/console-scale";
 
 // ---------------------------------------------------------------- the doing
 
@@ -132,6 +163,7 @@ pub fn here(target: &str) -> Session {
     let asked = Command::new("systemctl")
         .args(["--user", "is-active", "--quiet", target])
         .status();
+
     match asked.map(|how| how.success()) {
         Ok(true) => Session::Game,
         _ => Session::Desktop,
@@ -142,6 +174,7 @@ pub fn here(target: &str) -> Session {
 pub fn run_each(steps: &[Vec<String>]) {
     for argv in steps {
         let Some((program, rest)) = argv.split_first() else { continue };
+
         match Command::new(program).args(rest).status() {
             Ok(how) if how.success() => (),
             Ok(how) => {
@@ -170,8 +203,8 @@ mod tests {
     /// directions, checked by a test that read both of them for a string.
     #[test]
     fn neither_way_to_a_session_acts_when_the_machine_is_already_in_it() {
-        assert!(!worth_going(Session::Game, Session::Game));
-        assert!(!worth_going(Session::Desktop, Session::Desktop));
+        assert_eq!(worth_going(Session::Game, Session::Game), Going::Already);
+        assert_eq!(worth_going(Session::Desktop, Session::Desktop), Going::Already);
         assert_eq!(steps(Session::Game, Session::Game), Vec::<Vec<String>>::new());
         assert_eq!(steps(Session::Desktop, Session::Desktop), Vec::<Vec<String>>::new());
     }
@@ -194,6 +227,17 @@ mod tests {
         assert_eq!(steps(Session::Game, Session::Desktop), vec![vec![SWITCHER, "plasma"]]);
     }
 
+    /// Which step starts the desktop, found rather than counted: steps go in
+    /// front of it as the session grows, and a test that knew where it was by
+    /// number would break every time one did.
+    fn the_desktop() -> (usize, Vec<String>) {
+        starting()
+            .into_iter()
+            .enumerate()
+            .find(|(_, step)| step.contains(&TARGET.to_string()))
+            .expect("nothing in the session starts the desktop")
+    }
+
     /// The services are told where the compositor is before they are started,
     /// or they come up talking to nothing.
     #[test]
@@ -201,14 +245,30 @@ mod tests {
         let starting = starting();
         assert_eq!(starting[0][2], "import-environment");
         assert!(starting[0].contains(&"HYPRLAND_INSTANCE_SIGNATURE".to_string()));
-        assert!(starting[1].contains(&"restart".to_string()));
+        assert!(the_desktop().0 > 0, "the desktop starts before it is told where it is");
     }
 
     /// Started rather than restarted, the desktop that came back would be
     /// driven by services still talking to the compositor before it.
     #[test]
     fn the_desktop_is_restarted_and_never_merely_started() {
-        assert!(starting()[1].contains(&"restart".to_string()));
-        assert!(!starting()[1].contains(&"start".to_string()));
+        let (_, step) = the_desktop();
+        assert!(step.contains(&"restart".to_string()));
+        assert!(!step.contains(&"start".to_string()));
+    }
+
+    /// The screen goes back to the size it was left at before the bar is drawn
+    /// on it. The bar's stylesheet is told how wide the screen is by the same
+    /// program, so a bar started first is a bar wearing the width of whatever
+    /// the machine came up at.
+    #[test]
+    fn the_screen_is_put_back_to_its_size_before_the_desktop_is_started() {
+        let starting = starting();
+        let at = starting
+            .iter()
+            .position(|step| step[0] == SIZE)
+            .expect("nothing puts the screen back to the size it was left at");
+        assert_eq!(starting[at][1], "apply");
+        assert!(at < the_desktop().0, "the desktop is drawn before the screen is the right size");
     }
 }

@@ -17,7 +17,25 @@ pub mod policies;
 use std::path::PathBuf;
 
 fn home() -> PathBuf {
-    PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/root".to_string()))
+    PathBuf::from(match std::env::var("HOME") {
+        Ok(h) => h,
+        Err(_) => "/root".to_string(),
+    })
+}
+
+/// What the settings file says now, so a change can be written into it without
+/// taking the other lines out.
+///
+/// Nothing where there is no file: nobody has chosen anything yet, and the
+/// write below is the first choice. A file that is there and will not be read
+/// is not that, and writing over it would throw away every other choice on this
+/// machine -- which is the one thing this function must not do quietly.
+fn held(at: &std::path::Path) -> Result<String, String> {
+    match std::fs::read_to_string(at) {
+        Ok(said) => Ok(said),
+        Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(fault) => Err(format!("{}: {fault}", at.display())),
+    }
 }
 
 /// The file the choices that are nobody else's live in.
@@ -42,28 +60,48 @@ pub fn read(said: &str) -> Vec<(String, String)> {
 /// The same, with one key set to something and the rest left where they are.
 pub fn written(said: &str, key: &str, value: &str) -> String {
     let mut settings = read(said);
+
     match settings.iter_mut().find(|(named, _)| named == key) {
         Some(found) => found.1 = value.to_string(),
         None => settings.push((key.to_string(), value.to_string())),
     }
+
     settings.sort_by(|one, two| one.0.cmp(&two.0));
     settings.iter().map(|(key, value)| format!("{key}={value}\n")).collect()
 }
 
 /// What one key says, out of the file as it stands.
 pub fn setting(key: &str) -> Option<String> {
-    let said = std::fs::read_to_string(where_()).ok()?;
+    let said = match std::fs::read_to_string(where_()) {
+        Ok(s) => s,
+        Err(_) => return None,
+    };
     read(&said).into_iter().find(|(named, _)| named == key).map(|(_, value)| value)
 }
 
 /// Set one key, leaving the file's other lines alone.
 pub fn set(key: &str, value: &str) {
     let at = where_();
+
     if let Some(parent) = at.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let said = std::fs::read_to_string(&at).unwrap_or_default();
-    let _ = std::fs::write(&at, written(&said, key, value));
+
+    let said = match held(&at) {
+        Ok(said) => said,
+        // Refused rather than written over. The alternative is one unreadable
+        // file turning into every other choice on this machine being silently
+        // forgotten, which is a worse thing than this setting not sticking.
+        Err(fault) => {
+            eprintln!("console-defaults: {fault}; leaving it as it is");
+
+            return;
+        }
+    };
+
+    if let Err(fault) = std::fs::write(&at, written(&said, key, value)) {
+        eprintln!("console-defaults: {}: {fault}", at.display());
+    }
 }
 
 #[cfg(test)]

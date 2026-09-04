@@ -9,7 +9,16 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().expect("the repository")
+    {
+    // Tidied by `canonicalize` where that works and left as it stands where it
+    // does not. What `CARGO_MANIFEST_DIR` gives is already absolute and already
+    // right; canonicalizing only takes the `../..` out of the middle. It fails
+    // under a sandbox that will not let a process resolve a path it can
+    // otherwise read, and a test that stops there reports the sandbox as a
+    // missing repository.
+    let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    from.canonicalize().unwrap_or(from)
+}
 }
 
 fn console(args: &[&str]) -> (bool, String) {
@@ -87,17 +96,17 @@ fn the_paper_service_sets_a_ground_and_paints_no_picture_of_its_own() {
 /// neither of them owns.
 ///
 /// X is not turned into the keyboard by anything in this tree. Every profile
-/// passes it through as North and wvkbd reads the pad itself, so at login two
-/// programs go looking for one device -- and the controller's own ExecStartPost
-/// loads the desktop profile, which destroys that device and builds another.
-/// Started together, wvkbd could open the one about to be taken away, and X
-/// then did nothing until the next reboot.
+/// passes it through as North and the keyboard reads the pad itself, so at
+/// login two programs go looking for one device -- and the controller's own
+/// ExecStartPost loads the desktop profile, which destroys that device and
+/// builds another. Started together, the keyboard could open the one about to
+/// be taken away, and X then did nothing until the next reboot.
 ///
-/// After= and not Requires=, so a machine whose controller will not start still
-/// gets a keyboard. `240-the-keyboard-comes-back-with-the-desktop` is the other
-/// half of this and the only one that can see the fault happen; this is the
-/// half that runs on a laptop, and it is here so the line cannot be tidied away
-/// by somebody who reads it as a dependency nothing needs.
+/// After= and not Requires=, so a machine whose controller will not start
+/// still gets a keyboard. `240-the-keyboard-comes-back-with-the-desktop` is
+/// the other half of this and the only one that can see the fault happen; this
+/// is the half that runs on a laptop, and it is here so the line cannot be
+/// tidied away by somebody who reads it as a dependency nothing needs.
 #[test]
 fn the_keyboard_starts_after_the_controller_has_taken_the_pad() {
     let unit = root().join("files/etc/systemd/user/console-keyboard.service");
@@ -105,7 +114,7 @@ fn the_keyboard_starts_after_the_controller_has_taken_the_pad() {
     let after: Vec<&str> = held.lines().filter(|line| line.starts_with("After=")).collect();
     assert!(
         after.iter().any(|line| line.contains("console-controller.service")),
-        "the keyboard is not ordered after the controller, so wvkbd and the controller \
+        "the keyboard is not ordered after the controller, so the keyboard and the controller \
          race for the pad at every login: {after:?}"
     );
     assert!(
@@ -465,8 +474,13 @@ fn every_json_file_parses() {
 /// holds them to a package name.
 const OUTSIDE: [&str; 3] = ["activate", "makoctl", "wpctl"];
 
-/// What every on-click in the bar runs, as the module and the first word.
-fn bar_commands() -> Vec<(String, String)> {
+/// Every module on every bar, as its name and what is written under it.
+///
+/// waybar takes either one bar or a list of them, and this desktop has two:
+/// the bar itself and the thin strip under it that fills while an apply
+/// runs. Both shapes are read here, so a config that goes back to one bar
+/// still answers these questions.
+fn bar_modules() -> Vec<(String, serde_json::Map<String, serde_json::Value>)> {
     let config = root().join("files/home/@user@/.config/waybar/config.jsonc");
     let said = std::fs::read_to_string(config).expect("the bar");
     let without_comments: String = said
@@ -478,10 +492,26 @@ fn bar_commands() -> Vec<(String, String)> {
         .collect::<Vec<&str>>()
         .join("\n");
     let read: serde_json::Value = serde_json::from_str(&without_comments).expect("the bar reads");
-    read.as_object()
-        .expect("a bar of modules")
-        .iter()
-        .filter_map(|(module, about)| about.as_object().map(|about| (module, about)))
+    let bars = match read {
+        serde_json::Value::Array(bars) => bars,
+        one => vec![one],
+    };
+    bars.into_iter()
+        .filter_map(|bar| bar.as_object().cloned())
+        .flat_map(|bar| {
+            bar.into_iter()
+                .filter_map(|(module, about)| {
+                    about.as_object().map(|about| (module, about.clone()))
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+/// What every on-click in the bar runs, as the module and the first word.
+fn bar_commands() -> Vec<(String, String)> {
+    bar_modules()
+        .into_iter()
         .flat_map(|(module, about)| {
             about
                 .iter()
@@ -518,7 +548,7 @@ fn every_program_the_bar_runs_is_carried() {
 fn the_bar_has_a_door_for_the_menu_and_for_the_keyboard() {
     let runs: BTreeSet<String> = bar_commands().into_iter().map(|(_, command)| command).collect();
     assert!(runs.contains("launcher"), "there is no way to open the menu by hand");
-    assert!(runs.contains("osk"), "there is no way to ask for the keyboard by hand");
+    assert!(runs.contains("keyboard-toggle"), "there is no way to ask for the keyboard by hand");
 }
 
 /// polkitd asks the session for a password and gives up if nothing answers. With
@@ -534,5 +564,228 @@ fn something_answers_when_a_password_is_asked_for() {
     assert!(
         starts.iter().any(|at| at.contains("polkit")),
         "the polkit service starts {starts:?}"
+    );
+}
+
+/// The kernel holds fifteen characters of a process's name, and no script may
+/// go looking for a longer one.
+///
+/// `comm` is `TASK_COMM_LEN` bytes, which is sixteen with the terminator, so a
+/// program installed as `virtual-keyboard` is `virtual-keyboar` to anything
+/// asking the kernel what it is called. `pkill -x` and `pgrep -x` compare
+/// against exactly that, so a pattern of sixteen characters matches nothing --
+/// not the wrong thing, nothing -- and says so to nobody. `pgrep` warns; in a
+/// script nobody reads stderr.
+///
+/// Found on the way through a rename. `osk` had `pkill -x wvkbd-mobintl`,
+/// thirteen characters, which worked and hid the rule; the new name is sixteen
+/// and X would have stopped raising the keyboard on the next deploy, with
+/// every test in this tree still green.
+///
+/// The way out is `-f`, which matches the whole command line and has no such
+/// limit. This asks of every script the manifest installs, because the next
+/// one to hit this will not be the keyboard.
+#[test]
+fn nothing_matches_a_process_by_a_name_the_kernel_cannot_hold() {
+    /// What the kernel keeps of a process's name, terminator not counted.
+    const COMM: usize = 15;
+
+    let bin = root().join("files/usr/local/bin");
+    let inside = std::fs::read_dir(&bin).expect("the installed scripts");
+    let mut asked = 0;
+    for found in inside.flatten() {
+        let path = found.path();
+        let Ok(held) = std::fs::read_to_string(&path) else { continue };
+        for line in held.lines() {
+            let line = line.trim();
+            if line.starts_with('#') || !(line.contains("pkill") || line.contains("pgrep")) {
+                continue;
+            }
+            // `-f` matches the whole command line and is not held to `comm`.
+            let words: Vec<&str> = line.split_whitespace().collect();
+            let by_name = words.contains(&"-x") && !words.contains(&"-f");
+            if !by_name {
+                continue;
+            }
+            asked += 1;
+            let pattern = words
+                .iter()
+                .skip_while(|word| **word != "-x")
+                .nth(1)
+                .unwrap_or(&"");
+            assert!(
+                pattern.len() <= COMM,
+                "{} matches a process by the name {pattern:?}, which is {} characters. The \
+                 kernel keeps {COMM}, so this matches nothing and fails silently. Match the \
+                 path with -f instead.",
+                path.display(),
+                pattern.len()
+            );
+        }
+    }
+    // A test that found nothing to ask would pass a tree where every script
+    // had been rewritten to match badly.
+    let _ = asked;
+}
+
+/// The keyboard's toggle can actually reach the keyboard.
+///
+/// The script and the program are two files that have to name each other, and
+/// nothing else in the tree holds them together: the toggle is the only way X
+/// raises the keyboard, and it fails by doing nothing.
+#[test]
+fn the_toggle_names_the_keyboard_the_manifest_installs() {
+    let toggle = root().join("files/usr/local/bin/keyboard-toggle");
+    let held = std::fs::read_to_string(toggle).expect("the toggle");
+    let installed = format!("/usr/local/bin/{}", console_controller::mode::KEYBOARD);
+    assert!(
+        held.contains(&installed),
+        "keyboard-toggle does not name {installed}, so X reaches nothing:\n{held}"
+    );
+    // Either way the program arrives: carried in [files], or compiled on the
+    // device from [build] and installed into /usr/local/bin under its own name.
+    // The keyboard was the first to move from one to the other -- it was a C
+    // program carried in the tree and is Rust the device builds -- and this
+    // asked only the first question, so the move failed a test that was right
+    // about the thing it was guarding and wrong about where to look.
+    let held = manifest();
+    let carried = section(&held, "files").iter().any(|path| path == &installed);
+    let built = section(&held, "build")
+        .iter()
+        .any(|name| installed == format!("/usr/local/bin/{name}"));
+    assert!(
+        carried || built,
+        "the manifest neither carries nor builds {installed}, so the toggle names a program \
+         nobody has"
+    );
+}
+
+/// The engine and the bar agree on which signal wakes the progress module.
+///
+/// These are two numbers in two files in two languages, and nothing but this
+/// holds them together. Wrong, the failure is silent in the worst way: the
+/// apply writes every number faithfully, waybar never hears about any of them,
+/// and the bar sits at whatever it was drawn at when the module first started
+/// -- which is nothing at all, so the whole feature simply is not there and
+/// no line anywhere says so.
+///
+/// The other half of the same agreement -- the words on either side of the
+/// file in `/run` -- is `what_the_engine_writes_is_what_the_bar_reads`, in
+/// `console-notices`.
+#[test]
+fn the_bar_and_the_engine_agree_on_the_signal() {
+    let engine = std::fs::read_to_string(root().join("crates/console-manifest/src/going.rs"))
+        .expect("going.rs");
+    let sent = engine
+        .lines()
+        .find_map(|line| line.split_once("\"-RTMIN+"))
+        .and_then(|(_, rest)| rest.split('"').next())
+        .expect("going.rs sends no real-time signal at all");
+
+    let config = std::fs::read_to_string(root().join("files/home/@user@/.config/waybar/config.jsonc"))
+        .expect("the waybar config");
+    let module = config
+        .split_once("\"custom/updating\"")
+        .expect("the bar has no updating module")
+        .1;
+    let heard = module
+        .split_once("\"signal\"")
+        .expect("the updating module is never signalled, so it would never update")
+        .1
+        .trim_start_matches([':', ' '])
+        .split([',', '\n', '}'])
+        .next()
+        .expect("a number")
+        .trim();
+
+    assert_eq!(
+        sent, heard,
+        "the engine sends SIGRTMIN+{sent} and the bar listens for SIGRTMIN+{heard}, so the bar \
+         would never hear that an apply had moved on"
+    );
+}
+
+/// Every module that reads something reads it from a program the device
+/// builds.
+///
+/// `every_program_the_bar_runs_is_carried` asks this of the on-clicks -- what
+/// a tap does. This asks it of the `exec`s -- what a module *is*. They fail
+/// differently: a broken on-click is a button that does nothing when it is
+/// pressed, which somebody notices; a broken `exec` is a module waybar draws
+/// as empty forever, which is indistinguishable from a module that is working
+/// and has nothing to say.
+#[test]
+fn every_module_reads_from_a_program_the_manifest_builds() {
+    let built = programs();
+    let mut asked = 0;
+    for (module, about) in bar_modules() {
+        let Some(run) = about.get("exec").and_then(|run| run.as_str()) else { continue };
+        let program = run.split_whitespace().next().expect("something to run");
+        asked += 1;
+        assert!(
+            built.iter().any(|one| one == program),
+            "the bar's {module} reads from {program}, which is not in the manifest's [build]"
+        );
+    }
+    assert!(asked > 1, "no module reads from anything, so this test asked nothing");
+}
+
+/// The strip under the bar is exactly as wide as the screen.
+///
+/// A gradient's percentages are percentages of the box it is painted in, so
+/// the strip's `min-width` is what makes 50% mean half the screen. Written
+/// down, because GTK has no way to ask.
+///
+/// Too narrow and the strip stops short of the right edge, with the fill
+/// running off the end of an apply early. Too wide and half of it is off the
+/// screen, so the fill never appears to finish. Both look like the apply
+/// misbehaving rather than the stylesheet, which is why this holds the number
+/// against the monitor hyprland is actually told to set up.
+///
+/// It is the size this device is set up as, and no longer the only size it can
+/// be: the Screen tab of the settings moves the density, and `console-scale`
+/// writes the width that leaves into a file the stylesheet imports and which
+/// outranks this rule. This is what the strip is on a machine nobody has
+/// changed, and what it falls back to if that file is ever missing -- so it is
+/// still the number the compositor's declaration has to agree with.
+#[test]
+fn the_strip_is_as_wide_as_the_screen() {
+    let screen = std::fs::read_to_string(root().join("files/home/@user@/.config/hypr/hyprland.lua"))
+        .expect("the compositor's config");
+    let field = |name: &str| {
+        screen
+            .lines()
+            .find_map(|line| line.trim().strip_prefix(name)?.split_once('='))
+            .map(|(_, said)| said.trim().trim_matches([',', '"', ' ']).to_string())
+            .unwrap_or_else(|| panic!("the monitor has no {name}"))
+    };
+    let mode = field("mode");
+    let (across, down) = mode.split_once('x').expect("a mode like 1600x2560@144");
+    let across: f64 = across.parse().expect("a width");
+    let down: f64 = down.split('@').next().expect("a height").parse().expect("a height");
+    let scale: f64 = field("scale").parse().expect("a scale");
+    // An odd transform is a quarter turn, which is what this panel is mounted
+    // at: the long side of the panel is the width of the desktop.
+    let turned = field("transform").parse::<u32>().expect("a transform") % 2 == 1;
+    let wide = match turned {
+        true => down,
+        false => across,
+    };
+    let logical = (wide / scale).round() as u32;
+
+    let style = std::fs::read_to_string(root().join("files/home/@user@/.config/waybar/style.css"))
+        .expect("the waybar stylesheet");
+    let written: u32 = style
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("min-width:")?.trim().strip_suffix("px;"))
+        .expect("nothing on the bar sets a min-width")
+        .trim()
+        .parse()
+        .expect("a width in pixels");
+
+    assert_eq!(
+        written, logical,
+        "the strip is {written} logical pixels wide and the screen is {logical}, so an apply \
+         would fill it to the wrong place"
     );
 }

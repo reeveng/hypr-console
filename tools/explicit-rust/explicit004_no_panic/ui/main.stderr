@@ -1,0 +1,51 @@
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/main.rs:9:5
+   |
+LL |     r.unwrap()
+   |     ^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+   = note: `#[deny(explicit004_no_panic)]` on by default
+
+error: `expect` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/main.rs:15:5
+   |
+LL |     r.expect("expected")
+   |     ^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+
+error: `panic!` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/main.rs:21:5
+   |
+LL |     panic!("done");
+   |     ^^^^^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+
+error: `unreachable!` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/main.rs:27:5
+   |
+LL |     unreachable!()
+   |     ^^^^^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+
+error: `todo!` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/main.rs:33:5
+   |
+LL |     todo!()
+   |     ^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+
+error: `unimplemented!` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/main.rs:39:5
+   |
+LL |     unimplemented!()
+   |     ^^^^^^^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+
+error: aborting due to 6 previous errors
+

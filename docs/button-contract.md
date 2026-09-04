@@ -116,6 +116,16 @@ The menu, closing and dictation stay bare, because each of those announces
 itself the instant it happens and is undone by pressing something else. A
 picture is filed in silence and is only ever found afterwards.
 
+Scrolling down is the fourth of those, and it is the one that wanted a resting
+finger rather than merely tolerating one. The bottom right paddle turns the
+wheel a notch down, and goes on turning it while it is held, the way the
+volume goes on moving. It passes the same rule the other three do: a page that
+moved has said so by the time the finger is off the button, and the way back is
+the stick, which is already under the thumb. Down and not up, because down is
+the direction a page is read in and one job on one button is worth more here
+than a pair of them split across two paddles. A finger holding nothing scrolls
+the page the way it always did, by dragging it.
+
 The button still sends what it always sends, whatever is held with it: the
 layer is not a mode the pad is put into, it is a question asked about the same
 press. Both triggers reach the desktop as triggers all the while, because they

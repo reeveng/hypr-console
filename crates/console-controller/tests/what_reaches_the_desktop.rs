@@ -38,6 +38,13 @@ fn every_job_can_be_reached_by_pressing_what_it_is_bound_to() {
     for job in JOBS {
         let mode = match job.when {
             console_controller::means::When::WithAChooserUp => Mode::Tabs,
+            // The home screen's own are on buttons the desktop has jobs for,
+            // and the desktop's are what a press reaches while the apps are
+            // not drawn. Each is asked about where it is for, which is the
+            // whole of what this test is: a job nothing can press is a job
+            // nobody has.
+            console_controller::means::When::OnTheHomeScreen => Mode::Home,
+            console_controller::means::When::StandingOnASquare => Mode::Standing,
             _ => Mode::Desktop,
         };
         for (layer, button) in job.bound {

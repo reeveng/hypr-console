@@ -1,5 +1,5 @@
 [Unit]
-Description=Game Mode: the left Legion button, held, comes back to the desktop
+Description=Game Mode: hold the left Legion button to come back here
 # Started by the Game Mode session and stopped with it. This is the desktop's
 # one foothold while Steam has the screen, and the desktop's own target is not
 # running to pull it in: console.target is stopped on the way to Game Mode.

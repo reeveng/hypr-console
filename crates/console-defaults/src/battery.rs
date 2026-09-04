@@ -160,11 +160,13 @@ impl Levels {
         };
         let level = level.clamp(floor, ceiling);
         let mut levels = self;
+
         match step {
             Step::Low => levels.low = level,
             Step::Lower => levels.lower = level,
             Step::Protect => levels.protect = level,
         }
+
         levels
     }
 
@@ -187,7 +189,17 @@ impl Levels {
             settings
                 .iter()
                 .find(|(key, _)| key == step.key())
-                .and_then(|(_, value)| value.parse().ok())
+                .and_then(|(_key, value)| match value.parse() {
+                    Ok(level) => Some(level),
+                    // The line is there and is not a number, so the built-in
+                    // level below stands. Said out loud: a level somebody set
+                    // and mistyped used to read exactly like one never set.
+                    Err(fault) => {
+                        eprintln!("console-defaults: {}: {value:?}: {fault}", step.key());
+
+                        None
+                    }
+                })
                 .unwrap_or_else(|| step.at())
         };
         Levels { low: one(Step::Low), lower: one(Step::Lower), protect: one(Step::Protect) }
@@ -196,7 +208,22 @@ impl Levels {
 
     /// The same, off the file where it lives.
     pub fn here() -> Self {
-        Levels::read(&std::fs::read_to_string(crate::where_()).unwrap_or_default())
+        let at = crate::where_();
+
+        // No file is ordinary: nobody has set a level and the built-in ones
+        // stand. A file that is there and will not be read gives the same
+        // levels and is not the same fact, so it is said rather than folded in.
+        let said = match std::fs::read_to_string(&at) {
+            Ok(said) => said,
+            Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(fault) => {
+                eprintln!("console-defaults: {}: {fault}", at.display());
+
+                String::new()
+            }
+        };
+
+        Levels::read(&said)
     }
 
     /// Write one of them down, leaving the file's other lines alone.
@@ -228,21 +255,31 @@ impl Levels {
 /// number: this device calls its battery `BATT`, and every laptop anybody has
 /// written one of these against calls it `BAT0`.
 pub fn charge() -> String {
-    let Ok(supplies) = std::fs::read_dir("/sys/class/power_supply") else {
-        return String::new();
-    };
-    supplies
-        .flatten()
-        .map(|supply| supply.path())
-        .filter(|at| at.file_name().is_some_and(|name| name.to_string_lossy().starts_with("BAT")))
-        .filter_map(|at| {
-            let capacity = std::fs::read_to_string(at.join("capacity")).ok()?;
-            let status = std::fs::read_to_string(at.join("status")).ok()?;
-            Some(format!("{} {}", capacity.trim(), status.trim()))
-        })
-        .next()
-        .unwrap_or_default()
-}
+        let Ok(supplies) = std::fs::read_dir("/sys/class/power_supply") else {
+            return String::new();
+        };
+
+        supplies
+            .flatten()
+            .map(|supply| supply.path())
+            .filter(|at| at.file_name().is_some_and(|name| name.to_string_lossy().starts_with("BAT")))
+            .filter_map(|at| {
+                // A supply that will not answer both questions is not a battery
+                // this can report on. Reading /sys is allowed to fail here --
+                // a supply can be unplugged between the listing and the read --
+                // and it is the one place in this crate where that is ordinary.
+                let (Ok(capacity), Ok(status)) = (
+                    std::fs::read_to_string(at.join("capacity")),
+                    std::fs::read_to_string(at.join("status")),
+                ) else {
+                    return None;
+                };
+
+                Some(format!("{} {}", capacity.trim(), status.trim()))
+            })
+            .next()
+            .unwrap_or_default()
+    }
 
 /// How full it is, and whether it is filling.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -251,14 +288,36 @@ pub struct Charge {
     /// answer. Told apart from nought per cent, which is a machine about to
     /// stop rather than a machine that has no battery to stop for.
     pub percent: Option<i32>,
-    pub filling: bool,
+    pub filling: Filling,
+}
+
+/// Whether the battery is going up or down.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum Filling {
+    /// It is on the mains, so nothing here has anything to warn about.
+    Yes,
+    /// It is running down, which is the only case any of this is about.
+    #[default]
+    No,
 }
 
 impl Charge {
     pub fn of(said: &str) -> Self {
         let mut words = said.split_whitespace();
-        let percent = words.next().and_then(|word| word.parse().ok());
-        let filling = words.next().is_some_and(|word| word == "Charging" || word == "Full");
+        let percent = words.next().and_then(|word| match word.parse() {
+            Ok(percent) => Some(percent),
+            // The machine answered with something that is not a number, which
+            // is not the same as a machine with no battery in it.
+            Err(fault) => {
+                eprintln!("console-defaults: the battery said {word:?}: {fault}");
+
+                None
+            }
+        });
+        let filling = match words.next().is_some_and(|word| word == "Charging" || word == "Full") {
+            true => Filling::Yes,
+            false => Filling::No,
+        };
         Charge { percent, filling }
     }
 }
@@ -298,13 +357,15 @@ pub struct Said {
 /// steps between two of them. That owes one card, the deeper: somebody who is
 /// about to be told the machine is stopping does not also need to be told it
 /// is getting low.
-pub fn asked(levels: Levels, charge: i32, filling: bool, told: Option<Step>) -> Said {
-    if filling {
+pub fn asked(levels: Levels, charge: i32, filling: Filling, told: Option<Step>) -> Said {
+    if filling == Filling::Yes {
         return Said { act: None, told: None };
     }
+
     // What has been said and is still in force. A step whose level the charge
     // has climbed clear of is a step that can happen again.
     let held = told.filter(|step| charge < levels.at(*step) + MARGIN);
+
     match levels.reached(charge) {
         Some(now) if held.is_none_or(|before| now > before) => {
             Said { act: Some(now), told: Some(now) }
@@ -322,11 +383,11 @@ mod tests {
     #[test]
     fn a_step_is_said_once_and_not_again_while_it_is_held() {
         let levels = Levels::default();
-        let first = asked(levels, 19, false, None);
+        let first = asked(levels, 19, Filling::No, None);
         assert_eq!(first, Said { act: Some(Step::Low), told: Some(Step::Low) });
-        let again = asked(levels, 19, false, first.told);
+        let again = asked(levels, 19, Filling::No, first.told);
         assert_eq!(again, Said { act: None, told: Some(Step::Low) });
-        let lower = asked(levels, 18, false, again.told);
+        let lower = asked(levels, 18, Filling::No, again.told);
         assert_eq!(lower.act, None, "still the same step");
     }
 
@@ -336,7 +397,7 @@ mod tests {
     /// own list out backwards.
     #[test]
     fn a_reading_that_falls_through_two_steps_owes_the_deeper_one() {
-        let said = asked(Levels::default(), 4, false, Some(Step::Low));
+        let said = asked(Levels::default(), 4, Filling::No, Some(Step::Low));
         assert_eq!(said, Said { act: Some(Step::Protect), told: Some(Step::Protect) });
     }
 
@@ -345,7 +406,7 @@ mod tests {
     /// doing the one thing this is here to prevent.
     #[test]
     fn nothing_happens_to_a_battery_that_is_filling() {
-        let said = asked(Levels::default(), 3, true, Some(Step::Lower));
+        let said = asked(Levels::default(), 3, Filling::Yes, Some(Step::Lower));
         assert_eq!(said, Said { act: None, told: None });
     }
 
@@ -354,8 +415,8 @@ mod tests {
     #[test]
     fn a_charge_that_climbs_clear_of_a_step_can_meet_it_again() {
         let levels = Levels::default();
-        assert_eq!(asked(levels, 40, false, Some(Step::Low)).told, None);
-        assert_eq!(asked(levels, 24, false, None).act, Some(Step::Low));
+        assert_eq!(asked(levels, 40, Filling::No, Some(Step::Low)).told, None);
+        assert_eq!(asked(levels, 24, Filling::No, None).act, Some(Step::Low));
     }
 
     /// A point either way is a battery reading, not a crossing. Without the
@@ -363,10 +424,10 @@ mod tests {
     #[test]
     fn a_reading_wobbling_on_a_step_does_not_say_it_twice() {
         let levels = Levels::default();
-        let said = asked(levels, 25, false, None);
+        let said = asked(levels, 25, Filling::No, None);
         assert_eq!(said.act, Some(Step::Low));
-        assert_eq!(asked(levels, 26, false, said.told).told, Some(Step::Low));
-        assert_eq!(asked(levels, 25, false, said.told).act, None);
+        assert_eq!(asked(levels, 26, Filling::No, said.told).told, Some(Step::Low));
+        assert_eq!(asked(levels, 25, Filling::No, said.told).act, None);
     }
 
     /// A step turned off is not reached by anything, including nought per
@@ -405,9 +466,9 @@ mod tests {
     /// What the kernel writes, as the two things anybody wants off it.
     #[test]
     fn a_charge_is_a_number_and_whether_it_is_filling() {
-        assert_eq!(Charge::of("72 Discharging"), Charge { percent: Some(72), filling: false });
-        assert_eq!(Charge::of("100 Full"), Charge { percent: Some(100), filling: true });
-        assert_eq!(Charge::of(""), Charge { percent: None, filling: false });
+        assert_eq!(Charge::of("72 Discharging"), Charge { percent: Some(72), filling: Filling::No });
+        assert_eq!(Charge::of("100 Full"), Charge { percent: Some(100), filling: Filling::Yes });
+        assert_eq!(Charge::of(""), Charge { percent: None, filling: Filling::No });
     }
 
     /// A machine with no battery is not a machine at nought per cent, and the

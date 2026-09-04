@@ -10,10 +10,11 @@
 //! asked is `console_notices::rows`, where it can be read without a mako to
 //! ask.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use console_notices::reading::{self, Notice};
 use console_notices::rows::{Chosen, TABS, earlier_rows, gone_rows, one_rows, waiting_rows};
+use console_panel::actor::{self, Addr, Answer};
 use console_panel::page::{Does, Page, Row, Rows, Showing, Watch};
 use console_panel::running::said;
 use console_panel::{chooser, panel};
@@ -47,15 +48,63 @@ enum Onto {
     One(u32),
 }
 
-type Looking = Arc<Mutex<Onto>>;
+/// The whole of what this panel holds, and the only thing that owns it.
+///
+/// One field, because one field is all there is: everything else on the two
+/// tabs is asked of mako at the moment it is drawn. It is a machine rather
+/// than a value behind a lock because the thumb writes it on the main thread
+/// and the tab is read on another, and a state with one owner cannot be half
+/// way through being written when the reader arrives.
+struct Looking {
+    onto: Onto,
+}
 
-fn looking_at(held: &Looking) -> Onto {
-    *held.lock().expect("what the notices are looking at")
+/// Everything that can happen to it, and nothing else.
+enum Msg {
+    /// Look at something else.
+    Look(Onto),
+    /// What is it looking at.
+    At(Answer<Onto>),
+}
+
+impl actor::Machine for Looking {
+    type Msg = Msg;
+
+    fn step(self, message: Msg) -> Self {
+        match message {
+            Msg::Look(onto) => Looking { onto },
+            Msg::At(answer) => {
+                let _ = answer.say(self.onto);
+                self
+            },
+        }
+    }
+}
+
+/// Where the panel reaches it. Cloned into every closure that used to be
+/// handed the lock.
+type Held = Addr<Msg>;
+
+/// What it is looking at, asked of the owner.
+///
+/// The list, if the owner has gone: this panel is on its way out by then, and
+/// the list is the tab as it opens rather than a page hanging on a
+/// notification that no longer exists.
+fn looking_at(held: &Held) -> Onto {
+    match held.ask(Msg::At) {
+        Ok(onto) => onto,
+        Err(_) => Onto::List,
+    }
 }
 
 /// Look at something else, and stand on a given row of it.
-fn look(held: &Looking, onto: Onto, showing: &dyn Showing, row: usize) {
-    *held.lock().expect("what the notices are looking at") = onto;
+///
+/// Said rather than asked, and the redraw underneath it is what reads the
+/// answer. The two cannot cross: the message goes down the mailbox before
+/// `replace` is called, and the question the redraw asks goes down the same
+/// mailbox behind it.
+fn look(held: &Held, onto: Onto, showing: &dyn Showing, row: usize) {
+    let _ = held.tell(Msg::Look(onto));
     showing.replace(row);
 }
 
@@ -66,13 +115,13 @@ fn look(held: &Looking, onto: Onto, showing: &dyn Showing, row: usize) {
 /// because the ordinary reason to open a notification is to be done with it.
 /// The top of a list of two or three is never far from wherever you were, and
 /// a remembered row that no longer exists is a panel with nothing highlighted.
-fn went_up(held: &Looking, showing: &dyn Showing) {
+fn went_up(held: &Held, showing: &dyn Showing) {
     look(held, Onto::List, showing, 0);
 }
 
 /// The way back up, for the rows that build themselves.
-fn back_up(held: &Looking) -> Chosen {
-    let held = Arc::clone(held);
+fn back_up(held: &Held) -> Chosen {
+    let held = held.clone();
     Arc::new(move |showing: &dyn Showing| went_up(&held, showing))
 }
 
@@ -83,8 +132,8 @@ const DEEPER: usize = 1;
 // -------------------------------------------------------------- what it does
 
 /// Open one notification, whole.
-fn open(held: &Looking, id: u32) -> Does {
-    let held = Arc::clone(held);
+fn open(held: &Held, id: u32) -> Does {
+    let held = held.clone();
     Does::and_stay(move |showing| look(&held, Onto::One(id), showing, DEEPER))
 }
 
@@ -93,8 +142,8 @@ fn open(held: &Looking, id: u32) -> Does {
 /// Not `later`. Dismissing is one call to a daemon on the same bus and is over
 /// before the next frame, and handing it off would draw the list once with the
 /// notification still in it.
-fn dismiss(held: &Looking, id: u32) -> Does {
-    let held = Arc::clone(held);
+fn dismiss(held: &Held, id: u32) -> Does {
+    let held = held.clone();
     Does::and_stay(move |showing| {
         makoctl(&["dismiss", "-n", &id.to_string()]);
         went_up(&held, showing);
@@ -117,8 +166,9 @@ fn clear() -> Does {
 
 // ---------------------------------------------------------------- the tabs
 
-fn waiting_tab(looking: &Looking) -> Vec<Row> {
+fn waiting_tab(looking: &Held) -> Vec<Row> {
     let held = waiting();
+
     match looking_at(looking) {
         Onto::List => waiting_rows(&held, |notice| open(looking, notice.id), clear()),
         // The one it was opened on, if mako still has it. It can go while its
@@ -151,9 +201,9 @@ fn arriving() -> Watch {
     )
 }
 
-fn pages(looking: &Looking) -> Vec<Page> {
-    let drawing = Arc::clone(looking);
-    let backing = Arc::clone(looking);
+fn pages(looking: &Held) -> Vec<Page> {
+    let drawing = looking.clone();
+    let backing = looking.clone();
     vec![
         // No `meanwhile`. Every other tab on this desktop that has one draws
         // the list it is going to have, wearing YET where a reading has not
@@ -185,17 +235,24 @@ fn main() {
     // stands for. The tab is part of which door this is: the bell tapped twice
     // puts the panel away, the same as every other icon along that edge.
     let tab = std::env::args().nth(1);
-    if !chooser::alone(
+
+    if chooser::alone(
         &format!("notices {}", tab.clone().unwrap_or_default()),
         chooser::Again::Closes,
-    ) {
+    ) == chooser::Alone::No
+    {
         return;
     }
 
-    let looking: Looking = Arc::new(Mutex::new(Onto::List));
+    let looking = actor::supervise(|| Looking { onto: Onto::List });
+    let held = looking.addr.clone();
     // The guide's width. Both tabs are text to be read rather than a list of
     // things to pick -- who said it on the left, what it said on the right --
     // and that is the shape the panel draws a row in when it is given a column
     // to hold the first words at.
-    panel::show(Arc::new(move || pages(&looking)), 250, tab.as_deref());
+    panel::show(Arc::new(move || pages(&held)), 250, tab.as_deref());
+    // The panel is down and the last redraw has been drawn, so nothing is
+    // going to ask again. Waited for rather than dropped, so that a message
+    // already in the mailbox is finished with before the process leaves.
+    looking.shutdown();
 }

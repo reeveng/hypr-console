@@ -1,0 +1,18 @@
+/* The apply strip is as wide as the screen, and how wide that is depends on
+   the size the screen is set to.
+
+   This file is the default, and it is shipped for one reason: the bar's
+   stylesheet imports it, and GTK treats an import it cannot open as fatal
+   rather than as a rule it does not have. So a missing file here is not a bar
+   wearing the wrong width, it is no bar at all -- waybar exits 1 and the unit
+   restarts it forever against the same missing file.
+
+   `console-scale apply` writes this file with the size the screen is actually
+   standing at, and it does that at every login. What is here is what this
+   device is set up as: 1600x2560 turned a quarter and divided by a scale of
+   2.5, which is 1024 across. Between an apply and the next login the strip may
+   be the default width rather than the chosen one, which is a strip slightly
+   the wrong size for a few minutes instead of a desktop with no bar. */
+window#waybar #custom-updating {
+  min-width: 1024px;
+}

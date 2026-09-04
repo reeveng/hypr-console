@@ -5,19 +5,20 @@
 @define-color night  #110b12;
 @define-color ground #231b26;
 @define-color panel  #372c3a;
-@define-color edge   #807485;
-@define-color text   #ebdce7;
-@define-color soft   #cdb6c9;
-@define-color pink   #ffb5e2;
-@define-color rose   #ffbac5;
-@define-color mauve  #dbc2ff;
-@define-color lilac  #c4ccff;
-@define-color sky    #9dd8ff;
-@define-color mint   #95e1cf;
-@define-color leaf   #aae0ac;
-@define-color butter #e2d086;
-@define-color peach  #fdc195;
-@define-color coral  #ffbbba;
+@define-color fill   #723b5f;
+@define-color edge   #8a7d8e;
+@define-color text   #f7e7f3;
+@define-color soft   #e5cde0;
+@define-color pink   #ffc2e7;
+@define-color rose   #ffc5ce;
+@define-color mauve  #dfcbff;
+@define-color lilac  #cad1ff;
+@define-color sky    #a4dbff;
+@define-color mint   #95e2d0;
+@define-color leaf   #aae1ad;
+@define-color butter #e6d48a;
+@define-color peach  #ffc9a0;
+@define-color coral  #ffc6c4;
 
 /* The names libadwaita reads, as references: a role changing its
    shade changes every name that stands for it. */

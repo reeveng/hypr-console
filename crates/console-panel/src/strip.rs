@@ -5,6 +5,8 @@
 //! fit is reached with the arrows at either end, which are the shoulders said
 //! in the other language.
 
+
+use console_number::fitted;
 use std::ops::Range;
 
 /// The card's own edge, the space between one tab and the next, and the space
@@ -23,6 +25,44 @@ pub const PAD: i32 = 6;
 /// of photographs shows as many rows as a list of anything else. Big enough to
 /// tell one beach from another, which is the whole of what it is for.
 pub const PICTURE: i32 = 32;
+
+/// How big a sleeve is drawn on a card that is about one thing.
+///
+/// Large enough to be the first thing a hand looks at and small enough that
+/// what is written under it -- the title, the artist, the bar and the presses
+/// -- is on the card with it rather than below the fold. A now-playing screen
+/// anybody has to scroll is one nobody scrolls.
+pub const SLEEVE: i32 = 176;
+
+// How tall a picture is drawn on a card that is about looking at it lives in
+// `crate::fitting::showing` and not here.
+//
+// It was a number in this file, beside `SLEEVE`, and it stopped being one
+// the day a card could be opened out to the whole screen: a sleeve is the same
+// size on any card and a picture is not, so one of them is a constant and the
+// other is arithmetic on the height the card was granted.
+
+/// How wide one answer to a question is drawn.
+///
+/// A question is answered by pressing one of a row of buttons across the card,
+/// and this is what each of them is given whatever is written on it, so that a
+/// one-word answer is the same target as a three-word one. Wide enough for a
+/// thumb, which is what decides how many answers a question may have: they are
+/// laid side by side, so a question with too many of them makes the card wider
+/// than every other panel on this desktop.
+///
+/// Named here rather than beside the drawing because the answering to that
+/// question -- how many answers is too many -- is asked by whoever writes the
+/// question, in another crate.
+pub const ANSWER: i32 = 150;
+
+/// How big an icon on a transport button is drawn.
+///
+/// Larger than a row's picture, because these are the things being pressed
+/// rather than pictures of what a row is about: the play button is the biggest
+/// target on a music player everywhere else, and it is under a thumb on a
+/// machine held in two hands.
+pub const PRESSED: i32 = 30;
 
 /// The line drawn round the card.
 ///
@@ -46,8 +86,9 @@ pub fn room(wide: i32, spent: i32) -> i32 {
 /// panel with no way along it.
 pub fn fits(room: i32, cell: i32) -> usize {
     let each = cell + GAP;
+
     match each > 0 {
-        true => ((room + GAP) / each).max(1) as usize,
+        true => fitted(((room + GAP) / each).max(1)),
         false => 1,
     }
 }
@@ -61,6 +102,7 @@ pub fn showing(tabs: usize, here: usize, from: usize, fits: usize) -> Range<usiz
     if fits >= tabs {
         return 0..tabs;
     }
+
     let first = from.min(here).max((here + 1).saturating_sub(fits));
     let first = first.min(tabs - fits);
     first..first + fits
@@ -90,14 +132,15 @@ pub enum Stop {
 /// one that takes two more presses to walk back.
 pub fn along(tabs: usize, from: Stop, step: i32) -> Stop {
     // The way out stands after the last tab, so it is the tabs' own count.
-    let out = tabs as i32;
+    let out = fitted::<usize, i32>(tabs);
     let at = match from {
-        Stop::Tab(index) => (index as i32).min(out),
+        Stop::Tab(index) => fitted::<usize, i32>(index).min(out),
         Stop::Out => out,
     };
+
     match (at + step).clamp(0, out) {
         going if going == out => Stop::Out,
-        going => Stop::Tab(going as usize),
+        going => Stop::Tab(fitted(going)),
     }
 }
 

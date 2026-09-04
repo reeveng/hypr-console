@@ -1,7 +1,0 @@
-#!/bin/sh
-# Show or hide the on-screen keyboard. Bound to X on the controller.
-#
-# wvkbd toggles itself on SIGRTMIN, so it owns the answer to "is it up?". An
-# earlier version of this script kept that in a file and guessed wrong every
-# other press.
-exec pkill -RTMIN -x wvkbd-mobintl

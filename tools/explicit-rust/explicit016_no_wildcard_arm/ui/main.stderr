@@ -1,0 +1,19 @@
+warning: this arm matches every variant of the enum without naming one
+  --> $DIR/main.rs:15:9
+   |
+LL |         _ => 0,
+   |         ^
+   |
+   = help: name every variant, so a variant added later is a compile error here rather than a silent vote
+   = note: `#[warn(explicit016_no_wildcard_arm)]` on by default
+
+warning: this arm matches every variant of the enum without naming one
+  --> $DIR/main.rs:24:9
+   |
+LL |         other => drop_it(other),
+   |         ^^^^^
+   |
+   = help: name every variant, so a variant added later is a compile error here rather than a silent vote
+
+warning: 2 warnings emitted
+

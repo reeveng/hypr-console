@@ -20,3 +20,6 @@ path = "src/bin/game-mode.rs"
 [[bin]]
 name = "desktop-mode"
 path = "src/bin/desktop-mode.rs"
+
+[lints]
+workspace = true

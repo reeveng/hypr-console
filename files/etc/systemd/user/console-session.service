@@ -1,5 +1,5 @@
 [Unit]
-Description=Restore and keep saving the open windows
+Description=Remember the open windows and put them back
 PartOf=console.target
 
 [Service]

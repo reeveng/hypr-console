@@ -18,7 +18,7 @@
 
 use std::process::{Command, ExitCode};
 
-use console_defaults::battery::{Charge, Step, charge};
+use console_defaults::battery::{Charge, Filling, Step, charge};
 use console_notices::saying::{Kept, journal, raise, raise_kept};
 use console_settings::stopping::{GRACE, LOOKING, Stop, card, for_the_journal, saved, stop};
 
@@ -38,6 +38,7 @@ fn main() -> ExitCode {
     };
 
     let stop = stop();
+
     match step {
         Step::Protect => stopping(percent, stop),
         _ => {
@@ -66,8 +67,10 @@ fn stopping(percent: i32, stop: Stop) -> ExitCode {
     }
 
     journal(&for_the_journal(percent, stop));
+
     for doing in [Some(stop), stop.instead()].into_iter().flatten() {
         let argv = doing.argv();
+
         match Command::new(&argv[0]).args(&argv[1..]).status() {
             Ok(how) if how.success() => return ExitCode::SUCCESS,
             Ok(how) => eprintln!("{} said {how}", argv.join(" ")),
@@ -93,12 +96,15 @@ fn stopping(percent: i32, stop: Stop) -> ExitCode {
 /// countdown drawn for decoration.
 fn plugged_in_within(waiting: std::time::Duration) -> Option<i32> {
     let by = std::time::Instant::now() + waiting;
+
     while std::time::Instant::now() < by {
         std::thread::sleep(LOOKING.min(by.saturating_duration_since(std::time::Instant::now())));
         let now = Charge::of(&charge());
-        if now.filling {
+
+        if now.filling == Filling::Yes {
             return Some(now.percent.unwrap_or_default());
         }
     }
+
     None
 }

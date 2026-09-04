@@ -22,6 +22,7 @@
 
 use std::collections::BTreeSet;
 
+use crate::devices::Has;
 use crate::routing;
 use crate::vocabulary::BUTTON;
 
@@ -69,19 +70,23 @@ impl Router {
     /// What to write, given what the machine said it has.
     pub fn of(capabilities: &BTreeSet<String>) -> Self {
         let mut router = Router::default();
+
         for capability in capabilities {
             let Some(button) = capability.strip_prefix(BUTTON) else { continue };
+
             // A trigger reported as a button is still a trigger. It is one of
             // the layers, it is passed through as an axis below, and binding
             // anything to it would be binding a job to holding the machine.
             if button.ends_with("Trigger") || button.ends_with("StickTouch") {
                 continue;
             }
+
             match routing::ROUTE.iter().find(|(named, _)| *named == button) {
                 Some((named, _)) => router.buttons.push(named),
                 None => router.without.push(button.to_string()),
             }
         }
+
         router.buttons.sort_unstable_by_key(|button| {
             routing::ROUTE.iter().position(|(named, _)| named == button)
         });
@@ -89,8 +94,11 @@ impl Router {
     }
 
     /// Whether this device can send that button at all.
-    pub fn has(&self, button: &str) -> bool {
-        self.buttons.contains(&button)
+    pub fn has(&self, button: &str) -> Has {
+        match self.buttons.contains(&button) {
+            true => Has::Yes,
+            false => Has::No,
+        }
     }
 
     /// The profile itself.
@@ -130,20 +138,23 @@ impl Router {
              \x20   source_event:\n      gamepad:\n        axis:\n          name: RightStick\n\
              \x20   target_events:\n      - gamepad:\n          axis:\n            name: RightStick\n\n",
         );
+
         for trigger in PASSED {
             said.push_str(&format!(
                 "  - name: {trigger} - a layer, held\n\
                  \x20   source_event:\n      gamepad:\n        trigger:\n\
                  \x20         name: {trigger}\n          deadzone: 0.3\n\
                  \x20   target_events:\n      - gamepad:\n          trigger:\n\
-                 \x20         name: {trigger}\n\n"
+                 \x20           name: {trigger}\n\n"
             ));
         }
+
         for button in &self.buttons {
             if let Some(mapping) = routing::mapping(button) {
                 said.push_str(&mapping);
             }
         }
+
         said
     }
 }
@@ -198,7 +209,7 @@ pub fn every_profile(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::profile::{Profile, Source};
+    use crate::profile::{Kind, Profile, Source, Target};
     use std::path::Path;
 
     /// A handheld with paddles, and one without.
@@ -231,8 +242,37 @@ mod tests {
     #[test]
     fn a_trigger_is_not_one_of_the_buttons() {
         let router = Router::of(&legion());
-        assert!(!router.has("LeftTrigger"));
+        assert_eq!(router.has("LeftTrigger"), Has::No);
         assert!(router.yaml().contains("LeftTrigger - a layer, held"));
+    }
+
+    /// And the profile it writes for a trigger is one InputPlumber can read.
+    ///
+    /// Read back rather than matched as text: the day the target's `name` was
+    /// written one indent short it became a sibling of the `trigger` it should
+    /// have hung under, so InputPlumber loaded the profile without complaint,
+    /// sent the two triggers nowhere, and every chord went quiet. A profile is
+    /// only written correctly if parsing it gives back what it was written to
+    /// say.
+    #[test]
+    fn a_trigger_reaches_the_pad_as_a_trigger() {
+        let written = Router::of(&legion_go()).yaml();
+        let profile = Profile::read(Path::new(FILE), &written).expect("a profile");
+        for trigger in PASSED {
+            let held = profile
+                .mappings
+                .iter()
+                .find(|mapping| mapping.source == Source::Trigger {
+                    name: trigger.to_string(),
+                    deadzone: Some(0.3),
+                })
+                .unwrap_or_else(|| panic!("{trigger} is not in the profile"));
+            assert_eq!(
+                held.targets,
+                [Target { kind: Kind::GamepadTrigger, name: trigger.to_string() }],
+                "{trigger} does not come out of the profile as itself",
+            );
+        }
     }
 
     /// A button this repository has no word for is left out and said out loud.
@@ -254,8 +294,9 @@ mod tests {
         let router = Router::of(&legion());
         let profile = Profile::read(Path::new(FILE), &router.yaml()).expect("it is a profile");
         assert_eq!(profile.name, "Router");
-        assert!(profile.publishes("xbox-elite") && profile.publishes("keyboard"));
-        assert!(profile.publishes("mouse"));
+        assert_eq!(profile.publishes("xbox-elite"), Has::Yes);
+        assert_eq!(profile.publishes("keyboard"), Has::Yes);
+        assert_eq!(profile.publishes("mouse"), Has::Yes);
         // One for each button, one for each stick, one for each trigger.
         assert_eq!(profile.mappings.len(), router.buttons.len() + 4);
         assert!(

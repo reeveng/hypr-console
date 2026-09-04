@@ -33,11 +33,16 @@ pub enum Got {
 /// Under the cache rather than beside the pictures, because they are not needed
 /// after a press and anything under a cache is a thing a machine may delete.
 pub fn kept() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    std::env::var("XDG_CACHE_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| Path::new(&home).join(".cache"))
-        .join("console/sky")
+    let cache = match crate::place::said("XDG_CACHE_HOME") {
+        Some(cache) => PathBuf::from(cache),
+        None => {
+            let home = crate::place::said("HOME").unwrap_or_else(|| "/tmp".to_string());
+
+            Path::new(&home).join(".cache")
+        }
+    };
+
+    cache.join("console/sky")
 }
 
 /// What a file's checksum is, written the way `sha256sum` writes it.
@@ -70,6 +75,7 @@ pub fn get(from: &str, wanted: &str, into: &Path) -> Result<Got, String> {
             }),
         };
     }
+
     if let Some(holding) = into.parent() {
         std::fs::create_dir_all(holding)
             .map_err(|fault| format!("{} could not be made: {fault}", holding.display()))?;
@@ -87,6 +93,7 @@ pub fn get(from: &str, wanted: &str, into: &Path) -> Result<Got, String> {
         .arg(from)
         .output()
         .map_err(|fault| format!("curl would not run: {fault}"))?;
+
     if !done.status.success() {
         let _ = std::fs::remove_file(&part);
         return Err(format!(
@@ -100,6 +107,7 @@ pub fn get(from: &str, wanted: &str, into: &Path) -> Result<Got, String> {
         let _ = std::fs::remove_file(&part);
         return Ok(Got::Changed { wanted: wanted.to_string(), found });
     }
+
     std::fs::rename(&part, into)
         .map_err(|fault| format!("{} could not be put in place: {fault}", into.display()))?;
     Ok(Got::Fetched)

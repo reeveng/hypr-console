@@ -22,23 +22,29 @@ use console_download::store::{self, Kind, SIDE};
 
 fn main() {
     let words: Vec<String> = std::env::args().skip(1).collect();
+
     let Some(kind) = words.first().and_then(|word| Kind::read(word)) else {
         eprintln!("which kind: --audio or --video");
         return;
     };
+
     // Joined rather than taken one at a time: what was typed is a sentence and
     // a shell has already taken it apart by the time it arrives here.
     let asked = words[1..].join(" ").trim().to_string();
+
     if asked.is_empty() {
         eprintln!("what to look for");
         return;
     }
+
     let cache = glib::user_cache_dir();
     let looked = look(&asked);
     let _ = std::fs::create_dir_all(store::pictures(&cache));
+
     for found in &looked.found {
         picture(&cache, found);
     }
+
     wrote(&cache, kind, &looked);
 }
 
@@ -50,10 +56,13 @@ fn main() {
 fn look(asked: &str) -> Looked {
     let argv = looking::search(asked);
     let asked = asked.to_string();
+
     let Ok(done) = Command::new(&argv[0]).args(&argv[1..]).output() else {
         return Looked { asked, fault: NO_YT_DLP.to_string(), found: Vec::new() };
     };
+
     let said = String::from_utf8_lossy(&done.stdout);
+
     match done.status.success() {
         true => Looked { asked, fault: String::new(), found: looking::found_in(&said) },
         false => Looked {
@@ -71,18 +80,22 @@ fn look(asked: &str) -> Looked {
 /// mark for a broken one.
 fn picture(cache: &Path, found: &Found) {
     let Some(at) = store::picture_of(cache, &found.id) else { return };
+
     if at.exists() || found.picture.is_empty() {
         return;
     }
+
     let part = at.with_extension("part");
     let fetched = Command::new("curl")
         .args(["--silent", "--location", "--max-time", "20", "--output"])
         .arg(&part)
         .arg(&found.picture)
         .status();
+
     if fetched.is_ok_and(|how| how.success()) {
         drawn_out(&part, &at);
     }
+
     let _ = std::fs::remove_file(&part);
 }
 
@@ -103,6 +116,7 @@ fn drawn_out(part: &Path, at: &Path) {
         ])
         .arg(at)
         .status();
+
     if !done.is_ok_and(|how| how.success()) {
         let _ = std::fs::remove_file(at);
     }
@@ -113,7 +127,23 @@ fn wrote(cache: &Path, kind: Kind, looked: &Looked) {
     let _ = std::fs::create_dir_all(store::folder(cache));
     let at = store::found_at(cache, kind);
     let part = at.with_extension("part");
-    if std::fs::write(&part, looking::written(looked)).is_ok() {
-        let _ = std::fs::rename(&part, &at);
+
+    let said = match looking::written(looked) {
+        Ok(said) => said,
+        Err(why) => {
+            eprintln!("{why}");
+            return;
+        },
+    };
+
+    // Written beside and renamed, so a panel reading the file while this runs
+    // sees the search before or the search after and never half of one.
+    if let Err(fault) = std::fs::write(&part, &said) {
+        eprintln!("writing down what the search found: {fault}");
+        return;
+    }
+
+    if let Err(fault) = std::fs::rename(&part, &at) {
+        eprintln!("putting the search where the panel looks for it: {fault}");
     }
 }

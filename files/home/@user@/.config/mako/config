@@ -14,7 +14,7 @@
 # clears the bar with six to spare.
 #
 # There is no colour above the markers and none below them. Everything between
-# is written from theme/palette.toml by `make theme`.
+# is written from theme/palette.toml by `just theme`.
 
 sort=-time
 layer=overlay
@@ -53,16 +53,16 @@ on-button-left=dismiss
 
 # console-theme:begin
 background-color=#372c3a
-text-color=#ebdce7
-border-color=#807485
-progress-color=over #ffb5e2
+text-color=#f7e7f3
+border-color=#8a7d8e
+progress-color=over #723b5f
 
 [urgency=low]
-border-color=#cdb6c9
-text-color=#cdb6c9
+border-color=#e5cde0
+text-color=#e5cde0
 
 [urgency=critical]
-border-color=#ffbbba
+border-color=#ffc6c4
 # console-theme:end
 
 # A fault waits until somebody has seen it. Everything console-say raises is

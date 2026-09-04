@@ -2,9 +2,9 @@
 
 use std::collections::BTreeSet;
 
-use console_stage::checking::{Body, Check, Done, ought};
+use console_stage::checking::{Body, Check, Done, empty, happened, seen};
 use console_stage::desktop::Desktop;
-use console_stage::device::Device;
+use console_stage::device::{Device, Seen};
 use console_stage::palette::palette;
 
 pub const KEYBOARD: Check = Check {
@@ -43,23 +43,25 @@ const DOWN: (i32, i32, usize) = (390, 636, 12);
 const SHADES: [&str; 3] = ["ground", "night", "panel"];
 
 fn there(stage: &mut Device) -> Done {
-    if stage.keyboard() {
+    if stage.keyboard() == Seen::Yes {
         stage.press("x");
         stage.settle(1.5);
     }
+
     stage.press("x");
     stage.settle(1.5);
-    ought(stage.keyboard(), || "the keyboard did not come up".to_string())?;
+    seen(stage.keyboard(), || "the keyboard did not come up".to_string())?;
     stage.press("x");
     stage.settle(1.5);
-    ought(!stage.keyboard(), || "the keyboard would not go away".to_string())
+    seen(stage.keyboard().flipped(), || "the keyboard would not go away".to_string())
 }
 
 fn draws(stage: &mut Desktop) -> Done {
     let wanted = palette();
-    stage.open("osk")?;
+    stage.open("keyboard-toggle")?;
 
     let mut there = BTreeSet::new();
+
     for across in (ACROSS.0..ACROSS.1).step_by(ACROSS.2) {
         for down in (DOWN.0..DOWN.1).step_by(DOWN.2) {
             there.insert(stage.colour(f64::from(across), f64::from(down))?);
@@ -68,7 +70,7 @@ fn draws(stage: &mut Desktop) -> Done {
 
     let missing: Vec<&str> =
         SHADES.into_iter().filter(|name| !there.contains(&wanted[*name])).collect();
-    ought(missing.is_empty(), || {
+    empty(&missing, || {
         format!(
             "the keyboard is not three shades; nothing is {}. The slab, a letter key and a key \
              that is not a letter have to differ or some of the keys have nothing under them.",
@@ -81,15 +83,15 @@ fn draws(stage: &mut Desktop) -> Done {
 ///
 /// X reaching the keyboard is not this desktop's own doing. Every profile
 /// passes X through untouched -- it arrives on the pad as North, which
-/// `console-pad/tests/the_button_contract.rs` asks for on purpose -- and wvkbd
-/// finds the pad in /dev/input and reads it itself. So two programs go looking
-/// for one pad and neither of them owns it, and the controller's own
+/// `console-pad/tests/the_button_contract.rs` asks for on purpose -- and the
+/// keyboard finds the pad in /dev/input and reads it itself. So two programs go
+/// looking for one pad and neither of them owns it, and the controller's own
 /// ExecStartPost destroys it on the way past: a profile switch takes the pad
 /// away and builds a new one, which is `console_controller::turning::Gone`.
 ///
-/// Started with nothing said about the order, wvkbd could open the pad that
-/// switch was about to take. What that looked like was X doing nothing until
-/// the next reboot, and working again on the one after that.
+/// Started with nothing said about the order, the keyboard could open the pad
+/// that switch was about to take. What that looked like was X doing nothing
+/// until the next reboot, and working again on the one after that.
 ///
 /// Which is why this restarts rather than presses. `110-the-keyboard` presses X
 /// once, on a desktop that has been up for a while, and it passed all the way
@@ -124,32 +126,39 @@ const UP: f64 = 90.0;
 /// How long a press is given to be answered.
 const ANSWERS: f64 = 4.0;
 
+/// Whether the controller has finished coming up. The profile is what says so,
+/// because loading it is the last thing that happens on the way up.
+fn routing(stage: &mut Device) -> Seen {
+    match stage.profile().as_str() {
+        "Router" => Seen::Yes,
+        _ => Seen::NotYet,
+    }
+}
+
 fn every_time(stage: &mut Device) -> Done {
     for round in 1..=RESTARTS {
         stage.user("systemctl --user restart console.target");
 
-        // The profile is what says the way up has finished, because loading it
-        // is the last thing that happens and it is the thing that takes the pad
-        // away. Pressing before it lands would be this check racing the same
-        // race rather than watching it.
-        ought(stage.until(|seen| seen.profile() == "Router", UP), || {
+        // Pressing before the router lands would be this check racing the same
+        // race it is here to watch.
+        happened(stage.until(routing, UP), || {
             format!(
                 "round {round} of {RESTARTS}: the controller never loaded the router, so nothing \
                  here has been asked yet. journalctl --user -u console-controller says why."
             )
         })?;
 
-        // wvkbd is started --hidden and stays for the session, but a restart
+        // The keyboard is started --hidden and stays for the session, but a restart
         // leaves whatever the last round did on the screen.
-        if stage.keyboard() {
+        if stage.keyboard() == Seen::Yes {
             stage.press("x");
             stage.settle(1.5);
         }
 
         stage.press("x");
-        ought(stage.until(Device::keyboard, ANSWERS), || {
+        happened(stage.until(Device::keyboard, ANSWERS), || {
             format!(
-                "round {round} of {RESTARTS}: X did not raise the keyboard. The pad wvkbd opened \
+                "round {round} of {RESTARTS}: X did not raise the keyboard. The pad the keyboard opened \
                  is not the one X arrives on: console-keyboard.service is ordered After= the \
                  controller so the profile switch has already happened, and something has undone \
                  that or the fork has stopped looking again."
@@ -157,13 +166,14 @@ fn every_time(stage: &mut Device) -> Done {
         })?;
 
         stage.press("x");
-        ought(stage.until(|seen| !seen.keyboard(), ANSWERS), || {
+        happened(stage.until(|seen| seen.keyboard().flipped(), ANSWERS), || {
             format!(
                 "round {round} of {RESTARTS}: X raised the keyboard and would not put it away, \
                  which is one pad read twice rather than none read at all."
             )
         })?;
     }
+
     Ok(())
 }
 
@@ -176,7 +186,7 @@ fn every_time(stage: &mut Device) -> Done {
 /// does, and it is the window a password is typed into.
 ///
 /// It cannot in fact tell the difference, and the reason is worth writing down.
-/// wvkbd never types into a window: it makes a virtual keyboard at the
+/// The keyboard never types into a window: it makes a virtual keyboard at the
 /// compositor, and the compositor hands the keys to whoever holds the focus. So
 /// a browser sees the real keyboard. This asks anyway, because that is a
 /// sentence about how it ought to work, and the page saying the letters back is
@@ -194,7 +204,7 @@ pub const IN_A_PAGE: Check = Check {
 ///
 /// No apostrophes anywhere in it. It is written to the device through a shell,
 /// and a quote in here would end the string it travels inside.
-const PAGE: &str = r#"<!doctype html><title>osk-check</title>
+const PAGE: &str = r#"<!doctype html><title>keyboard-check</title>
 <input id=i autofocus style="font-size:32px;width:90%">
 <script>
 var i = document.getElementById("i");
@@ -213,35 +223,42 @@ const OPENS: f64 = 45.0;
 /// How long the letters are given to arrive once they have been sent.
 const ARRIVES: f64 = 6.0;
 
+/// Whether a window with this in its title is up, which is how this check
+/// watches for the browser and then for what was typed into it.
+fn titled(stage: &mut Device, part: &str) -> Seen {
+    match stage.titles().iter().any(|title| title.contains(part)) {
+        true => Seen::Yes,
+        false => Seen::NotYet,
+    }
+}
+
 fn in_a_page(stage: &mut Device) -> Done {
     let home = stage.home();
-    let at = format!("{home}/.cache/console-osk-check.html");
+    let at = format!("{home}/.cache/console-keyboard-check.html");
     stage.user(&format!("mkdir -p {home}/.cache && printf %s '{PAGE}' > {at}"));
 
     let up = stage.open(&format!("librewolf --new-window file://{at}"), OPENS);
-    ought(up, || {
+    happened(up, || {
         "the browser never came up, so nothing here has been asked yet".to_string()
     })?;
-    ought(stage.until(|seen| seen.titles().iter().any(|title| title.contains("osk-check")), OPENS), || {
+    happened(stage.until(|seen| titled(seen, "keyboard-check"), OPENS), || {
         "the browser came up on something other than the page this check wrote".to_string()
     })?;
 
     // Whatever the last thing to touch it left behind.
-    if stage.keyboard() {
+    if stage.keyboard() == Seen::Yes {
         stage.press("x");
         stage.settle(1.5);
     }
+
     stage.press("x");
-    ought(stage.until(Device::keyboard, ARRIVES), || {
+    happened(stage.until(Device::keyboard, ARRIVES), || {
         "X did not raise the keyboard over the browser, though it does over everything else.          The browser is a layer surface away from the pad, not a profile away from it."
             .to_string()
     })?;
 
     stage.types(TYPED);
-    let arrived = stage.until(
-        |seen| seen.titles().iter().any(|title| title.contains(&format!("GOT[{TYPED}]"))),
-        ARRIVES,
-    );
+    let arrived = stage.until(|seen| titled(seen, &format!("GOT[{TYPED}]")), ARRIVES);
 
     // Put the screen back the way it was found, pass or fail.
     stage.press("x");
@@ -249,7 +266,7 @@ fn in_a_page(stage: &mut Device) -> Done {
     stage.user("pkill -x librewolf");
     stage.user(&format!("rm -f {at}"));
 
-    ought(arrived, || {
+    happened(arrived, || {
         format!(
             "the keyboard came up over the browser and {TYPED:?} did not reach the field. The              keys go to whoever holds the focus, so either the page never had it or the browser              is not taking a virtual keyboard -- MOZ_ENABLE_WAYLAND is what decides the second."
         )

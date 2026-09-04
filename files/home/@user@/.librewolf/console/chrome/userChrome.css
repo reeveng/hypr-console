@@ -29,9 +29,12 @@
   border-bottom: 1px solid var(--edge) !important;
 }
 
+/* The bookmarks toolbar is not among these. It is switched off in user.js --
+   this device has no use for a row of small targets it cannot add to -- and a
+   rule dressing something nobody can see is a rule that outlives the reason
+   for it. */
 #TabsToolbar,
-#nav-bar,
-#PersonalToolbar {
+#nav-bar {
   background-color: var(--ground) !important;
   color: var(--text) !important;
 }

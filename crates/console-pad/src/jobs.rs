@@ -17,7 +17,7 @@ use std::path::PathBuf;
 
 use serde::Deserialize;
 
-use crate::vocabulary::{self, TRIGGERS};
+use crate::vocabulary::{self, Names, TRIGGERS};
 
 /// Where the table lives, under the home of whoever this desktop belongs to.
 ///
@@ -46,25 +46,58 @@ pub struct Layer {
 /// Nothing held, which is what nearly every binding is.
 pub const ALONE: Layer = Layer { l2: false, r2: false };
 
+/// Whether a binding has a button on it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Played {
+    /// Something plays it.
+    ByAButton,
+    /// Nothing does, which is a job written down and left unbound.
+    ByNothing,
+}
+
+/// Whether anything in a table was moved off where this desktop puts it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Rebound {
+    /// Somebody's own file says where at least one job goes.
+    Something,
+    /// Nothing was said, so every job is where the desktop puts it.
+    Nothing,
+}
+
+/// Whether a trigger is in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Held {
+    /// It is held, so the bindings on its layer are the ones that play.
+    Down,
+    /// It is not.
+    Up,
+}
+
 impl Layer {
-    pub const fn of(l2: bool, r2: bool) -> Self {
-        Layer { l2, r2 }
+    pub const fn of(l2: Held, r2: Held) -> Self {
+        Layer { l2: matches!(l2, Held::Down), r2: matches!(r2, Held::Down) }
     }
 
     /// Whether anything is held at all.
-    pub fn held(self) -> bool {
-        self.l2 || self.r2
+    pub fn held(self) -> Held {
+        match self.l2 || self.r2 {
+            true => Held::Down,
+            false => Held::Up,
+        }
     }
 
     /// The triggers, in the order they are said and drawn.
     pub fn said(self) -> Vec<&'static str> {
         let mut said = Vec::new();
+
         if self.l2 {
             said.push("l2");
         }
+
         if self.r2 {
             said.push("r2");
         }
+
         said
     }
 
@@ -72,22 +105,25 @@ impl Layer {
     ///
     /// The trigger names are `vocabulary::TRIGGERS`, so a device whose layers
     /// are called something else is one word away rather than a rewrite.
-    pub fn is_a_trigger(word: &str) -> bool {
-        TRIGGERS.iter().any(|(spoken, _)| *spoken == word)
+    pub fn is_a_trigger(word: &str) -> Names {
+        match TRIGGERS.iter().any(|(spoken, _)| *spoken == word) {
+            true => Names::ATrigger,
+            false => Names::AButton,
+        }
     }
 
     /// The layer a word names, if it names one.
     fn of_word(word: &str) -> Option<Self> {
         match word {
-            "l2" => Some(Layer::of(true, false)),
-            "r2" => Some(Layer::of(false, true)),
+            "l2" => Some(Layer::of(Held::Down, Held::Up)),
+            "r2" => Some(Layer::of(Held::Up, Held::Down)),
             _ => None,
         }
     }
 
     /// Both of these held at once.
     fn with(self, other: Self) -> Self {
-        Layer::of(self.l2 || other.l2, self.r2 || other.r2)
+        Layer { l2: self.l2 || other.l2, r2: self.r2 || other.r2 }
     }
 }
 
@@ -125,8 +161,11 @@ impl Binding {
         Binding::on(NOTHING)
     }
 
-    pub fn played(&self) -> bool {
-        !self.button.is_empty()
+    pub fn played(&self) -> Played {
+        match self.button.is_empty() {
+            true => Played::ByNothing,
+            false => Played::ByAButton,
+        }
     }
 
     /// What was said, read back.
@@ -138,24 +177,31 @@ impl Binding {
     /// question they did not ask.
     pub fn read(said: &str) -> Result<Self, String> {
         let said = said.trim();
+
         if said.is_empty() {
             return Ok(Binding::nothing());
         }
+
         let mut words: Vec<&str> = said.split('+').map(str::trim).collect();
         let button = words.pop().unwrap_or_default().to_string();
         let mut layer = ALONE;
+
         for word in words {
             let Some(one) = Layer::of_word(word) else {
                 return Err(format!("{word:?} is not a trigger to hold, in {said:?}"));
             };
+
             layer = layer.with(one);
         }
-        if Layer::is_a_trigger(&button) {
+
+        if Layer::is_a_trigger(&button) == Names::ATrigger {
             return Err(format!("{button:?} is a trigger, and a trigger is what is held: {said:?}"));
         }
+
         if vocabulary::button_name(&button).is_err() {
             return Err(format!("nothing on this machine is called {button:?}"));
         }
+
         Ok(Binding { layer, button })
     }
 }
@@ -164,9 +210,11 @@ impl fmt::Display for Binding {
     /// The way it is written in the file, and the way it is said out loud.
     fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut said = self.layer.said();
+
         if self.button.is_empty() {
             return write!(out, "");
         }
+
         said.push(&self.button);
         write!(out, "{}", said.join(" + "))
     }
@@ -217,13 +265,17 @@ impl Jobs {
         let written: Written = toml::from_str(said)
             .map_err(|fault| format!("the button table does not parse: {fault}"))?;
         let mut moved: BTreeMap<String, Vec<Binding>> = BTreeMap::new();
+
         for (job, said) in written.jobs {
             let mut bound = Vec::new();
+
             for one in said.every() {
                 bound.push(Binding::read(&one).map_err(|fault| format!("{job}: {fault}"))?);
             }
+
             moved.insert(job, bound);
         }
+
         Ok(Jobs { moved })
     }
 
@@ -231,8 +283,11 @@ impl Jobs {
         Jobs::default()
     }
 
-    pub fn moved(&self) -> bool {
-        !self.moved.is_empty()
+    pub fn moved(&self) -> Rebound {
+        match self.moved.is_empty() {
+            true => Rebound::Nothing,
+            false => Rebound::Something,
+        }
     }
 
     /// What plays this job, where somebody has said something about it.
@@ -264,6 +319,7 @@ impl Jobs {
             .filter(|(_, bound)| bound.contains(onto))
             .map(|(named, _)| named.clone())
             .collect();
+
         for lost in &taken {
             let left: Vec<Binding> = every
                 .get(lost)
@@ -277,7 +333,9 @@ impl Jobs {
                 },
             );
         }
+
         self.moved.insert(job.to_string(), vec![onto.clone()]);
+
         match (taken.first(), already) {
             (Some(taken), _) => Moved::TookFrom(taken.clone()),
             (None, true) => Moved::Already,
@@ -304,8 +362,10 @@ impl Jobs {
              # shows. Written by the setup screen; the controller daemon reads it.\n\
              \n[jobs]\n",
         );
+
         for (job, bound) in &self.moved {
             let each: Vec<String> = bound.iter().map(Binding::to_string).collect();
+
             match each.len() {
                 1 => said.push_str(&format!("{job} = \"{}\"\n", each[0])),
                 _ => said.push_str(&format!(
@@ -314,6 +374,7 @@ impl Jobs {
                 )),
             }
         }
+
         said
     }
 }
@@ -338,7 +399,7 @@ mod tests {
     #[test]
     fn a_binding_is_read_the_way_it_is_written() {
         let held = Binding::read("l2 + right-paddle-bottom").expect("a binding");
-        assert_eq!(held.layer, Layer::of(true, false));
+        assert_eq!(held.layer, Layer::of(Held::Down, Held::Up));
         assert_eq!(held.button, "right-paddle-bottom");
         assert_eq!(held.to_string(), "l2 + right-paddle-bottom");
     }
@@ -347,7 +408,7 @@ mod tests {
     fn a_button_on_its_own_holds_nothing() {
         let alone = Binding::read("a").expect("a binding");
         assert_eq!(alone.layer, ALONE);
-        assert!(!alone.layer.held());
+        assert_eq!(alone.layer.held(), Held::Up);
         assert_eq!(alone.to_string(), "a");
     }
 
@@ -355,16 +416,16 @@ mod tests {
     #[test]
     fn both_triggers_are_a_layer_of_their_own() {
         let both = Binding::read("l2 + r2 + x").expect("a binding");
-        assert_eq!(both.layer, Layer::of(true, true));
+        assert_eq!(both.layer, Layer::of(Held::Down, Held::Down));
         assert_eq!(both.to_string(), "l2 + r2 + x");
-        assert_ne!(both.layer, Layer::of(true, false));
+        assert_ne!(both.layer, Layer::of(Held::Down, Held::Up));
     }
 
     /// A job with no button is written down as one, and reads back as one.
     #[test]
     fn a_job_with_no_button_says_so_rather_than_being_left_out() {
         let none = Binding::read("").expect("a binding");
-        assert!(!none.played());
+        assert_eq!(none.played(), Played::ByNothing);
         assert_eq!(none.to_string(), "");
     }
 
@@ -412,7 +473,7 @@ mod tests {
     fn every() -> BTreeMap<String, Vec<Binding>> {
         [
             ("menu".to_string(), vec![Binding::on("left-paddle-top")]),
-            ("screenshot".to_string(), vec![Binding::held(Layer::of(true, false), "b".into())]),
+            ("screenshot".to_string(), vec![Binding::held(Layer::of(Held::Down, Held::Up), "b".into())]),
         ]
         .into_iter()
         .collect()
@@ -434,7 +495,7 @@ mod tests {
         let onto = Binding::on("left-paddle-top");
         assert_eq!(jobs.moving(&every(), "screenshot", &onto), Moved::TookFrom("menu".into()));
         assert_eq!(jobs.bound("screenshot"), Some([onto].as_slice()));
-        assert!(!jobs.bound("menu").expect("the menu")[0].played());
+        assert_eq!(jobs.bound("menu").expect("the menu")[0].played(), Played::ByNothing);
     }
 
     /// A chord and the button on its own are two different bindings, so moving
@@ -444,7 +505,7 @@ mod tests {
         let mut jobs = Jobs::none();
         let mut every = every();
         every.insert("back".to_string(), vec![Binding::on("b")]);
-        let onto = Binding::held(Layer::of(false, true), "b".into());
+        let onto = Binding::held(Layer::of(Held::Up, Held::Down), "b".into());
         assert_eq!(jobs.moving(&every, "menu", &onto), Moved::Onto);
         assert_eq!(jobs.bound("back"), None, "b on its own is still back");
     }

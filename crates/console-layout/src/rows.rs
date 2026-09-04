@@ -8,8 +8,9 @@
 use std::collections::BTreeMap;
 
 use console_controller::means::Table;
+use console_pad::devices::Has;
 use console_pad::front::Front;
-use console_pad::jobs::Binding;
+use console_pad::jobs::{Binding, Played};
 use console_pad::vocabulary::{button_name, spoken_for};
 use console_panel::page::{Does, Row};
 
@@ -54,7 +55,7 @@ pub const WAITING: &str = "hold L2 or R2 first for a chord, or wait and nothing 
 pub struct Plays {
     pub binding: Binding,
     /// Whether this machine has that button at all.
-    pub here: bool,
+    pub here: Has,
 }
 
 /// One thing the desktop does, and what plays it on this device.
@@ -73,13 +74,19 @@ pub struct Part {
 
 impl Part {
     /// Whether any button plays this job at all.
-    pub fn played(&self) -> bool {
-        self.plays.iter().any(|one| one.binding.played())
+    pub fn played(&self) -> Played {
+        match self.plays.iter().any(|one| one.binding.played() == Played::ByAButton) {
+            true => Played::ByAButton,
+            false => Played::ByNothing,
+        }
     }
 
     /// Whether any of what plays it is a button this device has.
-    pub fn here(&self) -> bool {
-        self.plays.iter().any(|one| one.here)
+    pub fn here(&self) -> Has {
+        match self.plays.iter().any(|one| one.here == Has::Yes) {
+            true => Has::Yes,
+            false => Has::No,
+        }
     }
 
     /// What the row says beside the job: what plays it, or which kind of none.
@@ -89,12 +96,12 @@ impl Part {
     /// naming a button nobody can press.
     pub fn aside(&self) -> String {
         match (self.played(), self.here()) {
-            (false, _) => UNPLAYED.to_string(),
-            (_, false) => NOWHERE.to_string(),
+            (Played::ByNothing, _) => UNPLAYED.to_string(),
+            (_, Has::No) => NOWHERE.to_string(),
             _ => self
                 .plays
                 .iter()
-                .filter(|one| one.here)
+                .filter(|one| one.here == Has::Yes)
                 .map(|one| aloud(&one.binding))
                 .collect::<Vec<String>>()
                 .join(" or "),
@@ -141,7 +148,10 @@ pub fn parts(table: &Table, front: &Front) -> Vec<Part> {
     // reason the screen exists at all would be at the bottom of it, under four
     // rows about the d-pad. A stable sort, so the rest keep the order the
     // table names them in.
-    parts.sort_by_key(Part::here);
+    parts.sort_by_key(|part| match part.here() {
+        Has::No => 0,
+        Has::Yes => 1,
+    });
     parts
 }
 
@@ -150,12 +160,12 @@ pub fn parts(table: &Table, front: &Front) -> Vec<Part> {
 /// A machine that could not be asked is not a machine with no buttons: every
 /// job is left where it is rather than the whole front of the device being
 /// reported missing.
-fn has(front: &Front, binding: &Binding) -> bool {
+fn has(front: &Front, binding: &Binding) -> Has {
     match button_name(&binding.button) {
         Ok(named) => front.can_send(named),
         // A job with no button at all, and a button this repository has no
         // word for -- which is a button nothing could have been bound to.
-        Err(_) => false,
+        Err(_) => Has::No,
     }
 }
 
@@ -181,6 +191,7 @@ pub fn every(parts: &[Part]) -> BTreeMap<String, Vec<Binding>> {
 /// hardware nobody here has seen.
 pub fn said(button: &str) -> String {
     let spoken = spoken_for(button);
+
     match spoken.contains(|letter: char| letter.is_uppercase()) {
         true => split(spoken),
         false => spoken.replace('-', " "),
@@ -189,12 +200,15 @@ pub fn said(button: &str) -> String {
 
 fn split(named: &str) -> String {
     let mut said = String::new();
+
     for letter in named.chars() {
         if (letter.is_uppercase() || letter.is_ascii_digit()) && !said.is_empty() {
             said.push(' ');
         }
+
         said.extend(letter.to_lowercase());
     }
+
     said
 }
 
@@ -215,9 +229,11 @@ fn split(named: &str) -> String {
 /// nobody has touched it would never have anything to do.
 pub fn rows(parts: &[Part], moving: impl Fn(&Part) -> Does, putting_back: Does) -> Vec<Row> {
     let mut rows: Vec<Row> = Vec::new();
+
     if parts.iter().any(|part| part.moved) {
         rows.push(Row::new(PUT_BACK, PUT_BACK_ASIDE, putting_back));
     }
+
     rows.extend(parts.iter().map(|part| Row::new(&part.does, &part.aside(), moving(part))));
     rows
 }
@@ -230,6 +246,7 @@ pub fn question(part: &Part) -> String {
 /// The same phrase inside a sentence rather than at the head of a row.
 pub fn lowered(does: &str) -> String {
     let mut letters = does.chars();
+
     match letters.next() {
         Some(first) => first.to_lowercase().collect::<String>() + letters.as_str(),
         None => does.to_string(),
@@ -239,6 +256,7 @@ pub fn lowered(does: &str) -> String {
 /// And the other way, which is how a job reaches the head of a row.
 fn capitalised(does: &str) -> String {
     let mut letters = does.chars();
+
     match letters.next() {
         Some(first) => first.to_uppercase().collect::<String>() + letters.as_str(),
         None => String::new(),
@@ -293,7 +311,7 @@ mod tests {
     fn a_job_bound_to_a_button_this_device_has_not_got_says_so() {
         let parts = parts(&Table::ours(), &ordinary());
         let menu = named(&parts, "menu");
-        assert!(!menu.here());
+        assert_eq!(menu.here(), Has::No);
         assert_eq!(menu.aside(), NOWHERE);
     }
 
@@ -303,7 +321,8 @@ mod tests {
     fn a_job_moved_onto_a_button_this_device_has_is_no_longer_missing() {
         let parts = parts(&moved("[jobs]\nmenu = \"r2 + a\"\n"), &ordinary());
         let menu = named(&parts, "menu");
-        assert!(menu.here() && menu.moved);
+        assert_eq!(menu.here(), Has::Yes);
+        assert!(menu.moved);
         assert_eq!(menu.aside(), "r2 + a");
     }
 
@@ -314,7 +333,7 @@ mod tests {
         let parts = parts(&Table::ours(), &ordinary());
         let keyboard = named(&parts, "keyboard");
         assert_eq!(keyboard.plays.len(), 2);
-        assert!(keyboard.here());
+        assert_eq!(keyboard.here(), Has::Yes);
         assert_eq!(keyboard.aside(), "x");
     }
 
@@ -324,15 +343,15 @@ mod tests {
     #[test]
     fn what_this_device_has_not_got_is_at_the_top() {
         let parts = parts(&Table::ours(), &ordinary());
-        assert!(!parts[0].here());
-        assert!(parts.last().expect("a job").here());
+        assert_eq!(parts[0].here(), Has::No);
+        assert_eq!(parts.last().expect("a job").here(), Has::Yes);
     }
 
     /// A machine that could not be asked is not a machine with no buttons.
     #[test]
     fn a_device_that_said_nothing_leaves_every_job_where_it_is() {
         let parts = parts(&Table::ours(), &Front::default());
-        assert!(parts.iter().all(|part| part.here()));
+        assert!(parts.iter().all(|part| part.here() == Has::Yes));
     }
 
     /// The way somebody would say it, including for hardware nothing here has
@@ -387,10 +406,12 @@ mod tests {
     fn a_job_left_with_no_button_says_that_rather_than_that_the_device_lacks_one() {
         let parts = parts(&moved("[jobs]\nmenu = \"\"\n"), &ordinary());
         let menu = named(&parts, "menu");
-        assert!(!menu.played() && !menu.here() && menu.moved);
+        assert_eq!(menu.played(), Played::ByNothing);
+        assert_eq!(menu.here(), Has::No);
+        assert!(menu.moved);
         assert_eq!(menu.aside(), UNPLAYED);
         // And it is at the top, with the rest of what cannot be pressed.
-        assert!(!parts[0].here());
+        assert_eq!(parts[0].here(), Has::No);
     }
 
     /// Which is a row the reset can be reached from, so the reset is offered.

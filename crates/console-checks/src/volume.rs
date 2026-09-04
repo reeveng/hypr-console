@@ -1,6 +1,6 @@
 //! L2 and the d-pad move the volume.
 
-use console_stage::checking::{Body, Check, Done, ought};
+use console_stage::checking::{Body, Check, Done, less_than, more_than, same};
 use console_stage::device::Device;
 use console_stage::here::{Here, TURNS};
 
@@ -25,7 +25,7 @@ fn louder_here(stage: &mut Here) -> Done {
     stage.press("dpad-up")?;
     stage.settle(TURNS);
     let ran = stage.commands().to_vec();
-    ought(ran == [["/usr/local/bin/console-volume", "up"]], || format!("it ran {ran:?}"))
+    same(&ran, &[["/usr/local/bin/console-volume", "up"]], || format!("it ran {ran:?}"))
 }
 
 /// The volume has a ceiling and a machine sitting on it has no higher number
@@ -47,7 +47,7 @@ fn louder_there(stage: &mut Device) -> Done {
     stage.settle(1.0);
     stage.trigger("l2", 0.0)?;
     let now = stage.volume();
-    ought(now > was, || format!("it was {was} and is {now}"))
+    more_than(now, was, || format!("it was {was} and is {now}"))
 }
 
 fn quieter_here(stage: &mut Here) -> Done {
@@ -55,7 +55,7 @@ fn quieter_here(stage: &mut Here) -> Done {
     stage.press("dpad-down")?;
     stage.settle(TURNS);
     let ran = stage.commands().to_vec();
-    ought(ran == [["/usr/local/bin/console-volume", "down"]], || format!("it ran {ran:?}"))
+    same(&ran, &[["/usr/local/bin/console-volume", "down"]], || format!("it ran {ran:?}"))
 }
 
 /// The floor is a clamp as much as the ceiling is, so room is made above first
@@ -76,5 +76,5 @@ fn quieter_there(stage: &mut Device) -> Done {
     stage.settle(1.0);
     stage.trigger("l2", 0.0)?;
     let now = stage.volume();
-    ought(now < was, || format!("it was {was} and is {now}"))
+    less_than(now, was, || format!("it was {was} and is {now}"))
 }

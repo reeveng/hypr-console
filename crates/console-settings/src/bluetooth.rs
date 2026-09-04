@@ -26,14 +26,38 @@ pub fn devices(said: &str) -> Vec<Device> {
         .collect()
 }
 
+/// Whether the short-road radio is on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Radio {
+    /// It is on, so there are devices to list.
+    On,
+    /// It is off, and the one row there is turns it on.
+    Off,
+}
+
+/// Whether a device is joined just now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Joined {
+    /// It is, so its row disconnects it.
+    Yes,
+    /// It is not, so its row connects it.
+    No,
+}
+
 /// Whether the radio is on at all.
-pub fn on(said: &str) -> bool {
-    said.contains("Powered: yes")
+pub fn on(said: &str) -> Radio {
+    match said.contains("Powered: yes") {
+        true => Radio::On,
+        false => Radio::Off,
+    }
 }
 
 /// Whether one of them is joined just now.
-pub fn joined(said: &str) -> bool {
-    said.contains("Connected: yes")
+pub fn joined(said: &str) -> Joined {
+    match said.contains("Connected: yes") {
+        true => Joined::Yes,
+        false => Joined::No,
+    }
 }
 
 #[cfg(test)]
@@ -65,9 +89,9 @@ mod tests {
 
     #[test]
     fn the_radio_and_the_road_are_both_read_off_what_was_said() {
-        assert!(on("Controller AA\n\tPowered: yes\n"));
-        assert!(!on("Controller AA\n\tPowered: no\n"));
-        assert!(joined("\tConnected: yes\n"));
-        assert!(!joined("\tConnected: no\n"));
+        assert_eq!(on("Controller AA\n\tPowered: yes\n"), Radio::On);
+        assert_eq!(on("Controller AA\n\tPowered: no\n"), Radio::Off);
+        assert_eq!(joined("\tConnected: yes\n"), Joined::Yes);
+        assert_eq!(joined("\tConnected: no\n"), Joined::No);
     }
 }

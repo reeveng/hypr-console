@@ -1,10 +1,11 @@
 # Checks
 
-    make checks                             here, against the emulator
+    just checks                             here, against the emulator
     console-check --list                    what there is
     console-check brightness                only the checks about that
     console-check --stage device --dry      what it would do to the device
     console-check --stage device --yes      do it
+    console-check --stage device --yes --all   every check written for it
 
 `console-check` is `cargo run --bin console-check`, and the checks themselves
 are `crates/console-checks`, one module per feature. The number in front of a
@@ -22,6 +23,31 @@ page scroll or send a touch.
 Every check that runs without a machine also runs in `cargo test`, so a check
 nobody has run since the feature changed cannot survive to fail on the device
 for a reason that has nothing to do with the device.
+
+## The machine is asked only what nothing else can
+
+The device tier is minutes of somebody's handheld, and most of what is written
+for it is a second question about a feature the emulator answered here in a
+third of a second, before the deploy went out. So `--stage device` asked for
+nothing in particular runs only the checks nothing else can answer, and prints
+the rest as skipped with where they were answered instead. `--all` is the whole
+tier, for a run that is about the hardware rather than the desktop.
+
+Which those are is read off the check rather than listed anywhere: a check with
+a `Body::Device` and no other body is the machine's business, and one that grows
+an emulator body stops being it the same moment. There is no list to keep in
+step, and nothing to forget.
+
+Naming a check is asking for it. `console-check --stage device --yes brightness`
+runs brightness on the machine whatever the emulator thinks, which is how a
+feature the emulator says is fine and the device disagrees about gets looked at.
+
+The end of a deploy still touches the real hardware: `110` presses X through
+InputPlumber and waits for the keyboard, so the whole chain from a button to a
+window is walked once even on the short tier. What the short tier gives up is
+the second opinion on everything the emulator already answered, and `--all` is
+where to get it when a deploy changed something about the machine rather than
+about the desktop.
 
 ## Assert what a person would see
 
@@ -75,6 +101,10 @@ after a pacman transaction they read it wrong and then settle on their own. The
 tier is most often run straight after a deploy, which is exactly when they lie.
 A red `010` on the first run after an install is the machine being honest about
 being busy; run it again before believing it.
+
+Both are answered here now, so only `--all` asks them of the machine at all.
+That is most of why the short tier is steadier straight after a deploy, and it
+is worth knowing before reading an `--all` run taken in the same minute.
 
 ## It is somebody's machine
 

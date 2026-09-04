@@ -68,11 +68,27 @@ pub const SPARE: [&str; 25] = [
 /// out because they are not presses; the two `StickTouch` capabilities are
 /// left out because they are a finger resting on a stick, which would bind the
 /// menu to holding the thing normally.
-pub fn pressable(capability: &str) -> bool {
-    match capability.strip_prefix(BUTTON) {
+pub fn pressable(capability: &str) -> Sends {
+    let pressable = match capability.strip_prefix(BUTTON) {
         Some(button) => !button.ends_with("StickTouch") && !button.ends_with("Trigger"),
         None => false,
+    };
+
+    match pressable {
+        true => Sends::APress,
+        false => Sends::SomethingElse,
     }
+}
+
+/// Whether a capability is a button being pressed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sends {
+    /// A press, which is a thing a job can be bound to.
+    APress,
+    /// A stick, a trigger or a finger resting on one -- movement rather than a
+    /// press, and binding a job to it would fire it by holding the pad
+    /// normally.
+    SomethingElse,
 }
 
 /// The two triggers, passed through untouched while the question is up.
@@ -107,12 +123,14 @@ impl Asking {
     pub fn of(capabilities: &BTreeSet<String>) -> Self {
         let mut spare = SPARE.iter();
         let mut asking = Asking::default();
-        for capability in capabilities.iter().filter(|said| pressable(said)) {
+
+        for capability in capabilities.iter().filter(|said| pressable(said) == Sends::APress) {
             match spare.next() {
                 Some(key) => asking.keys.push((capability.clone(), *key)),
                 None => asking.without.push(capability.clone()),
             }
         }
+
         asking
     }
 
@@ -157,6 +175,7 @@ impl Asking {
              target_devices:\n  - mouse\n  - keyboard\n  - xbox-elite\n\
              \nmapping:\n",
         );
+
         for (capability, key) in &self.keys {
             let button = capability.strip_prefix(BUTTON).unwrap_or(capability);
             said.push_str(&format!(
@@ -165,6 +184,7 @@ impl Asking {
                  \x20   target_events:\n      - keyboard: {key}\n\n"
             ));
         }
+
         for trigger in HELD {
             said.push_str(&format!(
                 "  - name: {trigger} - so the card can see a chord being held\n\
@@ -174,12 +194,14 @@ impl Asking {
                  \x20         name: {trigger}\n\n"
             ));
         }
+
         said
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::devices::Has;
     use super::*;
     use crate::profile::{Profile, Source};
     use std::path::Path;
@@ -233,15 +255,18 @@ mod tests {
             .filter(|source| matches!(source, Source::Trigger { .. }))
             .collect();
         assert_eq!(held.len(), HELD.len());
-        assert!(HELD.iter().all(|trigger| !pressable(&format!("{BUTTON}{trigger}"))));
+        assert!(
+            HELD.iter()
+                .all(|trigger| pressable(&format!("{BUTTON}{trigger}")) == Sends::SomethingElse)
+        );
     }
 
     #[test]
     fn a_stick_being_rested_on_is_not_a_press() {
-        assert!(!pressable("Gamepad:Button:LeftStickTouch"));
-        assert!(!pressable("Gamepad:Button:LeftTrigger"));
-        assert!(!pressable("Gamepad:Axis:LeftStick"));
-        assert!(pressable("Gamepad:Button:South"));
+        assert_eq!(pressable("Gamepad:Button:LeftStickTouch"), Sends::SomethingElse);
+        assert_eq!(pressable("Gamepad:Button:LeftTrigger"), Sends::SomethingElse);
+        assert_eq!(pressable("Gamepad:Axis:LeftStick"), Sends::SomethingElse);
+        assert_eq!(pressable("Gamepad:Button:South"), Sends::APress);
     }
 
     /// Every button gets its own key, or the question cannot tell two presses
@@ -315,7 +340,8 @@ mod tests {
             Profile::read(Path::new("asking.yaml"), &asking.yaml()).expect("it is a profile");
         assert_eq!(profile.name, "Asking");
         assert_eq!(profile.mappings.len(), asking.keys.len() + HELD.len());
-        assert!(profile.publishes("xbox-elite") && profile.publishes("keyboard"));
+        assert_eq!(profile.publishes("xbox-elite"), Has::Yes);
+        assert_eq!(profile.publishes("keyboard"), Has::Yes);
         let first = &profile.mappings[0];
         assert_eq!(first.source, Source::Button("LeftPaddle1".into()));
         assert_eq!(first.targets[0].name, asking.keys[0].1);

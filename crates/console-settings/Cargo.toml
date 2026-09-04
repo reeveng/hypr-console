@@ -29,11 +29,22 @@ path = "src/bin/console-volume.rs"
 name = "console-warm"
 path = "src/bin/console-warm.rs"
 
+[[bin]]
+name = "console-scale"
+path = "src/bin/console-scale.rs"
+
 [dependencies]
+console-number.workspace = true
 console-defaults.workspace = true
+console-home.workspace = true
 console-notices.workspace = true
 console-panel.workspace = true
+console-screen.workspace = true
 console-sky.workspace = true
 console-voice.workspace = true
+console-words.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+[lints]
+workspace = true

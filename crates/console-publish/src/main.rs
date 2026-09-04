@@ -37,6 +37,7 @@ fn publish(repo: &Path, where_: &Path) -> Result<(), String> {
         std::fs::remove_dir_all(where_)
             .map_err(|fault| format!("{} could not be cleared: {fault}", where_.display()))?;
     }
+
     std::fs::create_dir_all(where_)
         .map_err(|fault| format!("{} could not be made: {fault}", where_.display()))?;
 
@@ -61,6 +62,7 @@ fn carry(source: &Path, target: &Path) -> Result<(), String> {
         std::fs::create_dir_all(holding)
             .map_err(|fault| format!("{} could not be made: {fault}", holding.display()))?;
     }
+
     let held = std::fs::read(source)
         .map_err(|fault| format!("{} could not be read: {fault}", source.display()))?;
     std::fs::write(target, &held)
@@ -78,17 +80,23 @@ fn carry(source: &Path, target: &Path) -> Result<(), String> {
 /// what is about to be pushed is the thing worth knowing passes.
 fn checked(repo: &Path, where_: &Path) -> Result<ExitCode, String> {
     let (names, missing) = names::watched();
+
     if let Some(said) = missing {
         eprintln!("{said}");
     }
+
     let said = talking(where_, &names)?;
+
     if !said.is_empty() {
         eprintln!("still says too much:");
+
         for (path, watched) in &said {
             eprintln!("  {} says {}, which is {}", path.display(), watched.name, watched.what);
         }
+
         return Ok(ExitCode::FAILURE);
     }
+
     println!("nothing of anybody's name in it");
 
     // Told to build nothing inside the copy. What comes out of here is what
@@ -101,23 +109,35 @@ fn checked(repo: &Path, where_: &Path) -> Result<ExitCode, String> {
         &[("CARGO_TARGET_DIR", repo.join("target/published").display().to_string())],
     );
     Ok(match passed {
-        true => ExitCode::SUCCESS,
-        false => ExitCode::FAILURE,
+        Passed::Yes => ExitCode::SUCCESS,
+        Passed::No => ExitCode::FAILURE,
     })
 }
 
+/// Whether a suite run inside the copy came back clean.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Passed {
+    /// It ran, and every test in it passed.
+    Yes,
+    /// It failed, or it would not run at all.
+    No,
+}
+
 /// One test suite, run inside the copy. Says whether it passed.
-fn ran(where_: &Path, program: &str, args: &[&str], told: &[(&str, String)]) -> bool {
+fn ran(where_: &Path, program: &str, args: &[&str], told: &[(&str, String)]) -> Passed {
     match Command::new(program)
         .args(args)
         .envs(told.iter().map(|(name, value)| (*name, value)))
         .current_dir(where_)
         .status()
     {
-        Ok(status) => status.success(),
+        Ok(status) => match status.success() {
+            true => Passed::Yes,
+            false => Passed::No,
+        },
         Err(fault) => {
             eprintln!("{program} would not run: {fault}");
-            false
+            Passed::No
         }
     }
 }
@@ -129,11 +149,14 @@ fn talking<'a>(
 ) -> Result<Vec<(PathBuf, &'a Watched)>, String> {
     let mut said = Vec::new();
     let mut asking = vec![where_.to_path_buf()];
+
     while let Some(holding) = asking.pop() {
         let inside = std::fs::read_dir(&holding)
             .map_err(|fault| format!("{} could not be read: {fault}", holding.display()))?;
+
         for found in inside {
             let path = found.map_err(|fault| format!("{fault}"))?.path();
+
             match path.is_dir() {
                 true if path.file_name().is_some_and(|name| name == ".git") => (),
                 true => asking.push(path),
@@ -149,16 +172,19 @@ fn talking<'a>(
             }
         }
     }
+
     said.sort_by(|(one, _), (other, _)| one.cmp(other));
     Ok(said)
 }
 
 /// Everything git is holding, which is what a clone would get.
 fn tracked(repo: &Path) -> Result<Vec<String>, String> {
+    let at = repo.to_str().ok_or_else(|| format!("{} is not a name git can be given", repo.display()))?;
     let out = Command::new("git")
-        .args(["-C", repo.to_str().expect("a path"), "ls-files"])
+        .args(["-C", at, "ls-files"])
         .output()
         .map_err(|fault| format!("git would not run: {fault}"))?;
+
     match out.status.success() {
         false => Err("git ls-files failed; is this a repository?".to_string()),
         true => Ok(String::from_utf8_lossy(&out.stdout)

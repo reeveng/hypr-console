@@ -6,6 +6,7 @@
 //! references rather than as colours, so that a role changing its shade
 //! changes every name that stands for it.
 
+use console_colour::Short;
 use crate::palette::Palette;
 use crate::spend::{ROLES, breeze, widest};
 
@@ -34,11 +35,13 @@ const ADWAITA_WIDTH: usize = 28;
 
 const SUFFIX: &str = "_breeze";
 
-pub fn spend(palette: &Palette) -> String {
+pub fn spend(palette: &Palette) -> Result<String, Short> {
     let width = widest(ROLES);
     let colours = ROLES
         .iter()
-        .map(|name| format!("@define-color {name:<width$} #{};", &palette[name]));
+        .map(|name| Ok(format!("@define-color {name:<width$} #{};", palette.must(name)?)))
+        .collect::<Result<Vec<_>, Short>>()?
+        .into_iter();
 
     let adwaita = ADWAITA.iter().map(|(name, role)| {
         format!("@define-color {name:<ADWAITA_WIDTH$} @{role};")
@@ -50,9 +53,14 @@ pub fn spend(palette: &Palette) -> String {
         names.sort_unstable();
         names
     };
-    let breeze = sorted.into_iter().map(move |name| {
-        let role = breeze::role(name).expect("every Breeze name has a colour decided for it");
-        format!("@define-color {:<breeze_width$} @{role};", format!("{name}{SUFFIX}"))
+    // A name with no colour decided for it is left out rather than panicked
+    // over. It cannot happen -- `every_name_breeze_reads_has_a_colour_decided`
+    // holds `NAMES` against `role` -- and if it ever does, the cost is one
+    // widget wearing the toolkit's own grey instead of a theme that fails to
+    // write at all.
+    let breeze = sorted.into_iter().filter_map(move |name| {
+        let role = breeze::role(name)?;
+        Some(format!("@define-color {:<breeze_width$} @{role};", format!("{name}{SUFFIX}")))
     });
 
     let lines = [
@@ -78,7 +86,7 @@ pub fn spend(palette: &Palette) -> String {
     .chain(breeze)
     .collect::<Vec<_>>();
 
-    format!("{}\n", lines.join("\n"))
+    Ok(format!("{}\n", lines.join("\n")))
 }
 
 #[cfg(test)]
@@ -88,7 +96,7 @@ mod tests {
 
     #[test]
     fn every_role_is_written_once_as_a_colour() {
-        let css = spend(&blossom());
+        let css = spend(&blossom()).expect("every colour it spends is declared");
         for name in ROLES {
             let written = css.lines().filter(|l| l.starts_with(&format!("@define-color {name} "))).count();
             assert_eq!(written, 1, "{name} is defined {written} times");
@@ -97,7 +105,7 @@ mod tests {
 
     #[test]
     fn only_the_roles_hold_a_hex_and_every_other_name_is_a_reference() {
-        let css = spend(&blossom());
+        let css = spend(&blossom()).expect("every colour it spends is declared");
         let holds_hex = |line: &str| line.contains('#');
         for line in css.lines().filter(|l| l.starts_with("@define-color")).filter(|l| holds_hex(l)) {
             let name = line.split_whitespace().nth(1).expect("a name");
@@ -107,7 +115,7 @@ mod tests {
 
     #[test]
     fn every_reference_points_at_a_role_that_exists() {
-        let css = spend(&blossom());
+        let css = spend(&blossom()).expect("every colour it spends is declared");
         for line in css.lines().filter(|l| l.contains(" @")) {
             let role = line.rsplit(" @").next().and_then(|r| r.strip_suffix(';')).expect("a role");
             assert!(ROLES.contains(&role), "{line} points at {role}, which is not a role");
@@ -116,7 +124,7 @@ mod tests {
 
     #[test]
     fn breeze_gets_every_name_it_asks_for() {
-        let css = spend(&blossom());
+        let css = spend(&blossom()).expect("every colour it spends is declared");
         for name in breeze::NAMES {
             assert!(
                 css.contains(&format!("@define-color {name}_breeze ")),
@@ -127,7 +135,7 @@ mod tests {
 
     #[test]
     fn it_ends_in_exactly_one_newline() {
-        let css = spend(&blossom());
+        let css = spend(&blossom()).expect("every colour it spends is declared");
         assert!(css.ends_with(";\n") && !css.ends_with("\n\n"));
     }
 }

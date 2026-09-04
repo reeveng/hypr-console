@@ -12,7 +12,20 @@ pub fn ratio(value: f64) -> String {
     format!("{value}")
 }
 
-pub fn write(spec: &Spec, palette: &Palette, rows: &[Row], terminal: &Terminal) -> String {
+/// An `Lc` floor as it is written, and a dash where there is no claim to make.
+pub fn asked_lc(value: f64) -> String {
+    match value > 0.0 {
+        true => format!("Lc {value}"),
+        false => "--".to_string(),
+    }
+}
+
+pub fn write(
+    spec: &Spec,
+    palette: &Palette,
+    rows: &[Row],
+    terminal: &Terminal,
+) -> Result<String, col::Short> {
     let head = [
         format!("# {}", spec.meta.name),
         String::new(),
@@ -23,32 +36,46 @@ pub fn write(spec: &Spec, palette: &Palette, rows: &[Row], terminal: &Terminal) 
         "channel, which is what a contrast checker reads off the screen and is a".into(),
         "tenth of a point away from the arithmetic on the same two colours.".into(),
         String::new(),
+        "Every pairing is measured twice. The ratio is WCAG 2, which is what the".into(),
+        "law asks for and what a checker will report. `Lc` is APCA, which knows".into(),
+        "which of the two colours is the paper: it is negative here because".into(),
+        "everything on this desktop is pale ink on a dark ground. A colour is".into(),
+        "lifted until it clears both, and on a palette this dark it is almost".into(),
+        "always `Lc` that decides where it lands.".into(),
+        String::new(),
         "## The colours".into(),
         String::new(),
         "| | colour | spent on |".into(),
         "| --- | --- | --- |".into(),
     ];
 
-    let colours = spec.colour.iter().map(|(name, declared)| {
-        format!("| `{name}` | `#{}` | {} |", &palette[name.as_str()], declared.spent)
-    });
+    let colours = spec
+        .colour
+        .iter()
+        .map(|(name, declared)| {
+            Ok(format!("| `{name}` | `#{}` | {} |", palette.must(name)?, declared.spent))
+        })
+        .collect::<Result<Vec<String>, col::Short>>()?;
 
     let asked = [
         String::new(),
         "## What was asked of them".into(),
         String::new(),
-        "| front | on | asked | got | |".into(),
-        "| --- | --- | --- | --- | --- |".into(),
+        "| front | on | asked | got | | asked | got | |".into(),
+        "| --- | --- | --- | --- | --- | --- | --- | --- |".into(),
     ]
     .into_iter()
     .chain(rows.iter().map(|row| {
         format!(
-            "| `{}` | `{}` | {}:1 | **{:.2}:1** | {} |",
+            "| `{}` | `{}` | {}:1 | **{:.2}:1** | {} | {} | **{:.1}** | {} |",
             row.front,
             row.back,
             ratio(row.asked),
             row.got,
-            row.grade()
+            row.grade(),
+            asked_lc(row.asked_lc),
+            row.got_lc,
+            row.grade_lc()
         )
     }));
 
@@ -56,8 +83,8 @@ pub fn write(spec: &Spec, palette: &Palette, rows: &[Row], terminal: &Terminal) 
         String::new(),
         "## The terminal".into(),
         String::new(),
-        "| slot | normal | | bright | |".into(),
-        "| --- | --- | --- | --- | --- |".into(),
+        "| slot | normal | | | bright | | |".into(),
+        "| --- | --- | --- | --- | --- | --- | --- |".into(),
     ]
     .into_iter()
     .chain(SLOTS.map(|slot| {
@@ -66,9 +93,11 @@ pub fn write(spec: &Spec, palette: &Palette, rows: &[Row], terminal: &Terminal) 
             terminal.slot(Shade::Bright, slot),
         );
         format!(
-            "| {slot} | `#{normal}` | {:.2}:1 | `#{bright}` | {:.2}:1 |",
+            "| {slot} | `#{normal}` | {:.2}:1 | {:.1} | `#{bright}` | {:.2}:1 | {:.1} |",
             col::contrast(normal, &terminal.background),
-            col::contrast(bright, &terminal.background)
+            col::lc(normal, &terminal.background),
+            col::contrast(bright, &terminal.background),
+            col::lc(bright, &terminal.background)
         )
     }));
 
@@ -78,7 +107,7 @@ pub fn write(spec: &Spec, palette: &Palette, rows: &[Row], terminal: &Terminal) 
         .chain(asked)
         .chain(sixteen)
         .collect();
-    format!("{}\n", lines.join("\n"))
+    Ok(format!("{}\n", lines.join("\n")))
 }
 
 #[cfg(test)]
@@ -89,9 +118,9 @@ mod tests {
 
     fn written() -> String {
         let (spec, palette) = (palette_spec(), blossom());
-        let terminal = Terminal::of(&spec, &palette);
-        let rows = measure(&spec, &palette);
-        write(&spec, &palette, &rows, &terminal)
+        let terminal = Terminal::of(&spec, &palette).expect("the terminal table is declared");
+        let rows = measure(&spec, &palette).expect("every pairing names a declared colour");
+        write(&spec, &palette, &rows, &terminal).expect("a report")
     }
 
     #[test]
@@ -100,6 +129,12 @@ mod tests {
         assert_eq!(ratio(4.5), "4.5");
         assert_eq!(ratio(1.05), "1.05");
         assert_eq!(ratio(10.0), "10");
+    }
+
+    #[test]
+    fn a_pairing_with_no_lc_to_ask_for_says_so_rather_than_saying_nought() {
+        assert_eq!(asked_lc(75.0), "Lc 75");
+        assert_eq!(asked_lc(0.0), "--");
     }
 
     #[test]
@@ -113,7 +148,7 @@ mod tests {
     #[test]
     fn every_pairing_measured_is_reported() {
         let (spec, palette) = (palette_spec(), blossom());
-        let rows = measure(&spec, &palette);
+        let rows = measure(&spec, &palette).expect("every pairing names a declared colour");
         let report = written();
         let reported = report.lines().filter(|l| l.contains(":1 | **")).count();
         assert_eq!(reported, rows.len());

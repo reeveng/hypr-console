@@ -25,8 +25,17 @@ path = "src/bin/console-fell.rs"
 name = "console-updating"
 path = "src/bin/console-updating.rs"
 
+# The bar's half of the same subject: the card says an apply is running, this
+# says how much longer.
+[[bin]]
+name = "bar-updating"
+path = "src/bin/bar-updating.rs"
+
 [dependencies]
 console-panel.workspace = true
 libc = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+[lints]
+workspace = true

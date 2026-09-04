@@ -18,13 +18,14 @@
 //! lock: the rows are read on a thread of the panel's own.
 
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use gtk4::glib;
 use console_download::getting;
 use console_download::looking::{self, Found, Looked};
 use console_download::rows::{self, ABOUT, WAYS_START};
 use console_download::store::{self, Kind};
+use console_panel::actor::{self, Addr, Answer};
 use console_panel::page::{Does, Page, Picture, Row, Rows, Showing};
 use console_panel::{chooser, panel};
 
@@ -62,16 +63,122 @@ impl Standing {
     }
 }
 
-type Held = Arc<Mutex<Standing>>;
+/// What one tab is standing in, as one answer.
+///
+/// Three fields that are always wanted together, so they are asked for
+/// together: three questions would be three crossings to the owner and three
+/// chances for the tab to move between them.
+struct Reading {
+    typed: String,
+    asking: Option<String>,
+    onto: Onto,
+}
 
-/// The lock, taken and given back before anything is drawn or run.
-fn standing<T>(held: &Held, then: impl FnOnce(&mut Standing) -> T) -> T {
-    then(&mut held.lock().expect("the standing"))
+/// Whether typing into a tab changed what was there.
+///
+/// Named rather than a bare `bool`, so the signature says which way round it
+/// reads without a comment under it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Word {
+    Same,
+    Changed,
+}
+
+/// Everything that can happen to the standing, and nothing else.
+///
+/// One variant per thing a thumb can do to it. Reading this enum is reading
+/// the whole of what this panel remembers, which is what a dozen scattered
+/// `standing(...)` blocks could not be read as.
+enum Msg {
+    /// Look at something else on a tab.
+    Look { tab: usize, onto: Onto },
+    /// A search is out for this word.
+    Asking { tab: usize, word: String },
+    /// Forget what was typed into a tab.
+    Forget { tab: usize },
+    /// What a tab is standing in, with a search that has landed cleared on the
+    /// way past.
+    Standing { tab: usize, landed: String, answer: Answer<Reading> },
+    /// What a tab is looking at.
+    Looking { tab: usize, answer: Answer<Onto> },
+    /// What a tab is looking at, and what has been typed into it.
+    Both { tab: usize, answer: Answer<(Onto, String)> },
+    /// Type into a tab, and say whether that changed it.
+    Typed { tab: usize, word: String, answer: Answer<Word> },
+}
+
+impl actor::Machine for Standing {
+    type Msg = Msg;
+
+    fn step(mut self, message: Msg) -> Self {
+        match message {
+            Msg::Look { tab, onto } => {
+                self.onto[tab] = onto;
+                self
+            },
+            Msg::Asking { tab, word } => {
+                self.asking[tab] = Some(word);
+                self
+            },
+            Msg::Forget { tab } => {
+                self.typed[tab] = String::new();
+                self
+            },
+            Msg::Standing { tab, landed, answer } => {
+                // A search is out until what is written down is the search it
+                // was out for. Nothing else says it has ended: the looking is
+                // done by a program off this one, and all it leaves behind is
+                // the file.
+                if self.asking[tab].as_deref() == Some(landed.as_str()) {
+                    self.asking[tab] = None;
+                }
+
+                let _ = answer.say(Reading {
+                    typed: self.typed[tab].clone(),
+                    asking: self.asking[tab].clone(),
+                    onto: self.onto[tab].clone(),
+                });
+                self
+            },
+            Msg::Looking { tab, answer } => {
+                let _ = answer.say(self.onto[tab].clone());
+                self
+            },
+            Msg::Both { tab, answer } => {
+                let _ = answer.say((self.onto[tab].clone(), self.typed[tab].clone()));
+                self
+            },
+            Msg::Typed { tab, word, answer } => {
+                let changed = match self.typed[tab] == word {
+                    true => Word::Same,
+                    false => Word::Changed,
+                };
+                self.typed[tab] = word;
+                let _ = answer.say(changed);
+                self
+            },
+        }
+    }
+}
+
+/// Where the panel reaches it. Cloned into every closure that used to be
+/// handed the lock.
+type Held = Addr<Msg>;
+
+/// What a tab is looking at, asked of the owner.
+///
+/// The list, if the owner has gone: the panel is on its way out by then, and
+/// the list is the tab as it opens.
+fn looking_at(held: &Held, tab: usize) -> Onto {
+    match held.ask(|answer| Msg::Looking { tab, answer }) {
+        Ok(onto) => onto,
+        Err(_) => Onto::List,
+    }
 }
 
 /// Look at something else, and stand on a given row of it.
 fn look(held: &Held, tab: usize, onto: Onto, showing: &dyn Showing, row: usize) {
-    standing(held, |standing| standing.onto[tab] = onto);
+    let _ = held.tell(Msg::Look { tab, onto });
     showing.replace(row);
 }
 
@@ -80,21 +187,28 @@ fn look(held: &Held, tab: usize, onto: Onto, showing: &dyn Showing, row: usize) 
 /// What the last search on this tab came to.
 fn looked(kind: Kind) -> Looked {
     let at = store::found_at(&glib::user_cache_dir(), kind);
-    looking::kept(&std::fs::read_to_string(at).unwrap_or_default())
+
+    // No search on this tab yet, which is what a fresh cache looks like, or a
+    // cache this cannot read. Both are a tab with nothing found in it, which
+    // is where every session starts anyway.
+    let Ok(said) = std::fs::read_to_string(at) else {
+        return Looked::default();
+    };
+
+    looking::kept(&said)
 }
 
 fn rows_of(held: &Held, tab: usize) -> Vec<Row> {
     let kind = Kind::BOTH[tab];
     let looked = looked(kind);
-    let (typed, asking, onto) = standing(held, |standing| {
-        // A search is out until what is written down is the search it was out
-        // for. Nothing else says it has ended: the looking is done by a program
-        // off this one, and all it leaves behind is the file.
-        if standing.asking[tab].as_deref() == Some(looked.asked.as_str()) {
-            standing.asking[tab] = None;
-        }
-        (standing.typed[tab].clone(), standing.asking[tab].clone(), standing.onto[tab].clone())
-    });
+    let landed = looked.asked.clone();
+
+    let Ok(Reading { typed, asking, onto }) =
+        held.ask(|answer| Msg::Standing { tab, landed, answer })
+    else {
+        return Vec::new();
+    };
+
     match onto {
         Onto::Ways { found, from } => ways(held, tab, &found, from),
         Onto::List => {
@@ -117,7 +231,7 @@ fn thing(held: &Held, tab: usize, at: usize, found: &Found, cache: &Path, folder
     let aside = looking::aside(kind, found, getting::holds(folder, &found.id));
     let fetching = found.clone();
     let opening = found.clone();
-    let held = Arc::clone(held);
+    let held = held.clone();
     Row::new(
         &found.title,
         &aside,
@@ -144,8 +258,8 @@ fn picture(cache: &Path, found: &Found) -> Picture {
 /// What else can be done with the thing Y was pressed on.
 fn ways(held: &Held, tab: usize, found: &Found, from: usize) -> Vec<Row> {
     let other = Kind::BOTH[tab].other();
-    let leaving = Arc::clone(held);
-    let backing = Arc::clone(held);
+    let leaving = held.clone();
+    let backing = held.clone();
     let one = found.clone();
     let get_the_other = Does::and_stay(move |showing| {
         get(showing, other, &one);
@@ -169,11 +283,11 @@ fn ways(held: &Held, tab: usize, found: &Found, from: usize) -> Vec<Row> {
 /// what it started has ended: without this the press has no answer until the
 /// network gives one, which is the shape of a button that looks broken.
 fn looking_for(held: &Held, tab: usize, typed: &str) -> Does {
-    let held = Arc::clone(held);
+    let held = held.clone();
     let kind = Kind::BOTH[tab];
     let word = typed.trim().to_string();
     Does::and_stay(move |showing| {
-        standing(&held, |standing| standing.asking[tab] = Some(word.clone()));
+        let _ = held.tell(Msg::Asking { tab, word: word.clone() });
         showing.refresh();
         showing.later(vec![
             "download-find".to_string(),
@@ -195,13 +309,15 @@ fn get(showing: &dyn Showing, kind: Kind, found: &Found) {
         .file_name()
         .map(|name| name.to_string_lossy().to_string())
         .unwrap_or_else(|| into.display().to_string());
+
     // What is there is not fetched again. The row already says "have it", and
     // a press that started a minute of work whose only possible ending is a
     // fault is a row saying one thing and doing another.
-    if getting::holds(&into, &found.id) {
+    if getting::holds(&into, &found.id) == getting::Have::It {
         showing.note(&format!("{} is already in {where_}", found.title));
         return;
     }
+
     showing.note(&format!("{} is on its way into {where_}", found.title));
     // Its name goes with it, so what is said when it lands or when it fails is
     // the thing itself rather than a link nobody can read.
@@ -220,7 +336,7 @@ fn get(showing: &dyn Showing, kind: Kind, found: &Found) {
 /// way of throwing the last minute away.
 fn stopped(held: &Held, tab: usize, showing: &dyn Showing) {
     showing.forget_typing();
-    standing(held, |standing| standing.typed[tab] = String::new());
+    let _ = held.tell(Msg::Forget { tab });
     showing.replace(rows::LINE);
 }
 
@@ -231,13 +347,14 @@ fn pages(held: &Held) -> Vec<Page> {
 }
 
 fn page(held: &Held, tab: usize, title: &str) -> Page {
-    let reading = Arc::clone(held);
-    let backing = Arc::clone(held);
+    let reading = held.clone();
+    let backing = held.clone();
     let page = Page::new(title, Rows::asked(move || rows_of(&reading, tab))).on_back(
         move |showing| {
-            let (onto, typed) = standing(&backing, |standing| {
-                (standing.onto[tab].clone(), standing.typed[tab].clone())
-            });
+            let Ok((onto, typed)) = backing.ask(|answer| Msg::Both { tab, answer }) else {
+                return true;
+            };
+
             match onto {
                 Onto::Ways { from, .. } => {
                     look(&backing, tab, Onto::List, showing, from);
@@ -255,19 +372,17 @@ fn page(held: &Held, tab: usize, title: &str) -> Page {
     // Only over the list. Y's list is three things that can be done with one
     // thing, and a line to type into over them is an invitation to type at a
     // page that is not asking for letters.
-    if !matches!(standing(held, |standing| standing.onto[tab].clone()), Onto::List) {
+    if !matches!(looking_at(held, tab), Onto::List) {
         return page;
     }
-    let typing = Arc::clone(held);
+
+    let typing = held.clone();
     page.searching(ABOUT, move |showing, word| {
-        let changed = standing(&typing, |standing| {
-            let changed = standing.typed[tab] != word;
-            standing.typed[tab] = word.to_string();
-            changed
-        });
+        let changed = typing.ask(|answer| Msg::Typed { tab, word: word.to_string(), answer });
+
         // Standing on the line, which is where the letters go. The row under it
         // has just become the row that looks for what is in it.
-        if changed {
+        if matches!(changed, Ok(Word::Changed)) {
             showing.replace(0);
         }
     })
@@ -277,9 +392,14 @@ fn main() {
     // A tab may be named, so something that means video opens on it.
     let tab = std::env::args().nth(1);
 
-    if !chooser::alone("download", chooser::Again::Closes) {
+    if chooser::alone("download", chooser::Again::Closes) == chooser::Alone::No {
         return;
     }
-    let held: Held = Arc::new(Mutex::new(Standing::new()));
+
+    let standing = actor::supervise(Standing::new);
+    let held = standing.addr.clone();
     panel::show(Arc::new(move || pages(&held)), 0, tab.as_deref());
+    // The panel is down and nothing is going to ask again. Waited for rather
+    // than dropped, so a message already in the mailbox is finished with.
+    standing.shutdown();
 }

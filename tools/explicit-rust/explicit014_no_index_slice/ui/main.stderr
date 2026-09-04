@@ -1,0 +1,19 @@
+warning: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/main.rs:6:5
+   |
+LL |     xs[i]
+   |     ^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+   = note: `#[warn(explicit014_no_index_slice)]` on by default
+
+warning: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/main.rs:12:6
+   |
+LL |     &s[0..1]
+   |      ^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+warning: 2 warnings emitted
+

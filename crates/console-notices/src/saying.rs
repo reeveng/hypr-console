@@ -127,13 +127,16 @@ impl Notice {
             format!("--urgency={}", self.urgency.said()),
             format!("--expire-time={}", self.expiry.said()),
         ];
+
         if let Some(value) = self.value {
             argv.push("-h".to_string());
             argv.push(format!("int:value:{value}"));
         }
+
         if let Some(was) = self.replacing {
             argv.push(format!("--replace-id={was}"));
         }
+
         argv.push("--".to_string());
         argv.push(self.summary.clone());
         argv.push(self.body.clone());
@@ -178,6 +181,7 @@ pub fn showing(count: u32) -> Showing {
 /// anything, so what the fault said is still the first thing read.
 pub fn last_of_them(body: &str) -> String {
     let said = "This is the last time it will be shown this session.";
+
     match body.is_empty() {
         true => said.to_string(),
         false => format!("{body} {said}"),
@@ -190,6 +194,28 @@ pub fn fault(summary: &str, body: &str, count: u32) -> Option<Notice> {
         Showing::Quiet => None,
         Showing::Shown => Some(Notice::new(summary, body).urgent().staying()),
         Showing::Last => Some(Notice::new(summary, &last_of_them(body)).urgent().staying()),
+    }
+}
+
+/// The notice for a fault worth saying once and not again.
+///
+/// `fault` is the ladder for a kind that happens repeatedly and differently --
+/// a unit falls over, and then another one does. This is for the other shape:
+/// one standing condition, which is either true or it is not and does not
+/// become more true on the hour. A machine that has drifted from the manifest
+/// is the case in hand.
+///
+/// Said once, and after that the journal has it and the history has the card.
+/// A person who took it off the screen has answered it; putting it back on a
+/// timer is not telling them something, it is disagreeing with them.
+///
+/// It comes back only by clearing first. Whoever counts for this kind forgets
+/// the count when the condition goes away, so a fault that was fixed and has
+/// returned is a new fault and is said again.
+pub fn once(summary: &str, body: &str, count: u32) -> Option<Notice> {
+    match count {
+        1 => Some(Notice::new(summary, body).urgent().staying()),
+        _ => None,
     }
 }
 
@@ -208,8 +234,21 @@ pub fn for_the_journal(kind: &str, summary: &str, body: &str) -> String {
 /// A fresh session is a fresh five, and a reboot forgets the whole count. That
 /// is the same lifetime as the fault it is counting.
 pub fn under() -> PathBuf {
-    let run = std::env::var("XDG_RUNTIME_DIR")
-        .unwrap_or_else(|_| format!("/run/user/{}", unsafe { libc::getuid() }));
+    // SAFETY: `getuid` reads this process's own real user id out of the
+    // kernel. It takes nothing, cannot fail, and has no error case to check.
+    //
+    // Read here rather than inside the fallback, so the reason above sits on
+    // its own line instead of in the middle of a `format!`.
+    let mine = unsafe { libc::getuid() };
+    let run = match std::env::var("XDG_RUNTIME_DIR") {
+        Ok(run) => run,
+
+        // Not worth a sentence: this is the directory that variable would have
+        // named, and a unit whose environment does not carry it keeps its
+        // counts in the same place regardless.
+        Err(_) => format!("/run/user/{mine}"),
+    };
+
     PathBuf::from(run).join("console")
 }
 
@@ -230,7 +269,11 @@ impl Kept {
     }
 
     pub fn read(&self) -> Option<u32> {
-        std::fs::read_to_string(&self.0).ok()?.trim().parse().ok()
+        let Ok(said) = std::fs::read_to_string(&self.0) else { return None };
+
+        let Ok(number) = said.trim().parse::<u32>() else { return None };
+
+        Some(number)
     }
 
     /// Nothing here is worth failing the thing that called it, so a directory
@@ -239,6 +282,7 @@ impl Kept {
         if let Some(above) = self.0.parent() {
             let _ = std::fs::create_dir_all(above);
         }
+
         let _ = std::fs::write(&self.0, format!("{number}\n"));
     }
 
@@ -289,7 +333,10 @@ const WAITING: Duration = Duration::from_secs(2);
 /// is the case this is careful about.
 pub fn raise(notice: &Notice) -> Option<u32> {
     let argv = notice.argv();
-    said_within(&argv, WAITING)?.trim().parse().ok()
+
+    let Ok(number) = said_within(&argv, WAITING)?.trim().parse::<u32>() else { return None };
+
+    Some(number)
 }
 
 /// Run something, and stop waiting for it after a while.
@@ -303,24 +350,29 @@ pub fn raise(notice: &Notice) -> Option<u32> {
 /// worth reading, and a caller told "no answer" behaves the way it should:
 /// gets on with what it was doing.
 fn said_within(argv: &[String], waiting: Duration) -> Option<String> {
-    let mut running = Command::new(&argv[0])
+    let Ok(mut running) = Command::new(&argv[0])
         .args(&argv[1..])
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-        .ok()?;
+    else {
+        return None;
+    };
 
     let by = Instant::now() + waiting;
+
     while Instant::now() < by {
         match running.try_wait() {
             Ok(Some(_)) => {
-                let said = running.wait_with_output().ok()?;
+                let Ok(said) = running.wait_with_output() else { return None };
+
                 return Some(String::from_utf8_lossy(&said.stdout).into_owned());
             }
             Ok(None) => std::thread::sleep(LOOKING),
             Err(_) => return None,
         }
     }
+
     let _ = running.kill();
     let _ = running.wait();
     None
@@ -335,9 +387,56 @@ const LOOKING: Duration = Duration::from_millis(20);
 /// Raise it and keep the number, so the next one replaces this one.
 pub fn raise_kept(notice: Notice, kept: &Kept) {
     let notice = notice.replacing(kept.read());
+
     if let Some(number) = raise(&notice) {
         kept.write(number);
     }
+}
+
+/// What the screen is told to take a card back down, as argv.
+///
+/// `notify-send` cannot say this. It raises and nothing else, so the one thing
+/// that can be asked about a card already up is the method the specification
+/// names for it, spoken on the bus. `busctl` because it comes with systemd and
+/// is therefore on every machine this runs on.
+pub fn closing(number: u32) -> Vec<String> {
+    let number = number.to_string();
+
+    [
+        "busctl",
+        "--user",
+        "call",
+        "org.freedesktop.Notifications",
+        "/org/freedesktop/Notifications",
+        "org.freedesktop.Notifications",
+        "CloseNotification",
+        "u",
+        number.as_str(),
+    ]
+    .map(str::to_string)
+    .to_vec()
+}
+
+/// Take back off the screen whatever was raised under this number.
+///
+/// The other half of `raise_kept`, and the half a fault that has gone away
+/// needs. A notice raised urgent is one the daemon is told to hold until
+/// somebody takes it down, so a check that stops finding anything wrong and
+/// simply says nothing leaves the last thing it said standing: a machine
+/// reporting a drift that was deployed away hours ago, with nothing anywhere
+/// to say the report is stale. Silence is not a retraction.
+///
+/// Bounded like the raising and for the same reason. The moment a fault clears
+/// is not a moment to hang in.
+///
+/// The number is forgotten either way. A daemon that never answered is a card
+/// this can do nothing more about, and keeping the number would only mean the
+/// next raising trying to replace something that is not there.
+pub fn withdraw(kept: &Kept) {
+    let Some(number) = kept.read() else { return };
+
+    said_within(&closing(number), WAITING);
+    kept.forget();
 }
 
 /// Tell the journal, which is told whatever the screen is doing.
@@ -477,5 +576,32 @@ mod tests {
                 .argv()
                 .contains(&"--expire-time=1500".to_string())
         );
+    }
+
+    /// The number goes out as the number that came back, and it goes out typed:
+    /// the method takes a `u32` and a bus call that does not say so is refused.
+    #[test]
+    fn taking_a_card_down_names_it_by_the_number_it_came_back_under() {
+        let argv = closing(7);
+
+        assert_eq!(argv.last().map(String::as_str), Some("7"));
+        assert!(argv.contains(&"CloseNotification".to_string()), "{argv:?}");
+        assert!(argv.contains(&"u".to_string()), "the number goes out untyped: {argv:?}");
+    }
+
+    /// Nothing kept is nothing to take down, and nothing to say about it. It is
+    /// the ordinary case: every run of a check that finds a clean machine goes
+    /// through here, and all but the first of them has no card to withdraw.
+    #[test]
+    fn a_card_nobody_kept_a_number_for_is_left_alone() {
+        let at = std::env::temp_dir()
+            .join(format!("console-withdraw-{}-{}", std::process::id(), line!()));
+        let _ = std::fs::remove_file(&at);
+
+        let kept = Kept(at.clone());
+        withdraw(&kept);
+
+        assert_eq!(kept.read(), None);
+        assert!(!at.exists(), "a withdrawal wrote a file where there was nothing to withdraw");
     }
 }

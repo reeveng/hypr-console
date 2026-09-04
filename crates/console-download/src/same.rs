@@ -17,6 +17,8 @@
 //! wastebasket rather than being unlinked, so a conversion somebody regrets is
 //! an hour's walk back rather than a loss.
 
+
+use console_number::fitted;
 use std::path::{Path, PathBuf};
 
 use crate::store::Kind;
@@ -56,16 +58,21 @@ const EITHER: [&str; 2] = ["ogg", "webm"];
 /// What should become of a file, as far as its name can say.
 pub fn wants(name: &str) -> Wants {
     let Some((_, end)) = name.rsplit_once('.') else { return Wants::Leave };
+
     let end = end.to_lowercase();
+
     if end == "opus" || end == "mkv" {
         return Wants::Nothing;
     }
+
     if EITHER.contains(&end.as_str()) {
         return Wants::Ask;
     }
+
     if SOUNDS.contains(&end.as_str()) {
         return Wants::Made(Kind::Sound);
     }
+
     match FILMS.contains(&end.as_str()) {
         true => Wants::Made(Kind::Film),
         false => Wants::Leave,
@@ -80,19 +87,24 @@ pub fn beside(path: &Path, kind: Kind) -> PathBuf {
     })
 }
 
-/// Whether what is inside says film rather than song.
+/// Which of the two a file is, by what is inside it.
 ///
 /// Asked of `.webm` and `.ogg`, which say nothing by their name. A stream that
 /// is a picture of the singer is not a film: what makes it one is moving, and a
 /// cover sits in the file as a single frame.
-pub fn a_film(said: &str) -> bool {
-    said.lines().any(|line| {
+pub fn inside(said: &str) -> Kind {
+    let moving = said.lines().any(|line| {
         let mut said = line.trim().split(',');
         let kind = said.next().unwrap_or_default();
         // A picture stream marked as an attached picture is the cover. Anything
         // else that is a picture is the film.
         kind == "video" && said.next().unwrap_or("0") != "1"
-    })
+    });
+
+    match moving {
+        true => Kind::Film,
+        false => Kind::Sound,
+    }
 }
 
 /// What is asked about a file that does not say what it is.
@@ -156,10 +168,12 @@ pub fn sound(from: &Path, to: &Path, picture: Option<&str>) -> Vec<String> {
         said("-map_metadata"),
         said("0"),
     ];
+
     if let Some(picture) = picture {
         argv.push(said("-metadata"));
         argv.push(format!("METADATA_BLOCK_PICTURE={picture}"));
     }
+
     argv.push(to.to_string_lossy().to_string());
     argv
 }
@@ -198,13 +212,15 @@ pub fn block(mime: &str, picture: &[u8]) -> String {
     let mut held = Vec::new();
     let mut four = |number: u32| held.extend_from_slice(&number.to_be_bytes());
     four(FRONT_COVER);
-    four(mime.len() as u32);
+    four(fitted(mime.len()));
     held.extend_from_slice(mime.as_bytes());
+
     // No description, and no width, height, depth or colours.
     for _ in 0..5 {
         held.extend_from_slice(&0u32.to_be_bytes());
     }
-    held.extend_from_slice(&(picture.len() as u32).to_be_bytes());
+
+    held.extend_from_slice(&fitted::<usize, u32>(picture.len()).to_be_bytes());
     held.extend_from_slice(picture);
     sixty_four(&held)
 }
@@ -214,16 +230,21 @@ pub fn sixty_four(held: &[u8]) -> String {
     const ALPHABET: &[u8; 64] =
         b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut said = String::with_capacity(held.len().div_ceil(3) * 4);
+
     for lot in held.chunks(3) {
         let held = lot.iter().fold(0u32, |held, byte| (held << 8) | u32::from(*byte));
         let held = held << (8 * (3 - lot.len()));
+
         for at in 0..4 {
             match at <= lot.len() {
-                true => said.push(ALPHABET[(held >> (18 - 6 * at)) as usize & 63] as char),
+                true => {
+                    said.push(char::from(ALPHABET[fitted::<u32, usize>((held >> (18 - 6 * at)) & 63)]));
+                }
                 false => said.push('='),
             }
         }
     }
+
     said
 }
 
@@ -267,9 +288,9 @@ mod tests {
     /// song.
     #[test]
     fn a_cover_is_not_what_makes_a_file_a_film() {
-        assert!(a_film("video,0"));
-        assert!(!a_film("video,1"));
-        assert!(!a_film(""));
+        assert_eq!(inside("video,0"), Kind::Film);
+        assert_eq!(inside("video,1"), Kind::Sound);
+        assert_eq!(inside(""), Kind::Sound);
     }
 
     #[test]

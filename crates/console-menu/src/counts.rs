@@ -10,8 +10,13 @@ pub fn read(said: &str) -> BTreeMap<String, u64> {
     said.lines()
         .filter_map(|line| {
             let (number, name) = line.split_once(' ')?;
-            match (number.parse().ok(), name.is_empty()) {
-                (Some(number), false) => Some((name.to_string(), number)),
+
+            // A line that is not "count name" is not a count. This file is
+            // written by the menu and read by the menu, so a line that is not
+            // one means somebody edited it by hand, and skipping it is what the
+            // `?` above already does for the same case.
+            match (number.parse(), name.is_empty()) {
+                (Ok(number), false) => Some((name.to_string(), number)),
                 _ => None,
             }
         })

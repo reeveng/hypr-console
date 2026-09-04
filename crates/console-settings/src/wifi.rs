@@ -14,29 +14,46 @@ pub struct Network {
 ///
 /// One name can be several radios in one house, and the panel is a list of
 /// places to join rather than a list of aerials.
+/// How strong a network is, or nothing where nmcli left the field blank.
+///
+/// The bottom of the list rather than off it: a network whose strength did not
+/// arrive is still one somebody can choose, and the name is what they choose by.
+fn signal_of(said: &str) -> i32 {
+    let Ok(signal) = said.parse::<i32>() else { return 0 };
+
+    signal
+}
+
 pub fn networks(said: &str) -> Vec<Network> {
     let mut seen: Vec<Network> = Vec::new();
+
     for line in said.lines() {
         let parts: Vec<&str> = line.split(':').collect();
+
         if parts.len() < 4 {
             continue;
         }
+
         let name = parts[1];
+
         if name.is_empty() {
             continue;
         }
+
         let found = Network {
             name: name.to_string(),
             here: parts[0] == "yes",
-            signal: parts[2].parse().unwrap_or(0),
+            signal: signal_of(parts[2]),
             locked: !parts[3..].join(":").is_empty(),
         };
+
         match seen.iter_mut().find(|network| network.name == found.name) {
             Some(already) if already.signal < found.signal => *already = found,
             Some(_) => (),
             None => seen.push(found),
         }
     }
+
     seen.sort_by_key(|network| -network.signal);
     seen
 }
@@ -50,9 +67,30 @@ pub fn saved(said: &str) -> Vec<String> {
         .collect()
 }
 
+/// Whether the wireless radio is on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Radio {
+    /// It is on, so there are networks to list.
+    On,
+    /// It is off, and the one row there is turns it on.
+    Off,
+}
+
+/// Whether a network is one this machine has joined before.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Known {
+    /// It is, so joining it needs no password.
+    Yes,
+    /// It is not, so joining a locked one asks for one.
+    No,
+}
+
 /// Whether the radio is on at all.
-pub fn on(said: &str) -> bool {
-    said.trim() == "enabled"
+pub fn on(said: &str) -> Radio {
+    match said.trim() == "enabled" {
+        true => Radio::On,
+        false => Radio::Off,
+    }
 }
 
 #[cfg(test)]
@@ -103,8 +141,8 @@ no:Locked:30:WPA1 WPA2";
 
     #[test]
     fn the_radio_is_off_unless_it_says_it_is_on() {
-        assert!(on("enabled\n"));
-        assert!(!on("disabled"));
-        assert!(!on(""));
+        assert_eq!(on("enabled\n"), Radio::On);
+        assert_eq!(on("disabled"), Radio::Off);
+        assert_eq!(on(""), Radio::Off);
     }
 }

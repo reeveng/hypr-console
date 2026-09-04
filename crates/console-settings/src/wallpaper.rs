@@ -37,6 +37,7 @@ impl Offered {
             .filter(|word| !word.is_empty())
             .map(|word| {
                 let mut letters = word.chars();
+
                 match letters.next() {
                     Some(first) => first.to_uppercase().chain(letters).collect::<String>(),
                     None => String::new(),
@@ -110,6 +111,7 @@ pub fn wallpaper_rows(
             many => Row::new(&format!("Add the {many} pictures in Pictures/Wallpapers"), "", take),
         });
     }
+
     // The other road in, and the only one a hand holding nothing but the
     // controller can take: the files are where her photographs are, and Y on
     // one of them offers to make it the wallpaper.
@@ -119,6 +121,7 @@ pub fn wallpaper_rows(
 
 #[cfg(test)]
 mod tests {
+    use console_panel::page::{Acts, InEffect};
     use super::*;
 
     fn nothing() -> Does {
@@ -155,8 +158,8 @@ mod tests {
 
     #[test]
     fn following_the_weather_is_marked_when_it_is_what_is_happening() {
-        assert!(rows(true, "star-ride", 0)[0].now());
-        assert!(!rows(false, "star-ride", 0)[0].now());
+        assert_eq!(rows(true, "star-ride", 0)[0].now(), InEffect::Yes);
+        assert_eq!(rows(false, "star-ride", 0)[0].now(), InEffect::No);
     }
 
     /// The tab is a list of names, and without this there is no way to tell
@@ -164,9 +167,9 @@ mod tests {
     #[test]
     fn the_picture_on_the_screen_is_marked_however_it_was_chosen() {
         let following = rows(true, "star-ride", 0);
-        assert!(following[1].now(), "{:?}", says(&following));
+        assert_eq!(following[1].now(), InEffect::Yes, "{:?}", says(&following));
         let pinned = rows(false, "her-own-photo", 0);
-        assert!(pinned[2].now(), "{:?}", says(&pinned));
+        assert_eq!(pinned[2].now(), InEffect::Yes, "{:?}", says(&pinned));
     }
 
     /// Who drew it, where there is nothing more useful to put.
@@ -192,7 +195,7 @@ mod tests {
     fn every_row_on_the_tab_does_something() {
         for dropped in [0, 1, 4] {
             for row in rows(true, "star-ride", dropped) {
-                assert!(row.acts(), "{:?} does nothing", row.says);
+                assert_eq!(row.acts(), Acts::Yes, "{:?} does nothing", row.says);
             }
         }
     }

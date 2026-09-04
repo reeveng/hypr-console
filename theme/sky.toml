@@ -10,11 +10,24 @@
 # is the one that is up when nothing else fits, and a set is grown by adding a
 # picture rather than by editing the ones already here.
 #
+# Pictures that name the same number of true things take turns, two hours
+# apiece, in the order they are written down here. That is why most of these
+# come in pairs: one picture for a clear day is a picture, and two are a morning
+# and an afternoon.
+#
 # Every picture in this file is by Abi Toads, who gives them away
 # (abitoads.com/pages/animated-wallpapers, through Wallpaper Engine on Steam).
 # They are fetched rather than kept here: this repository is source, the
 # pictures are somebody else's work, and `console apply` presses them on the
 # device the way it compiles the programs.
+#
+# The addresses are mirrors rather than hers. She publishes through Wallpaper
+# Engine, which is a Steam program and not a thing this machine can fetch from,
+# so each picture is taken from a site that mirrors her workshop item, and each
+# one here was matched against the workshop item it came from before it was
+# written down. A mirror that moves its addresses breaks the fetch for that one
+# picture and says so; a mirror that quietly hands back something else is what
+# the checksums are for.
 
 # How the pictures move.
 #
@@ -64,6 +77,23 @@ grade = { keep = 0.50, pull = 0.50, floor = 0.0, ceiling = 0.72 }
 # for weather you would rather be inside than out in.
 
 [[picture]]
+name = "shelf-of-curiosities"
+says = "Shelf of Curiosities"
+by = "Abi Toads"
+from = "https://www.desktophut.com/files/nQcXBjbpWotOMo9_Shelf%20of%20Curiosities%20-%20Abi%20Toads%204K%20Live%20Wallpaper.mp4"
+sha256 = "96d6875213c70d1d2a389ca5a0794054b6f92a50a982ab25e7ee41723e7193b7"
+grade = { keep = 0.40, pull = 0.60, floor = 0.0, ceiling = 0.74 }
+# The other picture that names nothing, so a wet week is two pictures rather
+# than one. A shelf of bottles and books by candlelight is indoors the same way
+# the terrarium is, which is the whole argument for both of them.
+#
+# It is also the dearest picture here by some way. A candle flickering across a
+# painted interior moves nearly the whole frame, so the rectangles that make the
+# other pictures cheap buy nothing at all, and it presses larger than anything
+# else in this file. docs/sky.md says what that costs while it is on the screen.
+# If the device ever wants the memory back, this is the line to take out.
+
+[[picture]]
 name = "lazy-river"
 says = "Lazy River"
 by = "Abi Toads"
@@ -72,6 +102,19 @@ sha256 = "c16b2d877e3bb2a2f6a01f54159c549f6316023f810f08daa126dc84e0f93fee"
 grade = { keep = 0.60, pull = 0.45, floor = 0.0, ceiling = 0.74 }
 sky = ["sunrise", "day"]
 weather = ["clear"]
+
+[[picture]]
+name = "frog-picnic"
+says = "Frog Picnic"
+by = "Abi Toads"
+from = "https://go.moewalls.com/download.php?video=8XvJQlrW2eOdslUo2m178SvtnG43%2Fhm76uuppogPuXlGjT3UJxyN%2BUNcXWk%3D"
+sha256 = "38b93c74822b76b439ad81d8267f79aa82e63f32d07fa4af94f22645da51aa1f"
+grade = { keep = 0.60, pull = 0.45, floor = 0.0, ceiling = 0.74 }
+sky = ["sunrise", "day"]
+weather = ["clear"]
+# The river's other half. Green hills and a blue sky full of weather that is
+# not going to come to anything, which is the same fine day the river is and
+# does not look like it.
 
 [[picture]]
 name = "lilypad-ride"
@@ -84,6 +127,20 @@ sky = ["dawn", "day"]
 weather = ["cloud"]
 
 [[picture]]
+name = "waterfall-frog"
+says = "Waterfall Frog"
+by = "Abi Toads"
+from = "https://go.moewalls.com/download.php?video=r%2BPccQdNkdEOKv7gL2%2BZvdpLaLJ8kepHmyYc2LAXIsxyOxg5dOE5Hnoh77e2Ff2Krx8Y7q9M8CQSnIfL"
+sha256 = "e8c12dbe46e4d34f86c9ef544e22c2f84ec992345109a984cb2d165d9d164309"
+grade = { keep = 0.60, pull = 0.45, floor = 0.0, ceiling = 0.74 }
+sky = ["dawn", "day"]
+weather = ["cloud", "fog"]
+# Takes turns with the lilypads under cloud, and answers the fog on its own.
+# A gorge with the spray hanging in it is the one picture here that is actually
+# in weather you cannot see through, and a foggy morning used to fall all the
+# way through to the terrarium.
+
+[[picture]]
 name = "snow-day"
 says = "Snow Day"
 by = "Abi Toads"
@@ -92,6 +149,20 @@ sha256 = "00ea7e3c82d9c1b606c096fa6de9d176b1a038dd90643bae6c52ea425c1ae11b"
 grade = { keep = 0.30, pull = 0.70, floor = 0.0, ceiling = 0.50 }
 sky = ["sunrise", "day"]
 weather = ["snow"]
+
+[[picture]]
+name = "skating-frogs"
+says = "Skating Frogs"
+by = "Abi Toads"
+from = "https://go.moewalls.com/download.php?video=pjz%2FNcbkYmiQk%2Bxxq4eHu1mJDyqbzQNp0UfAxKrVNJI5c6rT2rk5FZygY77BxoLbTR5uxXgLgwbAbynX"
+sha256 = "c28f0e97f08d03838c781c10aa9bc3f8d429feba5cc6363064a7b74f81b73922"
+grade = { keep = 0.30, pull = 0.70, floor = 0.0, ceiling = 0.52 }
+sky = ["sunrise", "day"]
+weather = ["snow"]
+# The snowy day's afternoon: a frozen lake with the snow still coming down.
+# Graded like the snowy day above it, which gives up more of its brightness than
+# anything else here so that a white picture leaves the bar something to be read
+# against.
 
 [[picture]]
 name = "campfire"
@@ -122,6 +193,36 @@ sha256 = "ed6592a8dcdcd1c22d50163c0dc88a929b04c5ee3cc2d19ffda966e81740372b"
 grade = { keep = 0.35, pull = 0.70, floor = 0.0, ceiling = 0.70 }
 sky = ["night"]
 weather = ["clear", "cloud"]
+
+[[picture]]
+name = "lily-valley"
+says = "Lily Valley Frog"
+by = "Abi Toads"
+from = "https://go.moewalls.com/download.php?video=nZv29ai6UUgnnG%2B3krjP1BMJwuOubGmbO%2Fj8xFep7Voapprjc2TaWT1v5jc%3D"
+sha256 = "58c5aae958ff427851d6fac7921a2b7ce1fffd89b1a8943457b159601e925462"
+grade = { keep = 0.40, pull = 0.65, floor = 0.0, ceiling = 0.66 }
+sky = ["night"]
+weather = ["clear", "cloud"]
+# The other half of the night. Glowing bellflowers at ground level, which is
+# the night from underneath where the star ride is the night from above. It
+# names no season, though it is a spring picture: naming one would make it beat
+# the star ride outright in spring rather than take turns with it all year.
+
+[[picture]]
+name = "dancing-frogs"
+says = "Dancing Frogs"
+by = "Abi Toads"
+from = "https://go.moewalls.com/download.php?video=mFaaVJQQ7SR7vbqX2Ie1Fk2DK0v0tZUU0uXKLdd%2B60Sx6C1jKXAZfTdGUdbv9%2Bgv7CH87lmVWpdXp7nS"
+sha256 = "b39bf3fa2823cfbe4450d34dec68867e7b6cc412245075d1ffc1cb0ca05e4212"
+grade = { keep = 0.35, pull = 0.70, floor = 0.0, ceiling = 0.70 }
+sky = ["night"]
+weather = ["clear", "cloud"]
+moon = ["full"]
+# The first picture here to use the moon, which has been one of the four things
+# a picture may name since before there was one worth naming it. A full moon
+# over a meadow is a picture of tonight rather than of any night, so it names
+# three things and is up for the whole of a full-moon night rather than taking
+# turns with the two above.
 
 [[picture]]
 name = "cozy-winter"

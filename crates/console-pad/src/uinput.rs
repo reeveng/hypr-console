@@ -14,7 +14,7 @@ use evdev::{
 };
 
 use crate::capture::Descriptor;
-use crate::devices::Sink;
+use crate::devices::{Has, Sink};
 
 /// One device the kernel is publishing on this machine's behalf.
 struct Made {
@@ -46,6 +46,7 @@ fn built(descriptor: &Descriptor) -> Result<Made, String> {
     fn fault(what: &'static str) -> impl Fn(std::io::Error) -> String {
         move |e| format!("{what}: {e}")
     }
+
     let phys = CString::new(descriptor.phys.as_str()).map_err(|_| "a phys with a nul in it")?;
     let id = InputId::new(
         BusType(descriptor.bustype),
@@ -66,21 +67,25 @@ fn built(descriptor: &Descriptor) -> Result<Made, String> {
             descriptor.capabilities.key.iter().map(|code| KeyCode(*code)).collect();
         builder = builder.with_keys(&keys).map_err(fault("the keys"))?;
     }
+
     if !descriptor.capabilities.rel.is_empty() {
         let axes: AttributeSet<RelativeAxisCode> =
             descriptor.capabilities.rel.iter().map(|code| RelativeAxisCode(*code)).collect();
         builder = builder.with_relative_axes(&axes).map_err(fault("the relative axes"))?;
     }
+
     if !descriptor.capabilities.msc.is_empty() {
         let misc: AttributeSet<MiscCode> =
             descriptor.capabilities.msc.iter().map(|code| MiscCode(*code)).collect();
         builder = builder.with_msc(&misc).map_err(fault("the misc codes"))?;
     }
+
     if !descriptor.properties.is_empty() {
         let props: AttributeSet<PropType> =
             descriptor.properties.iter().map(|code| PropType(*code)).collect();
         builder = builder.with_properties(&props).map_err(fault("the properties"))?;
     }
+
     for axis in &descriptor.capabilities.abs {
         let setup = UinputAbsSetup::new(
             AbsoluteAxisCode(axis.code),
@@ -90,11 +95,17 @@ fn built(descriptor: &Descriptor) -> Result<Made, String> {
     }
 
     let mut device = builder.build().map_err(fault("the device would not build"))?;
-    let path = device
+    // Where the kernel put it, which is how a daemon is pointed at it. A
+    // device nothing can be pointed at is not a device this made, so a node
+    // list that will not come back is a failure rather than a device with no
+    // path: the second reads, to everything downstream, as "it worked".
+    let mut nodes = device
         .enumerate_dev_nodes_blocking()
-        .ok()
-        .and_then(|mut nodes| nodes.next())
-        .and_then(Result::ok)
+        .map_err(fault("the device's nodes would not be listed"))?;
+    let path = nodes
+        .next()
+        .transpose()
+        .map_err(fault("the device's node would not be read"))?
         .map(|node| node.display().to_string());
     Ok(Made { device, path, frame: Vec::new() })
 }
@@ -104,8 +115,11 @@ impl Sink for Uinput {
         self.made.get(role).and_then(|made| made.path.clone())
     }
 
-    fn has(&self, role: &str) -> bool {
-        self.made.contains_key(role)
+    fn has(&self, role: &str) -> Has {
+        match self.made.contains_key(role) {
+            true => Has::Yes,
+            false => Has::No,
+        }
     }
 
     /// Held until the frame is reported, because a stick is two numbers and a
@@ -119,6 +133,7 @@ impl Sink for Uinput {
     fn syn(&mut self, role: &str) {
         if let Some(made) = self.made.get_mut(role) {
             let frame = std::mem::take(&mut made.frame);
+
             if !frame.is_empty() {
                 let _ = made.device.emit(&frame);
             }

@@ -1,0 +1,11 @@
+error: boolean return value is forbidden
+  --> $DIR/main.rs:5:15
+   |
+LL | fn saves() -> bool {
+   |               ^^^^
+   |
+   = help: use an `enum` (or `Result`) so the failure mode is visible to the caller
+   = note: `#[deny(explicit007_no_bool_return)]` on by default
+
+error: aborting due to 1 previous error
+

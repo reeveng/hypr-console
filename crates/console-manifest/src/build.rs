@@ -7,6 +7,8 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::settled::Settled;
+
 /// Where a built program is installed. Everything the device runs and did not
 /// get from a package lives here.
 pub const BIN: &str = "/usr/local/bin";
@@ -33,8 +35,11 @@ impl State {
         }
     }
 
-    pub fn settled(self) -> bool {
-        self == State::Ok
+    pub fn settled(self) -> Settled {
+        match self == State::Ok {
+            true => Settled::Yes,
+            false => Settled::No,
+        }
     }
 }
 
@@ -97,7 +102,7 @@ mod tests {
         // we know, and reporting it as drift would send somebody looking for a
         // file that was never meant to exist yet.
         assert_ne!(State::Unbuilt, State::Missing);
-        assert!(!State::Unbuilt.settled());
+        assert_eq!(State::Unbuilt.settled(), Settled::No);
         assert_eq!(State::Unbuilt.name(), "not built");
     }
 

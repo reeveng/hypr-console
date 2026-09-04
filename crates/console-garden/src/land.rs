@@ -5,25 +5,28 @@
 //! down puts the horizon up.
 
 use cairo::{Context, LinearGradient, RadialGradient};
+use console_number::{toward_zero_u32, toward_zero_usize};
 use console_random::Random;
 
+use crate::fault::Drawing;
 use crate::garden::{Garden, HORIZON};
 use crate::paint::{Wash, stop, stop_wash};
 use crate::way::{road, turf};
 
 /// Darkest overhead, warming down to the last of the light behind the hills.
-pub fn sky(ctx: &Context, garden: &Garden) {
+pub fn sky(ctx: &Context, garden: &Garden) -> Drawing<()> {
     let line = LinearGradient::new(0.0, 0.0, 0.0, garden.down(HORIZON));
-    stop(&line, 0.00, &garden.paint, "sky_high", 1.0);
-    stop(&line, 0.52, &garden.paint, "sky_high", 1.0);
-    stop(&line, 1.00, &garden.paint, "sky_low", 1.0);
-    ctx.set_source(&line).expect("a gradient");
+    stop(&line, 0.00, &garden.paint, "sky_high", 1.0)?;
+    stop(&line, 0.52, &garden.paint, "sky_high", 1.0)?;
+    stop(&line, 1.00, &garden.paint, "sky_low", 1.0)?;
+    ctx.set_source(&line)?;
     // The whole picture and not down to the horizon. A hill's crest wanders
     // either side of where the hills are said to be, so a sky that stops at
     // that line leaves bare canvas showing wherever a crest happens to sit
     // below it. Everything else is drawn on top of this, so the part of it
     // nobody sees costs nothing.
-    ctx.paint().expect("the sky");
+    ctx.paint()?;
+    Ok(())
 }
 
 /// The top of a hill, as a height across the picture.
@@ -66,7 +69,7 @@ pub fn ridge(
     top: Wash,
     bottom: Wash,
     fall: f64,
-) {
+) -> Drawing<()> {
     let high = steps(garden.width, 16.0)
         .map(crest)
         .fold(f64::INFINITY, f64::min);
@@ -75,19 +78,22 @@ pub fn ridge(
     stop_wash(&face, 1.0, bottom);
 
     ctx.move_to(0.0, crest(0.0));
+
     for x in steps(garden.width, 8.0) {
         ctx.line_to(x, crest(x));
     }
+
     ctx.line_to(garden.width, garden.height);
     ctx.line_to(0.0, garden.height);
     ctx.close_path();
-    ctx.set_source(&face).expect("a gradient");
-    ctx.fill().expect("a hill");
+    ctx.set_source(&face)?;
+    ctx.fill()?;
+    Ok(())
 }
 
 /// Every whole step across the picture, and the far edge as well.
 pub fn steps(width: f64, by: f64) -> impl Iterator<Item = f64> {
-    (0..=(width as u32)).step_by(by as usize).map(f64::from)
+    (0..=toward_zero_u32(width)).step_by(toward_zero_usize(by)).map(f64::from)
 }
 
 /// Each hill is nearer and lower than the one behind it, and holds less of the
@@ -172,7 +178,7 @@ const HILLS: [Hill; 5] = [
 /// hill nearer covers everything below its own, so what is left is the piece
 /// of path on that hill and nothing else. Each piece is drawn at the width the
 /// path has on that hill, which is why it steps rather than tapers.
-pub fn hills(ctx: &Context, garden: &Garden, seed: u64) {
+pub fn hills(ctx: &Context, garden: &Garden, seed: u64) -> Drawing<()> {
     for hill in &HILLS {
         let crest = crestline(
             garden,
@@ -186,12 +192,12 @@ pub fn hills(ctx: &Context, garden: &Garden, seed: u64) {
             ctx,
             garden,
             &crest,
-            garden.paint.washed("haze_far", "earth", Some(hill.mist)),
+            garden.paint.washed("haze_far", "earth", Some(hill.mist))?,
             garden
                 .paint
-                .washed("haze_far", "earth", Some(hill.mist * 0.45)),
+                .washed("haze_far", "earth", Some(hill.mist * 0.45))?,
             0.16,
-        );
+        )?;
         turf(
             ctx,
             garden,
@@ -199,7 +205,7 @@ pub fn hills(ctx: &Context, garden: &Garden, seed: u64) {
             hill.spread,
             hill.shift,
             &mut Random::seeded(seed + 5),
-        );
+        )?;
         road(
             ctx,
             garden,
@@ -207,22 +213,23 @@ pub fn hills(ctx: &Context, garden: &Garden, seed: u64) {
             hill.spread,
             hill.shift,
             &mut Random::seeded(seed + 3),
-        );
+        )?;
     }
 
     // The floor falls away towards the bottom of the picture, where it is
     // nearest and holds nothing worth looking at.
     let line = LinearGradient::new(0.0, garden.down(0.60), 0.0, garden.height);
-    stop(&line, 0.0, &garden.paint, "shade", 0.0);
-    stop(&line, 1.0, &garden.paint, "shade", 0.55);
-    ctx.set_source(&line).expect("a gradient");
+    stop(&line, 0.0, &garden.paint, "shade", 0.0)?;
+    stop(&line, 1.0, &garden.paint, "shade", 0.55)?;
+    ctx.set_source(&line)?;
     ctx.rectangle(
         0.0,
         garden.down(0.60),
         garden.width,
         garden.down(0.40) + 1.0,
     );
-    ctx.fill().expect("the floor");
+    ctx.fill()?;
+    Ok(())
 }
 
 /// The slope this is all being looked at from.
@@ -239,15 +246,16 @@ pub fn brow(garden: &Garden, x: f64) -> f64 {
             + 0.030 * (std::f64::consts::TAU * 1.7 * share + 1.1).sin())
 }
 
-pub fn near_slope(ctx: &Context, garden: &Garden) {
+pub fn near_slope(ctx: &Context, garden: &Garden) -> Drawing<()> {
     ridge(
         ctx,
         garden,
         &|x| brow(garden, x),
-        garden.paint.washed("shade", "earth", Some(0.30)),
-        garden.paint.washed("shade", "earth", Some(0.72)),
+        garden.paint.washed("shade", "earth", Some(0.30))?,
+        garden.paint.washed("shade", "earth", Some(0.72))?,
         0.34,
-    );
+    )?;
+    Ok(())
 }
 
 /// What is left of the day, low behind the far end of the valley.
@@ -256,18 +264,19 @@ pub fn near_slope(ctx: &Context, garden: &Garden) {
 /// Light in the air does not stop where the ground starts, and the first
 /// version of this did, which put a step across the whole picture at exactly
 /// the height a step is least forgivable.
-pub fn glow(ctx: &Context, garden: &Garden) {
+pub fn glow(ctx: &Context, garden: &Garden) -> Drawing<()> {
     let (middle, low) = (garden.across(0.54), garden.down(HORIZON + 0.01));
-    ctx.save().expect("a brush can be put down");
+    ctx.save()?;
     ctx.translate(middle, low);
     ctx.scale(1.0, 0.40);
     ctx.translate(-middle, -low);
     let light = RadialGradient::new(middle, low, 0.0, middle, low, garden.across(0.48));
-    stop(&light, 0.0, &garden.paint, "glow", 1.0);
-    stop(&light, 1.0, &garden.paint, "glow", 0.0);
-    ctx.set_source(&light).expect("a gradient");
-    ctx.paint().expect("the last of the light");
-    ctx.restore().expect("a brush comes back");
+    stop(&light, 0.0, &garden.paint, "glow", 1.0)?;
+    stop(&light, 1.0, &garden.paint, "glow", 0.0)?;
+    ctx.set_source(&light)?;
+    ctx.paint()?;
+    ctx.restore()?;
+    Ok(())
 }
 
 /// The air in the valley, thickest where the valley is furthest away.
@@ -276,9 +285,10 @@ pub fn glow(ctx: &Context, garden: &Garden) {
 /// it. Anything that stops at the horizon puts a line there, and a line across
 /// a picture at the height of the far distance is the one thing that stops it
 /// being distance.
-pub fn haze(ctx: &Context, garden: &Garden) {
+pub fn haze(ctx: &Context, garden: &Garden) -> Drawing<()> {
     let (top, bottom) = (garden.down(HORIZON - 0.16), garden.down(0.74));
     let line = LinearGradient::new(0.0, top, 0.0, bottom);
+
     for (offset, alpha) in [
         (0.00, 0.0),
         (0.26, 0.80),
@@ -286,19 +296,23 @@ pub fn haze(ctx: &Context, garden: &Garden) {
         (0.72, 0.42),
         (1.00, 0.0),
     ] {
-        stop(&line, offset, &garden.paint, "haze", alpha);
+        stop(&line, offset, &garden.paint, "haze", alpha)?;
     }
-    ctx.set_source(&line).expect("a gradient");
+
+    ctx.set_source(&line)?;
     ctx.rectangle(0.0, top, garden.width, bottom - top);
-    ctx.fill().expect("the air");
+    ctx.fill()?;
+    Ok(())
 }
 
 /// Clip everything after this to below one crest.
 pub fn under(ctx: &Context, garden: &Garden, crest: &dyn Fn(f64) -> f64) {
     ctx.move_to(0.0, crest(0.0));
+
     for x in steps(garden.width, 8.0) {
         ctx.line_to(x, crest(x));
     }
+
     ctx.line_to(garden.width, garden.height);
     ctx.line_to(0.0, garden.height);
     ctx.close_path();

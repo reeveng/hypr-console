@@ -16,3 +16,6 @@ path = "src/bin/dictate.rs"
 [dependencies]
 console-defaults.workspace = true
 libc = "0.2"
+
+[lints]
+workspace = true

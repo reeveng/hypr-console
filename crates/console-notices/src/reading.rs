@@ -109,10 +109,23 @@ pub struct Notice {
     pub urgency: Urgency,
 }
 
+/// Whether a notice is one of the ones that waits until somebody has seen it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Wrong {
+    /// Something broke, and the card stays up until it is taken down.
+    Yes,
+    /// It says its piece and takes itself away.
+    #[default]
+    No,
+}
+
 impl Notice {
     /// Whether this is one of the ones that waits until somebody has seen it.
-    pub fn wrong(&self) -> bool {
-        self.urgency == Urgency::Critical
+    pub fn wrong(&self) -> Wrong {
+        match self.urgency == Urgency::Critical {
+            true => Wrong::Yes,
+            false => Wrong::No,
+        }
     }
 
     /// What the row for it says, which is never nothing.
@@ -127,6 +140,7 @@ impl Notice {
                 return said.trim().to_string();
             }
         }
+
         format!("Notification {}", self.id)
     }
 }
@@ -156,6 +170,7 @@ pub fn read(said: &str) -> Vec<Notice> {
     let Ok(held) = serde_json::from_str::<Vec<Said>>(said) else {
         return printed(said);
     };
+
     held.into_iter()
         .map(|said| Notice {
             id: said.id,
@@ -180,19 +195,24 @@ fn word(said: Option<String>) -> String {
 /// no reader: an id has to be a number, and a line has to start at the margin.
 fn printed(said: &str) -> Vec<Notice> {
     let mut held: Vec<Notice> = Vec::new();
+
     for line in said.lines() {
         if let Some((id, summary)) = heads_one(line) {
             held.push(Notice { id, summary: summary.trim().to_string(), ..Notice::default() });
             continue;
         }
+
         let Some(notice) = held.last_mut() else { continue };
+
         if let Some(app) = line.strip_prefix("  App name: ") {
             notice.app = app.trim().to_string();
         }
+
         if let Some(urgency) = line.strip_prefix("  Urgency: ") {
             notice.urgency = Urgency::named(Some(urgency.trim()));
         }
     }
+
     held
 }
 
@@ -209,7 +229,10 @@ fn printed(said: &str) -> Vec<Notice> {
 /// a notification from everything written under it.
 fn heads_one(line: &str) -> Option<(u32, &str)> {
     let (id, summary) = line.strip_prefix("Notification ")?.split_once(':')?;
-    Some((id.parse().ok()?, summary))
+
+    let Ok(id) = id.parse::<u32>() else { return None };
+
+    Some((id, summary))
 }
 
 /// The mode that keeps notifications off the screen without stopping them.
@@ -224,8 +247,21 @@ pub const QUIET: &str = "do-not-disturb";
 /// `makoctl mode` prints the modes one to a line, and `default` is always one
 /// of them. Read by name rather than by counting, because a mode nobody here
 /// added is a mode this has no opinion about.
-pub fn held_back(said: &str) -> bool {
-    said.lines().any(|line| line.trim() == QUIET)
+pub fn held_back(said: &str) -> Quiet {
+    match said.lines().any(|line| line.trim() == QUIET) {
+        true => Quiet::HeldBack,
+        false => Quiet::Coming,
+    }
+}
+
+/// Whether notifications are being kept off the screen.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Quiet {
+    /// The card is not drawn. What is waiting is still waiting.
+    HeldBack,
+    /// A notification raised now reaches the screen.
+    #[default]
+    Coming,
 }
 
 #[cfg(test)]
@@ -281,8 +317,8 @@ mod tests {
     #[test]
     fn a_fault_says_it_is_one_and_nothing_else_does() {
         let held = read(TWO);
-        assert!(held[0].wrong());
-        assert!(!held[1].wrong());
+        assert_eq!(held[0].wrong(), Wrong::Yes);
+        assert_eq!(held[1].wrong(), Wrong::No);
         assert_eq!(held[0].urgency.says(), "wrong");
     }
 
@@ -394,9 +430,9 @@ Notification 7: A download finished
 
     #[test]
     fn the_mode_that_holds_them_back_is_read_by_name() {
-        assert!(held_back("default\ndo-not-disturb\n"));
-        assert!(!held_back("default\n"));
-        assert!(!held_back(""));
-        assert!(!held_back("do-not-disturb-later\n"));
+        assert_eq!(held_back("default\ndo-not-disturb\n"), Quiet::HeldBack);
+        assert_eq!(held_back("default\n"), Quiet::Coming);
+        assert_eq!(held_back(""), Quiet::Coming);
+        assert_eq!(held_back("do-not-disturb-later\n"), Quiet::Coming);
     }
 }

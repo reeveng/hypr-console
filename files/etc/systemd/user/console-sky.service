@@ -1,5 +1,5 @@
 [Unit]
-Description=Which wallpaper is up
+Description=Changing the background picture through the day
 PartOf=console.target
 # The wallpaper daemon has to be listening before there is any point telling it
 # anything. console-paper puts the garden up as it starts, which is the ground

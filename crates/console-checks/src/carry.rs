@@ -1,6 +1,6 @@
 //! Held with L2, a shoulder carries the window rather than leaving it.
 
-use console_stage::checking::{Body, Check, Done, ought};
+use console_stage::checking::{Body, Check, Done, happened, not_same, same};
 use console_stage::device::{Device, OPENING};
 use console_stage::here::{Here, TURNS};
 
@@ -25,7 +25,7 @@ fn carry_here(stage: &mut Here) -> Done {
     stage.press("r1")?;
     stage.settle(TURNS);
     let asked = stage.dispatches();
-    ought(asked == [r#"hl.dsp.window.move({workspace = "+1"})"#], || {
+    same(&asked, &[r#"hl.dsp.window.move({workspace = "+1"})"#], || {
         format!("it asked for {asked:?}")
     })
 }
@@ -52,8 +52,8 @@ fn carry_there(stage: &mut Device) -> Done {
     stage.press("l1");
     stage.trigger("l2", 0.0)?;
     stage.settle(1.2);
-    ought(there != where_, || "it did not move".to_string())?;
-    ought(arrived == set_out, || format!("{set_out} window(s) set out and {arrived} arrived"))
+    not_same(&there, &where_, || "it did not move".to_string())?;
+    same(&arrived, &set_out, || format!("{set_out} window(s) set out and {arrived} arrived"))
 }
 
 fn half_here(stage: &mut Here) -> Done {
@@ -61,7 +61,7 @@ fn half_here(stage: &mut Here) -> Done {
     stage.press("r1")?;
     stage.settle(TURNS);
     let asked = stage.dispatches();
-    ought(asked == [r#"hl.dsp.focus({workspace = "+1"})"#], || format!("it asked for {asked:?}"))
+    same(&asked, &[r#"hl.dsp.focus({workspace = "+1"})"#], || format!("it asked for {asked:?}"))
 }
 
 /// The count that answers this is the one for the workspace being looked at.
@@ -80,13 +80,15 @@ fn half_there(stage: &mut Device) -> Done {
     let came = stage.windows_here();
     stage.press("l1");
     stage.settle(1.0);
-    ought(came == 0, || format!("{came} window(s) came along and none should have"))
+    same(&came, &0, || format!("{came} window(s) came along and none should have"))
 }
 
 /// Something that can be carried, and lost without regret.
 pub fn something_open(stage: &mut Device) -> Done {
-    match stage.windows_here() > 0 || stage.open("alacritty", OPENING) {
+    match stage.windows_here() > 0 {
         true => Ok(()),
-        false => ought(false, || "nothing would open on the device".to_string()),
+        false => happened(stage.open("alacritty", OPENING), || {
+            "nothing would open on the device".to_string()
+        }),
     }
 }

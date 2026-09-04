@@ -1,7 +1,7 @@
 //! The right stick and the touchpad, which are the pointer.
 
 use evdev::{EventType, KeyCode, RelativeAxisCode};
-use console_stage::checking::{Body, Check, Done, cannot, ought};
+use console_stage::checking::{Body, Check, Done, cannot, less_than, more_than, same, seen};
 use console_stage::device::Device;
 use console_stage::here::{Here, TURNS};
 
@@ -29,12 +29,12 @@ fn scroll_here(stage: &mut Here) -> Done {
     stage.stick("right-stick", 0.0, -1.0)?;
     stage.settle(HELD);
     let up = stage.wrote(EventType::RELATIVE, RelativeAxisCode::REL_WHEEL.0);
-    ought(up > 0, || "the wheel did not turn".to_string())?;
+    more_than(up, 0, || "the wheel did not turn".to_string())?;
 
     stage.stick("right-stick", 0.0, 1.0)?;
     stage.settle(HELD);
     let back = stage.wrote(EventType::RELATIVE, RelativeAxisCode::REL_WHEEL.0);
-    ought(back < up, || "pushing the other way did not turn it back".to_string())
+    less_than(back, up, || "pushing the other way did not turn it back".to_string())
 }
 
 /// Not asked on the machine. What the wheel did is a thing the window under the
@@ -47,19 +47,19 @@ fn scroll_there(_stage: &mut Device) -> Done {
 fn touch_here(stage: &mut Here) -> Done {
     stage.drag((200, 300), (500, 300));
     stage.settle(TURNS);
-    ought(stage.wrote(EventType::RELATIVE, RelativeAxisCode::REL_X.0) > 0, || {
+    more_than(stage.wrote(EventType::RELATIVE, RelativeAxisCode::REL_X.0), 0, || {
         "the pointer did not move".to_string()
     })?;
-    ought(stage.wrote(EventType::RELATIVE, RelativeAxisCode::REL_Y.0) == 0, || {
+    same(&stage.wrote(EventType::RELATIVE, RelativeAxisCode::REL_Y.0), &0, || {
         "it moved the other way too".to_string()
     })?;
 
     stage.tap(400, 400);
     stage.settle(TURNS);
-    ought(stage.sent(EventType::KEY, KeyCode::BTN_LEFT.0, 1), || {
+    seen(stage.sent(EventType::KEY, KeyCode::BTN_LEFT.0, 1), || {
         "a tap did not click".to_string()
     })?;
-    ought(stage.sent(EventType::KEY, KeyCode::BTN_LEFT.0, 0), || {
+    seen(stage.sent(EventType::KEY, KeyCode::BTN_LEFT.0, 0), || {
         "the click was never let go".to_string()
     })
 }

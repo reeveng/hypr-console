@@ -68,12 +68,17 @@ pub const NOWHERE: Where = Where {
 pub fn here() -> Where {
     // A lock somebody panicked holding still holds an answer, and an old place
     // is a better wallpaper than none.
-    let mut kept = KEPT.lock().unwrap_or_else(|held| held.into_inner());
+    let mut kept = match KEPT.lock() {
+        Ok(kept) => kept,
+        Err(held) => held.into_inner(),
+    };
+
     if let Some((asked, at)) = *kept {
         if asked.elapsed() < KEEP_FOR {
             return at;
         }
     }
+
     let at = asking();
     *kept = Some((Instant::now(), at));
     at
@@ -81,14 +86,29 @@ pub fn here() -> Where {
 
 /// Where the machine says it is, asked rather than remembered.
 fn asking() -> Where {
-    zone()
-        .and_then(|zone| {
-            ZONES
-                .iter()
-                .filter_map(|at| std::fs::read_to_string(at).ok())
-                .find_map(|table| at(&zone, &table))
-        })
-        .unwrap_or(NOWHERE)
+    let Some(zone) = zone() else { return NOWHERE };
+
+    for named in ZONES {
+        // A table that is not on this machine is ordinary: the database is
+        // known by several names and only one of them is usually there. One
+        // that is there and will not be read is a fault, and folded in with the
+        // first the machine decides in silence that it is on the meridian.
+        let table = match std::fs::read_to_string(named) {
+            Ok(table) => table,
+            Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(fault) => {
+                eprintln!("console-sky: {named}: {fault}");
+
+                continue;
+            }
+        };
+
+        if let Some(found) = at(&zone, &table) {
+            return found;
+        }
+    }
+
+    NOWHERE
 }
 
 /// The zone the clock is keeping, as the database names it.
@@ -99,10 +119,29 @@ fn asking() -> Where {
 /// leaves nothing to read, and a machine with no zone is one this can say so
 /// about rather than one it has to guess badly for.
 pub fn zone() -> Option<String> {
-    let at = std::fs::read_link(CLOCK).ok()?;
+    // Not there, and there but not a link, are the two the doc comment above is
+    // about: both mean this machine does not say which zone it keeps, and the
+    // caller has an answer for that. Anything else is a fault, and it used to
+    // arrive here as the same shrug.
+    let at = match std::fs::read_link(CLOCK) {
+        Ok(at) => at,
+        Err(fault)
+            if matches!(
+                fault.kind(),
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::InvalidInput
+            ) =>
+        {
+            return None;
+        }
+        Err(fault) => {
+            eprintln!("console-sky: {CLOCK}: {fault}");
+
+            return None;
+        }
+    };
     let said = at.to_str()?;
-    said.split_once("zoneinfo/")
-        .map(|(_, zone)| zone.to_string())
+
+    said.split_once("zoneinfo/").map(|(_, zone)| zone.to_string())
 }
 
 /// Where the table says a zone is.
@@ -116,6 +155,7 @@ pub fn at(zone: &str, table: &str) -> Option<Where> {
         .filter_map(|line| {
             let mut columns = line.split('\t');
             let place = columns.nth(1)?;
+
             match columns.next()? == zone {
                 true => Some(place),
                 false => None,
@@ -154,20 +194,34 @@ fn degrees(said: &str) -> Option<f64> {
         _ => return None,
     };
     let digits = said.get(1..)?;
+
     if !digits.bytes().all(|byte| byte.is_ascii_digit()) {
         return None;
     }
+
     let (whole, rest) = match digits.len() {
         4 | 5 => digits.split_at(digits.len() - 2),
         6 | 7 => digits.split_at(digits.len() - 4),
         _ => return None,
     };
-    let minutes: f64 = rest.get(..2)?.parse().ok()?;
+
+    // Every one of these says what the `?`s above say: this row is not a
+    // coordinate, so there is no coordinate to hand back. The digits were
+    // checked to be digits a few lines up, so what is left to fail on is a run
+    // of them too long to be a number.
+    let (Ok(minutes), Ok(whole)) = (rest.get(..2)?.parse::<f64>(), whole.parse::<f64>()) else {
+        return None;
+    };
+
     let seconds: f64 = match rest.get(2..) {
-        Some(said) if !said.is_empty() => said.parse().ok()?,
+        Some(said) if !said.is_empty() => match said.parse() {
+            Ok(seconds) => seconds,
+            Err(_) => return None,
+        },
         _ => 0.0,
     };
-    Some(sign * (whole.parse::<f64>().ok()? + minutes / 60.0 + seconds / 3600.0))
+
+    Some(sign * (whole + minutes / 60.0 + seconds / 3600.0))
 }
 
 #[cfg(test)]

@@ -17,175 +17,143 @@
 //! the list offers to ask it, under everything the machine answered with.
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::path::PathBuf;
+use std::sync::{Arc, OnceLock};
 
-use console_menu::icons::{FALLBACKS, steam_appid};
-use console_menu::{counts, entry, icons, image, narrow, words};
+use console_menu::{counts, entry, found, narrow};
 use console_defaults::engines;
+use console_panel::actor::{self, Addr, Answer};
 use console_panel::page::{Does, Page, Picture, Row, Rows};
 use console_panel::{chooser, panel};
 
-fn home() -> PathBuf {
-    PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/root".to_string()))
-}
 
-fn counts_at() -> PathBuf {
-    home().join(".local/state/console/menu-counts")
-}
 
-fn index_at() -> PathBuf {
-    home().join(".cache/console/icon-index")
-}
 
-fn icon_roots() -> Vec<PathBuf> {
-    vec![
-        PathBuf::from("/usr/share/icons"),
-        PathBuf::from("/usr/share/pixmaps"),
-        home().join(".local/share/icons"),
-        home().join(".icons"),
-    ]
-}
 
-fn steam_roots() -> Vec<PathBuf> {
-    vec![home().join(".local/share/Steam"), home().join(".steam/steam")]
-}
 
-/// The newest of the icon directories, which a package install touches.
-fn icons_changed_at() -> std::time::SystemTime {
-    let mut newest = std::time::UNIX_EPOCH;
-    for root in icon_roots() {
-        let Ok(about) = root.metadata() else { continue };
-        newest = newest.max(about.modified().unwrap_or(std::time::UNIX_EPOCH));
-        let Ok(reading) = std::fs::read_dir(&root) else { continue };
-        for child in reading.filter_map(Result::ok) {
-            if let Ok(about) = child.metadata() {
-                newest = newest.max(about.modified().unwrap_or(std::time::UNIX_EPOCH));
-            }
-        }
-    }
-    newest
-}
 
-/// The kept index, rebuilt when something has been installed since.
-fn index() -> BTreeMap<String, String> {
-    let at = index_at();
-    let kept = at
-        .metadata()
-        .and_then(|about| about.modified())
-        .is_ok_and(|written| written >= icons_changed_at());
-    if kept && let Ok(said) = std::fs::read_to_string(&at) {
-        return icons::read(&said);
-    }
-    let built = icons::built(&icon_roots());
-    if let Some(parent) = at.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    let _ = std::fs::write(&at, icons::written(&built));
-    built
-}
 
-/// A game's icon out of Steam's own cache, found by shape.
-fn steam_icon(appid: &str) -> Option<String> {
-    let mut fallbacks: BTreeMap<String, String> = BTreeMap::new();
-    for root in steam_roots() {
-        let cache = root.join("appcache/librarycache").join(appid);
-        let Ok(reading) = std::fs::read_dir(&cache) else { continue };
-        let mut paths: Vec<PathBuf> =
-            reading.filter_map(Result::ok).map(|entry| entry.path()).collect();
-        paths.sort();
-        for path in paths {
-            let suffix = path.extension().map(|kind| kind.to_string_lossy().to_lowercase());
-            if !matches!(suffix.as_deref(), Some("jpg" | "png")) {
-                continue;
-            }
-            let Ok(head) = read_head(&path) else { continue };
-            let Some((width, height)) = image::size(&head) else { continue };
-            if width == height {
-                return Some(path.to_string_lossy().to_string());
-            }
-            let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
-            fallbacks.entry(name).or_insert_with(|| path.to_string_lossy().to_string());
-        }
-    }
-    FALLBACKS.iter().find_map(|wanted| fallbacks.get(*wanted).cloned())
-}
 
-/// Enough of a file to hold any header this reads.
-fn read_head(path: &Path) -> std::io::Result<Vec<u8>> {
-    use std::io::Read;
-    let mut head = vec![0; 65536];
-    let mut file = std::fs::File::open(path)?;
-    let read = file.read(&mut head)?;
-    head.truncate(read);
-    Ok(head)
-}
 
-/// A file for an icon name, or nothing. Names may already be a path.
-fn icon_at(name: &str, index: &BTreeMap<String, String>) -> Option<String> {
-    if name.is_empty() {
-        return None;
-    }
-    if name.starts_with('/') {
-        return Path::new(name).exists().then(|| name.to_string());
-    }
-    if let Some(found) = index.get(name) {
-        return Some(found.clone());
-    }
-    steam_appid(name).and_then(steam_icon)
-}
 
-/// Whether a program named in TryExec is on this machine.
-fn here(wanted: &str) -> bool {
-    if wanted.starts_with('/') {
-        return Path::new(wanted).exists();
-    }
-    std::env::var("PATH").unwrap_or_default().split(':').any(|where_| {
-        !where_.is_empty() && Path::new(where_).join(wanted).exists()
-    })
-}
 
-/// Everything the menu knows, worked out once when it opens.
+
+
+/// Everything the menu knows: the applications, their pictures, and the order
+/// they are worth showing in.
 ///
-/// A menu is up for as long as it takes to choose something, and reading the
-/// desktop files again for every letter typed would be the whole of
-/// `/usr/share/applications` read on every thumb press.
+/// There are two of these and they are the same shape. `all` is the machine as
+/// it is, read once on the thread the panel reads its rows on; `kept_list` is
+/// the machine as it was last time, read off one file on the loop that draws.
+/// The rows are built from whichever is to hand, by one function, so the second
+/// is a first drawing of the first and never a different list.
 struct Everything {
     apps: BTreeMap<String, entry::Application>,
     icon: BTreeMap<String, String>,
-    counted: BTreeMap<String, u64>,
     /// The names in the order they are used in.
     order: Vec<String>,
 }
 
-/// What has been typed so far.
-type Typed = Arc<Mutex<String>>;
+/// What has been typed so far, and the only thing that owns it.
+///
+/// The one thing this menu holds between one drawing and the next. It is a
+/// machine rather than a value behind a lock because the thumb writes it on
+/// the main thread and the list is read on another, and a word cannot be half
+/// written when the reader arrives.
+struct Word {
+    said: String,
+}
+
+/// Whether typing changed what was there.
+///
+/// Named rather than a bare `bool`, so the signature says which way round it
+/// reads without a comment under it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Narrowed {
+    Same,
+    Changed,
+}
+
+/// Everything that can happen to it, and nothing else.
+enum Msg {
+    /// What has been typed.
+    Said(Answer<String>),
+    /// Type this, and say whether it changed anything.
+    Type { word: String, answer: Answer<Narrowed> },
+}
+
+impl actor::Machine for Word {
+    type Msg = Msg;
+
+    fn step(self, message: Msg) -> Self {
+        match message {
+            Msg::Said(answer) => {
+                let _ = answer.say(self.said.clone());
+                self
+            },
+            Msg::Type { word, answer } => {
+                let narrowed = match self.said == word {
+                    true => Narrowed::Same,
+                    false => Narrowed::Changed,
+                };
+                let _ = answer.say(narrowed);
+                Word { said: word }
+            },
+        }
+    }
+}
+
+/// Where the menu reaches it.
+type Typed = Addr<Msg>;
 
 /// What the empty line says it is for.
 const ABOUT: &str = "Type to narrow the list";
 
 /// Read the machine: every application it has, and a picture for each.
+///
+/// Written down as it is found, so the next menu can open on it. What it costs
+/// is one file, and only when the answer has changed since the last one.
 fn everything() -> Everything {
-    let index = index();
-    let data_dirs =
-        std::env::var("XDG_DATA_DIRS").unwrap_or_else(|_| entry::DATA_DIRS.to_string());
-    let mut apps: BTreeMap<String, entry::Application> = BTreeMap::new();
-    let mut icon: BTreeMap<String, String> = BTreeMap::new();
-    for path in entry::files(&home(), &data_dirs) {
-        let Ok(said) = std::fs::read_to_string(&path) else { continue };
-        let Some(app) = entry::read(&said, here) else { continue };
-        if apps.contains_key(&app.name) {
-            continue;
-        }
-        if let Some(found) = icon_at(&app.icon, &index) {
-            icon.insert(app.name.clone(), found);
-        }
-        apps.insert(app.name.clone(), app);
-    }
-    let counted = counts::read(&std::fs::read_to_string(counts_at()).unwrap_or_default());
-    let names: Vec<String> = apps.keys().cloned().collect();
-    let order = counts::order(&names, &counted);
-    Everything { apps, icon, counted, order }
+    counting(found::machine())
+}
+
+/// What the menu found last time it was opened.
+///
+/// The list a menu opens on, so that the applications are on the screen in the
+/// moment the card is, rather than a moment after it. What is on this machine
+/// is very nearly what was on it, and the reading behind this replaces the
+/// whole list either way -- so the ones that are wrong are wrong for as long as
+/// it takes to read the desktop files, and until now that was how long the menu
+/// was empty for.
+///
+/// The counts are not remembered, because they do not have to be: they are one
+/// file already, read here as they are read there, so the order the rows come
+/// out in is this time's order and not last time's.
+fn everything_before() -> Everything {
+    counting(found::remembered())
+}
+
+/// The applications and their pictures, in the order they are worth showing.
+///
+/// The one place the order is worked out, so a remembered list and a read one
+/// come out the same way round.
+fn counting(found: found::Found) -> Everything {
+    let names: Vec<String> = found.apps.keys().cloned().collect();
+    let order = counts::order(&names, &found::counted());
+    Everything { apps: found.apps, icon: found.icon, order }
+}
+
+
+/// The machine, read once and then answered from.
+///
+/// A menu is up for as long as it takes to choose something, and reading the
+/// desktop files again for every letter typed would be the whole of
+/// `/usr/share/applications` read on every thumb press. Read where the panel
+/// reads its rows, which is a thread of its own, so the card is on the screen
+/// before this starts.
+fn all() -> &'static Everything {
+    static ALL: OnceLock<Everything> = OnceLock::new();
+    ALL.get_or_init(everything)
 }
 
 /// One application, with its picture.
@@ -193,17 +161,16 @@ fn everything() -> Everything {
 /// The panel keeps room at the front of every row whether or not there is a
 /// picture to put in it, so an application the icon theme has nothing for
 /// still has its name where the others have theirs.
-fn app_row(all: &Arc<Everything>, name: &str) -> Row {
+fn app_row(all: &Everything, name: &str) -> Row {
     let picture =
         all.icon.get(name).map_or(Picture::Space, |at| Picture::At(PathBuf::from(at)));
     let app = all.apps.get(name).cloned();
-    let counted = all.counted.clone();
     let named = name.to_string();
     Row::new(
         name,
         "",
         Does::call(move |_| {
-            start(app.as_ref(), counted.clone(), &named);
+            start(app.as_ref(), &named);
             true
         }),
     )
@@ -241,39 +208,69 @@ fn looking_up_row(said: &str) -> Row {
 /// Nothing typed is not a question, so the menu opens on the applications and
 /// nothing else: an empty line handed to an engine is that engine's front page,
 /// which is not what anybody standing on the bottom row meant to ask for.
-fn rows(typed: &Typed, all: &Arc<Everything>) -> Vec<Row> {
-    let word = typed.lock().map(|held| held.clone()).unwrap_or_default();
+fn rows(typed: &Typed, all: &Everything) -> Vec<Row> {
+    // Nothing typed, if the owner has gone: the menu is on its way out by
+    // then, and the applications are what it opens on.
+    let mut word = String::new();
+
+    // The owner has gone, which the comment above is about: the menu is on its
+    // way out and the applications are what it opens on. Not a fault, and not
+    // worth a line in the journal on the way out of a program.
+    if let Ok(said) = typed.ask(Msg::Said) {
+        word = said;
+    }
+
     let standing = narrow::matching(&all.order, &word);
     let mut rows: Vec<Row> = standing.iter().map(|name| app_row(all, name)).collect();
     let said = word.trim();
+
     if !said.is_empty() {
         rows.push(looking_up_row(said));
     }
+
     rows
 }
 
+/// The menu before the machine has been read.
+///
+/// Narrowed by whatever has been typed, like the list it stands in for. Nothing
+/// has been typed at the moment this is first drawn, but the letters do not
+/// wait for the desktop files either: somebody who opens the menu and types
+/// straight into it should see the remembered list narrow rather than see the
+/// whole of it until the reading lands.
+fn before(typed: &Typed) -> Vec<Row> {
+    rows(typed, kept_list())
+}
+
+/// What was written down last time, read once.
+///
+/// Read on the main loop, where the drawing happens, so it is one file and
+/// nothing else: no directory walked, no desktop file opened, nothing asked of
+/// another program. A card that had to work something out before it could be
+/// drawn would be the wait this is here to end, moved rather than removed.
+fn kept_list() -> &'static Everything {
+    static KEPT: OnceLock<Everything> = OnceLock::new();
+    KEPT.get_or_init(everything_before)
+}
+
 /// The one tab, and the line that narrows it.
-fn pages(typed: &Typed, all: &Arc<Everything>) -> Vec<Page> {
-    let listing = Arc::clone(typed);
-    let listed = Arc::clone(all);
-    let typing = Arc::clone(typed);
-    vec![Page::new("Menu", Rows::asked(move || rows(&listing, &listed))).searching(
-        ABOUT,
-        move |showing, word| {
-            let changed = match typing.lock() {
-                Ok(mut held) if *held != word => {
-                    *held = word.to_string();
-                    true
+fn pages(typed: &Typed) -> Vec<Page> {
+    let listing = typed.clone();
+    let waiting = typed.clone();
+    let typing = typed.clone();
+    vec![
+        Page::new("Menu", Rows::asked(move || rows(&listing, all())))
+            .meanwhile(move || before(&waiting))
+            .searching(ABOUT, move |showing, word| {
+                let narrowed = typing.ask(|answer| Msg::Type { word: word.to_string(), answer });
+
+                // Back to the top, because the row that was being stood on is
+                // not the row standing there now.
+                if matches!(narrowed, Ok(Narrowed::Changed)) {
+                    showing.replace(0);
                 }
-                _ => false,
-            };
-            // Back to the top, because the row that was being stood on is not
-            // the row standing there now.
-            if changed {
-                showing.replace(0);
-            }
-        },
-    )]
+            }),
+    ]
 }
 
 fn main() {
@@ -288,13 +285,21 @@ fn main() {
         true => chooser::Again::Keeps,
         false => chooser::Again::Closes,
     };
-    if !chooser::alone("menu", again) {
+
+    if chooser::alone("menu", again) == chooser::Alone::No {
         return;
     }
 
-    let all = Arc::new(everything());
-    let typed: Typed = Arc::new(Mutex::new(String::new()));
-    panel::show(Arc::new(move || pages(&typed, &all)), 0, None);
+    let word = actor::supervise(|| Word { said: String::new() });
+    let typed = word.addr.clone();
+    // The machine is not read here. It is read where the panel reads its rows,
+    // which is a thread of its own, so the card is up and answering the buttons
+    // while the desktop files are being opened -- and until they are, it is the
+    // list this menu found last time.
+    panel::show(Arc::new(move || pages(&typed)), 0, None);
+    // The menu is down and nothing is going to ask again. Waited for rather
+    // than dropped, so a message already in the mailbox is finished with.
+    word.shutdown();
 }
 
 /// Run what was chosen, and say what that was.
@@ -302,22 +307,11 @@ fn main() {
 /// A press that chose something and a press that chose nothing look the same
 /// from the outside, which is how "it only works sometimes" gets reported
 /// about a button that worked every time and a program that never started.
-fn start(app: Option<&entry::Application>, counted: BTreeMap<String, u64>, chosen: &str) {
-    let Some(app) = app else {
-        looked_up(chosen);
-        return;
-    };
-    bump(&app.name, counted);
-    let Some(mut argv) = words::split(&app.command) else {
-        eprintln!("{}: {:?} is not a command", app.name, app.command);
-        return;
-    };
-    if app.terminal {
-        argv.insert(0, "alacritty".to_string());
-        argv.insert(1, "-e".to_string());
+fn start(app: Option<&entry::Application>, chosen: &str) {
+    match app {
+        Some(app) => found::run(app),
+        None => looked_up(chosen),
     }
-    eprintln!("the menu chose {}: {}", app.name, argv.join(" "));
-    console_panel::running::left_running(&argv);
 }
 
 /// A line that matched no application, handed to the browser.
@@ -330,7 +324,9 @@ fn start(app: Option<&entry::Application>, counted: BTreeMap<String, u64>, chose
 /// panel's to say. Neither is named here.
 fn looked_up(said: &str) {
     let Some(engine) = engines::one(&engines::chosen()) else { return };
+
     let Some(address) = engines::address(said, engine) else { return };
+
     eprintln!("the menu was asked {said:?}: {address}");
     console_panel::running::left_running(&opening(&address));
 }
@@ -340,10 +336,3 @@ fn opening(address: &str) -> Vec<String> {
     vec!["xdg-open".to_string(), address.to_string()]
 }
 
-fn bump(name: &str, counted: BTreeMap<String, u64>) {
-    let at = counts_at();
-    if let Some(parent) = at.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    let _ = std::fs::write(&at, counts::written(&counts::bumped(counted, name)));
-}

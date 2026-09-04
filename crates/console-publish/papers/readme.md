@@ -33,10 +33,10 @@ touchpad it cannot translate. `console-pad` builds all four somewhere else, from
 a capture of the real ones, and presses their buttons by name through the real
 profile. So what a button does can be tested in under a second on a laptop.
 
-    make test          every test that needs no machine at all
-    make desktop       the device's own desktop, nested, at its own screen size
-    make checks        every feature it has grown, tried again
-    make deploy        push it to the device and apply it
+    just test          every test that needs no machine at all
+    just desktop       the device's own desktop, nested, at its own screen size
+    just checks        every feature it has grown, tried again
+    just deploy        push it to the device and apply it
 
 There are three places a change can be tried, and the same files describe all
 three. In this process, against a stand-in for evdev with a clock the test

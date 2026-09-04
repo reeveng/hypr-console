@@ -19,6 +19,8 @@
 //! two places is a number that goes out of step. They all work it out against
 //! what the compositor grants them, and they all get it from here.
 
+
+use console_number::whole_i32;
 /// Out of a hundred.
 ///
 /// Wide enough for a network's name and the reading beside it, with enough of
@@ -50,7 +52,7 @@ pub fn tall_part_of(screen: i32) -> i32 {
 }
 
 fn share(room: i32, part: i32) -> i32 {
-    (f64::from(room) * f64::from(part) / 100.0).round() as i32
+    whole_i32(f64::from(room) * f64::from(part) / 100.0)
 }
 
 #[cfg(test)]

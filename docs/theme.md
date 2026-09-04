@@ -18,7 +18,7 @@ and everything else imports whichever speaks its own:
 | `~/.config/console/palette.css` | waybar, the panels, GTK 3, GTK 4, libadwaita, Breeze |
 | `~/.config/console/palette.toml` | alacritty |
 | `~/.librewolf/console/chrome/palette.css` | `userChrome.css`, `userContent.css` |
-| `/usr/local/lib/console/palette.sh` | `osk-start`, which hands the colours to wvkbd as arguments |
+| `/usr/local/lib/console/palette.sh` | the keyboard, which reads it on the way in and hands the colours to itself as arguments |
 
 The stylesheets say `@pink` and `@text`. The keyboard says `"$pink"`. None of
 them holds a hex, so none of them can fall behind.
@@ -44,7 +44,7 @@ own below because it cannot be read back the way the rest can.
 
 ## Where to change it
 
-`theme/palette.toml`, then `make theme`, and `make garden` if you moved
+`theme/palette.toml`, then `just theme`, and `just garden` if you moved
 anything the picture is painted with. Nothing else.
 
 Two tests stand behind that. One refuses a checkout where a generated file no

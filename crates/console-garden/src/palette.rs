@@ -25,8 +25,9 @@ fn row(line: &str) -> Option<(String, String)> {
 /// The whole palette, out of the report's table.
 pub fn read(report: &str) -> Result<BTreeMap<String, String>, String> {
     let colours: BTreeMap<String, String> = report.lines().filter_map(row).collect();
+
     match colours.is_empty() {
-        true => Err("theme/report.md holds no colours; run `make theme`".to_string()),
+        true => Err("theme/report.md holds no colours; run `just theme`".to_string()),
         false => Ok(colours),
     }
 }

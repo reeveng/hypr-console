@@ -54,10 +54,22 @@ pub struct Tags {
     pub rest: String,
 }
 
+/// Whether a file said anything about itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Said {
+    /// It carries at least one tag worth reading.
+    Something,
+    /// It carries none, so the filename is all there is.
+    Nothing,
+}
+
 impl Tags {
     /// Whether the file said anything at all.
-    pub fn anything(&self) -> bool {
-        !(self.title.is_empty() && self.artist.is_empty() && self.rest.is_empty())
+    pub fn anything(&self) -> Said {
+        match self.title.is_empty() && self.artist.is_empty() && self.rest.is_empty() {
+            true => Said::Nothing,
+            false => Said::Something,
+        }
     }
 }
 
@@ -93,11 +105,13 @@ pub fn of(path: &Path) -> Tags {
 /// What ffprobe said, as what the song says.
 pub fn read(said: &str) -> Tags {
     let mut all: Vec<(String, String)> = Vec::new();
+
     let Ok(held) = serde_json::from_str::<Value>(said) else { return Tags::default() };
 
     if let Some(tags) = held.get("format").and_then(|format| format.get("tags")) {
         gathered(tags, &mut all);
     }
+
     if let Some(streams) = held.get("streams").and_then(Value::as_array) {
         for stream in streams {
             // The cover is a stream too, and its tags say "Album cover" under
@@ -105,11 +119,13 @@ pub fn read(said: &str) -> Tags {
             if stream.get("codec_type").and_then(Value::as_str) != Some("audio") {
                 continue;
             }
+
             if let Some(tags) = stream.get("tags") {
                 gathered(tags, &mut all);
             }
         }
     }
+
     let first = |wanted: &[&str]| {
         wanted.iter().find_map(|want| {
             all.iter().find(|(name, _)| name == want).map(|(_, said)| said.clone())
@@ -133,11 +149,14 @@ fn gathered(tags: &Value, into: &mut Vec<(String, String)>) {
 
     for (name, value) in held {
         let Some(said) = value.as_str() else { continue };
+
         let said = said.split_whitespace().collect::<Vec<&str>>().join(" ");
         let name = name.trim().to_lowercase();
+
         if said.is_empty() || into.iter().any(|(had, _)| *had == name) {
             continue;
         }
+
         into.push((name, said));
     }
 }
@@ -151,11 +170,14 @@ fn rest(all: &[(String, String)], title: &str, artist: &str) -> String {
 
     for (name, said) in all {
         let known = said == title || said == artist || rest.contains(&said.as_str());
+
         if known || NOT_THE_MUSIC.contains(&name.as_str()) {
             continue;
         }
+
         rest.push(said);
     }
+
     cut(&rest.join(BETWEEN), AS_MUCH)
 }
 
@@ -238,7 +260,7 @@ mod tests {
             "format": { }
         });
         assert_eq!(read(&tagless.to_string()), Tags::default());
-        assert!(!read(&tagless.to_string()).anything());
+        assert_eq!(read(&tagless.to_string()).anything(), Said::Nothing);
     }
 
     /// The album and the year are worth looking in; the encoder and the link

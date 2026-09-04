@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 use evdev::{EventType, InputEvent};
 
 use crate::capture::Descriptor;
-use crate::devices::Sink;
+use crate::devices::{Has, Sink};
 
 /// One device, and the events waiting on it.
 #[derive(Debug, Clone, PartialEq)]
@@ -120,8 +120,11 @@ impl Sink for World {
         self.devices.get(role).map(|device| device.path.clone())
     }
 
-    fn has(&self, role: &str) -> bool {
-        self.devices.contains_key(role)
+    fn has(&self, role: &str) -> Has {
+        match self.devices.contains_key(role) {
+            true => Has::Yes,
+            false => Has::No,
+        }
     }
 
     fn write(&mut self, role: &str, kind: EventType, code: u16, value: i32) {
@@ -149,7 +152,7 @@ mod tests {
 
     #[test]
     fn every_device_gets_a_path_of_its_own() {
-        let world = World::of(captured());
+        let world = World::of(captured().expect("the capture carried in this program parses"));
         let mut paths: Vec<String> = world.devices.values().map(|d| d.path.clone()).collect();
         paths.sort();
         paths.dedup();
@@ -158,7 +161,7 @@ mod tests {
 
     #[test]
     fn what_is_written_is_waiting_and_is_remembered() {
-        let mut world = World::of(captured());
+        let mut world = World::of(captured().expect("the capture carried in this program parses"));
         world.write("pad", EventType::KEY, 304, 1);
         world.syn("pad");
         assert_eq!(world.written("pad"), [Written { kind: EventType::KEY, code: 304, value: 1 }]);
@@ -167,7 +170,7 @@ mod tests {
 
     #[test]
     fn a_device_that_has_gone_is_not_there_to_be_found() {
-        let mut world = World::of(captured());
+        let mut world = World::of(captured().expect("the capture carried in this program parses"));
         let path = world.path("pad").expect("a pad");
         assert_eq!(world.role_at(&path), Some("pad"));
         world.devices.get_mut("pad").expect("a pad").unplug();
@@ -177,7 +180,7 @@ mod tests {
 
     #[test]
     fn a_wheel_is_how_far_it_turned_rather_than_how_often() {
-        let mut world = World::of(captured());
+        let mut world = World::of(captured().expect("the capture carried in this program parses"));
         for notch in [1, 1, -1] {
             world.write("mouse", EventType::RELATIVE, 8, notch);
         }
@@ -187,7 +190,7 @@ mod tests {
 
     #[test]
     fn writing_to_a_device_that_is_not_there_writes_nothing() {
-        let mut world = World::of(captured());
+        let mut world = World::of(captured().expect("the capture carried in this program parses"));
         world.write("trackball", EventType::KEY, 1, 1);
         assert!(world.log.is_empty());
     }

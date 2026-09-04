@@ -7,9 +7,12 @@
 //! middle of the screen, which is not what a pad under a thumb is for. So it
 //! is read here, and what comes out is movement rather than position.
 
+
+use console_number::toward_zero_i32;
 use evdev::{KeyCode, RelativeAxisCode};
 
 use crate::doing::{Doing, Out};
+use crate::means::Press;
 
 /// Screen pixels per unit of pad travel.
 pub const GAIN: f64 = 1.4;
@@ -57,17 +60,28 @@ pub struct Finger {
     owed: (f64, f64),
 }
 
+/// Which way a movement on the pad is measured.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Axis {
+    /// Across the pad.
+    Sideways,
+    /// Up and down it.
+    Down,
+}
+
 impl Finger {
     /// A finger arriving or leaving.
     ///
     /// A touch that was short and stayed still is a tap, which is a click.
-    pub fn touched(&mut self, down: bool, now: f64) -> Vec<Doing> {
-        if down {
+    pub fn touched(&mut self, down: Press, now: f64) -> Vec<Doing> {
+        if down == Press::Down {
             *self = Finger { down: true, started: now, held: self.held, owed: self.owed, ..Finger::default() };
             return Vec::new();
         }
+
         self.down = false;
         let quick = now - self.started < TAP_SECONDS;
+
         match quick && self.travel < TAP_TRAVEL {
             true => click(),
             false => Vec::new(),
@@ -84,21 +98,24 @@ impl Finger {
     /// Where the finger is now. What matters is how far it went since the last
     /// report, not where it landed, so the first report of a touch moves
     /// nothing.
-    pub fn at(&mut self, sideways: bool, value: i32) {
+    pub fn at(&mut self, along: Axis, value: i32) {
         if !self.down {
             return;
         }
-        let was = match sideways {
-            true => &mut self.was.0,
-            false => &mut self.was.1,
+
+        let was = match along {
+            Axis::Sideways => &mut self.was.0,
+            Axis::Down => &mut self.was.1,
         };
         let step = was.map(|before| value - before);
+
         *was = Some(value);
         if let Some(step) = step {
             self.travel += step.abs();
-            match sideways {
-                true => self.moved.0 += step,
-                false => self.moved.1 += step,
+
+            match along {
+                Axis::Sideways => self.moved.0 += step,
+                Axis::Down => self.moved.1 += step,
             }
         }
     }
@@ -110,21 +127,27 @@ impl Finger {
     pub fn carried(&mut self) -> Vec<Doing> {
         let (mut across, mut down) = self.moved;
         self.moved = (0, 0);
+
         if SWAP {
             (across, down) = (down, across);
         }
+
         if FLIP_X {
             across = -across;
         }
+
         if FLIP_Y {
             down = -down;
         }
+
         self.owed.0 += f64::from(across) * GAIN;
         self.owed.1 += f64::from(down) * GAIN;
+
         if self.owed.0.abs() < 1.0 && self.owed.1.abs() < 1.0 {
             return Vec::new();
         }
-        let (whole_x, whole_y) = (self.owed.0 as i32, self.owed.1 as i32);
+
+        let (whole_x, whole_y) = (toward_zero_i32(self.owed.0), toward_zero_i32(self.owed.1));
         self.owed.0 -= f64::from(whole_x);
         self.owed.1 -= f64::from(whole_y);
         vec![Doing::Frame(vec![
@@ -141,24 +164,24 @@ mod tests {
     #[test]
     fn a_quick_touch_that_stayed_still_is_a_click() {
         let mut finger = Finger::default();
-        assert!(finger.touched(true, 1000.0).is_empty());
-        assert_eq!(finger.touched(false, 1000.1), click());
+        assert!(finger.touched(Press::Down, 1000.0).is_empty());
+        assert_eq!(finger.touched(Press::Up, 1000.1), click());
     }
 
     #[test]
     fn a_touch_that_lingered_is_not_a_click() {
         let mut finger = Finger::default();
-        finger.touched(true, 1000.0);
-        assert!(finger.touched(false, 1000.0 + TAP_SECONDS + 0.01).is_empty());
+        finger.touched(Press::Down, 1000.0);
+        assert!(finger.touched(Press::Up, 1000.0 + TAP_SECONDS + 0.01).is_empty());
     }
 
     #[test]
     fn a_touch_that_travelled_is_not_a_click() {
         let mut finger = Finger::default();
-        finger.touched(true, 1000.0);
-        finger.at(true, 0);
-        finger.at(true, TAP_TRAVEL + 1);
-        assert!(finger.touched(false, 1000.1).is_empty());
+        finger.touched(Press::Down, 1000.0);
+        finger.at(Axis::Sideways, 0);
+        finger.at(Axis::Sideways, TAP_TRAVEL + 1);
+        assert!(finger.touched(Press::Up, 1000.1).is_empty());
     }
 
     /// Position in, movement out. The first report of a touch says where the
@@ -166,17 +189,17 @@ mod tests {
     #[test]
     fn the_first_report_of_a_touch_moves_nothing() {
         let mut finger = Finger::default();
-        finger.touched(true, 1000.0);
-        finger.at(true, 800);
+        finger.touched(Press::Down, 1000.0);
+        finger.at(Axis::Sideways, 800);
         assert!(finger.carried().is_empty());
     }
 
     #[test]
     fn a_finger_that_moved_moves_the_pointer_by_the_gain() {
         let mut finger = Finger::default();
-        finger.touched(true, 1000.0);
-        finger.at(true, 100);
-        finger.at(true, 200);
+        finger.touched(Press::Down, 1000.0);
+        finger.at(Axis::Sideways, 100);
+        finger.at(Axis::Sideways, 200);
         assert_eq!(
             finger.carried(),
             [Doing::Frame(vec![
@@ -191,11 +214,11 @@ mod tests {
     #[test]
     fn what_the_gain_leaves_behind_is_kept() {
         let mut finger = Finger::default();
-        finger.touched(true, 1000.0);
-        finger.at(true, 0);
+        finger.touched(Press::Down, 1000.0);
+        finger.at(Axis::Sideways, 0);
         let over: usize = (1..=4)
             .map(|step| {
-                finger.at(true, step);
+                finger.at(Axis::Sideways, step);
                 finger.carried().len()
             })
             .sum();
@@ -216,8 +239,8 @@ mod tests {
     #[test]
     fn a_report_with_no_finger_down_is_nothing() {
         let mut finger = Finger::default();
-        finger.at(true, 500);
-        finger.at(true, 900);
+        finger.at(Axis::Sideways, 500);
+        finger.at(Axis::Sideways, 900);
         assert!(finger.carried().is_empty());
     }
 }

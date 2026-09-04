@@ -1,0 +1,18 @@
+[Desktop Entry]
+Type=Application
+# One entry and not two.
+#
+# It opens both halves -- a photograph and a film are the same card with a
+# different row under the picture -- and splitting it would be two entries whose
+# only difference is which folder they start in. Pressed with nothing to open it
+# opens the pictures folder, which is what somebody pressing a viewer on the
+# home screen came for; a film is reached from the files panel, or by walking
+# the folder it is in. Two of them, named Pictures and Videos, is a change to
+# this file and a second one beside it, and nothing in the panel.
+Name=Viewer
+Comment=Photographs and films, on the machine that holds them
+Exec=/usr/local/bin/viewer-panel %f
+Icon=multimedia-photo-viewer
+Terminal=false
+Categories=Graphics;Viewer;AudioVideo;Video;Player;
+MimeType=image/png;image/jpeg;image/webp;image/gif;image/avif;image/heif;image/tiff;video/mp4;video/matroska;video/webm;video/quicktime;video/vnd.avi;video/ogg;

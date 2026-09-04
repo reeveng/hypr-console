@@ -1,0 +1,11 @@
+error: a `Result` is being dropped where it stands
+  --> $DIR/main.rs:11:5
+   |
+LL |     fallible();
+   |     ^^^^^^^^^^^
+   |
+   = help: handle it with `match`, propagate it with `?`, or write `let _ = …` to say the failure does not matter
+   = note: `#[deny(explicit005_handle_fallible)]` on by default
+
+error: aborting due to 1 previous error
+

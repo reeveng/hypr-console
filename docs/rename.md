@@ -33,9 +33,19 @@ It stands in the path `files/home/@user@/`, and since the tree stopped naming
 anybody it also stands in the bodies of `/etc/sudoers.d/console` and
 `91-console-touchpad.rules`.
 
-`/usr/local/bin/hyprsession` and `/usr/local/bin/wvkbd-mobintl` are forks of
-other people's GPL programs, carried here as built binaries. They keep the
-names their projects gave them. What is ours is the unit that runs each one.
+`/usr/local/bin/hyprsession` is a fork of somebody else's GPL program, carried
+here as a built binary, and it keeps the name its project gave it. What is ours
+is the unit that runs it.
+
+`/usr/local/bin/kew` is the same case. It is the fork of the music player, and
+it keeps the name too: the panel starts it by that name, and what is in front
+on the path is what answers. What is ours is the panel that drives it.
+
+`/usr/local/bin/virtual-keyboard` was the other one and is not a fork any more.
+It is a Rust crate the device compiles, and the name is the one this rename gave
+it: named for what it is rather than for whose it was, which turned out to be
+the right name a release before it was the true one. The wvkbd source it was
+ported from was kept beside it for a while as the way back, and has since gone.
 
 ## 2. What moved
 
@@ -74,7 +84,7 @@ In order, one commit each, every one of them with the whole suite green.
 
 ## 3. The migration
 
-`tools/console-migrate`, once per device. `make migrate` runs it, and
+`tools/console-migrate`, once per device. `just migrate` runs it, and
 `tools/console-migrate --check` says what the machine is called now and changes
 nothing.
 

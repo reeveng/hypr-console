@@ -1,0 +1,8 @@
+# Route the linker through `dylint-link`, which copies each cdylib output
+# to the suffixed name dylint expects at load time.
+
+[target.x86_64-unknown-linux-gnu]
+linker = "dylint-link"
+
+[build]
+rustflags = ["-C", "link-arg=-Wl,-z,noexecstack"]

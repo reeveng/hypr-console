@@ -6,22 +6,25 @@
 //! offered to that as somewhere the devices are plugged in.
 
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
-use std::sync::mpsc::{Receiver, channel};
-use std::time::Duration;
+use std::sync::mpsc::{Receiver, TryRecvError, channel};
+use std::time::{Duration, Instant};
 
 use evdev::uinput::VirtualDevice;
 use evdev::{
     AbsoluteAxisCode, AttributeSet, Device, InputEvent, KeyCode, RelativeAxisCode,
 };
+use console_haste::Hurrying;
 use console_controller::clock::since_boot;
 use console_controller::doing::Doing;
 use console_controller::finding::{Says, says};
 use console_controller::means::{self, Table};
-use console_controller::mode::Mode;
-use console_controller::profile::{Asked, wanted};
+use console_pad::jobs::Rebound;
+use console_controller::mode::{Awake, Mode};
+use console_controller::profile::{Asked, Loading, wanted};
 use console_controller::reading::{From, Ranges};
-use console_controller::turning::{Gone, Plugged, READ, Turning};
+use console_controller::turning::{Gone, Plugged, READ, Took, Turning};
 
 fn main() -> std::process::ExitCode {
     let mut out = match published() {
@@ -34,20 +37,77 @@ fn main() -> std::process::ExitCode {
 
     let mut machine = Machine::default();
     let mut turning = Turning::pointed_at(told());
+
+    // Where the table of jobs lives, worked out once. HOME cannot change under
+    // a running daemon, so asking for it every turn would turn one unset
+    // variable into a line in the journal fifty times a second.
+    //
+    // Unset comes to the empty string, which is what this read as before unset
+    // was told apart from a home set to something that is not text. The second
+    // is somebody's table being looked for in the wrong place and is worth a
+    // line; the first is a unit file that names no home, and the daemon has
+    // always run on the table it was built with in that case.
+    let home = match std::env::var("HOME") {
+        Ok(home) => home,
+        Err(std::env::VarError::NotPresent) => String::new(),
+        Err(fault) => {
+            eprintln!("stick-scroll: HOME: {fault}; running on the table this was built with");
+
+            String::new()
+        }
+    };
+
     // What every job is bound to on this machine, and when the file it comes
     // out of was last written. Read here rather than in the library, which
     // opens nothing.
-    let mut bound = Bound::default();
-    bound.look(&mut turning);
+    let mut bound = Bound::of(&home);
+
+    if let Err(fault) = bound.look(&mut turning) {
+        eprintln!("stick-scroll: {fault}");
+    }
+
     let mut holding: BTreeMap<From, String> = BTreeMap::new();
     let mut running: Vec<Child> = Vec::new();
 
     // What is in front of you, which is what the buttons are for. Asked once
     // at the start and again whenever the compositor says a layer opened or
     // closed, which is the only thing that can change the answer.
-    let changed = watching();
+    //
+    // A compositor this program was not started under is not a reason to stop:
+    // scrolling and every button that does not depend on what is in front go on
+    // working. It is said once, and what is in front is never asked again.
+    let changed = match watching() {
+        Ok(changed) => changed,
+        Err(fault) => {
+            eprintln!("stick-scroll: nothing will say when a layer opens: {fault}");
+
+            // A channel with nobody left to speak into it, which is exactly
+            // what this had before the failure was told apart from silence.
+            // Scrolling and every button that does not depend on what is in
+            // front go on working, and the loop below says once that they are
+            // working without it.
+            let (_say, heard) = channel();
+
+            heard
+        }
+    };
+
     let mut wearing = Wearing::default();
-    look(&mut turning, &mut wearing);
+
+    if let Err(fault) = look(&mut turning, &mut wearing) {
+        eprintln!("stick-scroll: {fault}");
+    }
+
+    // The processors, which are asleep between presses and have to be told
+    // otherwise before there is anything for them to notice. See
+    // `console_haste`.
+    let mut hurrying = Hurrying::default();
+    let mut said_the_watcher_went = false;
+
+    // What the home screen last said about itself. Everything else about where
+    // you are arrives on the compositor's socket; this one cannot, because
+    // waking a highlight opens no layer and closes none.
+    let mut was_awake = Awake::asked();
 
     loop {
         // Asked again when the compositor says a layer opened or closed, and
@@ -55,30 +115,84 @@ fn main() -> std::process::ExitCode {
         // question answered twice: what should be worn when a load finishes is
         // whatever is in front then, which may be neither what was in front
         // when it started nor what it loaded.
-        let landed = wearing.loading.is_some() && !wearing.in_flight();
-        if changed.try_recv().is_ok() {
-            // Everything queued behind it says the same thing: ask again.
-            while changed.try_recv().is_ok() {}
-            look(&mut turning, &mut wearing);
-        } else if landed {
-            look(&mut turning, &mut wearing);
+        let landed = wearing.loading.is_some() && wearing.in_flight() == Loading::Settled;
+
+        // Nothing waiting is ordinary and means no layer opened or closed this
+        // turn. The channel having no sender left is not: the thread watching
+        // the compositor has ended, and from here that reads as the same quiet
+        // as an idle desktop -- for ever. Said once, because this loop runs
+        // fifty times a second.
+        let word = match changed.try_recv() {
+            Ok(()) => Word::Came,
+            Err(TryRecvError::Empty) => Word::Nothing,
+            Err(TryRecvError::Disconnected) => Word::Gone,
+        };
+
+        if word == Word::Gone && !said_the_watcher_went {
+            eprintln!("stick-scroll: the watcher on the compositor has ended; what is in front of you will not be asked again");
+            said_the_watcher_went = true;
         }
+
+        // The home screen raising or dropping its highlight, which decides
+        // whose A is whose and is the one thing about where you are that the
+        // compositor cannot say -- the surface is drawn either way. Asked at
+        // the rate the loop runs, because the answer is a file being there or
+        // not; the expensive question behind it is only asked when this one
+        // has changed its mind.
+        let awake = Awake::asked();
+        let woke = awake != was_awake;
+        was_awake = awake;
+
+        if word == Word::Came || landed || woke {
+            // Everything queued behind it says the same thing: ask again.
+            while let Ok(()) = changed.try_recv() {}
+
+            if let Err(fault) = look(&mut turning, &mut wearing) {
+                eprintln!("stick-scroll: {fault}");
+            }
+        }
+
         // Somebody may have moved a button while this was running. The setup
         // screen writes the file and nothing else; watching when it was last
         // written is the whole of the telling, and it is asked at the rate the
         // loop already runs at because a `stat` is cheaper than deciding how
         // often to do one.
-        bound.look(&mut turning);
+        if let Err(fault) = bound.look(&mut turning) {
+            eprintln!("stick-scroll: {fault}");
+        }
+
         // Counting the time the machine spent asleep, which is the whole of
         // why `turning::AWAY_SECONDS` can tell a suspend from a slow turn. See
         // `console_controller::clock`.
         for what in turning.turn(&mut machine, since_boot()) {
+            // Before the fork rather than after it. Most of what a panel costs
+            // is spent before it has a line of its own running -- the loader
+            // alone is a third of it -- so a processor told to hurry by the
+            // program that was started has already missed the part of the
+            // opening it would have helped most.
+            if matches!(what, Doing::Run(_)) {
+                hurrying.asked(Instant::now());
+            }
+
             running.extend(done(&what, &mut out));
         }
+
+        hurrying.settle(Instant::now());
         running = reaped(running);
         say_what_changed(&mut holding, &turning);
         std::thread::sleep(Duration::from_secs_f64(turning.poll()));
     }
+}
+
+/// What the channel from the compositor had to say this turn.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Word {
+    /// A layer opened or closed, so what is in front may have moved.
+    Came,
+    /// Nothing this turn, which is what almost every turn is.
+    Nothing,
+    /// Nobody is left to say anything, and nobody ever will be.
+    Gone,
 }
 
 /// The table of jobs, and when the file it came out of was last written.
@@ -88,31 +202,68 @@ fn main() -> std::process::ExitCode {
 /// loaded where it is and says so once: a machine whose buttons all stopped
 /// working because of a typo in a table is worse than one still doing what it
 /// was doing.
-#[derive(Default)]
 struct Bound {
+    at: PathBuf,
     written: Option<std::time::SystemTime>,
     read: bool,
 }
 
 impl Bound {
-    fn look(&mut self, turning: &mut Turning) {
-        let at = console_pad::jobs::path_in(&std::env::var("HOME").unwrap_or_default());
-        let written = std::fs::metadata(&at).and_then(|held| held.modified()).ok();
+    /// Where to look, decided once, because HOME cannot change under a running
+    /// daemon and the fault in reading it belongs where it is read.
+    fn of(home: &str) -> Self {
+        Self { at: console_pad::jobs::path_in(home), written: None, read: false }
+    }
+
+    fn look(&mut self, turning: &mut Turning) -> Result<(), String> {
+        let at = self.at.clone();
+
+        // When it was last written, or nothing where there is no file. A file
+        // that will not even be stat'd is neither of those, and telling them
+        // apart is the difference between a table nobody has changed and a
+        // table this daemon could not read. What it is answered as is recorded
+        // before it is reported, so a stat that goes on failing is one line in
+        // the journal rather than fifty a second.
+        let written = match std::fs::metadata(&at).and_then(|held| held.modified()) {
+            Ok(when) => Some(when),
+            Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => None,
+            Err(fault) => {
+                self.written = None;
+                self.read = true;
+
+                return Err(format!("{}: asking when it was last written: {fault}", at.display()));
+            }
+        };
+
         if self.read && written == self.written {
-            return;
+            return Ok(());
         }
+
         self.written = written;
         self.read = true;
-        let said = std::fs::read_to_string(&at).unwrap_or_default();
+
+        // No file is ordinary: nobody on this machine has moved a button, and
+        // the table with nothing moved in it is what an empty one reads as. A
+        // file that is there and will not be read is not ordinary, and used to
+        // arrive here as the same empty string.
+        let said = match std::fs::read_to_string(&at) {
+            Ok(said) => said,
+            Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(fault) => return Err(format!("{}: reading it: {fault}", at.display())),
+        };
+
         match console_pad::jobs::Jobs::read(&said) {
             Ok(jobs) => {
-                if jobs.moved() {
+                if jobs.moved() == Rebound::Something {
                     eprintln!("stick-scroll: {} moves {} of them", at.display(), jobs.moved.len());
                 }
+
                 turning.bound_by(Table::of(&jobs));
             }
             Err(fault) => eprintln!("stick-scroll: {}: {fault}", at.display()),
         }
+
+        Ok(())
     }
 }
 
@@ -123,10 +274,11 @@ impl Bound {
 /// the profile from before the keyboard came up, and a SIGSTOP -- and every
 /// one of them was a note a program left for another program to read. See
 /// `console_controller::mode`.
-fn watching() -> Receiver<()> {
+fn watching() -> Result<Receiver<()>, String> {
     let (say, heard) = channel();
-    console_door::watching_layers(say);
-    heard
+    console_door::watching_layers(say)?;
+
+    Ok(heard)
 }
 
 /// The load this daemon has going, if it has one.
@@ -147,13 +299,14 @@ impl Wearing {
     ///
     /// Reaped here rather than left to the general reaping, because whether it
     /// has finished is the question `look` is about to ask.
-    fn in_flight(&mut self) -> bool {
-        let Some(load) = self.loading.as_mut() else { return false };
+    fn in_flight(&mut self) -> Loading {
+        let Some(load) = self.loading.as_mut() else { return Loading::Settled };
+
         match load.try_wait() {
-            Ok(None) => true,
+            Ok(None) => Loading::InFlight,
             _ => {
                 self.loading = None;
-                false
+                Loading::Settled
             }
         }
     }
@@ -164,12 +317,12 @@ impl Wearing {
 ///
 /// A compositor that cannot be asked leaves the mode where it was. Falling
 /// back to the desktop here would mean a keyboard up and a `hyprctl` that
-/// failed once put the pad back under this daemon while wvkbd still has it,
+/// failed once put the pad back under this daemon while the keyboard still has it,
 /// which is the fight the mode exists to end.
 ///
 /// The profile is loaded only when it is not the one already on. A load
 /// destroys the pad and builds another every time, so a load that changes
-/// nothing is not free: it is this daemon and wvkbd both losing the device
+/// nothing is not free: it is this daemon and the keyboard both losing the device
 /// they are reading, for nothing.
 ///
 /// It is also not loaded over one that has not landed. `controller-profile` is
@@ -177,31 +330,42 @@ impl Wearing {
 /// pad for as long as InputPlumber takes -- so between asking and the pad
 /// wearing it, the bus still answers with what came before. Deciding against
 /// that answer is deciding against the past. See `console_controller::profile`.
-fn look(turning: &mut Turning, wearing: &mut Wearing) {
-    let Some(screens) = console_door::screens() else { return };
-    let mode = Mode::seen(&screens);
+fn look(turning: &mut Turning, wearing: &mut Wearing) -> Result<(), String> {
+    let screens = console_door::screens()?;
+    let mode = Mode::seen(&screens, Awake::asked());
     turning.held.now_in(mode);
 
-    let in_flight = wearing.in_flight();
-    let worn = loaded();
-    let Some(asking) = wanted(mode.profile(), worn.as_deref(), in_flight, &wearing.asked) else {
-        return;
+    let loading = wearing.in_flight();
+    let worn = loaded()?;
+
+    let Some(asking) = wanted(mode.profile(), worn.as_deref(), loading, &wearing.asked) else {
+        return Ok(());
     };
+
     wearing.loading = run(&["controller-profile".to_string(), asking.profile.clone()]);
     wearing.asked = asking;
+
+    Ok(())
 }
 
 /// Which profile the pad has, as the machine answers.
 ///
-/// `None` where it would not answer, which is not the same as some other
-/// profile and is not written down as one. The bus is least askable exactly
-/// while a load is tearing the pad down and building another.
-fn loaded() -> Option<String> {
-    let said = Command::new("controller-profile").output().ok()?;
+/// Nothing where it answered and named no profile, which is not the same as
+/// some other profile and is not written down as one. The bus is least askable
+/// exactly while a load is tearing the pad down and building another.
+///
+/// A `controller-profile` that will not run at all is a different thing again,
+/// and it comes back as the failure it is. Folded in with the rest, as it was,
+/// a daemon that could not ask went on deciding as though it had.
+fn loaded() -> Result<Option<String>, String> {
+    let said = Command::new("controller-profile")
+        .output()
+        .map_err(|fault| format!("asking which profile the pad has: {fault}"))?;
+
     match said.status.success() {
-        false => None,
-        true => Some(String::from_utf8_lossy(&said.stdout).trim().to_string())
-            .filter(|worn| !worn.is_empty()),
+        false => Ok(None),
+        true => Ok(Some(String::from_utf8_lossy(&said.stdout).trim().to_string())
+            .filter(|worn| !worn.is_empty())),
     }
 }
 
@@ -216,22 +380,24 @@ impl Plugged for Machine {
         evdev::enumerate().map(|(path, device)| says(&path.display().to_string(), &device)).collect()
     }
 
-    fn open(&mut self, path: &str) -> bool {
+    fn open(&mut self, path: &str) -> Took {
         if self.open.contains_key(path) {
-            return true;
+            return Took::Held;
         }
+
         let opened = Device::open(path).and_then(|device| {
             device.set_nonblocking(true)?;
             Ok(device)
         });
+
         match opened {
             Ok(device) => {
                 self.open.insert(path.to_string(), device);
-                true
+                Took::Held
             }
             Err(fault) => {
                 eprintln!("stick-scroll: {path}: {fault}");
-                false
+                Took::Refused
             }
         }
     }
@@ -243,12 +409,15 @@ impl Plugged for Machine {
     /// there is arithmetic that stops.
     fn ranges(&self, path: &str) -> Ranges {
         let Some(device) = self.open.get(path) else { return Ranges::default() };
+
         let mut told: BTreeMap<u16, (i32, i32)> = BTreeMap::new();
+
         if let Ok(states) = device.get_absinfo() {
             for (axis, info) in states {
                 told.insert(axis.0, (info.minimum(), info.maximum()));
             }
         }
+
         let stick = [AbsoluteAxisCode::ABS_RX, AbsoluteAxisCode::ABS_RY]
             .iter()
             .filter_map(|axis| told.get(&axis.0))
@@ -263,14 +432,17 @@ impl Plugged for Machine {
 
     fn drain(&mut self, path: &str) -> Result<Vec<InputEvent>, Gone> {
         let Some(device) = self.open.get_mut(path) else { return Err(Gone) };
+
         let arrived = match device.fetch_events() {
             Ok(arrived) => Ok(arrived.collect()),
             Err(fault) if fault.kind() == std::io::ErrorKind::WouldBlock => Ok(Vec::new()),
             Err(_) => Err(Gone),
         };
+
         if arrived.is_err() {
             self.open.remove(path);
         }
+
         arrived
     }
 }
@@ -282,12 +454,30 @@ fn told() -> BTreeMap<From, String> {
         From::Keys => "CONSOLE_KEYS",
         From::Touch => "CONSOLE_TOUCHPAD",
     };
-    READ.into_iter()
-        .filter_map(|which| {
-            let path = std::env::var(named(which)).ok()?;
-            (!path.is_empty()).then_some((which, path))
-        })
-        .collect()
+    let mut out = BTreeMap::new();
+
+    for which in READ {
+        let name = named(which);
+
+        // Unset is ordinary and is most of the time: a device nobody pointed at
+        // is a device this finds for itself. A name that is set to something
+        // that is not text is somebody trying to point at a device and missing,
+        // and it used to arrive here as the same silence.
+        let path = match std::env::var(name) {
+            Ok(path) => path,
+            Err(std::env::VarError::NotPresent) => continue,
+            Err(fault) => {
+                eprintln!("stick-scroll: {name}: {fault}; finding that device instead");
+                continue;
+            }
+        };
+
+        if !path.is_empty() {
+            out.insert(which, path);
+        }
+    }
+
+    out
 }
 
 /// A device found or lost, said once each time it happens.
@@ -301,6 +491,7 @@ fn say_what_changed(holding: &mut BTreeMap<From, String>, turning: &Turning) {
         From::Keys => "keyboard",
         From::Touch => "touchpad",
     };
+
     for which in READ {
         match (holding.get(&which), now.get(&which)) {
             (None, Some(path)) => eprintln!("stick-scroll: reading the {} at {path}", name(which)),
@@ -308,6 +499,7 @@ fn say_what_changed(holding: &mut BTreeMap<From, String>, turning: &Turning) {
             _ => (),
         }
     }
+
     *holding = now.clone();
 }
 
@@ -320,10 +512,13 @@ fn say_what_changed(holding: &mut BTreeMap<From, String>, turning: &Turning) {
 /// that silently did nothing.
 fn published() -> Result<VirtualDevice, String> {
     let mut keys = AttributeSet::<KeyCode>::new();
+
     for key in means::sends() {
         keys.insert(key);
     }
+
     let mut axes = AttributeSet::<RelativeAxisCode>::new();
+
     for axis in [
         RelativeAxisCode::REL_HWHEEL,
         RelativeAxisCode::REL_WHEEL,
@@ -332,6 +527,7 @@ fn published() -> Result<VirtualDevice, String> {
     ] {
         axes.insert(axis);
     }
+
     VirtualDevice::builder()
         .map_err(|fault| format!("no way in to /dev/uinput: {fault}"))?
         .name("stick-scroll")
@@ -351,14 +547,26 @@ fn done(what: &Doing, out: &mut VirtualDevice) -> Option<Child> {
                 .iter()
                 .map(|written| InputEvent::new(written.kind.0, written.code, written.value))
                 .collect();
+
             if let Err(fault) = out.emit(&events) {
                 eprintln!("stick-scroll: nothing came out: {fault}");
             }
+
             None
         }
         Doing::Run(argv) => {
             eprintln!("stick-scroll: {}", argv.join(" "));
             run(argv)
+        }
+        Doing::Tell(said) => {
+            // Nothing to start and nothing to wait for. A home screen that is
+            // not listening is a word that goes nowhere, which is the same
+            // answer a key would have got and costs the same nothing.
+            if let Err(fault) = console_door::telling(*said) {
+                eprintln!("stick-scroll: the home screen was not told: {fault}");
+            }
+
+            None
         }
     }
 }
@@ -389,7 +597,21 @@ fn reaped(running: Vec<Child>) -> Vec<Child> {
 /// against a journal showing the press arriving and the chooser starting.
 fn run(argv: &[String]) -> Option<Child> {
     let (program, rest) = argv.split_first()?;
-    match Command::new(program).args(rest).stdout(Stdio::null()).stderr(Stdio::inherit()).spawn() {
+    // The moment this was decided, on the clock that does not jump, so whatever
+    // is started can say how long the thumb waited rather than how long it took
+    // itself. Everything between here and that program's first line -- the
+    // fork, the exec, the loader -- is time somebody spent looking at a screen
+    // where nothing had happened yet, and it is the one stretch of an opening
+    // that no panel can see from the inside.
+    let pressed = console_timings::press_stamp();
+
+    match Command::new(program)
+        .args(rest)
+        .envs(pressed)
+        .stdout(Stdio::null())
+        .stderr(Stdio::inherit())
+        .spawn()
+    {
         Ok(child) => Some(child),
         Err(fault) => {
             eprintln!("stick-scroll: cannot run {program}: {fault}");

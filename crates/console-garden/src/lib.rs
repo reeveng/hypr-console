@@ -16,6 +16,7 @@
 //! this machine. There is not one colour written down in here, only shapes.
 
 pub mod air;
+pub mod fault;
 pub mod garden;
 pub mod land;
 pub mod paint;

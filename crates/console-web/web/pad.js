@@ -164,6 +164,25 @@
     return node;
   }
 
+  /* A press for a finger, where the pad has a button and a hand had nothing.
+
+     Everything else this add-on draws answers both: a deed takes a click as
+     well as its label, a row takes a click as well as A, and the card's
+     way out is there for a hand with no B under its thumb. The bars along the
+     bottom were the exception -- they said which arrows to press and offered
+     the glass nothing -- and a surface only one thumb can reach is a surface
+     half this machine cannot use. */
+  function tap(glyph, about, does) {
+    const node = make('button', 'tap', glyph);
+    node.title = about;
+    node.setAttribute('aria-label', about);
+    node.addEventListener('click', (event) => {
+      event.stopPropagation();
+      does();
+    });
+    return node;
+  }
+
   /* ------------------------------------------------------------------ labels */
 
   /* A label is prefix-free, so a press either finishes one or narrows the list,
@@ -240,6 +259,14 @@
       { says: 'Look for something', does: () => raise(searching()) },
       { says: 'Find on this page', does: () => raise(searching('page')) },
       { says: 'The tabs', does: () => raise(tabbing()) },
+      /* The two that are the browser itself rather than the page. Everything
+         else on this bar is something a page may ask the browser for; these
+         two are chrome, and are here because the add-on can now reach chrome
+         -- `around.js` is that. A thumb had no way to either of them before,
+         and a person holding this machine could not type an address into the
+         browser they were already looking at. */
+      { says: 'The address bar', does: () => ask({ say: 'address' }) },
+      { says: "The browser's menu", does: () => ask({ say: 'menu' }) },
       { says: 'A new tab', does: () => ask({ say: 'new' }) },
       { says: 'Close this tab', does: () => ask({ say: 'close' }) },
       { says: 'The tab that was closed', does: () => ask({ say: 'reopen' }) },
@@ -254,14 +281,23 @@
   async function hints(mode) {
     const root = await surface();
     away();
-    const every = pressable();
+    /* The second press is about links and nothing else. Opening in a new tab
+       is the one thing only a link can do, so a label on a button in this mode
+       would be a label that lies: taking it would be the ordinary press. That
+       it is fewer things, in another colour, is also how a thumb can see that
+       the second press did anything at all -- a mode said in one line at the
+       bottom of the screen is a mode nobody reads while their eyes are on the
+       labels. */
+    const every = mode === 'new' ? pressable().filter(({ el }) => el.closest('a[href]')) : pressable();
     const marks = [];
-    const said = labels(deeds().length + every.length);
+    const shown = mode === 'new' ? [] : deeds();
+    const said = labels(shown.length + every.length);
     let at = 0;
 
     const bar = make('div', 'bar');
+    if (mode === 'new') bar.classList.add('new');
     bar.appendChild(make('span', 'saying', mode === 'new' ? 'Open in a new tab' : 'Press what is written on it'));
-    for (const deed of deeds()) {
+    for (const deed of shown) {
       const item = make('span', 'deed');
       item.appendChild(drawn(said[at], ''));
       item.appendChild(make('span', 'says', deed.says));
@@ -280,24 +316,106 @@
     bar.appendChild(
       make('span', 'quiet', mode === 'new' ? 'Y or B puts them away' : 'Y for a new tab · B to put them away'),
     );
+    /* The way out, in the same place on this bar as on the card and on the
+       one the find draws. A finger could take a deed and so leave the labels
+       that way, but it could not simply decide against them. */
+    bar.appendChild(tap('×', 'put the labels away', () => away()));
     bars().appendChild(bar);
 
     for (const { el, rect } of every) {
       const node = drawn(said[at], '');
       node.classList.add('hint');
-      place(node, rect);
+      if (mode === 'new') node.classList.add('new');
       root.appendChild(node);
       marks.push({ label: said[at], node, wrote: node, target: el, rect });
       at += 1;
     }
+    settle(marks.filter((mark) => mark.target));
 
     state.hints = { mode, marks, typed: '', bar };
     unstand();
   }
 
-  function place(node, rect) {
-    node.style.left = `${Math.max(2, Math.min(innerWidth - 96, rect.left))}px`;
-    node.style.top = `${Math.max(2, Math.min(innerHeight - 36, rect.top))}px`;
+  /* Where the labels go, once they are all up and can be measured.
+     A label used to be dropped on the top-left corner of its thing and left
+     there, which on a nav bar or a paragraph of links put two of them in the
+     same place: unreadable, and belonging to nothing anybody could point at.
+     So each one hangs above its corner where there is room -- above rather
+     than on, so it does not cover the first word of what it is labelling --
+     and any that lands on a label already placed is moved on to the next
+     corner it can have. Read every size first and write every position after,
+     because a read between two writes is the page laid out again. */
+  function settle(marks) {
+    const sizes = marks.map((mark) => {
+      const box = mark.node.getBoundingClientRect();
+      return { w: box.width, h: box.height };
+    });
+    const placed = [];
+    marks.forEach((mark, at) => {
+      const put = free(mark.rect, sizes[at].w, sizes[at].h, placed);
+      mark.node.style.left = `${put.x}px`;
+      mark.node.style.top = `${put.y}px`;
+      placed.push(put);
+    });
+  }
+
+  /** The first corner of this thing that no label is standing on already. */
+  function free(rect, w, h, placed) {
+    let first = null;
+    for (const [x, y] of corners(rect, w, h)) {
+      const put = { x: Math.max(2, Math.min(innerWidth - w - 2, x)), y: Math.max(2, Math.min(innerHeight - h - 2, y)), w, h };
+      if (!first) first = put;
+      if (!placed.some((other) => touching(put, other))) return put;
+    }
+    /* A page can be crowded enough that there is nowhere free. Somewhere is
+       better than nowhere: the label is still pressed by writing it. */
+    return first;
+  }
+
+  /* The corners a label may have, in the order it would like them.
+     A thing with room for one carries it, on its own top-left corner, because
+     a label floating in the gap above a row of buttons belongs to both rows as
+     far as anybody looking at it can tell, and the whole point of a label is
+     that nobody has to work out which.
+     A thing without room -- a word in the middle of a sentence -- has it hung
+     just above instead, touching the top of the word. A label sitting on a
+     word is a word that cannot be read, and above a line of prose there is
+     usually more prose rather than another thing to press, so nothing is made
+     ambiguous by moving it there. */
+  function corners(rect, w, h) {
+    const carries = rect.height >= h + 8;
+    const out = carries
+      ? [
+          [rect.left - 3, rect.top - h + 9],
+          [rect.right - w + 3, rect.top - h + 9],
+          [rect.left - 3, rect.bottom - 9],
+          [rect.left - 3, rect.top + 2],
+          [rect.left - w - 3, rect.top],
+        ]
+      : [
+          [rect.left - 3, rect.top - h + 4],
+          [rect.left - 3, rect.top - 2],
+          [rect.left - w - 3, rect.top - 2],
+          [rect.right - w + 3, rect.top - h + 4],
+          [rect.left - 3, rect.bottom - 2],
+        ];
+    /* And along its own top edge, for the thing wide enough to hold several:
+       a nav bar is one row of long links, and every label on it wants the same
+       corner. */
+    for (let step = 1; step * (w + 4) < rect.width; step += 1) {
+      out.push([rect.left - 3 + step * (w + 4), carries ? rect.top - h + 9 : rect.top - h + 4]);
+    }
+    return out;
+  }
+
+  /** Whether two labels are in each other's way, with a hair of room between. */
+  function touching(one, two) {
+    return (
+      one.x < two.x + two.w + 2 &&
+      two.x < one.x + one.w + 2 &&
+      one.y < two.y + two.h + 2 &&
+      two.y < one.y + one.h + 2
+    );
   }
 
   /** One press of the d-pad, while the labels are up. */
@@ -450,7 +568,16 @@
     }
     if (steered(el)) {
       el.focus({ preventScroll: true });
-      note(editable(el) ? 'Press X for the keyboard' : 'The d-pad changes it, B when you are done');
+      /* Taking a field on a page is the same decision as opening a card with a
+         line in it, so it gets the same answer: the keyboard comes up. What is
+         said is what to do about it afterwards, rather than what to press to
+         begin. */
+      if (editable(el)) {
+        ask({ say: 'keyboard' });
+        note('Type. X puts the keyboard away, B leaves the field');
+      } else {
+        note('The d-pad changes it, B when you are done');
+      }
       return;
     }
     if (el.focus) el.focus({ preventScroll: true });
@@ -482,6 +609,16 @@
       field.type = 'text';
       field.placeholder = asked.typing;
       node.appendChild(field);
+      /* A card with a line to type into is a card somebody came to type into,
+         so the keyboard comes up with it rather than waiting to be asked. The
+         alternative was a surface that had made every decision except the one
+         it was drawn for: opening it is already the decision, and the press of
+         X afterwards was a press that only ever had one answer.
+
+         Not awaited, and it does not matter if it fails. The card is already
+         on the screen and X still works; this is the keyboard arriving with
+         the card instead of a beat later. */
+      ask({ say: 'keyboard' });
     }
     const list = make('div', 'rows');
     node.appendChild(list);
@@ -538,7 +675,7 @@
     const row = card.rows[card.at];
     if (!row) return;
     const said = card.field ? card.field.value.trim() : '';
-    if (row.needs && !said) return note('Press X for the keyboard');
+    if (row.needs && !said) return note('Type what you are looking for first');
     row.does(said);
   }
 
@@ -559,7 +696,7 @@
     return {
       title: 'Look for something',
       typing: 'What are you after?',
-      note: 'Press X for the keyboard, then the row you want.',
+      note: 'Type, then take the row you want. X puts the keyboard away.',
       standing: standing,
       rows: async () => {
         const engines = (await ask({ say: 'engines' })) || [];
@@ -650,7 +787,10 @@
     bar.replaceChildren(
       make('span', 'saying', `${state.found.at + 1} of ${state.found.many}`),
       make('span', 'says', state.found.query),
+      tap('↑', 'the match before this one', () => next(-1)),
+      tap('↓', 'the next match', () => next(1)),
       make('span', 'quiet', '↑ ↓ for the next one · B when you are done'),
+      tap('×', 'done looking', () => unfind()),
     );
   }
 

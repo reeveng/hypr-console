@@ -17,11 +17,12 @@
 //! and only what they moved is in there: a machine nobody has touched has an
 //! empty file and the whole of its answer here.
 
-use evdev::KeyCode;
+use evdev::{KeyCode, RelativeAxisCode};
 
-use console_pad::jobs::{ALONE, Binding, Jobs, Layer};
+use console_door::Said;
+use console_pad::jobs::{ALONE, Binding, Held, Jobs, Layer};
 
-use crate::doing::{Doing, Out};
+use crate::doing::{Carry, Doing, Out};
 use crate::mode::Mode;
 
 /// What a job is, said as the job and not as the program that does it.
@@ -54,7 +55,7 @@ pub enum What {
     /// keyboard's own fork read the pad and toggled itself on it, so what X
     /// did was two programs happening to have one device open. Under the
     /// router X arrives as a key that fork cannot see, and the toggle is a
-    /// signal like any other -- which is what `osk` was always sending.
+    /// signal like any other -- which is what `keyboard-toggle` was always sending.
     Keyboard,
     /// The place before or after this one.
     Workspace(i32),
@@ -70,6 +71,24 @@ pub enum What {
     Down,
     Left,
     Right,
+    /// The home screen, told what the pad did rather than typed at.
+    ///
+    /// It is the only surface on the desktop that is spoken to this way, and
+    /// `console_door::homeward` is where the reason is written down: it is
+    /// drawn under everything and never in front, so the only way it could
+    /// hold the keyboard was to ask for it exclusively -- which Hyprland reads
+    /// as a lock screen and answers by handing it every touch on the screen,
+    /// including all of the bar's.
+    Tell(Said),
+    /// A on the home screen, which is both halves of the press.
+    ///
+    /// A press and a hold are the same press until one of them has gone on
+    /// long enough, and the home screen is what does that reckoning -- the
+    /// same reckoning it makes of a finger held on a square, so the pad and
+    /// the screen agree without either being told about the other.
+    Choosing,
+    /// Turn the wheel down a notch, which on a page is the way a page is read.
+    ScrollDown,
     /// Take the row the highlight is on.
     Choose,
     /// What else can be done with the row the highlight is on.
@@ -94,27 +113,108 @@ pub enum When {
     /// their own comments and could only half keep.
     Anywhere,
     OnTheDesktop,
+    /// The home screen: the desktop with the apps drawn on it and nothing over
+    /// them. Two buttons mean something there that they cannot mean over a
+    /// bare wallpaper -- A opens what the d-pad is standing on, Y is what else
+    /// can be done with it -- and everything else the desktop does, it does.
+    OnTheHomeScreen,
+    /// The home screen with a highlight up.
+    ///
+    /// The d-pad belongs to the home screen from the moment it is drawn, and
+    /// the first press of it is what raises the highlight. A and Y only join
+    /// it once there is a highlight for them to be about: until then A is the
+    /// pointer's button, so a thumb on the touchpad can press the bar, a
+    /// notification, or anything else the pointer is over.
+    StandingOnASquare,
     WithAChooserUp,
+}
+
+/// Which way a button is travelling.
+///
+/// Every job that sends a key sends it twice -- once going down and once
+/// coming back up -- and the ones that run a program act on the way down only.
+/// So this is the difference between the two halves of a press and not a
+/// state anything holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Press {
+    /// The button going in.
+    Down,
+    /// The same button coming back out.
+    Up,
+}
+
+/// Whether a job is one of the ones in front of you.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Suits {
+    /// It applies to what is on the screen now.
+    InFront,
+    /// It belongs to some other mode, and this press is not for it.
+    Elsewhere,
+}
+
+/// Whether a job goes on acting while the button is held.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Repeats {
+    /// It steps again for as long as the button is in, which is what a scale
+    /// wants and what a menu does not.
+    WhileHeld,
+    /// It happens once for each press.
+    Once,
 }
 
 impl When {
     /// Whether this is one of the jobs in front of you now.
-    pub fn suits(self, mode: Mode) -> bool {
-        match self {
+    ///
+    /// The home screen is the desktop with something drawn on it, so every job
+    /// written for the desktop is one of its jobs too: the shoulders still
+    /// change workspace, the left Legion button still leaves for Steam, and
+    /// the button with an eye on it still opens the browser. Two of them it
+    /// takes for itself, and those say so.
+    pub fn suits(self, mode: Mode) -> Suits {
+        let suits = match self {
             When::Anywhere => true,
-            When::OnTheDesktop => mode == Mode::Desktop,
+            When::OnTheDesktop => matches!(mode, Mode::Desktop | Mode::Home | Mode::Standing),
+            When::OnTheHomeScreen => matches!(mode, Mode::Home | Mode::Standing),
+            When::StandingOnASquare => mode == Mode::Standing,
             When::WithAChooserUp => mode == Mode::Tabs,
+        };
+
+        match suits {
+            true => Suits::InFront,
+            false => Suits::Elsewhere,
+        }
+    }
+
+    /// How particular this is, where more than one job suits.
+    ///
+    /// Each step is a place inside the one before it. Anywhere is the least
+    /// particular and loses to everything; the desktop and a chooser are each
+    /// about one place; the home screen is a place inside the desktop, and
+    /// standing on a square is a place inside that -- which is what lets A be
+    /// the pointer's button on a home screen that is asleep and the square's
+    /// once a highlight is up, without either of them knowing about the
+    /// other.
+    fn rank(self) -> u8 {
+        match self {
+            When::Anywhere => 0,
+            When::OnTheDesktop | When::WithAChooserUp => 1,
+            When::OnTheHomeScreen => 2,
+            When::StandingOnASquare => 3,
         }
     }
 
     /// Whether this is more particular than that, where both suit.
     ///
-    /// A job for the desktop beats a job for anywhere on the same button. That
-    /// is not a rule anything in the table needs today -- nothing is bound
-    /// twice -- and it is the answer to what a person's own file can ask for,
-    /// which is a job put on a button something general already has.
-    fn beats(self, other: Self) -> bool {
-        self != When::Anywhere && other == When::Anywhere
+    /// A job for the desktop beats a job for anywhere on the same button, and
+    /// a job for the home screen beats the desktop's. That is what lets A be a
+    /// click on a bare desktop and the press that opens what it is standing on
+    /// when the home screen is drawn over it, out of two rows rather than out
+    /// of a condition inside one.
+    fn beats(self, other: Self) -> Suits {
+        match self.rank() > other.rank() {
+            true => Suits::InFront,
+            false => Suits::Elsewhere,
+        }
     }
 }
 
@@ -142,7 +242,7 @@ const L2: Layer = Layer { l2: true, r2: false };
 /// One job, one row. Two rows may name one button where they cannot both
 /// apply -- A is a click on the desktop and takes the row in a chooser -- and
 /// `nothing_is_bound_twice_in_one_place` is what holds that to what it says.
-pub const JOBS: [Job; 28] = [
+pub const JOBS: [Job; 36] = [
     // The back of the machine, and the front's three named buttons. These mean
     // the same thing wherever you are: a paddle that meant one thing on the
     // desktop and another with a menu up would mean the wrong one for the beat
@@ -188,6 +288,18 @@ pub const JOBS: [Job; 28] = [
         what: What::Screenshot,
         when: When::Anywhere,
         bound: &[(L2, "right-paddle-bottom")],
+    },
+    // The one paddle nothing was on, and the one job that wants a finger
+    // already resting on the machine. A page is read downwards, so down is
+    // what the bare press does; the same button held with L2 is still the
+    // screenshot. This is a job for a bare paddle by the rule above rather
+    // than in spite of it: a page that moved says so the instant it happens,
+    // and the way to undo it is the stick, which is already under the thumb.
+    Job {
+        slug: "scroll-down",
+        what: What::ScrollDown,
+        when: When::Anywhere,
+        bound: &[(ON, "right-paddle-bottom")],
     },
     Job {
         slug: "brighter",
@@ -254,6 +366,60 @@ pub const JOBS: [Job; 28] = [
     // A takes the row it is on rather than clicking whatever the pointer
     // happens to be over, and the shoulders carry the panel between its tabs
     // rather than carrying you between workspaces.
+    // The home screen's two. A is a click on a bare desktop, because the
+    // stick is a pointer there and there is nothing else for it to mean; with
+    // the apps drawn on the screen it opens the one being stood on. Y is the
+    // same shape: more options, which on an app is what else can be done with
+    // it and on an empty square is the offer to put something there.
+    // The d-pad belongs to the home screen from the moment it is drawn. These
+    // are what wake it: the first press raises the highlight where it was
+    // rather than moving it, because what is under a highlight has to be seen
+    // before it can be meant.
+    Job {
+        slug: "home-up",
+        what: What::Tell(Said::Up),
+        when: When::OnTheHomeScreen,
+        bound: &[(ON, "dpad-up")],
+    },
+    Job {
+        slug: "home-down",
+        what: What::Tell(Said::Down),
+        when: When::OnTheHomeScreen,
+        bound: &[(ON, "dpad-down")],
+    },
+    Job {
+        slug: "home-left",
+        what: What::Tell(Said::Left),
+        when: When::OnTheHomeScreen,
+        bound: &[(ON, "dpad-left")],
+    },
+    Job {
+        slug: "home-right",
+        what: What::Tell(Said::Right),
+        when: When::OnTheHomeScreen,
+        bound: &[(ON, "dpad-right")],
+    },
+    // And these three are the highlight's, so they are the home screen's only
+    // once there is one. Asleep, A is the pointer's button and Y is its other
+    // one, which is what lets a thumb on the touchpad press the bar.
+    Job {
+        slug: "home-choose",
+        what: What::Choosing,
+        when: When::StandingOnASquare,
+        bound: &[(ON, "a")],
+    },
+    Job {
+        slug: "home-more",
+        what: What::Tell(Said::More),
+        when: When::StandingOnASquare,
+        bound: &[(ON, "y")],
+    },
+    Job {
+        slug: "home-back",
+        what: What::Tell(Said::Back),
+        when: When::StandingOnASquare,
+        bound: &[(ON, "b")],
+    },
     Job { slug: "choose", what: What::Choose, when: When::WithAChooserUp, bound: &[(ON, "a")] },
     Job { slug: "more", what: What::More, when: When::WithAChooserUp, bound: &[(ON, "y")] },
     Job {
@@ -304,8 +470,22 @@ impl What {
             What::Down => "move down",
             What::Left => "move left",
             What::Right => "move right",
+            What::ScrollDown => "scroll the page down",
             What::Choose => "choose the row you are on",
             What::More => "what else can be done with a row",
+            What::Choosing => "open the square you are standing on",
+            What::Tell(Said::Up) => "move up the home screen",
+            What::Tell(Said::Down) => "move down the home screen",
+            What::Tell(Said::Left) => "move left along the home screen",
+            What::Tell(Said::Right) => "move right along the home screen",
+            What::Tell(Said::More) => "what else can be done with this square",
+            What::Tell(Said::Back) => "put down what you are holding, and the highlight away",
+            What::Tell(Said::Pressing | Said::Released) => "open the square you are standing on",
+            // No button says this one and none should. It is what the settings
+            // tab says to the home screen when the grid has been changed, and
+            // it is here because the door carries one word that is not a press
+            // and this match is over every word the door has.
+            What::Tell(Said::Again) => "read the home screen's own settings again",
             What::Tab(-1) => "the tab to the left",
             What::Tab(_) => "the tab to the right",
         }
@@ -318,7 +498,43 @@ impl What {
     /// Sending a key or a mouse button follows the button exactly: held is
     /// held, which is what makes a drag a drag and what lets the compositor
     /// repeat an arrow while a thumb stays on the d-pad.
-    pub fn does(self, down: bool) -> Option<Doing> {
+    /// Whether holding this one down should go on doing it.
+    ///
+    /// The four steps along a scale, and nothing else. A job that sends a key
+    /// already repeats without being asked -- the key is held down for as long
+    /// as the button is and the compositor is what repeats it -- so a list
+    /// walked with the d-pad has always gone on walking. A job that runs a
+    /// program fires once when the button goes down, which is right for the
+    /// menu and a screenshot and wrong for the volume: five percent a press is
+    /// twenty presses from silent to loud, and the thumb is already on the
+    /// button.
+    ///
+    /// Said as a property of the job rather than of the button, so that a
+    /// scale moved onto another button keeps this and a button given the menu
+    /// does not inherit it.
+    pub fn repeats(self) -> Repeats {
+        let goes_on = matches!(
+            self,
+            What::Brighter
+                | What::Dimmer
+                | What::Louder
+                | What::Quieter
+                | What::ScrollDown
+                // The home screen is told rather than typed at, and a word is
+                // said once however long the thumb stays on the button. So the
+                // walking that a held arrow key got from the compositor has to
+                // be asked for here instead, or the d-pad moves one square a
+                // press and a pane takes fifteen of them to cross.
+                | What::Tell(Said::Up | Said::Down | Said::Left | Said::Right)
+        );
+
+        match goes_on {
+            true => Repeats::WhileHeld,
+            false => Repeats::Once,
+        }
+    }
+
+    pub fn does(self, down: Press) -> Option<Doing> {
         match self {
             What::Click => Some(pressed(KeyCode::BTN_LEFT, down)),
             What::MoreOptions => Some(pressed(KeyCode::BTN_RIGHT, down)),
@@ -331,7 +547,22 @@ impl What {
             What::More => Some(pressed(KeyCode::KEY_F18, down)),
             What::Tab(-1) => Some(pressed(KeyCode::KEY_PAGEUP, down)),
             What::Tab(_) => Some(pressed(KeyCode::KEY_PAGEDOWN, down)),
-            _ if !down => None,
+            // Both halves, and the only job here that says anything on the way
+            // back up. The home screen is told when A went in and when it came
+            // out, and works out from the two of them whether that was a press
+            // or a hold.
+            What::Choosing => Some(Doing::Tell(match down {
+                Press::Down => Said::Pressing,
+                Press::Up => Said::Released,
+            })),
+            _ if down == Press::Up => None,
+            What::Tell(said) => Some(Doing::Tell(said)),
+            // A wheel notch, and not Page Down. Page Down is a key a page may
+            // do anything with -- a video player takes it, a text field moves
+            // the caret with it -- and the promise this button makes is the
+            // one the stick already makes: the page moves the way a wheel
+            // moves it, in the same units, wherever a wheel works at all.
+            What::ScrollDown => Some(Doing::Frame(vec![Out::rel(RelativeAxisCode::REL_WHEEL.0, -1)])),
             What::Menu => Some(Doing::run(&["launcher", "--keep"])),
             What::Dictate => Some(Doing::run(&["dictate"])),
             What::PutAway => Some(Doing::run(&["put-away"])),
@@ -344,16 +575,21 @@ impl What {
             What::GameMode => Some(Doing::run(&["game-mode"])),
             What::Browser => Some(Doing::run(&["/usr/local/bin/console-browser"])),
             What::Guide => Some(Doing::run(&["/usr/local/bin/console-buttons", "--menu"])),
-            What::Keyboard => Some(Doing::run(&["osk"])),
-            What::Workspace(step) => Some(Doing::workspace(&format!("{step:+}"), false)),
-            What::Carry(step) => Some(Doing::workspace(&format!("{step:+}"), true)),
+            What::Keyboard => Some(Doing::run(&["keyboard-toggle"])),
+            What::Workspace(step) => Some(Doing::workspace(&format!("{step:+}"), Carry::Nothing)),
+            What::Carry(step) => Some(Doing::workspace(&format!("{step:+}"), Carry::Window)),
         }
     }
 }
 
 /// One key or one mouse button, following the button that asked for it.
-fn pressed(code: KeyCode, down: bool) -> Doing {
-    Doing::Frame(vec![Out::key(code.0, i32::from(down))])
+fn pressed(code: KeyCode, down: Press) -> Doing {
+    let value = match down {
+        Press::Down => 1,
+        Press::Up => 0,
+    };
+
+    Doing::Frame(vec![Out::key(code.0, value)])
 }
 
 /// Every key and mouse button this desktop can send.
@@ -365,7 +601,7 @@ fn pressed(code: KeyCode, down: bool) -> Doing {
 pub fn sends() -> Vec<KeyCode> {
     let mut every: Vec<KeyCode> = JOBS
         .iter()
-        .filter_map(|job| match job.what.does(true) {
+        .filter_map(|job| match job.what.does(Press::Down) {
             Some(Doing::Frame(frame)) => frame.first().map(|out| KeyCode(out.code)),
             _ => None,
         })
@@ -454,29 +690,37 @@ impl Table {
     /// paddle wherever your fingers happen to be.
     pub fn what(&self, button: &str, layer: Layer, mode: Mode) -> Option<&'static Job> {
         self.matching(button, layer, mode)
-            .or_else(|| layer.held().then(|| self.matching(button, ALONE, mode)).flatten())
+            .or_else(|| match layer.held() {
+                Held::Down => self.matching(button, ALONE, mode),
+                Held::Up => None,
+            })
     }
 
     fn matching(&self, button: &str, layer: Layer, mode: Mode) -> Option<&'static Job> {
         let mut found: Option<&'static Job> = None;
+
         for (job, bound) in self.every() {
-            if !job.when.suits(mode) {
+            if job.when.suits(mode) == Suits::Elsewhere {
                 continue;
             }
+
             if !bound.iter().any(|one| one.layer == layer && one.button == button) {
                 continue;
             }
+
             found = match found {
-                Some(already) if already.when.beats(job.when) => Some(already),
+                Some(already) if already.when.beats(job.when) == Suits::InFront => Some(already),
                 _ => Some(job),
             };
         }
+
         found
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use console_pad::jobs::Played;
     use super::*;
     use console_pad::vocabulary::button_name;
 
@@ -500,11 +744,17 @@ mod tests {
     /// whichever was written down first.
     #[test]
     fn nothing_is_bound_twice_in_one_place() {
-        for mode in [Mode::Desktop, Mode::Tabs] {
+        for mode in [Mode::Desktop, Mode::Tabs, Mode::Home] {
             let mut every: Vec<String> = Vec::new();
-            for job in JOBS.iter().filter(|job| job.when.suits(mode)) {
+            for job in JOBS.iter().filter(|job| job.when.suits(mode) == Suits::InFront) {
                 for (layer, button) in job.bound {
-                    every.push(format!("{layer:?} {button}"));
+                    // Which of the two the home screen takes for itself is the
+                    // one written for the home screen, and that is settled by
+                    // how particular each is rather than by which was found
+                    // first. So the pair is one button here, and a second job
+                    // of the same particularity on it is the tie this is
+                    // about.
+                    every.push(format!("{layer:?} {button} {}", job.when.rank()));
                 }
             }
             let many = every.len();
@@ -560,7 +810,7 @@ mod tests {
     #[test]
     fn both_triggers_is_not_either_of_them() {
         let table = ours();
-        let both = Layer::of(true, true);
+        let both = Layer::of(Held::Down, Held::Down);
         assert_eq!(table.what("dpad-up", both, Mode::Desktop).map(|job| job.what), Some(What::Up));
     }
 
@@ -601,23 +851,23 @@ mod tests {
     /// key and the compositor repeats it.
     #[test]
     fn a_key_is_held_for_as_long_as_the_button_is() {
-        assert_eq!(What::Up.does(true), Some(Doing::Frame(vec![Out::key(KeyCode::KEY_UP.0, 1)])));
-        assert_eq!(What::Up.does(false), Some(Doing::Frame(vec![Out::key(KeyCode::KEY_UP.0, 0)])));
-        assert_eq!(What::Click.does(true), Some(Doing::Frame(vec![Out::key(KeyCode::BTN_LEFT.0, 1)])));
+        assert_eq!(What::Up.does(Press::Down), Some(Doing::Frame(vec![Out::key(KeyCode::KEY_UP.0, 1)])));
+        assert_eq!(What::Up.does(Press::Up), Some(Doing::Frame(vec![Out::key(KeyCode::KEY_UP.0, 0)])));
+        assert_eq!(What::Click.does(Press::Down), Some(Doing::Frame(vec![Out::key(KeyCode::BTN_LEFT.0, 1)])));
     }
 
     /// Something that starts a program happens once, on the way down. Twice
     /// would be two menus for one press.
     #[test]
     fn something_that_starts_a_program_happens_once() {
-        assert_eq!(What::Menu.does(true), Some(Doing::run(&["launcher", "--keep"])));
-        assert_eq!(What::Menu.does(false), None);
+        assert_eq!(What::Menu.does(Press::Down), Some(Doing::run(&["launcher", "--keep"])));
+        assert_eq!(What::Menu.does(Press::Up), None);
     }
 
     #[test]
     fn the_shoulders_move_you_and_carry_the_window_while_l2_is_held() {
-        assert_eq!(What::Workspace(1).does(true), Some(Doing::workspace("+1", false)));
-        assert_eq!(What::Carry(-1).does(true), Some(Doing::workspace("-1", true)));
+        assert_eq!(What::Workspace(1).does(Press::Down), Some(Doing::workspace("+1", Carry::Nothing)));
+        assert_eq!(What::Carry(-1).does(Press::Down), Some(Doing::workspace("-1", Carry::Window)));
     }
 
     /// The keyboard is this desktop's own now. It was the one job nothing here
@@ -628,7 +878,7 @@ mod tests {
         let table = ours();
         let job = table.what("x", ON, Mode::Desktop).expect("x");
         assert_eq!(job.what, What::Keyboard);
-        assert_eq!(job.what.does(true), Some(Doing::run(&["osk"])));
+        assert_eq!(job.what.does(Press::Down), Some(Doing::run(&["keyboard-toggle"])));
         // And the button with a keyboard drawn on it does the same thing.
         assert_eq!(table.what("keyboard", ON, Mode::Desktop).map(|job| job.what), Some(What::Keyboard));
     }
@@ -639,9 +889,17 @@ mod tests {
     fn what_somebody_moved_is_where_they_moved_it() {
         let said = Jobs::read("[jobs]\nscreenshot = \"r2 + a\"\n").expect("a table");
         let table = Table::of(&said);
-        let r2 = Layer::of(false, true);
+        let r2 = Layer::of(Held::Up, Held::Down);
         assert_eq!(table.what("a", r2, Mode::Desktop).map(|job| job.what), Some(What::Screenshot));
-        assert_eq!(table.what("right-paddle-bottom", L2, Mode::Desktop), None);
+        // The button it came off is not empty: L2 falls through to what the
+        // button does bare, which is the scroll. What has to be true is that
+        // the screenshot is not there any more, and asserting `None` here
+        // asserted that the paddle had nothing on it at all, which is a fact
+        // about the rest of the table rather than about the move.
+        assert_ne!(
+            table.what("right-paddle-bottom", L2, Mode::Desktop).map(|job| job.what),
+            Some(What::Screenshot),
+        );
         assert_eq!(table.what("dpad-up", L2, Mode::Desktop).map(|job| job.what), Some(What::Louder));
     }
 
@@ -653,7 +911,7 @@ mod tests {
         let table = Table::of(&said);
         assert_eq!(table.what("left-paddle-top", ON, Mode::Desktop), None);
         assert_eq!(table.bindings("menu").len(), 1);
-        assert!(!table.bindings("menu")[0].played());
+        assert_eq!(table.bindings("menu")[0].played(), Played::ByNothing);
     }
 
     /// A file from a newer desktop is not a reason to stop doing the jobs this
@@ -663,5 +921,106 @@ mod tests {
         let said = Jobs::read("[jobs]\nteleport = \"a\"\n").expect("a table");
         let table = Table::of(&said);
         assert_eq!(table.what("a", ON, Mode::Desktop).map(|job| job.what), Some(What::Click));
+    }
+
+    /// The d-pad is the home screen's from the moment it is drawn, and it is
+    /// told rather than typed at -- the whole of why is in
+    /// `console_door::homeward`. Everything else the desktop does, an asleep
+    /// home screen goes on doing.
+    #[test]
+    fn the_home_screen_takes_the_d_pad_and_leaves_the_rest() {
+        let table = Table::of(&Jobs::none());
+        let what = |button, mode| table.what(button, ON, mode).map(|job| job.what);
+
+        assert_eq!(what("dpad-up", Mode::Desktop), Some(What::Up), "an arrow key, anywhere else");
+        assert_eq!(what("dpad-up", Mode::Home), Some(What::Tell(Said::Up)));
+        assert_eq!(what("dpad-down", Mode::Home), Some(What::Tell(Said::Down)));
+        assert_eq!(what("dpad-left", Mode::Home), Some(What::Tell(Said::Left)));
+        assert_eq!(what("dpad-right", Mode::Home), Some(What::Tell(Said::Right)));
+
+        assert_eq!(what("r1", Mode::Home), Some(What::Workspace(1)));
+        assert_eq!(what("l1", Mode::Home), Some(What::Workspace(-1)));
+        assert_eq!(what("legion-left", Mode::Home), Some(What::GameMode));
+        assert_eq!(what("view", Mode::Home), Some(What::Browser));
+        assert_eq!(what("left-paddle-top", Mode::Home), Some(What::Menu));
+    }
+
+    /// A is the pointer's button until there is a highlight for it to be
+    /// about.
+    ///
+    /// This is the fault this arrangement is for. The home screen held A from
+    /// the moment it was drawn, which is every minute the machine is on, so a
+    /// thumb that moved the pointer onto the bar and pressed A opened whatever
+    /// the home screen was standing on -- the bar could not be pressed at all,
+    /// and it looked like the bar was broken.
+    #[test]
+    fn a_is_the_pointers_button_until_the_home_screen_is_awake() {
+        let table = Table::of(&Jobs::none());
+        let what = |button, mode| table.what(button, ON, mode).map(|job| job.what);
+
+        assert_eq!(what("a", Mode::Desktop), Some(What::Click));
+        assert_eq!(what("a", Mode::Home), Some(What::Click), "asleep, it is the pointer's");
+        assert_eq!(what("a", Mode::Standing), Some(What::Choosing));
+
+        assert_eq!(what("y", Mode::Desktop), Some(What::MoreOptions));
+        assert_eq!(what("y", Mode::Home), Some(What::MoreOptions));
+        assert_eq!(what("y", Mode::Standing), Some(What::Tell(Said::More)));
+
+        assert_eq!(what("b", Mode::Home), Some(What::Back), "asleep, B is out of things");
+        assert_eq!(what("b", Mode::Standing), Some(What::Tell(Said::Back)));
+    }
+
+    /// Awake, the d-pad is still the home screen's: standing on a square is a
+    /// place inside the home screen and not somewhere else.
+    #[test]
+    fn the_d_pad_stays_the_home_screens_once_it_is_awake() {
+        let table = Table::of(&Jobs::none());
+        let what = |button, mode| table.what(button, ON, mode).map(|job| job.what);
+
+        assert_eq!(what("dpad-up", Mode::Standing), Some(What::Tell(Said::Up)));
+        assert_eq!(what("r1", Mode::Standing), Some(What::Workspace(1)));
+    }
+
+    /// A held d-pad walks the home screen, the way a held arrow key walks
+    /// everything else.
+    ///
+    /// Not the same mechanism, and that is the point. A key repeats because
+    /// the compositor repeats a key that is held; a word is said once, so the
+    /// walking has to be asked for. A job that forgot to would move one square
+    /// however long the thumb stayed on it.
+    #[test]
+    fn holding_the_d_pad_on_the_home_screen_goes_on_walking_it() {
+        for said in [Said::Up, Said::Down, Said::Left, Said::Right] {
+            assert_eq!(What::Tell(said).repeats(), Repeats::WhileHeld, "{said:?}");
+        }
+
+        assert_eq!(What::Tell(Said::More).repeats(), Repeats::Once);
+        assert_eq!(What::Choosing.repeats(), Repeats::Once);
+    }
+
+    /// A says something on the way down and something else on the way up, so
+    /// the home screen can tell a press from a hold the way it tells a tap
+    /// from a finger held on a square.
+    #[test]
+    fn a_on_the_home_screen_is_said_going_in_and_coming_back_out() {
+        assert_eq!(What::Choosing.does(Press::Down), Some(Doing::Tell(Said::Pressing)));
+        assert_eq!(What::Choosing.does(Press::Up), Some(Doing::Tell(Said::Released)));
+
+        // Everything else is said once, on the way in. A second word coming
+        // back out would be a square opened twice.
+        assert_eq!(What::Tell(Said::Up).does(Press::Down), Some(Doing::Tell(Said::Up)));
+        assert_eq!(What::Tell(Said::Up).does(Press::Up), None);
+    }
+
+    /// Nothing the home screen is told is a key, and nothing it is told needs
+    /// the daemon's keyboard to claim a code for it.
+    #[test]
+    fn a_word_to_the_home_screen_is_not_a_key() {
+        for said in console_door::homeward::EVERY {
+            assert!(
+                matches!(What::Tell(said).does(Press::Down), Some(Doing::Tell(_)) | None),
+                "{said:?} came out as something other than a word"
+            );
+        }
     }
 }

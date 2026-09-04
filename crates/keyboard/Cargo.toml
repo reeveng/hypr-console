@@ -1,0 +1,112 @@
+[package]
+name = "keyboard"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# The on-screen keyboard. The palette binding is `palette`.
+
+[lib]
+name = "keyboard"
+path = "src/lib.rs"
+
+# The keyboard itself, and the only program here. Named for what the desktop
+# looks for: `keyboard-toggle` matches this path, the unit runs it directly, and
+# `console_controller::mode::KEYBOARD` is the namespace it publishes.
+#
+# It ran behind a starter that read the palette and exec'd it, from when this
+# was C and could not be handed a Rust crate to ask. Both ends being Rust, the
+# starter was one program naming another, which is the shape `named_by` cannot
+# see through: the unit named the starter, so a rebuilt keyboard did not restart
+# the unit and the device went on running the one before it.
+[[bin]]
+name = "virtual-keyboard"
+path = "src/bin/keyboard.rs"
+required-features = ["port"]
+
+# The runtime, and the only thing that asks for its dependencies.
+#
+# On by default now, because the device runs it: it was off while this was a
+# port catching up with a C program, and cairo, pango and xkbcommon had no
+# business being built on a handheld for a program it did not start. It does
+# now, and the first build after the switch pays for all of them at once.
+#
+# Still a feature rather than nothing, because the palette binding is a library
+# and answers without a compositor: `tests/the_keyboard_colours.rs` asks which
+# colour every key is against the palette this repository spends, and that
+# question has no business pulling in cairo, pango and a Wayland client to be
+# answered.
+[features]
+default = ["port"]
+port = [
+    "dep:console-pad",
+    "dep:evdev",
+    "dep:libc",
+    "dep:xkbcommon",
+    "dep:cairo-rs",
+    "dep:pango",
+    "dep:pangocairo",
+    "dep:wayland-client",
+    "dep:wayland-protocols-wlr",
+    "dep:wayland-protocols-misc",
+]
+
+[dependencies]
+console-number.workspace = true
+# The palette that the binding reads and the runtime will eventually spend
+# directly. The one dependency that is not the runtime's.
+console-colour.workspace = true
+
+# Everything below is the port's, and is compiled only with `port`. This
+# workspace is Linux-only, so none of it is written behind a target cfg as
+# well: a second condition on the same fact is a second thing to keep true.
+#
+# Which button is which, and which device is the pad. Both are shared with the
+# daemon rather than written twice: `vocabulary` is the one place that says the
+# button labelled X is BTN_NORTH, and `finding` is the one place that knows the
+# pad to read is the one InputPlumber made rather than the one somebody is
+# holding. This crate does not depend on `console-controller` and must not: the
+# daemon stands down for the keyboard -- `mode::Mode::Keyboard` -- and a
+# keyboard that reached through it would point that dependency backwards.
+console-pad = { workspace = true, optional = true }
+# The pad itself. Already built on this device for the daemon that reads the
+# same device, so it is not a new cost here.
+evdev = { version = "0.13", optional = true }
+# memfd_create for the keymap fd, and errno for the failure messages.
+libc = { version = "0.2", optional = true }
+# Compose a keymap from the system's installed languages. xkbcommon has every
+# alphabet X11 ships symbols for, so a Thai layer shows up because `th` is in
+# /usr/share/X11/xkb/symbols/, not because the keyboard shipped 12330 lines of
+# keymap data.
+xkbcommon = { version = "0.9", optional = true }
+# Cairo and Pango for the drawing. The C version writes pixel by pixel through
+# Cairo's image surface, and these let the port keep that shape in safe types.
+cairo-rs = { version = "0.22", optional = true }
+pango = { version = "0.22", optional = true }
+# pangocairo is the bridge between the two: `pango_cairo_show_layout` in the C
+# version is `pangocairo::show_layout` here.
+pangocairo = { version = "0.22", optional = true }
+# The compositor. `main.c` writes the protocol by hand against the C bindings
+# and carries the generated headers for three protocols with it; these are the
+# same protocols, generated at build time from the same XML, with the object
+# lifetimes in the type system instead of in the reviewer's head.
+wayland-client = { version = "0.31", optional = true }
+# The layer shell, which is what makes a surface a keyboard rather than a
+# window: it is anchored to the bottom of the screen, it is not in the tiling
+# layout, and it is what `console_door` sees when it asks the compositor
+# whether the keyboard is up.
+wayland-protocols-wlr = { version = "0.3", features = ["client"], optional = true }
+# `zwp_virtual_keyboard_v1`, which is the whole reason this is not a uinput
+# device: a client of it uploads its own keymap, so the alphabet the keyboard
+# types is the keyboard's to choose rather than the one the compositor was
+# configured with. `keymap` is where that keymap comes from.
+wayland-protocols-misc = { version = "0.3", features = ["client"], optional = true }
+
+[dev-dependencies]
+# The namespace the keyboard publishes has to be the one the daemon looks for.
+# `tests/the_namespace.rs` holds the two together.
+console-controller.workspace = true
+
+[lints]
+workspace = true

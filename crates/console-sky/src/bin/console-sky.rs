@@ -25,8 +25,9 @@ use std::process::{Command, ExitCode};
 use std::sync::mpsc::{RecvTimeoutError, Sender, channel};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use console_again::keep;
-use console_sky::choose::{self, Outside, Set, Wanted};
+use console_again::{Round, keep};
+use console_sky::choose::{self, Outside, Set, Turn, Wanted};
+use console_sky::covered::{Covered, Worth};
 use console_sky::weather::Weather;
 use console_sky::{covered, here, moon, place, sun, weather};
 
@@ -36,6 +37,10 @@ use console_sky::{covered, here, moon, place, sun, weather};
 /// an hour at these latitudes, so five minutes is fine enough that nobody sees
 /// a picture arrive late, and coarse enough that a machine left alone all day
 /// wakes fewer than three hundred times.
+///
+/// It is what brings a turn round as well. Two pictures for the same outside
+/// change over every two hours, and this is what notices, within five minutes
+/// of the changeover.
 const LOOK_AGAIN: Duration = Duration::from_secs(300);
 
 /// How often the weather is asked for.
@@ -85,8 +90,21 @@ enum Woke {
     Weather(Option<Weather>),
 }
 
+/// Whether the daemon draws once and leaves, or stays and follows the sky.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Doing {
+    /// One picture, then out. What `--now` asks for.
+    Once,
+    /// Stay up and keep the wallpaper in step with the sky.
+    KeepGoing,
+}
+
 fn main() -> ExitCode {
-    let once = std::env::args().nth(1).is_some_and(|word| word == "--now");
+    let once = match std::env::args().nth(1).is_some_and(|word| word == "--now") {
+        true => Doing::Once,
+        false => Doing::KeepGoing,
+    };
+
     match run(once) {
         Ok(()) => ExitCode::SUCCESS,
         Err(fault) => {
@@ -96,7 +114,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(once: bool) -> Result<(), String> {
+fn run(once: Doing) -> Result<(), String> {
     let table = read_table()?;
 
     // Asked for on the way past rather than waited for. The picture that
@@ -112,11 +130,11 @@ fn run(once: bool) -> Result<(), String> {
     // was the slowest, for an answer that was thrown away.
     let (say, woken) = channel();
     let mut sky_outside = match once {
-        true => match choose::pinned(&table.pictures, &Wanted::asked()) {
+        Doing::Once => match choose::pinned(&table.pictures, &Wanted::asked()) {
             Some(_) => None,
             None => weather::now(&here::here()),
         },
-        false => {
+        Doing::KeepGoing => {
             listen(say.clone());
             ask_the_weather(say);
             None
@@ -149,15 +167,20 @@ fn run(once: bool) -> Result<(), String> {
         let wanted = Wanted::asked();
 
         covered_since = match covered::now() {
-            true => covered_since.or(Some(seconds)),
-            false => None,
+            Covered::Yes => covered_since.or(Some(seconds)),
+            Covered::No => None,
         };
         // Covered, and for long enough to be worth interrupting the picture
         // for. Something that came and went inside the wait is something the
         // wallpaper never noticed.
         let put_away = covered_since.is_some_and(|since| seconds - since >= SETTLE.as_secs_f64());
 
-        let chosen = choose::wanted(&table.pictures, &wanted, &here);
+        // Whose turn it is among the pictures that answer this outside equally
+        // well, which is the same number for every machine reading the same
+        // clock. Nothing is remembered between passes: two hours of one picture
+        // and then two hours of the next is a thing the clock already says.
+        let chosen = choose::wanted(&table.pictures, &wanted, &here, Turn::at(seconds));
+
         if let Some((moving, still)) = chosen.and_then(|picture| place::picture(&picture.name)) {
             // The still is one frame that lasts for ever, so a covered
             // wallpaper is a daemon asleep rather than one drawing.
@@ -166,6 +189,7 @@ fn run(once: bool) -> Result<(), String> {
                 true => &still,
                 false => &moving,
             };
+
             if showing.as_deref() != Some(put_up.as_path()) {
                 // The still goes up first, and the movement over it. A moving
                 // picture is decoded and compressed whole before any of it is
@@ -174,15 +198,18 @@ fn run(once: bool) -> Result<(), String> {
                 // the moment. So the wallpaper is the right picture from the
                 // moment the desktop is there, and it starts moving when it can.
                 let first = !resting && showing.as_deref() != Some(still.as_path());
-                if first && still.is_file() && paint(&still) {
+
+                if first && still.is_file() && paint(&still) == Painted::Yes {
                     showing = Some(still.clone());
                 }
+
                 if !resting {
                     place::freshen(&moving);
                 }
+
                 match paint(put_up) {
-                    true => showing = Some(put_up.clone()),
-                    false => waiting = TRY_AGAIN,
+                    Painted::Yes => showing = Some(put_up.clone()),
+                    Painted::No => waiting = TRY_AGAIN,
                 }
             }
         }
@@ -195,9 +222,10 @@ fn run(once: bool) -> Result<(), String> {
             waiting = waiting.min(Duration::from_secs_f64(left.max(0.5)));
         }
 
-        if once {
+        if once == Doing::Once {
             return Ok(());
         }
+
         // A compositor event and a timeout mean the same thing here, which is
         // "look again", so neither is told apart from the other. The weather
         // is the one wake that carries something with it.
@@ -226,9 +254,9 @@ fn ask_the_weather(say: Sender<Woke>) {
                 true => ASK_AGAIN,
                 false => ASK_SOONER,
             };
-            if say.send(Woke::Weather(said)).is_err() {
-                return;
-            }
+
+            let Ok(()) = say.send(Woke::Weather(said)) else { return };
+
             std::thread::sleep(again);
         }
     });
@@ -246,12 +274,22 @@ fn read_table() -> Result<Set, String> {
 ///
 /// A daemon that is not listening yet is one this tells again, and the loop
 /// comes round in a moment rather than in five minutes to do it.
-fn paint(picture: &Path) -> bool {
+/// Whether the daemon is drawing the picture it was told to draw.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Painted {
+    /// It took it, and says it is showing it.
+    Yes,
+    /// It would not take it, or took it and drew nothing.
+    No,
+}
+
+fn paint(picture: &Path) -> Painted {
     let told = Command::new("awww")
         .arg("img")
         .arg(picture)
         .args(["--resize", "crop", "--transition-type", "none"])
         .output();
+
     match told {
         Ok(done) if done.status.success() => up(picture),
         Ok(done) => {
@@ -260,11 +298,11 @@ fn paint(picture: &Path) -> bool {
                 picture.display(),
                 String::from_utf8_lossy(&done.stderr).trim()
             );
-            false
+            Painted::No
         }
         Err(fault) => {
             eprintln!("the wallpaper daemon could not be told: {fault}");
-            false
+            Painted::No
         }
     }
 }
@@ -274,14 +312,19 @@ fn paint(picture: &Path) -> bool {
 /// Asked rather than taken on trust. A daemon still finding its feet accepts
 /// the picture, exits nothing but zero and draws none of it, which is a blank
 /// screen that no exit code mentions and nothing else would notice.
-fn up(picture: &Path) -> bool {
+fn up(picture: &Path) -> Painted {
     let Some(name) = picture.to_str() else {
-        return false;
+        return Painted::No;
     };
+
     let Ok(said) = Command::new("awww").arg("query").output() else {
-        return false;
+        return Painted::No;
     };
-    String::from_utf8_lossy(&said.stdout).contains(name)
+
+    match String::from_utf8_lossy(&said.stdout).contains(name) {
+        true => Painted::Yes,
+        false => Painted::No,
+    }
 }
 
 /// Everything the compositor says that changes whether the wallpaper is seen.
@@ -307,6 +350,7 @@ fn listen(say: Sender<Woke>) {
         eprintln!("there is no compositor socket to listen to: windows will not be noticed");
         return;
     };
+
     let mut said = false;
     keep(move || {
         let Ok(stream) = UnixStream::connect(&socket) else {
@@ -320,14 +364,18 @@ fn listen(say: Sender<Woke>) {
                 );
                 said = true;
             }
-            return true;
+
+            return Round::Another;
         };
+
         said = false;
+
         for line in BufReader::new(stream).lines().map_while(Result::ok) {
-            if covered::worth_waking_for(&line) && say.send(Woke::Compositor).is_err() {
-                return false;
+            if covered::worth_waking_for(&line) == Worth::Waking {
+                let Ok(()) = say.send(Woke::Compositor) else { return Round::Done };
             }
         }
-        true
+
+        Round::Another
     });
 }

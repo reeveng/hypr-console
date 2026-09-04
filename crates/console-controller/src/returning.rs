@@ -52,6 +52,7 @@ impl Returning {
         if kind != EventType::KEY {
             return;
         }
+
         match (code == BUTTON.0, value) {
             (true, 1) => *self = Returning { since: Some(now), ..Returning::default() },
             (true, 0) => *self = Returning::default(),
@@ -70,9 +71,11 @@ impl Returning {
     /// What this moment comes to: the way back, once, or nothing.
     pub fn turn(&mut self, now: f64) -> Option<Doing> {
         let since = self.since.filter(|_| !self.shared && !self.left)?;
+
         if now - since < HELD_SECONDS {
             return None;
         }
+
         self.left = true;
         Some(Doing::run(&RUNS))
     }

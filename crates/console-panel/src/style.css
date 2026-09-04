@@ -4,6 +4,15 @@
    it is painted. The panel is the card in the middle of it. */
 window { background-color: transparent; }
 #card { background-color: @panel; border: {edge}px solid @pink; border-radius: 16px; }
+
+/* Opened out, the screen is the picture's: no card, no border, and what the
+   picture does not cover is black, which is what every screen a film has ever
+   been watched on puts behind it. The desktop showing through would say the
+   card is still lying on something; black says there is nothing here but the
+   thing being looked at. */
+window.out { background-color: black; }
+#card.out { background-color: black; border: none; border-radius: 0; }
+#card.out row.showing { background-color: black; border-radius: 0; padding: 0; }
 * { font-family: "Noto Sans"; font-size: 18px; transition: none; }
 
 #top { margin: {margin}px {margin}px 0 {margin}px; }
@@ -131,31 +140,95 @@ row.typing:selected { background-color: transparent; }
 row:selected #sought { border-color: @mint; }
 
 /* A cover, written in characters, on a ground of its own.
-   The line is held at one because the picture is the grid: the characters are
-   placed by the crate that draws them, and it is told what shape a cell is.
+   The family is named and the size is pinned because the picture is the grid:
+   the characters are placed by the crate that draws them, and the shape of a
+   cell -- this font's line against this font's advance, at this size -- is a
+   number it is told. Left as whichever monospace font answered first, the
+   sleeve was whatever shape that font happened to be.
    The dark plaque is not decoration. A sleeve is painted in its own colours,
    and half of them vanish against the pink a row wears while it is stood on. */
-#cover { font-family: monospace; font-size: 14px; line-height: 1;
+#cover { font-family: "Noto Sans Mono", monospace; font-size: 14px; line-height: 1;
          background-color: @night; padding: 10px 12px; border-radius: 9px; }
 
 /* The seek bar. One row of one colour with one dot at the position. Held at
    one because the bar is one line, and given its own padding rather than
    relying on the row's -- the row's padding is for the d-pad card, not the
    touch target a finger lands on. */
+row.scrub { background-color: transparent; padding: 2px 12px; }
 #bar { font-family: monospace; font-size: 16px; line-height: 1;
-       padding: 14px 6px; letter-spacing: 0; }
-row:selected #bar { color: @pink; }
+       padding: 6px 0; letter-spacing: 0; }
+#bar.done { color: @pink; }
+#bar.over { color: @soft; }
+/* Stood on. A ground under the whole row, and the bar going bright on top of
+   it: the plaque is what a hand catches at arm's length, and the change of
+   colour is what tells it which row it caught.
+   The ground rather than the pink every other row is highlighted with, because
+   the bar is drawn in pink -- filled with it, the one thing on the row that
+   says anything would be the one thing that could not be read. It was the
+   colours alone for a while, and a line of text changing shade is not a thing
+   a thumb notices while it is looking at the sleeve. */
+row.scrub:selected { background-color: @ground; }
+row.scrub:selected #bar.done { color: @mint; }
+row.scrub:selected #bar.over { color: @text; }
+row.scrub:selected #aside { color: @mint; }
 
-/* A transport button row: a row that is just an icon, centred in the card.
-   The card it sits in is wider than the icon, which is what makes five of
-   them a row to tap across rather than five things to chase down. The icon
-   is large enough to be the thing a hand comes to this tab for, which is
-   why the row's own padding is held back: a small icon on a big card reads
-   as the panel saying "nothing here", not "press here". */
-row.transport { padding: 8px 0; background-color: transparent; }
-row.transport:selected { background-color: transparent; }
-row.transport #icon { font-size: 28px; padding: 4px 18px; border-radius: 9px; }
-row.transport:selected #icon { background-color: @pink; color: @night; }
+/* A picture drawn large on a card about the one thing it is a picture of:
+   square, in the middle, and the first thing a hand looks at. Not the
+   row-sized thumbnail a list gives its rows, because a card is about one thing
+   rather than about a list of them. The now-playing card wrote its sleeve in
+   characters and left this unspent; it is the shape of the answer for a card
+   that wants the picture itself. */
+#sleeve { border-radius: 12px; }
+
+/* The now-playing card: the sleeve, the title and the artist up the middle of
+   it rather than down the left edge, which is where a list is read and this is
+   not a list. The title is the one line on the card that is bigger than the
+   rest, because it is what the card is about. */
+row.middle { background-color: transparent; padding: 2px 18px; }
+row.middle:selected { background-color: transparent; }
+row.naming.middle { padding: 0 18px 2px 18px; }
+row.naming.middle label { color: @text; font-size: 24px; font-weight: bold; }
+row.middle #aside { color: @soft; font-size: 17px; }
+
+/* The transport: one row with the presses side by side across it, the way a
+   music player looks everywhere. It was five rows, one icon each, down the
+   middle of the card -- five presses of the d-pad from shuffle to repeat, and
+   nothing anybody has held looks like that.
+
+   The list box highlights a whole row and what is being stood on here is one
+   press within it, so the row says which row and the ring says which press:
+   `.standing` is where the d-pad is, and `.now` is what is switched on, which
+   are two different questions -- shuffle can be on while the thumb is over
+   play. */
+row.transport { padding: 6px 0 2px 0; background-color: transparent; }
+/* Stood on. A tray under the buttons, the same ground the bar takes and for
+   the same reason: the pink every other row is highlighted with is already
+   spent here, on the filled play button, and a row that filled with it would
+   be a row with play hidden in the middle of it. The row drew nothing at all
+   before, which left a ring three points wide as the only thing on the card
+   saying where the thumb was. */
+row.transport:selected { background-color: @ground; }
+#press { background-image: none; background-color: transparent; border: none;
+         box-shadow: none; color: @text; min-height: 0; min-width: 0;
+         padding: 12px; margin: 0 6px; border-radius: 999px; }
+
+/* On now: shuffling, or going round. Mint is what this desktop says "already
+   true" in, which is the same word a row in effect wears. */
+#press.now { color: @mint; }
+
+/* The press the strip is for, which on a player is play. A filled circle, big,
+   in the middle -- the one press a hand makes without looking, with the four
+   it aims at around it. */
+#press.chief { background-color: @pink; color: @night; padding: 13px; }
+
+/* Where the thumb is, which is a different question from what is switched on.
+   A ring rather than a fill, so it reads over the plain presses and over the
+   filled one alike, and only while the row itself is the row being stood on --
+   a highlight on a card nobody is on is a highlight that lies.
+   It is the second of the two answers and not the whole of it: the tray behind
+   the row is what a hand catches, and the ring is which button it caught. */
+row.transport:selected #press.standing { box-shadow: inset 0 0 0 3px @pink; }
+row.transport:selected #press.chief.standing { box-shadow: inset 0 0 0 3px @night; }
 
 /* A word in the corner, over the card rather than in it. It stands where a
    notification would stand if this surface were not a layer over everything,

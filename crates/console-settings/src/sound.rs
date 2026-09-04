@@ -32,12 +32,13 @@ pub struct Thing {
 impl Thing {
     /// One number for a volume that is reported per channel.
     pub fn level(&self) -> i32 {
-        self.volume
-            .values()
-            .next()
-            .map(|channel| channel.value_percent.trim_end_matches('%'))
-            .and_then(|said| said.parse().ok())
-            .unwrap_or(0)
+        let Some(channel) = self.volume.values().next() else { return 0 };
+
+        let Ok(level) = channel.value_percent.trim_end_matches('%').parse::<i32>() else {
+            return 0;
+        };
+
+        level
     }
 
     /// What to call a stream, in the words its own application uses.
@@ -49,13 +50,21 @@ impl Thing {
                 return said.to_string();
             }
         }
+
         "Something".to_string()
     }
 }
 
 /// Everything of one kind, or nothing if pactl said something else.
 pub fn read(json: &str) -> Vec<Thing> {
-    serde_json::from_str(json).unwrap_or_default()
+    match serde_json::from_str(json) {
+        Ok(things) => things,
+
+        Err(fault) => {
+            eprintln!("console: pactl said something this does not know: {fault}");
+            Vec::new()
+        }
+    }
 }
 
 /// The speakers: whichever sink is the default, or the first there is.

@@ -120,8 +120,25 @@ pub fn button_of_hat(code: u16, value: i32) -> Option<&'static str> {
 }
 
 /// Whether a name is one of the hat's two axes.
-pub fn is_hat(code: u16) -> bool {
-    ROUTE.iter().any(|(_, how)| matches!(how, Arrives::Hat(axis, _) if axis.0 == code))
+pub fn is_hat(code: u16) -> Hat {
+    let found = ROUTE.iter().any(|(_, how)| matches!(how, Arrives::Hat(axis, _) if axis.0 == code));
+
+    match found {
+        true => Hat::Axis,
+        false => Hat::NotAnAxis,
+    }
+}
+
+/// Whether a code is one of the hat's two axes.
+///
+/// The d-pad arrives as two axes with three positions each rather than as four
+/// buttons, so a code that is one of them is read a different way entirely.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Hat {
+    /// One of the two, so the value says which way rather than how far.
+    Axis,
+    /// Any other axis, read as itself.
+    NotAnAxis,
 }
 
 /// The mapping this button needs in the profile, or nothing where it needs

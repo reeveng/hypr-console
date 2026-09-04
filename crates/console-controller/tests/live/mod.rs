@@ -60,7 +60,16 @@ const RECORDER: &str = "#!/bin/sh\n\
 
 /// The repository, which is where the profiles are.
 fn root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().expect("the repository")
+    {
+    // Tidied by `canonicalize` where that works and left as it stands where it
+    // does not. What `CARGO_MANIFEST_DIR` gives is already absolute and already
+    // right; canonicalizing only takes the `../..` out of the middle. It fails
+    // under a sandbox that will not let a process resolve a path it can
+    // otherwise read, and a test that stops there reports the sandbox as a
+    // missing repository.
+    let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    from.canonicalize().unwrap_or(from)
+}
 }
 
 /// Whether this user can make a device at all.
@@ -124,7 +133,7 @@ impl Running {
         let ran_at = here.join("ran");
         std::fs::File::create(&ran_at).map_err(|fault| fault.to_string())?;
 
-        let devices = Devices::new(captured(), Uinput::of(&captured())?);
+        let devices = Devices::new(captured().expect("the capture carried in this program parses"), Uinput::of(&captured().expect("the capture carried in this program parses"))?);
         let paths = devices.paths();
         let go = LegionGo::new(every_profile(&root)?, devices, Held::default(), console_pad::router::NAME)?;
 

@@ -1,0 +1,11 @@
+error: boolean parameter is forbidden
+  --> $DIR/main.rs:5:34
+   |
+LL | fn write_count(n: usize, append: bool) -> usize {
+   |                                  ^^^^
+   |
+   = help: use an `enum` so the call site reads `Mode::Append`, not `true`
+   = note: `#[deny(explicit008_no_bool_param)]` on by default
+
+error: aborting due to 1 previous error
+

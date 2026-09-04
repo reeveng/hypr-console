@@ -14,11 +14,21 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+use console_pad::devices::Has;
 use console_pad::profile::Profile;
 use console_pad::router::{self, PROFILES, every_profile};
 
 fn root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().expect("the repository")
+    {
+    // Tidied by `canonicalize` where that works and left as it stands where it
+    // does not. What `CARGO_MANIFEST_DIR` gives is already absolute and already
+    // right; canonicalizing only takes the `../..` out of the middle. It fails
+    // under a sandbox that will not let a process resolve a path it can
+    // otherwise read, and a test that stops there reports the sandbox as a
+    // missing repository.
+    let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    from.canonicalize().unwrap_or(from)
+}
 }
 
 fn profiles() -> BTreeMap<String, Profile> {
@@ -94,7 +104,11 @@ fn the_switcher_knows_the_profiles_that_are_made_rather_than_kept() {
 fn every_profile_publishes_all_three_devices() {
     for (name, profile) in profiles() {
         for device in ["mouse", "keyboard", "xbox-elite"] {
-            assert!(profile.publishes(device), "{name} does not publish the {device}");
+            assert_eq!(
+                profile.publishes(device),
+                Has::Yes,
+                "{name} does not publish the {device}"
+            );
         }
     }
 }

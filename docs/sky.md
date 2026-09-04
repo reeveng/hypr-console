@@ -36,8 +36,27 @@ beats one for any night, which beats one naming nothing at all. So the set is
 grown by adding a picture and never by editing the ones already there, and a
 picture that names nothing is what is up when nothing else fits.
 
-Ties go to whichever is written down first, which is arbitrary and is arbitrary
-somewhere a person can see it and reorder it.
+Pictures that name the same number of true things take turns. The turn is the
+clock cut into two hour lengths, so one of them holds for a couple of hours and
+the next of the same standing takes it from there: two pictures for a clear day
+are a morning and an afternoon, and the pair of them comes round again tomorrow.
+
+Nothing is remembered between one turn and the next. The turn is the clock
+divided by two hours and nothing else, so the daemon, `console-sky --now` and a
+test all say the same thing about the same moment without any of them keeping a
+place, and a machine that was turned off for an hour comes back to the picture
+the hour asks for rather than to the one it was showing. The two hours are
+counted from the epoch rather than from midnight, so where they fall in the
+local day depends on the offset, and the daemon looks again every five minutes,
+so a picture changes over within five minutes of its turn ending.
+
+Which of them goes first is the order they are written down in, which is
+arbitrary and is arbitrary somewhere a person can see it and reorder it.
+
+Taking turns is only ever between equals, which is what keeps it from undoing
+the rule above: a picture that names the weather as well as the hour is up for
+the whole of the weather it names, however many pictures for that hour alone are
+waiting behind it.
 
 Three of the four are arithmetic and cannot fail. The weather is the one thing
 that needs a network, so it is the one thing that can be missing, and a picture
@@ -59,10 +78,10 @@ rather than the north's with the wrong names on.
 
 ## Looping
 
-A source loop is a video: nine to twenty-six seconds, thirty frames a second,
-every frame a whole picture. The picture on the screen is the whole of that,
-played over and over, at twelve frames a second rather than thirty. Twelve is
-the artist's rate halved and halved again to about a third, and these are
+A source loop is a video: nine to thirty-six seconds, twenty-four to sixty
+frames a second, every frame a whole picture. The picture on the screen is the
+whole of that, played over and over, at twelve frames a second rather than the
+artist's. Twelve is a third or less of every rate she works at, and these are
 hand-drawn loops of water, snowfall and firelight, none of which has an edge
 sharp enough to judder at twelve.
 
@@ -78,43 +97,38 @@ already there. The frames neither blend nor dispose, and a loop wraps back onto
 that first whole frame, so the wrap repairs the picture exactly however many
 rectangles have been laid over it.
 
-How much that is worth depends entirely on the picture, and the spread is the
-thing worth knowing:
+How much that is worth depends entirely on the picture, and the spread across
+the set is wide enough to matter. What decides it is not how many frames a loop
+has but how much of each frame moves. A campfire is a lamp in the
+corner of a picture that is otherwise still, and the rectangle that changes is a
+small one: it costs the daemon almost nothing over its resting size. Rippling
+water, falling snow and a candle-lit room are a new painting every frame, the
+rectangle is the whole screen, and the daemon can be carrying the better part of
+a gigabyte.
 
-| | frames | moves | on disk | daemon |
-| --- | --- | --- | --- | --- |
-| Cozy Campfire | 127 | 16% | 1.5 MiB | 66 MiB |
-| Star Ride | 108 | 100% | 2.5 MiB | |
-| Sledding | 135 | 100% | 3.4 MiB | |
-| Snow Day | 169 | 100% | 4.4 MiB | |
-| Lilypad Ride | 311 | 85% | 10 MiB | |
-| Terrarium | 158 | 82% | 12 MiB | |
-| Cozy Winter | 180 | 100% | 14 MiB | |
-| Lazy River | 264 | 100% | 26 MiB | 697 MiB |
+`sky-press` says which is which as it presses, picture by picture, so what any
+one of them costs is a press away rather than a number written down here to go
+stale.
 
-Both daemon figures are resident memory measured on the device, against a
-baseline of 64 MiB with the garden up. So a campfire costs nothing and a river
-costs two thirds of a gigabyte, and what separates them is not the frame count
-but how much of each frame moves: firelight is a lamp in a corner of a still
-painting, and rippling water is a new painting thirty times a second.
+Two things make the dear ones affordable. It is given back in full the moment
+the still goes up, measured: swapping a dear picture for a cheap one took the
+daemon straight back to its resting size. And the still goes up whenever
+anything is in front of the picture, which on a handheld is nearly always.
 
-Two things make that affordable. It is given back in full the moment the still
-goes up, measured: switching from the river to the campfire took the daemon
-straight back to 66 MiB. And the still goes up whenever anything is in front of
-the picture, which on a handheld is nearly always.
-
-Frame rate is the lever if a picture ever needs to cost less, and it is a
-linear one: the river at eight frames a second is 17.5 MiB rather than 26, in
-exactly the proportion of the frames dropped and no better. `rest_seconds` is
-the other lever and a much larger one, and `theme/sky.toml` says what it does.
-Neither is used by anything the machine ships with.
+Frame rate is the lever if a picture ever needs to cost less, and it is a linear
+one: dropping a share of the frames takes that share off and no more.
+`rest_seconds` is the other lever and a much larger one, and `theme/sky.toml`
+says what it does. Neither is used by anything the machine ships with.
 
 The device presses at 2560x1600, which is the panel through the quarter turn the
 compositor gives it, so nothing is ever resampled. `console-screen` reads that
 out of `hyprland.lua` rather than anybody writing it down twice.
 
-Pressing the whole set takes about six minutes and one core, which is why it
-happens at `console apply` and never on the machine while it is in use.
+Pressing the whole set takes minutes and one core, and grows with the set, which
+is why it happens at `console apply` and never on the machine while it is in
+use. A picture already pressed is left alone, so an apply that changes nothing
+about the wallpapers costs nothing; `sky-press --again` is what presses them all
+over.
 
 ## Not moving where nobody can see it
 
@@ -257,14 +271,14 @@ machine with no pressed pictures shows, what stays up if `console-sky` will not
 start at all, and what is on the screen for the fraction of a second before the
 first picture arrives.
 
-The colour is written into the unit by `make theme`, because a systemd unit is
+The colour is written into the unit by `just theme`, because a systemd unit is
 a list of literals and can import nothing. It is the fourth file to be written
 into that way and `docs/theme.md` names the other three.
 
 The cherry blossom garden used to be that ground, and being the ground was the
 whole of what it did once the pictures arrived: a hand-drawn scene nobody
 chose, in front of everybody, for a moment at every boot.
-`crates/console-garden` still draws it and `make garden` still runs, the
+`crates/console-garden` still draws it and `just garden` still runs, the
 picture still ships, and
 `awww img /usr/share/backgrounds/console.webp` still paints it. It is the one
 wallpaper here that is ours rather than somebody else's, and `console-sky`

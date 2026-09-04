@@ -103,8 +103,14 @@ pub fn descriptors(json: &str) -> Result<BTreeMap<String, Descriptor>, String> {
 }
 
 /// The four this repository captured.
-pub fn captured() -> BTreeMap<String, Descriptor> {
-    descriptors(CAPTURED).expect("the capture carried in this program parses")
+///
+/// It answers the way `descriptors` does rather than being sure of itself. The
+/// text is compiled in and every caller is a test, so a build where this fails
+/// is a build whose tests say so on the first line -- but the rule is that a
+/// failure is a value, and a function that reads is not the place to make an
+/// exception to it.
+pub fn captured() -> Result<BTreeMap<String, Descriptor>, String> {
+    descriptors(CAPTURED)
 }
 
 fn role_of(name: &str) -> Option<&'static str> {
@@ -117,7 +123,7 @@ mod tests {
 
     #[test]
     fn the_capture_holds_the_four_devices_the_desktop_reads() {
-        let found = captured();
+        let found = captured().expect("the capture carried in this program parses");
         let roles: Vec<&str> = found.keys().map(String::as_str).collect();
         assert_eq!(roles, ["keyboard", "mouse", "pad", "touchpad"]);
     }
@@ -128,12 +134,12 @@ mod tests {
         // the pad InputPlumber published apart from the one in somebody's
         // hands. If a capture ever arrives with a `phys` on it, the stand-in
         // stops being distinguishable the way the real one is.
-        assert_eq!(captured()["pad"].phys, "");
+        assert_eq!(captured().expect("the capture carried in this program parses")["pad"].phys, "");
     }
 
     #[test]
     fn the_pad_reports_over_a_range_and_the_keyboard_does_not() {
-        let found = captured();
+        let found = captured().expect("the capture carried in this program parses");
         assert!(!found["pad"].capabilities.abs.is_empty());
         assert!(found["keyboard"].capabilities.abs.is_empty());
         assert!(!found["keyboard"].capabilities.key.is_empty());

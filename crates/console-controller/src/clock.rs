@@ -20,6 +20,9 @@
 //! `CLOCK_BOOTTIME` is the same clock with the sleeping counted. It is the
 //! only difference between the two, and it is the whole of what was wrong.
 
+
+use console_number::Float;
+
 /// Seconds since the machine booted, counting the time it spent asleep.
 ///
 /// Never goes backwards, and is not affected by the clock being set, so it can
@@ -28,22 +31,26 @@ pub fn since_boot() -> f64 {
     let mut when = libc::timespec { tv_sec: 0, tv_nsec: 0 };
     // SAFETY: a write into a timespec this call owns for the length of it.
     let asked = unsafe { libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut when) };
+
     if asked != 0 {
         // Older kernels and stranger platforms. Monotonic is what this had
         // before and is wrong only across a suspend, which is better than a
         // daemon that will not start.
         return monotonic();
     }
-    when.tv_sec as f64 + when.tv_nsec as f64 / 1e9
+
+    when.tv_sec.float() + when.tv_nsec.float() / 1e9
 }
 
 /// The clock that stops while the machine is asleep, for when the other one
 /// cannot be had.
 fn monotonic() -> f64 {
     let mut when = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+
     // SAFETY: as above.
     unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut when) };
-    when.tv_sec as f64 + when.tv_nsec as f64 / 1e9
+
+    when.tv_sec.float() + when.tv_nsec.float() / 1e9
 }
 
 #[cfg(test)]

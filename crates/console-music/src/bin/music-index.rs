@@ -27,7 +27,19 @@ const NOW_AND_THEN: usize = 50;
 fn main() {
     let cache = glib::user_cache_dir();
     let at = looking::at(&cache);
-    let known = looking::kept(&std::fs::read_to_string(&at).unwrap_or_default());
+    let said = match std::fs::read_to_string(&at) {
+        Ok(said) => said,
+
+        // No file is the first run, and the walk below is what makes one.
+        Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => String::new(),
+
+        Err(fault) => {
+            eprintln!("music-index: {}: reading what is known about the songs: {fault}", at.display());
+            String::new()
+        }
+    };
+
+    let known = looking::kept(&said);
     // The walk says what there is and the file only says what those songs
     // said, so this is also what forgets a song that has been deleted.
     let mut songs = looking::songs(&folder(), &library::things, &known);
@@ -37,6 +49,7 @@ fn main() {
         if songs[one].read {
             continue;
         }
+
         let said = tags::of(&songs[one].path);
         songs[one] = Song { tags: said, read: true, ..songs[one].clone() };
         read += 1;
@@ -45,6 +58,7 @@ fn main() {
             wrote(&at, &songs);
         }
     }
+
     // Written even when nothing was read, so a song deleted since the last
     // reading leaves the file it was written into.
     wrote(&at, &songs);
@@ -56,10 +70,15 @@ fn main() {
 /// letter typed into the line and half a file is a library that says nothing.
 fn wrote(at: &Path, songs: &[Song]) {
     let Some(folder) = at.parent() else { return };
+
     let _ = std::fs::create_dir_all(folder);
     let part = at.with_extension("part");
 
-    if std::fs::write(&part, looking::written(songs)).is_ok() {
-        let _ = std::fs::rename(&part, at);
+    if let Err(fault) = std::fs::write(&part, looking::written(songs)) {
+        eprintln!("music-index: {}: writing what was read about the songs: {fault}", part.display());
+
+        return;
     }
+
+    let _ = std::fs::rename(&part, at);
 }

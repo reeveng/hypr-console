@@ -36,7 +36,7 @@ use console_layout::rows::{Part, WAITING, aloud, every, lowered, parts, question
 use console_layout::table;
 use console_pad::asking::Asking;
 use console_pad::front::{one_said, wearing};
-use console_pad::jobs::{ALONE, Binding, Layer, Moved};
+use console_pad::jobs::{ALONE, Binding, Held, Layer, Moved};
 use console_pad::vocabulary::{button_name, button_of, spoken_for};
 
 /// How long the question waits before it gives up and changes nothing.
@@ -120,12 +120,16 @@ impl Reading {
     /// press first would read it as the button on its own.
     fn watched(&mut self) {
         let Some(pad) = &mut self.pad else { return };
+
         let Ok(arrived) = pad.fetch_events() else { return };
+
         for event in arrived {
             if event.event_type() != EventType::ABSOLUTE {
                 continue;
             }
-            let held = pulled(event.value(), self.span);
+
+            let held = pulled(event.value(), self.span) == Held::Down;
+
             if event.code() == AbsoluteAxisCode::ABS_Z.0 {
                 self.layer.l2 = held;
             } else if event.code() == AbsoluteAxisCode::ABS_RZ.0 {
@@ -136,7 +140,18 @@ impl Reading {
 
     /// The code of a key that has just gone down, if one has.
     fn pressed(&mut self) -> Option<u16> {
-        let arrived = self.keys.fetch_events().ok()?;
+        let arrived = match self.keys.fetch_events() {
+            Ok(arrived) => arrived,
+            // Nothing to read yet is what a device set nonblocking says almost
+            // every time this is asked, and it is not a fault.
+            Err(fault) if fault.kind() == std::io::ErrorKind::WouldBlock => return None,
+
+            Err(fault) => {
+                eprintln!("reading the keyboard for a press: {fault}");
+                return None;
+            }
+        };
+
         arrived
             .filter(|event| event.event_type() == EventType::KEY && event.value() == 1)
             .map(|event| event.code())
@@ -149,9 +164,13 @@ impl Reading {
 /// Past half of what the pad says its range is, out of the same constant the
 /// daemon reads it with: a chord bound by pulling a trigger this far has to be
 /// a chord that plays when it is pulled that far again.
-fn pulled(value: i32, (low, high): (i32, i32)) -> bool {
+fn pulled(value: i32, (low, high): (i32, i32)) -> Held {
     let span = f64::from((high - low).max(1));
-    f64::from(value - low) / span > CARRY_HELD
+
+    match f64::from(value - low) / span > CARRY_HELD {
+        true => Held::Down,
+        false => Held::Up,
+    }
 }
 
 struct Card {
@@ -174,14 +193,16 @@ impl Card {
         if self.since.elapsed() > PATIENCE && !matches!(self.doing, Doing::Said(_, _)) {
             return glib::ControlFlow::Break;
         }
+
         let heard = match &mut self.doing {
             Doing::Said(when, over) if when.elapsed() > *over => return glib::ControlFlow::Break,
             Doing::Said(_, _) => return glib::ControlFlow::Continue,
             Doing::Settling => {
-                if inert() && let Some(reading) = Reading::open() {
+                if inert() == Inert::Yes && let Some(reading) = Reading::open() {
                     self.hint.set_text(WAITING);
                     self.doing = Doing::Asking(Box::new(reading));
                 }
+
                 return glib::ControlFlow::Continue;
             }
             Doing::Asking(reading) => {
@@ -189,10 +210,13 @@ impl Card {
                 reading.pressed().map(|code| (code, reading.layer))
             }
         };
+
         let Some((code, layer)) = heard else { return glib::ControlFlow::Continue };
+
         let Some(capability) = self.asking.pressed_code(code).map(str::to_string) else {
             return glib::ControlFlow::Continue;
         };
+
         match named(&capability) {
             Some(button) => {
                 let (saying, under) = self.moving(&Binding::held(layer, button));
@@ -200,6 +224,7 @@ impl Card {
             }
             None => self.said(NO_WORD, ""),
         }
+
         glib::ControlFlow::Continue
     }
 
@@ -220,12 +245,15 @@ impl Card {
         let mut jobs = table::read();
         let moved = jobs.moving(&every(&self.parts), &self.part.slug, onto);
         let on = format!("{} is {}", self.part.does, aloud(onto));
+
         if moved == Moved::Already {
             return (format!("{on} already"), String::new());
         }
+
         if let Err(fault) = table::write(&jobs) {
             return (fault, String::new());
         }
+
         let under = match moved {
             Moved::TookFrom(taken) => {
                 format!("{} has no button now", lowered(&self.does_of(&taken)))
@@ -261,7 +289,13 @@ impl Card {
 /// name only InputPlumber knows would be a binding nothing could ever match.
 fn named(capability: &str) -> Option<String> {
     let button = spoken_for(button_of(capability)?);
-    button_name(button).is_ok().then(|| button.to_string())
+
+    match button_name(button) {
+        Ok(_) => Some(button.to_string()),
+        // Not a fault to report: a button this repository has no word for is a
+        // button the card should offer nobody, which is what None says here.
+        Err(_) => None,
+    }
 }
 
 /// Whether the pad is wearing the profile that makes every button inert.
@@ -269,8 +303,20 @@ fn named(capability: &str) -> Option<String> {
 /// Asked of InputPlumber rather than assumed, because the daemon loads it a
 /// poll after this card appears, and a question answered in that gap would be
 /// answered by a button doing what it used to do.
-fn inert() -> bool {
-    one_said(&table::said(&wearing())).is_some_and(|path| path.ends_with("asking.yaml"))
+fn inert() -> Inert {
+    match one_said(&table::said(&wearing())).is_some_and(|path| path.ends_with("asking.yaml")) {
+        true => Inert::Yes,
+        false => Inert::No,
+    }
+}
+
+/// Whether the profile in front is the one where every button does nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Inert {
+    /// It is, so a press can be read as an answer rather than as a job.
+    Yes,
+    /// It is not, and a press would still be doing whatever it usually does.
+    No,
 }
 
 /// The keyboard InputPlumber publishes, as it is now.
@@ -288,8 +334,15 @@ fn keyboard() -> Option<Device> {
         .filter(|device| device.name().unwrap_or_default().contains("InputPlumber Keyboard"))
         .collect();
     let device = found.pop()?;
-    device.set_nonblocking(true).ok()?;
-    Some(device)
+
+    match device.set_nonblocking(true) {
+        Ok(()) => Some(device),
+
+        Err(fault) => {
+            eprintln!("the InputPlumber keyboard will not read without blocking: {fault}");
+            None
+        }
+    }
 }
 
 /// The pad InputPlumber publishes, and the range it reports a trigger over.
@@ -304,15 +357,25 @@ fn pad() -> Option<(Device, (i32, i32))> {
     let said: Vec<Says> = seen.iter().map(|(path, device)| says(path, device)).collect();
     let wanted = gamepad(&said)?.path.clone();
     let (_, device) = seen.into_iter().find(|(path, _)| *path == wanted)?;
-    device.set_nonblocking(true).ok()?;
+
+    if let Err(fault) = device.set_nonblocking(true) {
+        eprintln!("the pad will not read without blocking: {fault}");
+        return None;
+    }
+
     // Both triggers against the left one's range, the way the daemon reads
     // them: a pad reporting two different ranges for its two triggers would be
     // a pad worth asking about rather than one worth guessing at.
-    let span = device
-        .get_absinfo()
-        .ok()
-        .and_then(|mut every| every.find(|(axis, _)| *axis == AbsoluteAxisCode::ABS_Z))
-        .map_or(UNSAID, |(_, info)| (info.minimum(), info.maximum()));
+    let span = match device.get_absinfo() {
+        Ok(mut every) => every
+            .find(|(axis, _)| *axis == AbsoluteAxisCode::ABS_Z)
+            .map_or(UNSAID, |(_, info)| (info.minimum(), info.maximum())),
+
+        Err(fault) => {
+            eprintln!("asking the pad what range it reports a trigger over: {fault}");
+            UNSAID
+        }
+    };
     Some((device, span))
 }
 
@@ -324,10 +387,12 @@ fn main() -> ExitCode {
 
     let front = table::front();
     let all = parts(&table::table(), &front);
+
     let Some(part) = all.iter().find(|part| part.slug == slug).cloned() else {
         eprintln!("console-asking: this desktop does nothing called {slug}");
         return ExitCode::FAILURE;
     };
+
     let Some(capabilities) = front.capabilities.clone() else {
         eprintln!("console-asking: InputPlumber did not say what this device sends");
         return ExitCode::FAILURE;
@@ -337,6 +402,7 @@ fn main() -> ExitCode {
     let held = Rc::new(RefCell::new(Some((part, Asking::of(&capabilities), all))));
     app.connect_activate(move |app| {
         let Some((part, asking, all)) = held.borrow_mut().take() else { return };
+
         raised(app, part, asking, all);
     });
     app.run_with_args::<&str>(&[]);
@@ -392,6 +458,7 @@ fn raised(app: &Application, part: Part, asking: Asking, parts: Vec<Part>) {
 /// The one stylesheet every surface on this desktop is drawn in.
 fn dressed() {
     let Some(display) = gtk4::gdk::Display::default() else { return };
+
     let sheet = gtk4::CssProvider::new();
     sheet.load_from_data(&console_panel::style::sheet());
     gtk4::style_context_add_provider_for_display(

@@ -52,6 +52,7 @@ pub fn rows(
 ) -> Vec<Row> {
     let mut rows: Vec<Row> = Vec::new();
     let word = typed.trim();
+
     match asking {
         // What is on the screen is the last search's, and the row says what the
         // next one will be about rather than emptying the list to say it.
@@ -61,17 +62,21 @@ pub fn rows(
         }
         None => {}
     }
+
     if !looked.found.is_empty() {
         // What the rows under it are about, which is not one of them. Without
         // it a list found by one word is indistinguishable from a list found by
         // the word before it, which is what the line above is now saying.
         rows.push(Row::naming(&looked.asked, ""));
+
         for found in &looked.found {
             let at = rows.len() + LINE;
             rows.push(each(at, found));
         }
+
         return rows;
     }
+
     if !looked.fault.is_empty() {
         rows.push(Row::nothing(&looked.fault));
     } else if !looked.asked.is_empty() {
@@ -79,6 +84,7 @@ pub fn rows(
     } else if rows.is_empty() {
         rows.push(Row::nothing(NOTHING_YET));
     }
+
     rows
 }
 
@@ -111,6 +117,7 @@ pub fn as_well(other: Kind) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    use console_panel::page::{Acts, Heading};
     use super::*;
 
     fn found() -> Vec<Found> {
@@ -150,14 +157,14 @@ mod tests {
     {
         let rows = rows("africa", None, &Looked::default(), nothing(), &plain);
         assert_eq!(rows[0].says, "Look for africa");
-        assert!(rows[0].acts());
+        assert_eq!(rows[0].acts(), Acts::Yes);
     }
 
     #[test]
     fn a_word_that_has_already_been_looked_for_asks_for_nothing() {
         let rows = rows("africa", None, &looked("africa"), nothing(), &plain);
         assert_eq!(said(&rows), ["africa", "Toto - Africa"]);
-        assert!(rows[0].heading(), "what a list is about is not one of its rows");
+        assert_eq!(rows[0].heading(), Heading::Yes, "what a list is about is not one of its rows");
     }
 
     /// The list that is there stays on the screen while the next one is being

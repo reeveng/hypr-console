@@ -29,6 +29,24 @@ use console_panel::running::say;
 /// What a fault here is counted as.
 const KIND: &str = "one-format";
 
+/// Whether one thing came out of this the format it should be.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Made {
+    /// It is the one format now, and what it replaced is in the wastebasket.
+    It,
+    /// It was left the way it was found.
+    Nothing,
+}
+
+/// Whether something run did what it was asked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ran {
+    /// It ended, and said it worked.
+    Fine,
+    /// It would not start, or said it did not.
+    Badly,
+}
+
 fn main() {
     let where_: Vec<PathBuf> = match std::env::args().nth(1) {
         Some(said) => vec![PathBuf::from(said)],
@@ -36,14 +54,16 @@ fn main() {
     };
     let mut made = 0;
     let mut left = 0;
+
     for folder in &where_ {
         for path in wanting(folder) {
             match made_one(&path) {
-                true => made += 1,
-                false => left += 1,
+                Made::It => made += 1,
+                Made::Nothing => left += 1,
             }
         }
     }
+
     told(made, left, &where_);
 }
 
@@ -53,6 +73,7 @@ fn main() {
 /// in whatever order the disk answers in.
 fn wanting(folder: &Path) -> Vec<PathBuf> {
     let Ok(reading) = std::fs::read_dir(folder) else { return Vec::new() };
+
     let mut found: Vec<PathBuf> = reading
         .flatten()
         .map(|entry| entry.path())
@@ -72,37 +93,41 @@ fn named(path: &Path) -> Wants {
 fn what(path: &Path) -> Option<Kind> {
     match named(path) {
         Wants::Made(kind) => Some(kind),
-        Wants::Ask => match same::a_film(&said(&same::about(path))) {
-            true => Some(Kind::Film),
-            false => Some(Kind::Sound),
-        },
+        Wants::Ask => Some(same::inside(&said(&same::about(path)))),
         Wants::Nothing | Wants::Leave => None,
     }
 }
 
 /// One thing, made the format it should be. Says whether it was.
-fn made_one(path: &Path) -> bool {
-    let Some(kind) = what(path) else { return false };
+fn made_one(path: &Path) -> Made {
+    let Some(kind) = what(path) else { return Made::Nothing };
+
     let to = same::beside(path, kind);
+
     // Something of that name is already there. Two files that would become one
     // name are two files somebody chose to keep, and this is not the program to
     // decide which of them wins.
     if to.exists() {
-        return false;
+        return Made::Nothing;
     }
+
     let part = to.with_extension(format!("part.{}", ending(kind)));
     let done = match kind {
         Kind::Film => ran(&same::film(path, &part)),
         Kind::Sound => ran(&same::sound(path, &part, cover(path).as_deref())),
     };
-    if !done || !part.exists() {
+
+    if done == Ran::Badly || !part.exists() {
         let _ = std::fs::remove_file(&part);
-        return false;
+        return Made::Nothing;
     }
-    if std::fs::rename(&part, &to).is_err() {
+
+    if let Err(fault) = std::fs::rename(&part, &to) {
+        eprintln!("putting the converted file where the old one is: {fault}");
         let _ = std::fs::remove_file(&part);
-        return false;
+        return Made::Nothing;
     }
+
     // Only once the new one is in place, and to the wastebasket rather than
     // gone: what this replaced is somebody's, and the conversion is a thing
     // they may want back.
@@ -112,15 +137,17 @@ fn made_one(path: &Path) -> bool {
         "--".to_string(),
         path.to_string_lossy().to_string(),
     ]);
-    if !put_away {
+
+    if put_away == Ran::Badly {
         // Somewhere with no wastebasket to put it in -- a stick, mostly. The
         // conversion is taken back rather than left: a folder holding both the
         // old file and the new one is further from one format than it was
         // before, and the next run would skip it for having a name already.
         let _ = std::fs::remove_file(&to);
-        return false;
+        return Made::Nothing;
     }
-    true
+
+    Made::It
 }
 
 /// The extension of the format a kind is kept in.
@@ -139,15 +166,26 @@ fn ending(kind: Kind) -> &'static str {
 /// before the conversion starts.
 fn cover(path: &Path) -> Option<String> {
     let jpg = glib::user_cache_dir().join("console/download/cover.jpg");
+
     if let Some(holding) = jpg.parent() {
         let _ = std::fs::create_dir_all(holding);
     }
+
     let _ = std::fs::remove_file(&jpg);
-    if !ran(&same::cover(path, &jpg)) {
+
+    if ran(&same::cover(path, &jpg)) == Ran::Badly {
         return None;
     }
-    let held = std::fs::read(&jpg).ok()?;
+
+    let held = match std::fs::read(&jpg) {
+        Ok(held) => held,
+        Err(fault) => {
+            eprintln!("reading back the cover ffmpeg wrote: {fault}");
+            return None;
+        },
+    };
     let _ = std::fs::remove_file(&jpg);
+
     match held.is_empty() {
         true => None,
         false => Some(same::block("image/jpeg", &held)),
@@ -155,18 +193,24 @@ fn cover(path: &Path) -> Option<String> {
 }
 
 /// Something run, said whether it worked.
-fn ran(argv: &[String]) -> bool {
-    let Some((program, rest)) = argv.split_first() else { return false };
-    Command::new(program)
-        .args(rest)
-        .output()
-        .is_ok_and(|done| done.status.success())
+fn ran(argv: &[String]) -> Ran {
+    let Some((program, rest)) = argv.split_first() else { return Ran::Badly };
+
+    let worked =
+        Command::new(program).args(rest).output().is_ok_and(|done| done.status.success());
+
+    match worked {
+        true => Ran::Fine,
+        false => Ran::Badly,
+    }
 }
 
 /// What a command printed.
 fn said(argv: &[String]) -> String {
     let Some((program, rest)) = argv.split_first() else { return String::new() };
+
     let Ok(done) = Command::new(program).args(rest).output() else { return String::new() };
+
     String::from_utf8_lossy(&done.stdout).to_string()
 }
 
@@ -193,9 +237,12 @@ fn told(made: usize, left: usize, where_: &[PathBuf]) {
         .arg(folders.join(" and "))
         .arg(&said)
         .status();
-    if started.is_err() {
+
+    if let Err(fault) = started {
+        eprintln!("telling somebody the folder is one format: {fault}");
         println!("{} {said}", folders.join(" and "));
     }
+
     if left > 0 && made == 0 {
         say(KIND, &format!("{} is not one format", folders.join(" and ")), &said);
     }

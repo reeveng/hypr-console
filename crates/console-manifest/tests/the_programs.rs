@@ -44,6 +44,12 @@ const PROGRAMS: &[(&str, From_)] = &[
     ("bluetoothctl", From_::Package("bluez-utils")),
     ("busctl", From_::Base),
     ("cargo", From_::Package("rust")),
+    // coreutils, and it is here for what it does not do rather than for what
+    // it does. `systemd-inhibit` holds a lock for as long as what it runs is
+    // running, so an apply needs it to run something that waits and ends when
+    // this process does. `cat` on a pipe this process holds is that: it reads
+    // end-of-file when the pipe closes, however the apply ended.
+    ("cat", From_::Base),
     ("cp", From_::Base),
     ("cmake", From_::Package("cmake")),
     ("curl", From_::Package("curl")),
@@ -60,6 +66,11 @@ const PROGRAMS: &[(&str, From_)] = &[
     ("grim", From_::Package("grim")),
     ("hostname", From_::Here),
     ("hyprctl", From_::Package("hyprland")),
+    // The colour of the screen through the evening. console-warm.service is
+    // what starts it; nothing in the crates runs it, and it is named here
+    // because the words this desktop must never put on a screen are a list
+    // that has to say its name to keep it off them.
+    ("hyprsunset", From_::Package("hyprsunset")),
     ("id", From_::Base),
     // util-linux, and so the operating system. It reaches the journal with a
     // tag on it, which is what `journalctl -t console` is asking after.
@@ -71,6 +82,10 @@ const PROGRAMS: &[(&str, From_)] = &[
     ("notify-send", From_::Package("libnotify")),
     ("pacman", From_::Base),
     ("pactl", From_::Package("libpulse")),
+    // procps-ng, and so the operating system. It is how the engine wakes the
+    // desktop's bar when an apply moves on: waybar is the user's and the apply
+    // is root's, and a signal is the only thing that crosses that.
+    ("pkill", From_::Base),
     ("powerprofilesctl", From_::Package("power-profiles-daemon")),
     ("pw-record", From_::Package("pipewire-audio")),
     // util-linux. `console apply` is root, and the one thing it does inside the
@@ -84,6 +99,10 @@ const PROGRAMS: &[(&str, From_)] = &[
     ("su", From_::Base),
     ("sudo", From_::Package("sudo")),
     ("systemctl", From_::Base),
+    // The apply's promise from the manager that nothing will stop the machine
+    // partway through. Held for the length of one apply, beside the lock in
+    // `alone` and for the same span.
+    ("systemd-inhibit", From_::Base),
     ("systemd-run", From_::Base),
     ("true", From_::Base),
     ("whisper-cli", From_::Package("whisper-cpp")),
@@ -104,7 +123,16 @@ const PROGRAMS: &[(&str, From_)] = &[
 const NOT_PROGRAMS: &[&str] = &["clear", "hyprland", "start", "test"];
 
 fn root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().expect("the repository")
+    {
+    // Tidied by `canonicalize` where that works and left as it stands where it
+    // does not. What `CARGO_MANIFEST_DIR` gives is already absolute and already
+    // right; canonicalizing only takes the `../..` out of the middle. It fails
+    // under a sandbox that will not let a process resolve a path it can
+    // otherwise read, and a test that stops there reports the sandbox as a
+    // missing repository.
+    let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    from.canonicalize().unwrap_or(from)
+}
 }
 
 fn manifest() -> String {

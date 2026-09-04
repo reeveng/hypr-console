@@ -14,6 +14,8 @@
 //! what to do with them is the caller's, because the same press runs against
 //! the tree on a laptop and against `/usr/share/backgrounds` on the device.
 
+
+use console_number::{Float, fitted, whole_u32, whole_usize};
 use std::io::{Read, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -59,20 +61,32 @@ impl Default for Stir {
     }
 }
 
+/// Whether a picture plays its whole loop over and over, or rests between runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Loops {
+    /// It runs straight through and starts again.
+    OverAndOver,
+    /// It runs, then holds one frame for as long as the rest lasts.
+    AndRests,
+}
+
 impl Stir {
     /// Whether the picture plays the whole loop over and over.
-    pub fn loops(&self) -> bool {
-        self.rest_seconds <= 0.0
+    pub fn loops(&self) -> Loops {
+        match self.rest_seconds <= 0.0 {
+            true => Loops::OverAndOver,
+            false => Loops::AndRests,
+        }
     }
 
     /// How many frames the movement is, when it does not loop.
     pub fn frames(&self) -> usize {
-        (self.seconds * f64::from(self.frames_per_second)).round() as usize
+        whole_usize(self.seconds * f64::from(self.frames_per_second))
     }
 
     /// How long one of them lasts.
     pub fn each_milliseconds(&self) -> u32 {
-        (1000.0 / f64::from(self.frames_per_second)).round() as u32
+        whole_u32(1000.0 / f64::from(self.frames_per_second))
     }
 
     /// How long the first frame is on the screen.
@@ -82,8 +96,8 @@ impl Stir {
     /// whether the picture loops or waits.
     pub fn opening_milliseconds(&self) -> u32 {
         match self.loops() {
-            true => self.each_milliseconds(),
-            false => (self.rest_seconds * 1000.0).round() as u32,
+            Loops::OverAndOver => self.each_milliseconds(),
+            Loops::AndRests => whole_u32(self.rest_seconds * 1000.0),
         }
     }
 }
@@ -150,8 +164,9 @@ fn each_frame(
         .map_err(|fault| format!("ffmpeg would not run: {fault}"))?;
     let mut pipe = ffmpeg.stdout.take().ok_or("ffmpeg gave no pipe")?;
 
-    let mut frame = vec![0u8; (size.0 * size.1 * 3) as usize];
+    let mut frame = vec![0u8; fitted(size.0 * size.1 * 3)];
     let mut count = 0;
+
     loop {
         match pipe.read_exact(&mut frame) {
             Ok(()) => {
@@ -167,6 +182,7 @@ fn each_frame(
     let done = ffmpeg
         .wait_with_output()
         .map_err(|fault| format!("ffmpeg would not finish: {fault}"))?;
+
     if !done.status.success() {
         return Err(format!(
             "ffmpeg refused {}: {}",
@@ -174,6 +190,7 @@ fn each_frame(
             String::from_utf8_lossy(&done.stderr).trim()
         ));
     }
+
     match count {
         0 => Err(format!("{} decoded to nothing", source.display())),
         _ => Ok(count),
@@ -217,6 +234,7 @@ fn encode(pixels: &[u8], size: (u32, u32), quality: u32) -> Result<Vec<u8>, Stri
     let done = ffmpeg
         .wait_with_output()
         .map_err(|fault| format!("ffmpeg would not finish: {fault}"))?;
+
     match done.status.success() {
         true => Ok(done.stdout),
         false => Err(format!(
@@ -241,9 +259,10 @@ fn slice(source: &Path, cube: &Path, stir: &Stir) -> Result<(usize, usize), Stri
         small.push(frame.to_vec());
         Ok(())
     })?;
+
     match stir.loops() {
-        true => Ok((0, count - 1)),
-        false => Ok(loops::stir(&small, stir.frames())),
+        Loops::OverAndOver => Ok((0, count - 1)),
+        Loops::AndRests => Ok(loops::stir(&small, stir.frames())),
     }
 }
 
@@ -276,8 +295,8 @@ pub fn press(
                 written.push(Frame {
                     x: 0,
                     y: 0,
-                    width: size.0 as i32,
-                    height: size.1 as i32,
+                    width: fitted(size.0),
+                    height: fitted(size.1),
                     milliseconds: stir.opening_milliseconds(),
                     picture: encode(frame, size, stir.quality)?,
                 });
@@ -288,10 +307,10 @@ pub fn press(
                 Some(patch) => {
                     largest = largest.max(patch.area());
                     written.push(Frame {
-                        x: patch.x as i32,
-                        y: patch.y as i32,
-                        width: patch.wide as i32,
-                        height: patch.tall as i32,
+                        x: fitted(patch.x),
+                        y: fitted(patch.y),
+                        width: fitted(patch.wide),
+                        height: fitted(patch.tall),
                         milliseconds: stir.each_milliseconds() + std::mem::take(&mut carried),
                         picture: encode(
                             &loops::cut(frame, size.0, &patch),
@@ -303,9 +322,11 @@ pub fn press(
                 }
             },
         };
+
         if !wrote {
             carried += stir.each_milliseconds();
         }
+
         before = Some(frame.to_vec());
         Ok(())
     })?;
@@ -317,13 +338,13 @@ pub fn press(
     }
 
     Ok(Pressed {
-        animation: webp::animation(size.0 as i32, size.1 as i32, &written)?,
+        animation: webp::animation(fitted(size.0), fitted(size.1), &written)?,
         still: written
             .first()
             .map(|frame| frame.picture.clone())
             .ok_or("nothing was pressed")?,
         slice,
-        largest: largest as f64 / Patch::whole(size.0, size.1).area() as f64,
+        largest: largest.float() / Patch::whole(size.0, size.1).area().float(),
     })
 }
 
@@ -343,7 +364,7 @@ mod tests {
     #[test]
     fn a_picture_that_does_not_rest_loops() {
         let stir = Stir { rest_seconds: 0.0, ..Stir::default() };
-        assert!(stir.loops());
+        assert_eq!(stir.loops(), Loops::OverAndOver);
         assert_eq!(stir.opening_milliseconds(), stir.each_milliseconds());
     }
 
@@ -352,7 +373,7 @@ mod tests {
     #[test]
     fn a_rest_is_a_frame_duration_like_any_other() {
         let stir = Stir { rest_seconds: 90.0, ..Stir::default() };
-        assert!(!stir.loops());
+        assert_eq!(stir.loops(), Loops::AndRests);
         assert_eq!(stir.opening_milliseconds(), 90_000);
     }
 
@@ -360,6 +381,6 @@ mod tests {
     /// must not become a frame lasting a negative number of milliseconds.
     #[test]
     fn a_rest_below_nothing_is_no_rest() {
-        assert!(Stir { rest_seconds: -1.0, ..Stir::default() }.loops());
+        assert_eq!(Stir { rest_seconds: -1.0, ..Stir::default() }.loops(), Loops::OverAndOver);
     }
 }

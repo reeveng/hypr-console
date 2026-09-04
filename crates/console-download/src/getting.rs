@@ -135,6 +135,24 @@ pub fn id_in(url: &str) -> Option<String> {
     crate::store::named(said.split(end).next().unwrap_or_default())
 }
 
+/// Whether a name is something a fetch left behind rather than a thing to keep.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Litter {
+    /// Half of a fetch, under a name nobody chose.
+    Yes,
+    /// A file somebody meant to have.
+    No,
+}
+
+/// Whether a folder already holds the thing that was asked for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Have {
+    /// It is there, under the id it was fetched by.
+    It,
+    /// It is not.
+    Not,
+}
+
 /// What a fetch leaves behind when it fails partway.
 ///
 /// yt-dlp tidies up after itself when a download fails and does not when a
@@ -143,9 +161,14 @@ pub fn id_in(url: &str) -> Option<String> {
 /// half-made one is the reason this matters rather than being untidy -- it is
 /// called `.temp.opus`, which ends in an extension the music panel lists, so
 /// the folder grows a second copy of the song under a name nobody chose.
-pub fn leftover(name: &str) -> bool {
+pub fn leftover(name: &str) -> Litter {
     let ends = [".part", ".ytdl", ".meta"];
-    name.contains(".temp.") || ends.iter().any(|end| name.ends_with(end))
+    let half = name.contains(".temp.") || ends.iter().any(|end| name.ends_with(end));
+
+    match half {
+        true => Litter::Yes,
+        false => Litter::No,
+    }
 }
 
 /// Whether a folder already holds a thing, by the id in the name.
@@ -154,16 +177,24 @@ pub fn leftover(name: &str) -> bool {
 /// be anything, and because the extension is not known until it has been
 /// fetched. It is the same square brackets the music library takes off a name
 /// to read it.
-pub fn have_it(names: impl IntoIterator<Item = String>, id: &str) -> bool {
+pub fn have_it(names: impl IntoIterator<Item = String>, id: &str) -> Have {
     let mark = format!("[{id}]");
-    names.into_iter().any(|name| !leftover(&name) && name.contains(&mark))
+    let found = names
+        .into_iter()
+        .any(|name| leftover(&name) == Litter::No && name.contains(&mark));
+
+    match found {
+        true => Have::It,
+        false => Have::Not,
+    }
 }
 
 /// The same, asked of a folder on the disk.
-pub fn holds(folder: &Path, id: &str) -> bool {
+pub fn holds(folder: &Path, id: &str) -> Have {
     let Ok(reading) = std::fs::read_dir(folder) else {
-        return false;
+        return Have::Not;
     };
+
     let names = reading.flatten().map(|entry| entry.file_name().to_string_lossy().to_string());
     have_it(names, id)
 }
@@ -224,8 +255,8 @@ mod tests {
     #[test]
     fn a_folder_that_already_holds_it_is_known_by_the_id_in_the_name() {
         let names = ["Africa [FTQbiNvZqaY].opus".to_string(), "notes.txt".to_string()];
-        assert!(have_it(names.clone(), "FTQbiNvZqaY"));
-        assert!(!have_it(names, "qU9mHegkTc4"));
+        assert_eq!(have_it(names.clone(), "FTQbiNvZqaY"), Have::It);
+        assert_eq!(have_it(names, "qU9mHegkTc4"), Have::Not);
     }
 
     /// What a failed fetch left behind is not the song. Counted as one, the
@@ -234,7 +265,7 @@ mod tests {
     #[test]
     fn what_a_failed_fetch_left_behind_is_not_having_it() {
         let litter = ["Africa [FTQbiNvZqaY].temp.opus".to_string()];
-        assert!(!have_it(litter, "FTQbiNvZqaY"));
+        assert_eq!(have_it(litter, "FTQbiNvZqaY"), Have::Not);
     }
 
     #[test]
@@ -252,10 +283,10 @@ mod tests {
     /// one of them is broken.
     #[test]
     fn what_a_failed_fetch_leaves_behind_is_known_by_its_name() {
-        assert!(leftover("Africa [x].temp.opus"));
-        assert!(leftover("Africa [x].meta"));
-        assert!(leftover("Africa [x].opus.part"));
-        assert!(!leftover("Africa [x].opus"));
-        assert!(!leftover("Africa [x].mkv"));
+        assert_eq!(leftover("Africa [x].temp.opus"), Litter::Yes);
+        assert_eq!(leftover("Africa [x].meta"), Litter::Yes);
+        assert_eq!(leftover("Africa [x].opus.part"), Litter::Yes);
+        assert_eq!(leftover("Africa [x].opus"), Litter::No);
+        assert_eq!(leftover("Africa [x].mkv"), Litter::No);
     }
 }

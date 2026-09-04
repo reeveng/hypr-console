@@ -12,7 +12,7 @@ use std::process::{Command, Stdio};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Duration;
 
-use console_again::keep;
+use console_again::{Round, keep};
 use console_panel::door::watching_layers;
 
 use crate::reading::What;
@@ -52,6 +52,7 @@ pub fn watching(what: What) -> Receiver<()> {
     if let Some(argv) = teller(what) {
         lines(argv, say);
     }
+
     heard
 }
 
@@ -61,7 +62,12 @@ pub fn watching(what: What) -> Receiver<()> {
 /// icon lighting after the socket has been away. See
 /// `console_panel::door::watching_layers`.
 fn layers(say: Sender<()>) {
-    watching_layers(say);
+    // Nothing at all when no compositor was named in the environment this
+    // started with. Nothing here can wait for that: it is not a socket that
+    // has not appeared yet, it is a bar running outside a compositor.
+    if let Err(why) = watching_layers(say) {
+        eprintln!("bar: no compositor to watch for a panel over the bar: {why}");
+    }
 }
 
 /// A word whenever a notification arrived or went, or the panel opened over it.
@@ -109,12 +115,13 @@ pub fn lines(argv: Vec<&'static str>, say: Sender<()>) {
 
 /// One run of it, and whether anybody still wants another.
 ///
-/// False only when nothing is listening any more. A program that would not
-/// start is true: it may be a daemon that is not up yet, and the waiting above
-/// is what that costs.
-fn once(argv: &[&'static str], say: &Sender<()>) -> bool {
+/// `Done` only when nothing is listening any more. A program that would not
+/// start is `Another`: it may be a daemon that is not up yet, and the waiting
+/// above is what that costs.
+fn once(argv: &[&'static str], say: &Sender<()>) -> Round {
     let mut asking = Command::new(argv[0]);
     asking.args(&argv[1..]).stdout(Stdio::piped()).stderr(Stdio::null());
+
     // SAFETY: one call, to a function that is async-signal-safe, between
     // the fork and the exec.
     unsafe {
@@ -123,27 +130,33 @@ fn once(argv: &[&'static str], say: &Sender<()>) -> bool {
             Ok(())
         });
     }
+
     let Ok(mut running) = asking.spawn() else {
-        return true;
+        return Round::Another;
     };
+
     let Some(out) = running.stdout.take() else {
         let _ = running.kill();
         let _ = running.wait();
-        return true;
+        return Round::Another;
     };
+
     for _ in BufReader::new(out).lines().map_while(Result::ok) {
-        if say.send(()).is_err() {
+        // Nobody listening is the one thing that ends this for good: the bar
+        // it was reading for has gone, so the child goes with it.
+        if let Err(_gone) = say.send(()) {
             let _ = running.kill();
             let _ = running.wait();
-            return false;
+            return Round::Done;
         }
     }
+
     // Its output ended, so it is on its way out or already gone. Waited for
     // rather than left: this starts another one every time round, and a child
     // nobody asks after stays as a zombie.
     let _ = running.kill();
     let _ = running.wait();
-    true
+    Round::Another
 }
 
 #[cfg(test)]
@@ -172,7 +185,7 @@ mod tests {
     fn a_watcher_nobody_is_listening_to_stops() {
         let (say, heard) = channel::<()>();
         drop(heard);
-        assert!(!once(&["echo", "anything"], &say));
+        assert_eq!(once(&["echo", "anything"], &say), Round::Done);
     }
 
     /// A program that is not on this machine is a daemon that might yet be
@@ -180,6 +193,6 @@ mod tests {
     #[test]
     fn a_program_that_will_not_start_is_worth_another_try() {
         let (say, _heard) = channel::<()>();
-        assert!(once(&["console-nothing-is-called-this"], &say));
+        assert_eq!(once(&["console-nothing-is-called-this"], &say), Round::Another);
     }
 }

@@ -45,28 +45,28 @@ impl Terminal {
     /// legible without turning it into a different colour. White is the
     /// exception: bright white is the ink everything else is read in, so it is
     /// taken rather than derived.
-    pub fn of(spec: &Spec, palette: &Palette) -> Self {
+    pub fn of(spec: &Spec, palette: &Palette) -> Result<Self, col::Short> {
         let setting = &spec.terminal;
         let normal: IndexMap<String, String> = setting
             .normal
             .iter()
-            .map(|(slot, name)| (slot.clone(), palette[name.as_str()].to_owned()))
-            .collect();
+            .map(|(slot, name)| Ok((slot.clone(), palette.must(name)?.to_owned())))
+            .collect::<Result<_, col::Short>>()?;
         let bright = normal
             .iter()
             .map(|(slot, code)| match slot.as_str() {
-                "white" => (slot.clone(), palette["text"].to_owned()),
-                _ => (slot.clone(), col::lift(code, setting.bright_lift)),
+                "white" => Ok((slot.clone(), palette.must("text")?.to_owned())),
+                _ => Ok((slot.clone(), col::lift(code, setting.bright_lift))),
             })
-            .collect();
-        Terminal {
-            background: palette[setting.background.as_str()].to_owned(),
-            foreground: palette[setting.foreground.as_str()].to_owned(),
-            cursor: palette[setting.cursor.as_str()].to_owned(),
-            selection: palette[setting.selection.as_str()].to_owned(),
+            .collect::<Result<_, col::Short>>()?;
+        Ok(Terminal {
+            background: palette.must(&setting.background)?.to_owned(),
+            foreground: palette.must(&setting.foreground)?.to_owned(),
+            cursor: palette.must(&setting.cursor)?.to_owned(),
+            selection: palette.must(&setting.selection)?.to_owned(),
             normal,
             bright,
-        }
+        })
     }
 
     pub fn slot(&self, shade: Shade, name: &str) -> &str {
@@ -87,14 +87,14 @@ mod tests {
     fn spent() -> (Spec, Palette, Terminal) {
         let spec: Spec = toml::from_str(PALETTE).expect("the palette parses");
         let palette = crate::palette::resolve(&spec.colour).expect("it resolves");
-        let terminal = Terminal::of(&spec, &palette);
+        let terminal = Terminal::of(&spec, &palette).expect("the terminal table is declared");
         (spec, palette, terminal)
     }
 
     #[test]
     fn bright_white_is_the_ink_and_not_a_lift_of_black() {
         let (_, palette, terminal) = spent();
-        assert_eq!(terminal.slot(Shade::Bright, "white"), &palette["text"]);
+        assert_eq!(terminal.slot(Shade::Bright, "white"), palette.must("text").expect("a declared colour"));
     }
 
     #[test]

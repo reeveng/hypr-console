@@ -23,11 +23,20 @@ pub const PATIENCE: u64 = 180;
 /// programs and a check is one of them. On a machine where it was installed
 /// instead, the name on its own is enough.
 fn nesting_program() -> PathBuf {
-    let beside = std::env::current_exe()
-        .ok()
-        .and_then(|at| at.parent().map(|at| at.join("console-desktop")))
-        .filter(|at| at.exists());
-    beside.unwrap_or_else(|| PathBuf::from("console-desktop"))
+    // A program that cannot say where it is falls back to the bare name, which
+    // is the answer on a machine where this was installed rather than built.
+    // Worth a line: it is also how a run in a tree comes to use an installed
+    // desktop instead of the one just compiled beside it.
+    let beside = match std::env::current_exe() {
+        Ok(at) => at.parent().map(|at| at.join("console-desktop")),
+        Err(fault) => {
+            eprintln!("console-stage: where this program is: {fault}");
+
+            None
+        }
+    };
+
+    beside.filter(|at| at.exists()).unwrap_or_else(|| PathBuf::from("console-desktop"))
 }
 
 pub struct Desktop {
@@ -35,6 +44,15 @@ pub struct Desktop {
     open_these: Vec<String>,
     here: PathBuf,
     taken: Option<Picture>,
+}
+
+/// Whether a program is on this machine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Installed {
+    /// It is on the path and can be run.
+    Yes,
+    /// It is not, so whatever wanted it has to say so rather than fail oddly.
+    No,
 }
 
 impl Default for Desktop {
@@ -64,6 +82,7 @@ impl Desktop {
         if self.taken.is_some() {
             return Err("the picture has already been taken; open before looking".to_string());
         }
+
         self.open_these.push(command.to_string());
         Ok(())
     }
@@ -75,25 +94,38 @@ impl Desktop {
             let shot = self.here.join("screen.png");
             let mut nesting = Command::new(nesting_program());
             nesting.arg("shot").arg(&shot);
+
             for command in &self.open_these {
                 nesting.args(["--open", command]);
             }
+
             let said = nesting.output().map_err(|fault| fault.to_string())?;
+
             if !shot.exists() {
                 let why = String::from_utf8_lossy(&said.stderr);
                 let last = why.trim().lines().next_back().unwrap_or_default().to_string();
                 return Err(format!("the nested desktop took no picture: {last}"));
             }
+
             self.taken = Some(Picture::read(&shot)?);
         }
-        Ok(self.taken.as_ref().expect("a picture"))
+
+        // Set just above, on the one road that reaches here without one. Said
+        // rather than unwrapped, because "it was set a moment ago" is a claim
+        // about code that goes on being true until somebody edits the road.
+        self.taken.as_ref().ok_or_else(|| "the nested desktop took a picture and then had none".to_string())
     }
 
-    pub fn installed(&self, program: &str) -> bool {
-        Command::new("sh")
+    pub fn installed(&self, program: &str) -> Installed {
+        let found = Command::new("sh")
             .args(["-c", &format!("command -v {}", crate::device::quoted(program))])
             .output()
-            .is_ok_and(|done| done.status.success())
+            .is_ok_and(|done| done.status.success());
+
+        match found {
+            true => Installed::Yes,
+            false => Installed::No,
+        }
     }
 
     pub fn colour(&mut self, across: f64, down: f64) -> Result<String, String> {

@@ -3,7 +3,7 @@
 //! `console-theme` writes every colour this desktop uses into one file per
 //! language that has to be spoken, and one of them is a plain list of names and
 //! six hex digits. Two things read it back: the keyboard, which is handed its
-//! colours as arguments because wvkbd has no configuration file, and the checks,
+//! colours as arguments because it has no configuration file, and the checks,
 //! which look at the screen and have to know what colour a thing should have
 //! been.
 //!

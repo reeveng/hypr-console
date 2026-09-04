@@ -16,7 +16,7 @@ use gtk4::gdk_pixbuf::Pixbuf;
 use gtk4::gio;
 use gtk4::glib;
 use gtk4::prelude::*;
-use console_files::listing::Entry;
+use console_files::listing::{Entry, Worth};
 use console_files::thumbs::{self, SIDE};
 
 /// Where in a film to take the frame from.
@@ -32,11 +32,17 @@ fn main() {
         eprintln!("which folder");
         return;
     };
+
     let Some(cache) = glib::user_cache_dir().into() else { return };
+
     let store = thumbs::store(&cache);
-    if std::fs::create_dir_all(&store).is_err() {
+
+    if let Err(fault) = std::fs::create_dir_all(&store) {
+        eprintln!("files-thumbs: {}: making the store the pictures go in: {fault}", store.display());
+
         return;
     }
+
     for (thing, kind) in wanting(Path::new(&folder), &store) {
         made(&thing, &kind, &store);
     }
@@ -55,7 +61,9 @@ fn wanting(folder: &Path, store: &Path) -> Vec<(PathBuf, String)> {
         gio::FileQueryInfoFlags::NONE,
         gio::Cancellable::NONE,
     );
+
     let Ok(children) = asked else { return Vec::new() };
+
     children
         .flatten()
         .map(|about| {
@@ -71,7 +79,7 @@ fn wanting(folder: &Path, store: &Path) -> Vec<(PathBuf, String)> {
             (folder.join(about.name()), entry)
         })
         .filter(|(path, entry)| {
-            entry.worth_a_picture() && thumbs::found(store, path).is_none()
+            entry.worth_a_picture() == Worth::APicture && thumbs::found(store, path).is_none()
         })
         .map(|(path, entry)| (path, entry.kind))
         .collect()
@@ -84,7 +92,9 @@ fn wanting(folder: &Path, store: &Path) -> Vec<(PathBuf, String)> {
 /// draw the mark GTK has for a broken one.
 fn made(thing: &Path, kind: &str, store: &Path) {
     let Some(address) = thumbs::address(thing) else { return };
+
     let Some(kept) = thumbs::of(store, &address) else { return };
+
     // Ending in .png, not merely beginning with it. ffmpeg reads the format
     // to write out of the name it is given, and a file called .png.part is one
     // it refuses rather than guesses at.
@@ -93,11 +103,12 @@ fn made(thing: &Path, kind: &str, store: &Path) {
         true => from_a_film(thing, &part),
         false => from_a_photograph(thing, &part, &address),
     };
+
     match drawn {
-        true => {
+        Made::APicture => {
             let _ = std::fs::rename(&part, &kept);
         }
-        false => {
+        Made::Nothing => {
             let _ = std::fs::remove_file(&part);
         }
     }
@@ -108,18 +119,39 @@ fn made(thing: &Path, kind: &str, store: &Path) {
 /// The two notes the store expects are written into the picture as it is saved,
 /// so anything else reading the store can tell what it is of and whether that
 /// thing has changed since.
-fn from_a_photograph(thing: &Path, part: &Path, address: &str) -> bool {
-    let Ok(picture) = Pixbuf::from_file_at_scale(thing, SIDE, SIDE, true) else { return false };
-    let changed = thing
-        .metadata()
-        .ok()
-        .and_then(|about| about.modified().ok())
-        .and_then(|when| when.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|since| since.as_secs().to_string())
-        .unwrap_or_default();
-    picture
-        .savev(part, "png", &[("tEXt::Thumb::URI", address), ("tEXt::Thumb::MTime", &changed)])
-        .is_ok()
+fn from_a_photograph(thing: &Path, part: &Path, address: &str) -> Made {
+    let Ok(picture) = Pixbuf::from_file_at_scale(thing, SIDE, SIDE, true) else {
+        return Made::Nothing;
+    };
+
+    let changed = changed_at(thing);
+
+    match picture.savev(part, "png", &[("tEXt::Thumb::URI", address), ("tEXt::Thumb::MTime", &changed)])
+    {
+        Ok(()) => Made::APicture,
+
+        Err(fault) => {
+            eprintln!("files-thumbs: {}: writing the picture: {fault}", part.display());
+            Made::Nothing
+        }
+    }
+}
+
+/// When the thing last changed, in seconds, or nothing where it will not say.
+///
+/// Nothing rather than a guess at three separate points: a thing whose
+/// metadata will not open, a clock that will not give a moment, and a moment
+/// before the epoch. A picture stamped with nothing is one that gets made
+/// again next time rather than one that is wrong, so none of the three is
+/// worth a sentence in a run that walks a whole folder.
+fn changed_at(thing: &Path) -> String {
+    let Ok(about) = thing.metadata() else { return String::new() };
+
+    let Ok(when) = about.modified() else { return String::new() };
+
+    let Ok(since) = when.duration_since(std::time::UNIX_EPOCH) else { return String::new() };
+
+    since.as_secs().to_string()
 }
 
 /// A film, by one frame out of it.
@@ -127,7 +159,16 @@ fn from_a_photograph(thing: &Path, part: &Path, address: &str) -> bool {
 /// ffmpeg, because nothing here decodes video and the wallpapers already have
 /// it on the machine for the same reason. A film shorter than the moment asked
 /// for gives nothing back, so it is asked again from the beginning.
-fn from_a_film(thing: &Path, part: &Path) -> bool {
+/// Whether a picture came out of the attempt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Made {
+    /// One was written, and the store has it.
+    APicture,
+    /// Nothing was, and the thing is drawn by its name.
+    Nothing,
+}
+
+fn from_a_film(thing: &Path, part: &Path) -> Made {
     for at in [INTO_IT, "0"] {
         let done = Command::new("ffmpeg")
             .args(["-loglevel", "error", "-y", "-ss", at, "-i"])
@@ -135,9 +176,11 @@ fn from_a_film(thing: &Path, part: &Path) -> bool {
             .args(["-frames:v", "1", "-vf", &format!("scale={SIDE}:{SIDE}:force_original_aspect_ratio=decrease")])
             .arg(part)
             .status();
+
         if done.is_ok_and(|how| how.success()) && part.exists() {
-            return true;
+            return Made::APicture;
         }
     }
-    false
+
+    Made::Nothing
 }

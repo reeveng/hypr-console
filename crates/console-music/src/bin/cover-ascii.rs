@@ -8,13 +8,27 @@ use std::path::PathBuf;
 
 use console_music::ascii;
 
+/// How tall a cover is drawn where nobody says: enough rows to be read as a
+/// sleeve, few enough to sit in a terminal beside the words.
+const ROWS: usize = 40;
+
 fn main() {
     let said: Vec<String> = std::env::args().skip(1).collect();
+
     let Some(path) = said.first().map(PathBuf::from) else {
         eprintln!("cover-ascii FILE [ROWS]");
         std::process::exit(2);
     };
-    let rows = said.get(1).and_then(|said| said.parse().ok()).unwrap_or(40);
+
+    let rows = match said.get(1).map(|said| said.parse::<usize>()) {
+        None => ROWS,
+        Some(Ok(rows)) => rows,
+
+        Some(Err(fault)) => {
+            eprintln!("cover-ascii: not a number of rows: {fault}; drawing {ROWS}");
+            ROWS
+        }
+    };
 
     let Some(cover) = ascii::read(&path, rows) else {
         eprintln!("no picture in {}", path.display());
@@ -26,6 +40,7 @@ fn main() {
             let (r, g, b) = cell.rgb;
             print!("\x1b[1;38;2;{r};{g};{b}m{}", cell.ch);
         }
+
         println!("\x1b[0m");
     }
 }

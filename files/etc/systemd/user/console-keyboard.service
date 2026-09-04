@@ -1,19 +1,20 @@
 [Unit]
-Description=On-screen keyboard, driven by the controller
+Description=On-screen keyboard
 PartOf=console.target
 
 # After the controller, because both of them go looking for the same pad and
 # neither of them owns it.
 #
 # The keyboard reads the controller itself: X arrives on the pad as North,
-# every profile passes it through untouched, and wvkbd finds the pad in
-# /dev/input and opens it. The controller daemon's own ExecStartPost loads the
+# every profile passes it through untouched, and the keyboard finds the pad in
+# /dev/input and opens it -- `console_pad::finding` is the rule it applies, and
+# it is the daemon's rule rather than one of its own. The daemon's ExecStartPost loads the
 # desktop profile, and a profile switch destroys the pad and builds a new one --
 # `console_controller::turning::Gone` is that, called the ordinary state of
 # things because for the daemon it is: it opens the new one a turn or two later.
 #
-# Started together, wvkbd could open the pad that switch was about to take away,
-# in the one moment it has no answer for. What that looked like is X not raising
+# Started together, the keyboard could open the pad that switch was about to
+# take away, in the one moment it has no answer for. What that looked like is X not raising
 # the keyboard until the next reboot, and coming back on the one after that.
 #
 # After= and not Requires=: this is about the order they start in and nothing
@@ -23,6 +24,15 @@ After=console-controller.service
 
 [Service]
 Type=simple
+# Named directly, and not through a starter. There was a program that read the
+# palette and exec'd this one, from when the keyboard was C: `named_by` reads
+# the absolute paths off these Exec lines to decide whether writing a file means
+# this unit is now running the wrong thing, and it cannot see through one
+# program into the program that one starts. So a rebuilt keyboard did not
+# restart this unit and the device went on running the release before it, which
+# is the one state the apply exists to make impossible. The keyboard reads the
+# palette itself now and this line names what it depends on.
+#
 # No WVKBD_ON_SHOW or WVKBD_ON_HIDE. The keyboard used to run `osk-hook` at
 # both ends to hand the pad over and take it back, and the hook is gone: it
 # stopped the controller daemon with a signal, which the daemon now decides
@@ -34,7 +44,18 @@ Type=simple
 # nothing was listening to. A keyboard that dies takes its layer off the
 # screen, the compositor says so, and the daemon puts the pad where the screen
 # now says it belongs. See `console_controller::mode`.
-ExecStart=/usr/local/bin/osk-start
+# Which alphabets this machine types, said here and nowhere else. The keyboard
+# has an arrangement for every script wvkbd ever carried; which of them a
+# person walks is a fact about the machine, not about the program, so it is on
+# the command line rather than compiled in. Adding Russian is `cyrillic` in
+# this list -- the keymap comes from the system's own xkb symbols, so nothing
+# else changes.
+#
+# `--landscape-layers` and not `-l`, because the keyboard is a strip across the
+# bottom of a screen wider than it is deep, and that is the list it reads. The
+# two latin arrangements are four rows of thirteen either way round, so moving
+# between them moves no key.
+ExecStart=/usr/local/bin/virtual-keyboard --landscape-layers landscape,thai,landscapespecial
 ExecStopPost=-/usr/local/bin/console-fell %n
 Restart=always
 RestartSec=2

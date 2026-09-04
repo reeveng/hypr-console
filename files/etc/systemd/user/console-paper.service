@@ -1,5 +1,5 @@
 [Unit]
-Description=The background
+Description=The background picture on the screen
 PartOf=console.target
 
 [Service]
@@ -31,13 +31,24 @@ ExecStart=/usr/bin/awww-daemon --no-cache
 # `console-sky` decides what goes on it, and a unit that painted a picture of
 # its own would be a second opinion about the wallpaper.
 #
-# Written by `make theme`, because a unit file can import nothing.
+# Written by `just theme`, because a unit file can import nothing.
 # console-theme:begin
 # Written by console-theme from theme/palette.toml.
 #
 # awww wants six hex digits and no hash, and a hash would start a
 # comment here anyway.
-ExecStartPost=/usr/bin/awww clear 110b12
+#
+# The dash is what makes this a colour and not a condition of the
+# background coming up. The daemon says it is ready when it is
+# listening, which is not when it has been told about a screen; asked
+# in that gap it answers "none of the requested outputs are valid"
+# and exits, and an ExecStartPost that exits fails the unit. On the
+# device that took the whole background down and dependency-failed
+# the unit that says which wallpaper is up -- over a colour that
+# console-sky covers a second later. Seen during an apply, where the
+# desktop is stopped and started faster than a daemon can find a
+# screen.
+ExecStartPost=-/usr/bin/awww clear 110b12
 # console-theme:end
 ExecStopPost=-/usr/local/bin/console-fell %n
 Restart=always

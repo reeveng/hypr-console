@@ -1,3 +1,7 @@
+// Two bars, drawn in this order. waybar reserves the room for each in turn,
+// so the strip below is under the bar and not over it.
+[
+
 {
   // Top, because the on-screen keyboard owns the bottom of the screen.
   "layer": "top",
@@ -55,7 +59,7 @@
     "exec": "bar-door keyboard 󰌌",
     "restart-interval": 5,
     "tooltip": false,
-    "on-click": "osk"
+    "on-click": "keyboard-toggle"
   },
 
   // No on-click. "activate" is sway's word for it, and waybar hands a
@@ -165,4 +169,56 @@
   },
 
   "tray": { "spacing": 10 }
+},
+
+// The strip: a thin row under the bar, the width of the screen.
+//
+// Its whole job is to answer "how much longer" during an apply. The card
+// `console-updating` raises says one is running and then says the same
+// sentence for a minute; this fills from the left as the apply goes, which is
+// the question somebody standing over the device is actually asking, answered
+// from across a room without covering anything.
+//
+// It is the colour of the bar the rest of the time -- `bar-updating` sends an
+// empty text, waybar hides the module, and what is left is this window's own
+// background, which is the bar's. So it reads as the bottom edge of the bar
+// until there is something to say.
+//
+// Which is what it costs: a row of screen, always, for a strip that is doing
+// something for a minute or two after a deploy. It is bought rather than
+// taken -- an overlay that did not reserve it would sit on top of the bar
+// above instead of under it, and one that appeared only during an apply would
+// shove every window on the screen down and back. So `height` is as thin as a
+// row can be and still be a row.
+//
+// It only holds if the stylesheet agrees. `height` is a floor rather than a
+// size and the module's label holds a space, so a label left at a font size
+// grows the strip to a line of text as soon as it has a background to draw.
+// `font-size: 0` there is what leaves this the deciding number.
+//
+// `interval: once` with a `signal` rather than a number of seconds. The engine
+// knows when the number changed and says so; a second-by-second read of a file
+// that is not there for days at a time is a wake-up a battery pays for with
+// nothing to show. The signal has to be the one `going::WAKING` sends, and
+// `the_bar_and_the_engine_agree_on_the_signal` is what holds the two numbers
+// together.
+{
+  "name": "updating",
+  "layer": "top",
+  "position": "top",
+  "height": 2,
+  "spacing": 0,
+
+  "modules-center": ["custom/updating"],
+
+  "custom/updating": {
+    "format": "{}",
+    "return-type": "json",
+    "exec": "bar-updating",
+    "interval": "once",
+    "signal": 4,
+    "tooltip": false
+  }
 }
+
+]

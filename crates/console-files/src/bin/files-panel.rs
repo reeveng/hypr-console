@@ -24,19 +24,22 @@
 //! same reason the settings ask `pactl` about the volume: the panel is a thing
 //! that draws, and `mv` already knows what moving across two disks means.
 
+
+use console_number::fitted;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use gtk4::gio;
 use gtk4::glib::{self, UserDirectory};
 use gtk4::prelude::*;
-use console_files::doing::{self, Deed, Holding};
-use console_files::listing::{self, Entry};
+use console_files::doing::{self, Carrying, Deed, Holding};
+use console_files::listing::{self, Entry, Room, Shown, Worth};
 use console_files::looking::{self, Found};
 use console_files::places::{self, Place, WANTED};
 use console_files::thumbs;
-use console_files::walk::Walk;
-use console_panel::page::{Answer, Does, Page, Picture, Row, Rows, Showing, Taken};
+use console_files::walk::{self, Walk};
+use console_panel::actor::{self, Addr, Answer as Reply};
+use console_panel::page::{Answer, Does, Heading, Page, Picture, Row, Rows, Showing, Taken};
 use console_panel::{chooser, panel};
 
 /// What a tab is looking at.
@@ -93,28 +96,244 @@ impl Standing {
     }
 }
 
-type Held = Arc<Mutex<Standing>>;
-
-/// The lock, taken and given back before anything is drawn or run.
-fn standing<T>(held: &Held, then: impl FnOnce(&mut Standing) -> T) -> T {
-    then(&mut held.lock().expect("the standing"))
+/// Whether typing changed what was there.
+///
+/// Named rather than a bare `bool`, so the signature says which way round it
+/// reads without a comment under it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Word {
+    Same,
+    Changed,
 }
 
+/// Whether a walk is at the top of its place or somewhere below it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Top {
+    At,
+    Below,
+}
+
+/// What a tab is standing in, when the whole of it is wanted at once.
+struct Standing_ {
+    onto: Onto,
+    top: Top,
+    typed: String,
+}
+
+/// Everything that can happen to the standing, and nothing else.
+///
+/// One variant per thing a thumb can do to it. Reading this enum is reading
+/// the whole of what this panel remembers between one drawing and the next,
+/// which twenty scattered `standing(...)` blocks could not be read as.
+enum Msg {
+    /// Where a tab is, and what it is looking at.
+    At { tab: usize, answer: Reply<(PathBuf, Onto)> },
+    /// Where a tab is.
+    Here { tab: usize, answer: Reply<PathBuf> },
+    /// What the folder a tab is standing in is called.
+    Called { tab: usize, answer: Reply<String> },
+    /// What is being looked for in a place, if anything.
+    Typed { tab: usize, answer: Reply<String> },
+    /// Look for something else, or for nothing.
+    LookFor { tab: usize, word: String },
+    /// Type into a tab, and say whether that changed it.
+    Type { tab: usize, word: String, answer: Reply<Word> },
+    /// Look at something else.
+    Look { tab: usize, onto: Onto },
+    /// The row the panel was opened to stand on, taken once and never again.
+    StandWhereAsked { tab: usize, answer: Reply<Option<usize>> },
+    /// The folder above, the folder itself, and what is being carried.
+    Folder { tab: usize, answer: Reply<(Option<String>, String, Option<Holding>)> },
+    /// Walk into a named folder, and say where that landed.
+    Enter { tab: usize, name: String, at: usize, answer: Reply<(PathBuf, usize)> },
+    /// Walk down a path of folders, and say where that landed.
+    Walk { tab: usize, steps: Vec<String>, answer: Reply<(PathBuf, usize)> },
+    /// Out of the folder, and where the highlight goes back to.
+    Up { tab: usize, answer: Reply<(Option<usize>, PathBuf)> },
+    /// Carry this.
+    Hold { holding: Holding },
+    /// Put down what is being carried.
+    PutDown,
+    /// The question a tab was on before it went one deeper.
+    ThingOf { tab: usize, answer: Reply<Onto> },
+    /// What every place is called.
+    Titles(Reply<Vec<String>>),
+    /// What a tab is standing in, all of it, for the one press that wants all
+    /// three. Three questions would be three crossings to the owner and room
+    /// between them for the tab to move.
+    Standing { tab: usize, answer: Reply<Standing_> },
+}
+
+impl actor::Machine for Standing {
+    type Msg = Msg;
+
+    fn step(mut self, message: Msg) -> Self {
+        match message {
+            Msg::At { tab, answer } => {
+                let _ = answer
+                    .say((self.walks[tab].here().to_path_buf(), self.onto[tab].clone()));
+                self
+            },
+            Msg::Here { tab, answer } => {
+                let _ = answer.say(self.walks[tab].here().to_path_buf());
+                self
+            },
+            Msg::Called { tab, answer } => {
+                let _ = answer.say(self.walks[tab].called(&self.places[tab].title));
+                self
+            },
+            Msg::Typed { tab, answer } => {
+                let _ = answer.say(self.typed[tab].clone());
+                self
+            },
+            Msg::LookFor { tab, word } => {
+                self.typed[tab] = word;
+                self
+            },
+            Msg::Type { tab, word, answer } => {
+                let _ = answer.say(match self.typed[tab] == word {
+                    true => Word::Same,
+                    false => Word::Changed,
+                });
+                self.typed[tab] = word;
+                self
+            },
+            Msg::Look { tab, onto } => {
+                self.onto[tab] = onto;
+                self
+            },
+            Msg::StandWhereAsked { tab, answer } => {
+                let asked = self.stand_on.take();
+                let row = match asked {
+                    Some((at, name)) if at == tab => Some(row_of(&self, tab, &name)),
+                    other => {
+                        self.stand_on = other;
+                        None
+                    },
+                };
+                let _ = answer.say(row);
+                self
+            },
+            Msg::Folder { tab, answer } => {
+                let _ = answer.say((
+                    self.walks[tab].above(&self.places[tab].title),
+                    self.walks[tab].called(&self.places[tab].title),
+                    self.holding.clone(),
+                ));
+                self
+            },
+            Msg::Enter { tab, name, at, answer } => {
+                self.walks[tab].enter(&name, at);
+                let onto = first_thing(&self, tab);
+                let _ = answer.say((self.walks[tab].here().to_path_buf(), onto));
+                self
+            },
+            Msg::Walk { tab, steps, answer } => {
+                let onto = first_thing(&self, tab);
+
+                for step in &steps {
+                    self.walks[tab].enter(step, onto);
+                }
+
+                let _ = answer.say((self.walks[tab].here().to_path_buf(), onto));
+                self
+            },
+            Msg::Up { tab, answer } => {
+                let back_to = self.walks[tab].up();
+                let _ = answer.say((back_to, self.walks[tab].here().to_path_buf()));
+                self
+            },
+            Msg::Hold { holding } => {
+                self.holding = Some(holding);
+                self
+            },
+            Msg::PutDown => {
+                self.holding = None;
+                self
+            },
+            Msg::ThingOf { tab, answer } => {
+                let _ = answer.say(match &self.onto[tab] {
+                    Onto::Programs { thing, from } => {
+                        Onto::Ways { thing: thing.clone(), from: *from }
+                    },
+                    onto => onto.clone(),
+                });
+                self
+            },
+            Msg::Titles(answer) => {
+                let _ = answer
+                    .say(self.places.iter().map(|place| place.title.clone()).collect());
+                self
+            },
+            Msg::Standing { tab, answer } => {
+                let _ = answer.say(Standing_ {
+                    onto: self.onto[tab].clone(),
+                    top: match self.walks[tab].at_top() {
+                        walk::Top::Yes => Top::At,
+                        walk::Top::No => Top::Below,
+                    },
+                    typed: self.typed[tab].clone(),
+                });
+                self
+            },
+        }
+    }
+}
+
+/// Where the panel reaches it. Cloned into every closure that used to be
+/// handed the lock.
+type Held = Addr<Msg>;
+
 /// Where a tab is, and what it is looking at.
+///
+/// The top of the first place, if the owner has gone: the panel is on its way
+/// out by then, and that is the panel as it opens.
 fn at(held: &Held, tab: usize) -> (PathBuf, Onto) {
-    standing(held, |standing| {
-        (standing.walks[tab].here().to_path_buf(), standing.onto[tab].clone())
-    })
+    match held.ask(|answer| Msg::At { tab, answer }) {
+        Ok(there) => there,
+        Err(_) => (PathBuf::new(), Onto::Folder),
+    }
+}
+
+/// Where a tab is.
+fn here_of(held: &Held, tab: usize) -> PathBuf {
+    match held.ask(|answer| Msg::Here { tab, answer }) {
+        Ok(answer) => answer,
+
+        Err(fault) => {
+            eprintln!("files-panel: asking where tab {tab} is: {fault}");
+            PathBuf::new()
+        }
+    }
+}
+
+/// What the folder a tab is standing in is called.
+fn called(held: &Held, tab: usize) -> String {
+    match held.ask(|answer| Msg::Called { tab, answer }) {
+        Ok(answer) => answer,
+
+        Err(fault) => {
+            eprintln!("files-panel: asking what tab {tab} is standing in is called: {fault}");
+            String::new()
+        }
+    }
 }
 
 /// What is being looked for in this place, if anything.
 fn typed_in(held: &Held, tab: usize) -> String {
-    standing(held, |standing| standing.typed[tab].clone())
+    match held.ask(|answer| Msg::Typed { tab, answer }) {
+        Ok(answer) => answer,
+
+        Err(fault) => {
+            eprintln!("files-panel: asking what is being looked for in tab {tab}: {fault}");
+            String::new()
+        }
+    }
 }
 
 /// Look for something else, or for nothing.
 fn look_for(held: &Held, tab: usize, word: &str) {
-    standing(held, |standing| standing.typed[tab] = word.to_string());
+    let _ = held.tell(Msg::LookFor { tab, word: word.to_string() });
 }
 
 /// The line to type in is row nought of a folder, so every row of one is
@@ -156,24 +375,14 @@ fn row_of(standing: &Standing, tab: usize, name: &str) -> usize {
 /// name is is a question about a list, and the list is read on the thread that
 /// draws.
 fn stand_where_asked(held: &Held, tab: usize, showing: &dyn Showing) {
-    let row = standing(held, |standing| {
-        let asked = standing.stand_on.take();
-        match asked {
-            Some((at, name)) if at == tab => Some(row_of(standing, tab, &name)),
-            other => {
-                standing.stand_on = other;
-                None
-            }
-        }
-    });
-    if let Some(row) = row {
+    if let Ok(Some(row)) = held.ask(|answer| Msg::StandWhereAsked { tab, answer }) {
         showing.replace(row);
     }
 }
 
 /// Look at something else, and stand on a given row of it.
 fn look(held: &Held, tab: usize, onto: Onto, showing: &dyn Showing, row: usize) {
-    standing(held, |standing| standing.onto[tab] = onto);
+    let _ = held.tell(Msg::Look { tab, onto });
     showing.replace(row);
 }
 
@@ -191,23 +400,29 @@ fn read(path: &Path) -> Vec<Entry> {
         gio::FileQueryInfoFlags::NONE,
         gio::Cancellable::NONE,
     );
+
     let Ok(children) = asked else { return Vec::new() };
+
     let mut things = Vec::new();
+
     for about in children.flatten() {
         let name = about.name().to_string_lossy().to_string();
-        if !listing::wanted(&name) {
+
+        if listing::wanted(&name) == Shown::No {
             continue;
         }
+
         things.push(Entry {
             folder: about.file_type() == gio::FileType::Directory,
             // The fast one, which goes by the name. The other reads the
             // beginning of every file in the folder, and this is asked of a
             // stick over USB while somebody waits for the listing.
             kind: kind_said(&about),
-            size: about.size().max(0) as u64,
+            size: fitted(about.size().max(0)),
             name,
         });
     }
+
     listing::sorted(things)
 }
 
@@ -227,9 +442,14 @@ fn kind_said(about: &gio::FileInfo) -> String {
 
 /// What kind of thing a file is, as the machine says it.
 fn kind_of(path: &Path) -> Option<String> {
-    let about = gio::File::for_path(path)
-        .query_info("standard::content-type", gio::FileQueryInfoFlags::NONE, gio::Cancellable::NONE)
-        .ok()?;
+    let Ok(about) = gio::File::for_path(path).query_info(
+        "standard::content-type",
+        gio::FileQueryInfoFlags::NONE,
+        gio::Cancellable::NONE,
+    ) else {
+        return None;
+    };
+
     about.content_type().map(|kind| kind.to_string())
 }
 
@@ -298,21 +518,19 @@ fn wanting_pictures(showing: &dyn Showing, here: &Path) {
 /// The folder a tab is standing in, or what a word has found under it.
 fn folder_rows(held: &Held, tab: usize, here: &Path) -> Vec<Row> {
     let word = typed_in(held, tab);
+
     if !word.trim().is_empty() {
         return found_rows(held, tab, here, &word);
     }
 
     let mut rows = Vec::new();
-    let (above, called, holding) = standing(held, |standing| {
-        (
-            standing.walks[tab].above(&standing.places[tab].title),
-            standing.walks[tab].called(&standing.places[tab].title),
-            standing.holding.clone(),
-        )
-    });
+
+    let Ok((above, called, holding)) = held.ask(|answer| Msg::Folder { tab, answer }) else {
+        return rows;
+    };
 
     if let Some(above) = above {
-        let leaving = Arc::clone(held);
+        let leaving = held.clone();
         rows.push(here_too(held, tab, Row::back(&above, move |showing| {
             went_up(&leaving, tab, showing)
         })));
@@ -323,6 +541,7 @@ fn folder_rows(held: &Held, tab: usize, here: &Path) -> Vec<Row> {
         // no such gap: the strip is already saying it, in pink, an inch above.
         rows.push(Row::naming(&called, ""));
     }
+
     if let Some(holding) = holding {
         rows.push(here_too(held, tab, put_down_row(held, &holding, here)));
     }
@@ -332,22 +551,24 @@ fn folder_rows(held: &Held, tab: usize, here: &Path) -> Vec<Row> {
     // photographs and folders together has its names starting in one place.
     let room = listing::wants_room(&things);
     let store = thumbs::store(&glib::user_cache_dir());
+
     for thing in things {
         // Where the row will stand once the panel has put its own line at the
         // top, because that is the number it is told to come back to.
         let at = rows.len() + LINE;
         rows.push(thing_row(held, tab, &thing, at, &picture(&store, here, &thing, room)));
     }
+
     // Y is where a new folder is asked for, and Y is asked of the row you are
     // standing on. An empty place has no row to stand on, so there it is a row
     // of its own: the alternative is a folder nothing can ever be put into.
-    if !rows.iter().any(|row| !row.heading()) {
+    if !rows.iter().any(|row| row.heading() == Heading::No) {
         rows.push(new_folder_row(held, tab, here, LINE));
     }
 
     match room {
-        false => rows,
-        true => rows.into_iter().map(with_room).collect(),
+        Room::Spared => rows,
+        Room::Kept => rows.into_iter().map(with_room).collect(),
     }
 }
 
@@ -364,27 +585,31 @@ const ABOUT: &str = "Type to find, here and under here";
 /// not offered: everything behind Y is about a thing in the folder in front of
 /// you, and these are not in it.
 fn found_rows(held: &Held, tab: usize, here: &Path, word: &str) -> Vec<Row> {
-    let folder = standing(held, |standing| standing.walks[tab].called(&standing.places[tab].title));
-    let leaving = Arc::clone(held);
+    let folder = called(held, tab);
+    let leaving = held.clone();
     let mut rows =
         vec![Row::back(&folder, move |showing| stopped_looking(&leaving, tab, showing))];
 
     let found = looking::under(here, word, &read);
+
     if found.is_empty() {
         rows.push(Row::nothing("Nothing here answers to that"));
         return rows;
     }
+
     let store = thumbs::store(&glib::user_cache_dir());
     let room = listing::wants_room(&found.iter().map(|one| one.thing.clone()).collect::<Vec<_>>());
+
     for one in found {
         let at = one.at(here);
         let holding = at.parent().unwrap_or(here).to_path_buf();
         let picture = picture(&store, &holding, &one.thing, room);
         rows.push(found_row(held, tab, &one, &picture));
     }
+
     match room {
-        false => rows,
-        true => rows.into_iter().map(with_room).collect(),
+        Room::Spared => rows,
+        Room::Kept => rows.into_iter().map(with_room).collect(),
     }
 }
 
@@ -393,26 +618,26 @@ fn found_rows(held: &Held, tab: usize, here: &Path, word: &str) -> Vec<Row> {
 fn found_row(held: &Held, tab: usize, one: &Found, picture: &Picture) -> Row {
     let row = match one.thing.folder {
         true => {
-            let held = Arc::clone(held);
+            let held = held.clone();
             let steps = one.steps();
             Row::new(&one.thing.name, &one.aside(), Does::and_stay(move |showing| {
                 // The line is the panel's, and a folder arrived at is not a
                 // search any more.
                 showing.forget_typing();
-                let (here, onto) = standing(&held, |standing| {
-                    let onto = first_thing(standing, tab);
-                    for step in &steps {
-                        standing.walks[tab].enter(step, onto);
-                    }
-                    (standing.walks[tab].here().to_path_buf(), onto)
-                });
+                let steps = steps.clone();
+
+                let Ok((here, onto)) = held.ask(|answer| Msg::Walk { tab, steps, answer })
+                else {
+                    return;
+                };
+
                 showing.replace(onto);
                 wanting_pictures(showing, &here);
             }))
             .opening()
         }
         false => {
-            let at = one.at(&standing(held, |standing| standing.walks[tab].here().to_path_buf()));
+            let at = one.at(&here_of(held, tab));
             Row::new(&one.thing.name, &one.aside(), Does::run(&["xdg-open", &said(&at)]))
         }
     };
@@ -437,15 +662,21 @@ const FOLDER: &str = "folder-symbolic";
 /// themselves, once the picture has been made; everything else keeps the room
 /// and puts nothing in it, because a page of documents each wearing a small
 /// grey rectangle is harder to read than a page of names.
-fn picture(store: &Path, here: &Path, thing: &Entry, room: bool) -> Picture {
-    if !room {
+fn picture(store: &Path, here: &Path, thing: &Entry, room: Room) -> Picture {
+    if room == Room::Spared {
         return Picture::None;
     }
+
     if thing.folder {
         return Picture::Named(FOLDER);
     }
-    let found = thing.worth_a_picture().then(|| thumbs::found(store, &here.join(&thing.name)));
-    match found.flatten() {
+
+    let found = match thing.worth_a_picture() {
+        Worth::APicture => thumbs::found(store, &here.join(&thing.name)),
+        Worth::ItsNameAlone => None,
+    };
+
+    match found {
         None => Picture::Space,
         Some(at) => Picture::At(at),
     }
@@ -469,13 +700,16 @@ fn thing_row(held: &Held, tab: usize, thing: &Entry, at: usize, picture: &Pictur
     let aside = listing::aside(thing);
     let row = match thing.folder {
         true => {
-            let held = Arc::clone(held);
+            let held = held.clone();
             let name = thing.name.clone();
             Row::new(&thing.name, &aside, Does::and_stay(move |showing| {
-                let (here, onto) = standing(&held, |standing| {
-                    standing.walks[tab].enter(&name, at);
-                    (standing.walks[tab].here().to_path_buf(), first_thing(standing, tab))
-                });
+                let name = name.clone();
+
+                let Ok((here, onto)) = held.ask(|answer| Msg::Enter { tab, name, at, answer })
+                else {
+                    return;
+                };
+
                 // Onto the first thing in the folder rather than onto the row
                 // that comes back out of it, which is what walking in was for.
                 showing.replace(onto);
@@ -484,11 +718,11 @@ fn thing_row(held: &Held, tab: usize, thing: &Entry, at: usize, picture: &Pictur
             .opening()
         }
         false => {
-            let path = standing(held, |standing| standing.walks[tab].here().join(&thing.name));
+            let path = here_of(held, tab).join(&thing.name);
             Row::new(&thing.name, &aside, Does::run(&["xdg-open", &path.to_string_lossy()]))
         }
     };
-    let held = Arc::clone(held);
+    let held = held.clone();
     let thing = thing.clone();
     row.picturing(picture.clone()).offering(move |showing| {
         look(&held, tab, Onto::Ways { thing: thing.clone(), from: at }, showing, WAYS_START);
@@ -503,13 +737,13 @@ const WAYS_START: usize = 2;
 /// What is being carried, and the folder it would land in.
 fn put_down_row(held: &Held, holding: &Holding, here: &Path) -> Row {
     let argv = match holding.moving {
-        true => vec!["mv".to_string(), "--".to_string()],
-        false => vec!["cp".to_string(), "-r".to_string(), "--".to_string()],
+        Carrying::ToMove => vec!["mv".to_string(), "--".to_string()],
+        Carrying::ToCopy => vec!["cp".to_string(), "-r".to_string(), "--".to_string()],
     };
     let argv = [argv, vec![said(&holding.path), said(here)]].concat();
-    let held = Arc::clone(held);
+    let held = held.clone();
     Row::new(&holding.says(), "", Does::and_stay(move |showing| {
-        standing(&held, |standing| standing.holding = None);
+        let _ = held.tell(Msg::PutDown);
         showing.replace(LINE);
         showing.later(argv.clone());
     }))
@@ -523,9 +757,10 @@ fn put_down_row(held: &Held, holding: &Holding, here: &Path) -> Row {
 /// press that moves you somewhere you did not ask to go.
 fn ask_for_a_folder(held: &Held, tab: usize, here: &Path, from: usize, showing: &dyn Showing) {
     let here = here.to_path_buf();
-    let held = Arc::clone(held);
+    let held = held.clone();
     showing.ask_aloud(NEW_FOLDER, answered(move |showing, word| {
         let Some(name) = doing::a_name(word) else { return };
+
         back_to_the_folder(&held, tab, showing, from);
         showing.later(vec!["mkdir".to_string(), "--".to_string(), said(&here.join(name))]);
     }));
@@ -541,7 +776,7 @@ const NEW_FOLDER: &str = "New folder";
 /// this it would be a folder nothing could ever be put into.
 fn new_folder_row(held: &Held, tab: usize, here: &Path, from: usize) -> Row {
     let here = here.to_path_buf();
-    let held = Arc::clone(held);
+    let held = held.clone();
     Row::new(NEW_FOLDER, "", Does::and_stay(move |showing| {
         ask_for_a_folder(&held, tab, &here, from, showing);
     }))
@@ -557,7 +792,7 @@ fn new_folder_row(held: &Held, tab: usize, here: &Path, from: usize) -> Row {
 /// It asked for a folder's name at once while that was the only thing there was
 /// to ask. It is a list now, because there are two.
 fn here_too(held: &Held, tab: usize, row: Row) -> Row {
-    let held = Arc::clone(held);
+    let held = held.clone();
     row.offering(move |showing| {
         look(&held, tab, Onto::Here { from: LINE }, showing, HERE_START);
         false
@@ -574,8 +809,8 @@ const HERE_START: usize = 1;
 /// an inch above, and a title repeating it is a row of the screen spent saying
 /// a thing twice.
 fn here_rows(held: &Held, tab: usize, here: &Path, from: usize) -> Vec<Row> {
-    let folder = standing(held, |standing| standing.walks[tab].called(&standing.places[tab].title));
-    let leaving = Arc::clone(held);
+    let folder = called(held, tab);
+    let leaving = held.clone();
     vec![
         Row::back(&folder, move |showing| back_to_the_folder(&leaving, tab, showing, from)),
         new_folder_row(held, tab, here, from),
@@ -599,10 +834,10 @@ const ONE_FORMAT_YES: &str = "Yes, songs to opus and films to mkv";
 /// a card can wait for, and the corner says it has been set going.
 fn one_format_row(held: &Held, tab: usize, here: &Path, from: usize) -> Row {
     let here = here.to_path_buf();
-    let held = Arc::clone(held);
+    let held = held.clone();
     Row::new(ONE_FORMAT, "", Does::and_stay(move |showing| {
         let here = here.clone();
-        let held = Arc::clone(&held);
+        let held = held.clone();
         let folder = here
             .file_name()
             .map(|name| name.to_string_lossy().to_string())
@@ -624,8 +859,8 @@ fn one_format_row(held: &Held, tab: usize, here: &Path, from: usize) -> Row {
 /// the highlight, and put among Rename and Delete it would read as one more
 /// thing that could happen to the photograph.
 fn way_rows(held: &Held, tab: usize, thing: &Entry, from: usize, here: &Path) -> Vec<Row> {
-    let folder = standing(held, |standing| standing.walks[tab].called(&standing.places[tab].title));
-    let leaving = Arc::clone(held);
+    let folder = called(held, tab);
+    let leaving = held.clone();
     let mut rows = vec![
         Row::back(&folder, move |showing| back_to_the_folder(&leaving, tab, showing, from)),
         Row::naming(&thing.name, &listing::aside(thing)),
@@ -641,7 +876,7 @@ fn way_rows(held: &Held, tab: usize, thing: &Entry, from: usize, here: &Path) ->
 /// Which program opens this one.
 fn program_rows(held: &Held, tab: usize, thing: &Entry, from: usize, here: &Path) -> Vec<Row> {
     let path = here.join(&thing.name);
-    let leaving = Arc::clone(held);
+    let leaving = held.clone();
     let going_back = thing.clone();
     let mut rows = vec![
         Row::back(&going_back.name.clone(), move |showing| {
@@ -651,10 +886,12 @@ fn program_rows(held: &Held, tab: usize, thing: &Entry, from: usize, here: &Path
     ];
 
     let found = kind_of(&path).as_deref().map(programs).unwrap_or_default();
+
     if found.is_empty() {
         rows.push(Row::nothing("Nothing here opens this"));
         return rows;
     }
+
     for (says, id) in found {
         let path = path.clone();
         rows.push(Row::new(&says, "", Does::call(move |_| {
@@ -662,6 +899,7 @@ fn program_rows(held: &Held, tab: usize, thing: &Entry, from: usize, here: &Path
             true
         })));
     }
+
     rows
 }
 
@@ -673,7 +911,9 @@ fn program_rows(held: &Held, tab: usize, thing: &Entry, from: usize, here: &Path
 /// only place anything can be started from.
 fn started(id: &str, path: &Path) {
     let found = gio::AppInfo::all();
+
     let Some(app) = found.iter().find(|app| app.id().is_some_and(|its| its == id)) else { return };
+
     let _ = app.launch(&[gio::File::for_path(path)], gio::AppLaunchContext::NONE);
 }
 
@@ -682,12 +922,14 @@ fn deed_row(held: &Held, tab: usize, thing: &Entry, from: usize, path: &Path, de
     if deed == Deed::Open {
         return Row::new(deed.says(), "", Does::run(&["xdg-open", &path.to_string_lossy()]));
     }
-    let held = Arc::clone(held);
+
+    let held = held.clone();
     let thing = thing.clone();
     let path = path.to_path_buf();
     let row = Row::new(deed.says(), "", Does::and_stay(move |showing| {
         done(&held, tab, &thing, from, &path, deed, showing);
     }));
+
     // Which program opens it is a list under this row. The rest of what can be
     // done to a thing happens where it stands, or asks a question.
     match deed == Deed::OpenWith {
@@ -713,7 +955,7 @@ fn done(
             look(held, tab, Onto::Programs { thing: thing.clone(), from }, showing, 1)
         }
         Deed::Delete => {
-            let held = Arc::clone(held);
+            let held = held.clone();
             let path = path.to_path_buf();
             showing.sure(doing::SURE, &thing.name, &[deed.says()], taken(move |showing, _| {
                 back_to_the_folder(&held, tab, showing, from);
@@ -721,8 +963,12 @@ fn done(
             }));
         }
         Deed::Copy | Deed::Move => {
-            let holding = Holding::of(thing, path.to_path_buf(), deed == Deed::Move);
-            standing(held, |standing| standing.holding = Some(holding));
+            let carrying = match deed {
+                Deed::Move => Carrying::ToMove,
+                _ => Carrying::ToCopy,
+            };
+            let holding = Holding::of(thing, path.to_path_buf(), carrying);
+            let _ = held.tell(Msg::Hold { holding });
             back_to_the_folder(held, tab, showing, from);
         }
         // It is decoded, brought into this palette, cut to the shape of this
@@ -746,10 +992,11 @@ fn done(
             ]);
         }
         Deed::Rename => {
-            let held = Arc::clone(held);
+            let held = held.clone();
             let path = path.to_path_buf();
             showing.ask_aloud(&format!("Rename {}", thing.name), answered(move |showing, word| {
                 let Some(name) = doing::a_name(word) else { return };
+
                 back_to_the_folder(&held, tab, showing, from);
                 let beside = path.with_file_name(name);
                 showing.later(vec![
@@ -772,17 +1019,18 @@ fn back_to_the_folder(held: &Held, tab: usize, showing: &dyn Showing, from: usiz
 
 /// The question a tab was on before it went one deeper.
 fn thing_of(held: &Held, tab: usize) -> Onto {
-    standing(held, |standing| match &standing.onto[tab] {
-        Onto::Programs { thing, from } => Onto::Ways { thing: thing.clone(), from: *from },
-        onto => onto.clone(),
-    })
+    match held.ask(|answer| Msg::ThingOf { tab, answer }) {
+        Ok(onto) => onto,
+        Err(_) => Onto::Folder,
+    }
 }
 
 /// Out of the folder and back onto it.
 fn went_up(held: &Held, tab: usize, showing: &dyn Showing) {
-    let (back_to, here) = standing(held, |standing| {
-        (standing.walks[tab].up(), standing.walks[tab].here().to_path_buf())
-    });
+    let Ok((back_to, here)) = held.ask(|answer| Msg::Up { tab, answer }) else {
+        return;
+    };
+
     if let Some(back_to) = back_to {
         showing.replace(back_to);
         wanting_pictures(showing, &here);
@@ -807,6 +1055,7 @@ fn taken(then: impl Fn(&dyn Showing, usize) + Send + Sync + 'static) -> Taken {
 
 fn rows(held: &Held, tab: usize) -> Vec<Row> {
     let (here, onto) = at(held, tab);
+
     match onto {
         Onto::Folder => folder_rows(held, tab, &here),
         Onto::Here { from } => here_rows(held, tab, &here, from),
@@ -816,34 +1065,40 @@ fn rows(held: &Held, tab: usize) -> Vec<Row> {
 }
 
 fn pages(held: &Held) -> Vec<Page> {
-    let titles: Vec<String> =
-        standing(held, |standing| standing.places.iter().map(|place| place.title.clone()).collect());
+    let titles: Vec<String> = match held.ask(Msg::Titles) {
+        Ok(titles) => titles,
+
+        Err(fault) => {
+            eprintln!("files-panel: asking what the tabs are: {fault}");
+            Vec::new()
+        }
+    };
+
     titles.iter().enumerate().map(|(tab, title)| page(held, tab, title)).collect()
 }
 
 fn page(held: &Held, tab: usize, title: &str) -> Page {
-    let reading = Arc::clone(held);
-    let backing = Arc::clone(held);
-    let arriving = Arc::clone(held);
+    let reading = held.clone();
+    let backing = held.clone();
+    let arriving = held.clone();
     let page = Page::new(title, Rows::asked(move || rows(&reading, tab)))
         .on_arriving(move |showing| {
-            let here = standing(&arriving, |standing| standing.walks[tab].here().to_path_buf());
+            let here = here_of(&arriving, tab);
             wanting_pictures(showing, &here);
             stand_where_asked(&arriving, tab, showing);
         })
         .on_back(move |showing| {
         // Out of what a word found, then out of the question, then out of the
         // folder, then out of the place, and only then out of the panel.
-        let (onto, at_top, word) = standing(&backing, |standing| {
-            (
-                standing.onto[tab].clone(),
-                standing.walks[tab].at_top(),
-                standing.typed[tab].clone(),
-            )
-        });
+        let Ok(Standing_ { onto, top, typed: word }) =
+            backing.ask(|answer| Msg::Standing { tab, answer })
+        else {
+            return true;
+        };
+
         match onto {
             Onto::Folder if !word.trim().is_empty() => stopped_looking(&backing, tab, showing),
-            Onto::Folder if at_top => return true,
+            Onto::Folder if matches!(top, Top::At) => return true,
             Onto::Folder => went_up(&backing, tab, showing),
             Onto::Here { from } | Onto::Ways { from, .. } => {
                 back_to_the_folder(&backing, tab, showing, from)
@@ -853,6 +1108,7 @@ fn page(held: &Held, tab: usize, title: &str) -> Page {
                 look(&backing, tab, ways, showing, WAYS_START);
             }
         }
+
         false
     });
 
@@ -862,16 +1118,14 @@ fn page(held: &Held, tab: usize, title: &str) -> Page {
     if !matches!(at(held, tab).1, Onto::Folder) {
         return page;
     }
-    let typing = Arc::clone(held);
+
+    let typing = held.clone();
     page.searching(ABOUT, move |showing, word| {
-        let changed = standing(&typing, |standing| {
-            let changed = standing.typed[tab] != word;
-            standing.typed[tab] = word.to_string();
-            changed
-        });
+        let changed = typing.ask(|answer| Msg::Type { tab, word: word.to_string(), answer });
+
         // Standing on the line, which is where the letters go. The row that was
         // being stood on is not the row standing there now.
-        if changed {
+        if matches!(changed, Ok(Word::Changed)) {
             showing.replace(0);
         }
     })
@@ -884,10 +1138,17 @@ fn page(held: &Held, tab: usize, title: &str) -> Page {
 /// a place goes on meaning the place.
 fn went_to(standing: &mut Standing, said: &str) -> Option<String> {
     let path = Path::new(said);
+
     if !path.exists() {
         return None;
     }
-    let leading = places::leading_to(&standing.places, path, path.is_dir())?;
+
+    let is = match path.is_dir() {
+        true => places::Is::AFolder,
+        false => places::Is::AFile,
+    };
+    let leading = places::leading_to(&standing.places, path, is)?;
+
     for step in &leading.steps {
         // What the row above remembers, which is where B puts the highlight
         // back. The folder it came out of is not known from here -- nobody has
@@ -896,6 +1157,7 @@ fn went_to(standing: &mut Standing, said: &str) -> Option<String> {
         let onto = first_thing(standing, leading.place);
         standing.walks[leading.place].enter(step, onto);
     }
+
     standing.stand_on = leading.stand_on.map(|name| (leading.place, name));
     Some(standing.places[leading.place].title.clone())
 }
@@ -905,7 +1167,7 @@ fn main() {
     // a path, so something holding one thing can open the files standing on it.
     let asked = std::env::args().nth(1);
 
-    if !chooser::alone("files", chooser::Again::Closes) {
+    if chooser::alone("files", chooser::Again::Closes) == chooser::Alone::No {
         return;
     }
 
@@ -913,9 +1175,30 @@ fn main() {
     // tab that reads as empty, which is what it is.
     let mut places = home();
     places.extend(plugged_in());
-    let mut standing = Standing::of(places);
-    let opened_at = asked.as_deref().and_then(|said| went_to(&mut standing, said));
-    let held: Held = Arc::new(Mutex::new(standing));
+
+    // Which place the panel opens on, worked out on a standing built from the
+    // same list the owner is about to be given. The list is read once, here,
+    // so a stick pulled out mid-session cannot leave the two disagreeing.
+    let mut first = Standing::of(places.clone());
+    let opened_at = asked.as_deref().and_then(|said| went_to(&mut first, said));
+    drop(first);
+
+    // Built again if it ever falls, so a panel whose state died is a panel back
+    // at the top of its places rather than a panel that has gone.
+    let asked_again = asked.clone();
+    let standing = actor::supervise(move || {
+        let mut standing = Standing::of(places.clone());
+
+        if let Some(said) = asked_again.as_deref() {
+            let _ = went_to(&mut standing, said);
+        }
+
+        standing
+    });
+    let held = standing.addr.clone();
 
     panel::show(Arc::new(move || pages(&held)), 0, opened_at.as_deref().or(asked.as_deref()));
+    // The panel is down and nothing is going to ask again. Waited for rather
+    // than dropped, so a message already in the mailbox is finished with.
+    standing.shutdown();
 }

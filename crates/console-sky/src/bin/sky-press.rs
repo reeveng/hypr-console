@@ -15,6 +15,8 @@
 //! source. Hers are whatever she has put in `Pictures/Wallpapers`, and they go
 //! somewhere an update cannot replace them.
 
+
+use console_number::Float;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -29,10 +31,19 @@ use console_sky::{place, source};
 /// between lattice points cannot be told from working it out for every pixel.
 const SIDE: usize = 33;
 
+/// Whether a picture already pressed is pressed again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Again {
+    /// Press every picture the table names, whatever is already there.
+    Yes,
+    /// Leave the ones that are already pressed where they are.
+    No,
+}
+
 /// What a run was asked to do.
 enum Doing {
     /// Press what the table names.
-    Set { again: bool },
+    Set { again: Again },
     /// Press these files, wherever they came from.
     Take(Vec<PathBuf>),
     /// Press what is in the drop.
@@ -59,6 +70,7 @@ fn run() -> Result<(), String> {
 
     // Pulled out before the rest is read, so it can be given with any of them.
     let mut into: Option<PathBuf> = None;
+
     if let Some(at) = words.iter().position(|word| *word == "--into") {
         let named = words.get(at + 1).ok_or("--into wants a directory")?;
         into = Some(PathBuf::from(named));
@@ -66,8 +78,8 @@ fn run() -> Result<(), String> {
     }
 
     let doing = match words.as_slice() {
-        [] => Doing::Set { again: false },
-        ["--again"] => Doing::Set { again: true },
+        [] => Doing::Set { again: Again::No },
+        ["--again"] => Doing::Set { again: Again::Yes },
         ["--dropped"] => Doing::Dropped,
         ["--help"] | ["-h"] => {
             println!("{HELP}");
@@ -92,12 +104,24 @@ fn run() -> Result<(), String> {
         Doing::Take(paths) => press_hers(&paths, into),
         Doing::Dropped => {
             let at = place::dropped().ok_or("this machine will not say whose it is")?;
-            let mut found: Vec<PathBuf> = std::fs::read_dir(&at)
-                .map_err(|fault| format!("{} could not be read: {fault}", at.display()))?
-                .filter_map(|entry| entry.ok().map(|found| found.path()))
-                .filter(|path| path.is_file())
-                .collect();
+            let reading = std::fs::read_dir(&at)
+                .map_err(|fault| format!("{} could not be read: {fault}", at.display()))?;
+            let mut found: Vec<PathBuf> = Vec::new();
+
+            for entry in reading {
+                // One name that cannot be read is not the directory being
+                // empty, and pressing the rest of them while saying nothing
+                // about it is how a picture goes missing without a trace.
+                let entry = entry
+                    .map_err(|fault| format!("{} could not be read: {fault}", at.display()))?;
+
+                if entry.path().is_file() {
+                    found.push(entry.path());
+                }
+            }
+
             found.sort();
+
             match found.is_empty() {
                 true => {
                     println!("there is nothing in {}", at.display());
@@ -139,6 +163,7 @@ fn read_grade(how: &str) -> Result<Grade, String> {
         .split(',')
         .map(|word| word.trim().parse().map_err(|_| format!("{word} is not a number")))
         .collect::<Result<_, _>>()?;
+
     match numbers[..] {
         [keep, pull, floor, ceiling] => Ok(Grade { keep, pull, floor, ceiling }),
         _ => Err("a grade is four numbers: keep,pull,floor,ceiling".to_string()),
@@ -149,6 +174,7 @@ fn write_cube(ramp: &Ramp, how: &Grade, into: &Path) -> Result<(), String> {
     if let Some(holding) = into.parent() {
         let _ = std::fs::create_dir_all(holding);
     }
+
     std::fs::write(into, cube(ramp, how, SIDE))
         .map_err(|fault| format!("{} could not be written: {fault}", into.display()))
 }
@@ -172,6 +198,7 @@ fn write_one(
         std::fs::create_dir_all(holding)
             .map_err(|fault| format!("{} could not be made: {fault}", holding.display()))?;
     }
+
     let cube = into.with_extension("cube");
     write_cube(&read_ramp()?, grade, &cube)?;
     let pressed = press::press(source, &cube, size, stir);
@@ -191,12 +218,12 @@ fn say(name: &str, pressed: &press::Pressed) {
     println!(
         "  {name}: frames {from} to {to}, {:.0}% of the picture moves, {:.0} KiB.",
         pressed.largest * 100.0,
-        pressed.animation.len() as f64 / 1024.0
+        pressed.animation.len().float() / 1024.0
     );
 }
 
 /// Every picture the table names.
-fn press_set(again: bool, into: Option<PathBuf>) -> Result<(), String> {
+fn press_set(again: Again, into: Option<PathBuf>) -> Result<(), String> {
     let table: Set = toml::from_str(&read("theme/sky.toml")?)
         .map_err(|fault| format!("the table does not parse: {fault}"))?;
     let into = into.unwrap_or_else(|| PathBuf::from(place::CAME_WITH));
@@ -205,11 +232,14 @@ fn press_set(again: bool, into: Option<PathBuf>) -> Result<(), String> {
     println!("{} pictures, at {}x{}.", table.pictures.len(), size.0, size.1);
     let mut pressed = 0;
     let mut left = Vec::new();
+
     for picture in &table.pictures {
         let at = into.join(&picture.name);
-        if !again && at.with_extension("webp").is_file() {
+
+        if again == Again::No && at.with_extension("webp").is_file() {
             continue;
         }
+
         match press_named(picture, &table.stir, size, &at) {
             Ok(done) => {
                 say(&picture.name, &done);
@@ -222,6 +252,7 @@ fn press_set(again: bool, into: Option<PathBuf>) -> Result<(), String> {
     if pressed > 0 {
         forget_the_cache();
     }
+
     match left.is_empty() {
         true => Ok(()),
         false => Err(format!("what could not be pressed:\n{}", left.join("\n"))),
@@ -236,6 +267,7 @@ fn press_named(
     at: &Path,
 ) -> Result<press::Pressed, String> {
     let held = source::kept().join(&picture.name);
+
     match source::get(&picture.from, &picture.sha256, &held)? {
         source::Got::Changed { wanted, found } => {
             return Err(format!(
@@ -245,6 +277,7 @@ fn press_named(
         }
         source::Got::Fetched | source::Got::Held => (),
     }
+
     write_one(&held, &picture.grade.unwrap_or_default(), stir, size, at)
 }
 
@@ -265,11 +298,13 @@ fn press_hers(paths: &[PathBuf], into: Option<PathBuf>) -> Result<(), String> {
 
     let mut left = Vec::new();
     let mut pressed = 0;
+
     for path in paths {
         let Some(name) = path.file_stem().and_then(|name| name.to_str()) else {
             left.push(format!("  {}: that is not a name", path.display()));
             continue;
         };
+
         match write_one(path, &grade, &stir, size, &into.join(name)) {
             Ok(done) => {
                 say(name, &done);
@@ -282,6 +317,7 @@ fn press_hers(paths: &[PathBuf], into: Option<PathBuf>) -> Result<(), String> {
     if pressed > 0 {
         forget_the_cache();
     }
+
     match left.is_empty() {
         true => Ok(()),
         false => Err(format!("what could not be pressed:\n{}", left.join("\n"))),
@@ -307,5 +343,6 @@ fn press_one(source: &Path, grade: &Grade, into: &Path) -> Result<(), String> {
 /// it happen.
 fn forget_the_cache() {
     let Ok(home) = std::env::var("HOME") else { return };
+
     let _ = std::fs::remove_dir_all(Path::new(&home).join(".cache/awww"));
 }

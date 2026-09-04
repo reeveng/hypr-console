@@ -23,6 +23,10 @@ path = "src/bin/music-bar.rs"
 name = "music-index"
 path = "src/bin/music-index.rs"
 
+[[bin]]
+name = "music-onward"
+path = "src/bin/music-onward.rs"
+
 # Draws a cover as characters into a terminal, which is how the port of kew's
 # renderer is checked against kew itself.
 [[bin]]
@@ -30,6 +34,10 @@ name = "cover-ascii"
 path = "src/bin/cover-ascii.rs"
 
 [dependencies]
+console-number.workspace = true
 gtk4 = "0.11"
 console-panel.workspace = true
 serde_json = "1"
+
+[lints]
+workspace = true

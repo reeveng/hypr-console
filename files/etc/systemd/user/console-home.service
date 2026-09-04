@@ -1,0 +1,24 @@
+[Unit]
+Description=The apps on the desktop
+PartOf=console.target
+# The wallpaper is what it is drawn on, and the bar is what it is drawn under.
+# The surface takes the whole screen and clears the bar by a margin of its own
+# -- it answers nobody's exclusive zone, the keyboard's least of all -- so
+# nothing about its size hangs on what came up first; the ordering is only so
+# the desktop assembles back to front. Neither is a dependency -- a home screen
+# over a plain colour is still a home screen -- so this is an ordering and not
+# a Wants.
+After=console-paper.service console-bar.service
+
+[Service]
+Type=simple
+# The bottom layer, which is above the wallpaper and below every window. It
+# puts itself away while a window is on the workspace, so this is up for the
+# whole session and on the screen only when there is nothing to look at.
+ExecStart=/usr/local/bin/console-home
+ExecStopPost=-/usr/local/bin/console-fell %n
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=console.target

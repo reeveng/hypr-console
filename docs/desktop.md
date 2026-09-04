@@ -9,8 +9,8 @@ Runs the device's own desktop on this machine, at the device's size.
     console-desktop probe                what the compositor thinks it has
     console-desktop clean                delete stages nothing is using
 
-`console-desktop` is `cargo run --bin console-desktop --`; `make desktop` and
-`make shot` are the two of these anybody types often.
+`console-desktop` is `cargo run --bin console-desktop --`; `just desktop` and
+`just shot` are the two of these anybody types often.
 
 The desktop is laid out in 1024x640 and drawn at two and a half times that, so a
 picture comes out 2560x1600. Positions are given in the 1024x640.

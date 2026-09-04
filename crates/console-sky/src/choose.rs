@@ -17,14 +17,48 @@
 //! nobody has covered yet can be added without a line of any other picture
 //! changing.
 //!
-//! Ties go to the first one written down. It is arbitrary, and it is arbitrary
-//! in a way somebody can see and reorder, which is more than picking at random
-//! would give them.
+//! Pictures that are equally particular take turns. The turn is the clock cut
+//! into two hour lengths, so one of them holds for a couple of hours and the
+//! next of the same standing takes it from there, and the set of them comes
+//! round again by the end of the day. That is what makes a set worth growing
+//! sideways as well as downwards: a second picture for a clear summer day is
+//! half of the clear summer days rather than a picture nobody ever sees.
+//!
+//! Which of them goes first is the order they are written down in. It is
+//! arbitrary, and it is arbitrary in a way somebody can see and reorder, which
+//! is more than picking at random would give them.
 
+
+use console_number::{fitted, toward_zero_u64};
 use crate::moon::Moon;
 use crate::press::Stir;
 use crate::sun::{Season, Sky};
 use crate::weather::Weather;
+
+/// How long one picture holds before the next of the same standing takes over.
+///
+/// Two hours: long enough that a picture is a picture rather than a slideshow,
+/// short enough that three pictures for a clear afternoon are three pictures by
+/// the evening. The daemon looks again every five minutes, so a turn ending is
+/// noticed within five minutes of ending.
+pub const HOLD_SECONDS: f64 = 2.0 * 60.0 * 60.0;
+
+/// Whose turn it is, among the pictures that answer an outside equally well.
+///
+/// A number off the clock rather than anything written down, so the daemon and
+/// `--now` and a test all say the same thing about the same moment without any
+/// of them keeping a place. It is counted from the epoch rather than from when
+/// the machine came up, so a machine that is turned off for an hour comes back
+/// to the picture the hour asks for rather than to the one it was showing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Turn(pub u64);
+
+impl Turn {
+    /// The turn at a moment, in seconds since the epoch.
+    pub fn at(seconds: f64) -> Turn {
+        Turn(toward_zero_u64(seconds.max(0.0) / HOLD_SECONDS))
+    }
+}
 
 /// What it is like outside, as far as a picture is concerned.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -70,15 +104,28 @@ pub struct Picture {
     pub moon: Vec<String>,
 }
 
+/// Whether a picture answers what is outside.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Answers {
+    /// It names this, or names nothing and so names everything.
+    Yes,
+    /// It names something else.
+    No,
+}
+
 /// Whether a list of words names a thing, where naming nothing names everything.
-fn names(list: &[String], word: Option<&str>) -> bool {
+fn names(list: &[String], word: Option<&str>) -> Answers {
     if list.is_empty() {
-        return true;
+        return Answers::Yes;
     }
+
     // A picture that names a weather cannot be chosen when the weather is not
     // known. Guessing would put a snowy picture up in a heatwave the one day
     // the network was down.
-    word.is_some_and(|word| list.iter().any(|held| held.trim().to_lowercase() == word))
+    match word.is_some_and(|word| list.iter().any(|held| held.trim().to_lowercase() == word)) {
+        true => Answers::Yes,
+        false => Answers::No,
+    }
 }
 
 impl Picture {
@@ -93,8 +140,16 @@ impl Picture {
     }
 
     /// Whether it answers this outside at all.
-    fn answers(&self, outside: &Outside) -> bool {
-        self.against(outside).iter().all(|(list, word)| names(list, *word))
+    fn answers(&self, outside: &Outside) -> Answers {
+        let every = self
+            .against(outside)
+            .iter()
+            .all(|(list, word)| names(list, *word) == Answers::Yes);
+
+        match every {
+            true => Answers::Yes,
+            false => Answers::No,
+        }
     }
 
     /// How particular it is, which is how many things it names.
@@ -112,12 +167,40 @@ pub struct Set {
     pub pictures: Vec<Picture>,
 }
 
+/// Every picture that answers this outside as well as any of them does.
+///
+/// Nothing here says which of them is up, only which are in the running, and
+/// that is the whole of what particularity decides. A set where no two pictures
+/// answer the same outside gives back one picture and the turn has nothing to
+/// choose between; a set grown sideways gives back several.
+fn standing<'a>(pictures: &'a [Picture], outside: &Outside) -> Vec<&'a Picture> {
+    let answering =
+        || pictures.iter().filter(|picture| picture.answers(outside) == Answers::Yes);
+
+    let Some(best) = answering().map(|picture| picture.particular(outside)).max() else {
+        return Vec::new();
+    };
+
+    answering().filter(|picture| picture.particular(outside) == best).collect()
+}
+
 /// The picture for an outside, if the set holds one.
-pub fn choose<'a>(pictures: &'a [Picture], outside: &Outside) -> Option<&'a Picture> {
-    pictures
-        .iter()
-        .filter(|picture| picture.answers(outside))
-        .max_by_key(|picture| picture.particular(outside))
+///
+/// The most particular picture wins, and the ones that are equally particular
+/// take turns, which is what `turn` is for: two hours of one, then two hours of
+/// the next.
+pub fn choose<'a>(
+    pictures: &'a [Picture],
+    outside: &Outside,
+    turn: Turn,
+) -> Option<&'a Picture> {
+    let standing = standing(pictures, outside);
+    // `max(1)` is for the empty set, where the get below answers nothing anyway
+    // and all this has to do is not divide by zero.
+    // Taken as a remainder before the width changes, so the index is inside
+    // the list and the conversion cannot be the thing that decides it.
+    let count = fitted::<usize, u64>(standing.len().max(1));
+    standing.get(fitted::<u64, usize>(turn.0 % count)).copied()
 }
 
 /// What somebody asked for, over what the weather asked for.
@@ -144,7 +227,14 @@ impl Set {
     /// The table, out of what a file holds. A table that will not parse is a
     /// panel with no pictures on it rather than a panel that will not open.
     pub fn read(held: &str) -> Option<Set> {
-        toml::from_str(held).ok()
+        match toml::from_str(held) {
+            Ok(set) => Some(set),
+            Err(fault) => {
+                eprintln!("console-sky: the picture table will not parse: {fault}");
+
+                None
+            }
+        }
     }
 }
 
@@ -152,7 +242,17 @@ impl Wanted {
     /// Read, forgivingly. A file somebody has edited by hand into nonsense is
     /// not a reason for the screen to have no wallpaper on it.
     pub fn read(held: &str) -> Self {
-        toml::from_str(held).unwrap_or_default()
+        match toml::from_str(held) {
+            Ok(wanted) => wanted,
+            // Forgiving, as the doc says, and no longer silent about it: the
+            // screen still gets a wallpaper and the journal gets the reason it
+            // is not the one somebody asked for.
+            Err(fault) => {
+                eprintln!("console-sky: what was asked of the wallpaper will not parse: {fault}");
+
+                Wanted::default()
+            }
+        }
     }
 
     /// What was asked for, off the machine.
@@ -163,14 +263,35 @@ impl Wanted {
     /// A file nobody has written is following the weather, which is what this
     /// desktop does until it is told otherwise.
     pub fn asked() -> Self {
-        crate::place::asked()
-            .and_then(|at| std::fs::read_to_string(at).ok())
-            .map(|held| Wanted::read(&held))
-            .unwrap_or_default()
+        let Some(at) = crate::place::asked() else { return Wanted::default() };
+
+        // Nobody has written the file, which is this desktop following the
+        // weather until it is told otherwise. A file that is there and will not
+        // be read is not that, and it used to arrive here as the same answer.
+        match std::fs::read_to_string(&at) {
+            Ok(held) => Wanted::read(&held),
+            Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => Wanted::default(),
+            Err(fault) => {
+                eprintln!("console-sky: {}: {fault}", at.display());
+
+                Wanted::default()
+            }
+        }
     }
 
     pub fn written(&self) -> String {
-        toml::to_string(self).unwrap_or_default()
+        match toml::to_string(self) {
+            Ok(written) => written,
+            // A bool and a string: there is no value of this that toml cannot
+            // write. If that ever stops being true, an empty file is what the
+            // reader above takes as "follow the weather", so the machine lands
+            // somewhere sensible and the journal says how it got there.
+            Err(fault) => {
+                eprintln!("console-sky: writing down what was asked: {fault}");
+
+                String::new()
+            }
+        }
     }
 }
 
@@ -198,8 +319,9 @@ pub fn wanted<'a>(
     pictures: &'a [Picture],
     asked: &Wanted,
     outside: &Outside,
+    turn: Turn,
 ) -> Option<&'a Picture> {
-    pinned(pictures, asked).or_else(|| choose(pictures, outside).or_else(|| pictures.first()))
+    pinned(pictures, asked).or_else(|| choose(pictures, outside, turn).or_else(|| pictures.first()))
 }
 
 #[cfg(test)]
@@ -235,17 +357,24 @@ mod tests {
         Outside { sky, weather, season: Season::Winter, moon: Moon::New }
     }
 
+    /// The turn most of these do not care about. A set where no two pictures
+    /// answer the same outside says the same thing whichever turn it is, and
+    /// the tests that are about the turn say so by naming another one.
+    const FIRST: Turn = Turn(0);
+
     #[test]
     fn the_most_particular_picture_wins() {
         let set = set();
-        let chosen = choose(&set, &outside(Sky::Night, Some(Weather::Snow))).expect("a picture");
+        let chosen =
+            choose(&set, &outside(Sky::Night, Some(Weather::Snow)), FIRST).expect("a picture");
         assert_eq!(chosen.name, "cozy-winter");
     }
 
     #[test]
     fn a_picture_for_a_part_of_the_day_beats_one_for_anything() {
         let set = set();
-        let chosen = choose(&set, &outside(Sky::Night, Some(Weather::Rain))).expect("a picture");
+        let chosen =
+            choose(&set, &outside(Sky::Night, Some(Weather::Rain)), FIRST).expect("a picture");
         assert_eq!(chosen.name, "star-ride");
     }
 
@@ -254,7 +383,8 @@ mod tests {
     #[test]
     fn an_outside_nothing_answers_falls_to_the_picture_that_names_nothing() {
         let set = set();
-        let chosen = choose(&set, &outside(Sky::Dusk, Some(Weather::Fog))).expect("a picture");
+        let chosen =
+            choose(&set, &outside(Sky::Dusk, Some(Weather::Fog)), FIRST).expect("a picture");
         assert_eq!(chosen.name, "terrarium");
     }
 
@@ -264,7 +394,7 @@ mod tests {
     #[test]
     fn a_picture_naming_a_weather_is_not_chosen_when_there_is_none_to_read() {
         let set = set();
-        let chosen = choose(&set, &outside(Sky::Night, None)).expect("a picture");
+        let chosen = choose(&set, &outside(Sky::Night, None), FIRST).expect("a picture");
         assert_eq!(chosen.name, "star-ride");
     }
 
@@ -283,10 +413,10 @@ mod tests {
             season: Season::Winter,
             moon: Moon::Waning,
         };
-        assert_eq!(choose(&set, &snowy).expect("a picture").name, "first-snow");
+        assert_eq!(choose(&set, &snowy, FIRST).expect("a picture").name, "first-snow");
 
         let moonlit = Outside { moon: Moon::Full, season: Season::Summer, ..snowy };
-        assert_eq!(choose(&set, &moonlit).expect("a picture").name, "moonlit");
+        assert_eq!(choose(&set, &moonlit, FIRST).expect("a picture").name, "moonlit");
     }
 
     /// The finer bands are what makes the golden hour worth having: a picture
@@ -297,26 +427,84 @@ mod tests {
         golden.by = "nobody".to_string();
         let set = vec![picture("terrarium", &[], &[]), golden];
         assert_eq!(
-            choose(&set, &outside(Sky::Sunset, None)).expect("a picture").name,
+            choose(&set, &outside(Sky::Sunset, None), FIRST).expect("a picture").name,
             "golden"
         );
         assert_eq!(
-            choose(&set, &outside(Sky::Dusk, None)).expect("a picture").name,
+            choose(&set, &outside(Sky::Dusk, None), FIRST).expect("a picture").name,
             "terrarium"
         );
     }
 
     #[test]
     fn a_set_holding_nothing_chooses_nothing() {
-        assert!(choose(&[], &outside(Sky::Day, Some(Weather::Clear))).is_none());
+        assert!(choose(&[], &outside(Sky::Day, Some(Weather::Clear)), FIRST).is_none());
+    }
+
+    /// The whole point of a second picture for an outside somebody already has
+    /// a picture for: both of them are up, one after the other.
+    #[test]
+    fn pictures_of_the_same_standing_take_turns() {
+        let set = vec![
+            picture("terrarium", &[], &[]),
+            picture("star-ride", &["night"], &[]),
+            picture("dancing-frogs", &["night"], &[]),
+        ];
+        let night = outside(Sky::Night, Some(Weather::Rain));
+        let name = |turn: u64| choose(&set, &night, Turn(turn)).expect("a picture").name.clone();
+        assert_eq!(name(0), "star-ride");
+        assert_eq!(name(1), "dancing-frogs");
+        assert_eq!(name(2), "star-ride");
+        assert_eq!(name(3), "dancing-frogs");
+    }
+
+    /// Taking turns is only ever between equals. A picture that names the
+    /// weather as well as the hour is up for the whole of the weather it names,
+    /// however many pictures for that hour alone are waiting behind it.
+    #[test]
+    fn a_more_particular_picture_does_not_take_turns_with_a_less_particular_one() {
+        let set = vec![
+            picture("star-ride", &["night"], &[]),
+            picture("dancing-frogs", &["night"], &[]),
+            picture("cozy-winter", &["night"], &["snow"]),
+        ];
+        let snowing = outside(Sky::Night, Some(Weather::Snow));
+        for turn in 0..6 {
+            let chosen = choose(&set, &snowing, Turn(turn)).expect("a picture");
+            assert_eq!(chosen.name, "cozy-winter", "turn {turn}");
+        }
+    }
+
+    /// A set where nothing ties is the set this machine had before there was a
+    /// second picture for anything, and the turn has to leave it alone.
+    #[test]
+    fn a_set_where_nothing_ties_says_the_same_thing_all_day() {
+        let set = set();
+        let night = outside(Sky::Night, Some(Weather::Snow));
+        for turn in 0..12 {
+            assert_eq!(choose(&set, &night, Turn(turn)).expect("a picture").name, "cozy-winter");
+        }
+    }
+
+    /// Two hours, off the clock rather than off the machine's uptime, so two
+    /// machines in a room agree and one machine agrees with itself across a
+    /// suspend.
+    #[test]
+    fn a_turn_is_two_hours_of_the_clock() {
+        let hour = 60.0 * 60.0;
+        assert_eq!(Turn::at(0.0), Turn(0));
+        assert_eq!(Turn::at(hour), Turn(0));
+        assert_eq!(Turn::at(2.0 * hour), Turn(1));
+        assert_eq!(Turn::at(2.0 * hour - 1.0), Turn(0));
+        assert_eq!(Turn::at(24.0 * hour), Turn(12));
     }
 
     #[test]
     fn a_pinned_picture_is_the_one_that_is_up() {
         let set = set();
         let asked = Wanted { follow: false, picture: "lazy-river".to_string() };
-        let chosen =
-            wanted(&set, &asked, &outside(Sky::Night, Some(Weather::Snow))).expect("a picture");
+        let chosen = wanted(&set, &asked, &outside(Sky::Night, Some(Weather::Snow)), FIRST)
+            .expect("a picture");
         assert_eq!(chosen.name, "lazy-river");
     }
 
@@ -325,8 +513,8 @@ mod tests {
     fn a_pinned_picture_that_is_gone_goes_back_to_following_the_weather() {
         let set = set();
         let asked = Wanted { follow: false, picture: "sledding".to_string() };
-        let chosen =
-            wanted(&set, &asked, &outside(Sky::Night, Some(Weather::Snow))).expect("a picture");
+        let chosen = wanted(&set, &asked, &outside(Sky::Night, Some(Weather::Snow)), FIRST)
+            .expect("a picture");
         assert_eq!(chosen.name, "cozy-winter");
     }
 
@@ -348,10 +536,68 @@ mod tests {
         assert!(pinned(&set, &gone).is_none());
     }
 
+    /// Somebody who has pinned a picture has said they want that picture, and
+    /// two hours later they still want that picture.
+    #[test]
+    fn a_pinned_picture_does_not_take_turns_with_anything() {
+        let set = vec![
+            picture("star-ride", &["night"], &[]),
+            picture("dancing-frogs", &["night"], &[]),
+        ];
+        let asked = Wanted { follow: false, picture: "star-ride".to_string() };
+        let night = outside(Sky::Night, None);
+        for turn in 0..6 {
+            let chosen = wanted(&set, &asked, &night, Turn(turn)).expect("a picture");
+            assert_eq!(chosen.name, "star-ride", "turn {turn}");
+        }
+    }
+
     #[test]
     fn what_was_asked_for_is_written_and_read_back_the_same() {
         let asked = Wanted { follow: false, picture: "star-ride".to_string() };
         assert_eq!(Wanted::read(&asked.written()), asked);
+    }
+
+    /// The set the machine ships with, out of the tree rather than made up
+    /// here. The two tests below are about that set and not about the rule.
+    fn shipped() -> Set {
+        let at = crate::place::table();
+        let held = std::fs::read_to_string(&at)
+            .unwrap_or_else(|fault| panic!("{} could not be read: {fault}", at.display()));
+        Set::read(&held)
+            .unwrap_or_else(|| panic!("{} is not a table this can read", at.display()))
+    }
+
+    /// Two pictures with one name are two pictures pressed over each other,
+    /// because a picture is written to a file named after it.
+    #[test]
+    fn no_two_pictures_in_the_shipped_table_are_called_the_same_thing() {
+        let set = shipped();
+        let mut seen = std::collections::BTreeSet::new();
+        for picture in &set.pictures {
+            assert!(seen.insert(picture.name.clone()), "two pictures called {}", picture.name);
+        }
+    }
+
+    /// Taking turns is a rule and the set is what makes it worth having. A set
+    /// where nothing ever ties would pass every test above this one and still
+    /// show one picture from one clear morning to the next.
+    #[test]
+    fn the_shipped_table_shows_more_than_one_picture_over_a_clear_day() {
+        let set = shipped();
+        let clear = Outside {
+            sky: Sky::Day,
+            weather: Some(Weather::Clear),
+            season: Season::Summer,
+            moon: Moon::New,
+        };
+        let over_a_day: Vec<&str> = (0..12)
+            .map(|turn| {
+                choose(&set.pictures, &clear, Turn(turn)).expect("a picture").name.as_str()
+            })
+            .collect();
+        let how_many: std::collections::BTreeSet<&str> = over_a_day.iter().copied().collect();
+        assert!(how_many.len() > 1, "a whole clear day showed only {over_a_day:?}");
     }
 
     /// A file edited by hand into nonsense is not a reason for a bare screen.

@@ -11,7 +11,7 @@
 //! once tells you neither which failed nor that only one did.
 
 use crate::desktop::Desktop;
-use crate::device::Device;
+use crate::device::{Device, Seen, Waited};
 use crate::here::Here;
 
 /// Why a check did not pass, or did not run.
@@ -42,14 +42,108 @@ pub fn failed(why: String) -> Done {
     Err(Why::Failed(why))
 }
 
-/// Something that should have been true.
+/// Two things that had to be the same.
 ///
-/// The reason is built only when it is needed, so a check can say what it saw
-/// without asking the machine for it twice.
-pub fn ought(so: bool, why: impl FnOnce() -> String) -> Done {
-    match so {
+/// This and the checks below it replace one `ought(so, why)` that took the
+/// answer already worked out. A bool parameter is a place a reader has to go
+/// and find out what the truth of it meant, and `ought(stage.drawn(...), ...)`
+/// was exactly that: the name says what was asked, not what a yes would be.
+/// Named checks put the question in the call, and the reason stays a closure so
+/// nothing is built for a check that passes.
+pub fn same<T, U>(got: &T, wanted: &U, why: impl FnOnce() -> String) -> Done
+where
+    T: PartialEq<U> + ?Sized,
+    U: ?Sized,
+{
+    match got == wanted {
         true => Ok(()),
         false => failed(why()),
+    }
+}
+
+/// Two things that had to differ, which is how a check says something moved.
+pub fn not_same<T, U>(got: &T, than: &U, why: impl FnOnce() -> String) -> Done
+where
+    T: PartialEq<U> + ?Sized,
+    U: ?Sized,
+{
+    match got == than {
+        true => failed(why()),
+        false => Ok(()),
+    }
+}
+
+/// A number that had to have gone up.
+///
+/// By value where `same` takes a reference, because these are only ever
+/// numbers: a count the reason line also names is copied rather than moved out
+/// from under it.
+pub fn more_than<T, U>(got: T, than: U, why: impl FnOnce() -> String) -> Done
+where
+    T: PartialOrd<U>,
+{
+    match got > than {
+        true => Ok(()),
+        false => failed(why()),
+    }
+}
+
+/// A number that had to have gone down.
+pub fn less_than<T, U>(got: T, than: U, why: impl FnOnce() -> String) -> Done
+where
+    T: PartialOrd<U>,
+{
+    match got < than {
+        true => Ok(()),
+        false => failed(why()),
+    }
+}
+
+/// Nothing at all, which is what a check for something not happening asks.
+pub fn empty<T>(things: &[T], why: impl FnOnce() -> String) -> Done {
+    match things.is_empty() {
+        true => Ok(()),
+        false => failed(why()),
+    }
+}
+
+/// Something rather than nothing.
+pub fn not_empty<T>(things: &[T], why: impl FnOnce() -> String) -> Done {
+    match things.is_empty() {
+        true => failed(why()),
+        false => Ok(()),
+    }
+}
+
+/// Every one of them the same, and at least one of them.
+///
+/// Nothing is not every: a list that came back empty is a question that was
+/// never answered, and passing it would be the check saying yes about a machine
+/// it never reached.
+pub fn every<T, U>(things: &[T], wanted: U, why: impl FnOnce() -> String) -> Done
+where
+    T: PartialEq<U>,
+    U: Copy,
+{
+    match !things.is_empty() && things.iter().all(|thing| *thing == wanted) {
+        true => Ok(()),
+        false => failed(why()),
+    }
+}
+
+/// Something that had to be on the screen when it was looked for.
+pub fn seen(seen: Seen, why: impl FnOnce() -> String) -> Done {
+    match seen {
+        Seen::Yes => Ok(()),
+        Seen::NotYet => failed(why()),
+    }
+}
+
+/// Something that had to happen before the time given for it ran out.
+pub fn happened(waited: Waited, why: impl FnOnce() -> String) -> Done {
+    match waited {
+        Waited::Happened => Ok(()),
+        Waited::RanOut => failed(why()),
     }
 }
 
@@ -84,8 +178,24 @@ impl Check {
     }
 
     /// Whether one of the words names this check or its feature.
-    pub fn named_by(&self, words: &[String]) -> bool {
-        words.iter().any(|word| self.name.contains(word.as_str()) || word == self.feature)
+    pub fn named_by(&self, words: &[String]) -> Named {
+        let any = words.iter().any(|word| self.name.contains(word.as_str()) || word == self.feature);
+
+        match any {
+            true => Named::Yes,
+            false => Named::No,
+        }
+    }
+
+    /// Where this can be answered without the machine, if anywhere.
+    ///
+    /// Derived from what it is written for rather than declared beside it, so a
+    /// check that grows an emulator body stops being the machine's business the
+    /// same moment, with nobody having to remember to say so.
+    pub fn without_the_device(&self) -> Option<Stage> {
+        self.body(Stage::Here)
+            .map(|_| Stage::Here)
+            .or_else(|| self.body(Stage::Desktop).map(|_| Stage::Desktop))
     }
 
     fn body(&self, stage: Stage) -> Option<&Body> {
@@ -98,6 +208,15 @@ impl Check {
             )
         })
     }
+}
+
+/// Whether a check is one of the ones somebody asked for by name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Named {
+    /// A word they gave names this check or the feature it is part of.
+    Yes,
+    /// None of them do, so this run is not about it.
+    No,
 }
 
 /// Which of the three a check is being run in.
@@ -147,10 +266,6 @@ impl How {
             _ => "",
         }
     }
-
-    pub fn settled(&self) -> bool {
-        matches!(self, How::Ok | How::Would | How::Skipped(_))
-    }
 }
 
 fn ended(done: Done) -> How {
@@ -166,6 +281,7 @@ pub fn here(check: &Check, stage: &mut Here) -> How {
     let Some(Body::Here(body)) = check.body(Stage::Here) else {
         return How::Skipped("nothing written for here".to_string());
     };
+
     // One check's idea of what has been run is its own.
     stage.fresh();
     ended(body(stage))
@@ -176,8 +292,10 @@ pub fn device(check: &Check, stage: &mut Device) -> How {
     let Some(Body::Device(body)) = check.body(Stage::Device) else {
         return How::Skipped("nothing written for device".to_string());
     };
+
     // A chooser some earlier check left drawn is not scenery.
     stage.fresh();
+
     match (stage.dry, body(stage)) {
         // Something nothing can do is still nothing anybody can do.
         (true, Err(Why::Cannot(why))) => How::Skipped(why),
@@ -191,6 +309,7 @@ pub fn desktop(check: &Check, stage: &mut Desktop) -> How {
     let Some(Body::Desktop(body)) = check.body(Stage::Desktop) else {
         return How::Skipped("nothing written for desktop".to_string());
     };
+
     stage.fresh();
     ended(body(stage))
 }
@@ -198,6 +317,7 @@ pub fn desktop(check: &Check, stage: &mut Desktop) -> How {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::device::Dry;
 
     const ONE: Check = Check {
         name: "010-workspaces-right",
@@ -215,9 +335,30 @@ mod tests {
 
     #[test]
     fn a_check_is_found_by_its_name_or_by_its_feature() {
-        assert!(ONE.named_by(&["workspaces".to_string()]));
-        assert!(ONE.named_by(&["010".to_string()]));
-        assert!(!ONE.named_by(&["keyboard".to_string()]));
+        assert_eq!(ONE.named_by(&["workspaces".to_string()]), Named::Yes);
+        assert_eq!(ONE.named_by(&["010".to_string()]), Named::Yes);
+        assert_eq!(ONE.named_by(&["keyboard".to_string()]), Named::No);
+    }
+
+    /// What the machine alone can answer is read off what the check is written
+    /// for, so nothing has to be kept in step by hand.
+    #[test]
+    fn a_check_written_for_somewhere_else_is_not_the_machines_business() {
+        const BOTH: Check = Check {
+            bodies: &[Body::Here(|_| Ok(())), Body::Device(|_| Ok(()))],
+            ..ONE
+        };
+        const DRAWN: Check = Check {
+            bodies: &[Body::Desktop(|_| Ok(())), Body::Device(|_| Ok(()))],
+            ..ONE
+        };
+        const THERE: Check = Check { bodies: &[Body::Device(|_| Ok(()))], ..ONE };
+
+        assert_eq!(THERE.without_the_device(), None);
+
+        assert_eq!(BOTH.without_the_device(), Some(Stage::Here));
+
+        assert_eq!(DRAWN.without_the_device(), Some(Stage::Desktop));
     }
 
     /// A stage nothing is written for skips it and says so rather than passing
@@ -226,13 +367,6 @@ mod tests {
     fn a_stage_nothing_is_written_for_says_so() {
         let mut nowhere = Desktop::new();
         assert_eq!(desktop(&ONE, &mut nowhere).name(), "skipped");
-    }
-
-    #[test]
-    fn a_skip_and_a_pass_are_both_settled_and_a_failure_is_not() {
-        assert!(How::Ok.settled());
-        assert!(How::Skipped("nothing written".to_string()).settled());
-        assert!(!How::Failed("it did not".to_string()).settled());
     }
 
     /// Nothing is judged on a dry run, but something nothing can do is still
@@ -247,7 +381,7 @@ mod tests {
             bodies: &[Body::Device(|_| cannot("a thumb is wanted"))],
         };
         const FAILS: Check = Check { bodies: &[Body::Device(|_| failed("no".to_string()))], ..ONE };
-        let mut dry = Device::new("nowhere", true).expect("a stage");
+        let mut dry = Device::new("nowhere", Dry::Pretend).expect("a stage");
         assert_eq!(device(&CANNOT, &mut dry), How::Skipped("a thumb is wanted".to_string()));
         assert_eq!(device(&FAILS, &mut dry), How::Would);
     }

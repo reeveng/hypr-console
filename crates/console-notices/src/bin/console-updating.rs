@@ -40,13 +40,14 @@ impl Step {
 pub fn notice(step: Step) -> Notice {
     match step {
         Step::Start => Notice::new(
-            "Updating the console",
-            "Writing files, restarting services and building every program the manifest names.",
+            "Updating",
+            "Putting the new files in place and starting the parts that changed. \
+             This takes a few minutes.",
         )
         .staying(),
         Step::Done => Notice::new(
-            "The console is up to date",
-            "Everything the manifest asks for is what is on the machine.",
+            "Everything is up to date",
+            "This machine is now the way it was set up to be.",
         )
         .lasting(4000),
         // It stays. An apply that stopped halfway leaves a machine that is
@@ -54,7 +55,8 @@ pub fn notice(step: Step) -> Notice {
         // more than four seconds of somebody's attention.
         Step::Failed => Notice::new(
             "The update did not finish",
-            "The machine is part-way. journalctl -t console, or run console apply again.",
+            "Part of this machine is new and part of it is old. Running `console apply` again \
+             puts the whole of it back.",
         )
         .urgent()
         .staying(),
@@ -66,8 +68,20 @@ pub fn notice(step: Step) -> Notice {
 /// Only while an apply is running. Once it has finished either way, the next
 /// apply is a new notice rather than a replacement of the last one's, or a
 /// deploy tomorrow quietly edits a card from tonight.
-pub fn goes_on(step: Step) -> bool {
-    step == Step::Start
+pub fn goes_on(step: Step) -> Keeps {
+    match step == Step::Start {
+        true => Keeps::TheNumber,
+        false => Keeps::Nothing,
+    }
+}
+
+/// Whether the number a notice came back under is worth keeping.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Keeps {
+    /// An apply is running, and the next word replaces this card.
+    TheNumber,
+    /// It has finished, and the next apply is a card of its own.
+    Nothing,
 }
 
 fn main() -> std::process::ExitCode {
@@ -78,9 +92,11 @@ fn main() -> std::process::ExitCode {
 
     let kept = Kept::named("updating");
     raise_kept(notice(step), &kept);
-    if !goes_on(step) {
+
+    if goes_on(step) == Keeps::Nothing {
         kept.forget();
     }
+
     std::process::ExitCode::SUCCESS
 }
 
@@ -120,8 +136,8 @@ mod tests {
     /// Otherwise a deploy tomorrow replaces a card from tonight.
     #[test]
     fn the_number_is_only_kept_while_an_apply_is_running() {
-        assert!(goes_on(Step::Start));
-        assert!(!goes_on(Step::Done));
-        assert!(!goes_on(Step::Failed));
+        assert_eq!(goes_on(Step::Start), Keeps::TheNumber);
+        assert_eq!(goes_on(Step::Done), Keeps::Nothing);
+        assert_eq!(goes_on(Step::Failed), Keeps::Nothing);
     }
 }

@@ -1,6 +1,6 @@
 //! The shoulders move between workspaces.
 
-use console_stage::checking::{Body, Check, Done, ought};
+use console_stage::checking::{Body, Check, Done, not_same, same};
 use console_stage::device::{Device, SETTLED};
 use console_stage::here::{Here, TURNS};
 
@@ -24,21 +24,21 @@ fn right_here(stage: &mut Here) -> Done {
     stage.press("r1")?;
     stage.settle(TURNS);
     let asked = stage.dispatches();
-    ought(asked == [r#"hl.dsp.focus({workspace = "+1"})"#], || format!("R1 asked for {asked:?}"))
+    same(&asked, &[r#"hl.dsp.focus({workspace = "+1"})"#], || format!("R1 asked for {asked:?}"))
 }
 
 fn right_there(stage: &mut Device) -> Done {
     let was = stage.workspace();
     stage.press("r1");
     stage.settle(SETTLED);
-    ought(stage.workspace() != was, || format!("still on workspace {was}"))
+    not_same(&stage.workspace(), &was, || format!("still on workspace {was}"))
 }
 
 fn left_here(stage: &mut Here) -> Done {
     stage.press("l1")?;
     stage.settle(TURNS);
     let asked = stage.dispatches();
-    ought(asked == [r#"hl.dsp.focus({workspace = "-1"})"#], || format!("L1 asked for {asked:?}"))
+    same(&asked, &[r#"hl.dsp.focus({workspace = "-1"})"#], || format!("L1 asked for {asked:?}"))
 }
 
 /// Where it went is asked before it is put back, so a failure leaves the desk
@@ -50,5 +50,5 @@ fn left_there(stage: &mut Device) -> Done {
     let there = stage.workspace();
     stage.press("r1");
     stage.settle(SETTLED);
-    ought(there != was, || format!("L1 left us on {was}"))
+    not_same(&there, &was, || format!("L1 left us on {was}"))
 }

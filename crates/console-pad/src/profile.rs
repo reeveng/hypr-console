@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use evdev::KeyCode;
 use serde::Deserialize;
 
+use crate::devices::Has;
 use crate::vocabulary;
 
 /// One thing a press turns into.
@@ -59,13 +60,22 @@ pub struct Target {
 }
 
 impl Target {
-    /// The kernel code this arrives as, where there is one.
-    pub fn code(&self) -> Option<KeyCode> {
+    /// The kernel code this arrives as, and why there is none where there is
+    /// not.
+    ///
+    /// Three ways to have no code, and they are three different faults: a name
+    /// no keyboard carries, a name no pad carries, and a kind that does not
+    /// arrive as a single code at all -- an axis is two ends of a range and a
+    /// hat is two axes. Folded into one absence they read as "nothing to do
+    /// here", which is what a mapping with a typo in it would also read as.
+    pub fn code(&self) -> Result<KeyCode, String> {
         match self.kind {
-            Kind::Key => vocabulary::key_code(&self.name).ok(),
-            Kind::MouseButton => vocabulary::mouse_code(&self.name),
-            Kind::GamepadButton => vocabulary::gamepad_code(&self.name),
-            _ => None,
+            Kind::Key => vocabulary::key_code(&self.name),
+            Kind::MouseButton => vocabulary::mouse_code(&self.name)
+                .ok_or_else(|| format!("no mouse button called {:?}", self.name)),
+            Kind::GamepadButton => vocabulary::gamepad_code(&self.name)
+                .ok_or_else(|| format!("no pad button called {:?}", self.name)),
+            kind => Err(format!("{kind:?} does not arrive as one code: {:?}", self.name)),
         }
     }
 }
@@ -133,8 +143,11 @@ impl Profile {
     }
 
     /// Whether an event can reach a device at all here.
-    pub fn publishes(&self, target_device: &str) -> bool {
-        self.target_devices.iter().any(|named| named == target_device)
+    pub fn publishes(&self, target_device: &str) -> Has {
+        match self.target_devices.iter().any(|named| named == target_device) {
+            true => Has::Yes,
+            false => Has::No,
+        }
     }
 
     /// Every mapping a named button has here, usually none or one.
@@ -166,7 +179,10 @@ pub fn load_all(root: &Path) -> Result<BTreeMap<String, Profile>, String> {
     let holding = root.join(PROFILE_DIR);
     let mut found: Vec<PathBuf> = std::fs::read_dir(&holding)
         .map_err(|fault| format!("{} could not be read: {fault}", holding.display()))?
-        .filter_map(|entry| entry.ok().map(|found| found.path()))
+        .filter_map(|entry| match entry {
+            Ok(e) => Some(e.path()),
+            Err(_) => None,
+        })
         .filter(|path| path.extension().is_some_and(|kind| kind == "yaml"))
         .collect();
     found.sort();
@@ -268,6 +284,7 @@ fn read_mapping(raw: &RawMapping) -> Option<Mapping> {
 
 fn read_target(raw: &RawTargetEvent) -> Option<Target> {
     let named = |kind, name: &str| Some(Target { kind, name: name.to_string() });
+
     match (&raw.keyboard, &raw.mouse, &raw.gamepad) {
         (Some(key), _, _) => named(Kind::Key, key),
         (_, Some(RawMouse { button: Some(button), .. }), _) => named(Kind::MouseButton, button),
@@ -355,8 +372,8 @@ mapping:
     #[test]
     fn what_the_profile_does_not_publish_cannot_be_reached() {
         let profile = read();
-        assert!(profile.publishes("mouse"));
-        assert!(!profile.publishes("touchpad"));
+        assert_eq!(profile.publishes("mouse"), Has::Yes);
+        assert_eq!(profile.publishes("touchpad"), Has::No);
     }
 
     #[test]

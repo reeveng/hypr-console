@@ -20,6 +20,8 @@
 //! and pulled through the angle it would pass through orange, which is what a
 //! different picture looks like.
 
+
+use console_number::{Float, whole_u8};
 use console_colour::{fit, oklch_to_rgb, to_oklch};
 
 /// A colour as Oklab holds it: how light, and where on the plane.
@@ -85,14 +87,20 @@ impl Lab {
 pub const RAMP: [&str; 6] = ["night", "ground", "panel", "ash", "soft", "text"];
 
 /// The palette's ramp, as a curve a lightness can be looked up in.
+///
+/// An array and not a `Vec`, because the ramp is `RAMP` and nothing else: six
+/// names, all six or an error. It was a `Vec`, and every reading of it then had
+/// to say what it would do about a ramp with no stops in it -- a ramp that
+/// could not be built. Three assertions that it was not empty, about a thing
+/// the type can say for itself.
 pub struct Ramp {
-    stops: Vec<Lab>,
+    stops: [Lab; RAMP.len()],
 }
 
 impl Ramp {
     /// Built from the palette, out of the names in `RAMP`.
     pub fn read(colours: &dyn Fn(&str) -> Option<String>) -> Result<Self, String> {
-        let mut stops: Vec<Lab> = RAMP
+        let read: Vec<Lab> = RAMP
             .iter()
             .map(|name| {
                 colours(name)
@@ -100,15 +108,16 @@ impl Ramp {
                     .ok_or_else(|| format!("the palette names no {name}"))
             })
             .collect::<Result<_, _>>()?;
+        let mut stops: [Lab; RAMP.len()] = read
+            .try_into()
+            .map_err(|_| "the ramp is not the colours it is made of".to_string())?;
         stops.sort_by(|one, other| one.lightness.total_cmp(&other.lightness));
         Ok(Ramp { stops })
     }
 
     /// How dark the theme goes, and how light.
     pub fn ends(&self) -> (f64, f64) {
-        let first = self.stops.first().expect("the ramp has stops");
-        let last = self.stops.last().expect("the ramp has stops");
-        (first.lightness, last.lightness)
+        (self.stops[0].lightness, self.stops[RAMP.len() - 1].lightness)
     }
 
     /// The theme's colour at a given lightness, interpolated between stops.
@@ -119,8 +128,9 @@ impl Ramp {
     /// separately.
     pub fn at(&self, lightness: f64) -> Lab {
         let above = self.stops.iter().position(|stop| stop.lightness >= lightness);
+
         match above {
-            None => *self.stops.last().expect("the ramp has stops"),
+            None => self.stops[RAMP.len() - 1],
             Some(0) => self.stops[0],
             Some(next) => {
                 let (under, over) = (self.stops[next - 1], self.stops[next]);
@@ -163,9 +173,9 @@ impl Default for Grade {
 pub fn grade(ramp: &Ramp, how: &Grade, rgb: [f64; 3]) -> [f64; 3] {
     let code = format!(
         "{:02x}{:02x}{:02x}",
-        (rgb[0] * 255.0).round() as u8,
-        (rgb[1] * 255.0).round() as u8,
-        (rgb[2] * 255.0).round() as u8
+        whole_u8(rgb[0] * 255.0),
+        whole_u8(rgb[1] * 255.0),
+        whole_u8(rgb[2] * 255.0)
     );
     let was = Lab::of(&code);
     let theme = ramp.at(was.lightness);
@@ -190,7 +200,8 @@ pub fn grade(ramp: &Ramp, how: &Grade, rgb: [f64; 3]) -> [f64; 3] {
 pub fn cube(ramp: &Ramp, how: &Grade, side: usize) -> String {
     let mut out = String::from("# The Blossom palette, as a grade.\n");
     out.push_str(&format!("LUT_3D_SIZE {side}\n"));
-    let step = |index: usize| index as f64 / (side - 1) as f64;
+    let step = |index: usize| index.float() / (side - 1).float();
+
     // Red runs fastest and blue slowest, which is the order a cube is read in.
     for blue in 0..side {
         for green in 0..side {
@@ -200,6 +211,7 @@ pub fn cube(ramp: &Ramp, how: &Grade, side: usize) -> String {
             }
         }
     }
+
     out
 }
 

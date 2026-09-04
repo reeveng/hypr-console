@@ -18,9 +18,13 @@ name = "bar-say"
 path = "src/bin/bar-say.rs"
 
 [dependencies]
+console-number.workspace = true
 console-again.workspace = true
 console-defaults.workspace = true
 console-notices.workspace = true
 console-panel.workspace = true
 libc = "0.2"
 serde_json = "1"
+
+[lints]
+workspace = true

@@ -1,0 +1,115 @@
+warning: `if` must have a blank line above it
+  --> $DIR/main.rs:10:5
+   |
+LL |     if doubled > 10 {
+   |     ^
+   |
+   = help: leave a blank line before the block, so it reads as its own thought
+   = note: `#[warn(explicit013_breathing_room)]` on by default
+
+warning: `if` must have a blank line below it
+  --> $DIR/main.rs:12:6
+   |
+LL |     }
+   |      ^
+   |
+   = help: leave a blank line after the block, so what follows is its own thought
+
+warning: `match` must have a blank line above it
+  --> $DIR/main.rs:75:5
+   |
+LL |     match seen {
+   |     ^
+   |
+   = help: leave a blank line before the block, so it reads as its own thought
+
+warning: `match` must have a blank line below it
+  --> $DIR/main.rs:78:6
+   |
+LL |     }
+   |      ^
+   |
+   = help: leave a blank line after the block, so what follows is its own thought
+
+warning: `for` must have a blank line below it
+  --> $DIR/main.rs:86:6
+   |
+LL |     }
+   |      ^
+   |
+   = help: leave a blank line after the block, so what follows is its own thought
+
+warning: `while` must have a blank line above it
+  --> $DIR/main.rs:93:5
+   |
+LL |     while n < 3 {
+   |     ^
+   |
+   = help: leave a blank line before the block, so it reads as its own thought
+
+warning: `fn` must have a blank line below it
+  --> $DIR/main.rs:99:14
+   |
+LL | fn first() {}
+   |              ^
+   |
+   = help: leave a blank line after the block, so what follows is its own thought
+
+warning: `fn` must have a blank line above it
+  --> $DIR/main.rs:100:1
+   |
+LL | fn second() {}
+   | ^
+   |
+   = help: leave a blank line before the block, so it reads as its own thought
+
+warning: `let … else` must have a blank line above it
+  --> $DIR/main.rs:107:5
+   |
+LL |     let Some(found) = n else {
+   |     ^
+   |
+   = help: leave a blank line before the block, so it reads as its own thought
+
+warning: `let … else` must have a blank line below it
+  --> $DIR/main.rs:109:7
+   |
+LL |     };
+   |       ^
+   |
+   = help: leave a blank line after the block, so what follows is its own thought
+
+warning: `struct` must have a blank line below it
+  --> $DIR/main.rs:127:2
+   |
+LL | }
+   |  ^
+   |
+   = help: leave a blank line after the block, so what follows is its own thought
+
+warning: `impl` must have a blank line above it
+  --> $DIR/main.rs:128:1
+   |
+LL | impl Packed {
+   | ^
+   |
+   = help: leave a blank line before the block, so it reads as its own thought
+
+warning: `unsafe` must have a blank line above it
+  --> $DIR/main.rs:151:5
+   |
+LL |     unsafe {
+   |     ^
+   |
+   = help: leave a blank line before the block, so it reads as its own thought
+
+warning: `unsafe` must have a blank line below it
+  --> $DIR/main.rs:153:6
+   |
+LL |     }
+   |      ^
+   |
+   = help: leave a blank line after the block, so what follows is its own thought
+
+warning: 14 warnings emitted
+

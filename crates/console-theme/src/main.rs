@@ -19,10 +19,11 @@ mod spec;
 mod spend;
 mod terminal;
 
+use console_colour::Short;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use measure::{Row, measure};
+use measure::{Clears, Row, measure};
 use spend::{How, Written};
 use terminal::Terminal;
 
@@ -66,20 +67,27 @@ fn run() -> Result<ExitCode, String> {
     let spec: spec::Spec = toml::from_str(&declared)
         .map_err(|fault| format!("theme/palette.toml does not parse: {fault}"))?;
 
-    let palette = palette::resolve(&spec.colour).map_err(|fault| fault.0)?;
-    let rows = measure(&spec, &palette);
+    // Every colour this needs is looked up before a single file is written, and
+    // a name nobody declared stops it here. It used to panic where the name was
+    // reached for, part way through writing the desktop's colours out -- so a
+    // misspelled role left some files spent and the rest as they were, and said
+    // so with a backtrace, inside `just deploy`.
+    let said = |fault: Short| fault.0;
+    let palette = palette::resolve(&spec.colour).map_err(said)?;
+    let rows = measure(&spec, &palette).map_err(said)?;
 
     if let Some(complaint) = falls_short(&rows) {
         return Err(complaint);
     }
 
-    let terminal = Terminal::of(&spec, &palette);
+    let terminal = Terminal::of(&spec, &palette).map_err(said)?;
     let work = {
-        let mut work = spend::everywhere(&root.join("files"), &palette, &terminal);
+        let mut work =
+            spend::everywhere(&root.join("files"), &palette, &terminal).map_err(said)?;
         work.push(Written {
             path: root.join("theme/report.md"),
             how: How::Whole,
-            body: report::write(&spec, &palette, &rows, &terminal),
+            body: report::write(&spec, &palette, &rows, &terminal).map_err(said)?,
         });
         work.sort_by(|one, other| one.path.cmp(&other.path));
         work
@@ -90,8 +98,12 @@ fn run() -> Result<ExitCode, String> {
         .map(|written| wanted(written).map(|body| (written, body)))
         .collect::<Result<Vec<_>, String>>()?
         .into_iter()
-        .filter(|(written, body)| {
-            std::fs::read(&written.path).ok().as_deref() != Some(body.as_bytes())
+        .filter(|(written, body)| match std::fs::read(&written.path) {
+            Ok(held) => held != body.as_bytes(),
+            // Nothing there, or nothing this program may read. Either way what
+            // is on the disk is not what this run wants, and the answer to both
+            // is the same: write it, and let the write say why it could not.
+            Err(_) => true,
         })
         .map(|(written, body)| match doing {
             Doing::Check => Ok(written.path.clone()),
@@ -106,6 +118,7 @@ fn run() -> Result<ExitCode, String> {
             .display()
             .to_string()
     };
+
     match (doing, changed.as_slice()) {
         (_, []) => println!("  every file already says this."),
         (Doing::Check, paths) => {
@@ -120,6 +133,7 @@ fn run() -> Result<ExitCode, String> {
                 .for_each(|path| println!("  wrote {}", named(path)));
         }
     }
+
     Ok(ExitCode::SUCCESS)
 }
 
@@ -152,6 +166,7 @@ fn put(path: &Path, body: &str) -> Result<(), String> {
         std::fs::create_dir_all(holding)
             .map_err(|fault| format!("{} could not be made: {fault}", holding.display()))?;
     }
+
     std::fs::write(path, body)
         .map_err(|fault| format!("{} could not be written: {fault}", path.display()))
 }
@@ -161,7 +176,8 @@ fn put(path: &Path, body: &str) -> Result<(), String> {
 /// A palette that reads badly must not reach the device, so this is a gate
 /// rather than a warning: one short pairing and not a single file is written.
 fn falls_short(rows: &[Row]) -> Option<String> {
-    let short: Vec<&Row> = rows.iter().filter(|row| row.short()).collect();
+    let short: Vec<&Row> = rows.iter().filter(|row| row.short() == Clears::Short).collect();
+
     match short.as_slice() {
         [] => None,
         short => Some(
@@ -169,11 +185,13 @@ fn falls_short(rows: &[Row]) -> Option<String> {
                 .iter()
                 .map(|row| {
                     format!(
-                        "  {} on {}: asked {}:1, got {:.2}:1 ({})",
+                        "  {} on {}: asked {}:1 and {}, got {:.2}:1 and Lc {:.1} ({})",
                         row.front,
                         row.back,
                         report::ratio(row.asked),
+                        report::asked_lc(row.asked_lc),
                         row.got,
+                        row.got_lc,
                         row.where_
                     )
                 })
@@ -184,31 +202,50 @@ fn falls_short(rows: &[Row]) -> Option<String> {
     }
 }
 
-/// What was measured, in three lines.
+/// What was measured, in a handful of lines.
 fn say(spec: &spec::Spec, rows: &[Row]) {
     // The closest call is the one with the least room over what it was asked
     // for, which is not the same as the lowest ratio: the bar only has to be a
     // different colour from the wallpaper, and it always will be.
-    let worst = rows
-        .iter()
-        .min_by(|one, other| one.room().total_cmp(&other.room()))
-        .expect("a palette declares at least one pairing");
-    let text = rows.iter().filter(|row| row.asked >= 7.0).count();
+    let Some(worst) = rows.iter().min_by(|one, other| one.room().total_cmp(&other.room())) else {
+        // A palette that declares no pairing is a palette nothing was measured
+        // against, and saying so is the measurement.
+        println!("nothing to measure: this palette declares no pairing");
+        return;
+    };
+
     println!(
-        "{}: {} colours, {} pairings, all clearing what they declare.",
+        "{}: {} colours, {} pairings, all clearing both measures.",
         spec.meta.name,
         spec.colour.len(),
         rows.len()
     );
     println!(
-        "  the closest call is {} on {}, asked for {}:1 and reaching {:.2}:1 ({}).",
+        "  the closest ratio is {} on {}, asked for {}:1 and reaching {:.2}:1 ({}).",
         worst.front,
         worst.back,
         report::ratio(worst.asked),
         worst.got,
         worst.grade()
     );
-    println!("  {text} of them are text, and every one is AAA.");
+
+    // And the same question in the other measure, which on a dark palette is
+    // the one that answers differently: a shade with room to spare on the
+    // ratio can be the one sitting closest to its Lc.
+    if let Some(tightest) = rows
+        .iter()
+        .filter(|row| row.asked_lc > 0.0)
+        .min_by(|one, other| one.room_lc().total_cmp(&other.room_lc()))
+    {
+        println!(
+            "  the closest Lc is {} on {}, asked for {} and reaching {:.1} ({}).",
+            tightest.front,
+            tightest.back,
+            report::asked_lc(tightest.asked_lc),
+            tightest.got_lc,
+            tightest.grade_lc()
+        );
+    }
 }
 
 /// The repository this is being run inside.

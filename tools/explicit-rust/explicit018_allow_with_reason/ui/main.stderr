@@ -1,0 +1,11 @@
+warning: this `allow` waives a rule without saying why
+  --> $DIR/main.rs:5:1
+   |
+LL | #[allow(dead_code)]
+   | ^^^^^^^^^^^^^^^^^^^
+   |
+   = help: write `allow(<lint>, reason = "…")` naming which harm is absent at this site and what makes it so
+   = note: `#[warn(explicit018_allow_with_reason)]` on by default
+
+warning: 1 warning emitted
+

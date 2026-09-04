@@ -1,8 +1,10 @@
 //! The gust: what leaves the tree, and where it has got to.
 
 use cairo::Context;
+use console_number::{Float, toward_zero_i32};
 use console_random::Random;
 
+use crate::fault::Drawing;
 use crate::garden::Garden;
 use crate::paint::{dip, petal_at};
 use crate::tree::Tip;
@@ -68,14 +70,18 @@ pub fn flight(garden: &Garden, tips: &[Tip], rng: &mut Random, count: usize) -> 
 /// this is the only place a petal's position is worked out.
 pub fn carried(garden: &Garden, petal: &Petal, part: f64) -> Option<(f64, f64, f64)> {
     let gone = (part - petal.wait) / (1.0 - petal.wait);
+
     if gone <= 0.0 || gone >= 1.0 {
         return None;
     }
+
     let travel = garden.across(0.95) * petal.speed * gone.powf(1.25);
     let x = petal.x + travel;
+
     if x - petal.size > garden.width {
         return None;
     }
+
     let y = petal.y
         + travel * petal.rise
         + (petal.phase + gone * petal.beat).sin() * garden.across(petal.sway);
@@ -83,11 +89,12 @@ pub fn carried(garden: &Garden, petal: &Petal, part: f64) -> Option<(f64, f64, f
 }
 
 /// The petals of a gust, drawn where they have got to.
-pub fn blown(ctx: &Context, garden: &Garden, petals: &[Petal], part: f64) {
+pub fn blown(ctx: &Context, garden: &Garden, petals: &[Petal], part: f64) -> Drawing<()> {
     for petal in petals {
         let Some((x, y, gone)) = carried(garden, petal, part) else {
             continue;
         };
+
         // The wind dies rather than stopping. Without the second half of this
         // the last frame of a gust is full of blossom and the one after it is
         // the resting picture, and blossom does not leave a garden like that.
@@ -97,9 +104,11 @@ pub fn blown(ctx: &Context, garden: &Garden, petals: &[Petal], part: f64) {
             &garden.paint,
             if petal.pale { "petal_pale" } else { "petal" },
             fade,
-        );
-        petal_at(ctx, x, y, petal.size, petal.phase + gone * petal.spin);
+        )?;
+        petal_at(ctx, x, y, petal.size, petal.phase + gone * petal.spin)?;
     }
+
+    Ok(())
 }
 
 /// The strip of the picture a gust ever reaches.
@@ -111,15 +120,15 @@ pub fn blown(ctx: &Context, garden: &Garden, petals: &[Petal], part: f64) {
 pub fn band_of(garden: &Garden, petals: &[Petal], steps: usize) -> (i32, i32) {
     let reached = (0..=steps).flat_map(|step| {
         petals.iter().filter_map(move |petal| {
-            carried(garden, petal, step as f64 / steps as f64)
+            carried(garden, petal, step.float() / steps.float())
                 .map(|(_, y, _)| (y - petal.size * 2.0, y + petal.size * 2.0))
         })
     });
     let (top, bottom) = reached.fold((garden.height, 0.0f64), |(top, bottom), (over, under)| {
         (top.min(over), bottom.max(under))
     });
-    let top = (top as i32).max(0) & !1;
-    let bottom = (bottom as i32 + 2).min(garden.height as i32);
+    let top = toward_zero_i32(top).max(0) & !1;
+    let bottom = (toward_zero_i32(bottom) + 2).min(toward_zero_i32(garden.height));
     (top, bottom - top)
 }
 

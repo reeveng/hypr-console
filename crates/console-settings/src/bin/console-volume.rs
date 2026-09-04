@@ -19,6 +19,7 @@ fn pactl(argv: &[String]) -> String {
     let Ok(said) = Command::new("pactl").args(argv).output() else {
         return String::new();
     };
+
     String::from_utf8_lossy(&said.stdout).to_string()
 }
 
@@ -33,12 +34,14 @@ fn said() {
     let level = rocker::level(&level);
 
     let mut notice = Notice::new(&rocker::said(level, muted), "").lasting(1500);
+
     // The value hint is what mako fills the card with, in the pink
     // `progress-color` the theme writes. So the card is the bar, and the
     // sentence on it is the figure -- the two halves of the same reading.
     if let Some(value) = rocker::value(level) {
         notice = notice.valued(value);
     }
+
     raise_kept(notice, &Kept::named("volume"));
 }
 
@@ -51,6 +54,7 @@ fn main() -> std::process::ExitCode {
     for argv in rocker::asks(press) {
         pactl(&argv);
     }
+
     said();
     std::process::ExitCode::SUCCESS
 }

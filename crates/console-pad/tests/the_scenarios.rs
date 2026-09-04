@@ -15,7 +15,16 @@ use console_pad::script::play;
 use console_pad::world::World;
 
 fn root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().expect("the repository")
+    {
+    // Tidied by `canonicalize` where that works and left as it stands where it
+    // does not. What `CARGO_MANIFEST_DIR` gives is already absolute and already
+    // right; canonicalizing only takes the `../..` out of the middle. It fails
+    // under a sandbox that will not let a process resolve a path it can
+    // otherwise read, and a test that stops there reports the sandbox as a
+    // missing repository.
+    let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    from.canonicalize().unwrap_or(from)
+}
 }
 
 /// Every scenario in the tree, by name.
@@ -41,8 +50,8 @@ fn there_are_some() {
 #[test]
 fn every_scenario_plays() {
     for path in scenarios() {
-        let world = World::of(captured());
-        let devices = Devices::new(captured(), world);
+        let world = World::of(captured().expect("the capture carried in this program parses"));
+        let devices = Devices::new(captured().expect("the capture carried in this program parses"), world);
         let mut go = LegionGo::new(
             every_profile(&root()).expect("the profiles"),
             devices,

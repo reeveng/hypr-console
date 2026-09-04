@@ -31,6 +31,7 @@ pub const PLAIN: Ink = Ink { bold: "", quiet: "", pink: "", off: "" };
 /// The whole guide, as something to read in a terminal.
 pub fn guide(sections: &[Section], ink: Ink) -> String {
     let mut said = format!("\n{}The buttons on this device{}\n", ink.bold, ink.off);
+
     for section in sections.iter().filter(|section| !section.lines.is_empty()) {
         said.push_str(&format!(
             "\n{}{}{}{}\n{}{}{}\n",
@@ -42,6 +43,7 @@ pub fn guide(sections: &[Section], ink: Ink) -> String {
             "\u{2500}".repeat(RULE),
             ink.off
         ));
+
         for line in &section.lines {
             said.push_str(&format!(
                 "  {}{:<COLUMN$}{}{}\n",
@@ -49,6 +51,7 @@ pub fn guide(sections: &[Section], ink: Ink) -> String {
             ));
         }
     }
+
     said.push_str(&format!(
         "\n{}  Not sure which paddle is which? Run:  console-buttons --identify{}\n\n",
         ink.quiet, ink.off

@@ -82,6 +82,25 @@ const answers = {
     await browser.tabs.create({ url: said.url, active: false });
     return true;
   },
+
+  /* The three that are not the browser answering a page at all, but this
+     add-on reaching past what a page is allowed -- `around.js` is what that is
+     and why it is allowed. They are asked for here with everything else, so a
+     page has one place it asks and does not have to know which of its
+     questions needed privileges to answer. */
+  async address() {
+    return browser.around.address();
+  },
+
+  async menu() {
+    return browser.around.menu();
+  },
+
+  /* And the third, which is not the browser at all: the desktop's own
+     keyboard, raised for a card that has a line to type into. */
+  async keyboard() {
+    return browser.around.keyboard();
+  },
 };
 
 function host(url) {

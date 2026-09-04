@@ -8,9 +8,11 @@ pub fn said(argv: &[&str]) -> String {
     let Some((program, rest)) = argv.split_first() else {
         return String::new();
     };
+
     let Ok(done) = Command::new(program).args(rest).output() else {
         return String::new();
     };
+
     String::from_utf8_lossy(&done.stdout).trim().to_string()
 }
 
@@ -33,7 +35,9 @@ pub fn say(kind: &str, summary: &str, body: &str) {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn();
-    if started.is_err() {
+
+    if let Err(fault) = started {
+        eprintln!("console-say: {fault}");
         eprintln!("{kind}: {summary} - {body}");
     }
 }
@@ -64,8 +68,10 @@ pub fn left_running(argv: &[String]) {
     let Some((program, rest)) = argv.split_first() else {
         return;
     };
+
     let (scope, scope_argv) = scope_around(argv);
-    if scope && has_systemd_run() {
+
+    if scope && has_systemd_run() == Has::Yes {
         let mut starting = Command::new(&scope_argv[0]);
         starting
             .args(&scope_argv[1..])
@@ -74,14 +80,17 @@ pub fn left_running(argv: &[String]) {
         let _ = starting.spawn();
         return;
     }
+
     if !scope {
         eprintln!("left_running: not wrapping {} in a scope: {}", program, argv.join(" "));
     }
+
     let mut starting = Command::new(program);
     starting
         .args(rest)
         .stdout(Stdio::null())
         .stderr(Stdio::null());
+
     // SAFETY: between the fork and the exec, and setsid is one call that
     // allocates nothing and touches nothing this process holds. The scope path
     // does not need it because the scope itself is a new session.
@@ -91,6 +100,7 @@ pub fn left_running(argv: &[String]) {
             Ok(())
         })
     };
+
     let _ = starting.spawn();
 }
 
@@ -119,11 +129,29 @@ pub fn scope_around(argv: &[String]) -> (bool, Vec<String>) {
 /// running it in any of the panels this is called from: the launcher is
 /// launched by the bar, the panel is launched by the menu, the music panel
 /// is launched by the menu. A check at startup is the wrong shape.
-fn has_systemd_run() -> bool {
-    let path = std::env::var("PATH").unwrap_or_default();
-    path.split(':')
+/// Whether `systemd-run` is on this machine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Has {
+    /// It is, so what is started can be put in a scope of its own.
+    Yes,
+    /// It is not, and what is started is a child of whatever started it.
+    No,
+}
+
+fn has_systemd_run() -> Has {
+    // Nowhere to look is nowhere systemd-run can be, and what is started
+    // stays a child of whatever started it.
+    let Ok(path) = std::env::var("PATH") else { return Has::No };
+
+    let found = path
+        .split(':')
         .filter(|at| !at.is_empty())
-        .any(|at| std::path::Path::new(at).join("systemd-run").exists())
+        .any(|at| std::path::Path::new(at).join("systemd-run").exists());
+
+    match found {
+        true => Has::Yes,
+        false => Has::No,
+    }
 }
 
 /// How long anything started from a panel is given before it is given up on.

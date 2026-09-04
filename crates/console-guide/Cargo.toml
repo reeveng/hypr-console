@@ -19,3 +19,6 @@ console-controller.workspace = true
 console-files.workspace = true
 console-pad.workspace = true
 console-panel.workspace = true
+
+[lints]
+workspace = true

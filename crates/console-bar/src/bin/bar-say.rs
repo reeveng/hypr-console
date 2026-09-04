@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 use console_bar::dwindling::Watching;
 use console_bar::reading::{What, line};
 use console_bar::watch::{tick, watching};
-use console_panel::door::{is_open, tab};
+use console_panel::door::{Up, is_open, tab};
 
 /// The panel these icons open, as the compositor lists it.
 const SETTINGS: &str = "settings-panel";
@@ -47,6 +47,7 @@ fn main() -> ExitCode {
         eprintln!("{USAGE}");
         return ExitCode::FAILURE;
     };
+
     let heard = watching(what);
 
     // The battery is the one reading that is also watched, so every reading of
@@ -57,12 +58,18 @@ fn main() -> ExitCode {
     // The two slow answers, kept between passes. Both are subprocesses, and
     // the loop below runs many times a second while the settings are up.
     let mut says = taken(what, &mut dwindling);
-    let mut up = is_open(SETTINGS);
+    let mut quiet = false;
+    let mut up = asked(SETTINGS, Up::NotThere, &mut quiet);
     let mut due = Instant::now() + tick(what);
     let mut last = String::new();
 
     loop {
-        let said = line(&says, up && in_front(what));
+        let lit = match (up, in_front(what)) {
+            (Up::OnScreen, Up::OnScreen) => Up::OnScreen,
+            _ => Up::NotThere,
+        };
+        let said = line(&says, lit);
+
         if said != last {
             println!("{said}");
             let _ = std::io::stdout().flush();
@@ -73,8 +80,8 @@ fn main() -> ExitCode {
         // otherwise, and never past the moment the reading is due again.
         let until = due.saturating_duration_since(Instant::now());
         let wait = match up {
-            true => until.min(LOOKING),
-            false => until,
+            Up::OnScreen => until.min(LOOKING),
+            Up::NotThere => until,
         };
 
         let told = match heard.recv_timeout(wait) {
@@ -90,7 +97,7 @@ fn main() -> ExitCode {
 
         if told || Instant::now() >= due {
             says = taken(what, &mut dwindling);
-            up = is_open(SETTINGS);
+            up = asked(SETTINGS, up, &mut quiet);
             due = Instant::now() + tick(what);
         }
     }
@@ -103,12 +110,52 @@ fn main() -> ExitCode {
 /// going, so the same line is drawn and judged rather than read twice.
 fn taken(what: What, dwindling: &mut Watching) -> console_bar::reading::Says {
     let What::Battery = what else { return what.says() };
+
     let said = console_defaults::battery::charge();
     dwindling.seen(&said);
     console_bar::reading::battery(&said)
 }
 
 /// Whether the tab this icon opens is the one the panel is showing.
-fn in_front(what: What) -> bool {
-    tab().is_some_and(|named| named == what.tab())
+///
+/// A note that will not open is not a tab in front. The file is written by the
+/// panel as it changes tabs, so the reading that matters is the one taken when
+/// there is a panel to have tabs, and there is nothing to hold on to between
+/// passes: this is asked beside `is_open`, which has already said whether
+/// anything is up at all.
+fn in_front(what: What) -> Up {
+    let showing = match tab() {
+        Ok(named) => named.is_some_and(|named| named == what.tab()),
+        Err(_) => false,
+    };
+
+    match showing {
+        true => Up::OnScreen,
+        false => Up::NotThere,
+    }
+}
+
+/// What the compositor says is on the screen, keeping the last answer when it
+/// will not say.
+///
+/// A question that could not be asked is not news about the panel. The icon
+/// holds the reading it has rather than going dark because a socket blinked on
+/// a resume -- and it says so once, not once a pass: this is asked several
+/// times a second while a panel is up, and a line each time is a journal
+/// nobody can read.
+fn asked(namespace: &str, before: Up, quiet: &mut bool) -> Up {
+    match is_open(namespace) {
+        Ok(up) => {
+            *quiet = false;
+            up
+        },
+        Err(why) => {
+            if !*quiet {
+                eprintln!("bar-say: the compositor would not say what is up: {why}");
+                *quiet = true;
+            }
+
+            before
+        },
+    }
 }

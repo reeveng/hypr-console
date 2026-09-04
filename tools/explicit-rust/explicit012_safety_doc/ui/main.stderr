@@ -1,0 +1,19 @@
+error: `unsafe { … }` must be preceded by a `// SAFETY: …` comment
+  --> $DIR/main.rs:10:5
+   |
+LL |     unsafe { *p }
+   |     ^^^^^^^^^^^^^
+   |
+   = help: write `// SAFETY: <invariant relied on>` on the line above the block
+   = note: `#[deny(explicit012_safety_doc)]` on by default
+
+error: `unsafe { … }` must be preceded by a `// SAFETY: …` comment
+  --> $DIR/main.rs:37:5
+   |
+LL |     unsafe { *p }
+   |     ^^^^^^^^^^^^^
+   |
+   = help: write `// SAFETY: <invariant relied on>` on the line above the block
+
+error: aborting due to 2 previous errors
+

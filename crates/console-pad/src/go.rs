@@ -26,9 +26,9 @@ use std::time::Duration;
 
 use evdev::{EventType, KeyCode};
 
-use crate::devices::{Devices, Sink};
+use crate::devices::{Devices, Has, Report, Sink};
 use crate::profile::{Kind, Profile, Target};
-use crate::vocabulary;
+use crate::vocabulary::{self, Names};
 
 /// How long a press is held before it is let go.
 pub const PRESS_SECONDS: f64 = 0.02;
@@ -99,6 +99,7 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
             let every: Vec<&str> = self.profiles.keys().map(String::as_str).collect();
             return Err(format!("no profile called {name:?}; there is {}", every.join(", ")));
         }
+
         self.profile = name.to_string();
         Ok(())
     }
@@ -153,12 +154,14 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
     fn button(&mut self, spoken: &str, value: i32) -> Result<(), String> {
         // A trigger is an axis, and holding one is pulling it all the way.
         // Saying "hold l2" is what a person means, so it is what it does.
-        if vocabulary::is_trigger(spoken) {
+        if vocabulary::is_trigger(spoken) == Names::ATrigger {
             return self.trigger(spoken, if value == 0 { 0.0 } else { 1.0 });
         }
+
         let name = vocabulary::button_name(spoken)?;
         let targets: Vec<Target> =
             self.profile().targets_of(spoken)?.into_iter().cloned().collect();
+
         match targets.is_empty() {
             true => self.passthrough(name, value),
             false => targets.iter().try_for_each(|target| self.send(target, value)),
@@ -168,24 +171,34 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
     /// No mapping: the press reaches the pad as itself, if there is a pad.
     fn passthrough(&mut self, name: &str, value: i32) -> Result<(), String> {
         match self.profile().publishes("xbox-elite") {
-            true => self.on_the_pad(name, value),
-            false => Ok(()),
+            Has::Yes => self.on_the_pad(name, value),
+            Has::No => Ok(()),
         }
     }
 
     fn send(&mut self, target: &Target, value: i32) -> Result<(), String> {
         let role = match role_of(target.kind.needs()) {
-            Some(role) if self.profile().publishes(target.kind.needs()) => role,
+            Some(role) if self.profile().publishes(target.kind.needs()) == Has::Yes => role,
             _ => return Ok(()),
         };
+
         if target.kind == Kind::GamepadButton {
             return match self.devices.has(role) {
-                true => self.on_the_pad(&target.name, value),
-                false => Ok(()),
+                Has::Yes => self.on_the_pad(&target.name, value),
+                Has::No => Ok(()),
             };
         }
-        match (target.code(), self.devices.has(role)) {
-            (Some(code), true) => self.emit_key(role, code, value),
+
+        // Only the kinds that arrive as one code are asked for one. A stick
+        // or a pointer is not a thing a button press sends this way and never
+        // was, so it is the silence it always was rather than a fault; a key
+        // or a mouse button whose name is wrong is a profile with a typo in
+        // it, and that one is worth hearing about.
+        match target.kind {
+            Kind::Key | Kind::MouseButton => match self.devices.has(role) {
+                Has::No => Ok(()),
+                Has::Yes => self.emit_key(role, target.code()?, value),
+            },
             _ => Ok(()),
         }
     }
@@ -202,9 +215,10 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
                 0 => 0,
                 _ => end,
             };
-            self.devices.emit("pad", EventType::ABSOLUTE, axis.0, at, true);
+            self.devices.emit("pad", EventType::ABSOLUTE, axis.0, at, Report::Now);
             return Ok(());
         }
+
         match vocabulary::gamepad_code(name) {
             Some(code) => self.emit_key("pad", code, value),
             None => Ok(()),
@@ -212,7 +226,7 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
     }
 
     fn emit_key(&mut self, role: &str, code: KeyCode, value: i32) -> Result<(), String> {
-        self.devices.emit(role, EventType::KEY, code.0, value, true);
+        self.devices.emit(role, EventType::KEY, code.0, value, Report::Now);
         Ok(())
     }
 
@@ -223,13 +237,16 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
         let name = vocabulary::axis_named(which);
         let codes = vocabulary::axis_codes(name)
             .ok_or_else(|| format!("no stick called {which:?}"))?;
-        if !self.profile().publishes("xbox-elite") {
+
+        if self.profile().publishes("xbox-elite") == Has::No {
             return Ok(());
         }
+
         for (code, amount) in [(codes.0, x), (codes.1, y)] {
             let at = self.devices.absolute("pad", code.0, amount)?;
-            self.devices.emit("pad", EventType::ABSOLUTE, code.0, at, false);
+            self.devices.emit("pad", EventType::ABSOLUTE, code.0, at, Report::Later);
         }
+
         self.devices.syn("pad");
         Ok(())
     }
@@ -243,18 +260,20 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
         let name = vocabulary::trigger_named(which);
         let code = vocabulary::trigger_code(name)
             .ok_or_else(|| format!("no trigger called {which:?}"))?;
-        if !self.profile().publishes("xbox-elite") {
+
+        if self.profile().publishes("xbox-elite") == Has::No {
             return Ok(());
         }
+
         let at = self.devices.along("pad", code.0, amount)?;
-        self.devices.emit("pad", EventType::ABSOLUTE, code.0, at, true);
+        self.devices.emit("pad", EventType::ABSOLUTE, code.0, at, Report::Now);
         Ok(())
     }
 
     // -------------------------------------------------------------- touchpad
 
     pub fn touch_down(&mut self, x: i32, y: i32) {
-        self.devices.emit("touchpad", EventType::KEY, KeyCode::BTN_TOUCH.0, 1, false);
+        self.devices.emit("touchpad", EventType::KEY, KeyCode::BTN_TOUCH.0, 1, Report::Later);
         self.touch_at(x, y);
     }
 
@@ -263,12 +282,12 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
     }
 
     pub fn touch_up(&mut self) {
-        self.devices.emit("touchpad", EventType::KEY, KeyCode::BTN_TOUCH.0, 0, true);
+        self.devices.emit("touchpad", EventType::KEY, KeyCode::BTN_TOUCH.0, 0, Report::Now);
     }
 
     /// The pad pressed in, which is a button of its own, not a tap.
     pub fn touch_click(&mut self, value: i32) {
-        self.devices.emit("touchpad", EventType::KEY, KeyCode::BTN_0.0, value, true);
+        self.devices.emit("touchpad", EventType::KEY, KeyCode::BTN_0.0, value, Report::Now);
     }
 
     pub fn tap(&mut self, x: i32, y: i32) {
@@ -279,21 +298,24 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
     /// A finger from one place to another, in as many reports.
     pub fn drag(&mut self, from: (i32, i32), to: (i32, i32), steps: i32, seconds: f64) {
         self.touch_down(from.0, from.1);
+
         for step in 1..=steps {
             self.touch_move(
                 from.0 + (to.0 - from.0) * step / steps,
                 from.1 + (to.1 - from.1) * step / steps,
             );
+
             if seconds > 0.0 {
                 self.clock.wait(seconds / f64::from(steps));
             }
         }
+
         self.touch_up();
     }
 
     fn touch_at(&mut self, x: i32, y: i32) {
-        self.devices.emit("touchpad", EventType::ABSOLUTE, 0, x, false);
-        self.devices.emit("touchpad", EventType::ABSOLUTE, 1, y, false);
+        self.devices.emit("touchpad", EventType::ABSOLUTE, 0, x, Report::Later);
+        self.devices.emit("touchpad", EventType::ABSOLUTE, 1, y, Report::Later);
         self.devices.syn("touchpad");
     }
 
@@ -301,7 +323,7 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
 
     /// Straight onto a device, with no profile in the way.
     pub fn raw(&mut self, role: &str, kind: EventType, code: u16, value: i32) {
-        self.devices.emit(role, kind, code, value, true);
+        self.devices.emit(role, kind, code, value, Report::Now);
     }
 
     pub fn wait(&mut self, seconds: f64) {

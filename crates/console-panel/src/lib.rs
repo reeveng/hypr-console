@@ -10,7 +10,9 @@
 //! and what a button means are arithmetic, and live in modules that have never
 //! heard of GTK. The drawing reads their answers.
 
+pub mod actor;
 pub mod asked;
+pub mod before;
 pub mod chooser;
 
 /// Whether something is on the screen, asked of the compositor.
@@ -23,8 +25,10 @@ pub mod fitting;
 pub mod keys;
 pub mod marks;
 pub mod notes;
+pub mod opening;
 pub mod page;
 pub mod panel;
+pub mod pictures;
 pub mod room;
 pub mod running;
 pub mod shape;

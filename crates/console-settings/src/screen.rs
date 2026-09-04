@@ -92,7 +92,9 @@ pub const DIMMED: i64 = FLOOR;
 /// somebody can see rather than one that stayed dark for a reason nobody can
 /// find.
 pub fn remembered() -> Option<PathBuf> {
-    Some(PathBuf::from(std::env::var("XDG_RUNTIME_DIR").ok()?).join("console-dim"))
+    let Ok(run) = std::env::var("XDG_RUNTIME_DIR") else { return None };
+
+    Some(PathBuf::from(run).join("console-dim"))
 }
 
 /// What to restore, given where the screen is now and what was remembered.
@@ -110,12 +112,30 @@ pub fn undimming(now: i64, was: i64) -> Option<i64> {
 
 /// What the screen is now, or nothing on a machine with another panel in it.
 pub fn now() -> Option<i64> {
-    std::fs::read_to_string(at()).ok()?.trim().parse().ok()
+    let Ok(said) = std::fs::read_to_string(at()) else { return None };
+
+    let Ok(now) = said.trim().parse::<i64>() else { return None };
+
+    Some(now)
 }
 
 /// Move it, and say whether the machine let us.
-pub fn set(to: i64) -> bool {
-    std::fs::write(at(), format!("{to}\n")).is_ok()
+pub fn set(to: i64) -> Moved {
+    // Nothing said here: `Moved::No` is the sentence, and every caller of this
+    // is already deciding what to do about it.
+    match std::fs::write(at(), format!("{to}\n")) {
+        Ok(()) => Moved::Yes,
+        Err(_) => Moved::No,
+    }
+}
+
+/// Whether the machine let the brightness be moved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Moved {
+    /// It took the number.
+    Yes,
+    /// It would not, which on this device means the file is not writable.
+    No,
 }
 
 #[cfg(test)]

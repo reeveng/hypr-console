@@ -250,6 +250,12 @@ still told, and stock wvkbd has no way of being told anything: its whole
 outside is one signal that toggles it. A keyboard that takes a direction from
 somewhere else is a keyboard that was changed to take one.
 
+That is still the argument and it no longer needs a fork to be the answer to.
+The keyboard is ours, so it reads the pad because it was written to, in
+`console_pad::vocabulary`'s words rather than in kernel codes. What has not
+changed is the consequence below: a keyboard that reads a pad needs the pad
+routed to it, which is the profile.
+
 Two things it does not buy, said plainly.
 
 InputPlumber stays. It grabs the Legion Go's real devices and normalises them
@@ -303,24 +309,26 @@ on a profile nothing was listening to; a keyboard that dies now takes its layer
 off the screen, the compositor says so, and the daemon puts the pad where the
 screen says it belongs.
 
-What is not in is the part the fork holds. Raising the keyboard is a job like
-any other now: X arrives at the daemon as a key `wvkbd-mobintl` cannot see, and
-the daemon runs `osk`. Putting it away is still the fork's, because while the
-keyboard is up it reads the pad itself and the daemon acts on nothing, so the
-second press reaches the fork as the pad button it always was. One button, two
-programs, and neither of them ever acting on the same press.
+What is not in is the part the keyboard holds. Raising it is a job like any
+other: X arrives at the daemon as a key the keyboard cannot see, and the daemon
+runs `keyboard-toggle`. Putting it away is the keyboard's, because while it is
+up it reads the pad itself and the daemon acts on nothing, so the second press
+reaches it as the pad button it always was. One button, two programs, and
+neither of them ever acting on the same press -- which is the one thing here
+that has to be pressed rather than read about, and `todos.md` says so.
 
 The profile is still switched when the keyboard opens, and that is the one
-switch left. wvkbd needs raw d-pad events off the gamepad target to move
+switch left. The keyboard needs raw d-pad events off the gamepad target to move
 between keys, and under the profile the desktop wears the d-pad is routed to
 the daemon instead. Opening a menu used to cost a switch too, several times a
 minute; that is gone, and this one happens when a person asks for a keyboard
 and can afford the beat.
 
-So the last profile switch, and the last of the shell, rest on one binary that
-no other repository can reach. That is the decision this document keeps
-arriving at from different directions, and it is the one thing here nobody can
-route around.
+So the last profile switch used to rest on one binary that no other repository
+could reach, and that was the decision this document kept arriving at from
+different directions. The binary is ours now. The switch is not gone with it --
+it is a function of reading a pad, not of who wrote the reader -- and what is
+left of it is `todos.md`'s claim crate.
 
 ## Everything in Rust, and the four things that are not ours
 
@@ -355,12 +363,17 @@ meaning what the guide says it means fails on a laptop.
 someone else's ninety lines to be ours is how a carried file quietly becomes a
 fork nobody remembers maintaining.
 
-**`wvkbd-mobintl` is the one that is not fine.** It is a compiled binary in
-`files/`, built from a C fork that lives on the laptop and nowhere else.
-Everything else on this device can be rebuilt from what is written down; this
-cannot be rebuilt from anything but that one directory, and it is holding the X
-button. Four ways out, and any of them is better than what
-there is.
+**`wvkbd-mobintl` was the one that was not fine, and it is now ours.** It was a
+compiled binary in `files/`, built from a C fork that lived on the laptop and
+nowhere else: everything else on this device could be rebuilt from what is
+written down, and this could be rebuilt from nothing but that one directory,
+while holding the X button.
+
+It is a Rust program in `crates/keyboard`, in `[build]` like every other program
+here, and the device compiles it. Which is the third of the four ways out below
+-- the one this section argued against, on a premise that was wrong. The four
+are left standing because the argument is worth having in front of you, and the
+correction is written where the mistake was made.
 
 Bring the fork's source into this tree, so `console apply` builds it like every
 other program and the button contract is written down where it can be read.
@@ -374,11 +387,11 @@ to listen, which is bringing the fork into the tree with more work attached.
 Write our own keyboard, in Rust. Everything except the typing is already here
 and used by five other surfaces -- gtk4, gtk4-layer-shell and cairo for the
 drawing, `console-colour` for the palette `console-keyboard` currently launders
-into wvkbd's argv.
+into wvkbd's argv. **This is the one that was taken.**
 
 Bring the source in and take `gamepad.c` out of it, leaving a small socket to
-be told on. This is the one to take, and the rest of this section is why the
-third looks better than it is.
+be told on. This was the one preferred here, and the rest of this section is
+why -- with the correction that undid it marked where it belongs.
 
 **Thai is the thing that decides it.** She writes Thai and the on-screen
 keyboard is the only keyboard this device has, which
@@ -400,6 +413,24 @@ keyboard nobody is holding, or writing raw Wayland protocol -- and
 `gtk4-layer-shell` is not a precedent for that, being a C library called
 through bindings rather than protocol written here.
 
+**And that is where this was wrong, in one word: "ours" was read as "uinput".**
+Nothing made a keyboard of ours a uinput device. `zwp_virtual_keyboard_v1` is a
+Wayland protocol and not a wvkbd feature, and a Rust client of it uploads its
+own keymap exactly as the C one does -- `wayland-protocols-misc` has the
+bindings, so it is a generated interface rather than protocol written by hand,
+and `gtk4-layer-shell` was never the precedent that mattered. The keyboard here
+is a `wayland-client` of it, and it is the reason this is not a uinput device.
+
+The twelve thousand lines were not needed either, and this is the part that was
+hardest to see from where the argument was standing. `keymap.mobintl.h` carries
+eight layouts because wvkbd ships its keymaps; there was no reason for a
+keyboard of ours to. `xkbcommon` composes one from the symbols the system
+already has, so Thai is a layer because `th` is in `/usr/share/X11/xkb/symbols`,
+and adding Russian is the word `cyrillic` on the unit's command line rather
+than a table in this repository. Twelve thousand lines of keymap data was the
+single largest number in the case against writing our own, and it was a cost
+that did not have to be paid at all.
+
 **The fourth costs less and buys more.** The fork's reason for reading the pad
 is real and any keyboard here inherits it: a layer surface that took keyboard
 focus would stop a real keyboard typing into the window underneath. But the
@@ -411,13 +442,19 @@ else sees the presses, and let go when the keyboard goes. Told over a socket
 what the presses came to, the keyboard needs no pad and no profile, and the
 profile and its YAML go.
 
-So: the source comes in and is built by `console apply` like everything else,
-`gamepad.c` goes, and a socket arrives. That is net less C than there is today,
-in a repository, and it keeps the eight layouts and the Thai check that already
-passes. Every argument points the same way, which none of the other three
-manage.
+So the plan was: the source comes in and is built by `console apply` like
+everything else, `gamepad.c` goes, and a socket arrives.
 
-### What the fork actually is, and what internalising it costs
+What happened instead is that the third was taken once the Thai objection fell,
+and it went further than the plan in the direction the plan wanted. There is no
+C on the device and no socket, because there is no second program to be told
+anything: the keyboard reads the pad itself in `gamepad.rs`, in
+`console_pad::vocabulary`'s words, which is the same table the daemon reads
+buttons out of rather than a second copy of it. The one part of the plan that
+is still owed is the part that was never about the fork -- the `keyboard`
+profile, and the pad rebuild that a profile load is. See `todos.md`.
+
+### What the fork actually was, and what internalising it cost
 
 The fork is not the loose pile of C this document has twice called it. It is a
 clone of upstream with seven commits on top and a clean tree:
@@ -454,6 +491,11 @@ means teaching `console-publish` a source exclusion beside the binary one, and
 `the_forks_are_not_carried` has to cover it. That is real work, it belongs in
 the plan, and it must not be discovered at publish time.
 
+Done, and it is `FORK_SOURCES` in `tree.rs`. It went in with the source rather
+than after it, which is the only reason it was never discovered at publish time.
+`FORKS` lost the keyboard binary in the same commit and kept `hyprsession`: a
+program the device builds from this workspace is this repository's to publish.
+
 Written into that exclusion, plainly: it is enforcing a decision, not a law.
 GPL-3.0 does not forbid publishing this source, it forbids relicensing it, and
 GPL C in an MIT repository is fine as long as that subtree keeps its own
@@ -463,26 +505,29 @@ machinery were a compliance gate -- the next person to read it will be afraid
 to touch it, and will not change it when the choice changes.
 
 **`console apply` would have to build C.** It runs cargo today and that is all
-it runs.
+it runs. Settled by not needing to: the keyboard is a crate, the C it was ported
+from has gone, and an apply has no C to compile.
 
 **`docs/forks.md` is not missing, and must not be written by hand.** It is
 generated at publish from `crates/console-publish/papers/forks.md`, so it
 exists in the public copy and nowhere else -- which is exactly the reader
 `the_keyboard.rs` addresses in that skip message, since the public copy carries
 neither the keyboard nor the answer it would give. A hand-written one here
-would collide with the generated one. What is wrong with it is its contents: it
-tells a reader to clone upstream and `make wvkbd-mobintl`, which builds a
-keyboard with neither the Thai layer nor the X binding, and says nothing about
-the seven patches not being published. That is a live fault in published
-documentation rather than a plan-dependent one, and the file to edit is
-`papers/forks.md`.
+would collide with the generated one. What was wrong with it was its contents:
+it told a reader to clone upstream and `make wvkbd-mobintl`, which builds a
+keyboard with neither the Thai layer nor the X binding, and said nothing about
+the seven patches not being published. That was a live fault in published
+documentation rather than a plan-dependent one. Fixed in `papers/forks.md`,
+which now says the keyboard is this repository's own and that the wvkbd source
+kept beside it has since gone.
 
-**Whoever draws owns the answer to "is it up".** `osk` is seven lines and
-stateless because wvkbd answers it, and its comment records an earlier version
-that kept the answer in a file and guessed wrong every other press. A socket
-makes it tempting for the daemon to track visibility so it knows when to grab.
-It should not; that is the ownerless variable this whole rework is about,
-arriving by a new road.
+**Whoever draws owns the answer to "is it up".** `keyboard-toggle` is one line
+and stateless because the keyboard answers it, and the comment above it records
+an earlier version that kept the answer in a file and guessed wrong every other
+press. Anything that lets a program be told what to do makes it tempting for the
+daemon to track visibility so it knows when to grab. It should not; that is the
+ownerless variable this whole rework is about, arriving by a new road. The
+daemon reads it off the compositor, which is what `Mode::seen` is.
 
 ## What is not reworked
 
@@ -520,8 +565,10 @@ until the last one is off it.
 Ten of the thirteen are done: the three that raise a notification, the four
 knobs, the two ways to a session and the one that starts it, and the keyboard's
 colours. `osk-hook` is not among them: it was not converted, it was deleted,
-which was the right end for it. What is left is `osk` and `controller-profile`,
-fifty-five lines, and both are held on the same thing -- the fork.
+which was the right end for it. `osk` went the same way, into the keyboard that
+now answers the signal it sent. What is left is `keyboard-toggle` and
+`controller-profile`, and both are held on the same thing -- the profile, and
+so the claim crate in `todos.md`.
 
 Three things the conversion turned up that no test could have asked for while
 they were scripts. `grim` is not in `[packages]` and never has been -- the
@@ -547,6 +594,13 @@ compiled binary carried in `files/` whose source is a C fork on the laptop,
 reachable from nothing here. `gamepad_read`, `GamepadToggle`, `gamepad_lost` and
 `gamepad_alive` are all in it. It finds the pad in `/dev/input` and opens it
 itself.
+
+*Written before the port, and left as the description of the fault it is about.*
+The keyboard is `crates/keyboard` now and `gamepad.rs` is where those four
+functions went, in Rust and testable without a pad in the room. The race below
+is unchanged: it is about two programs opening one device with nothing said
+about the order, and rewriting one of them in a language you can ask questions
+of does not settle who opens what first.
 
 So the pad is a resource two programs use and neither owns, and they are started
 with nothing said about the order:

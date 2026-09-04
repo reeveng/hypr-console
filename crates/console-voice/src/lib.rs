@@ -63,21 +63,33 @@ pub const THREADS: &str = "12";
 
 /// Where a thing lives that is gone at logout.
 fn runtime() -> PathBuf {
-    let said = std::env::var("XDG_RUNTIME_DIR").unwrap_or_default();
-    let at = match said.is_empty() {
-        true => "/tmp".to_string(),
-        false => said,
+    // Unset, empty, and set to something that is not text are one answer: a
+    // session with nowhere of its own for a thing that dies at logout, which
+    // is what /tmp is for below. Said nothing about on purpose -- this is
+    // asked on every press, and a line per press is a journal nobody reads.
+    let at = match std::env::var("XDG_RUNTIME_DIR") {
+        Ok(said) if !said.is_empty() => said,
+        _ => "/tmp".to_string(),
     };
     Path::new(&at).join("console").join("voice")
 }
 
 /// Where a thing lives that outlives a session.
 fn kept() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    let share = std::env::var("XDG_DATA_HOME")
-        .ok()
-        .filter(|said| !said.is_empty())
-        .unwrap_or_else(|| format!("{home}/.local/share"));
+    // The same reading as `runtime` above, and the same silence, for the same
+    // reason. The model is tens of megabytes and is kept under a home; with no
+    // home to keep it under, /tmp means it is fetched again after a reboot,
+    // which is slow and is not wrong.
+    let home = match std::env::var("HOME") {
+        Ok(home) => home,
+        Err(_) => "/tmp".to_string(),
+    };
+
+    let share = match std::env::var("XDG_DATA_HOME") {
+        Ok(said) if !said.is_empty() => said,
+        _ => format!("{home}/.local/share"),
+    };
+
     Path::new(&share).join("console").join("voice")
 }
 
@@ -127,8 +139,18 @@ pub fn taken(recorder: u32, press: u32) -> String {
 /// and then hear silence.
 pub fn told_by(note: &str) -> Option<(i32, u32)> {
     let mut words = note.split_whitespace();
-    let recorder = words.next()?.parse().ok()?;
-    let press = words.next()?.parse().ok()?;
+
+    // A word that is not a number is a note this does not understand, which is
+    // what `None` says here. Naming the parse failure would buy nothing: the
+    // note is refused either way, and the caller goes on to record afresh.
+    let Ok(recorder) = words.next()?.parse() else {
+        return None;
+    };
+
+    let Ok(press) = words.next()?.parse() else {
+        return None;
+    };
+
     Some((recorder, press))
 }
 
@@ -288,7 +310,10 @@ pub fn fetching(into: &Path) -> Vec<String> {
 /// Twenty milliseconds at the rate the recording is made. Long enough to have
 /// a level worth measuring and short enough that a gap between two words is
 /// several of them.
-const FRAME: usize = 320;
+/// Written as a `u16` so both the length and the divisor below come from
+/// this one number: `usize::from` and `f32::from` are both exact from here,
+/// and neither direction needs a cast.
+const FRAME: u16 = 320;
 
 /// What a recording sounds like: the quiet of it, and the loud of it.
 ///
@@ -314,16 +339,19 @@ pub struct Level {
 /// can be measured in a test without a room.
 pub fn level(wav: &[u8]) -> Level {
     let Some(sound) = data(wav) else { return Level::default() };
+
     let mut frames: Vec<f32> = sound
         .chunks_exact(2)
         .map(|pair| f32::from(i16::from_le_bytes([pair[0], pair[1]])) / 32768.0)
         .collect::<Vec<f32>>()
-        .chunks_exact(FRAME)
-        .map(|frame| (frame.iter().map(|one| one * one).sum::<f32>() / FRAME as f32).sqrt())
+        .chunks_exact(usize::from(FRAME))
+        .map(|frame| (frame.iter().map(|one| one * one).sum::<f32>() / f32::from(FRAME)).sqrt())
         .collect();
+
     if frames.len() < ENOUGH {
         return Level::default();
     }
+
     frames.sort_by(f32::total_cmp);
     Level { middle: frames[frames.len() / 2], loud: frames[frames.len() * 9 / 10] }
 }
@@ -333,17 +361,31 @@ fn data(wav: &[u8]) -> Option<&[u8]> {
     if wav.len() < 12 || &wav[..4] != b"RIFF" || &wav[8..12] != b"WAVE" {
         return None;
     }
+
     let mut at = 12;
+
     while at + 8 <= wav.len() {
         let kind = &wav[at..at + 4];
-        let long = u32::from_le_bytes([wav[at + 4], wav[at + 5], wav[at + 6], wav[at + 7]]) as usize;
+
+        let Ok(long) = usize::try_from(u32::from_le_bytes([
+            wav[at + 4],
+            wav[at + 5],
+            wav[at + 6],
+            wav[at + 7],
+        ])) else {
+            return None;
+        };
+
         let from = at + 8;
         let to = from.saturating_add(long).min(wav.len());
+
         if kind == b"data" {
             return Some(&wav[from..to]);
         }
+
         at = from + long + (long & 1);
     }
+
     None
 }
 
@@ -378,9 +420,24 @@ pub const LOUD: f32 = 0.20;
 /// either above a real sentence at the quiet end or below an empty room at the
 /// loud end. What does not move is that a room is the same all the way through
 /// and a person is not.
-pub fn anything_said(wav: &[u8]) -> bool {
+pub fn anything_said(wav: &[u8]) -> Heard {
     let heard = level(wav);
-    (heard.loud > 0.0 && heard.loud >= heard.middle * SPEAKS) || heard.middle >= LOUD
+    let spoke =
+        (heard.loud > 0.0 && heard.loud >= heard.middle * SPEAKS) || heard.middle >= LOUD;
+
+    match spoke {
+        true => Heard::Something,
+        false => Heard::Nothing,
+    }
+}
+
+/// Whether a recording has a voice in it or only a room.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Heard {
+    /// Somebody spoke, so it is worth handing to whisper.
+    Something,
+    /// It is a room, and whisper would answer a room with a sentence.
+    Nothing,
 }
 
 /// What was heard, as a person would have typed it.
@@ -398,15 +455,27 @@ pub fn tidy(heard: &str) -> String {
         .lines()
         .map(str::trim)
         .filter(|line| !line.is_empty())
-        .filter(|line| !is_a_noise(line))
+        .filter(|line| is_a_noise(line) == Line::Spoken)
         .collect();
     plainly(&words.join(" ").split_whitespace().collect::<Vec<&str>>().join(" "))
 }
 
 /// Whether a line is whisper describing the room rather than quoting it.
-fn is_a_noise(line: &str) -> bool {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Line {
+    /// A note about the room, in brackets or between stars.
+    TheRoom,
+    /// Something somebody said.
+    Spoken,
+}
+
+fn is_a_noise(line: &str) -> Line {
     let bracketed = |open: char, close: char| line.starts_with(open) && line.ends_with(close);
-    bracketed('[', ']') || bracketed('(', ')') || bracketed('*', '*')
+
+    match bracketed('[', ']') || bracketed('(', ')') || bracketed('*', '*') {
+        true => Line::TheRoom,
+        false => Line::Spoken,
+    }
 }
 
 /// How many words a thing can be and still be a name rather than a sentence.
@@ -435,13 +504,14 @@ pub fn plainly(said: &str) -> String {
     if spoken(said) > SHORT {
         return said.to_string();
     }
+
     let letters: Vec<char> = said.chars().collect();
     let bare: String = letters
         .iter()
         .enumerate()
         .map(|(at, one)| match is_a_word(*one, &letters, at) {
-            true => *one,
-            false => ' ',
+            Letter::OfAWord => *one,
+            Letter::AMark => ' ',
         })
         .collect();
     bare.split_whitespace().collect::<Vec<&str>>().join(" ")
@@ -459,13 +529,20 @@ pub fn plainly(said: &str) -> String {
 /// A mark is turned into a space rather than deleted, so that what was on both
 /// sides of it stays two words. "one, two" is not "one,two" with the comma
 /// gone.
-fn is_a_word(one: char, said: &[char], at: usize) -> bool {
-    if one.is_alphanumeric() || one.is_whitespace() || is_upon_a_letter(one) {
-        return true;
+fn is_a_word(one: char, said: &[char], at: usize) -> Letter {
+    if one.is_alphanumeric() || one.is_whitespace() || is_upon_a_letter(one) == Letter::OfAWord {
+        return Letter::OfAWord;
     }
+
     let letter = |one: Option<&char>| one.is_some_and(|one| one.is_alphanumeric());
     let inside_a_word = at > 0 && letter(said.get(at - 1)) && letter(said.get(at + 1));
-    matches!(one, '\'' | '\u{2019}' | '-') && (inside_a_word || starts_a_word(said, at))
+    let kept = matches!(one, '\'' | '\u{2019}' | '-')
+        && (inside_a_word || starts_a_word(said, at) == Letter::OfAWord);
+
+    match kept {
+        true => Letter::OfAWord,
+        false => Letter::AMark,
+    }
 }
 
 /// Whether an apostrophe is the front of a word rather than a quote around one.
@@ -481,11 +558,25 @@ fn is_a_word(one: char, said: &[char], at: usize) -> bool {
 /// keeps `'s` and leaves the mark on `'hello'`, which is the way round that
 /// matters, because one of the two is a word somebody said and the other is a
 /// mark nobody dictated.
-fn starts_a_word(said: &[char], at: usize) -> bool {
+fn starts_a_word(said: &[char], at: usize) -> Letter {
     let boundary = |one: Option<&char>| one.is_none_or(|one| !one.is_alphanumeric());
-    boundary(said.get(at.wrapping_sub(1)).filter(|_| at > 0))
+    let opens = boundary(said.get(at.wrapping_sub(1)).filter(|_| at > 0))
         && said.get(at + 1).is_some_and(|one| one.is_alphabetic())
-        && boundary(said.get(at + 2))
+        && boundary(said.get(at + 2));
+
+    match opens {
+        true => Letter::OfAWord,
+        false => Letter::AMark,
+    }
+}
+
+/// Whether a character is part of what was said, or a mark to be dropped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Letter {
+    /// It stays.
+    OfAWord,
+    /// It becomes a space, so what was either side of it stays two words.
+    AMark,
 }
 
 /// Whether a character is a mark that stands on a letter rather than beside it.
@@ -501,8 +592,14 @@ fn starts_a_word(said: &[char], at: usize) -> bool {
 /// It is every short thing said in Thai, which is what this paddle is mostly
 /// pressed for, failing in the way that is hardest to see: something arrives,
 /// it is in the right script, and it is not what was said.
-fn is_upon_a_letter(one: char) -> bool {
-    ('\u{0e31}'..='\u{0e3a}').contains(&one) || ('\u{0e47}'..='\u{0e4e}').contains(&one)
+fn is_upon_a_letter(one: char) -> Letter {
+    let upon = ('\u{0e31}'..='\u{0e3a}').contains(&one)
+        || ('\u{0e47}'..='\u{0e4e}').contains(&one);
+
+    match upon {
+        true => Letter::OfAWord,
+        false => Letter::AMark,
+    }
 }
 
 /// How many words were said.
@@ -515,12 +612,25 @@ fn is_upon_a_letter(one: char) -> bool {
 /// right order of magnitude, and what this number is asked is only which side
 /// of a line it falls.
 fn spoken(said: &str) -> usize {
-    said.split_whitespace().map(|word| word.chars().filter(unspaced).count().max(1)).sum()
+    said.split_whitespace()
+        .map(|word| word.chars().filter(|one| unspaced(one) == Script::Unspaced).count().max(1))
+        .sum()
 }
 
 /// Whether a character belongs to a script that puts no spaces in.
-fn unspaced(one: &char) -> bool {
-    ('\u{0e00}'..='\u{0e7f}').contains(one)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Script {
+    /// Written without spaces, so its characters count for themselves.
+    Unspaced,
+    /// Written with them, so its gaps are what a word count is made of.
+    Spaced,
+}
+
+fn unspaced(one: &char) -> Script {
+    match ('\u{0e00}'..='\u{0e7f}').contains(one) {
+        true => Script::Unspaced,
+        false => Script::Spaced,
+    }
 }
 
 #[cfg(test)]
@@ -737,7 +847,7 @@ mod tests {
         let mut wav = a_wav(&a_sentence(300, 9000));
         let extra = b"LIST\x04\x00\x00\x00abcd";
         wav.splice(12..12, extra.iter().copied());
-        assert!(anything_said(&wav));
+        assert_eq!(anything_said(&wav), Heard::Something);
     }
 
     /// Nothing that is not a recording is a sentence.
@@ -745,15 +855,15 @@ mod tests {
     fn what_is_not_a_recording_is_not_a_sentence() {
         assert_eq!(level(b""), Level::default());
         assert_eq!(level(b"this is not a wav at all"), Level::default());
-        assert!(!anything_said(b""));
+        assert_eq!(anything_said(b""), Heard::Nothing);
     }
 
     /// The point of the guard: whisper answers an empty room with "Thank you."
     #[test]
     fn a_room_with_nobody_in_it_is_not_asked_about() {
-        assert!(!anything_said(&a_wav(&a_room(0))));
-        assert!(!anything_said(&a_wav(&a_room(300))));
-        assert!(!anything_said(&a_wav(&a_sentence(300, 400))));
+        assert_eq!(anything_said(&a_wav(&a_room(0))), Heard::Nothing);
+        assert_eq!(anything_said(&a_wav(&a_room(300))), Heard::Nothing);
+        assert_eq!(anything_said(&a_wav(&a_sentence(300, 400))), Heard::Nothing);
     }
 
     /// The measured thing: the same room at four gains, and the same sentence.
@@ -764,21 +874,29 @@ mod tests {
             // Capped, because a room already at a tenth of full scale leaves
             // nowhere for a voice eight times louder to go.
             let voice = (i32::from(level) * 8).min(30_000) as i16;
-            assert!(!anything_said(&a_wav(&a_room(level))), "{level} is a room");
-            assert!(anything_said(&a_wav(&a_sentence(level, voice))), "{level} is spoken");
+            assert_eq!(
+                anything_said(&a_wav(&a_room(level))),
+                Heard::Nothing,
+                "{level} is a room"
+            );
+            assert_eq!(
+                anything_said(&a_wav(&a_sentence(level, voice))),
+                Heard::Something,
+                "{level} is spoken"
+            );
         }
     }
 
     /// Somebody talking without drawing breath is flat, and still speech.
     #[test]
     fn talking_all_the_way_through_is_talking() {
-        assert!(anything_said(&a_wav(&a_room(9000))));
+        assert_eq!(anything_said(&a_wav(&a_room(9000))), Heard::Something);
     }
 
     /// Two presses a moment apart are a thumb slipping.
     #[test]
     fn a_recording_too_short_to_have_a_middle_is_nothing_said() {
-        assert!(!anything_said(&a_wav(&a_room(9000)[..1000])));
+        assert_eq!(anything_said(&a_wav(&a_room(9000)[..1000])), Heard::Nothing);
     }
 
     /// Pointed at the graphics card, and built as one file.

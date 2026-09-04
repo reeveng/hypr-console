@@ -26,5 +26,14 @@
 
   "web_accessible_resources": ["pad.css", "palette.css"],
 
-  "chrome_url_overrides": { "newtab": "new.html" }
+  "chrome_url_overrides": { "newtab": "new.html" },
+
+  "chrome_settings_overrides": { "homepage": "new.html" },
+
+  "experiment_apis": {
+    "around": {
+      "schema": "around.json",
+      "parent": { "scopes": ["addon_parent"], "script": "around.js", "paths": [["around"]] }
+    }
+  }
 }

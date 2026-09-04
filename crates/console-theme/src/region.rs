@@ -27,6 +27,7 @@ pub fn spliced(held: &str, body: &str) -> Option<String> {
         [at] => Some(*at),
         _ => None,
     };
+
     match (only(BEGIN), only(END)) {
         (Some(begin), Some(end)) if begin < end => Some(format!(
             "{}{}\n{}",

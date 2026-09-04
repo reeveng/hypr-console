@@ -35,6 +35,7 @@ pub fn keep(program: &str, title: &str) {
     if title.is_empty() || last(program).as_deref() == Some(title) {
         return;
     }
+
     notes::write(program, TAB, &format!("{title}\n"));
 }
 

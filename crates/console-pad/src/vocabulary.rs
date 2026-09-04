@@ -172,8 +172,24 @@ pub fn trigger_named(spoken: &str) -> &str {
 }
 
 /// Whether what was said is a trigger rather than a button.
-pub fn is_trigger(spoken: &str) -> bool {
-    found(&TRIGGERS, spoken).is_some()
+pub fn is_trigger(spoken: &str) -> Names {
+    match found(&TRIGGERS, spoken).is_some() {
+        true => Names::ATrigger,
+        false => Names::AButton,
+    }
+}
+
+/// Whether a word names a trigger or a button.
+///
+/// The two are read differently everywhere -- a trigger picks a layer and a
+/// button plays a job on one -- so which of them a word is decides what
+/// happens next rather than being a detail about the word.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Names {
+    /// One of `TRIGGERS`, which chooses a layer.
+    ATrigger,
+    /// Anything else, which plays a job.
+    AButton,
 }
 
 /// `KeyPageUp` as the kernel's KEY_PAGEUP.

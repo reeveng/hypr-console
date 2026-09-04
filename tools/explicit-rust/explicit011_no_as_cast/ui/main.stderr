@@ -1,0 +1,11 @@
+error: `as` cast is forbidden
+  --> $DIR/main.rs:6:5
+   |
+LL |     x as i32
+   |     ^^^^^^^^
+   |
+   = help: use `From` / `TryFrom` for value types; `pointer::cast`, `&raw const`, `&raw mut` for pointers
+   = note: `#[deny(explicit011_no_as_cast)]` on by default
+
+error: aborting due to 1 previous error
+

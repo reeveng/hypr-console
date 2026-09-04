@@ -9,7 +9,7 @@
 use evdev::{AbsoluteAxisCode, InputEvent};
 use console_controller::finding::Says;
 use console_controller::reading::Ranges;
-use console_controller::turning::{Gone, Plugged};
+use console_controller::turning::{Gone, Plugged, Took};
 use console_pad::capture::Descriptor;
 use console_pad::devices::Devices;
 use console_pad::world::{Device, World};
@@ -43,12 +43,16 @@ impl Plugged for Plug<'_> {
             .collect()
     }
 
-    fn open(&mut self, path: &str) -> bool {
-        self.devices.sink.role_at(path).is_some()
+    fn open(&mut self, path: &str) -> Took {
+        match self.devices.sink.role_at(path).is_some() {
+            true => Took::Held,
+            false => Took::Refused,
+        }
     }
 
     fn ranges(&self, path: &str) -> Ranges {
         let Some(told) = self.descriptor(path) else { return Ranges::default() };
+
         Ranges {
             stick: told.axis(AbsoluteAxisCode::ABS_RX.0).map_or(1, |axis| axis.span()),
             trigger: told
@@ -61,6 +65,7 @@ impl Plugged for Plug<'_> {
         let Some(role) = self.devices.sink.role_at(path).map(str::to_string) else {
             return Err(Gone);
         };
+
         Ok(self.devices.sink.devices.get_mut(&role).map(Device::drain).unwrap_or_default())
     }
 }

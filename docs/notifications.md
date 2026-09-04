@@ -158,6 +158,48 @@ and a ten second tick sits under that as the net. The compositor is watched
 beside it, because the bell lights while its own panel is in front and nothing
 else says when that changed.
 
+## The strip
+
+Four pixels under the bar, the width of the screen, the colour of the bar. It
+fills from the left while `console apply` runs and is invisible the rest of the
+time.
+
+It exists because a card cannot answer the one question an apply raises. An
+apply is minutes -- pacman, a release build of every program on the machine,
+sixty files, two profiles, a dozen services -- and the card that goes up says
+one is running and then says the same sentence for the whole of it. Somebody
+standing over the device is not asking what it is doing; the lines already say
+that. They are asking whether to keep standing there.
+
+The fill is weighted rather than counted. `going.rs` holds what share of an
+apply each of the thirteen stretches usually is, and the build is 62 of the
+hundred on its own. A strip that moved a thirteenth per stretch would sit near
+the left through the minutes of the build and then jump to the end, which is a
+strip that lies twice. Weighted, it crawls at the start, where the time is, and
+runs at the finish, where there is nothing left to wait for. `CONSOLE_TIMINGS=1
+console apply` prints what each stretch actually took, which is how the numbers
+are corrected.
+
+Nothing polls it. The engine writes `/run/console/updating` and signals waybar
+once a stretch -- thirteen wake-ups across a whole apply, and none at all on a
+desktop where nothing is being applied. The engine is root's and the bar is
+hers, so a file under `/run` and a real-time signal are the only things that
+cross between them.
+
+It is a second waybar bar rather than a module on the first, because it runs
+the width of the screen and nothing on a bar does that. waybar has no progress
+widget of any kind: a custom module hands over text, a tooltip and a class, and
+the class is all the stylesheet gets. So `bar-updating` sends `at-0` through
+`at-100` in fives and `style.css` has a rule for each, filling a gradient to
+that mark. Two lists in two languages, held together by
+`every_step_the_bar_can_send_is_one_the_style_paints`.
+
+The four pixels are bought rather than taken: they are reserved whether an
+apply is running or not. A strip that appeared only during one would shove
+every window on the screen down and back again, and one that reserved nothing
+would sit on top of the bar instead of under it. Idle, it is the same colour as
+the bar above it, so what it reads as is the bar being four pixels taller.
+
 ## The panel
 
 `notices-panel`, and it is the same card as the settings and the files:

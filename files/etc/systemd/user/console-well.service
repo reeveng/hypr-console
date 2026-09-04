@@ -1,0 +1,23 @@
+[Unit]
+Description=Check this machine is the way it was left
+PartOf=console.target
+# After the pieces it asks about, so a unit that is still starting is not
+# reported as one that did not. The timer is what actually spaces this out; this
+# only settles the order if both are pulled in at once.
+After=console-controller.service console-bar.service console-sky.service
+
+[Service]
+Type=oneshot
+# The leading dash on purpose. `console well` exits non-zero when it finds
+# something, and that is an answer rather than a failure of this unit: without
+# the dash systemd marks the unit failed, `console-fell` raises a second card
+# saying the fault-finder fell over, and the real card is the one underneath it.
+ExecStart=-/usr/local/bin/console well
+# No ExecStopPost=console-fell here, for the same reason. A oneshot that has
+# finished is a oneshot that has finished.
+
+# No [Install]. The timer is what pulls this in, and it is the only thing that
+# should: enabled on its own it would also be a unit the manifest names and
+# therefore a unit `console well` asks about, and a oneshot that has finished is
+# `inactive` -- so it would find itself down at every hour and raise a card
+# about the program that raised it.

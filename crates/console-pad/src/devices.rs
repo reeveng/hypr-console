@@ -5,6 +5,8 @@
 //! inside one test. The arithmetic that turns a push into a number is here and
 //! not in either of them, so both answer the same.
 
+
+use console_number::whole_i32;
 use std::collections::BTreeMap;
 
 use evdev::EventType;
@@ -12,14 +14,44 @@ use evdev::EventType;
 use crate::capture::{Axis, Descriptor};
 
 /// Somewhere an event can be written.
+/// Whether a thing is among the things there are.
+///
+/// One type for every membership question in this crate -- a role with a
+/// device behind it, a button a pad can send, a key a device claims. They are
+/// all the same question and a reader who learns it once has learnt it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Has {
+    /// It is there.
+    Yes,
+    /// It is not.
+    No,
+}
+
+/// Whether one event ends the frame.
+///
+/// Every event a device sends belongs to a frame, and the reader only acts on
+/// a frame once it is reported complete. Most calls send one event and end it;
+/// the ones that build a frame out of several say so.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Report {
+    /// End the frame here, which is what a single event wants.
+    Now,
+    /// Hold it open, because more of this frame is coming.
+    Later,
+}
+
 pub trait Sink {
     /// Where the kernel put it, which is how a daemon is pointed at it.
     fn path(&self, role: &str) -> Option<String>;
+
     fn write(&mut self, role: &str, kind: EventType, code: u16, value: i32);
+
     fn syn(&mut self, role: &str);
+
     fn close(&mut self);
+
     /// Whether this is one of the devices there are.
-    fn has(&self, role: &str) -> bool;
+    fn has(&self, role: &str) -> Has;
 }
 
 /// The devices, and what each one is.
@@ -33,7 +65,7 @@ impl<S: Sink> Devices<S> {
         Devices { descriptors, sink }
     }
 
-    pub fn has(&self, role: &str) -> bool {
+    pub fn has(&self, role: &str) -> Has {
         self.sink.has(role)
     }
 
@@ -49,9 +81,10 @@ impl<S: Sink> Devices<S> {
     }
 
     /// One event, and by default the report that ends the frame.
-    pub fn emit(&mut self, role: &str, kind: EventType, code: u16, value: i32, syn: bool) {
+    pub fn emit(&mut self, role: &str, kind: EventType, code: u16, value: i32, syn: Report) {
         self.sink.write(role, kind, code, value);
-        if syn {
+
+        if syn == Report::Now {
             self.sink.syn(role);
         }
     }
@@ -75,13 +108,13 @@ impl<S: Sink> Devices<S> {
     /// A push from -1 to 1, in the numbers the axis actually reports.
     pub fn absolute(&self, role: &str, code: u16, amount: f64) -> Result<i32, String> {
         let axis = self.axis(role, code)?;
-        Ok((amount.clamp(-1.0, 1.0) * f64::from(axis.span())).round() as i32)
+        Ok(whole_i32(amount.clamp(-1.0, 1.0) * f64::from(axis.span())))
     }
 
     /// A pull from 0 to 1, over whatever range the trigger reports.
     pub fn along(&self, role: &str, code: u16, amount: f64) -> Result<i32, String> {
         let axis = self.axis(role, code)?;
-        Ok((f64::from(axis.min) + amount * f64::from(axis.max - axis.min)).round() as i32)
+        Ok(whole_i32(f64::from(axis.min) + amount * f64::from(axis.max - axis.min)))
     }
 }
 
@@ -92,7 +125,7 @@ mod tests {
     use crate::world::World;
 
     fn devices() -> Devices<World> {
-        Devices::new(captured(), World::of(captured()))
+        Devices::new(captured().expect("the capture carried in this program parses"), World::of(captured().expect("the capture carried in this program parses")))
     }
 
     #[test]

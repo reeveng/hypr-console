@@ -14,8 +14,12 @@ name = "console-check"
 path = "src/bin/console-check.rs"
 
 [dependencies]
+console-door.workspace = true
 console-pad.workspace = true
 console-stage.workspace = true
 evdev = "0.13"
 serde = { version = "1", features = ["derive"] }
 toml = { version = "0.9", default-features = false, features = ["parse", "serde"] }
+
+[lints]
+workspace = true

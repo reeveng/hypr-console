@@ -1,0 +1,31 @@
+[package]
+name = "console-home"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_home"
+path = "src/lib.rs"
+
+[[bin]]
+name = "console-home"
+path = "src/bin/console-home.rs"
+
+[[bin]]
+name = "home-place"
+path = "src/bin/home-place.rs"
+
+[dependencies]
+console-again.workspace = true
+console-door.workspace = true
+console-menu.workspace = true
+console-number.workspace = true
+console-panel.workspace = true
+gtk4 = "0.11"
+gtk4-layer-shell = "0.8"
+serde_json = "1"
+
+[lints]
+workspace = true

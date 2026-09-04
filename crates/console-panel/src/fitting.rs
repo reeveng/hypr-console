@@ -15,6 +15,75 @@ use crate::shape;
 /// as a thing wedged into a gap rather than as a thing lying on the desktop.
 pub const BREATH: i32 = 16;
 
+/// What a card about one picture spends under the picture, on the two rows it
+/// began with.
+///
+/// Measured on the card rather than guessed at: what the file is, and either
+/// where in the folder it is or how to start it, plus the margins holding the
+/// list off the card's edges. It is kept as the measurement it is, and [`ROW`]
+/// and [`EDGES`] are the two halves it was taken apart into once the number of
+/// rows stopped being two.
+pub const UNDER: i32 = 107;
+
+/// What one row written under the picture costs, with the space around it.
+///
+/// A card no longer has a fixed number of rows beneath the picture. A film
+/// gained a bar, and both kinds lose everything when the card is left alone,
+/// so what the picture may be drawn at is whatever the rows that are actually
+/// there have not taken.
+pub const ROW: i32 = 45;
+
+/// What the list spends holding itself off the card's edges, whatever is in it.
+///
+/// The remainder of [`UNDER`], rather than a second measurement: the two rows
+/// it was measured with are two of these rows, and a card with none of them is
+/// this much and no more.
+pub const EDGES: i32 = UNDER - 2 * ROW;
+
+/// What the row of tabs over the card costs, with the space round it.
+///
+/// Separate from [`UNDER`] because it is the one part of the frame that is not
+/// always there: a card opened out has no strip, and a picture that went on
+/// leaving room for one would leave a band of nothing across the top of a
+/// screen somebody had just asked to fill.
+pub const STRIP: i32 = 82;
+
+/// Whether the row of tabs is drawn over the card.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Strip {
+    Shown,
+    Hidden,
+}
+
+/// How tall the one picture a card is about may be drawn, on a card of a given
+/// height.
+///
+/// A height and not a size. The width is the card's, less its margins, and is
+/// the panel's to say because it is the panel that was granted it; this is the
+/// one number a picture cannot work out for itself, which is how much of the
+/// card is left under it.
+///
+/// Worked out rather than written down, because the card has two heights: its
+/// share of the desktop, and the whole screen once it has been opened out, and
+/// because how many rows are under the picture is a thing that changes while
+/// somebody is looking at it. What the card gains the picture gains, and so is
+/// every row that goes away.
+///
+/// Never nothing. A card too short to hold both the picture and the rows under
+/// it is a card that has to give the picture something, because a row of zero
+/// height is a hole a person cannot tell from a file that would not open.
+pub fn showing(card: i32, strip: Strip, under: i32) -> i32 {
+    let band = match strip {
+        Strip::Shown => STRIP,
+        Strip::Hidden => 0,
+    };
+
+    (card - band - EDGES - under.max(0) * ROW).max(SMALLEST)
+}
+
+/// The least a picture is ever drawn at, whatever the card has left.
+const SMALLEST: i32 = 64;
+
 /// How wide the panel is: its share of the room, or of the monitor while there
 /// is no room to be had.
 ///
@@ -39,6 +108,7 @@ pub fn across(given: i32, monitor: i32) -> i32 {
 /// squeezes into it.
 pub fn ceiling(given: i32, screen: i32) -> i32 {
     let wanted = shape::tall_part_of(screen);
+
     match given > 1 {
         true => wanted.min(given - 2 * BREATH),
         false => wanted,
@@ -62,6 +132,42 @@ pub fn tall_enough(frame: i32, row: i32, ceiling: i32) -> i32 {
 
 #[cfg(test)]
 mod tests {
+    use super::Strip;
+
+    /// The card this was measured on, the rows it was measured with, and the
+    /// number it was measured as.
+    #[test]
+    fn a_picture_on_the_ordinary_card_is_what_it_was_measured_at() {
+        assert_eq!(super::showing(461, Strip::Shown, 2), 272);
+    }
+
+    /// Every row that goes away is room the picture has. A card left alone
+    /// until its rows have gone gets all of it back.
+    #[test]
+    fn what_the_rows_do_not_take_is_the_pictures() {
+        let two = super::showing(461, Strip::Shown, 2);
+        assert_eq!(super::showing(461, Strip::Shown, 3), two - super::ROW);
+        assert_eq!(super::showing(461, Strip::Shown, 0), two + 2 * super::ROW);
+    }
+
+    /// Opened out the card is the whole screen, and the rows under the picture
+    /// are the same rows: everything the card gained goes to the picture, and
+    /// so does the band the tabs were in.
+    #[test]
+    fn opening_the_card_out_gives_the_room_to_the_picture() {
+        let gained = super::showing(600, Strip::Hidden, 2) - super::showing(461, Strip::Shown, 2);
+        assert_eq!(gained, 600 - 461 + super::STRIP);
+    }
+
+    /// A card with no room in it still draws a picture. A picture of no height
+    /// is a hole nobody can tell from a file that would not open.
+    #[test]
+    fn a_card_with_nothing_to_spare_still_draws_something() {
+        assert!(super::showing(0, Strip::Shown, 2) > 0);
+        assert!(super::showing(200, Strip::Shown, 2) > 0);
+        assert!(super::showing(200, Strip::Shown, 9) > 0, "more rows than the card holds");
+    }
+
     use super::*;
 
     #[test]

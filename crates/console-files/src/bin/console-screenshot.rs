@@ -32,13 +32,26 @@ pub fn named(when: &str) -> String {
 
 /// The moment, as the name wants it.
 fn when() -> String {
-    let said = Command::new("date").arg("+%Y-%m-%d-%H%M%S").output();
-    said.map(|said| String::from_utf8_lossy(&said.stdout).trim().to_string())
-        .unwrap_or_default()
+    match Command::new("date").arg("+%Y-%m-%d-%H%M%S").output() {
+        Ok(said) => String::from_utf8_lossy(&said.stdout).trim().to_string(),
+
+        Err(fault) => {
+            eprintln!("console-screenshot: date: naming the picture by when it was taken: {fault}");
+            String::new()
+        }
+    }
 }
 
 fn main() -> std::process::ExitCode {
-    let home = PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/root".to_string()));
+    let home = match std::env::var("HOME") {
+        Ok(home) => PathBuf::from(home),
+
+        Err(fault) => {
+            eprintln!("console-screenshot: HOME: {fault}; the picture goes under /root");
+            PathBuf::from("/root")
+        }
+    };
+
     let into = folder(&home, "XDG_PICTURES_DIR", "Pictures");
 
     if let Err(why) = std::fs::create_dir_all(&into) {
@@ -47,6 +60,7 @@ fn main() -> std::process::ExitCode {
     }
 
     let at = into.join(named(&when()));
+
     match Command::new("grim").arg(&at).status() {
         Ok(how) if how.success() => {
             println!("{}", at.display());

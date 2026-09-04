@@ -14,9 +14,9 @@
 //! the encoder for want of somebody saying so.
 
 use serde::Deserialize;
-use console_stage::checking::{Body, Check, Done, cannot, ought};
-use console_stage::desktop::Desktop;
-use console_stage::device::Device;
+use console_stage::checking::{Body, Check, Done, cannot, same, seen};
+use console_stage::desktop::{Desktop, Installed};
+use console_stage::device::{Device, Seen};
 
 /// How far apart two colours can be and still be the same colour.
 ///
@@ -65,7 +65,7 @@ pub fn named() -> Result<Vec<String>, String> {
 ///
 /// Read out of the unit rather than out of the palette, because the palette is
 /// in Oklch and turning that into a hex is a colour space this crate has no
-/// business holding. The line is written by `make theme`, and a test in
+/// business holding. The line is written by `just theme`, and a test in
 /// `console-theme` refuses a checkout where it no longer matches the palette,
 /// so reading the unit is reading the palette one step later.
 pub fn ground() -> Result<String, String> {
@@ -80,7 +80,9 @@ pub fn ground() -> Result<String, String> {
 /// A screen a colour can be asked of.
 pub trait Screenful {
     fn background(&mut self) -> Result<String, String>;
+
     fn patch(&mut self, across: f64, down: f64) -> Result<String, String>;
+
     /// When the decoded frames were written, and when the picture was.
     ///
     /// Asked for, rather than required. A stage that cannot stat the machine it
@@ -115,12 +117,26 @@ impl Screenful for Device {
 }
 
 /// Whether two colours are the same colour after a lossy encoder.
-pub fn near(one: &str, other: &str) -> bool {
+/// Whether two colours are the same one, allowing for a screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Shade {
+    /// Near enough that nobody looking would call them two colours.
+    Same,
+    /// Far enough apart to be a different one.
+    Other,
+}
+
+pub fn near(one: &str, other: &str) -> Shade {
     let band = |said: &str, at: usize| i32::from_str_radix(said.get(at..at + 2).unwrap_or(""), 16);
-    (0..3).map(|band| band * 2).all(|at| match (band(one, at), band(other, at)) {
+    let alike = (0..3).map(|band| band * 2).all(|at| match (band(one, at), band(other, at)) {
         (Ok(one), Ok(other)) => (one - other).abs() <= WITHIN,
         _ => false,
-    })
+    });
+
+    match alike {
+        true => Shade::Same,
+        false => Shade::Other,
+    }
 }
 
 /// A gap in the largest unit it fills, because the size is the point.
@@ -155,6 +171,7 @@ pub fn how_long(seconds: i64) -> String {
 /// cache is fine while it is the fault.
 pub fn or_the_cache(screen: &mut impl Screenful, picture: &str) -> String {
     let (Some(frames), Some(drawn)) = screen.frames(picture) else { return String::new() };
+
     match frames < drawn {
         true => format!(
             " The decoded frames under ~/.cache/awww are {} older than the picture, so this is \
@@ -179,7 +196,7 @@ pub fn or_the_cache(screen: &mut impl Screenful, picture: &str) -> String {
 pub fn grounded(screen: &mut impl Screenful) -> Done {
     let ground = ground()?;
     let behind = screen.background()?;
-    ought(near(&behind, &ground), || {
+    same(&near(&behind, &ground), &Shade::Same, || {
         format!("the screen is #{behind} where the unit fills it with #{ground}")
     })
 }
@@ -206,6 +223,7 @@ pub fn showing_a_picture(said: &str, names: &[String]) -> Result<String, String>
         .and_then(|file| file.strip_suffix(".webp"))
         .map(|name| name.strip_suffix(".still").unwrap_or(name))
         .unwrap_or_default();
+
     match names.iter().any(|named| named == name) {
         true => Ok(path.to_string()),
         false => Err(format!(
@@ -217,8 +235,8 @@ pub fn showing_a_picture(said: &str, names: &[String]) -> Result<String, String>
 
 fn desktop(stage: &mut Desktop) -> Done {
     match stage.installed("awww-daemon") {
-        false => cannot("awww is not installed on this machine"),
-        true => grounded(stage),
+        Installed::No => cannot("awww is not installed on this machine"),
+        Installed::Yes => grounded(stage),
     }
 }
 
@@ -235,19 +253,23 @@ fn desktop(stage: &mut Desktop) -> Done {
 fn device(stage: &mut Device) -> Done {
     let names = named()?;
     let picture = showing_a_picture(&stage.wallpaper(), &names)?;
-    let empty = (0..LOOKING).any(|_| {
-        let empty = stage.windows_here() == 0;
-        if !empty {
-            stage.press("r1");
-            stage.settle(1.0);
+    let mut clear = Seen::NotYet;
+
+    for _ in 0..LOOKING {
+        if stage.windows_here() == 0 {
+            clear = Seen::Yes;
+            break;
         }
-        empty
-    });
-    ought(empty, || "could not get to a workspace with nothing on it".to_string())?;
+
+        stage.press("r1");
+        stage.settle(1.0);
+    }
+
+    seen(clear, || "could not get to a workspace with nothing on it".to_string())?;
 
     let ground = ground()?;
     let behind = stage.background()?;
-    ought(!near(&behind, &ground), || {
+    same(&near(&behind, &ground), &Shade::Other, || {
         format!(
             "the daemon says it is showing {picture}, but the screen is still #{behind}, which \
              is the colour the unit fills it with before anything is chosen.{}",
@@ -263,8 +285,8 @@ mod tests {
     /// What reaches the screen has been through webp.
     #[test]
     fn a_colour_the_encoder_moved_is_still_the_colour() {
-        assert!(near("65647f", "656580"));
-        assert!(!near("65647f", "302937"));
+        assert_eq!(near("65647f", "656580"), Shade::Same);
+        assert_eq!(near("65647f", "302937"), Shade::Other);
     }
 
     #[test]

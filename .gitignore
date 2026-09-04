@@ -6,3 +6,12 @@ desktop.png
 
 # What cargo builds. The device compiles its own; nothing built is kept here.
 /target/
+
+# The lint suite is a workspace of its own, so it builds into a target of its
+# own, on a nightly of its own. Nothing built is kept here either.
+/tools/explicit-rust/target/
+
+# The device this checkout talks to, set by direnv on entering the directory.
+# An address is somebody's machine; the tree does not carry one.
+.envrc
+.direnv/

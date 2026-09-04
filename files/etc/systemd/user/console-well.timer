@@ -1,0 +1,20 @@
+[Unit]
+Description=Check this machine over shortly after it starts, and every hour after
+PartOf=console.target
+
+[Timer]
+# Three minutes rather than at the target, because the questions are about a
+# desktop that has settled. Asked the instant the target is reached, a unit that
+# takes four seconds to open its device reads as one that is down, and the card
+# it raises is about nothing.
+OnStartupSec=3min
+# And again while the session lasts. The fault this half is for is the one that
+# does not exist at boot: a daemon that starts dying an hour in is `active` at
+# almost every moment anybody looks, and nothing else on the machine counts.
+OnUnitActiveSec=1h
+# Sharing a minute with everything else that wakes up on the hour costs a
+# handheld more than the accuracy is worth.
+AccuracySec=1min
+
+[Install]
+WantedBy=console.target

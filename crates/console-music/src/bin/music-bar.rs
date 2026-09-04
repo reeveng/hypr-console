@@ -19,7 +19,7 @@ use std::sync::mpsc::{RecvTimeoutError, channel};
 use std::time::Duration;
 
 use console_music::player;
-use console_panel::door::{is_open, watching_layers};
+use console_panel::door::{Up, is_open, watching_layers};
 
 /// How often the player is asked.
 ///
@@ -39,6 +39,7 @@ fn main() -> ExitCode {
         eprintln!("usage: music-bar ICON");
         return ExitCode::FAILURE;
     };
+
     let mut last = String::new();
     let opening = listening();
 
@@ -50,6 +51,7 @@ fn main() -> ExitCode {
             let _ = std::io::stdout().flush();
             last = said;
         }
+
         // Woken by the panel opening or closing, so the icon lights the moment
         // it does rather than at the end of the next two seconds.
         match opening.recv_timeout(EVERY) {
@@ -67,7 +69,15 @@ fn main() -> ExitCode {
 /// the bar being drawn every two seconds and looking entirely well.
 fn listening() -> std::sync::mpsc::Receiver<()> {
     let (say, heard) = channel();
-    watching_layers(say);
+
+    // A compositor this program was not started under is not something waiting
+    // will fix, and it is not a reason to stop drawing the icon. The channel
+    // comes back with nobody left to speak into it, which the loop already
+    // reads as "wake on the timer instead".
+    if let Err(fault) = watching_layers(say) {
+        eprintln!("music-bar: nothing will say when the panel opens: {fault}");
+    }
+
     heard
 }
 
@@ -91,7 +101,20 @@ fn line(icon: &str) -> String {
         (_, true) => (PAUSE.to_string(), "paused"),
         _ => (icon.to_string(), "playing"),
     };
-    let worn: Vec<&str> = std::iter::once(class).chain(is_open(PANEL).then_some("open")).collect();
+    let lit = match is_open(PANEL) {
+        Ok(Up::OnScreen) => Some("open"),
+        Ok(Up::NotThere) => None,
+        // The compositor would not answer, so whether the panel is up is not
+        // known. The icon still has to be drawn and it is drawn unlit -- but
+        // unlit here means nobody could ask, which is not what it means on the
+        // line above, and the journal is the only place that difference can be
+        // kept.
+        Err(fault) => {
+            eprintln!("music-bar: {fault}");
+            None
+        }
+    };
+    let worn: Vec<&str> = std::iter::once(class).chain(lit).collect();
     format!(r#"{{"text": {}, "class": {}}}"#, quoted(&mark), serde_json::Value::from(worn))
 }
 

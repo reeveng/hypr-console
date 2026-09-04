@@ -67,6 +67,15 @@ pub struct Leading {
     pub stand_on: Option<String>,
 }
 
+/// Whether a path names a folder or a file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Is {
+    /// A folder, which the strip leads into.
+    AFolder,
+    /// A file, which the strip leads to the folder holding it and stands on.
+    AFile,
+}
+
 /// Which place a path is in, and the way down to it from the top of that place.
 ///
 /// The most particular place wins. A song is under Home as surely as it is
@@ -76,10 +85,10 @@ pub struct Leading {
 /// Whether it is a folder is handed in rather than asked of the disk, because
 /// this is the sort of thing that is easier to be sure of with a table than
 /// with a temporary directory.
-pub fn leading_to(places: &[Place], path: &Path, folder: bool) -> Option<Leading> {
+pub fn leading_to(places: &[Place], path: &Path, folder: Is) -> Option<Leading> {
     let (into, stand_on) = match folder {
-        true => (path.to_path_buf(), None),
-        false => (
+        Is::AFolder => (path.to_path_buf(), None),
+        Is::AFile => (
             path.parent()?.to_path_buf(),
             path.file_name().map(|name| name.to_string_lossy().to_string()),
         ),
@@ -87,7 +96,11 @@ pub fn leading_to(places: &[Place], path: &Path, folder: bool) -> Option<Leading
     let (place, within) = places
         .iter()
         .enumerate()
-        .filter_map(|(at, place)| Some((at, into.strip_prefix(&place.path).ok()?)))
+        .filter_map(|(at, place)| {
+            let Ok(within) = into.strip_prefix(&place.path) else { return None };
+
+            Some((at, within))
+        })
         .max_by_key(|(at, _)| places[*at].path.components().count())?;
 
     Some(Leading {
@@ -130,6 +143,7 @@ pub fn said_at(held: &str, name: &str, home: &Path) -> Option<PathBuf> {
         .find_map(|line| line.strip_prefix(&wanted))?
         .trim()
         .trim_matches('"');
+
     match said {
         "" => None,
         said => Some(match said.strip_prefix("$HOME/") {
@@ -149,7 +163,23 @@ pub fn user_dirs(home: &Path) -> PathBuf {
 /// The plain name under the home directory is the fallback and never the
 /// answer, so a machine that keeps its pictures somewhere else is believed.
 pub fn folder(home: &Path, name: &str, plain: &str) -> PathBuf {
-    let held = std::fs::read_to_string(user_dirs(home)).unwrap_or_default();
+    let at = user_dirs(home);
+
+    let held = match std::fs::read_to_string(&at) {
+        Ok(held) => held,
+
+        // Never having had the file is an ordinary account, and the plain
+        // names below are the right answer for it. A file that is there and
+        // will not open is a different thing: it moves where this desktop
+        // believes the pictures are, so it is said rather than fallen through.
+        Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => String::new(),
+
+        Err(fault) => {
+            eprintln!("console: {}: reading where this account keeps its folders: {fault}", at.display());
+            String::new()
+        }
+    };
+
     said_at(&held, name, home).unwrap_or_else(|| home.join(plain))
 }
 
@@ -227,7 +257,7 @@ mod tests {
     #[test]
     fn a_path_arrives_in_the_most_particular_place_that_holds_it() {
         let song = home().join("Music/Nujabes/aruarian dance.mp3");
-        let leading = leading_to(&two_places(), &song, false).expect("the way to it");
+        let leading = leading_to(&two_places(), &song, Is::AFile).expect("the way to it");
         assert_eq!(leading.place, 1);
         assert_eq!(leading.steps, ["Nujabes"]);
         assert_eq!(leading.stand_on.as_deref(), Some("aruarian dance.mp3"));
@@ -238,7 +268,7 @@ mod tests {
     #[test]
     fn a_thing_at_the_top_of_a_place_is_a_walk_of_no_steps() {
         let song = home().join("Music/505.opus");
-        let leading = leading_to(&two_places(), &song, false).expect("the way to it");
+        let leading = leading_to(&two_places(), &song, Is::AFile).expect("the way to it");
         assert_eq!(leading.place, 1);
         assert!(leading.steps.is_empty());
         assert_eq!(leading.stand_on.as_deref(), Some("505.opus"));
@@ -249,7 +279,7 @@ mod tests {
     #[test]
     fn a_folder_is_the_place_arrived_at_rather_than_the_row_stood_on() {
         let leading =
-            leading_to(&two_places(), &home().join("Music/Nujabes"), true).expect("the way");
+            leading_to(&two_places(), &home().join("Music/Nujabes"), Is::AFolder).expect("the way");
         assert_eq!(leading.steps, ["Nujabes"]);
         assert_eq!(leading.stand_on, None);
     }
@@ -258,8 +288,8 @@ mod tests {
     /// as the name of a tab.
     #[test]
     fn a_path_under_none_of_the_places_leads_nowhere() {
-        assert_eq!(leading_to(&two_places(), Path::new("/etc/fstab"), false), None);
-        assert_eq!(leading_to(&two_places(), Path::new("/"), true), None);
+        assert_eq!(leading_to(&two_places(), Path::new("/etc/fstab"), Is::AFile), None);
+        assert_eq!(leading_to(&two_places(), Path::new("/"), Is::AFolder), None);
     }
 
     #[test]

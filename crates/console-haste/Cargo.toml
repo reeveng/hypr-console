@@ -1,0 +1,18 @@
+[package]
+name = "console-haste"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+# Reading a file without turning a fault into an absence, and writing the note
+# whole. Both of those are one decision this workspace makes in one place.
+console-writing.workspace = true
+
+[lib]
+name = "console_haste"
+path = "src/lib.rs"
+
+[lints]
+workspace = true

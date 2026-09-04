@@ -1,5 +1,7 @@
 //! The compositor's config, with the device's screen swapped for this one.
 
+
+use console_number::whole_u32;
 use console_screen::Screen;
 
 /// What the compositor starts on the device is a systemd target, and the four
@@ -54,11 +56,11 @@ done
 # a hex typed into this string would be a colour nothing checks.
 [ -x "$(command -v awww-daemon)" ] && { awww-daemon & sleep 1; \
   . /usr/local/lib/console/palette.sh 2>/dev/null; awww clear "${night:-000000}"; }
-# Through osk-start, which is what the device starts it with, because wvkbd
-# takes its colours as arguments and osk-start is the one thing that turns the
-# palette into them. Started here any other way, the keyboard on this screen
-# would be a keyboard nobody has, in colours that were true once.
-[ -x "$(command -v osk-start)" ] && osk-start &
+# The keyboard, started the way the device's unit starts it: the program itself,
+# with nothing in front of it. It reads palette.sh on the way in and dresses its
+# own command line, so a keyboard on this screen is the keyboard the device has,
+# in the colours this repository currently spends.
+[ -x "$(command -v virtual-keyboard)" ] && virtual-keyboard &
 exit 0
 "#;
 
@@ -86,7 +88,7 @@ fn monitor(output: &str, wide: u32, tall: u32, screen: &Screen, scale: f64) -> S
 /// there are simply fewer pixels drawing it.
 pub fn in_a_window(screen: &Screen, scale: f64) -> String {
     let (wide, tall) = screen.mode;
-    let shown = |size: u32| (f64::from(size) * scale / screen.scale).round() as u32;
+    let shown = |size: u32| whole_u32(f64::from(size) * scale / screen.scale);
     monitor("WAYLAND-1", shown(wide), shown(tall), screen, scale)
 }
 
@@ -98,9 +100,17 @@ pub fn in_a_window(screen: &Screen, scale: f64) -> String {
 pub fn headless(screen: &Screen) -> String {
     let (wide, tall) = screen.mode;
     format!(
-        "{}\n{}",
+        "{}\n{}\n{}",
         monitor("HEADLESS-1", wide, tall, screen, screen.scale),
-        monitor("HEADLESS-2", wide, tall, screen, screen.scale)
+        monitor("HEADLESS-2", wide, tall, screen, screen.scale),
+        // And the window, small. It has to exist for the second and a bit it
+        // takes to make the headless output and turn this one off, because a
+        // compositor with no output at all has nothing to draw on and nothing
+        // to photograph. What it cannot be is the size of the device's screen:
+        // that is a picture-sized empty rectangle opening over whatever
+        // somebody is doing on the machine taking the picture, in the colour a
+        // screen with nothing on it is, and then closing again.
+        monitor("WAYLAND-1", 320, 200, screen, 1.0)
     )
 }
 

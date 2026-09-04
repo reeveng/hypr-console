@@ -1,5 +1,6 @@
 //! The picture's own measurements, and the table it is painted out of.
 
+use console_number::whole_usize;
 use serde::Deserialize;
 
 use crate::paint::{Paints, Wash};
@@ -42,7 +43,7 @@ impl Garden {
 
     /// How many frames a gust is.
     pub fn gust_frames(&self) -> usize {
-        ((self.gust_seconds * self.frames_per_second).round() as usize).max(2)
+        whole_usize(self.gust_seconds * self.frames_per_second).max(2)
     }
 }
 
@@ -77,14 +78,14 @@ impl Said {
         self.paint
             .iter()
             .map(|(name, dipped)| {
-                palette(&dipped.colour)
-                    .map(|code| (name.clone(), Wash::of(&code, dipped.alpha)))
-                    .ok_or_else(|| {
-                        format!(
-                            "the garden paints {name} with {}, which is not a colour",
-                            dipped.colour
-                        )
-                    })
+                let code = palette(&dipped.colour).ok_or_else(|| {
+                    format!(
+                        "the garden paints {name} with {}, which is not a colour",
+                        dipped.colour
+                    )
+                })?;
+
+                Ok((name.clone(), Wash::of(&code, dipped.alpha)?))
             })
             .collect::<Result<Vec<_>, String>>()
             .map(Paints::of)

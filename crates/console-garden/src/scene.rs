@@ -2,9 +2,11 @@
 //! goes onto.
 
 use cairo::{Context, Format, ImageSurface};
+use console_number::{Float, toward_zero_i32, whole_u32};
 use console_random::Random;
 
 use crate::air::{Petal, band_of, blown, flight};
+use crate::fault::{Drawing, Fault};
 use crate::garden::Garden;
 use crate::land::{brow, glow, haze, hills, near_slope, sky};
 use crate::tree::{Standing, Tip, planted};
@@ -22,9 +24,9 @@ const GUST: usize = 170;
 ///
 /// Two trees, and no more. There is very little here on purpose: what a
 /// wallpaper is for is to be behind something.
-pub fn scene(ctx: &Context, garden: &Garden, seed: u64) -> Vec<Tip> {
-    sky(ctx, garden);
-    hills(ctx, garden, seed);
+pub fn scene(ctx: &Context, garden: &Garden, seed: u64) -> Drawing<Vec<Tip>> {
+    sky(ctx, garden)?;
+    hills(ctx, garden, seed)?;
 
     planted(
         ctx,
@@ -38,11 +40,11 @@ pub fn scene(ctx: &Context, garden: &Garden, seed: u64) -> Vec<Tip> {
             depth: 4,
             size: 0.76,
         },
-    );
+    )?;
 
-    glow(ctx, garden);
-    haze(ctx, garden);
-    near_slope(ctx, garden);
+    glow(ctx, garden)?;
+    haze(ctx, garden)?;
+    near_slope(ctx, garden)?;
 
     let near = garden.across(0.205);
     planted(
@@ -62,11 +64,11 @@ pub fn scene(ctx: &Context, garden: &Garden, seed: u64) -> Vec<Tip> {
 
 /// A blank sheet, and a brush that draws onto the band of the picture starting
 /// at `offset`.
-pub fn sheet(width: i32, height: i32, offset: f64) -> (ImageSurface, Context) {
-    let surface = ImageSurface::create(Format::Rgb24, width, height).expect("a sheet");
-    let ctx = Context::new(&surface).expect("a brush");
+pub fn sheet(width: i32, height: i32, offset: f64) -> Drawing<(ImageSurface, Context)> {
+    let surface = ImageSurface::create(Format::Rgb24, width, height)?;
+    let ctx = Context::new(&surface)?;
     ctx.translate(0.0, -offset);
-    (surface, ctx)
+    Ok((surface, ctx))
 }
 
 /// One frame of the wallpaper: where it goes, how long it lasts, and it.
@@ -90,11 +92,15 @@ pub struct Drawn {
 }
 
 /// The whole wallpaper, still and moving, from one seed.
-pub fn draw(garden: &Garden, seed: u64, encode: &dyn Fn(&ImageSurface) -> Vec<u8>) -> Drawn {
-    let (width, height) = (garden.width as i32, garden.height as i32);
+pub fn draw(
+    garden: &Garden,
+    seed: u64,
+    encode: &dyn Fn(&ImageSurface) -> Result<Vec<u8>, String>,
+) -> Drawing<Drawn> {
+    let (width, height) = (toward_zero_i32(garden.width), toward_zero_i32(garden.height));
     let (still, tips) = {
-        let (surface, ctx) = sheet(width, height, 0.0);
-        let tips = scene(&ctx, garden, seed);
+        let (surface, ctx) = sheet(width, height, 0.0)?;
+        let tips = scene(&ctx, garden, seed)?;
         drop(ctx);
         (surface, tips)
     };
@@ -102,38 +108,46 @@ pub fn draw(garden: &Garden, seed: u64, encode: &dyn Fn(&ImageSurface) -> Vec<u8
     let petals: Vec<Petal> = flight(garden, &tips, &mut Random::seeded(seed + 11), GUST);
     let count = garden.gust_frames();
     let (top, tall) = band_of(garden, &petals, count);
-    let each = (garden.gust_seconds * 1000.0 / count as f64).round() as u32;
+    let each = whole_u32(garden.gust_seconds * 1000.0 / count.float());
 
     let resting = Frame {
         x: 0,
         y: 0,
         width,
         height,
-        milliseconds: (garden.rest_seconds * 1000.0).round() as u32,
-        picture: encode(&still),
+        milliseconds: whole_u32(garden.rest_seconds * 1000.0),
+        picture: encode(&still).map_err(Fault::Written)?,
     };
-    let gust = (1..=count).map(|step| {
-        let (strip, ctx) = sheet(width, tall, f64::from(top));
-        scene(&ctx, garden, seed);
+    // Collected rather than left lazy: a frame that will not draw has to stop
+    // the whole picture here, where there is something to say about it, and a
+    // lazy iterator would carry the failure out past the only place that knows
+    // which frame it was.
+    let mut frames = vec![resting];
+
+    for step in 1..=count {
+        let (strip, ctx) = sheet(width, tall, f64::from(top))?;
+        scene(&ctx, garden, seed)?;
+
         if step < count {
-            blown(&ctx, garden, &petals, step as f64 / count as f64);
+            blown(&ctx, garden, &petals, step.float() / count.float())?;
         }
+
         drop(ctx);
-        Frame {
+        frames.push(Frame {
             x: 0,
             y: top,
             width,
             height: tall,
             milliseconds: each,
-            picture: encode(&strip),
-        }
-    });
+            picture: encode(&strip).map_err(Fault::Written)?,
+        });
+    }
 
-    Drawn {
-        frames: std::iter::once(resting).chain(gust).collect(),
+    Ok(Drawn {
+        frames,
         still,
         top,
         tall,
         count,
-    }
+    })
 }

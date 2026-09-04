@@ -1,0 +1,29 @@
+[
+  {
+    "namespace": "around",
+    "description": "The browser around the page: the two places chrome keeps that a page cannot reach.",
+    "functions": [
+      {
+        "name": "address",
+        "type": "function",
+        "async": true,
+        "description": "Put the focus in the address bar, with what is there already taken.",
+        "parameters": []
+      },
+      {
+        "name": "menu",
+        "type": "function",
+        "async": true,
+        "description": "Open the browser's own menu.",
+        "parameters": []
+      },
+      {
+        "name": "keyboard",
+        "type": "function",
+        "async": true,
+        "description": "Raise the on-screen keyboard, leaving it alone if it is already up.",
+        "parameters": []
+      }
+    ]
+  }
+]

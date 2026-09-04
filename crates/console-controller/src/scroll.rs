@@ -16,7 +16,19 @@ use crate::doing::Out;
 pub const DEADZONE: f64 = 0.20;
 
 /// Notches per second at full deflection.
-pub const MAX_HZ: f64 = 22.0;
+///
+/// Was 22, which is usable and overshoots. On a handheld that is the
+/// difference between reading a page and hunting for the line you were on:
+/// the stick is under a thumb that is also holding the machine, so the push
+/// is never as steady as a mouse wheel and the overshoot compounds.
+///
+/// 14 is the first guess and it is a speed rather than a shape. If it still
+/// runs away at full deflection the answer is probably not a smaller number
+/// here but a different curve in `pushed`, which squares today; cubing it
+/// would keep the top speed and give more of the travel to the slow end.
+/// That wants a thumb on the device to choose between, which is why this is
+/// one number and not a rework.
+pub const MAX_HZ: f64 = 14.0;
 
 /// How far a stick is pushed, from -1 to 1, with the deadzone taken out.
 ///
@@ -25,10 +37,13 @@ pub const MAX_HZ: f64 = 22.0;
 pub fn pushed(value: i32, span: i32) -> f64 {
     let span = f64::from(span.abs().max(1));
     let part = f64::from(value) / span;
+
     if part.abs() < DEADZONE {
         return 0.0;
     }
+
     let past = (part.abs() - DEADZONE) / (1.0 - DEADZONE);
+
     match value > 0 {
         true => past * past,
         false => -(past * past),
@@ -52,16 +67,19 @@ impl Wheel {
         self.down += -y * MAX_HZ * seconds;
         self.across += x * MAX_HZ * seconds;
         let mut notches = Vec::new();
+
         while self.down.abs() >= 1.0 {
             let step = if self.down > 0.0 { 1 } else { -1 };
             notches.push(Out::rel(RelativeAxisCode::REL_WHEEL.0, step));
             self.down -= f64::from(step);
         }
+
         while self.across.abs() >= 1.0 {
             let step = if self.across > 0.0 { 1 } else { -1 };
             notches.push(Out::rel(RelativeAxisCode::REL_HWHEEL.0, step));
             self.across -= f64::from(step);
         }
+
         notches
     }
 }

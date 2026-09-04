@@ -64,6 +64,7 @@ pub fn waiting_rows(
         // walked back is a question somebody learns to answer without reading.
         rows.push(Row::new("Clear them all", "", clear));
     }
+
     rows
 }
 
@@ -80,11 +81,13 @@ pub fn one_rows(notice: &Notice, back: &Chosen, dismiss: Does) -> Vec<Row> {
         Row::back(TABS[0], move |showing| going(showing)),
         Row::said(&said_by(notice), &notice.says()),
     ];
+
     // Where the body is all the notification had, `says` is already showing
     // it, and a second row saying the same thing reads as the panel stuttering.
     if !notice.body.trim().is_empty() && notice.body.trim() != notice.says() {
         rows.push(Row::said("", notice.body.trim()));
     }
+
     rows.push(Row::new("Dismiss", "", dismiss));
     rows
 }
@@ -125,6 +128,7 @@ pub fn earlier_rows(held: &[Notice]) -> Vec<Row> {
     if held.is_empty() {
         return vec![Row::nothing("Nothing has been cleared yet")];
     }
+
     held.iter()
         .map(|notice| Row::said(&notice.says(), &earlier_aside(notice)))
         .collect()
@@ -140,6 +144,7 @@ fn earlier_aside(notice: &Notice) -> String {
 
 #[cfg(test)]
 mod tests {
+    use console_panel::page::Acts;
     use super::*;
     use crate::reading::Urgency;
 
@@ -180,7 +185,8 @@ mod tests {
     #[test]
     fn the_first_row_that_does_anything_is_a_notification() {
         let rows = waiting_rows(&[fault()], opening, nothing());
-        let first = rows.iter().position(Row::acts).expect("a row that acts");
+        let first =
+            rows.iter().position(|row| row.acts() == Acts::Yes).expect("a row that acts");
         assert_eq!(rows[first].says, "Notifications fell over");
     }
 
@@ -212,7 +218,7 @@ mod tests {
     #[test]
     fn what_is_waiting_can_be_cleared_in_one_press() {
         let rows = waiting_rows(&[fault(), ordinary()], opening, nothing());
-        assert!(rows.iter().any(|row| row.says == "Clear them all" && row.acts()));
+        assert!(rows.iter().any(|row| row.says == "Clear them all" && row.acts() == Acts::Yes));
     }
 
     /// Nothing but notifications. The switch that keeps them off the screen is
@@ -245,7 +251,7 @@ mod tests {
     fn the_way_back_is_the_first_row_of_a_notification() {
         for rows in [one_rows(&fault(), &back(), nothing()), gone_rows(&back())] {
             assert!(rows[0].says.ends_with(TABS[0]), "{}", rows[0].says);
-            assert!(rows[0].acts());
+            assert_eq!(rows[0].acts(), Acts::Yes);
         }
     }
 
@@ -273,7 +279,7 @@ mod tests {
     #[test]
     fn a_notification_can_be_dismissed_where_it_is_read() {
         let rows = one_rows(&fault(), &back(), nothing());
-        assert!(rows.iter().any(|row| row.says == "Dismiss" && row.acts()));
+        assert!(rows.iter().any(|row| row.says == "Dismiss" && row.acts() == Acts::Yes));
     }
 
     /// What has been cleared is read and not chosen, so both halves of it are
@@ -282,7 +288,7 @@ mod tests {
     fn what_was_cleared_is_read_where_it_stands() {
         let rows = earlier_rows(&[fault()]);
         assert_eq!(rows.len(), 1);
-        assert!(!rows[0].acts());
+        assert_eq!(rows[0].acts(), Acts::Nothing);
         assert_eq!(rows[0].says, "Notifications fell over");
         assert_eq!(rows[0].aside, "console-notify.service stopped");
     }
@@ -290,6 +296,6 @@ mod tests {
     #[test]
     fn an_empty_history_says_so_rather_than_drawing_nothing() {
         assert_eq!(earlier_rows(&[]).len(), 1);
-        assert!(!earlier_rows(&[])[0].acts());
+        assert_eq!(earlier_rows(&[])[0].acts(), Acts::Nothing);
     }
 }

@@ -19,8 +19,28 @@ pub const SOMETHING: Duration = Duration::from_secs(20);
 pub const A_GOODBYE: Duration = Duration::from_secs(3);
 
 /// Whether a process is still about.
-fn still_there(pid: i32) -> bool {
-    Path::new(&format!("/proc/{pid}")).exists()
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum There {
+    /// It has not gone yet.
+    Yes,
+    /// It has.
+    No,
+}
+
+/// Whether waiting for something came to anything.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Waited {
+    /// It arrived inside the time it was given.
+    Happened,
+    /// The time ran out first.
+    RanOut,
+}
+
+fn still_there(pid: i32) -> There {
+    match Path::new(&format!("/proc/{pid}")).exists() {
+        true => There::Yes,
+        false => There::No,
+    }
 }
 
 /// The environment a command inside the nested session is given.
@@ -42,34 +62,46 @@ impl Inside {
     pub fn command(&self, program: &str) -> Command {
         let mut asking = Command::new(program);
         asking.env_remove("HYPRLAND_INSTANCE_SIGNATURE");
+
         for (name, value) in &self.environment {
             asking.env(name, value);
         }
+
         asking
     }
 
     pub fn hyprctl(&self, arguments: &[&str]) -> String {
-        self.command("hyprctl")
-            .args(arguments)
-            .output()
-            .map(|done| String::from_utf8_lossy(&done.stdout).trim().to_string())
-            .unwrap_or_default()
+        match self.command("hyprctl").args(arguments).output() {
+            Ok(done) => String::from_utf8_lossy(&done.stdout).trim().to_string(),
+            // Nothing, which is what every caller of this already reads as the
+            // compositor having no answer. Said out loud because a hyprctl that
+            // will not run at all is not a compositor that answered with
+            // nothing, and the two used to leave by the same line.
+            Err(fault) => {
+                eprintln!("console-desktop: hyprctl {}: {fault}", arguments.join(" "));
+
+                String::new()
+            }
+        }
     }
 
     /// Wait until there is something to take a picture of.
     ///
     /// The screen is made a moment after the compositor starts, not with it, so
     /// everything that follows has to wait for it rather than assume it.
-    pub fn wait_for_screen(&self, name: &str) -> bool {
+    pub fn wait_for_screen(&self, name: &str) -> Waited {
         let by = Instant::now() + A_SCREEN;
+
         while Instant::now() < by {
             std::thread::sleep(Duration::from_millis(250));
             let taken = self.command("grim").args(["-o", name, "-"]).output();
+
             if taken.is_ok_and(|done| done.status.success()) {
-                return true;
+                return Waited::Happened;
             }
         }
-        false
+
+        Waited::RanOut
     }
 
     /// The device's screen, and only that one: its mode, turn and density.
@@ -109,11 +141,13 @@ impl Inside {
                 .and_then(|at| at.as_str())
                 .map(str::to_string)
         };
+
         if let Ok(clients) =
             serde_json::from_str::<serde_json::Value>(&self.hyprctl(&["clients", "-j"]))
         {
             on.extend(clients.as_array().into_iter().flatten().filter_map(address));
         }
+
         if let Ok(layers) =
             serde_json::from_str::<serde_json::Value>(&self.hyprctl(&["layers", "-j"]))
         {
@@ -124,11 +158,13 @@ impl Inside {
                 .map(|(_, screen)| screen)
             {
                 let levels = screen.get("levels").and_then(|at| at.as_object());
+
                 for level in levels.into_iter().flatten().map(|(_, level)| level) {
                     on.extend(level.as_array().into_iter().flatten().filter_map(address));
                 }
             }
         }
+
         on
     }
 
@@ -138,17 +174,20 @@ impl Inside {
     /// both directions: too long for a terminal, and too short for a panel that
     /// reads the controller before it draws anything. What it is waiting for is
     /// a fact it can ask about.
-    pub fn wait_for_something(&self, was: &BTreeSet<String>) -> bool {
+    pub fn wait_for_something(&self, was: &BTreeSet<String>) -> Waited {
         let by = Instant::now() + SOMETHING;
+
         while Instant::now() < by {
             if self.surfaces().difference(was).next().is_some() {
                 // Drawn, not only mapped.
                 std::thread::sleep(Duration::from_millis(600));
-                return true;
+                return Waited::Happened;
             }
+
             std::thread::sleep(Duration::from_millis(200));
         }
-        false
+
+        Waited::RanOut
     }
 
     /// Look at whatever was opened.
@@ -164,13 +203,16 @@ impl Inside {
         else {
             return;
         };
+
         let where_ = clients
             .as_array()
             .and_then(|every| every.first())
             .and_then(|client| client.get("workspace"))
             .and_then(|workspace| workspace.get("name"))
             .and_then(|name| name.as_str());
+
         let Some(where_) = where_ else { return };
+
         self.hyprctl(&[
             "dispatch",
             &format!(r#"hl.dsp.focus({{workspace = "{where_}"}})"#),
@@ -188,12 +230,14 @@ impl Inside {
         if !picture.exists() {
             return;
         }
+
         // The daemon is started by the session and takes a moment to listen.
         // Said once and quietly, this failed for a week without anybody
         // noticing, because a screen with no wallpaper on it is the palette's
         // own darkest colour and looks like a screen with one.
         let by = Instant::now() + Duration::from_secs(8);
         let mut last = String::new();
+
         while Instant::now() < by {
             let told = self
                 .command("awww")
@@ -201,6 +245,7 @@ impl Inside {
                 .arg(picture)
                 .args(["--resize", "crop", "--transition-type", "none"])
                 .output();
+
             match told {
                 Ok(done) if done.status.success() => {
                     std::thread::sleep(Duration::from_millis(500));
@@ -210,8 +255,10 @@ impl Inside {
                 // Nothing to paint with, which is not a fault to wait out.
                 Err(_) => return,
             }
+
             std::thread::sleep(Duration::from_millis(250));
         }
+
         eprintln!("the wallpaper was never painted: {last}");
     }
 
@@ -244,14 +291,17 @@ impl Inside {
     /// staged session-start.
     pub fn stop_the_bar(&self) {
         let bars = self.talking_to("waybar");
+
         for bar in &bars {
             // SAFETY: a signal to a process of this session's own, by its pid.
             unsafe { libc::kill(*bar, libc::SIGTERM) };
         }
+
         // Gone before the compositor is told to leave, or the wait was the
         // whole point and it was spent for nothing.
         let by = Instant::now() + A_GOODBYE;
-        while Instant::now() < by && bars.iter().any(|bar| still_there(*bar)) {
+
+        while Instant::now() < by && bars.iter().any(|bar| still_there(*bar) == There::Yes) {
             std::thread::sleep(Duration::from_millis(50));
         }
     }
@@ -269,19 +319,34 @@ impl Inside {
         else {
             return Vec::new();
         };
+
         let wanted = format!("WAYLAND_DISPLAY={}", socket.1);
+
         let Ok(all) = std::fs::read_dir("/proc") else {
             return Vec::new();
         };
+
         all.flatten()
             .filter_map(|found| {
                 let at = found.path();
-                let pid: i32 = at.file_name()?.to_str()?.parse().ok()?;
-                let named = std::fs::read_to_string(at.join("comm")).ok()?;
+
+                // /proc holds names that are not numbers -- self, net, sys --
+                // and holds processes that end between this listing and this
+                // read, and another user's process will not let its environment
+                // be read at all. All three are ordinary here and none of them
+                // is a failure to report: what is being looked for is a process
+                // that is still running and is ours.
+                let Ok(pid) = at.file_name()?.to_str()?.parse::<i32>() else { return None };
+
+                let Ok(named) = std::fs::read_to_string(at.join("comm")) else { return None };
+
+
                 if named.trim() != program {
                     return None;
                 }
-                let held = std::fs::read(at.join("environ")).ok()?;
+
+                let Ok(held) = std::fs::read(at.join("environ")) else { return None };
+
                 held.split(|byte| *byte == 0)
                     .any(|said| said == wanted.as_bytes())
                     .then_some(pid)
@@ -304,17 +369,22 @@ impl Inside {
     /// will not go is left to the leaving that follows.
     pub fn stop_the_wallpaper(&self) {
         let told = self.command("awww").arg("kill").output();
+
         if !told.is_ok_and(|done| done.status.success()) {
             return;
         }
+
         // Answered is not gone. The daemon says Ok from inside the loop it is
         // about to fall out of, and the compositor is told to leave next.
         let by = Instant::now() + A_GOODBYE;
+
         while Instant::now() < by {
             let still = self.command("awww").arg("query").output();
+
             if !still.is_ok_and(|done| done.status.success()) {
                 return;
             }
+
             std::thread::sleep(Duration::from_millis(100));
         }
     }

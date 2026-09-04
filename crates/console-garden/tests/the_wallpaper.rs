@@ -101,7 +101,7 @@ fn the_garden_is_drawn_from_the_palette_as_it_stands() {
     assert_eq!(
         held["palette"].as_str(),
         Some(stamp::wanted(&colours, &spec().garden, size).as_str()),
-        "the wallpaper is older than the palette; run `make garden`"
+        "the wallpaper is older than the palette; run `just garden`"
     );
     assert_eq!(held["width"].as_integer(), Some(i64::from(size.0)));
     assert_eq!(held["height"].as_integer(), Some(i64::from(size.1)));
@@ -214,8 +214,8 @@ fn the_wind_puts_the_picture_back() {
     };
 
     let painted = |wind: bool| {
-        let (mut surface, ctx) = sheet(size.0 as i32, size.1 as i32, 0.0);
-        let tips = scene::scene(&ctx, &garden, SEED);
+        let (mut surface, ctx) = sheet(size.0 as i32, size.1 as i32, 0.0).expect("a sheet");
+        let tips = scene::scene(&ctx, &garden, SEED).expect("the scene draws");
         if wind {
             let mut rng = console_random::Random::seeded(SEED + 11);
             air::blown(
@@ -223,10 +223,11 @@ fn the_wind_puts_the_picture_back() {
                 &garden,
                 &air::flight(&garden, &tips, &mut rng, 170),
                 1.0,
-            );
+            )
+            .expect("the wind draws");
         }
         drop(ctx);
-        probe::Pixels::of(&mut surface).data
+        probe::Pixels::of(&mut surface).expect("the picture is drawn").data
     };
     assert_eq!(
         painted(true),
@@ -270,5 +271,6 @@ fn no_probe_could_pass_against_a_bare_screen() {
         "one probe cannot say a picture is the right way up"
     );
     let colours = palette::read(&read("theme/report.md")).expect("a solved palette");
-    assert!(probe::blind(&probes, &colours["night"]).is_empty());
+    let dark = probe::blind(&probes, &colours["night"]).expect("colours that read");
+    assert!(dark.is_empty());
 }

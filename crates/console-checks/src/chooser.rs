@@ -11,7 +11,7 @@
 //! repository's comments are about, so what is asked now is that opening a
 //! menu changes nothing about what the machine is wearing.
 
-use console_stage::checking::{Done, ought};
+use console_stage::checking::{Done, happened, same};
 use console_stage::device::{Device, PATIENCE};
 
 /// What the pad wears on the desktop, in a menu, and everywhere between.
@@ -20,9 +20,9 @@ pub const WORN: &str = "Router";
 /// Press it, and ask everything a chooser is asked.
 pub fn opens(stage: &mut Device, button: &str, what: &str) -> Done {
     stage.press(button);
-    ought(stage.drawn(PATIENCE), || format!("the {what} did not draw"))?;
+    happened(stage.drawn(PATIENCE), || format!("the {what} did not draw"))?;
     let held = stage.profile();
-    ought(held == WORN, || {
+    same(&held, &WORN, || {
         format!("the {what} changed the profile to {held}, and a chooser has nothing to change")
     })?;
     closes(stage, what)
@@ -31,10 +31,10 @@ pub fn opens(stage: &mut Device, button: &str, what: &str) -> Done {
 /// B closes it, and the pad comes back.
 pub fn closes(stage: &mut Device, what: &str) -> Done {
     stage.press("b");
-    ought(stage.gone(PATIENCE), || {
+    happened(stage.gone(PATIENCE), || {
         let left = stage.menus();
         format!("B did not close the {what}: {left:?}")
     })?;
     let held = stage.profile();
-    ought(held == WORN, || format!("the {what} left the pad wearing {held}"))
+    same(&held, &WORN, || format!("the {what} left the pad wearing {held}"))
 }

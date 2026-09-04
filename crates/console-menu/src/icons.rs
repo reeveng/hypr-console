@@ -36,16 +36,24 @@ pub fn rank(theme: &str, size: &str, suffix: &str) -> Option<(usize, u8, i64)> {
         true => WANTED,
         false => digits(size)?,
     };
+
     if pixels < SMALLEST {
         return None;
     }
+
     let drawn = u8::from(suffix != "svg");
     Some((theme, drawn, (pixels - WANTED).abs()))
 }
 
 fn digits(said: &str) -> Option<i64> {
     let front: String = said.chars().take_while(char::is_ascii_digit).collect();
-    front.parse().ok()
+
+    // Not a number, which is most path components: what is being asked is
+    // whether this part looks like a size, and "no" is an answer rather than a
+    // failure to answer.
+    let Ok(number) = front.parse() else { return None };
+
+    Some(number)
 }
 
 /// Which part of a path is the size.
@@ -77,22 +85,30 @@ pub fn read(said: &str) -> BTreeMap<String, String> {
 /// The best file for every icon name, over every theme on the machine.
 pub fn built(roots: &[PathBuf]) -> BTreeMap<String, String> {
     let mut best: BTreeMap<String, ((usize, u8, i64), String)> = BTreeMap::new();
+
     for root in roots {
         for path in under(root) {
             let Ok(inside) = path.parent().unwrap_or(root).strip_prefix(root) else { continue };
+
             let parts: Vec<String> =
                 inside.components().map(|part| part.as_os_str().to_string_lossy().to_string()).collect();
             let theme = parts.first().cloned().unwrap_or_default();
             let suffix = path.extension().map(|kind| kind.to_string_lossy().to_string());
+
             let Some(suffix) = suffix else { continue };
+
             if !["png", "svg", "xpm"].contains(&suffix.as_str()) {
                 continue;
             }
+
             let Some(score) = rank(&theme, &said_size(&parts), &suffix) else { continue };
+
             let Some(stem) = path.file_stem().map(|stem| stem.to_string_lossy().to_string()) else {
                 continue;
             };
+
             let found = (score, path.to_string_lossy().to_string());
+
             match best.get(&stem) {
                 Some((already, _)) if *already <= score => (),
                 _ => {
@@ -101,20 +117,25 @@ pub fn built(roots: &[PathBuf]) -> BTreeMap<String, String> {
             }
         }
     }
+
     best.into_iter().map(|(name, (_, path))| (name, path)).collect()
 }
 
 /// Every file under one directory, however deep.
 fn under(root: &Path) -> Vec<PathBuf> {
     let Ok(reading) = std::fs::read_dir(root) else { return Vec::new() };
+
     let mut found = Vec::new();
+
     for entry in reading.filter_map(Result::ok) {
         let path = entry.path();
+
         match path.is_dir() {
             true => found.extend(under(&path)),
             false => found.push(path),
         }
     }
+
     found
 }
 

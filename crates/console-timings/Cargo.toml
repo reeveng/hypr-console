@@ -1,0 +1,22 @@
+[package]
+name = "console-timings"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_timings"
+path = "src/lib.rs"
+
+[[bin]]
+name = "console-timings"
+path = "src/bin/console-timings.rs"
+
+[dependencies]
+console-number.workspace = true
+libc = "0.2"
+serde_json = "1"
+
+[lints]
+workspace = true

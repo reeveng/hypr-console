@@ -1,0 +1,27 @@
+warning: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/main.rs:6:5
+   |
+LL |     count + 1
+   |     ^^^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+   = note: `#[warn(explicit015_no_bare_arithmetic)]` on by default
+
+warning: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/main.rs:12:5
+   |
+LL |     total / ways
+   |     ^^^^^^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+warning: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/main.rs:18:5
+   |
+LL |     *sum += next;
+   |     ^^^^^^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+warning: 3 warnings emitted
+

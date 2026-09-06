@@ -39,13 +39,12 @@ Four cannot import anything and are written into between a pair of markers:
   one colour is the ground the wallpaper daemon fills the screen with before
   `console-sky` has chosen a picture.
 
-The placeholder icon is drawn. So is the wallpaper, which has a section of its
-own below because it cannot be read back the way the rest can.
+The placeholder icon is drawn. The wallpaper is a picture and cannot be read
+back the way the rest can, which is what the section below is about.
 
 ## Where to change it
 
-`theme/palette.toml`, then `just theme`, and `just garden` if you moved
-anything the picture is painted with. Nothing else.
+`theme/palette.toml`, then `just theme`. Nothing else.
 
 Two tests stand behind that. One refuses a checkout where a generated file no
 longer matches the palette. The other reads every file under `files/` and
@@ -105,32 +104,35 @@ colours and ratios agree to four decimal places. Those cases are vectors in
 away from the other one without a test saying so.
 
 
-## The garden
+## The wallpaper
 
-The wallpaper is a cherry blossom garden with a path through it, a tree close
-and a tree far. It rests, and then every seven minutes the wind comes through
-and takes the blossom with it.
-
-It is an animated WebP, and that is the whole reason it can be moving at all on
-a machine running off a battery. A WebP frame declares how long it lasts, and
-`awww`'s daemon sleeps in `poll()` for exactly that long. The first frame
-declares seven minutes, so for seven minutes out of every seven and a bit
-nothing on this machine is running: no timer, no wake-up, no compositor frame,
-no GPU. The wind is the last few dozen frames, and each of those redraws only
-the band of the picture the petals cross, which is what keeps a moving
-wallpaper down to the size of a photograph.
+The wallpaper is an animated WebP, and that is the whole reason it can be
+moving at all on a machine running off a battery. A WebP frame declares how
+long it lasts, and `awww`'s daemon sleeps in `poll()` for exactly that long, so
+a resting picture is a process doing nothing at all: no timer, no wake-up, no
+compositor frame, no GPU. The moving part is a few dozen frames at the end,
+each redrawing only the band of the picture that changes, which is what keeps a
+moving wallpaper down to the size of a photograph.
 
 `awww` is here and hyprpaper is not, for that reason alone. hyprpaper paints
 one still image. mpvpaper would play a video, and a video decodes at its frame
 rate whether anything in it is moving or not.
 
-The one thing to know about `awww` before changing the picture: it keeps every
+Which picture is up is `console-sky`'s, and `docs/sky.md` is where that is
+written down. What belongs here is the one picture that is ours:
+`/usr/share/backgrounds/console.webp`, the cherry blossom garden, which is the
+ground `console-paper` fills the screen with and which `awww img` still paints
+by hand. It is a fixed file now. The program that drew it out of the palette is
+gone -- `git log -- crates/console-garden` is where it went -- so a colour
+moving in `theme/palette.toml` no longer moves that picture, and the two can
+drift. Nothing checks that they have not.
+
+The one thing to know about `awww` before changing a picture: it keeps every
 decoded frame in a cache file under `~/.cache/awww`, named after the picture's
 path, its size, and how it was fitted to the screen. Nothing in that name comes
-from what is inside the file. Redraw the garden, install it at the same path,
-and `awww` plays the old picture's frames over the new picture's still: the
-screen fills with rectangles of the two mixed together, worst where they differ
-most, which is the band the wind redraws.
+from what is inside the file. Install a different picture at the same path and
+`awww` plays the old picture's frames over the new picture's still: the screen
+fills with rectangles of the two mixed together, worst where they differ most.
 
 Nothing empties that cache wholesale. Those frames are what a picture costs to
 put up: with them a wallpaper arrives in the moment it is asked for, and without
@@ -141,7 +143,7 @@ stopped covering the screen. What is thrown away instead is the entries older
 than the picture they are entries for: `console_sky::place::freshen` does it by
 their date, before that picture goes up, and `sky-press` throws the cache away
 when it writes one. `console apply` throws it away when it writes a background,
-which covers the garden: that one is painted by hand rather than by
+which covers `console.webp`: that one is painted by hand rather than by
 `console-sky`, so nothing else holds its date against what the daemon kept. It is
 an entry in `units::WAKES`. The same apply restarts the service when the picture
 changes, which is why `named_by` looks at a unit's arguments and not only at the
@@ -154,12 +156,12 @@ usually in the second:
 1. `awww query` says which file it thinks it is showing. A path you did not
    expect ends it there.
 2. `ls -l ~/.cache/awww/*/` against the picture's own mtime. A cache older than
-   the picture it caches is the whole fault, and nothing about the drawing is in
+   the picture it caches is the whole fault, and nothing about the picture is in
    question: the next pass that puts that picture up throws it away, and `rm` on
    the entry is the same thing sooner.
-3. `grim` to a file, and look at the band the wind redraws, which is the top
-   half. Two pictures mixed together shows there first, because that is where
-   consecutive frames differ.
+3. `grim` to a file, and look at the band that moves, which is the top half. Two
+   pictures mixed together shows there first, because that is where consecutive
+   frames differ.
 
 One caution about the second rung, because `150-the-wallpaper` now says it in
 its own failure message and somebody will read it as a verdict. An mtime stands
@@ -169,54 +171,10 @@ its times kept is new in content and old on paper. Older than the picture is
 strong evidence and not proof. It is still the rung to reach for first, because
 it is right nearly every time and it costs one `stat`.
 
-`crates/console-garden` draws it. There is not one colour written down in it:
-`[garden.paint]` in `theme/palette.toml` says which palette colour every part
-of the scene is painted with and how much of it reaches the picture, and the
-tool holds only the shapes. An alpha lives in the palette because a wash at a
-tenth is a decision about colour; the shape of a tree is not.
-
-Both trees throw a shadow, and neither shadow is a shape anybody drew. The tree
-is drawn a second time through a transform that tips it away from the light and
-flattens it into the ground, from the same seed, so a shadow cannot be of a
-different tree than the one standing in it. There is no sun in this picture,
-only what is left of the day in the air behind the hills, and a light that broad
-carries no outline as far as the ground. Drawn at full size the branches came
-out as scratches on a field. So the shadow is drawn at an eighth of the picture
-and stretched back up, and the stretching is the blur, which cairo has not got.
-It is laid down three times, each reaching a little further and fainter than the
-last, which is why it is darkest where a trunk meets the ground and gone by its
-far end.
-
-Where that light is gets said in three places, and they do not all say the same
-thing. The bark is a gradient across each tree, lighter to the right, which is a
-direction and not a position. The glow is an ellipse centred at 0.54 of the
-width, which is a position, and it is the only one in the picture. `THROW` is
-the direction a shadow leans, and it follows the bark.
-
-For the near tree, which stands well to the left of the glow, the three agree.
-For the far tree they do not. It stands to the right of the glow, so a shadow
-cast by the glow would fall the other way, and it leans left anyway. That is
-deliberate. The glow sits low and broad and reads as light left in the sky
-rather than as a sun at a place, and two shadows leaning the same way is a
-stronger thing to look at than two shadows leaning correctly. At the size this
-picture is looked at, the correctness is invisible and the consistency is not.
-
-It is written down because nothing is going to change. Move the glow, or turn
-the bark gradient round, and the other two will still be here saying what they
-said, and the shadow that comes out pointing the wrong way will be months from
-whoever moved it.
-
-A picture cannot be searched for a hex that should not be in it, so it is held
-to the palette from both ends. `theme/garden.stamp` records what the drawing
-was made from, and a test refuses a checkout where the palette has moved and
-the picture has not. The same stamp records what the picture came out as, which
-is what the device-side check compares against the screen, because nothing on
-the device can take a VP8 bitstream apart.
-
-The picture is drawn at 2560x1600, which is the panel turned the quarter the
-compositor turns it, so nothing ever resamples it. A test reads the mode and
-the transform out of `hyprland.lua` and refuses a picture that is not that
-shape. That test is there because it was wrong once: the wallpaper was drawn
-the shape of the panel rather than the shape of the desktop, the daemon cropped
-it to fit, and because what it held was a gradient there was nothing on screen
-to say so.
+Every picture on this machine is 2560x1600, which is the panel turned the
+quarter the compositor turns it, so nothing ever resamples one. A test reads the
+mode and the transform out of `hyprland.lua` and refuses a picture that is not
+that shape. That test is there because it was wrong once: the wallpaper was
+drawn the shape of the panel rather than the shape of the desktop, the daemon
+cropped it to fit, and because what it held was a gradient there was nothing on
+screen to say so.

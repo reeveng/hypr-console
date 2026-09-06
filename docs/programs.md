@@ -19,8 +19,10 @@ answered the same way."* `Doing` is a decision said without being carried out,
 and every test in that crate is a transcript. It is the most reliable thing here
 and that is not a coincidence.
 
-`console-again` is the retry, in one place, with the reason written down. Four
-watchers used to hold four copies of it.
+`console-reconnect` is the retry, in one place, with the reason written down. Four
+watchers used to hold four copies of it. `console-repository` is the same move
+made once more: four programs each walked up the tree looking for the top of
+it, and each had its own idea of what marks it.
 
 systemd is the supervision tree, and a good one: `Restart=always`, `PartOf=`,
 and `console-fell` so a daemon dying quietly is not a thing that can happen. The
@@ -63,36 +65,81 @@ the only language here that cannot be asked a question twice.
 
 ## The contract
 
-One crate, `console-turn`. Every program on the device answers the same three
-questions.
+One crate, `console-program-contract`, and it is written. This document called
+it `console-turn` for a year, which was the wrong name for the one crate every
+other program depends on: a name that has to be learned before it can be read.
 
 ```rust
 /// A program: what it holds, what reaches it, what it does about that.
 pub trait Program {
-    /// What it holds. Replaced only by `heard`, never touched from outside.
+    /// What it holds. Replaced only by `heard`, never reached into from
+    /// outside. `PartialEq` is how the loop knows anything changed.
     type State: Clone + Debug + PartialEq;
 
+    /// The words only this program can be told, and the effects only it can
+    /// ask for. `console_never::Never` where there are none, which is most.
+    type Hears: Clone + Debug + PartialEq;
+    type Does: Clone + Debug + PartialEq;
+
     /// What it starts holding, and what it wants said to it.
-    fn opening(argv: &Argv) -> (Self::State, Vec<Wants>);
+    fn opening(argv: &Argv) -> Opening<Self::State>;
 
     /// One word in, and what it decided.
     ///
     /// Pure. No clock, no filesystem, no process, no environment. Everything
     /// it is allowed to know is in `state` or in `word`, which is what makes a
     /// transcript a proof rather than an anecdote.
-    fn heard(state: &Self::State, word: &Word) -> Turn<Self::State>;
-
-    /// What it will draw, given what it holds. Pure, and the only thing the
-    /// screen is built from.
-    fn showing(state: &Self::State) -> Vec<Page>;
-
-    /// What can be asked of it from outside, and what each one is called.
-    fn offers() -> &'static [Offer];
+    fn heard(state: &Self::State, word: &Word<Self::Hears>) -> Turn<Self::State, Self::Does>;
 }
 
 /// One turn: what it holds now, and what it wants done.
-pub struct Turn<S> { pub now: S, pub doings: Vec<Doing> }
+pub struct Turn<S, D> { pub now: S, pub doings: Vec<Doing<D>> }
 ```
+
+Four things in that are not what this document asked for, and each of them is a
+thing writing it settled.
+
+**`showing` is gone from the trait, and there is no `Doing::Show` either.** The
+draft above listed "draw these pages" as an effect *and* gave the trait a
+`showing`, which is the same thing said twice; only one of them can be the truth
+about what is on the screen. It is `showing`: the loop redraws from the state
+when the state changes, which is what `PartialEq` is for. And it is not on this
+trait, because seven of the fourteen programs never draw and a `Vec<Page>` they
+all return empty is exactly the ceremony this document is against. A program
+that draws implements a second trait, in the crate whose vocabulary a page is.
+
+**`offers()` is gone until something wants it.** Stage 6 was already conditional
+on two programs asking; a registry in the trait before then is the piece most
+likely to be built bigger than anything needs.
+
+**`Hears` and `Does` are new, and the reason is stick-scroll.** `Word` and
+`Doing` are closed sets shared by every program, which is what makes them worth
+having and is also how this crate becomes the shelf `CLAUDE.md` forbids: a
+variant nobody else uses is one program's private business kept in a shared
+type. The sets were settled against three real programs -- `stick-scroll`,
+`console-sky` and `settings-panel` -- and one of them broke the shape.
+Everything the other two do is a kind of effect anybody might ask for.
+`stick-scroll` emits pointer motion on a virtual device it holds, and no other
+program here will ever want to, because the whole plan is that one program reads
+the input and the rest are told.
+
+So the shared sets stay about *kinds* of effect and a program names its own.
+What is not given up is the transcript: a private doing is still a value that
+was decided rather than carried out, so it is still in the list a test asserts
+on. What is given up is that shared code can carry it out, which is the honest
+cost -- the program that asked for it is the one that knows what it means. The
+first one is `controller-profile`'s touchpad buzz, which is a glob over
+`/sys/bus/hid/devices/*/touchpad/vibration_enabled`: how many there are and what
+they are called is the driver's, so it is not a path anybody can write down.
+
+**The loop is a crate of its own, `console-program-runtime`, and it is not the
+only loop.** GTK draws on one thread and will not be driven from somebody
+else's, so the panels keep theirs and drive the same contract from glib. What is
+here is the loop for the programs with no toolkit: it carries out the doings,
+runs a program's asks to completion and puts the answer on the queue for a later
+turn, hands the stretches of time back as words, and ends when a program has
+nothing left to wait for. What is shared between fourteen programs is the shape
+of a decision, not the shape of a loop.
 
 `Word` is everything that can arrive — the runtime is up, a subscription spoke,
 a timer the program asked for came round, another program asked it for
@@ -141,12 +188,12 @@ drawn, exactly as today. This is the one real hazard in the whole plan — held
 state that nothing refreshes is a reading that is confidently wrong — and this
 rule is what keeps it out.
 
-## One pool, `console-said`
+## One pool, `console-event-broker`
 
 A daemon that holds one subscription per source and hands the words to everyone:
 the compositor's socket, `pactl subscribe`, `nmcli monitor`, the bus name mako
 owns, systemd's unit changes, the player, and a path being watched. It speaks
-over a socket in the runtime directory, and `console-again` is what reconnects
+over a socket in the runtime directory, and `console-reconnect` is what reconnects
 to it.
 
 Two things it does that no program can do for itself. It **replays the last word
@@ -158,6 +205,45 @@ solved by construction rather than by everyone remembering to tidy up.
 It restarts like everything else here, and a program with no pool is a program
 that asks the machine directly and is merely slower — the same rule
 `console-bar`'s tick already keeps.
+
+### What is in
+
+`console-event-broker`, and `console-events` is the program. One source so far
+— the compositor — and one program on it: `console-sky` opened Hyprland's socket
+itself and asks the pool now. The other sources are topics that answer nothing
+and say so on the journal, which is what the one-at-a-time rule should look
+like: a topic that is quiet rather than a pool that is broken.
+
+Three things settled by writing it rather than by arguing about it.
+
+**The pool does not parse anything.** A line arrives as a line and leaves as a
+line. Which of the compositor's lines are worth waking for is still
+`console_wallpaper::covered::worth_waking_for`, because the bar keeps different
+ones and a pool that decided that would be deciding it for both. What the pool
+knows is who wants what.
+
+**Where the compositor's socket is was in this tree three times** —
+`console_onscreen`, `console_wallpaper::covered` and `console_panel::door` each
+worked it out. That is the same fault as the subscriptions, one layer down. The
+wallpaper's copy went with the subscription it was for, and the pool asks
+`console_onscreen`.
+
+**The orphan fix is a write that would not go through.** Nothing has to be
+tidied up by the program that left, and nothing has to notice that it left: a
+socket nobody is holding refuses a write, and that is the same moment.
+
+What the pool costs is a second thing that has to be up, and that is the honest
+half of this. A program that held its own subscription now depends on a daemon
+as well as on the source. The answer is the one every unit here already gives
+— it restarts, and the client reaches for it again for as long as it wants
+words — and that answer is only good because both halves of it are true.
+
+Where a source is opened is handed in rather than reached for, the way
+`console_controller::turning` is handed a machine. So the test runs the real
+serving loop, the real wire and the real client over a real socket, with a
+source the test speaks through. Without that seam the only compositor is the
+one the test is running under, and *is a late program told the last word first*
+could not be asked at all.
 
 ## Threads, honestly
 
@@ -330,11 +416,14 @@ different directions. The binary is ours now. The switch is not gone with it --
 it is a function of reading a pad, not of who wrote the reader -- and what is
 left of it is `todos.md`'s claim crate.
 
-## Everything in Rust, and the four things that are not ours
+## Everything in Rust, and what is written in something else
 
 The aim is that nothing on this machine is written in a language that cannot be
-asked a question twice. Thirteen scripts and four laptop tools go, which is all
-eight hundred and ten lines of shell we wrote.
+asked a question twice. Every script the desktop runs has gone, and so have the
+laptop tools: the deploy, the rename, the pull and the uinput rule are
+`Program`s now, and `tools/` holds nothing but the lint suite. What decides
+whether the list is finished is whether anything left under `files/` or `tools/`
+has a `#!` we wrote.
 
 `/usr/local/lib/console/palette.sh` was going to go with them, and does not.
 This document said it existed only because `osk-start` was a shell script and
@@ -348,11 +437,11 @@ So it stays, and what changed instead is that there is one reader of it.
 had a copy of the same six-line parser, which is the fault this desktop keeps
 having with colours, in miniature.
 
-Four things stay in another language, and it is worth being clear about why,
-because three of them are fine and one is not.
+What stays in another language stays for a reason, and it is worth being clear
+about each, because all but one of them are fine and that one was not.
 
 **The InputPlumber profiles** are YAML because InputPlumber reads YAML. It is
-their format, not ours. What we can do is what `console-pad` already does: hold
+their format, not ours. What we can do is what `console-gamepad` already does: hold
 the button contract as a Rust test over those files, so a profile that stops
 meaning what the guide says it means fails on a laptop.
 
@@ -363,13 +452,18 @@ meaning what the guide says it means fails on a laptop.
 someone else's ninety lines to be ours is how a carried file quietly becomes a
 fork nobody remembers maintaining.
 
+**The migration sweeps** in `migrations/` are shell because a sweep is a handful
+of `mv`s against paths a manifest stopped naming, and `console-migrations` --
+which decides *what* is owed, and is Rust -- is the half that could be wrong.
+`docs/migrations.md` is the argument.
+
 **`wvkbd-mobintl` was the one that was not fine, and it is now ours.** It was a
 compiled binary in `files/`, built from a C fork that lived on the laptop and
 nowhere else: everything else on this device could be rebuilt from what is
 written down, and this could be rebuilt from nothing but that one directory,
 while holding the X button.
 
-It is a Rust program in `crates/keyboard`, in `[build]` like every other program
+It is a Rust program in `crates/console-keyboard`, in `[build]` like every other program
 here, and the device compiles it. Which is the third of the four ways out below
 -- the one this section argued against, on a premise that was wrong. The four
 are left standing because the argument is worth having in front of you, and the
@@ -481,7 +575,11 @@ commits exist on one laptop and nothing in this repository can reach them. That
 is a smaller problem than the one written down here before, and it still needs
 somewhere to go.
 
-**The licence decides the shape.** wvkbd is GPL-3.0 and this workspace is MIT.
+**The licence decides the shape.** wvkbd is GPL-3.0 and this workspace was MIT
+when that was written; it is AGPL-3.0-or-later now, and the port is why -- a
+derivative of copyleft work carries the copyleft, so the field was never a
+choice. `crates/console-keyboard` says GPL-3.0-or-later on its own, because the
+AGPL is not a later version of the GPL and wvkbd's "or later" does not reach it.
 `console-publish` already knows: `tree.rs` holds `FORKS` and `is_fork`, and
 `lib.rs` says why the two compiled programs are not carried. But `is_fork`
 matches *paths under `files/`* -- it is written against binaries. C source
@@ -498,11 +596,11 @@ program the device builds from this workspace is this repository's to publish.
 
 Written into that exclusion, plainly: it is enforcing a decision, not a law.
 GPL-3.0 does not forbid publishing this source, it forbids relicensing it, and
-GPL C in an MIT repository is fine as long as that subtree keeps its own
-licence and says so. What is being enforced is that the fork is not published,
-which is a choice somebody made. Put the other way round -- as though the
-machinery were a compliance gate -- the next person to read it will be afraid
-to touch it, and will not change it when the choice changes.
+GPL C beside a repository under other terms is fine as long as that subtree
+keeps its own licence and says so. What is being enforced is that the fork is
+not published, which is a choice somebody made. Put the other way round -- as
+though the machinery were a compliance gate -- the next person to read it will
+be afraid to touch it, and will not change it when the choice changes.
 
 **`console apply` would have to build C.** It runs cargo today and that is all
 it runs. Settled by not needing to: the keyboard is a crate, the C it was ported
@@ -531,11 +629,11 @@ daemon reads it off the compositor, which is what `Mode::seen` is.
 
 ## What is not reworked
 
-Fifteen of the forty programs run, decide, and exit: `console-buttons`,
-`put-away`, `one-format`, `download-find`, `download-get`, `files-thumbs`,
-`music-index`, `sky-press`, `dictate`, `cover-ascii`, `console-theme`,
-`console-garden`, `console`, `console-engine`, `console-battery`. They are already pure functions
-with a `main` around them. A state machine holding one state is ceremony, and
+Some of these programs run, decide, and exit: `console-buttons`, `put-away`,
+`one-format`, `download-find`, `download-get`, `files-thumbs`, `music-index`,
+`sky-press`, `dictate`, `cover-ascii`, `console-theme`, `console`,
+`console-engine`, `console-battery`. They are already pure functions with a
+`main` around them. A state machine holding one state is ceremony, and
 ceremony is the thing this document is against.
 
 Five more are laptop-only — `capture-devices`, `console-check`, `console-desktop`,
@@ -554,21 +652,40 @@ until the last one is off it.
 | | | |
 | --- | --- | --- |
 | **0** | ~~Find the restart fault~~ | done, and it is the argument below |
-| **1** | `console-turn`: the contract, tested alone | ~700 lines |
-| **2** | `console-said`: the pool, one source at a time | ~600 lines |
-| **3** | The thirteen scripts, into Rust | **eleven gone, 385 of 440 lines** |
+| **1** | ~~`console-program-contract`: the contract, tested alone~~ | done, with the transcript harness and three programs on it |
+| **2** | `console-event-broker`: the pool, one source at a time | **begun: the compositor, and `console-sky` on it** |
+| **3** | ~~The shell scripts, into Rust~~ | done: none of ours is left |
 | **4** | One input reader, then seven daemons | **begun: the mode and the table are in** |
 | **5** | Seven panels | ~1 day each |
 | **6** | `offers()`, if two programs want it | ~400 lines |
-| **7** | The four laptop tools | 370 lines of shell → ~500 of Rust |
+| **7** | ~~The laptop tools~~ | done: the deploy, the rename, the pull, the uinput rule and the measurement |
 
-Ten of the thirteen are done: the three that raise a notification, the four
-knobs, the two ways to a session and the one that starts it, and the keyboard's
-colours. `osk-hook` is not among them: it was not converted, it was deleted,
-which was the right end for it. `osk` went the same way, into the keyboard that
-now answers the signal it sent. What is left is `keyboard-toggle` and
-`controller-profile`, and both are held on the same thing -- the profile, and
-so the claim crate in `todos.md`.
+**Stage 3 is finished, and it finished by being stage 1's first implementors.**
+The three that raise a notification, the four knobs, the two ways to a session
+and the one that starts it, and the keyboard's colours went one at a time.
+`osk-hook` was not converted, it was deleted, which was the right end for it;
+`osk` went the same way, into the keyboard that now answers the signal it sent.
+The two that were really a program taking the front of the machine came out with
+`console-input-claim`. What was left at the end was `keyboard-toggle`,
+`keyboard-show` and `controller-profile`, and those three were written to the
+contract rather than merely written in Rust -- which is why the crate landed
+holding something up rather than beside it.
+
+The two keyboard ones are a line each and were not converted for the line. What
+they buy is that the difference between them is a test now:
+`asking_on_somebodys_behalf_only_ever_shows` is what stops the browser's search
+card putting the keyboard away by asking for one while it was up, and nothing
+could have said so while both were `exec pkill`.
+
+`controller-profile` is the one that was worth it, and it is worth it for the
+reason this whole document is about. Its wait for InputPlumber was a `sleep 1`
+loop with a counter in it, up to a minute -- a decision that can only be
+observed by waiting for it. It asks for a stretch now and is told when one has
+gone by, so the cold login is pressed in no time at all and so is the minute
+that ends in nothing. Two things fell out of writing it down: the profile paths
+are built from `console_gamepad::router`'s own constants rather than spelled a
+second time, and somebody who asked which profile was on while the bus was down
+used to get a blank line and a success, which now says what happened.
 
 Three things the conversion turned up that no test could have asked for while
 they were scripts. `grim` is not in `[packages]` and never has been -- the
@@ -588,7 +705,7 @@ about.
 
 Nothing in this tree turns X into the keyboard. The profiles pass it through
 untouched -- `North` in and `North` out, which
-`console-pad/tests/the_button_contract.rs` asserts on purpose -- and no program
+`console-gamepad/tests/the_button_contract.rs` asserts on purpose -- and no program
 here reads `BTN_NORTH`. The handler is inside `wvkbd-mobintl`, which is a
 compiled binary carried in `files/` whose source is a C fork on the laptop,
 reachable from nothing here. `gamepad_read`, `GamepadToggle`, `gamepad_lost` and
@@ -596,7 +713,7 @@ reachable from nothing here. `gamepad_read`, `GamepadToggle`, `gamepad_lost` and
 itself.
 
 *Written before the port, and left as the description of the fault it is about.*
-The keyboard is `crates/keyboard` now and `gamepad.rs` is where those four
+The keyboard is `crates/console-keyboard` now and `gamepad.rs` is where those four
 functions went, in Rust and testable without a pad in the room. The race below
 is unchanged: it is about two programs opening one device with nothing said
 about the order, and rewriting one of them in a language you can ask questions
@@ -631,6 +748,16 @@ profile, so there is exactly one pad by the time wvkbd looks for it. The check
 that would have caught it is one that restarts the target twenty times and
 presses X, because a fault that appears on one restart in three is not a fault a
 check that runs once can see.
+
+*Settled, and not by the ordering.* The ordering went on the machine, held for a
+year, and came out again. The keyboard opens nothing at start now: it takes the
+pad and the keyboard beside it when its surface goes up and hands them back when
+it comes down, so it finds whatever is there at the moment somebody wants to
+type, and a pad rebuilt under it is a claim taken again on the next turn. There
+is no order left to declare, which is why the `After=` is gone rather than kept
+as a belt. `console-input-claim` is where that lives, and the twenty-restart
+check stayed: it is still the only thing that can see a fault that appears on
+one restart in three.
 
 The fork is the other half and it is owed a decision. A binary in `files/`
 built from a directory on one laptop is the one thing on this machine that

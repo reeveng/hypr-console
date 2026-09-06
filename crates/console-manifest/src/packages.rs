@@ -17,71 +17,66 @@
 //! `Held::Borrowed` is that state said out loud, and `console apply` settles it
 //! by telling pacman the desktop asked for the package too, which is true.
 
+use console_never::Never;
+
 use crate::settled::Settled;
 
-/// How the machine is holding a package the manifest names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Held {
-    /// Installed, and something asked for it.
     Ok,
-    /// Installed, but only because something else needed it, so it leaves when
-    /// that does.
     Borrowed,
     Missing,
 }
 
 impl Held {
-    pub fn name(self) -> &'static str {
-        match self {
+    pub fn name(self) -> Result<&'static str, Never> {
+        Ok(match self {
             Held::Ok => "ok",
             Held::Borrowed => "held as a dependency",
             Held::Missing => "missing",
-        }
+        })
     }
 
-    pub fn settled(self) -> Settled {
-        match self == Held::Ok {
+    pub fn settled(self) -> Result<Settled, Never> {
+        Ok(match self == Held::Ok {
             true => Settled::Yes,
             false => Settled::No,
-        }
+        })
     }
 }
 
-/// How the machine holds one package.
-///
-/// `asked_for` is what pacman was told to install and `installed` is everything
-/// that got installed, dependencies and all, so the second contains the first.
-pub fn held(installed: &[String], asked_for: &[String], package: &str) -> Held {
+pub fn held(installed: &[String], asked_for: &[String], package: &str) -> Result<Held, Never> {
     let said = |names: &[String]| names.iter().any(|name| name == package);
 
-    match (said(installed), said(asked_for)) {
+    Ok(match (said(installed), said(asked_for)) {
         (_, true) => Held::Ok,
         (true, false) => Held::Borrowed,
         (false, false) => Held::Missing,
-    }
+    })
 }
 
-/// The packages the manifest names that the machine has on somebody else's
-/// word, which is what `apply` claims for the desktop.
 pub fn borrowed<'a>(
     named: &'a [String],
     installed: &[String],
     asked_for: &[String],
-) -> Vec<&'a str> {
-    named
+) -> Result<Vec<&'a str>, Never> {
+    Ok(named
         .iter()
-        .filter(|package| held(installed, asked_for, package) == Held::Borrowed)
+        .filter(|package| {
+            let Ok(held) = held(installed, asked_for, package);
+
+            held == Held::Borrowed
+        })
         .map(String::as_str)
-        .collect()
+        .collect())
 }
 
-/// The packages the manifest names that are not on the machine at all.
-pub fn missing<'a>(named: &'a [String], installed: &[String]) -> Vec<&'a str> {
-    named
+pub fn missing<'a>(named: &'a [String], installed: &[String]) -> Result<Vec<&'a str>, Never> {
+    Ok(named
         .iter()
         .filter(|package| !installed.iter().any(|name| name == *package))
         .map(String::as_str)
-        .collect()
+        .collect())
 }
 
 #[cfg(test)]
@@ -92,32 +87,52 @@ mod tests {
         said.iter().map(|name| name.to_string()).collect()
     }
 
+    fn holding(installed: &[String], asked_for: &[String], package: &str) -> Held {
+        let Ok(held) = held(installed, asked_for, package);
+
+        held
+    }
+
+    fn lacking<'a>(named: &'a [String], installed: &[String]) -> Vec<&'a str> {
+        let Ok(missing) = missing(named, installed);
+
+        missing
+    }
+
+    fn lent<'a>(named: &'a [String], installed: &[String], asked_for: &[String]) -> Vec<&'a str> {
+        let Ok(borrowed) = borrowed(named, installed, asked_for);
+
+        borrowed
+    }
+
     #[test]
     fn a_package_somebody_asked_for_is_held() {
         let installed = names(&["glib2", "gtk4"]);
         let asked_for = names(&["gtk4"]);
-        assert_eq!(held(&installed, &asked_for, "gtk4"), Held::Ok);
+        assert_eq!(holding(&installed, &asked_for, "gtk4"), Held::Ok);
     }
 
     #[test]
     fn a_package_that_came_in_with_something_else_is_only_borrowed() {
         let installed = names(&["glib2", "gtk4"]);
         let asked_for = names(&["gtk4"]);
-        assert_eq!(held(&installed, &asked_for, "glib2"), Held::Borrowed);
+        assert_eq!(holding(&installed, &asked_for, "glib2"), Held::Borrowed);
     }
 
     #[test]
     fn a_package_nothing_has_is_missing() {
-        assert_eq!(held(&[], &[], "wtype"), Held::Missing);
+        assert_eq!(holding(&[], &[], "wtype"), Held::Missing);
     }
 
-    /// Borrowed is a difference, because the package leaves when the thing that
-    /// brought it in does and nothing here would have said so.
     #[test]
     fn only_a_package_somebody_asked_for_is_settled() {
-        assert_eq!(Held::Ok.settled(), Settled::Yes);
-        assert_eq!(Held::Borrowed.settled(), Settled::No);
-        assert_eq!(Held::Missing.settled(), Settled::No);
+        let Ok(asked_for) = Held::Ok.settled();
+        let Ok(borrowed) = Held::Borrowed.settled();
+        let Ok(missing) = Held::Missing.settled();
+
+        assert_eq!(asked_for, Settled::Yes);
+        assert_eq!(borrowed, Settled::No);
+        assert_eq!(missing, Settled::No);
     }
 
     #[test]
@@ -125,19 +140,17 @@ mod tests {
         let named = names(&["glib2", "gtk4", "wtype"]);
         let installed = names(&["glib2", "gtk4"]);
         let asked_for = names(&["gtk4"]);
-        assert_eq!(missing(&named, &installed), ["wtype"]);
-        assert_eq!(borrowed(&named, &installed, &asked_for), ["glib2"]);
+        assert_eq!(lacking(&named, &installed), ["wtype"]);
+        assert_eq!(lent(&named, &installed, &asked_for), ["glib2"]);
     }
 
-    /// Installing a missing package makes pacman ask for it, so the two never
-    /// overlap in one run and nothing is claimed that was just installed.
     #[test]
     fn nothing_is_both_missing_and_borrowed() {
         let named = names(&["glib2", "wtype"]);
         let installed = names(&["glib2"]);
         let asked_for = names(&[]);
-        let missing = missing(&named, &installed);
-        for package in borrowed(&named, &installed, &asked_for) {
+        let missing = lacking(&named, &installed);
+        for package in lent(&named, &installed, &asked_for) {
             assert!(!missing.contains(&package));
         }
     }

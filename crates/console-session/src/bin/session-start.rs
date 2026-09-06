@@ -5,5 +5,6 @@
 use console_session::{run_each, starting};
 
 fn main() {
-    run_each(&starting());
+    let Ok(starting) = starting();
+    let Ok(()) = run_each("starting", &starting);
 }

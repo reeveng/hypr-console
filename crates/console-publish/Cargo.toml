@@ -13,5 +13,10 @@ path = "src/lib.rs"
 name = "console-publish"
 path = "src/main.rs"
 
+[dependencies]
+console-external-programs.workspace = true
+console-never.workspace = true
+console-repository.workspace = true
+
 [lints]
 workspace = true

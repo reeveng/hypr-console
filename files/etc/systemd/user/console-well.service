@@ -1,5 +1,5 @@
 [Unit]
-Description=Check this machine is the way it was left
+Description=Startup check
 PartOf=console.target
 # After the pieces it asks about, so a unit that is still starting is not
 # reported as one that did not. The timer is what actually spaces this out; this
@@ -21,3 +21,13 @@ ExecStart=-/usr/local/bin/console well
 # therefore a unit `console well` asks about, and a oneshot that has finished is
 # `inactive` -- so it would find itself down at every hour and raise a card
 # about the program that raised it.
+
+# What this reaches past `console-.service.d/confining.conf`, and why.
+#
+# It reads: the manifest, the files the manifest names, and what the manager
+# says about the units. Reading is all of it -- nothing here repairs anything,
+# which is this unit's own argument above -- so the home directory is read-only
+# and there is no device and no way off the machine.
+PrivateDevices=yes
+ProtectHome=read-only
+RestrictAddressFamilies=AF_UNIX AF_NETLINK

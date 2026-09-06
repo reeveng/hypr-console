@@ -2,25 +2,21 @@
 Description=On-screen keyboard
 PartOf=console.target
 
-# After the controller, because both of them go looking for the same pad and
-# neither of them owns it.
+# Ordered after nothing, and that is the change rather than an omission.
 #
-# The keyboard reads the controller itself: X arrives on the pad as North,
-# every profile passes it through untouched, and the keyboard finds the pad in
-# /dev/input and opens it -- `console_pad::finding` is the rule it applies, and
-# it is the daemon's rule rather than one of its own. The daemon's ExecStartPost loads the
-# desktop profile, and a profile switch destroys the pad and builds a new one --
-# `console_controller::turning::Gone` is that, called the ordinary state of
-# things because for the daemon it is: it opens the new one a turn or two later.
+# It used to be `After=console-controller.service`, because both of them went
+# looking for the same pad and neither of them owned it: the daemon's
+# ExecStartPost loaded a profile, a profile switch destroys the pad and builds
+# another, and a keyboard started alongside could open the one that switch was
+# about to take away. What that looked like was X not raising the keyboard until
+# the next reboot, and coming back on the one after that.
 #
-# Started together, the keyboard could open the pad that switch was about to
-# take away, in the one moment it has no answer for. What that looked like is X not raising
-# the keyboard until the next reboot, and coming back on the one after that.
-#
-# After= and not Requires=: this is about the order they start in and nothing
-# else. A machine whose controller will not start still gets a keyboard, and a
-# keyboard on this device is reachable by thumb as well as by button.
-After=console-controller.service
+# The keyboard opens nothing at start now. It takes the devices when its surface
+# goes up and hands them back when it comes down -- `console_input_claim` -- so
+# it finds whatever is there at the moment somebody wants to type, and a pad
+# rebuilt under it is a claim taken again on the next turn. There is no race
+# left to order around, and an ordering that no longer means anything is a line
+# the next person has to work out the reason for.
 
 [Service]
 Type=simple
@@ -59,6 +55,14 @@ ExecStart=/usr/local/bin/virtual-keyboard --landscape-layers landscape,thai,land
 ExecStopPost=-/usr/local/bin/console-fell %n
 Restart=always
 RestartSec=2
+
+# What this reaches past `console-.service.d/confining.conf`, and why.
+#
+# The keyboard takes the devices while its surface is up and hands them back
+# when it comes down -- `console_input_claim` -- so /dev/input stays. The home
+# directory stays because it stamps the waits store. Nothing it does is off
+# this machine.
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
 
 [Install]
 WantedBy=console.target

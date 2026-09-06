@@ -14,9 +14,14 @@
 //! up are all arithmetic, and none of the modules here has heard of GTK or of a
 //! filesystem. The drawing reads their answers.
 
+pub mod card;
 pub mod doing;
 pub mod listing;
 pub mod looking;
 pub mod places;
+pub mod standing;
 pub mod thumbs;
+pub mod unzipping;
 pub mod walk;
+
+pub use card::{WHO, card, door};

@@ -12,6 +12,8 @@
 //! and the second half is written here where it can be asked without a machine.
 
 pub mod bluetooth;
+pub mod card;
+pub mod choosing;
 pub mod defaults;
 pub mod level;
 pub mod rocker;
@@ -24,3 +26,5 @@ pub mod wallpaper;
 pub mod warm;
 pub mod wifi;
 pub mod words;
+
+pub use card::{WHO, card, door};

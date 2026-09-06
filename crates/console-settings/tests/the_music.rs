@@ -23,12 +23,6 @@ use console_settings::defaults::KINDS;
 
 fn root() -> PathBuf {
     {
-    // Tidied by `canonicalize` where that works and left as it stands where it
-    // does not. What `CARGO_MANIFEST_DIR` gives is already absolute and already
-    // right; canonicalizing only takes the `../..` out of the middle. It fails
-    // under a sandbox that will not let a process resolve a path it can
-    // otherwise read, and a test that stops there reports the sandbox as a
-    // missing repository.
     let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     from.canonicalize().unwrap_or(from)
 }
@@ -42,7 +36,6 @@ fn music() -> &'static console_settings::defaults::Kind {
     KINDS.iter().find(|kind| kind.says == "Music").expect("a Music setting")
 }
 
-/// What a desktop file says it opens.
 fn claimed(said: &str) -> Vec<String> {
     said.lines()
         .find_map(|line| line.strip_prefix("MimeType="))
@@ -53,50 +46,46 @@ fn claimed(said: &str) -> Vec<String> {
         .collect()
 }
 
-/// The type an `.opus` file actually is, which is the whole of this.
 const OPUS: &str = "audio/x-opus+ogg";
 
-/// The setting is what it writes, and what it writes has to include the type
-/// of the file somebody was complaining about.
 #[test]
 fn the_music_setting_names_the_type_an_opus_file_is() {
-    let every: Vec<&str> = music().every().collect();
+    let Ok(names) = music().every();
+    let every: Vec<&str> = names.collect();
+
     assert!(every.contains(&OPUS), "the Music setting does not name opus: {every:?}");
     assert!(every.contains(&"audio/mpeg"), "nor mp3: {every:?}");
     assert!(every.contains(&"audio/flac"), "nor flac: {every:?}");
 }
 
-/// A program that does not claim a type is not offered for it and cannot be
-/// set for it by anything that checks. The panel is told to set the family
-/// whether or not it is claimed, so this is the half that keeps that honest.
 #[test]
 fn the_music_panel_claims_everything_the_setting_would_hand_it() {
     let claims = claimed(&read("files/usr/share/applications/console-music.desktop"));
-    for kind in music().every() {
+    let Ok(every) = music().every();
+
+    for kind in every {
         assert!(claims.iter().any(|said| said == kind), "console-music.desktop does not open {kind}");
     }
 }
 
-/// And the answer a rebuilt machine starts from, before the panel has been
-/// opened once. This is the one that decides it in practice: nobody goes to the
-/// settings to say that a song is music.
 #[test]
 fn a_machine_that_has_chosen_nothing_still_opens_a_song_in_the_music_panel() {
     let said = read("files/etc/xdg/mimeapps.list");
-    for kind in music().every() {
+    let Ok(every) = music().every();
+
+    for kind in every {
         let line = format!("{kind}=console-music.desktop");
         assert!(said.lines().any(|said| said.trim() == line), "mimeapps.list is missing: {line}");
     }
 }
 
-/// A type that is two kinds at once is a setting that fights another setting:
-/// choosing Music would change what Video opens, and whichever was chosen last
-/// would win without saying so.
 #[test]
 fn no_type_belongs_to_two_kinds() {
     let mut seen: Vec<(&str, &str)> = Vec::new();
     for kind in &KINDS {
-        for mime in kind.every() {
+        let Ok(every) = kind.every();
+
+        for mime in every {
             if let Some((was, _)) = seen.iter().find(|(_, said)| *said == mime) {
                 panic!("{mime} is both {was} and {}", kind.says);
             }
@@ -105,12 +94,12 @@ fn no_type_belongs_to_two_kinds() {
     }
 }
 
-/// The same type written twice in one family is harmless and is still somebody
-/// having edited the list twice without reading it.
 #[test]
 fn no_kind_names_a_type_twice() {
     for kind in &KINDS {
-        let every: Vec<&str> = kind.every().collect();
+        let Ok(names) = kind.every();
+        let every: Vec<&str> = names.collect();
+
         let mut once = every.clone();
         once.sort_unstable();
         once.dedup();

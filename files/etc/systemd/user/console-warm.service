@@ -1,5 +1,5 @@
 [Unit]
-Description=Warmer screen colours in the evening
+Description=Night colours
 PartOf=console.target
 
 [Service]
@@ -25,6 +25,15 @@ ExecStart=/usr/bin/hyprsunset
 ExecStopPost=-/usr/local/bin/console-fell %n
 Restart=always
 RestartSec=5
+
+# What this reaches past `console-.service.d/confining.conf`, and why.
+#
+# hyprsunset reads its curve out of the home directory once and then talks to
+# the compositor. Nothing is written and no device is opened: the screen's
+# colour is the compositor's to set, not this program's.
+PrivateDevices=yes
+ProtectHome=read-only
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
 
 [Install]
 WantedBy=console.target

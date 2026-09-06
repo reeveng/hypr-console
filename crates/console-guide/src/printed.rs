@@ -6,15 +6,13 @@
 //! here. It halves whatever it is applied to, and half of a colour chosen to
 //! clear 7:1 is a colour that does not.
 
+use console_never::Never;
 use crate::guide::Section;
 
-/// How wide the line under a heading is drawn.
 pub const RULE: usize = 46;
 
-/// How far the second column starts.
 pub const COLUMN: usize = 22;
 
-/// The escapes, or nothing at all where nothing is reading them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Ink {
     pub bold: &'static str,
@@ -28,8 +26,7 @@ pub const COLOURED: Ink =
 
 pub const PLAIN: Ink = Ink { bold: "", quiet: "", pink: "", off: "" };
 
-/// The whole guide, as something to read in a terminal.
-pub fn guide(sections: &[Section], ink: Ink) -> String {
+pub fn guide(sections: &[Section], ink: Ink) -> Result<String, Never> {
     let mut said = format!("\n{}The buttons on this device{}\n", ink.bold, ink.off);
 
     for section in sections.iter().filter(|section| !section.lines.is_empty()) {
@@ -56,7 +53,7 @@ pub fn guide(sections: &[Section], ink: Ink) -> String {
         "\n{}  Not sure which paddle is which? Run:  console-buttons --identify{}\n\n",
         ink.quiet, ink.off
     ));
-    said
+    Ok(said)
 }
 
 #[cfg(test)]
@@ -66,30 +63,43 @@ mod tests {
 
     use crate::guide::{Line, sections};
 
+    fn ours() -> Table {
+        let Ok(table) = Table::ours();
+
+        table
+    }
+
+    fn said() -> String {
+        let Ok(sections) = sections(&ours(), "");
+        let Ok(said) = guide(&sections, PLAIN);
+
+        said
+    }
+
     #[test]
     fn a_terminal_that_is_not_one_is_given_no_escapes() {
-        let said = guide(&sections(&Table::ours(), ""), PLAIN);
-        assert!(!said.contains('\u{1b}'), "an escape reached something reading a file");
+        assert!(!said().contains('\u{1b}'), "an escape reached something reading a file");
     }
 
     #[test]
     fn every_line_is_the_button_and_what_it_does() {
-        let said = guide(&sections(&Table::ours(), ""), PLAIN);
-        assert!(said.contains("  Touchpad              move the pointer"));
+        assert!(said().contains("  Touchpad              move the pointer"));
     }
 
-    /// A guide with a heading and nothing under it is a section somebody will
-    /// look for the rest of.
     #[test]
     fn a_section_with_nothing_in_it_is_not_printed() {
-        let said = guide(&sections(&Table::ours(), ""), PLAIN);
-        assert!(!said.contains("Shortcuts"));
+        assert!(!said().contains("Shortcuts"));
     }
 
     #[test]
     fn a_section_with_something_in_it_is() {
-        let mut every = sections(&Table::ours(), "");
-        every.last_mut().expect("a section").lines.push(Line::new("Super Q", "close"));
-        assert!(guide(&every, PLAIN).contains("Shortcuts"));
+        let Ok(mut every) = sections(&ours(), "");
+        let Ok(line) = Line::new("Super Q", "close");
+
+        every.last_mut().expect("a section").lines.push(line);
+
+        let Ok(said) = guide(&every, PLAIN);
+
+        assert!(said.contains("Shortcuts"));
     }
 }

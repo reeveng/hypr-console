@@ -10,6 +10,36 @@ machine and there is usually somebody holding it.
 
 ## Needs the device
 
+- **Two renames landed on the device by hand, and the tree has not been
+  deployed since.** `console-notices.desktop` and `/usr/local/bin/console-timings`
+  were removed over ssh, because `console apply` installs what the manifest
+  declares and leaves behind what it no longer does -- which is its own line
+  further down this file. The removals are done; the installs are not. Until
+  the next deploy the device has no Notifications entry in the application
+  list and no program to read the waits with, and both come back the moment
+  `just deploy` runs. Nothing else on the machine notices either.
+
+- **Everything the timing learned to say is laptop-settled and none of it has
+  been read on the device.** The suite is green, clippy is clean and the gate
+  passes. What is new: the keyboard, the daemon and the session switch write
+  lines of their own; `press` is left out rather than written as a zero when
+  nothing stamped it, and a stamp goes stale after ten seconds so an inherited
+  one cannot be measured from twice; every opening says where it came from;
+  the store is kept to ten gigabytes rather than rotated at a megabyte, and the
+  reading walks it a line at a time and holds a window.
+
+  `just deploy`, then use the device for an evening and read it:
+
+      console-wait-times --last 200
+
+  What it should say. `keyboard showing` should exist at all, and if the guess
+  behind it was right it is one of the slowest things on the list. `controller
+  press` says how much of an opening was the daemon rather than the toolkit.
+  `session starting` is coming back from Game Mode, and is the first number
+  anybody has for it. Every line should carry a `from`, and a line whose `from`
+  is `bar` should have no `press` at all -- one that does means a stamp is
+  being inherited from a path this did not find.
+
 - **Six pieces of standing-up-to-a-fault work are in, and none has been near
   the machine.** All of them are laptop-settled: the suite is green and clippy
   is clean. Every one of them is about what happens when something goes wrong
@@ -194,7 +224,7 @@ machine and there is usually somebody holding it.
   unconfirmed.** Eight pictures and their stills are in
   `/usr/share/backgrounds/console`, so the press itself is settled. Everything
   in
-  `crates/console-sky` is tested here and one pressed picture has been shown on
+  `crates/console-wallpaper` is tested here and one pressed picture has been shown on
   the real panel over ssh, which settled the three things a laptop could not:
   the grade reads correctly against the bar, 2560x1600 through the quarter turn
   needs no resampling, and what a loop costs the wallpaper daemon in memory,
@@ -340,16 +370,19 @@ machine and there is usually somebody holding it.
     protects `don't` could not see, because it looks for a letter on both
     sides and those have one only on the right.
 
-  `tools/voice-compare` is the measurement, and it runs on the device as the
-  person whose session it is -- not as root over ssh, because the microphone
-  belongs to a PipeWire that belongs to a session. The copy already on the
-  device is an older one that knows six clips; send this one first.
+  `voice-compare` is the measurement, and it runs on the device as the person
+  whose session it is -- not as root over ssh, because the microphone belongs
+  to a PipeWire that belongs to a session. It is a crate now rather than a
+  script sent over, so it is built on the device out of what a deploy pushed
+  there, like everything else a person touches. The copy of the old script left
+  in somebody's home knows six clips; it is not this.
 
-      scp tools/voice-compare $CONSOLE_HOST:<the user's home>/voice-compare
-      ./voice-compare --models     # about 7.5 GB
-      ./voice-compare --build      # llama.cpp, pinned, slow on a handheld
-      ./voice-compare --record     # sixteen clips, prompted one at a time
-      ./voice-compare              # every clip through every model
+      ssh <the user>@$CONSOLE_HOST
+      cd /etc/console
+      cargo run --bin voice-compare -- --models     # about 7.5 GB
+      cargo run --bin voice-compare -- --build      # llama.cpp, pinned, slow
+      cargo run --bin voice-compare -- --record     # sixteen clips, one at a time
+      cargo run --bin voice-compare                 # every clip through every model
 
   The graphics-card whisper and the turbo it runs today are already there, so
   `--models` is fetching the three it is being compared against: turbo
@@ -435,6 +468,14 @@ machine and there is usually somebody holding it.
   breeze has -- so if that is what Papirus was drawing as a broken square,
   *the buttons look wrong* is settled with it. Worth one look to say.
 
+  Since then the card is three rows rather than five: the sleeve with the title
+  and whose it is beside it, the bar the width of the card with a clock under
+  each end, and the strip. Five things down the middle is a card taller than
+  the screen it opens on, and what hung off the bottom of it was the strip of
+  five -- the one thing a hand came for. So this wants the thumb again, and the
+  thing to say is whether the sleeve is still worth its half of the card beside
+  the words rather than over them.
+
   **The hourly card is quiet again.** `console well` said this machine had
   drifted every hour because it could not read a file in `/etc/sudoers.d`. It
   should now say nothing at all on a machine with nothing wrong, and `console
@@ -456,61 +497,255 @@ machine and there is usually somebody holding it.
   the language key on every arrangement, and a test holds each of them to it.
   What a test cannot say is whether the thumb finds it there.
 
+- **Every console unit is confined now, and no confined unit has run on the
+  device.** This is the one that has to be found out on the machine rather than
+  here: a hardening line is a promise about what a program does not need, and
+  the only thing that can say whether the promise is true is the program running
+  for an evening.
+
+  `console-.service.d/confining.conf` is the floor, each unit adds its own two
+  or three doors, and `console-bar`, `console-home` and `console-session` carry
+  a drop-in that takes it all back off because a scope inherits the sandbox of
+  whatever started it. It parses -- `systemd-analyze verify` is clean and a
+  transient unit with every one of these directives ran on the device before any
+  of it was written -- and that is the whole of what a laptop can say.
+
+  `just deploy`, and then:
+
+      cargo run --bin console-check -- services --stage device --yes
+
+  `210` is the one that answers. It used to ask about five units and now asks
+  about all twelve, which is the change that makes it able to answer at all: the
+  wallpaper, the notifications, the password box, the idle watcher and the
+  screen's colour were none of them on the list, and a hardening line that broke
+  one of those would have been a desktop quietly missing a piece for the rest of
+  the session. Every count should be `0`. A unit with a count above it is a
+  program that cannot live with a line in its own file -- read the journal for
+  the name of the directive, take that one line out with the reason written
+  beside it, and do not take the file out.
+
+  Then, with nothing on the screen:
+
+      cargo run --bin console-check -- input --stage device --yes
+
+  which is the first time anybody has asked this machine who is reading the
+  buttons.
+
 ## Open
 
-- **The lint suite's last four rules are still allowed, and two of them are
-  mine.** `just explicit-gate` denies every rule nothing in the tree breaks and
-  names the rest in one ALLOW list. Four are in it. A full `cargo dylint --all`
-  on 2 September counted 269 call sites for EXPLICIT001, 146 for EXPLICIT006,
-  52 for 007 and 21 for 008, and two stragglers of 013 -- which is *not* in
-  ALLOW, so the gate is red on them today: `console-publish/src/tree.rs:56` and
-  `console-sky/src/covered.rs:120`.
+- **`console well` says a file has changed when nothing did, and it says it in
+  the same voice as when something has.** The card compares what is on the
+  machine against what the manifest would install, which is the right question
+  for a file nobody but an apply writes and the wrong one for the rest.
+  `bar.css` is written by `console-scale apply` at every login, with the width
+  the screen is actually standing at rather than the one the tree ships.
+  `zz-steamos-autologin.conf` is rewritten by `steamos-session-select` on the
+  way into Game Mode and on the way back out. Neither has held the manifest's
+  content since the moment it was installed, so the card names them on every
+  boot for as long as the device exists, and a person learns to read past it.
 
-  001 and 006 are one fault with two spellings, and it is the fault behind the
-  entry that used to be below this one: a failure swallowed into a default or
-  into an absence. `unwrap_or_default` on a `Result` is the common shape, `.ok()`
-  the other. Both say the same untrue thing -- that there was nothing to read --
-  about a file that could not be read, and the machine then runs on a value
-  nobody chose with nothing anywhere recording the moment it started to.
-  `console_writing::Held` is the answer at the read end and is written; what is
-  left is the call sites.
+  What that cost, once: an inputplumber upgrade laid its own
+  `50-legion_go.yaml` back over ours, and the touchpad went to `blocked: true`
+  again -- grabbed by something with no use for it and discarded, which is the
+  fault that file's own head was written to argue against. The card said so, in
+  the same sentence and the same colour as the two that mean nothing. The pad
+  stayed dead through a morning of looking for the reason somewhere else
+  entirely.
 
-  A rule leaves ALLOW when its last call site is answered and never goes back.
-  That is the ratchet and it is the whole design, so the work is a grind by
-  intent: each denial is a call site that deserves an honest look, and a
-  mechanical rewrite that turned every `unwrap_or_default` into an `expect`
-  would trade a silent wrong answer for a dead desktop.
+  So the manifest wants a way to say who owns what is inside a file it names.
+  Installed once and not compared afterwards, because something else on this
+  machine writes it and is supposed to. That takes those two out of the card,
+  and what is left in it is worth reading.
 
-  **EXPLICIT002 is a different thing and is not in this entry.** It is
-  registered `Allow` inside the suite itself, not merely in the justfile: there
-  is no `Never` type in this workspace and turning it on denies every function
-  in the tree. Adopting it is a decision about the whole codebase and wants that
-  type first.
+  The other half is `[packages]` standing against `[files]`. Pacman owns
+  `/usr/share/inputplumber/devices/50-legion_go.yaml` and takes it back at every
+  upgrade of that package, and the manifest has no answer but an apply somebody
+  thought to run. A file the manifest names and a package also owns is a
+  regression that returns on a schedule nobody chose, and it will not be the
+  last one: anything under `/usr/share` that `[files]` carries is the same
+  arrangement waiting for its own upgrade.
 
-- **Every external program should be a name in one enum, not a string in 73
-  places.** `Command::new` is called 73 times across 52 files, and what keeps
-  the list honest today is `the_programs.rs`: a hand-written table of 53 entries
-  and a scan of the source that greps for argv strings under it. The scan is a
-  net, and the README for it says so. A net is what you build when the thing
-  itself cannot be enumerated.
+- **The device could ask, instead of being asked.** The checks are run at the
+  device from a laptop, which means the person holding it never decides that
+  they are about to happen -- they find out because the menus start opening by
+  themselves. The card and the strip say what is going on now, and that is the
+  small half of it. The other half is the deploy: an apply ends, and the one
+  question anybody has afterwards is whether it worked, and the machine that
+  could answer it is the one in somebody's hands.
 
-  It can be. If every call went through one module -- a `Program` enum, one
-  variant per program, carrying whether it comes from a package, from base Arch
-  or only from a machine that develops this -- then the list of external
-  programs would be the enum, exhaustive because the compiler says so. A new
-  program would be a variant somebody has to add rather than a string a scan has
-  to catch, the table and the scan would both go, and `desktop.conf`'s
-  `[packages]` could be checked against the enum directly.
+  So: when an apply finishes, the device asks on its own screen whether to
+  check that it went well, and the person answers with a button. Yes runs the
+  device tier there and fills the same strip; no goes away and does not ask
+  again about that apply. That inverts who decides, which is the rule this
+  repository keeps everywhere else about that machine -- a clean tree is not
+  permission, and neither is a finished deploy.
 
-  The same argument was raised for the system libraries this links against, and
-  it is the same shape: what a machine has to have on it before this will build
-  or run should be one list somewhere, rather than a fact spread over a dozen
-  `Cargo.toml` files and a manifest.
+  What it needs that does not exist: `console-check` is not in `[build]`, so
+  the binary is not on the device at all. Everything else is: the checks are a
+  library, `lasting` already keeps its table on the device rather than on the
+  laptop for exactly this reason, and the surface to ask on is the ordinary
+  panel every other question here is asked with. The piece to think about first
+  is what a run is allowed to do to a desktop somebody is using -- the tier
+  opens menus, moves workspaces and closes windows, and consent to a question
+  is not consent to that. Probably the answer is a smaller tier: the checks
+  that touch nothing.
+
+- **The build is one stretch that moves on a curve, and could be a stretch that
+  moves on the truth.** Building is most of an apply. It already moves the strip
+  per crate rather than once at the end -- `building.rs` reads cargo's own
+  `Compiling` lines -- but it moves along `steps / (steps + PACE)`, which is a
+  curve that never arrives, because there is no honest total to divide by:
+  how many crates a build compiles depends on what changed, and the apply that
+  matters is the one after somebody edited one file.
+
+  The wish is for the same thing the device tier now has: the longest work
+  first, so an apply feels like it starts slow and then runs. Two halves, and
+  only one of them is easy.
+
+  The order is the hard half. Everything is built by one `cargo build` with a
+  `--bin` per program, and inside that cargo owns the schedule: it walks its own
+  graph and runs what is ready, in parallel. Taking the order over means one
+  cargo invocation per program, which serialises what is currently parallel and
+  makes the apply genuinely longer to make it feel shorter. Worth trying first
+  is the cheap version: order the `--bin` arguments longest first and leave the
+  scheduling alone. Cargo takes ready units roughly in the order it was asked
+  for them, so the heavy targets start early at no cost at all -- which is the
+  classic longest-processing-time-first heuristic, and it usually shortens the
+  wall clock rather than lengthening it.
+
+  The measurement is the other half, and neither half works without it. Nothing
+  knows which program is the long one. Per-crate times cannot be read off the
+  `Compiling` lines, because a parallel build starts six at once and finishes
+  them in another order. `cargo build --timings` knows, and writes a report;
+  whether an apply can afford to ask for one, and where the answer would be
+  kept, is the question to settle before any of the above is written.
+  `lasting` is the shape it would take, and the store would live beside
+  `checked` for the same reason.
+
+- **The panels are held by one program now, and nothing has measured what that
+  bought.** This is the line that used to say the only thing left worth doing
+  was to stop exec'ing a process per opening -- `exec` and the toolkit coming
+  up were the two largest stretches on every surface, and everything a card
+  does was a fraction of either. `console-panels` is that program:
+  `crates/console-panel-host`, one unit, holding the toolkit between openings
+  and drawing whichever panel is asked for over a socket in the runtime
+  directory. Every panel binary keeps its name and its namespace and is a
+  stand-in that takes the screen, asks, and draws the card itself when the host
+  is not up.
+
+  All of it is laptop-settled and none of it has been near the machine. What to
+  read after `just deploy`, an evening apart:
+
+      console-wait-times --last 200
+
+  Every `panel opening` line should have lost its `gtk` mark entirely and kept
+  a much smaller `exec`, because what is exec'd now links nothing. `press` is
+  the number that matters and it is the one to compare against what the file
+  already holds from before the deploy -- the old lines are still in it, which
+  is the whole reason the store is kept to ten gigabytes rather than rotated.
+
+  Three things to press while it is on the device, none of which a laptop can
+  answer. Open a panel, close it, open another, and open the first again: the
+  third opening is the one that would be drawn out of the first one's leavings,
+  and `330-a-panel-opened-again-is-drawn-again` is that check -- it asks the
+  compositor what shape the menu came back as, because a menu built out of the
+  settings panel's leavings is the wrong height and "the rows look wrong" is
+  not something a machine can state. With everything closed, `pgrep -P` on the
+  host has to say nothing at all --
+  `340-a-closed-panel-is-holding-nothing` -- because a watch left running is
+  the nine-watt idle this device already has once. And stop the unit and press
+  the menu: it should still open, slower, and say on the journal that it drew
+  itself.
+
+  What is honestly not done. Nothing measures the idle cost of the host itself,
+  which is the promise the unit's own comment makes: a GTK loop with no surface
+  mapped should sit in `poll` and wake for nothing, and RAPL on the device can
+  say whether it does. And the window is destroyed and built again on every
+  opening rather than kept and hidden, which is deliberate -- a surface that
+  survived is a surface holding a reading nobody refreshed -- but it means the
+  layer surface and the first frame are still paid per opening. Whether that
+  is worth keeping a window for is a question for the file above, after there
+  is something in it.
+
+- **Per-key latency is not measured, and a line per keystroke is not the way to
+  get it.** The keyboard now writes a line when it comes up, when it is asked
+  onto the screen and when a layer change compiles a keymap, and none of those
+  is the number somebody means by *the keyboard is slow*. That one is per key,
+  ten a second while a person types, and writing it the way everything else
+  here is written would fill the store with the one surface it says least
+  about. It wants sampling -- one key in fifty -- or a mode somebody turns on
+  while they are looking. Deciding which is the work; the writing is an
+  afternoon.
+
+- **The lint suite's warned tier holds one rule, and adopting it is the largest
+  piece of work left in this tree.** 019 was the one before it, and it was the
+  largest of the ones already out: `if` is forbidden, so every guard
+  clause, every `if let` and every `else if` chain in the workspace became a
+  `match` that names the path not taken. It is `Deny` now and `just
+  explicit-gate` is green on it with every other rule.
+
+  What that cost is worth writing down, because the next rule written ahead of
+  the code will cost the same shape of thing. Clippy pulls the other way the
+  whole time: `single_match`, `single_match_else`, `match_bool`,
+  `equatable_if_let` and `option_if_let_else` each ask for an `if` back exactly
+  where 019 has just taken one out, and they are allowed once in the root
+  manifest rather than at every site. The compiler pulls too, in a smaller way:
+  a `match` arm is an expression, so a guard clause whose body was a call
+  returning something now has to keep its semicolon inside a block or the two
+  arms disagree about their type.
+
+  The one thing that would have made it worthless was doing it without reading
+  it. A rewrite that turned every guard clause into `match cond { true => …,
+  false => {} }` and never asked what the false path was would trade a shape on
+  the screen for a lie about what was decided. Where the scrutinee was already
+  an enum -- `Alone::No`, `Waited::RanOut`, `Heard::Nothing` -- the arms name
+  its variants instead of a bool, which is the whole point of the rule and is
+  what 016 then keeps honest.
+
+  **EXPLICIT002 is what is standing in the warned tier now, and it is a bigger
+  thing than 019 was.** It asks that a function which cannot fail still say
+  `Result<T, Never>`, so a call site reads the same whether or not the thing it
+  calls can go wrong. It sat registered `Allow` for as long as there was no
+  `Never` type here to point at, which meant its distance had never once been
+  counted -- and the command the README gave for counting it did not work, so
+  nobody who tried found out. `console-never` is the type now, the rule is
+  `Warn`, and what is left is printed on every `just explicit` rather than
+  written down here. It is most of the functions in the tree: every crate has
+  some, and the ones with the most are the ones with the most code in them --
+  `console-panel`, `console-settings`, `console-test-stages`.
+
+  What that count is not is the size of the job. Every function that gains a
+  `Result` hands its callers one to meet, and 005 and 017 between them say how:
+  one call to a statement, `let answered = asked()?;`, everything nested lifted
+  out of the expression it was buried in. So this is the shape of the whole
+  tree and not a sweep over its signatures, and it goes a crate at a time, the
+  way 019 went. Four kinds of function are not asked and never will be: a
+  method implementing somebody else's trait, an `extern` function whose shape
+  is the ABI's, `fn main`, and anything answering `!`.
+
+  Where to start is not the smallest crate, which is the mistake to write down
+  before somebody makes it. `console-repository` has one function 002 asks about
+  and four crates that call it, so converting it converts them too, in the same
+  commit, or it does not compile. What decides the order is fan-in and not
+  size: a crate nothing depends on can be done alone, and the ones everything
+  calls -- `console-external-programs`, `console-number-conversion`,
+  `console-panel` -- go last, each taking its callers with it. Of the leaves,
+  `console-virtual-touchscreen` and `console-virtual-pointer` have least in
+  them, and either is the one to learn the shape on.
+
+- **What this links against wants the same list the programs it runs now
+  have.** Every external program is a variant of
+  `console_external_programs::Program` carrying where it comes from, and
+  `desktop.conf`'s `[packages]` is held against it by a test. The system
+  libraries have nothing of the kind: what a machine must have on it before
+  this will build is a fact spread over a dozen `Cargo.toml` files and a
+  manifest, with nothing crossing the two, so a library that is only there by
+  accident is exactly the fault the programs no longer have.
 
 - **Nothing in this tree may name the person or the machine again.** The tree
   used to say three things it should not: her name, in `desktop.conf` and in
   every path under `files/home/`; the device's address, in the Makefile, both
-  tools and `console-stage`; and the controller's serial, in the captured
+  tools and `console-test-stages`; and the controller's serial, in the captured
   devices and in the scrubber's own dictionary. A fourth, her home to about a
   kilometre, was in `theme/sky.toml` for the wallpaper's sun and weather.
 
@@ -597,93 +832,72 @@ machine and there is usually somebody holding it.
   by a GTK 4 application with a menu in the nested desktop, and either a
   custom property beside the named colour or a rule for `popover > contents`.
 
-- **The keyboard is ours and the `keyboard` profile is still loaded.** The
-  larger half of this settled with the port: `crates/keyboard` is a Rust program
-  the device compiles, there is no C on the machine, and the plan this entry
-  used to carry -- bring the fork in, take `gamepad.c` out, add a socket to be
-  told on -- was overtaken by not needing any of it. `docs/programs.md` has the
-  argument and the correction that undid it, which is worth reading once: the
-  case against writing our own rested on a keyboard of ours being a uinput
-  device, and it never had to be.
+- **The claim is in and nothing has pressed it.** Three entries here asked for
+  one crate and it is written: `console-input-claim`, a claim held while a
+  surface is up with `EVIOCGRAB` underneath. Two layers -- `devices`, which is
+  the only part that opens anything, and `said`, which names one event in one
+  vocabulary whatever it arrived on, so a press is `South` whether it came off
+  the pad, off the keyboard InputPlumber publishes beside it, or off an input
+  method nobody has written yet. Three callers moved onto it: the on-screen
+  keyboard, `console-asking` and `console-buttons --identify`.
 
-  What did not settle is the thing the plan was actually for. The keyboard reads
-  the pad itself, so `/etc/inputplumber/profiles/keyboard.yaml` is still loaded
-  every time it comes up, and a profile load destroys the pad and builds another
-  -- which is the X flake, the `After=` on `console-keyboard.service`, and the
-  whole of `Mode::profile`. Nothing about the port moved that, because reading
-  the pad raw is exactly what needs the profile.
+  What went with it is the point of it. `keyboard.yaml` and `asking.yaml` are
+  gone -- both translated nothing and were loaded so one program could have the
+  front of the machine, which is not a thing a profile can promise, because any
+  program can load one over it. `Mode::profile` is gone with them, and with it
+  every part of the daemon that was about a profile load being in flight: the
+  spawn, the two tries, and the guess about which load had landed. The pad wears
+  the router from login to shutdown, and `controller-profile` takes two words.
+  The `After=` on `console-keyboard.service` is gone as well, because the
+  keyboard opens nothing at start now -- it takes the devices when its surface
+  goes up, so there is no race to order around.
 
-  It is the same want as the entry below, arrived at from the other side, and it
-  is settled by the same thing: a claim taken while a surface is up, with
-  `EVIOCGRAB` underneath, and the profile deleted after. Two entries and one
-  crate.
+  One avenue closed without being tried, and it is worth saying why rather than
+  leaving it looking untested. `7c` found that InputPlumber's composite device
+  carries a `dbus0` target with an `InputEvent(s,d)` signal, and a reader of it
+  would get presses without opening the pad at all. That is the wrong shape for
+  this: what these three programs need is not to *see* presses but for nothing
+  else to see them, and a signal cannot take a device away from anybody. It
+  would still be the better way to *watch* the front of the machine, if
+  something here ever wants that.
 
-  Not settled and worth ten minutes with a thumb before that crate is designed:
-  7c found that InputPlumber's composite device carries a `dbus0` target with an
-  `InputEvent(s,d)` signal and 41 `Capabilities` strings in the same vocabulary
-  the profiles are written in. If that signal fires, a reader gets presses
-  without opening the pad at all. Tried twice and got nothing, but neither run
-  had a confirmed press behind it, so it is unproven rather than disproven.
+  One thing was added rather than removed, and it is the piece to look at
+  hardest: the router profile now sends the left stick to the pad as well as to
+  the pointer. The keyboard walks its highlight with that stick and used to get
+  it free from wearing a profile that translated nothing. `the_profiles.rs`
+  holds the router to both targets.
 
-- **Three programs need the pad to themselves, and all three take it a
-  different way.** This is the composable piece the keyboard work turns up, and
-  it is worth pulling out precisely because it is not speculative: the callers
-  exist today and no two of them agree.
+  **It is on the device and the device stage is green** -- deployed 2026-09-04,
+  8 ok and 0 failed. The half of this that a machine can answer, it has:
 
-  The need is one sentence. While this surface is in front, nothing else acts
-  on the pad. `Mode::acts` already answers half of it — the daemon stands down
-  for `Keyboard` and `Asking` alike, which is the daemon's own restraint and
-  the part that works. The other half is making sure nobody *else* acts, and
-  that half is written three times.
+  * `240-the-keyboard-comes-back-with-the-desktop` passed, and it is the one
+    worth naming. Twenty restarts, and in each one X raises the keyboard and X
+    puts it away -- which is the fault the daemon's `let_go` was written for.
+    A button still held when the keyboard took the device its release was owed
+    to reads as a repeat on the next press, so X would have raised the keyboard
+    once per restart and never twice. It did twice, twenty times.
+  * `250-the-keyboard-types-into-a-page` passed, so grabbing the pad and the
+    keyboard beside it does not stop what the on-screen keyboard writes from
+    reaching a page.
+  * `110-the-keyboard` and `210-nothing-has-had-to-be-started-again` passed with
+    them: nothing crashed into a restart under the new claim.
 
-  The keyboard opens the pad itself and leans on the `keyboard` profile to hand
-  it over untouched. `console-asking` loads an `asking` profile that sends every
-  button to a key nothing listens for, then reads the press off the keyboard
-  InputPlumber publishes rather than the pad, because the profile has taken the
-  pad away from it. Both are profile loads, and a profile load destroys and
-  rebuilds the pad — the fault the entry above is about, arrived at twice by
-  two people solving the same problem a year apart.
+  What is left is what needs a hand, and nothing here has had one:
 
-  The third is worse and is a live bug in its own right, below.
-
-  Settled by one small crate with the shape the others here have: a claim taken
-  while a surface is up and released when it goes, `EVIOCGRAB` underneath, and
-  nothing else. `console-door` is the precedent and the argument — it exists
-  because the panel and the daemon both needed to know what was in front, and a
-  daemon reading a pad twenty times a second should not carry a toolkit to find
-  out. Same shape here: three callers, one answer, and today three copies of it
-  that are each wrong differently. Name is open; the crates here are plain words
-  and I have not earned the naming of this one.
-
-  What it is *not* is `offers()`. `docs/programs.md` holds that back until two
-  programs want it and is right to. This is smaller than a registry and it
-  clears that bar already, which is the only reason to write it.
-
-  Not owed yet: a way to *tell* a running program what to do. The keyboard's
-  command socket would be the first, and it would be the only one — every
-  socket in this tree today is the compositor's, read, never ours, written. One
-  caller is not a crate. If `console-asking` ever wants driving rather than
-  reading, that is two, and then it is.
-
-- **`console-buttons --identify` stops the daemon with `SIGSTOP`, which this
-  repository has twice written down as the wrong way.** `identify()` in
-  `console-guide/src/bin/console-buttons.rs` runs `systemctl --user kill
-  --signal=STOP console-controller`, reads a press, and sends `CONT`. That is
-  `osk-hook`, which `33dcb93` deleted for being exactly this, and the reasons it
-  was deleted apply here unchanged.
-
-  Stopped is not deaf. `docs/programs.md` says it plainly: the devices stay
-  open, the kernel goes on queueing, and the backlog arrives in one instant when
-  the daemon starts again — every button pressed in between, in order, against a
-  desktop that has moved on. That is how the machine once left for Game Mode on
-  its own. And no `--kill-whom=main` is named, so the signal reaches every
-  process in the daemon's control group: the menu, the panel, and anything
-  opened from the menu. `docs/button-contract.md` records what that looks like
-  from the front — a panel on screen reading nothing until the keyboard went
-  away.
-
-  It is the least-pressed of the three, which is the only reason nobody has met
-  it. Settled by the claim above, which is what it wanted in the first place.
+  * Both sticks walk the keyboard's highlight, which is what the router change
+    is for, and the d-pad still walks it -- the d-pad now arrives named rather
+    than as a hat this program reads. No check presses a stick at a keyboard.
+  * The pointer under the keyboard. The left stick moves it as well now, which
+    it did not while `keyboard.yaml` was loaded. It is cosmetic and it is new,
+    and whether it reads as a bug in the hand is not a thing a laptop can say.
+  * `console-asking` binding a button, and binding one on a chord -- the trigger
+    is read off the pad's axis under the router now rather than off the one
+    thing the asking profile passed through.
+  * `console-buttons --identify` naming a button while nothing else is up, and
+    saying who has the input when the keyboard is up instead of quietly reading
+    an ungrabbed device.
+  * Leaving for Game Mode and coming back, which is the one profile switch left
+    and the one that destroys the pad under whatever is holding it.
 
 - **The add-on's bars were the one surface here a finger could not touch, and
   it was the other thumb that was missing.** This entry used to say the
@@ -991,24 +1205,6 @@ machine and there is usually somebody holding it.
   somewhere that answers them. The second is smaller and is the one to price
   first.
 
-- **Nothing asks whether an icon a surface names is an icon the theme has.**
-  The colours have this: `every_name_the_desktop_asks_for_is_defined` crosses
-  every name a stylesheet asks for against the palette, and it exists because a
-  GTK stylesheet that names a colour nobody defined drops the declaration and
-  carries on. An icon name nobody has is the same fault with a louder ending --
-  GTK draws the broken square -- and nothing in this tree crosses the names
-  against a theme.
-
-  It turned up under the music player: the transport asked for
-  `media-playlist-no-repeat-symbolic`, which is in neither Adwaita nor breeze on
-  the machine this is written on, for the state the strip is in nearly all the
-  time. The names are `&'static str` in a dozen crates, so this is the same
-  shape as the entry above about `Command::new`: a net that greps for them, or
-  one place they come from. The theme is `Papirus-Dark` and it is a package
-  this desktop installs, which is what makes crossing them possible at all --
-  though not on a laptop that has not got it, so this is a check on the device
-  tier rather than a test in the suite.
-
 - **Deploying from a tree somebody else is working in should be a flag, not a
   recipe.** Several sessions share this checkout, so a tree with somebody's
   uncommitted work in it is the ordinary state rather than the exception, and
@@ -1050,7 +1246,7 @@ machine and there is usually somebody holding it.
   act on it, with the rest readable when somebody goes looking.
 
 - **The flows past the second are still prose.** `docs/flows.md` names the
-  long walks across crates, and `crates/console-flows` runs two of them at the
+  long walks across crates, and `crates/console-flow-tests` runs two of them at the
   fast stage in `just test`: making the buttons your own, and getting around
   without being lied to. Pictures then a film, the evening of music, the home
   screen's rearranging, and being interrupted are still only written down.
@@ -1172,7 +1368,7 @@ machine and there is usually somebody holding it.
   of its own, and then the number of rows is a thing somebody can choose.
 
 - **Nothing else has been asked whether it answers a finger.** There is a way to
-  press a place on the screen now -- `console-poke`, and `Device::touch` on top
+  press a place on the screen now -- `console-tap`, and `Device::touch` on top
   of it -- and one check that uses it, on one icon of the bar. Every other
   surface on this desktop is still only asked the questions that were being
   asked of the bar the whole time it could not be pressed: is it there, is it
@@ -1221,3 +1417,664 @@ machine and there is usually somebody holding it.
   awkward half is that a hand-install is by definition somebody working around
   the tooling, so the note has to be something the tooling can find and not
   something the person has to remember to write.
+
+## The shape of the code
+
+Written down after a pass that measured the workspace rather than read it. The
+tools are on this machine and nowhere in the manifest: they are somebody's
+laptop, not the device, and none of them is wanted by a build.
+
+    tokei crates --sort lines                   what is big
+    cargo machete                               dependencies nothing asks for
+    cargo modules structure -p <crate>          what a crate is made of
+    cargo clippy --workspace --all-features -- \
+      -W clippy::cognitive_complexity \
+      -W clippy::too_many_lines                 what is long or knotted
+
+Two of them lie in ways worth knowing before believing an answer.
+`cargo machete` matches on the package name, so `cairo-rs` reads as unused in
+every crate that writes `use cairo::`; the finding is false and there is no
+config that fixes it. `similarity-rs` compares functions within one file and
+never across two, so it says nothing at all about the question below, and the
+cross-crate work was measured with a script instead.
+`rust-code-analysis-cli` does not build on a current rustc and is a dead end.
+
+Neither `clippy --message-format=short` nor `cargo dylint` prints a lint's name
+in its short form, so a summary that greps for the name reports a clean
+workspace when nothing was clean. Grep the message text.
+
+- **Every crate that speaks writes the same accessor by hand.** `word`, `tag`,
+  `name`, `written`, `said`, `asking` -- `console-onscreen/src/homeward.rs` and
+  all three in `console-keyboard/src/keymap.rs` are the identical shape, and
+  `console-manifest`, `console-gamepad` and `console-wallpaper` carry it too. This is the
+  one worth doing: not a generic function but a derive over the `words` enum,
+  because it is boilerplate the crate layout guarantees will be written again
+  every time a crate learns to say something.
+
+- **A few functions run past a hundred lines, and one past clippy's cognitive
+  threshold.** The clippy line above lists them; `console-keyboard/src/bin/keyboard.rs`
+  is the worst on both counts and is the only one that trips both. Nothing here
+  is a bug, so this is a line about reading rather than about correctness.
+
+- **`//!` was left standing and has not been held to the same rule.** Module
+  heads survived both passes untouched, and EXPLICIT020 does not judge them:
+  whether a head earns its place is a reading, and a lint cannot do a reading.
+  By the rule the gate now keeps, most of what they carry is prose that belongs
+  in `docs/` or nowhere. Whoever takes this should read them rather than strip
+  them: with the `///` gone the heads are the only prose left in the tree, and
+  some of them are the only remaining record of why something is the way it is.
+  Those want moving before they want deleting. What the second sweep took out
+  is not lost either -- it is in the commit that took it, and a head being
+  written now is the right moment to go and read what that file used to say.
+
+  The crate renames of 2026-09-04 gave this a second half and made it the next
+  thing to do. Most crates here are named for what they are now, and the first
+  line of the head is the sentence that has to agree with the name: somebody
+  reading `console-reconnect` should not be met with *Reaching again for
+  something that has gone*. Every head's opening line says what the thing is,
+  plainly, to somebody who has never opened this repository -- the same test
+  the names were held to -- and what is under it is either a decision worth
+  keeping or prose that goes.
+
+
+## Where this is going
+
+*A direction rather than work. Every entry below is larger than this file's own
+rule allows and each one wants a page in `docs/` before anybody starts it; what
+is written here is the argument for the order, so a piece picked up out of turn
+is picked up knowing what it is standing on. Nothing below is a plan to rewrite
+what is here. It is what stands between a desktop that works for the person who
+built it and one that works for somebody who did not.*
+
+**What this already is, said plainly, because the direction only makes sense
+against it.** `desktop.conf` is a declarative description of a whole machine
+applied by a compiled engine under a lock, and `migrations/` is the half that
+takes back what the manifest stops naming: between them a device is a statement
+rather than an accumulation, which is the thing most desktops never get and the
+thing every other item here is built on. `means.rs` is one table that the daemon
+carries out, the setup screen writes and the guide reads, so what a button does
+cannot drift from what a person is told it does. The surfaces a handheld cannot
+borrow from a desktop -- the keyboard, the files, the viewer, the menu, the
+settings, the notifications -- are written rather than wished for, and the
+browser add-on proves the grammar can be pushed into a window this repository
+did not write. And the emulator, the three stages, the flows, the panel's own
+telling and the wait store mean a change can be disbelieved before it reaches a
+thumb. That is a great deal more than a themed Hyprland, and it is why the list
+below is about reach and safety rather than about features.
+
+**What it is not is a thing anybody else can have.** It is one device, deployed
+by a push from one laptop that knows its address, built from a rolling base with
+no way back, configured before first light by whoever built it, with no answer
+at all for the morning it does not come up. Each of those is a separate piece of
+work and they have an order.
+
+- **A program has to be a function before anything else is worth standing on
+  it.** `docs/programs.md` argues this at length and is right; what is worth
+  adding here is that it is first rather than merely wanted. Everything below --
+  a rollback that can be trusted, a first run that cannot half-happen, a
+  recovery surface that has to work on the worst day the machine has -- is a
+  promise about behaviour under conditions nobody can reproduce by hand. A
+  program whose state is a file six others write, whose subscriptions are its
+  own, and whose decisions can only be observed by letting them happen, cannot
+  be promised anything about. Stages 1 and 2 of that document are the spine, and
+  the input reader is what makes the spine worth having.
+
+  **Stage 1 is in.** `console-program-contract` is the trait, the words and the
+  doings; `console-program-runtime` is the loop that carries them out for a
+  program with no toolkit of its own. The names in that document were
+  `console-turn` and `console-said`, and they were changed on the way in for the
+  reason the tree already keeps: a crate is named for what it does, and a name
+  that has to be learned before it can be read is the wrong one for the crate
+  every other program depends on. The pool is `console-event-broker` for the
+  same reason.
+
+  **Stages 3, 5 and 7 are in, and stage 4 is most of the way.** The thirteen
+  shell scripts are gone: the last two, `console-pull` and `allow-uinput`, are
+  programs whose step chains are `set -e` said in a way a transcript can press,
+  and `console-deploy` and `console-migrate` are `console-device`. Every one of
+  the seven panels holds its state in a `Program` beside it -- `notices`,
+  `pressing`, `standing`, `pressing`, `watching`, `choosing`, `standing` -- with
+  the toolkit, the disk and the machine left in the binary. Of the daemons,
+  `game-return`, `controller-profile`, `keyboard-toggle`, `keyboard-show` and
+  `console-sky` are on it.
+
+  **What each panel bought is the composition rather than the pieces.** The
+  pieces were mostly testable already; what was not was what a press does to
+  several of them at once, and that is where the faults were. Stepping to the
+  next thing in the viewer forgets five settings and keeps one. Backing out of a
+  thing in the files panel lands on the row that opened it, and which row that
+  is depends on what else is drawn above the things. The music library is read
+  once a run and only when something is unread. None of those had a test and all
+  of them are a line somebody would get wrong while reading it.
+
+  **`offers()` was not built, because nothing wants it.** The document's own
+  rule is that it waits until two programs want it, and the tree was read for
+  the second. There is exactly one place a program reaches across to another:
+  the music panel opens the files panel standing on the song, and it does that
+  by starting it, which `Doing::Start` already says. `console-files` knows
+  nothing about the download panel, `console-bar-modules` knows nothing about
+  the music page, and no program asks another for an answer. A registry written
+  now would be a shape guessed from one example, and the one example does not
+  need it.
+
+  **Two programs asked for something the contract does not have, and one of them
+  got it the other way round.** `console-sky` needs a wait that is a different
+  length every time -- the end of a settling, two seconds after a wallpaper
+  would not take, five minutes for the sun -- and `Wants::Round` is a fixed
+  stretch. Rather than grow the contract, it keeps its own loop the way a panel
+  keeps GTK's and says how long to sleep as a doing, which is the better answer:
+  the decision is testable and the loop stays where it can see the channel.
+  `voice-compare` is the one still owed something, and what it wants is how long
+  a `Doing::Ask` took, which nothing can currently be told.
+
+  **Stage 2 is begun.** `console-event-broker` holds one subscription to the
+  compositor and hands the lines to whoever asked, replaying the last one to
+  whoever has just arrived, and `console-sky` is the first program to stop
+  holding its own. What is owed is the other six sources -- `pactl subscribe`,
+  `nmcli monitor`, mako's bus name, systemd's unit changes, the player, and a
+  watched path -- one at a time, each with the program that wanted it moved
+  over in the same commit. A source with no consumer is a subscription nobody
+  asked for, which is the thing this crate exists to stop.
+
+  Each of them wants watching in a nested desktop first, and for the same
+  reason: what a program of somebody else's does when it is restarted
+  underneath is not readable from its manual. `pactl subscribe` is the one to
+  do next, because it is the one with sixty-five processes behind it in this
+  file already.
+
+  What was owed here -- one daemon and one panel on the runtime, with a
+  transcript that fails when either changes its mind -- has been paid twice
+  over: `game-return` is a daemon that stays up and whose sleep rule could not
+  be tested at all before, and every panel has one.
+
+  **`stick-scroll` is what is left, and it is deliberately last.** Its decisions
+  are already a `Doing` and its tests are already transcripts, so the wrapping
+  is small; what is not small is that it is the whole front of the machine, it
+  publishes a virtual device, and it reads its pad *during* the turn through
+  `Plugged` rather than being handed what arrived. Moving it means `came()`
+  reading the devices, which is the same change as the input reader below, so
+  the two should land together and be pressed on the device rather than
+  reasoned about. `console-home` and the keyboard daemon are the other two, and
+  both are toolkit programs of the panel kind rather than loops.
+
+- **A surface should not be paid for twice, and a single program drawing all of
+  them is the wrong way to stop paying.** The measurement is already in this
+  file: on every surface the two long stretches are getting a process running and
+  getting GTK onto the screen, and everything a panel's own code does is a
+  fraction of either. So the cost is not in what a panel decides, it is in the
+  fact that a panel is born every time somebody asks for one, and that is worth
+  fixing before another surface is written.
+
+  **One resident program holding every chooser was the first answer here and it
+  is written down as rejected.** Three things are wrong with it. A process
+  exec'd per opening is *stateless by construction* -- a panel cannot carry
+  yesterday's mistake into today, because there was no yesterday -- and that is
+  the strongest reliability property the panels have and the only one that costs
+  nothing to keep. A host loses it, and it loses it into exactly the fault class
+  this whole section is about: something that works all day and is wrong after a
+  week. Second, `Rows::Asked` asks the machine at the moment of drawing, so a
+  panel whose rows are slow to build blocks the loop it is drawn on; today that
+  blocks the panel a person is looking at and nothing else, and in a host it
+  blocks the host, which is the thing that has to answer *open the settings*.
+  That is not a fear about crashes, it is liveness, and it is a regression a
+  person would feel. Third, the shared-fate objection stands even though it is
+  smaller than it looks -- only one chooser is on the screen at a time, so a
+  crash loses the same one surface either way -- because a supervised host that
+  restarts is still a restart somebody watches, where a dead one-shot is a button
+  pressed again.
+
+  **The state argument that was used to justify a host does not need one.**
+  `console-event-broker` is a daemon, not a drawing program: one subscription per source,
+  handed to whoever asks, replayed to whoever has just arrived. That is stage 2
+  of `docs/programs.md` and it removes the per-panel `pactl subscribe` without
+  merging a single panel into another.
+
+  **What is left is exec and toolkit start, and a warm spare answers both without
+  shared fate.** A process that has already started and already brought GTK up,
+  sitting idle, waiting to be told which panel it is; being told, it becomes one,
+  and another is warmed behind it for the next press. One process per surface,
+  fresh state per opening, no shared loop, and the two measured stretches mostly
+  gone. It is the zygote every phone ships and the spare renderer a browser
+  keeps, and the reason to write it down here rather than reach for it later is
+  that it is a shape rather than a tuning: it decides how a panel is entered, and
+  every panel written before it will have to be re-entered afterwards.
+
+  **What it does not obviously answer, and the boundary that was stamped to
+  settle it.** A layer surface is created with its namespace, and the namespace
+  is which panel it is, so the part of the opening that is the compositor
+  granting a surface and painting it first cannot begin until the spare knows
+  what it has become. How much of an opening is before that point and how much
+  is after is the number that decides between one generic spare, a spare per
+  panel kind, and a panel that merely unmaps rather than exits.
+
+  `shown` is now three stretches rather than one. `surface` is up to the layer
+  surface existing with its name on it, stamped from the window's realize;
+  `mapped` is the compositor being asked to put it up; `shown` is what is left
+  of `present`. Both new stamps are in `laid_over_everything`, where the
+  namespace is set, and the argument is written beside them.
+
+  **What a nested desktop on the laptop says, which is the shape and not the
+  number.** Three openings of the menu, under load and with the rows still
+  being read, came out at roughly `exec` 28, `gtk` 11, `built` 13, `surface` 39,
+  `mapped` 0.6, `shown` 0.8, `frame` 136. Nearly the whole of what used to be
+  `shown` is `surface` -- GTK realizing the window and making the layer surface
+  -- and what follows it inside `present` is under two milliseconds together.
+  The compositor's part is not in `present` at all; it is in `frame`.
+
+  If that holds on the device it argues against the generic spare: what a spare
+  with no name can do in advance is `exec`, `gtk` and `built`, and the stretch
+  that begins the moment the panel knows what it is is larger than all three.
+  A spare per panel kind, or a panel that unmaps and keeps its surface, reaches
+  `surface` as well. **Nobody has read this on the device yet, and the device is
+  the machine the decision is about** -- one evening of ordinary use and then
+  `console-wait-times --last 200`.
+
+  This is the exception to *optimisation is last*, and the reason it is an
+  exception is that a person does not experience a wait as slowness, they
+  experience it as the machine not having heard them. A surface that is up or is
+  not there yet, which `console-ui.md` already asks for, is not reachable by
+  making a slow thing faster.
+
+- **An apply is not a transaction, and on a handheld it has to be.** `console
+  apply` walks the sections in order and installs what each names. A failure
+  partway leaves a machine that is neither what it was nor what it was asked to
+  be, and nothing on the device can say which. On a laptop that is an afternoon;
+  here it is a person holding a thing that will not come up, with no keyboard,
+  no terminal and no idea what the word "manifest" means.
+
+  What every appliance-shaped system arrived at is the same shape, and it is
+  worth naming because we should take the shape and not the implementation.
+  SteamOS keeps two root partitions and swaps between them, and the Steam Deck
+  cannot install a package as the price. Bazzite and the rpm-ostree family get
+  the same rollback from a composed image and pay the same price in a different
+  currency: a host change means a container or a layer. The embedded world's
+  version is older and blunter -- the bootloader counts boots, and a slot that
+  does not confirm itself is rolled back without asking anybody.
+
+  **We should not become immutable, and this is the entry that says why.** The
+  reason those systems are immutable is that they had no description of the
+  machine, so the only way to know what a root filesystem contains was to ship
+  it whole. We have the description. What immutability buys -- *this machine is
+  exactly what was intended and can be put back* -- is what `desktop.conf` and
+  `migrations/` already claim, and the missing piece is not a read-only mount, it
+  is that an apply has no identity and no previous. So: an apply becomes a
+  **generation**, numbered, recorded on the machine with the commit it came
+  from; a snapshot is taken before it and is what the previous generation means;
+  and an apply that dies partway is a generation that never confirmed rather than
+  a machine in an unnamed state.
+
+  **The cheap half of that is in, and it was cheaper than anyone had checked.**
+  The device's root filesystem is btrfs with the `@` layout, snapper already
+  has a configuration for `/` and one for `/home`, `snap-pac` already brackets
+  every pacman transaction with a pair, and `limine-snapper-sync` already writes
+  a boot entry for each root snapshot -- all of it from the CachyOS base and
+  none of it ever named here. So `console apply` now takes a `pre` on both
+  configurations before it touches anything, before even the sweeps, and a
+  `post` when it reaches the end, both with `--cleanup-algorithm number` so the
+  cleanup timer that is already running prunes them like everything else. The
+  description is the commit. `crates/console-manifest/src/previous.rs` is the
+  whole of it and the argument is in its header; `snapper` is in `[packages]`
+  because the apply runs it.
+
+  Two configurations rather than one, because the apply writes both subvolumes:
+  a snapshot of `/` alone would put back a machine whose home is still holding
+  what the apply left, which is the half-and-half state this entry is about. A
+  machine that cannot hold a snapshot prints `no snapshot` with snapper's own
+  reason and the apply goes on -- a rollback nobody can take is worse than one
+  nobody was promised, so it is said out loud rather than swallowed.
+
+  **What is still owed, and none of it is the snapshot.** An apply has no
+  identity: a snapshot is described by a commit, which is not a generation
+  number and nothing on the machine records which generation is running. Nothing
+  confirms one. Nothing counts a failed boot. And the boot menu that makes a
+  root snapshot reachable is `limine-snapper-sync`'s, which is on the device
+  because CachyOS put it there and is not named in `[packages]` -- so a device
+  rebuilt from this manifest would take the snapshots and have no way to boot
+  one. Naming it is a claim about the bootloader that has not been thought
+  through yet, and it is the next thing here.
+
+  **It has never been run.** No apply has taken one of these, because the tree
+  has not been deployed since it was written.
+
+  What would settle the rest: an apply interrupted on purpose, at each section,
+  on a device that then comes up as the generation before it.
+
+- **A generation confirms itself, and the thing that confirms it is already
+  written.** `console well` asks every hour whether this machine is still what
+  the manifest says and whether every piece of it is up, and `console-fell` is
+  how a daemon that died says so. Those are health checks in the sense the
+  atomic-update world means it, and they are wired to a notification rather than
+  to a decision. The missing line is short: a generation applied and not yet
+  confirmed is confirmed by the first `console well` that passes after a boot,
+  and a boot that reaches neither the check nor the desktop is counted, and a
+  count that runs out goes back.
+
+  The failure this guards against is the one the OTA writing is unanimous about
+  and the one no test here can currently reach: an update that boots and then is
+  not usable. A device that comes up to a compositor with no bar, no controller
+  daemon and no way to press anything is `active` all the way down -- which is
+  the fault `210` was written for, arriving from a direction that does not have a
+  person nearby to notice it.
+
+- **Nothing can say what the machine does when it does not come up.** This is the
+  gap that most deserves the word *operating system*. There is no surface below
+  the compositor. Hyprland failing, `console.target` failing, a disk that filled,
+  a generation that will not confirm: every one of those is the same black screen
+  and the same silence, on a machine whose only input is a pad and whose only
+  output is a panel someone is holding.
+
+  What is owed is a small program that needs nothing this desktop provides --
+  no compositor, no toolkit, no session -- and draws on whatever the kernel has
+  left. It says what fell, in the words `console-say` already uses, and it
+  offers exactly the choices a person can act on: go back to the generation
+  before this one, or turn it off. It is reached from a button held at boot,
+  because a person who cannot get to a desktop cannot get to a menu on it.
+
+  It is small, it is the least fun thing in this file, and it is the difference
+  between a device somebody can own and a device that has an owner on call.
+
+- **The manifest has never once been built from nothing, and three times it has
+  been wrong in the same way.** `libpulse`, `grim` and `xkeyboard-config` were
+  each on the device because the base install or something else pulled them in,
+  each was reached for by something here, and each was found by accident rather
+  than by a check. Every one of them would have been found in a minute by a
+  machine built from `desktop.conf` alone and then asked to do the thing.
+
+  So there is a stage this repository does not have: a body below `Here` that is
+  a fresh machine -- a container or a virtual one -- brought up from the manifest
+  and nothing else, and run against. It cannot answer what a screen answers and
+  it will never see a pad, and that is fine; what it answers is the one question
+  nothing else asks, which is whether the file that claims to be the whole truth
+  about this device is the whole truth.
+
+  What would settle it: `xkeyboard-config` removed from `[packages]` in a branch,
+  and the stage going red because a keyboard with no keymap to compose says so
+  and stops.
+
+- **This is one device, and an operating system is a thing other people can
+  get.** The deploy path is a push into `/etc/console` from a laptop holding an
+  address in its environment, which is exactly right for the person who wrote it
+  and is not a distribution. Three things stand between here and somebody else
+  having this, and they are separable.
+
+  **An image**, built from the manifest the same way an apply is, so that the
+  first thing a machine runs is the same statement every later apply is made
+  against. **A channel**, so a device updates itself from something signed rather
+  than from a git remote it trusts absolutely -- see the entry on that below.
+  And **a first run**, which is the one below this.
+
+  The order matters and the temptation is to do the image first because it is
+  the visible one. It is last of the three. An image of a machine that cannot
+  roll back is a way to give a stranger a brick.
+
+- **The desktop begins before anybody has seen it, and there is nowhere to say
+  who you are.** Language, the hour and where it is kept, the network, the
+  alphabets the keyboard should carry, the name on the machine, and which of the
+  applications a person actually wants: today every one of those is decided by
+  whoever built the device, in this repository, for one person.
+
+  Thai is the case that proves the point and it is already in the tree. The
+  keyboard composes its layers from what `xkeyboard-config` has, so a second
+  alphabet is a word on a command line -- which means the alphabet a person types
+  in is a *setting*, and there is no moment at which anybody is asked for it. A
+  first run is that moment. It is the same card as every other surface here,
+  driven by the same buttons, and it is the first thing a person will ever use
+  this device for, which makes it the one surface where being slow or unclear
+  costs the most.
+
+  The trap, and every desktop has fallen into it: a first run that asks for
+  things the machine could work out, or that cannot be gone back through, or
+  that has to be finished before anything works. It asks for what only a person
+  knows, it can be left, and what it does not get it asks for again at the
+  moment it matters.
+
+- **The applications this desktop did not write are where the promise breaks,
+  and they cannot all be rewritten.** The contract is that the d-pad reaches
+  everything, A takes it and B leaves. It holds across every surface in
+  `[build]` and it stops at the edge of them. `pamac` is where a person installs
+  things; `pavucontrol`, `blueman` and the network applet are what the bar's
+  icons open; Signal, FreeTube and a browser are what somebody actually came to
+  the device for. Each is a pointer program, and `docs/files.md` already says
+  exactly what that costs: the row a thumb moved to and the thing the button
+  acts on are two different objects.
+
+  This is the seam Steam Deck users complain about in their own words -- desktop
+  mode needing a mouse, the keyboard being janky, the whole thing being an
+  escape hatch rather than a place. This repository's answer to that has been to
+  write its own, and that answer is right for the ones it has taken and does not
+  scale to the ones left. **Firefox OS and Ubuntu Touch are the warning and they
+  are not distant.** Both had better ideas than the thing they were replacing,
+  both decided the way to a usable device was for the platform to supply the
+  applications, and both died of the gap between what they had written and what
+  a person wanted to open. Nobody here is going to write a Signal.
+
+  So the direction is a policy rather than a program, and it has three tiers.
+  **Ours**, which keeps the contract. **Dressed**, which is a foreign program the
+  desktop makes reachable from outside -- the browser add-on is the proof this is
+  possible, and the pointer is not the only lever: a program can be given the
+  pad by something that knows what its widgets are, exactly as a page is. And
+  **pointer**, which is a program nobody has dressed, entered deliberately with
+  the machine saying so, rather than arrived at by pressing A on a row and
+  finding the rules have changed.
+
+  Two things fall out of it. The tier belongs beside the program in
+  `console-external-programs` and `[packages]`, where the rest of the truth about
+  a program lives, so *what happens when I open this* is a fact about it rather
+  than a thing a person discovers. And `offers()` -- stage 6, deliberately left
+  until two programs wanted it -- is what lets somebody else dress an application
+  without changing this repository, which is the only version of an ecosystem
+  that a device with one author can have.
+
+- **A program should reach nothing that belongs to a program a person can see,
+  and on this machine every one of them reaches all of it.** This is the entry
+  the one above is standing on, and it is written second only because the tiers
+  are what make it concrete.
+
+  What is true today, said without softening it. Anything that can open
+  `/dev/input/event*` sees every button and every letter typed on the device,
+  because the on-screen keyboard is the only keyboard and it is an input device
+  like any other -- a keylogger here is a file open. The compositor's socket is
+  reachable by everything, so anything can ask what windows exist, what is
+  focused, and send a keystroke into a window it does not own. `grim` is on the
+  machine and nothing mediates it, so anything can photograph the screen at any
+  moment and say nothing. The notification name is a name, so anything can speak
+  in the desktop's voice, which is the voice faults arrive in. Everything runs as
+  the one user with the whole of a home directory, so a browser extension, a
+  thing downloaded into Videos and a Flathub application installed from the shop
+  all read the syncthing store, the browser profile and each other. And
+  `$XDG_RUNTIME_DIR/console/` holds the ownerless variables `docs/programs.md`
+  is about, writable by anything, which makes them an integrity question and not
+  only a correctness one.
+
+  **The tension is real and has to be said before the answer.** This desktop
+  works by crossing exactly these lines. The add-on drives a page from outside
+  it. Dictation types into whatever holds the focus. The keyboard takes the pad
+  away from everything. A panel asks the compositor what is in front of a person
+  to know what a button means. Dressing a foreign application, which the entry
+  above asks for, *is* one program driving another's interface. An isolation
+  rule that forbids those forbids the machine.
+
+  **So the rule is not that nothing crosses, it is that nothing crosses
+  ambiently.** Every crossing is declared, named, narrow and revocable, and
+  anything not declared is refused. That is not imported doctrine; it is the
+  fourth time this repository has reached for the same move. `[packages]` is
+  what may be installed. `console_external_programs::Program` is what may be run.
+  `means.rs` is what a button may do. And `files/etc/sudoers.d/console` is the
+  purest example already in the tree: two programs, each taking one thing it
+  understands, each refusing a name it does not know, each with the argument for
+  why written above it. The manifest is a capability list that has never been
+  called one.
+
+  **`console-program-contract` is what turns that from a hope into a boundary.**
+  A program that says what it wants done rather than doing it is a program whose
+  effects can be held against a declaration before they are carried out, which
+  makes the loop the one thing that has to be trusted rather than every program
+  being trusted. This is the second reason to build the contract and nobody
+  wrote it down: it is the reference monitor, and it is free once the programs
+  are functions.
+
+  The contract is in and the monitor is not: `console_program_runtime::run`
+  carries out every `Doing` it is handed and holds none of them against
+  anything. What it does have is the one place to put the check, which is what
+  was missing. `Doing::Start` is already the shape that would let the bar be
+  confined -- it starts a chosen program in a scope of its own through the
+  manager rather than exec'ing it inside the caller's control group -- and that
+  is also the settling of the open item where everything opened from the menu
+  lives in the controller's.
+
+  **Ours and theirs are different jobs and only one of them is expensive.**
+  Confining what this repository wrote was nearly free and is in:
+  `console-.service.d/confining.conf` is the floor every console unit stands on
+  -- no new privileges, /usr and /etc read-only, a private /tmp, no modules, no
+  clock, no cgroup writes, native syscalls only -- and each unit adds the two or
+  three doors its own program needs. Most of them take `PrivateDevices=yes`, the
+  ones that only read their config take `ProtectHome=read-only`, and the ones
+  that can take `RestrictAddressFamilies=AF_UNIX AF_NETLINK`, which is a socket
+  to the compositor and to the bus and no way off this machine. `console-sky`
+  and syncthing cannot, because they are network programs, and the two that
+  cross to Game Mode cannot either, for a reason nothing said until it had cost
+  a day: every line of that kind is seccomp, and a unit of an unprivileged
+  manager carrying any seccomp at all is a process with the no-new-privileges
+  bit whatever the flag says, so a unit that has to become root can carry none
+  of them. The argument is in `confining.conf`. Two lines are deliberately
+  absent and say so in the file: `ProtectKernelTunables=` would make /sys
+  read-only and the screen's brightness is a file in it, and `ProtectProc=`
+  hides other users' processes on a machine that has one user.
+
+  **What the confinement does not cover, which was measured rather than
+  assumed.** The units that start a program a person chose carry a drop-in that
+  takes all of it back off: the bar, the home screen and the session. They start
+  the launcher and every application through it, the panels and the settings
+  panel's one `sudo`, and the windows from yesterday -- and
+  `systemd-run --user --scope` does not fork through the manager: it execs in
+  the caller's own namespaces. A scope started inside a unit with `PrivateTmp`
+  sees that unit's empty /tmp, which was tried before any of this was written.
+  So a sandbox on the bar is a sandbox on Firefox and on Steam, and the earlier
+  version of this line -- *the bar does not need `/dev/input`* -- was wrong for
+  the reason that matters: waybar does not, and everything waybar opens does.
+  What would have to change first is that a chosen program is started by the
+  manager rather than by us, which is a transient unit with the environment
+  handed over rather than inherited, and it is not an afternoon.
+
+  Confining what somebody else wrote is the larger half, and the thing that
+  makes it possible to confine an application without making it useless is
+  portals -- **`xdg-desktop-portal` is not in `[packages]` at all**, which means
+  a Flathub application asking for a file today is asking the person to hand it
+  the whole home directory at install time instead. That is the trap worth
+  naming, because half-done containment is worse than none: an application
+  confined with the home directory handed to it is theatre, and theatre is
+  believed.
+
+  **The threat model, so the work is sized honestly.** One person, one device,
+  no untrusted local users, nothing here defending against somebody holding it.
+  What is real is what the person installs and opens: an application from the
+  shop, an extension in a browser, a file fetched into Videos by a panel written
+  for fetching files. The unusual one is that this device *compiles its own
+  operating system* out of a git remote nothing verifies, which is the same edge
+  the signing entry below is about, arriving from the other side.
+
+  **What settles the first piece is a check rather than a document**, and it is
+  written: `320-only-the-controller-is-reading-the-buttons` walks /proc on the
+  device and asks which processes hold a `/dev/input` node with nothing on the
+  screen. Five names may, each with its reason beside it -- `systemd` and
+  `systemd-logind` have the power button and the lid, `Hyprland` reads
+  everything because it is what draws, `inputplumber` publishes the pad, and
+  `stick-scroll` is ours. Anything else is either a claim that was taken and
+  never handed back or a program nobody meant to be listening. It also fails
+  when `stick-scroll` is missing from the list, because an ssh that answered
+  nothing would otherwise read as a machine where the buttons are private.
+
+  That single question is most of the difference between a machine where typing
+  is private and one where it is a convention, and it has not been asked of the
+  device yet.
+
+- **Two sessions, and only one of them can own the machine.** The desktop is
+  ours and Game Mode is Steam's, and the machine leaves for it entirely. That is
+  the right call and the seam is honest, but everything with a life longer than a
+  session sits on the wrong side of it: a download that finishes in Game Mode,
+  an update that wants a reboot, a notification raised while Steam has the
+  screen, a wallpaper that changed with the weather. Today those are simply lost
+  or simply late.
+
+  The direction is that the desktop is the machine and Game Mode is a thing it
+  runs, in the sense of who owns state rather than who owns the framebuffer. What
+  is owed is small and specific: what a person is told when they come back, and
+  what was decided while they were away.
+
+- **Nothing here teaches, and a guide somebody has to go and open is a manual.**
+  `console-guide` is read out of the one table that decides the binds, which is
+  the hard half and it is done. What is missing is that it is a place rather than
+  an answer. A person meeting a surface for the first time has a question about
+  *this* surface -- what Y does here, whether B will lose what they typed -- and
+  the guide answers about the machine.
+
+  Y is the lendable button and the guide is what it is lent for on a surface with
+  nothing else to offer. A hint at the moment of need, in the surface, in the
+  words the table already holds, costs nothing to keep true because it is read
+  from the same line the daemon carries out.
+
+  The other half of teaching is that nothing here is ever a first time twice.
+  What a person has already done is not written down anywhere, so the machine
+  cannot stop explaining, and a machine that keeps explaining is one people learn
+  to press past without reading.
+
+- **The interface has one language and one size.** Thai can be typed and cannot
+  be read: every word this desktop says is English, written in the source. The
+  size of everything is one number -- the screen scale -- which is a real control
+  and a blunt one, because a person who wants larger words is asking for larger
+  words rather than for less of the folder. There is no contrast setting, nothing
+  is read aloud on a machine that already has a microphone, a hearing and a way
+  to type what it heard, and the dictation points in one direction only.
+
+  This is the entry most likely to be deferred forever, so the line worth holding
+  is narrower: nothing new writes a sentence into a program. Where the words a
+  surface says come from is a decision that costs nothing while there is one
+  language and is a rewrite of every panel later.
+
+- **What a person would actually mind losing is not backed up in any way they
+  chose.** `syncthing.service` is in `[services]` and has no surface at all, so
+  what is being synchronised, to where, and whether it worked are questions with
+  no answer on the device. Beside it: the machine has no lock, on a thing whose
+  whole nature is being put down on a table, and no answer about encryption at
+  all.
+
+  Neither of these is a feature somebody asks for. Both are what an operating
+  system is assumed to have already done, and both are noticed exactly once.
+
+- **Nothing knows a build is bad until somebody is holding it.** The wait store,
+  `console well` and `console-fell` all write locally and are read by whoever
+  thinks to look. For one device that is the correct amount of machinery. For a
+  second device it is nothing, and a regression is found by the person it
+  happened to, who is not the person who caused it.
+
+  The trap here is the obvious answer, and this repository's stance on it is
+  already right and should be written down rather than assumed: **nothing leaves
+  the device on its own, ever**. What is owed is the deliberate version -- a
+  person can hand over what the machine has already written about itself, in one
+  press, having seen it. The store is JSON a line at a time and was built to be
+  read by anything, which is most of that work done.
+
+- **The device trusts a git remote absolutely, and builds its own operating
+  system out of it.** An apply compiles what `[build]` names, on the machine,
+  from whatever history arrived. That is a good design and it has one unguarded
+  edge: nothing checks who wrote the history. For a laptop pushing over a private
+  network that is fine; for a channel, or for a second device, it is the whole of
+  the security model and there is none. Signed commits or signed tags, checked by
+  the engine before it builds anything, is the small version and it should land
+  before the channel does rather than after.
+
+- **Optimisation is last, and here is the note that says why, so nobody has to
+  argue it again.** Everything above is about a machine that behaves the same way
+  twice: after a restart, after a bad update, in somebody else's hands, in a
+  language nobody here reads. A faster version of a machine that does not do that
+  is a faster version of the problem, and every hour spent on a number is an hour
+  not spent on the reason the number was being looked at.
+
+  The two exceptions are already named and are exceptions because they are shape
+  rather than speed: how a panel is entered, and one pool holding the
+  subscriptions. Both are cheaper now than after another surface is written, and
+  both stop being available at all once enough of the tree assumes the current
+  shape.
+
+  When the time comes, the wait store already knows where to look, which is the
+  whole reason it exists.

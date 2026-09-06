@@ -1,0 +1,18 @@
+[package]
+name = "console-browser-extension"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "console-web"
+path = "src/bin/console-web.rs"
+
+[dependencies]
+console-never.workspace = true
+console-number-conversion.workspace = true
+sha2 = "0.10"
+
+[lints]
+workspace = true

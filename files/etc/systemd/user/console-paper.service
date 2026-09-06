@@ -1,5 +1,5 @@
 [Unit]
-Description=The background picture on the screen
+Description=Wallpaper
 PartOf=console.target
 
 [Service]
@@ -53,6 +53,15 @@ ExecStartPost=-/usr/bin/awww clear 110b12
 ExecStopPost=-/usr/local/bin/console-fell %n
 Restart=always
 RestartSec=2
+
+# What this reaches past `console-.service.d/confining.conf`, and why.
+#
+# The home directory stays: the pictures are read from it and the decoded
+# frames are kept in it, which is the cache this unit's comment above argues
+# for. No device node -- a wallpaper is drawn into shared memory and handed to
+# the compositor -- and nothing off this machine.
+PrivateDevices=yes
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
 
 [Install]
 WantedBy=console.target

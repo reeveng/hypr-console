@@ -1,62 +1,52 @@
 //! What the machine talks to over the short road.
 
-/// One device bluetoothctl knows about.
+use console_never::Never;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Device {
     pub address: String,
     pub name: String,
 }
 
-/// Everything it has been introduced to.
-///
-/// Only the lines that say Device. bluetoothctl answers a machine with no radio
-/// in a sentence, and a sentence of the right length reads as a device with a
-/// word for an address.
-pub fn devices(said: &str) -> Vec<Device> {
-    said.lines()
+pub fn devices(said: &str) -> Result<Vec<Device>, Never> {
+    Ok(said
+        .lines()
         .filter_map(|line| {
             let mut words = line.split_whitespace();
-            let (said, address) = (words.next()?, words.next()?);
+            let said = words.next()?;
+            let address = words.next()?;
             let name = line.splitn(3, ' ').nth(2)?;
             (said == "Device").then(|| Device {
                 address: address.to_string(),
                 name: name.to_string(),
             })
         })
-        .collect()
+        .collect())
 }
 
-/// Whether the short-road radio is on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Radio {
-    /// It is on, so there are devices to list.
     On,
-    /// It is off, and the one row there is turns it on.
     Off,
 }
 
-/// Whether a device is joined just now.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Joined {
-    /// It is, so its row disconnects it.
     Yes,
-    /// It is not, so its row connects it.
     No,
 }
 
-/// Whether the radio is on at all.
-pub fn on(said: &str) -> Radio {
+pub fn on(said: &str) -> Result<Radio, Never> {
     match said.contains("Powered: yes") {
-        true => Radio::On,
-        false => Radio::Off,
+        true => Ok(Radio::On),
+        false => Ok(Radio::Off),
     }
 }
 
-/// Whether one of them is joined just now.
-pub fn joined(said: &str) -> Joined {
+pub fn joined(said: &str) -> Result<Joined, Never> {
     match said.contains("Connected: yes") {
-        true => Joined::Yes,
-        false => Joined::No,
+        true => Ok(Joined::Yes),
+        false => Ok(Joined::No),
     }
 }
 
@@ -69,29 +59,27 @@ mod tests {
         let said = "Device AA:BB:CC:DD:EE:FF Some Headphones\nDevice 11:22:33:44:55:66 Pad";
         assert_eq!(
             devices(said),
-            [
+            Ok(vec![
                 Device {
                     address: "AA:BB:CC:DD:EE:FF".to_string(),
                     name: "Some Headphones".to_string()
                 },
                 Device { address: "11:22:33:44:55:66".to_string(), name: "Pad".to_string() },
-            ]
+            ])
         );
     }
 
-    /// bluetoothctl says "No default controller available" when there is no
-    /// radio, which is a line with no address in it.
     #[test]
     fn a_line_that_is_not_a_device_is_not_a_row() {
-        assert!(devices("No default controller available").is_empty());
-        assert!(devices("").is_empty());
+        assert_eq!(devices("No default controller available"), Ok(vec![]));
+        assert_eq!(devices(""), Ok(vec![]));
     }
 
     #[test]
     fn the_radio_and_the_road_are_both_read_off_what_was_said() {
-        assert_eq!(on("Controller AA\n\tPowered: yes\n"), Radio::On);
-        assert_eq!(on("Controller AA\n\tPowered: no\n"), Radio::Off);
-        assert_eq!(joined("\tConnected: yes\n"), Joined::Yes);
-        assert_eq!(joined("\tConnected: no\n"), Joined::No);
+        assert_eq!(on("Controller AA\n\tPowered: yes\n"), Ok(Radio::On));
+        assert_eq!(on("Controller AA\n\tPowered: no\n"), Ok(Radio::Off));
+        assert_eq!(joined("\tConnected: yes\n"), Ok(Joined::Yes));
+        assert_eq!(joined("\tConnected: no\n"), Ok(Joined::No));
     }
 }

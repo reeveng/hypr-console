@@ -11,7 +11,31 @@ desktop.png
 # own, on a nightly of its own. Nothing built is kept here either.
 /tools/explicit-rust/target/
 
+# Where the sessions working on this tree keep their state, and where each of
+# them puts a worktree of its own -- so this directory contains whole checkouts
+# of this repository, one per session, each with a .claude of its own inside it.
+# Nineteen gigabytes and fifty-six thousand files as this was written.
+#
+# Not ignored until now, which made `git add -A` in this checkout a command that
+# tries to commit the repository into itself. Nothing had run it; that is the
+# only reason it never happened.
+.claude/
+
 # The device this checkout talks to, set by direnv on entering the directory.
 # An address is somebody's machine; the tree does not carry one.
 .envrc
 .direnv/
+
+# What the sessions working on this checkout are told before they start: the
+# commands, the shape of the crates, and the rules the code is written to.
+#
+# Not carried, because it is guidance for whoever is working on the machine
+# rather than anything the desktop is made of. What this tree owes a reader is
+# README.md and docs/, which argue in public and are held to it -- a second
+# account of the same decisions, kept beside them and read by something else,
+# is the arrangement where the two come to disagree and nobody finds out.
+#
+# It is also the only file here that would name the device by model. Everything
+# published says what the machine is because the buttons are named for it;
+# nothing published has to say it twice.
+CLAUDE.md

@@ -28,12 +28,19 @@ fn scales(x: f64) -> f64 {
     x * 2.0
 }
 
+// GOOD — a negative literal is a number written down and not a subtraction
+// anybody performs; the compiler evaluates it, and a literal past the end of
+// its own type fails the build.
+fn below_zero() -> i32 {
+    -1
+}
+
 // GOOD — const context: the compiler evaluates it, and overflow fails the
 // build, which is a failure with a name.
 const WIDTH: usize = 16 * 4;
 
 fn main() {
-    let _ = (WIDTH, grows(0), splits(4, 2), grows_named(0), scales(1.0));
+    let _ = (WIDTH, grows(0), splits(4, 2), grows_named(0), scales(1.0), below_zero());
 
     let mut sum = 0;
     accumulates(&mut sum, 1);

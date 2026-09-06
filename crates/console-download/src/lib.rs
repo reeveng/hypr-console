@@ -15,8 +15,12 @@
 //! a panel to draw into, and `store` is where a search is written down between
 //! one press and the next.
 
+pub mod card;
 pub mod getting;
 pub mod looking;
 pub mod rows;
 pub mod same;
+pub mod standing;
 pub mod store;
+
+pub use card::{WHO, card, door};

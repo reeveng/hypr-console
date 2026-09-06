@@ -121,8 +121,9 @@ already saying it an inch above and in pink.
 
 ## What Y offers
 
-Open, Open with, Rename, Copy, Move, Delete. A folder gets all of those except
-the two about opening one, because a folder is walked into. Under them, beneath
+Open, Open with, Unzip, Rename, Copy, Move, Delete. A folder gets all of those
+except the three about opening one, because a folder is walked into, and Unzip
+is only on the rows it means something over: a zip, a rar or a 7z. Under them, beneath
 a second title naming the folder you are in, is New folder.
 
 Two lists under two names, because they are about two different things. A new
@@ -151,8 +152,37 @@ two hundred photographs walked to the end of to make one.
 Not in the alphabet, which is the rule for lists of names and the wrong one
 here. Open is first because it is what most presses of Y are on the way to, and
 Delete is last because it cannot be taken back and the last row is the hardest
-one to reach by accident. The question it asks opens standing on the way out,
+one to reach by accident. Unzip is third for the same reason Open is first: a
+person standing on an archive pressed Y on the way to it, and Open over one
+reaches ark, which is a program for a pointer nobody holding this device has. The question it asks opens standing on the way out,
 so a thumb that presses A twice has said no.
+
+## What Unzip is for
+
+An archive is how a mod arrives, always, and until this row there was no way to
+open one here: the shop installs programs and the browser fetches files, and
+between them sat a `.zip` that could only be dealt with from another machine
+over ssh.
+
+It unpacks into a folder of its own, named for the archive and made beside it,
+rather than into the folder being stood in. Forty files spread across Downloads
+is the thing that cannot be taken back -- nothing afterwards says which of them
+arrived a moment ago. A second unzip of the same archive stands beside the
+first rather than over it.
+
+A single folder inside the archive is lifted away, which is tidiness everywhere
+but the place this was written for. The Sims reads a script mod from its Mods
+folder or one folder under it and nowhere deeper, so an archive that wraps its
+own contents in a folder, unpacked plainly, is a mod that is silently not
+loaded. That is the whole difference between the row working and the row
+appearing to work, and it is what
+`crates/console-feature-checks/src/files.rs` presses on the device rather than
+asserting here.
+
+`7z` is what runs, and it is the only program named for this: it reads zip, rar
+and 7z, which is every shape a mod site ships. A `.tar.gz` is not offered,
+because unpacked once it is a `.tar`, and a row that answers a press with
+another archive has not done what it said.
 
 Copy and Move pick a thing up. What is held shows as a row at the top of every
 folder until it is put down, so carrying something is a thing you can see rather
@@ -173,7 +203,8 @@ could put a thing somewhere else entirely, and `..` would make it disappear.
 Reading is GIO: the listing, what kind of thing a file is, what can open it, and
 which sticks are plugged in.
 
-Writing is `mv`, `cp`, `mkdir` and `gio trash`, handed to `Showing::later`,
+Writing is `mv`, `cp`, `mkdir`, `gio trash` and `files-unzip`, handed to
+`Showing::later`,
 which runs them off the main loop and draws the folder again when they are done.
 Copying a film off a stick takes seconds and the panel would answer nothing for
 all of them. They are commands for the same reason the settings ask `pactl`

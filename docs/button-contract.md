@@ -16,19 +16,26 @@ held to it rather than remembered.
 | | |
 | --- | --- |
 | **D-pad** | Moves between things: options in a list, windows, the pages of a chooser. It never does anything, it only goes somewhere |
-| **A** | Accepts. Whatever is highlighted, that one. On the desktop, where nothing is highlighted, accepting is clicking what the pointer is on |
+| **A** | Accepts. Whatever is highlighted, that one. On the desktop, where nothing is highlighted, accepting is clicking what the pointer is on. **The right stick pressed is the same button**, everywhere and with nothing of its own: that stick is the pointer and the scroll, so the thumb that moved to a thing is already on it, and having to leave for A to take the thing it is pointing at is a journey across the pad to say yes to where you already are |
 | **B** | Goes back. Cancels a chooser, closes what is open, and deletes in the keyboard |
 | **X** | Shows the keyboard, and puts it away again, wherever you are |
 | **Y** | Is not spoken for by the desktop, which makes it the one that can be lent. A panel lends it *what else can be done with this row*; a page lends it a label over everything on it that can be pressed. Nothing may quietly give it a job one of the others already owns |
 
 X is the one of those that is not the daemon's on both ends, and the round trip
-is worth following once. Under the profile the desktop wears, X arrives as a
-key the on-screen keyboard's own fork cannot see, and the daemon raises the
-keyboard. While the keyboard is up the pad wears `keyboard.yaml`, which
-translates nothing and passes everything through, and the daemon acts on
-nothing at all -- so the second press reaches the fork as the pad button it
-always was, and the keyboard puts itself away. One button, one promise, and two
-programs that never both act on it.
+is worth following once. With the keyboard away, X arrives as a key and the
+daemon raises the keyboard. The keyboard then takes the pad and the keyboard
+InputPlumber publishes beside it -- `console_input_claim`, with `EVIOCGRAB`
+underneath -- so the daemon receives nothing at all, and the second press
+reaches the keyboard, which puts itself away and hands the devices back. One
+button, one promise, and two programs that never both act on it.
+
+It used to be a profile that made that true: `keyboard.yaml` translated nothing
+and was loaded while the keyboard was up. That worked, and a profile load
+destroys the pad and builds another, which is the flake where X stopped raising
+the keyboard until the next reboot and the `After=` on the unit that was put
+there to survive it. Both are gone. A profile cannot promise one program the
+front of the machine anyway -- any program can load one over it -- and the
+kernel can.
 
 ## The same promise, without the controller
 
@@ -42,9 +49,10 @@ readable on a panel a finger could open, on a row a finger could only silence.
 | --- | --- |
 | **D-pad** | Touching a row moves the highlight to it, so where you are and where your finger is are one answer |
 | **A** | Tap the row |
-| **B** | The **×** at the end of the tab strip, and for the menu, the bar icon that opened it |
+| **B** | The **×** at the end of the tab strip, and for the menu, the bar icon that opened it. It goes back the one step B goes back: out of a question first, out of the card after, and out of a picture opened over the whole screen before either -- where the strip is gone and the mark lies on the picture instead |
 | **X** | The keyboard icon on the bar |
-| Left and right on a level | The **−** and **+** on the row that carries it |
+| **Y** | The **⋯** at the end of the row that offers something. It carries that row's own offer rather than the highlight's, because a finger arrives at a mark on a row it was never standing on |
+| Left and right on a level | The **−** and **+** on the row that carries it, or a swipe across the row. One job, three inputs: the swipe is wired to the same closure the marks and the d-pad are, so a row that gains a level gains all three at once |
 | **L1** and **R1** | The **‹** and **›** either side of the tab strip, which appear when there are tabs it has no room for |
 | **Legion right**, **left paddle, top** | The bar's icons: the settings, each at its own tab, and the menu |
 | **Legion left** | The **Game Mode** row on the panel's System tab. Coming back the other way is the button held, and a finger has Steam's own **Switch to Desktop** |
@@ -161,7 +169,7 @@ routed to a key of their own like every other button, they have no job on them,
 and the setup screen can move one onto them the moment somebody presses one and
 finds out what it is.
 
-`crates/console-pad/tests/the_button_contract.rs` keeps what is left of this
+`crates/console-gamepad/tests/the_button_contract.rs` keeps what is left of this
 that is genuinely about the files: every word the switcher takes names a
 profile that exists, and every profile publishes all three devices.
 
@@ -205,13 +213,20 @@ behind the daemon that already reads it.
 Game Mode kept the shipped Default profile until this was written, and what
 that publishes was nobody's decision. A profile switch that destroys a target
 and builds another is the thing the section above is about, so every word
-`controller-profile` takes now names a file this desktop wrote. Two are in this
-repository -- `game.yaml` and `keyboard.yaml`, which are the two that translate
-nothing. The other two are written by `console apply` out of what the device
-itself says it can send: `router`, which the desktop wears from login to
-shutdown, and `asking`, for the reason the last section is about. Neither could
-be kept in the tree, because what each holds is one machine's buttons and the
-tree is what every machine has in common.
+`controller-profile` takes now names a file this desktop wrote, and there are
+two words left. `game.yaml` is in this repository and translates nothing.
+`router` is written by `console apply` out of what the device itself says it
+can send, and the desktop wears it from login to shutdown; it could not be kept
+in the tree, because what it holds is one machine's buttons and the tree is what
+every machine has in common.
+
+There were two more, and they were a different kind of thing. `keyboard` and
+`asking` each translated nothing and were loaded so that one program could have
+the front of the machine while its surface was up. That is not what a profile
+is: it is a global variable any program can write, and the one that writes last
+wins. It is asked of the kernel now -- see the section below -- so leaving for
+Game Mode and coming back is the only profile switch left, which is a switch per
+session rather than one per surface.
 
 Reading a pad somebody else is also reading is the ordinary state of things
 here, and the section below is the other half of it: on the desktop the
@@ -233,12 +248,20 @@ not, and every other button reaching the pad as itself.
 The on-screen keyboard reads the pad itself, and so does the controller daemon.
 Both acting on it, the right stick navigates and scrolls at once.
 
-`Mode::acts()` is the whole of what keeps them off each other, and it is a
-question about what is on the screen rather than a note one program leaves
-another. The daemon acts everywhere except `Mode::Keyboard` and `Mode::Asking`,
-and both of those are read off the compositor's own list of layers: the
-keyboard is up, or the card that asks which button you just pressed is up. The
-daemon goes on reading either way, so nothing queues behind it.
+Two answers, and they agree. The one that decides it is
+`console_input_claim`: a program that has to have the input to itself takes the
+devices with `EVIOCGRAB` while its surface is up and hands them back when it
+comes down. A grabbed device delivers to the one that grabbed it and to nothing
+else, so the daemon is not asked to be polite -- it simply receives nothing.
+
+`Mode::acts()` is the other, and it is this daemon's own restraint rather than
+anything it does to the machine. It is a question about what is on the screen
+rather than a note one program leaves another: the daemon acts everywhere except
+`Mode::Keyboard` and `Mode::Asking`, both read off the compositor's own list of
+layers. It is worth keeping beside the claim because a claim is taken a moment
+after a surface goes up and given back a moment after it comes down, and this is
+what covers those two moments. The daemon goes on reading either way, so nothing
+queues behind it.
 
 It used to be a `SIGSTOP` sent by `osk-hook`, and the fault that came of it is
 worth keeping. Stopped is not deaf: the devices stayed open, the kernel went on
@@ -266,8 +289,7 @@ which held the scripts that used to do this, so when the scripts were deleted
 the test went on passing and never looked at a crate. This one walks every
 `src` under `crates/`, which is what ships.
 
-The keyboard profile maps nothing, so the keyboard gets the buttons rather than
-a translation of them. While it is up, B is the keyboard's backspace. It still
+While the keyboard has the devices claimed, B is the keyboard's backspace. It still
 closes a panel, because the panel holds the keyboard focus and reads backspace
 as back, so the thumb's habit works and nothing has to be learnt. While a
 question is being typed it deletes a letter instead, which is also what the
@@ -341,12 +363,22 @@ handheld knows which paddle `RightPaddle3` is, and a list of names is the worse
 screen for the same question.
 
 The card that asks is `console-asking`, and it is a program of its own because
-its name is the mechanism: the compositor lists a layer under whatever drew it,
-and that layer being up is `Mode::Asking`, which loads the generated `asking`
-profile. Under it every button on the device sends a key nothing is listening
-for, so a press says which button it was and does nothing else on the way past.
-Without that, binding Legion left would leave for Game Mode, X would raise the
-keyboard over the question, and the shoulders would carry the window away.
+its name is half the mechanism: the compositor lists a layer under whatever drew
+it, and that layer being up is `Mode::Asking`, which is the daemon standing
+down. The other half is the claim -- it takes the pad and the keyboard beside it
+while the card is up, so a press says which button it was and does nothing else
+on the way past. Without that, binding Legion left would leave for Game Mode, X
+would raise the keyboard over the question, and the shoulders would carry the
+window away.
+
+It used to load a profile that sent every button to a key nothing was listening
+for, and then read the keys rather than the pad, because the profile had taken
+the pad away from it. What that bought is what the claim gives without touching
+the device. One thing changed with it: a button the router profile does not
+carry no longer reaches the card at all, where the old profile could name it and
+then refuse it. That is the same answer arrived at earlier -- a button nothing
+routes is a button nothing could ever be bound to, and the notice after an apply
+already says which those are.
 
 Two parts cannot share a place. A place is a button and whatever is held with
 it, so X and L2 + X are two of them and nothing is being shared -- but one

@@ -61,26 +61,15 @@
 //! that justifies it -- and it would be worth adding for the zoomed path
 //! alone, not for the whole desktop's pictures. Nothing here has measured it.
 
-/// One thing that has to be installed, and what it is for.
+use console_never::Never;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Decoder {
-    /// The media type it makes openable.
     pub mime: &'static str,
-    /// The package `desktop.conf` has to name.
     pub package: &'static str,
-    /// Why it is that package, for somebody reading the manifest and
-    /// wondering what a picture library is doing in it.
     pub because: &'static str,
 }
 
-/// Every claimed type, and what decodes it.
-///
-/// `glycin` is the loader framework `gdk-pixbuf2` uses, and its own
-/// `glycin-image-rs` loader covers most of this list. It arrives as a hard
-/// dependency of `gdk-pixbuf2`, which arrives with `gtk4`, so it is not on the
-/// machine by luck -- but it is named anyway, because a dependency chain is a
-/// thing that changes when somebody else's package does, and the manifest
-/// should say what this desktop needs rather than what it currently gets.
 pub const DECODERS: [Decoder; 13] = [
     Decoder {
         mime: "image/png",
@@ -137,51 +126,18 @@ pub const DECODERS: [Decoder; 13] = [
     Decoder { mime: "video/ogg", package: "gst-plugins-base", because: "the ogg demuxer" },
 ];
 
-/// What a film needs that is not a decoder, which is somewhere to be drawn.
-///
-/// The table above is one line per type, because a decoder is a thing a
-/// particular kind of file needs. This is not that. Nothing here is for mp4 or
-/// for matroska; it is what every film needs whatever it is, once something
-/// else has turned it into pictures.
-///
-/// It is written down separately rather than repeated against all six film
-/// types, because a package repeated six times reads as six facts and is one,
-/// and the day it is swapped out somebody would have to find every copy.
-///
-/// # Why it is a package at all
-///
-/// Because the obvious way does not exist here. GTK's own answer is
-/// `GtkMediaFile`, and GTK as it is packaged on this machine is built with no
-/// media backend: `/usr/lib/gtk-4.0`'s directory holds immodules and nothing
-/// else, neither `libmedia-gstreamer.so` nor `libmedia-ffmpeg.so`. So every
-/// media file is the do-nothing stream, and its paintable does not draw an
-/// empty square -- handed to a widget it takes the whole list down with it,
-/// title strip up and every row gone, including the rows with no film on them.
-///
-/// This is the same shape of fault as `libheif` above and worse in one way.
-/// `libheif` was invisible here because a developer's machine has everything;
-/// this one is invisible in the other direction -- it is missing *here*, and
-/// somebody who never tried a film on the device would conclude the drawing
-/// had simply not been written.
 pub const DRAWING: [Needed; 1] = [Needed {
     package: "gst-plugin-gtk4",
     because: "the sink that hands back a paintable; GTK here is built with no media backend",
 }];
 
-/// One thing that has to be installed for a reason that is not a type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Needed {
-    /// The package `desktop.conf` has to name.
     pub package: &'static str,
-    /// Why, for somebody reading the manifest.
     pub because: &'static str,
 }
 
-/// Every package this panel needs before what it claims will open.
-///
-/// Both tables. A film that decodes and has nowhere to be drawn is a file that
-/// does not open, in the only sense a person holding the device can check.
-pub fn packages() -> Vec<&'static str> {
+pub fn packages() -> Result<Vec<&'static str>, Never> {
     let mut every: Vec<&'static str> = DECODERS
         .iter()
         .map(|one| one.package)
@@ -189,12 +145,12 @@ pub fn packages() -> Vec<&'static str> {
         .collect();
     every.sort_unstable();
     every.dedup();
-    every
+
+    Ok(every)
 }
 
-/// What decodes a type, or nothing where nothing here says.
-pub fn decoder(mime: &str) -> Option<&'static Decoder> {
-    DECODERS.iter().find(|one| one.mime == mime)
+pub fn decoder(mime: &str) -> Result<Option<&'static Decoder>, Never> {
+    Ok(DECODERS.iter().find(|one| one.mime == mime))
 }
 
 #[cfg(test)]
@@ -209,17 +165,15 @@ mod tests {
         }
     }
 
-    /// The one that would have shipped. A phone writes `.heic`, and the loader
-    /// for it is an optional dependency of something else.
     #[test]
     fn the_two_a_phone_writes_are_not_left_to_luck() {
-        assert_eq!(decoder("image/avif").map(|one| one.package), Some("libheif"));
-        assert_eq!(decoder("image/heif").map(|one| one.package), Some("libheif"));
+        assert_eq!(decoder("image/avif").map(|one| one.map(|one| one.package)), Ok(Some("libheif")));
+        assert_eq!(decoder("image/heif").map(|one| one.map(|one| one.package)), Ok(Some("libheif")));
     }
 
     #[test]
     fn the_packages_are_a_list_with_no_repeats_in_it() {
-        let every = packages();
+        let Ok(every) = packages();
         let mut sorted = every.clone();
         sorted.sort_unstable();
         sorted.dedup();
@@ -228,12 +182,11 @@ mod tests {
         assert!(every.contains(&"glycin"));
     }
 
-    /// What a film needs is not only what reads it. The surface it is drawn on
-    /// is a package too, and it is the one nothing in the table above would
-    /// ever have named.
     #[test]
     fn what_a_film_is_drawn_on_is_asked_for_as_well_as_what_reads_it() {
-        assert!(packages().contains(&"gst-plugin-gtk4"), "{:?}", packages());
+        let Ok(every) = packages();
+
+        assert!(every.contains(&"gst-plugin-gtk4"), "{every:?}");
 
         for one in DRAWING {
             assert!(!one.package.is_empty());
@@ -241,8 +194,6 @@ mod tests {
         }
     }
 
-    /// It draws and does not decode, which is the whole reason it is written
-    /// down apart from the decoders rather than beside them.
     #[test]
     fn the_surface_is_not_named_as_a_decoder_for_anything() {
         for one in DECODERS {
@@ -252,7 +203,7 @@ mod tests {
 
     #[test]
     fn a_type_nothing_here_names_has_no_decoder() {
-        assert_eq!(decoder("audio/mpeg"), None);
-        assert_eq!(decoder("image/jxl"), None);
+        assert_eq!(decoder("audio/mpeg"), Ok(None));
+        assert_eq!(decoder("image/jxl"), Ok(None));
     }
 }

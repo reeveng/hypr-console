@@ -16,14 +16,7 @@
 pub mod buttons;
 pub mod clock;
 pub mod doing;
-/// Which device is which.
-///
-/// Moved to `console_pad`, and re-exported under the name it has always had
-/// here. It sits beside the vocabulary that names the same buttons because the
-/// on-screen keyboard has to find the same pad this daemon does, and a
-/// keyboard that reached for it through here would depend on the daemon that
-/// stands down for it -- see `mode::Mode::Keyboard`.
-pub use console_pad::finding;
+pub use console_gamepad::finding;
 pub mod means;
 pub mod mode;
 pub mod profile;

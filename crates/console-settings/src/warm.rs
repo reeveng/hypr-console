@@ -51,133 +51,83 @@
 //! the machine cannot drift from the curve this says.
 
 
-use console_number::whole_u32;
+use console_never::Never;
+use console_number_conversion::whole_u32;
 use std::fmt::Write;
 use std::path::PathBuf;
 
-/// Daylight, in kelvin: the top of the curve and what the screen is all day.
-///
-/// 6500 is the daylight every panel is measured against, and it is what the
-/// curve leaves rather than a colour it ever sits at for long: the day itself
-/// is `identity`, the daemon wearing nothing at all.
 pub const DAYLIGHT: u32 = 6500;
 
-/// Warm, in kelvin: the bottom of the curve and what the night is.
-///
-/// The colour of a lamp rather than of daylight: warm enough that a screen read
-/// in the dark stops looking like a window, and not so far that the wallpapers
-/// go orange.
 pub const WARM: u32 = 3000;
 
-/// Minutes between one profile and the next.
-///
-/// Close enough together that the slide reads as continuous rather than as a
-/// series of jumps, and far enough apart that the file is a page and not a
-/// book. What decides it is the eye: at this spacing no single step is a
-/// change anybody notices, which is the whole point of the curve.
 pub const STEP: u32 = 3;
 
-/// When dusk begins and ends, in minutes past midnight.
-///
-/// Two hours, which is long enough that no part of it is an event. The same
-/// hours the laptop this desktop is written on uses, so that moving between the
-/// two machines in an evening is not moving between two different times of day.
 pub const DUSK: (u32, u32) = (19 * 60 + 30, 21 * 60 + 30);
 
-/// When the screen is daylight again, in minutes past midnight.
 pub const DAY: u32 = 7 * 60;
 
-/// How long the climb back to daylight takes, in minutes.
-///
-/// Shorter than the fall. Dusk is slow because it is happening while somebody
-/// is looking at the screen; this mostly happens while nobody is.
 pub const DAWN: u32 = 30;
 
-/// Where the answer is kept, under the home of whoever this desktop belongs to.
-///
-/// Not in the manifest, for the reason the button table is not: it is true of
-/// one machine on one evening and wrong for every other, and a manifest file
-/// somebody is invited to change is a file `console check` reports as drift for
-/// ever after.
 pub const UNDER: &str = ".config/console/warm";
 
-/// What a profile in the config says to wear.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Says {
-    /// A temperature, in kelvin.
     Warmth(u32),
-    /// Nothing at all: the screen's own colours.
-    ///
-    /// `identity` rather than 6500, which is a temperature that looks like
-    /// daylight and is still a transform sitting on the monitor. The panel is
-    /// left alone instead.
     Daylight,
 }
 
-/// One profile: a time, and what the screen wears from then until the next.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Step {
-    /// Minutes past midnight.
     pub at: u32,
     pub says: Says,
 }
 
-/// The whole curve, in the order the clock meets it.
-///
-/// Dusk first because that is where the day's colour starts to change, then
-/// the climb back and the daylight it lands on. `hyprsunset` holds the last
-/// profile it passed, so the bottom of dusk carries through the small hours
-/// without anything being written for them: the night is not in this list
-/// because the night is what happens when nothing else is said.
-pub fn curve() -> Vec<Step> {
+pub fn curve() -> Result<Vec<Step>, Never> {
     let mut steps = Vec::new();
 
-    let falling = (DUSK.1 - DUSK.0) / STEP;
+    let falling = DUSK.1.saturating_sub(DUSK.0).saturating_div(STEP);
 
     for part in 0..=falling {
+        let Ok(warmth) = between(DAYLIGHT, WARM, part, falling);
+
         steps.push(Step {
-            at: DUSK.0 + part * STEP,
-            says: Says::Warmth(between(DAYLIGHT, WARM, part, falling)),
+            at: DUSK.0.saturating_add(part.saturating_mul(STEP)),
+            says: Says::Warmth(warmth),
         });
     }
 
-    // The last of the climb would be daylight itself, and daylight is written
-    // as wearing nothing rather than as the number that looks like it. So the
-    // climb stops one short and the day is the profile after it.
-    let climbing = DAWN / STEP;
+    let climbing = DAWN.saturating_div(STEP);
 
     for part in 1..climbing {
+        let Ok(warmth) = between(WARM, DAYLIGHT, part, climbing);
+
         steps.push(Step {
-            at: DAY - DAWN + part * STEP,
-            says: Says::Warmth(between(WARM, DAYLIGHT, part, climbing)),
+            at: DAY.saturating_sub(DAWN).saturating_add(part.saturating_mul(STEP)),
+            says: Says::Warmth(warmth),
         });
     }
 
     steps.push(Step { at: DAY, says: Says::Daylight });
 
-    steps
+    Ok(steps)
 }
 
-/// The config `hyprsunset` reads, as the whole file.
-///
-/// Written from `curve` rather than kept beside it, because a curve written
-/// twice is a curve that goes out of step, and out of step here is a screen
-/// that changes colour at a time nothing in this repository mentions.
-pub fn config() -> String {
+pub fn config() -> Result<String, Never> {
     let mut said = String::from(HEAD);
+    let Ok(curve) = curve();
 
-    for step in curve() {
-        let _ = write!(said, "\nprofile {{\n    time = {}\n", clock(step.at));
+    for step in curve {
+        let Ok(clock) = clock(step.at);
+        let _ = write!(said, "\nprofile {{\n    time = {clock}\n");
         let _ = match step.says {
             Says::Warmth(kelvin) => write!(said, "    temperature = {kelvin}\n}}\n"),
             Says::Daylight => write!(said, "    identity = true\n}}\n"),
         };
     }
 
-    said
+    Ok(said)
 }
 
-/// What stands above the profiles in the file it is written into.
 const HEAD: &str = "\
 # The colour of the screen, on a clock. Written by `console-warm curve` out of
 # `console_settings::warm`, which is where the hours and the two temperatures
@@ -195,128 +145,136 @@ const HEAD: &str = "\
 # below.
 ";
 
-/// A time of day, as the config writes it.
-fn clock(minutes: u32) -> String {
-    format!("{:02}:{:02}", minutes / 60, minutes % 60)
+fn clock(minutes: u32) -> Result<String, Never> {
+    Ok(format!("{:02}:{:02}", minutes.saturating_div(60), minutes.wrapping_rem(60)))
 }
 
-/// One step of the way from one temperature to another, evenly in mireds.
-///
-/// Rounded to ten kelvin, which is far below anything an eye can tell apart and
-/// keeps the file readable.
-fn between(from: u32, to: u32, part: u32, whole: u32) -> u32 {
-    let (from, to) = (mired(from), mired(to));
+fn between(from: u32, to: u32, part: u32, whole: u32) -> Result<u32, Never> {
+    let Ok(from) = mired(from);
+    let Ok(to) = mired(to);
     let at = from + (to - from) * f64::from(part) / f64::from(whole);
     let kelvin = 1_000_000.0 / at;
-    whole_u32(kelvin / 10.0) * 10
+    let Ok(tens) = whole_u32(kelvin / 10.0);
+
+    Ok(tens.saturating_mul(10))
 }
 
-/// A temperature in the units an eye steps evenly through.
-fn mired(kelvin: u32) -> f64 {
-    1_000_000.0 / f64::from(kelvin)
+fn mired(kelvin: u32) -> Result<f64, Never> {
+    Ok(1_000_000.0 / f64::from(kelvin))
 }
 
-/// Which way the switch is standing.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Warmth {
-    /// The screen follows the clock.
     Following,
-    /// The screen is its own colours, whatever the hour.
     Ordinary,
 }
 
-/// Whether the daemon that wears the curve should be running.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Wanted {
-    /// It should: the screen follows the sun.
     Running,
-    /// It should not, and the curve is whatever it was set to by hand.
     Off,
 }
 
 impl Warmth {
-    /// What was written down, or the clock where nothing was.
-    ///
-    /// A machine nobody has asked follows the clock, because that is what this
-    /// desktop does and a person should not have to find the setting to get it.
-    /// Anything unreadable is the same: the failure of this file should be the
-    /// desktop behaving as it is meant to, never a screen somebody cannot
-    /// explain.
-    pub fn read(held: &str) -> Self {
-        match held.trim() {
+    pub fn read(held: &str) -> Result<Self, Never> {
+        Ok(match held.trim() {
             "ordinary" => Warmth::Ordinary,
             _ => Warmth::Following,
-        }
+        })
     }
 
-    /// The other one.
-    pub fn other(self) -> Self {
-        match self {
+    pub fn other(self) -> Result<Self, Never> {
+        Ok(match self {
             Warmth::Following => Warmth::Ordinary,
             Warmth::Ordinary => Warmth::Following,
-        }
+        })
     }
 
-    /// What goes in the file.
-    pub fn written(self) -> &'static str {
-        match self {
+    pub fn written(self) -> Result<&'static str, Never> {
+        Ok(match self {
             Warmth::Following => "clock\n",
             Warmth::Ordinary => "ordinary\n",
-        }
+        })
     }
 
-    /// Whether the daemon that wears the curve should be running at all.
-    pub fn wanted(self) -> Wanted {
-        match self == Warmth::Following {
+    pub fn wanted(self) -> Result<Wanted, Never> {
+        Ok(match self == Warmth::Following {
             true => Wanted::Running,
             false => Wanted::Off,
-        }
+        })
     }
 }
 
-/// Where the answer is on this machine.
-pub fn at(home: &str) -> PathBuf {
-    PathBuf::from(home).join(UNDER)
+pub fn at(home: &str) -> Result<PathBuf, Never> {
+    Ok(PathBuf::from(home).join(UNDER))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// The one the user asked for, and the one that costs nothing to get
-    /// wrong: a device out of the box follows the clock.
-    #[test]
-    fn a_device_that_was_never_asked_follows_the_clock() {
-        assert_eq!(Warmth::read(""), Warmth::Following);
-        assert_eq!(Warmth::read("what?\n"), Warmth::Following);
-        assert_eq!(Warmth::read("").wanted(), Wanted::Running);
+    fn read(held: &str) -> Warmth {
+        let Ok(warmth) = Warmth::read(held);
+
+        warmth
     }
 
-    /// Saying no is the only thing that has to be written down, so it is the
-    /// only word this file can hold that means anything.
+    fn other(warmth: Warmth) -> Warmth {
+        let Ok(other) = warmth.other();
+
+        other
+    }
+
+    fn written(warmth: Warmth) -> &'static str {
+        let Ok(written) = warmth.written();
+
+        written
+    }
+
+    fn wanted(warmth: Warmth) -> Wanted {
+        let Ok(wanted) = warmth.wanted();
+
+        wanted
+    }
+
+    fn curve() -> Vec<Step> {
+        let Ok(steps) = super::curve();
+
+        steps
+    }
+
+    fn config() -> String {
+        let Ok(said) = super::config();
+
+        said
+    }
+
+    #[test]
+    fn a_device_that_was_never_asked_follows_the_clock() {
+        assert_eq!(read(""), Warmth::Following);
+        assert_eq!(read("what?\n"), Warmth::Following);
+        assert_eq!(wanted(read("")), Wanted::Running);
+    }
+
     #[test]
     fn only_the_refusal_is_remembered() {
-        assert_eq!(Warmth::read("ordinary\n"), Warmth::Ordinary);
-        assert_eq!(Warmth::Ordinary.wanted(), Wanted::Off);
+        assert_eq!(read("ordinary\n"), Warmth::Ordinary);
+        assert_eq!(wanted(Warmth::Ordinary), Wanted::Off);
     }
 
     #[test]
     fn what_was_written_is_what_is_read_back() {
         for way in [Warmth::Following, Warmth::Ordinary] {
-            assert_eq!(Warmth::read(way.written()), way);
+            assert_eq!(read(written(way)), way);
         }
     }
 
     #[test]
     fn the_switch_has_two_sides_and_they_are_each_other() {
-        assert_eq!(Warmth::Following.other(), Warmth::Ordinary);
-        assert_eq!(Warmth::Ordinary.other(), Warmth::Following);
+        assert_eq!(other(Warmth::Following), Warmth::Ordinary);
+        assert_eq!(other(Warmth::Ordinary), Warmth::Following);
     }
 
-    /// The whole shape of it, said as a sentence: it leaves daylight when dusk
-    /// begins, it is at its warmest when dusk ends, it stays there because
-    /// nothing is written for the night, and the day is the daemon wearing
-    /// nothing.
     #[test]
     fn the_curve_leaves_daylight_at_dusk_and_comes_back_at_seven() {
         let steps = curve();
@@ -337,16 +295,9 @@ mod tests {
         assert_eq!(last.says, Says::Daylight);
     }
 
-    /// The times only ever go forwards, which is what makes the file readable
-    /// and is the thing that was wrong with the one this was written from: its
-    /// dawn had the right temperatures against the wrong times, so the morning
-    /// got warmer instead of colder.
     #[test]
     fn dusk_falls_and_dawn_climbs() {
         let steps = curve();
-        // The list starts at dusk and ends in the morning, so it goes forwards
-        // throughout and turns over the midnight in the middle of it exactly
-        // once. Two turns would mean a profile written out of its place.
         let midnights = steps.windows(2).filter(|pair| pair[0].at >= pair[1].at).count();
         assert_eq!(midnights, 1, "the curve crosses midnight {midnights} times");
 
@@ -365,9 +316,6 @@ mod tests {
         );
     }
 
-    /// No single step is a change anybody could catch. Said as the largest gap
-    /// in mireds between one profile and the next, because that is the unit the
-    /// eye steps in and the whole reason the curve is spaced this way.
     #[test]
     fn no_step_is_big_enough_to_notice() {
         let steps = curve();
@@ -375,7 +323,10 @@ mod tests {
             .windows(2)
             .filter_map(|two| match (two[0].says, two[1].says) {
                 (Says::Warmth(before), Says::Warmth(after)) => {
-                    Some((mired(after) - mired(before)).abs())
+                    let Ok(after) = mired(after);
+                    let Ok(before) = mired(before);
+
+                    Some((after - before).abs())
                 }
                 _ => None,
             })
@@ -383,8 +334,6 @@ mod tests {
         assert!(biggest < 20.0, "one step moves {biggest} mireds, which is a jump");
     }
 
-    /// Every profile is one hyprsunset will parse, and the day is the one that
-    /// wears nothing.
     #[test]
     fn the_config_is_written_the_way_the_daemon_reads_it() {
         let said = config();
@@ -395,8 +344,6 @@ mod tests {
         assert_eq!(said.matches("profile {").count(), curve().len());
     }
 
-    /// Warm has to be far enough from daylight to be worth having, and near
-    /// enough that the wallpapers are still their own colours.
     #[test]
     fn warm_is_a_lamp_rather_than_daylight_or_a_fire() {
         const { assert!(WARM < 4500, "warm is not far enough from daylight to see") };
@@ -405,7 +352,9 @@ mod tests {
 
     #[test]
     fn the_answer_is_kept_under_the_home_it_belongs_to() {
-        assert_eq!(at("/home/somebody"), PathBuf::from("/home/somebody/.config/console/warm"));
+        let Ok(at) = at("/home/somebody");
+
+        assert_eq!(at, PathBuf::from("/home/somebody/.config/console/warm"));
     }
 
     fn warmths(steps: &[Step], from: u32, to: u32) -> Vec<u32> {

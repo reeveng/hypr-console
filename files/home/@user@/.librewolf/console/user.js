@@ -17,7 +17,7 @@ user_pref("browser.tabs.animate", false);
 user_pref("browser.fullscreen.animate", false);
 
 // The add-on this desktop wrote is not signed and never will be. It is packed
-// on the machine out of crates/console-web while `console apply` runs, into
+// on the machine out of crates/console-browser-extension while `console apply` runs, into
 // this profile's own extensions/ directory, so there is no store it came from
 // and nobody to have signed it.
 //
@@ -44,7 +44,7 @@ user_pref("extensions.autoDisableScopes", 0);
 // API is the door out of that, and this is what opens it -- the same property
 // of this browser that lets an unsigned add-on run at all, since a build
 // without MOZ_REQUIRE_SIGNING is one where this pref is read rather than
-// ignored. crates/console-web/web/around.js is everything it is spent on.
+// ignored. crates/console-browser-extension/web/around.js is everything it is spent on.
 //
 // It has to be true before the add-on carrying an experiment is installed. A
 // browser that reads that manifest with this switched off does not disable the

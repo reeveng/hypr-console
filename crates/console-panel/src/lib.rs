@@ -13,15 +13,13 @@
 pub mod actor;
 pub mod asked;
 pub mod before;
+pub mod card;
 pub mod chooser;
 
-/// Whether something is on the screen, asked of the compositor.
-///
-/// Its own crate, so the controller daemon can ask without carrying GTK, and
-/// re-exported here because every panel and every piece of the bar already
-/// asks it by this name.
-pub use console_door as door;
+pub use console_onscreen as door;
 pub mod fitting;
+pub mod held;
+pub mod icons;
 pub mod keys;
 pub mod marks;
 pub mod notes;
@@ -35,3 +33,5 @@ pub mod shape;
 pub mod strip;
 pub mod style;
 pub mod tab;
+pub mod telling;
+pub mod whose;

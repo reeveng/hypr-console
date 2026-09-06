@@ -55,227 +55,195 @@
 //! on the internet gives comes back with a complaint nothing here would have
 //! seen, and the only symptom is a setting that does nothing.
 
+use console_never::Never;
 use console_screen::Screen;
 
-/// One rung of the ladder.
-///
-/// Ordered smallest first: the least of a scale comes first everywhere on this
-/// panel, so a thumb walking down a list is always walking one way along the
-/// thing the list measures.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Size {
-    /// The panel at its own pixels, and nothing enlarged at all.
-    ///
-    /// Smaller than this desktop is drawn for. See the note at the top: it is
-    /// offered because the machine this was written on is not the only one that
-    /// will ever run it.
     Tiny,
-    /// More on the screen, and all of it smaller.
     Smaller,
-    /// What the device is set up as.
     Normal,
-    /// Less on the screen, and all of it easier to read.
     Bigger,
-    /// The far end: as little on the screen as this offers.
     Huge,
 }
 
-/// The three, in the order they are drawn.
 pub const EVERY: [Size; 5] =
     [Size::Tiny, Size::Smaller, Size::Normal, Size::Bigger, Size::Huge];
 
-/// What the panel is: 2560 and 1600 share this, and every scale that divides
-/// both into whole logical pixels is it over a whole number.
-///
-/// Written down because it is the reason there are three rungs and not a
-/// slider, and `the_offered_sizes_divide_the_panel_into_whole_pixels` holds the
-/// three against it.
 pub const SHARED: u32 = 320;
 
 impl Size {
-    /// How many pixels to a logical one.
-    pub fn scale(self) -> f64 {
-        match self {
-            // 320 over 320, 160, 128, 100 and 80.
+    pub fn scale(self) -> Result<f64, Never> {
+        Ok(match self {
             Size::Tiny => 1.0,
             Size::Smaller => 2.0,
             Size::Normal => 2.5,
             Size::Bigger => 3.2,
             Size::Huge => 4.0,
-        }
+        })
     }
 
-    /// The word the answer is written down as.
-    ///
-    /// A word rather than the number, so the file says which rung the machine
-    /// was put on. A number would have to be matched back to a rung, and a
-    /// number that matched none -- from a hand-edit, or from a ladder that
-    /// changed -- would be a file that means nothing.
-    pub fn written(self) -> &'static str {
-        match self {
+    pub fn written(self) -> Result<&'static str, Never> {
+        Ok(match self {
             Size::Tiny => "tiny",
             Size::Smaller => "smaller",
             Size::Normal => "normal",
             Size::Bigger => "bigger",
             Size::Huge => "huge",
-        }
+        })
     }
 
-    /// Back from that word, or nothing.
-    pub fn of(said: &str) -> Option<Self> {
-        EVERY.into_iter().find(|size| size.written() == said.trim())
+    pub fn of(said: &str) -> Result<Option<Self>, Never> {
+        Ok(EVERY.into_iter().find(|size| {
+            let Ok(written) = size.written();
+
+            written == said.trim()
+        }))
     }
 }
 
-/// Where the answer is kept, under the home of whoever this desktop belongs to.
-///
-/// Not in the manifest, for the reason [`crate::warm`]'s is not: it is true of
-/// one machine on one day and wrong for every other, and a manifest file
-/// somebody is invited to change is a file `console check` reports as drift for
-/// ever after.
 pub const UNDER: &str = ".config/console/scale";
 
-/// That path under a given home.
-pub fn at(home: &str) -> std::path::PathBuf {
-    std::path::Path::new(home).join(UNDER)
+pub fn at(home: &str) -> Result<std::path::PathBuf, Never> {
+    Ok(std::path::Path::new(home).join(UNDER))
 }
 
-/// Which rung the machine is standing on, out of what the compositor says.
-///
-/// The compositor is asked rather than the file, because the file is what was
-/// last chosen and the compositor is what is on the screen. They part company
-/// the moment anything else changes the density -- and a panel that marks the
-/// row it wrote down rather than the one being drawn is a reading, and it is
-/// wrong.
-///
-/// A machine standing at a density that is none of the three is standing at
-/// none of them, and nothing is marked. Better an unmarked list than a mark on
-/// the nearest rung, which would read as "you are here" about a place the
-/// machine is not.
-pub fn standing(said: &str) -> Option<Size> {
-    let now = scale_of(said)?;
-    EVERY.into_iter().find(|size| (size.scale() - now).abs() < f64::EPSILON)
+pub fn standing(said: &str) -> Result<Option<Size>, Never> {
+    let Ok(now) = scale_of(said);
+
+    let Some(now) = now else { return Ok(None) };
+
+    Ok(EVERY.into_iter().find(|size| {
+        let Ok(scale) = size.scale();
+
+        (scale - now).abs() < f64::EPSILON
+    }))
 }
 
-/// The density out of `hyprctl monitors -j`.
-///
-/// Read out of the text rather than parsed as JSON, the way every other reading
-/// on this panel is: one field of one object, and a dependency for it would be
-/// a dependency for one line.
-pub fn scale_of(said: &str) -> Option<f64> {
-    let at = said.find("\"scale\"")?;
-    let rest = said[at..].split_once(':')?.1;
+pub fn scale_of(said: &str) -> Result<Option<f64>, Never> {
+    let Some(at) = said.find("\"scale\"") else { return Ok(None) };
+
+    let Some(from) = said.get(at..) else { return Ok(None) };
+
+    let Some(split) = from.split_once(':') else { return Ok(None) };
+
+    let rest = split.1;
     let number: String =
         rest.trim_start().chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
 
-    let Ok(scale) = number.parse::<f64>() else { return None };
+    let Ok(scale) = number.parse::<f64>() else { return Ok(None) };
 
-    Some(scale)
+    Ok(Some(scale))
 }
 
-/// What the compositor is handed to change it.
-///
-/// Everything but the density comes from the declaration, because everything
-/// but the density is a fact about a panel soldered into this machine. Only the
-/// one number is the choice, which is also why this is worth writing out in
-/// full: `hl.monitor` describes a screen, and a screen described without its
-/// transform is a screen turned back upright.
-pub fn lua(screen: &Screen, scale: f64) -> String {
+pub fn lua(screen: &Screen, scale: f64) -> Result<String, Never> {
     let (wide, tall) = screen.mode;
-    format!(
+
+    Ok(format!(
         r#"hl.monitor({{ output = "{}", mode = "{wide}x{tall}@{}", position = "auto", scale = {scale}, transform = {} }})"#,
         OUTPUT, screen.refresh, screen.transform
-    )
+    ))
 }
 
-/// The panel, as the compositor names it.
-///
-/// The one output this machine has. `Screen` does not carry it because nothing
-/// else needs it: the compositor's file names it once and every reading since
-/// has been of the only screen there is.
 pub const OUTPUT: &str = "eDP-1";
 
-/// Where the bar's width is written, under a home.
-///
-/// The rule itself is `console_screen::bar_css`, next to the screen it is a
-/// fact about: the staged desktop writes one too, and it has no business
-/// building a settings panel to do it.
-///
-/// Beside the other runtime answers rather than in the bar's own directory,
-/// because the bar's directory is the manifest's.
 pub const BAR_UNDER: &str = ".config/console/bar.css";
 
-pub fn bar_at(home: &str) -> std::path::PathBuf {
-    std::path::Path::new(home).join(BAR_UNDER)
+pub fn bar_at(home: &str) -> Result<std::path::PathBuf, Never> {
+    Ok(std::path::Path::new(home).join(BAR_UNDER))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn scale(size: Size) -> f64 {
+        let Ok(scale) = size.scale();
+
+        scale
+    }
+
+    fn written(size: Size) -> &'static str {
+        let Ok(written) = size.written();
+
+        written
+    }
+
+    fn of(said: &str) -> Option<Size> {
+        let Ok(size) = Size::of(said);
+
+        size
+    }
+
+    fn standing(said: &str) -> Option<Size> {
+        let Ok(size) = super::standing(said);
+
+        size
+    }
+
+    fn lua(screen: &Screen, at: f64) -> String {
+        let Ok(said) = super::lua(screen, at);
+
+        said
+    }
+
+    fn pixels(screen: &Screen) -> (u32, u32) {
+        let Ok(pixels) = screen.pixels();
+
+        pixels
+    }
+
     fn screen() -> Screen {
         console_screen::declared().expect("the compositor's file declares a screen")
     }
 
-    /// The compositor lays the desktop out in whole logical pixels. A scale
-    /// that leaves a fraction is one it warns about and rounds off itself, so
-    /// the size a person chose would not be the size they got.
     #[test]
     fn the_offered_sizes_divide_the_panel_into_whole_pixels() {
         let screen = screen();
-        let (wide, tall) = screen.pixels();
+        let (wide, tall) = pixels(&screen);
         for size in EVERY {
             for side in [wide, tall] {
-                let logical = f64::from(side) / size.scale();
+                let logical = f64::from(side) / scale(size);
                 assert_eq!(
                     logical.fract(),
                     0.0,
                     "{} leaves {side} at {logical}, which is not a whole number of pixels",
-                    size.written()
+                    written(size)
                 );
             }
             assert_eq!(
-                (f64::from(SHARED) / size.scale()).fract(),
+                (f64::from(SHARED) / scale(size)).fract(),
                 0.0,
                 "{} is not {SHARED} over a whole number",
-                size.written()
+                written(size)
             );
         }
     }
 
-    /// The middle rung is what the compositor's file declares. If those two
-    /// ever part company, a machine that has never been touched comes up with
-    /// no row marked, which reads as a setting that has lost its answer.
     #[test]
     fn normal_is_the_size_this_device_is_set_up_as() {
-        assert_eq!(Size::Normal.scale(), screen().scale);
+        assert_eq!(scale(Size::Normal), screen().scale);
     }
 
-    /// Smallest first, and each rung a real step from the last. Two rungs a
-    /// few per cent apart would be two rows that look like the same setting.
     #[test]
     fn the_ladder_climbs_and_every_step_is_one_anybody_would_see() {
         for pair in EVERY.windows(2) {
-            let (below, above) = (pair[0].scale(), pair[1].scale());
+            let (below, above) = (scale(pair[0]), scale(pair[1]));
             assert!(below < above, "{:?} is not below {:?}", pair[0], pair[1]);
             assert!(above / below > 1.2, "{below} and {above} are the same size to an eye");
         }
     }
 
-    /// The bottom rung is the panel's own pixels and nothing more. A ladder
-    /// that went below it would be asking the compositor to draw the desktop
-    /// larger than the screen, which is not a size, and 1.0 is where "more
-    /// fits" runs out of screen to fit it on.
     #[test]
     fn the_bottom_of_the_ladder_is_the_panel_at_its_own_pixels() {
         let screen = screen();
         assert_eq!(EVERY[0], Size::Tiny);
-        assert_eq!(screen.logical_at(Size::Tiny.scale()), screen.pixels());
-        assert!(EVERY.into_iter().all(|size| size.scale() >= 1.0), "a rung below the panel");
+        let Ok(logical) = screen.logical_at(scale(Size::Tiny));
+
+        assert_eq!(logical, pixels(&screen));
+        assert!(EVERY.into_iter().all(|size| scale(size) >= 1.0), "a rung below the panel");
     }
 
-    /// What the panel marks is what the compositor says, and what it says is
-    /// the JSON of the only screen there is.
     #[test]
     fn the_rung_being_stood_on_is_read_out_of_what_the_compositor_says() {
         let said = r#"[{"name": "eDP-1", "width": 1600, "scale": 2.5, "transform": 1}]"#;
@@ -283,36 +251,28 @@ mod tests {
         assert_eq!(standing(&said.replace("2.5", "3.2")), Some(Size::Bigger));
     }
 
-    /// A density that is none of the three marks none of them. A mark on the
-    /// nearest rung would say "you are here" about somewhere the machine is
-    /// not.
     #[test]
     fn a_density_that_is_none_of_the_three_marks_none_of_them() {
         assert_eq!(standing(r#"[{"scale": 1.75}]"#), None);
         assert_eq!(standing("hyprctl said nothing at all"), None);
     }
 
-    /// The transform is the trap. A monitor described without it is a panel
-    /// turned back upright, which is this device on its side.
     #[test]
     fn the_compositor_is_handed_a_whole_screen_and_not_just_a_number() {
-        let said = lua(&screen(), Size::Bigger.scale());
+        let said = lua(&screen(), scale(Size::Bigger));
         assert!(said.contains("transform = 1"), "{said}");
         assert!(said.contains("1600x2560@144"), "{said}");
         assert!(said.contains("scale = 3.2"), "{said}");
         assert!(said.contains(OUTPUT), "{said}");
     }
 
-    /// The word, not the number: a file holding 2.5 would have to be matched
-    /// back to a rung, and one holding a number that matches none would mean
-    /// nothing.
     #[test]
     fn the_answer_is_written_down_as_the_rung_it_names() {
         for size in EVERY {
-            assert_eq!(Size::of(size.written()), Some(size));
+            assert_eq!(of(written(size)), Some(size));
         }
-        assert_eq!(Size::of("tiny\n"), Some(Size::Tiny));
-        assert_eq!(Size::of("2.0"), None);
+        assert_eq!(of("tiny\n"), Some(Size::Tiny));
+        assert_eq!(of("2.0"), None);
     }
 
 }

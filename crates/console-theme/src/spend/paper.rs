@@ -16,13 +16,11 @@
 use console_colour::Short;
 use crate::palette::Palette;
 
-/// The colour behind everything.
-///
-/// The deepest ground, which is what the terminal is and what every wallpaper
-/// is graded down towards.
 pub const GROUND: &str = "night";
 
 pub fn spend(palette: &Palette) -> Result<String, Short> {
+    let ground = palette.must(GROUND)?;
+
     Ok(format!(
         "# Written by console-theme from theme/palette.toml.\n\
          #\n\
@@ -39,8 +37,7 @@ pub fn spend(palette: &Palette) -> Result<String, Short> {
          # console-sky covers a second later. Seen during an apply, where the\n\
          # desktop is stopped and started faster than a daemon can find a\n\
          # screen.\n\
-         ExecStartPost=-/usr/bin/awww clear {}",
-        palette.must(GROUND)?
+         ExecStartPost=-/usr/bin/awww clear {ground}"
     ))
 }
 
@@ -49,11 +46,6 @@ mod tests {
     use super::*;
     use crate::spend::tests::blossom;
 
-    /// The colour is what is behind the wallpaper for a moment, and the
-    /// background is the wallpaper itself. A colour that could not be set is
-    /// not a reason to have no background at all, which is what it was: the
-    /// daemon was up and working, the client asked it before it had found the
-    /// screen, and systemd failed the unit over the answer.
     #[test]
     fn a_colour_that_cannot_be_set_does_not_take_the_background_down() {
         let unit = spend(&blossom()).expect("every colour it spends is declared");
@@ -71,13 +63,10 @@ mod tests {
     fn the_ground_is_set_and_no_picture_is_named() {
         let unit = spend(&blossom()).expect("every colour it spends is declared");
         assert!(unit.contains("awww clear "));
-        // The garden was the background and is not any more. A unit naming a
-        // picture here is that decision quietly coming back.
         assert!(!unit.contains(".webp"), "{unit:?} names a picture");
         assert!(!unit.contains("awww img"), "{unit:?} paints a picture");
     }
 
-    /// awww takes the digits alone, and a hash starts a comment in a unit file.
     #[test]
     fn the_colour_is_six_hex_digits_with_no_hash() {
         let unit = spend(&blossom()).expect("every colour it spends is declared");
@@ -86,8 +75,6 @@ mod tests {
         assert!(colour.chars().all(|c| c.is_ascii_hexdigit()), "{colour:?}");
     }
 
-    /// Every line of a spliced block has to be a line the reader accepts, and
-    /// systemd's comment character is the hash.
     #[test]
     fn every_line_is_a_comment_or_a_setting() {
         for line in spend(&blossom()).expect("every colour it spends is declared").lines() {

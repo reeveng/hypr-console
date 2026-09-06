@@ -1,0 +1,43 @@
+error: a comment that is neither a module head nor a `// SAFETY:` reason
+  --> $DIR/main.rs:10:5
+   |
+LL |     // what this is doing //~ EXPLICIT020_NO_COMMENT
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: delete it: what the code says, it says. What it cannot say goes in the module's `//!` head or in `docs/`
+   = note: `#[deny(explicit020_no_comment)]` on by default
+
+error: a comment that is neither a module head nor a `// SAFETY:` reason
+  --> $DIR/main.rs:14:1
+   |
+LL | /// what this returns //~ EXPLICIT020_NO_COMMENT
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: delete it: what the code says, it says. What it cannot say goes in the module's `//!` head or in `docs/`
+
+error: a comment that is neither a module head nor a `// SAFETY:` reason
+  --> $DIR/main.rs:19:1
+   |
+LL | /* said in a block */ //~ EXPLICIT020_NO_COMMENT
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: delete it: what the code says, it says. What it cannot say goes in the module's `//!` head or in `docs/`
+
+error: a comment that is neither a module head nor a `// SAFETY:` reason
+  --> $DIR/main.rs:25:7
+   |
+LL |     4 // the answer //~ EXPLICIT020_NO_COMMENT
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: delete it: what the code says, it says. What it cannot say goes in the module's `//!` head or in `docs/`
+
+error: a comment that is neither a module head nor a `// SAFETY:` reason
+  --> $DIR/main.rs:43:5
+   |
+LL |     // and this paragraph is not part of that reason //~ EXPLICIT020_NO_COMMENT
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: delete it: what the code says, it says. What it cannot say goes in the module's `//!` head or in `docs/`
+
+error: aborting due to 5 previous errors
+

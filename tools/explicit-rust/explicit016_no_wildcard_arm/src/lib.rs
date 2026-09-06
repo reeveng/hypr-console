@@ -24,7 +24,7 @@ dylint_linting::declare_late_lint! {
     /// anything by omission, and the unguarded arm it falls through to is the
     /// one that answers for the rest.
     pub EXPLICIT016_NO_WILDCARD_ARM,
-    Warn,
+    Deny,
     "a wildcard arm on an enum decides future variants by omission; name every variant"
 }
 

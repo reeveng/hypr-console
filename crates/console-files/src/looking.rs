@@ -9,146 +9,141 @@
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 
+use console_never::Never;
+
 use crate::listing::{self, Entry};
 
-/// One thing a word found, and the folder it was found in.
-///
-/// The folder is said from where the search began, because that is what the row
-/// has to carry: three files called notes.txt are a list nobody can choose
-/// from, and "Holiday" beside one of them is the whole answer.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Found {
     pub thing: Entry,
-    /// Empty for something in the folder the search began in.
     pub within: PathBuf,
 }
 
 impl Found {
-    /// What the row says beside the name: where it is, or, for something right
-    /// here, whatever the listing would have said.
-    pub fn aside(&self) -> String {
+    pub fn aside(&self) -> Result<String, Never> {
         match self.within.as_os_str().is_empty() {
             true => listing::aside(&self.thing),
-            false => self.within.display().to_string(),
+            false => Ok(self.within.display().to_string()),
         }
     }
 
-    /// Where it is, given where the search began.
-    pub fn at(&self, from: &Path) -> PathBuf {
-        from.join(&self.within).join(&self.thing.name)
+    pub fn at(&self, from: &Path) -> Result<PathBuf, Never> {
+        Ok(from.join(&self.within).join(&self.thing.name))
     }
 
-    /// The folders to walk into, in order, to arrive at this one.
-    ///
-    /// A search reaches past several folders at once and the walk a tab keeps
-    /// is one folder at a time. Taken as steps, a folder found three deep has
-    /// the two above it behind B, which is what backing out of it should mean;
-    /// arrived at in one jump, its way back would be the place.
-    pub fn steps(&self) -> Vec<String> {
-        self.within
+    pub fn steps(&self) -> Result<Vec<String>, Never> {
+        Ok(self
+            .within
             .components()
             .map(|part| part.as_os_str().to_string_lossy().to_string())
             .chain(std::iter::once(self.thing.name.clone()))
-            .collect()
+            .collect())
     }
 }
 
-/// Whether a name answers to what has been typed.
-///
-/// Plain containment, the way the menu narrows. The letters arrive one thumb at
-/// a time off a keyboard covering half the screen, and a list that rearranges
-/// itself around a letter nobody meant to press is worse than one that simply
-/// gets shorter.
-pub fn answers(name: &str, word: &str) -> Answers {
-    match name.to_lowercase().contains(word.trim().to_lowercase().as_str()) {
+pub fn answers(name: &str, word: &str) -> Result<Answers, Never> {
+    Ok(match name.to_lowercase().contains(word.trim().to_lowercase().as_str()) {
         true => Answers::Yes,
         false => Answers::No,
-    }
+    })
 }
 
-/// Whether a name is one the typed word was looking for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Answers {
-    /// The word is somewhere in it.
     Yes,
-    /// It is not.
     No,
 }
 
-/// Where a search gives up finding, and where it gives up looking.
-///
-/// It reads a folder at a time, nearest first, so what it has when it stops is
-/// what was closest to where she was standing. Both ends earn their place: a
-/// home directory holds far more than anybody is going to read down, and a
-/// folder that is a link to the one above it would otherwise be walked for as
-/// long as the panel is open.
 const ENOUGH: usize = 120;
 const FAR: usize = 600;
 
-/// Everything under a folder that answers to the word, nearest first.
-///
-/// The reading is handed in rather than done here, so a search can be asked
-/// without a disk to ask it of. The panel hands it the same read its listing is
-/// made of.
-pub fn under(here: &Path, word: &str, read: &dyn Fn(&Path) -> Vec<Entry>) -> Vec<Found> {
-    if word.trim().is_empty() {
-        return Vec::new();
+pub fn under(
+    here: &Path,
+    word: &str,
+    read: &dyn Fn(&Path) -> Result<Vec<Entry>, Never>,
+) -> Result<Vec<Found>, Never> {
+    match word.trim().is_empty() {
+        true => return Ok(Vec::new()),
+        false => {},
     }
 
     let mut found: Vec<Found> = Vec::new();
     let mut waiting = VecDeque::from([PathBuf::new()]);
-    let mut read_so_far = 0;
+    let mut read_so_far: usize = 0;
 
     while let Some(within) = waiting.pop_front() {
-        if found.len() >= ENOUGH || read_so_far >= FAR {
-            break;
+        match found.len() >= ENOUGH || read_so_far >= FAR {
+            true => break,
+            false => {},
         }
 
-        read_so_far += 1;
-        // Joined onto nothing a path grows a separator, and a folder read as
-        // "/home/" is a folder read twice under two names.
+        read_so_far = read_so_far.saturating_add(1);
         let at = match within.as_os_str().is_empty() {
             true => here.to_path_buf(),
             false => here.join(&within),
         };
 
-        for thing in read(&at) {
-            if thing.folder {
-                waiting.push_back(within.join(&thing.name));
+        let things = read(&at)?;
+
+        for thing in things {
+            match thing.folder {
+                true => waiting.push_back(within.join(&thing.name)),
+                false => {},
             }
 
-            if answers(&thing.name, word) == Answers::Yes {
-                found.push(Found { thing, within: within.clone() });
+            let answers = answers(&thing.name, word)?;
+
+            match answers {
+                Answers::Yes => found.push(Found { thing, within: within.clone() }),
+                Answers::No => {},
             }
         }
     }
 
-    found
+    Ok(found)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// A tree with no disk under it: a folder, and what is in it.
-    fn tree(at: &Path) -> Vec<Entry> {
+    fn folder(name: &str) -> Entry {
+        let Ok(entry) = Entry::folder(name);
+
+        entry
+    }
+
+    fn file(name: &str, size: u64) -> Entry {
+        let Ok(entry) = Entry::file(name, size);
+
+        entry
+    }
+
+    fn tree(at: &Path) -> Result<Vec<Entry>, Never> {
         let said = at.to_string_lossy().to_string();
         let of = |names: &[&str], files: &[&str]| {
-            let mut things: Vec<Entry> = names.iter().map(|name| Entry::folder(name)).collect();
-            things.extend(files.iter().map(|name| Entry::file(name, 1)));
-            listing::sorted(things)
+            let mut things: Vec<Entry> = names.iter().map(|name| folder(name)).collect();
+
+            things.extend(files.iter().map(|name| file(name, 1)));
+
+            let Ok(things) = listing::sorted(things);
+
+            things
         };
-        match said.as_str() {
+
+        Ok(match said.as_str() {
             "/home" => of(&["Documents", "Pictures"], &["notes.txt"]),
             "/home/Documents" => of(&["Holiday"], &["taxes.pdf"]),
             "/home/Documents/Holiday" => of(&[], &["notes.txt", "beach.jpg"]),
             "/home/Pictures" => of(&[], &["beach.jpg"]),
             _ => Vec::new(),
-        }
+        })
     }
 
     fn under_home(word: &str) -> Vec<Found> {
-        under(Path::new("/home"), word, &tree)
+        let Ok(found) = under(Path::new("/home"), word, &tree);
+
+        found
     }
 
     fn names(found: &[Found]) -> Vec<&str> {
@@ -162,8 +157,6 @@ mod tests {
         assert_eq!(under_home("notes")[1].within, PathBuf::from("Documents/Holiday"));
     }
 
-    /// Nearest first, because the thing being looked for is usually the one
-    /// closest to where she was standing when she typed.
     #[test]
     fn what_is_nearest_is_found_first() {
         let found = under_home("beach");
@@ -176,12 +169,10 @@ mod tests {
         assert_eq!(names(&under_home("holi")), ["Holiday"]);
     }
 
-    /// Walked into a folder at a time, so backing out of one found deep goes
-    /// up through the folders above it rather than back to the place.
     #[test]
     fn a_found_folder_is_arrived_at_a_step_at_a_time() {
-        assert_eq!(under_home("holi")[0].steps(), ["Documents", "Holiday"]);
-        assert_eq!(under_home("docum")[0].steps(), ["Documents"]);
+        assert_eq!(under_home("holi")[0].steps(), Ok(vec!["Documents".to_string(), "Holiday".to_string()]));
+        assert_eq!(under_home("docum")[0].steps(), Ok(vec!["Documents".to_string()]));
     }
 
     #[test]
@@ -201,25 +192,29 @@ mod tests {
         assert!(under_home("kangaroo").is_empty());
     }
 
-    /// The row says where it is, and something in the folder itself says what
-    /// the listing would have said about it.
     #[test]
     fn a_row_says_where_what_it_found_is() {
         let found = under_home("notes");
+
         assert_eq!(found[0].aside(), listing::aside(&found[0].thing));
-        assert_eq!(found[1].aside(), "Documents/Holiday");
-        assert_eq!(found[1].at(Path::new("/home")), Path::new("/home/Documents/Holiday/notes.txt"));
+        assert_eq!(found[1].aside(), Ok("Documents/Holiday".to_string()));
+        assert_eq!(
+            found[1].at(Path::new("/home")),
+            Ok(PathBuf::from("/home/Documents/Holiday/notes.txt")),
+        );
     }
 
-    /// A folder that is a link to the one above it is a walk with no end, and
-    /// the panel is open while it happens.
     #[test]
     fn a_tree_that_goes_on_for_ever_is_still_left() {
-        let round = |at: &Path| match at.to_string_lossy().len() < 4000 {
-            true => vec![Entry::folder("down"), Entry::file("notes.txt", 1)],
-            false => Vec::new(),
+        let round = |at: &Path| {
+            Ok(match at.to_string_lossy().len() < 4000 {
+                true => vec![folder("down"), file("notes.txt", 1)],
+                false => Vec::new(),
+            })
         };
-        let found = under(Path::new("/home"), "notes", &round);
+
+        let Ok(found) = under(Path::new("/home"), "notes", &round);
+
         assert!(!found.is_empty());
         assert!(found.len() <= ENOUGH);
     }

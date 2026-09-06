@@ -3,8 +3,8 @@
 //! Left alone this list is written by Plasma's settings, which this machine
 //! does not run, so it sat a whole flavour behind everything else on screen.
 
-/// Every name Breeze GTK reads, in the order it happens to be written in.
-/// The stylesheet sorts them; nothing else depends on this order.
+use console_never::Never;
+
 pub const NAMES: [&str; 84] = [
     "borders", "content_view_bg", "error_color_backdrop", "error_color",
     "error_color_insensitive_backdrop", "error_color_insensitive",
@@ -47,8 +47,6 @@ pub const NAMES: [&str; 84] = [
     "warning_color_insensitive_backdrop", "warning_color_insensitive",
 ];
 
-/// Read in order, because the names overlap: a selected foreground is a
-/// foreground and a selected one, and the second word is the one that decides.
 const RULE: [(&str, &str); 29] = [
     ("selected_fg", "night"), ("selected_bg", "pink"),
     ("decoration_focus", "pink"), ("decoration_hover", "pink"),
@@ -67,18 +65,14 @@ const RULE: [(&str, &str); 29] = [
     ("bg_color", "panel"),
 ];
 
-/// Which of our colours one of Breeze's names is asking for.
-///
-/// Anything greyed out still answers `soft`, which clears AAA. Unreadable
-/// disabled text is a convention rather than a requirement, and on a device
-/// somebody is meant to be able to use it is a bad one.
-pub fn role(name: &str) -> Option<&'static str> {
-    RULE.iter()
+pub fn role(name: &str) -> Result<Option<&'static str>, Never> {
+    Ok(RULE
+        .iter()
         .find(|(word, _)| name.contains(word))
         .map(|(_, role)| match (*role, name.contains("insensitive")) {
             ("text", true) => "soft",
             (role, _) => role,
-        })
+        }))
 }
 
 #[cfg(test)]
@@ -87,33 +81,39 @@ mod tests {
 
     #[test]
     fn every_name_breeze_reads_has_a_colour_decided_for_it() {
-        let undecided: Vec<&str> = NAMES.iter().copied().filter(|n| role(n).is_none()).collect();
+        let undecided: Vec<&str> = NAMES
+            .iter()
+            .copied()
+            .filter(|name| {
+                let Ok(role) = role(name);
+
+                role.is_none()
+            })
+            .collect();
         assert!(undecided.is_empty(), "no colour decided for {undecided:?}");
     }
 
     #[test]
     fn the_second_word_decides_and_not_the_first() {
-        // Both are foregrounds. Only one of them is on a pink fill.
-        assert_eq!(role("theme_selected_fg_color"), Some("night"));
-        assert_eq!(role("theme_fg_color"), Some("text"));
+        assert_eq!(role("theme_selected_fg_color"), Ok(Some("night")));
+        assert_eq!(role("theme_fg_color"), Ok(Some("text")));
     }
 
     #[test]
     fn greyed_out_text_is_soft_and_stays_readable() {
-        assert_eq!(role("theme_button_foreground_insensitive"), Some("soft"));
-        assert_eq!(role("theme_button_foreground_normal"), Some("text"));
+        assert_eq!(role("theme_button_foreground_insensitive"), Ok(Some("soft")));
+        assert_eq!(role("theme_button_foreground_normal"), Ok(Some("text")));
     }
 
     #[test]
     fn a_greyed_out_fill_is_still_the_fill() {
-        // The softening is for ink only. A disabled panel is still a panel.
-        assert_eq!(role("insensitive_bg_color"), Some("panel"));
-        assert_eq!(role("insensitive_selected_bg_color"), Some("pink"));
+        assert_eq!(role("insensitive_bg_color"), Ok(Some("panel")));
+        assert_eq!(role("insensitive_selected_bg_color"), Ok(Some("pink")));
     }
 
     #[test]
     fn a_name_nobody_wrote_a_rule_for_answers_nothing() {
-        assert_eq!(role("some_name_from_a_later_breeze"), None);
+        assert_eq!(role("some_name_from_a_later_breeze"), Ok(None));
     }
 
     #[test]

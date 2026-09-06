@@ -1,51 +1,41 @@
 //! A level, drawn so it can be read across the room.
 
 
-use console_number::{Float, toward_zero_usize};
-/// The cells a level is drawn in, and how many of them a volume gets.
+use console_never::Never;
+use console_number_conversion::{Float, toward_zero_usize};
 pub const FULL: char = '█';
 pub const EMPTY: char = '░';
 pub const CELLS: usize = 8;
 
-/// Per press of left or right, in points of a hundred.
 pub const STEP: i32 = 5;
 
-/// A level you can read across the room, and the number for exactness.
-///
-/// Drawn in fewer cells it is a reading rather than a setting, and the number
-/// beside it would say more than the thing it is about.
-/// Whether the sound is silenced.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Muted {
-    /// Silenced, which is not the same as turned down to nothing: it comes back
-    /// where it was.
     Yes,
-    /// Not silenced, so the number is what is heard.
     No,
 }
 
-pub fn bar(level: i32, muted: Muted, cells: usize) -> String {
-    let filled = toward_zero_usize(
-        (f64::from(level) / 100.0 * cells.float()).round().clamp(0.0, cells.float()),
-    );
-    let drawn: String =
-        std::iter::repeat_n(FULL, filled).chain(std::iter::repeat_n(EMPTY, cells - filled)).collect();
+pub fn bar(level: i32, muted: Muted, cells: usize) -> Result<String, Never> {
+    let Ok(many) = cells.float();
+    let Ok(filled) =
+        toward_zero_usize((f64::from(level) / 100.0 * many).round().clamp(0.0, many));
+    let drawn: String = std::iter::repeat_n(FULL, filled)
+        .chain(std::iter::repeat_n(EMPTY, cells.saturating_sub(filled)))
+        .collect();
 
     match (cells < CELLS, muted) {
-        (true, _) => drawn,
-        (false, Muted::Yes) => format!("{drawn} silent"),
-        (false, Muted::No) => format!("{drawn} {level}%"),
+        (true, _) => Ok(drawn),
+        (false, Muted::Yes) => Ok(format!("{drawn} silent")),
+        (false, Muted::No) => Ok(format!("{drawn} {level}%")),
     }
 }
 
-/// A volume, drawn as one.
-pub fn volume(level: i32, muted: Muted) -> String {
+pub fn volume(level: i32, muted: Muted) -> Result<String, Never> {
     bar(level, muted, CELLS)
 }
 
-/// One step of a level, and never past either end.
-pub fn stepped(level: i32, step: i32) -> i32 {
-    (level + step * STEP).clamp(0, 100)
+pub fn stepped(level: i32, step: i32) -> Result<i32, Never> {
+    Ok(level.saturating_add(step.saturating_mul(STEP)).clamp(0, 100))
 }
 
 #[cfg(test)]
@@ -54,31 +44,26 @@ mod tests {
 
     #[test]
     fn a_level_is_a_picture_and_a_number() {
-        assert_eq!(volume(50, Muted::No), "████░░░░ 50%");
-        assert_eq!(volume(100, Muted::No), "████████ 100%");
-        assert_eq!(volume(0, Muted::No), "░░░░░░░░ 0%");
+        assert_eq!(volume(50, Muted::No), Ok("████░░░░ 50%".to_string()));
+        assert_eq!(volume(100, Muted::No), Ok("████████ 100%".to_string()));
+        assert_eq!(volume(0, Muted::No), Ok("░░░░░░░░ 0%".to_string()));
     }
 
-    /// Silent is a word rather than an empty bar: a volume turned down to
-    /// nothing and a volume silenced at half are different states, and one of
-    /// them comes back where it was.
     #[test]
     fn silence_is_said_rather_than_drawn() {
-        assert_eq!(volume(50, Muted::Yes), "████░░░░ silent");
+        assert_eq!(volume(50, Muted::Yes), Ok("████░░░░ silent".to_string()));
     }
 
-    /// How well a network is heard is a reading. The number beside it would be
-    /// a number nobody can do anything with.
     #[test]
     fn a_shorter_bar_is_a_reading_with_no_number_on_it() {
-        assert_eq!(bar(100, Muted::No, 4), "████");
-        assert_eq!(bar(50, Muted::No, 4), "██░░");
+        assert_eq!(bar(100, Muted::No, 4), Ok("████".to_string()));
+        assert_eq!(bar(50, Muted::No, 4), Ok("██░░".to_string()));
     }
 
     #[test]
     fn a_level_never_steps_past_either_end() {
-        assert_eq!(stepped(98, 1), 100);
-        assert_eq!(stepped(2, -1), 0);
-        assert_eq!(stepped(50, 1), 50 + STEP);
+        assert_eq!(stepped(98, 1), Ok(100));
+        assert_eq!(stepped(2, -1), Ok(0));
+        assert_eq!(stepped(50, 1), Ok(50 + STEP));
     }
 }

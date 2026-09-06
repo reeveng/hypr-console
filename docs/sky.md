@@ -1,7 +1,7 @@
 # The wallpapers
 
 The picture on the screen changes with the hour, the weather and the time of
-year. `crates/console-sky` is all of it: the press that makes a picture, and the
+year. `crates/console-wallpaper` is all of it: the press that makes a picture, and the
 daemon that decides which one is up.
 
 `theme/sky.toml` is the whole of what a person edits.
@@ -277,13 +277,14 @@ into that way and `docs/theme.md` names the other three.
 
 The cherry blossom garden used to be that ground, and being the ground was the
 whole of what it did once the pictures arrived: a hand-drawn scene nobody
-chose, in front of everybody, for a moment at every boot.
-`crates/console-garden` still draws it and `just garden` still runs, the
-picture still ships, and
-`awww img /usr/share/backgrounds/console.webp` still paints it. It is the one
-wallpaper here that is ours rather than somebody else's, and `console-sky`
-presses every picture with its webp muxer. It is simply not what is behind
-anything any more.
+chose, in front of everybody, for a moment at every boot. It stopped being
+that, and then it was a program drawing a picture nothing put up. The program
+is gone -- `git log -- crates/console-garden` -- and what is left of it is the
+two things something else was using: the WebP muxer that presses every picture
+here is `console_sky::webp` now, and the solved palette is read by
+`console_sky::palette`. The picture itself still ships at
+`/usr/share/backgrounds/console.webp` and `awww img` still paints it, as a
+fixed file that no longer follows the palette.
 
 ## When it is wrong
 

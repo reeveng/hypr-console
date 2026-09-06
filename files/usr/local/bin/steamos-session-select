@@ -44,7 +44,18 @@ gamescope | gamescope-session)
     # The menu launches a game through Steam, so there can be one running on
     # the desktop. It goes before the desktop does.
     settle
-    session gamescope-session.desktop
+    # Nothing after this happens unless the choice was actually written. The
+    # helper is reached through pkexec, and a caller running under
+    # `NoNewPrivileges=` gets "pkexec must be setuid root" rather than a
+    # password box -- the bit is on the file and the kernel is refusing it. Left
+    # unchecked, that returned here and the exit below still ran: the desktop
+    # went down, nothing had asked for Game Mode, and the display manager
+    # brought the same desktop back with everything closed. Three presses in a
+    # row did that and left one line in the journal.
+    if ! session gamescope-session.desktop; then
+        echo "the session was not recorded; staying on the desktop" >&2
+        exit 1
+    fi
     # Nothing else here happens unless the compositor is actually leaving. A
     # session recorded but not left, or a desktop whose services were stopped
     # out from under it, is worse than a button that did nothing.
@@ -69,7 +80,14 @@ gamescope | gamescope-session)
     exec systemctl --user stop console.target
     ;;
 plasma | plasma-session)
-    session hyprland.desktop
+    # Checked for the same reason as the other direction, and it matters more
+    # here: Game Mode's target is stopped below, and stopping it with nothing
+    # else recorded is the display manager starting Game Mode again. A way back
+    # that cannot record where it is going stays where it is.
+    if ! session hyprland.desktop; then
+        echo "the session was not recorded; staying in game mode" >&2
+        exit 1
+    fi
     # Not waited for, in this direction. Game Mode's target upholds the Steam
     # unit, which systemd starts again the moment it stops, so a wait here
     # would watch Steam come back and then take the whole ten seconds. The

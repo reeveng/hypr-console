@@ -1,5 +1,5 @@
 [Unit]
-Description=Remember the open windows and put them back
+Description=Saved windows
 PartOf=console.target
 
 [Service]

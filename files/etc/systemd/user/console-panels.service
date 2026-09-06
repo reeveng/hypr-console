@@ -1,0 +1,22 @@
+[Unit]
+Description=The panels, held
+PartOf=console.target
+# It comes after nothing and nothing comes after it. A panel that cannot reach
+# it draws itself, so a host that is not up yet is a panel that was slower
+# once -- which is the same thing that has to be true anyway, because this
+# restarts and the programs that ask it for a surface do not.
+
+[Service]
+Type=simple
+# Every surface that comes up over this desktop, drawn from one process that
+# keeps the toolkit up between them. What it saves is the two largest stretches
+# of an opening, and what it costs while nothing is on the screen is memory
+# rather than battery: a GTK loop with no surface mapped has no frame clock to
+# tick, and what a panel held while it was up is released when it closes.
+ExecStart=/usr/local/bin/console-panels
+ExecStopPost=-/usr/local/bin/console-fell %n
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=console.target

@@ -18,28 +18,26 @@
 //! Pictures tab arrives at.
 
 use std::path::PathBuf;
-use std::process::Command;
 
+use console_external_programs::Program;
 use console_files::places::folder;
+use console_never::Never;
 
-/// What a picture is called.
-///
-/// The moment it was taken, most-significant first, so the folder sorts into
-/// the order they were taken in.
-pub fn named(when: &str) -> String {
-    format!("screenshot-{when}.png")
+pub fn named(when: &str) -> Result<String, Never> {
+    Ok(format!("screenshot-{when}.png"))
 }
 
-/// The moment, as the name wants it.
-fn when() -> String {
-    match Command::new("date").arg("+%Y-%m-%d-%H%M%S").output() {
+fn when() -> Result<String, Never> {
+    let Ok(mut asking) = Program::Date.command();
+
+    Ok(match asking.arg("+%Y-%m-%d-%H%M%S").output() {
         Ok(said) => String::from_utf8_lossy(&said.stdout).trim().to_string(),
 
         Err(fault) => {
             eprintln!("console-screenshot: date: naming the picture by when it was taken: {fault}");
             String::new()
         }
-    }
+    })
 }
 
 fn main() -> std::process::ExitCode {
@@ -52,16 +50,25 @@ fn main() -> std::process::ExitCode {
         }
     };
 
-    let into = folder(&home, "XDG_PICTURES_DIR", "Pictures");
+    let Ok(into) = folder(&home, "XDG_PICTURES_DIR", "Pictures");
 
-    if let Err(why) = std::fs::create_dir_all(&into) {
-        eprintln!("console-screenshot: no {}: {why}", into.display());
-        return std::process::ExitCode::FAILURE;
+    match std::fs::create_dir_all(&into) {
+        Ok(()) => {},
+        Err(why) => {
+            eprintln!("console-screenshot: no {}: {why}", into.display());
+            return std::process::ExitCode::FAILURE;
+        }
     }
 
-    let at = into.join(named(&when()));
+    let Ok(when) = when();
 
-    match Command::new("grim").arg(&at).status() {
+    let Ok(named) = named(&when);
+
+    let at = into.join(named);
+
+    let Ok(mut taking) = Program::Grim.command();
+
+    match taking.arg(&at).status() {
         Ok(how) if how.success() => {
             println!("{}", at.display());
             std::process::ExitCode::SUCCESS
@@ -81,13 +88,18 @@ fn main() -> std::process::ExitCode {
 mod tests {
     use super::*;
 
-    /// Most-significant first, so the folder sorts into the order they were
-    /// taken in rather than by the hour they happen to share.
     #[test]
     fn a_picture_is_named_for_the_moment_it_was_taken() {
-        assert_eq!(named("2026-08-31-142309"), "screenshot-2026-08-31-142309.png");
-        let mut two = [named("2026-08-31-142309"), named("2026-01-02-000000")];
+        let Ok(one) = named("2026-08-31-142309");
+
+        let Ok(other) = named("2026-01-02-000000");
+
+        assert_eq!(one, "screenshot-2026-08-31-142309.png");
+
+        let mut two = [one, other.clone()];
+
         two.sort();
-        assert_eq!(two[0], named("2026-01-02-000000"));
+
+        assert_eq!(two[0], other);
     }
 }

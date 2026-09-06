@@ -12,86 +12,62 @@
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
+use console_never::Never;
 use gtk4::glib;
 
-/// How big a made picture is, on its longest side.
-///
-/// The size the shared store is specified at, so what is made here is what
-/// anything else reading the store expects to find. The panel asks for less
-/// than this and scales down, which costs nothing and means the store does not
-/// have to be made again the day a row gets taller.
 pub const SIDE: i32 = 128;
 
-/// Where the desktop keeps them.
-pub fn store(cache: &Path) -> PathBuf {
-    cache.join("thumbnails").join("normal")
+pub fn store(cache: &Path) -> Result<PathBuf, Never> {
+    Ok(cache.join("thumbnails").join("normal"))
 }
 
-/// The address of a thing, as the store names it by.
-///
-/// The real path and not the one it was reached by. A folder reached through a
-/// link has a second name for every file in it, and a store keyed by the name
-/// used would keep a second picture of each: one made walking in one way and
-/// never found walking in the other. Following the links first means a thing
-/// has one picture however it was arrived at.
-pub fn address(path: &Path) -> Option<String> {
-    // A path that will not resolve is one nothing is behind -- a link to
-    // something removed, most often -- and the name as given is the best
-    // address there is for it. Walked past in silence: this runs once per
-    // thing in a listing, and a folder of them would say it hundreds of times.
+pub fn address(path: &Path) -> Result<Option<String>, Never> {
     let real = match path.canonicalize() {
         Ok(real) => real,
         Err(_) => path.to_path_buf(),
     };
 
-    let Ok(uri) = glib::filename_to_uri(real, None) else { return None };
+    let Ok(uri) = glib::filename_to_uri(real, None) else { return Ok(None) };
 
-    Some(uri.to_string())
+    Ok(Some(uri.to_string()))
 }
 
-/// The picture of that address, in the store.
-///
-/// The name is the digest of the address and not of the thing itself, which is
-/// what makes this cheap: naming it takes no reading of a file that may be a
-/// gigabyte of film.
-pub fn of(store: &Path, address: &str) -> Option<PathBuf> {
-    let digest = glib::compute_checksum_for_string(glib::ChecksumType::Md5, address)?;
-    Some(store.join(format!("{digest}.png")))
+pub fn of(store: &Path, address: &str) -> Result<Option<PathBuf>, Never> {
+    let Some(digest) = glib::compute_checksum_for_string(glib::ChecksumType::Md5, address) else {
+        return Ok(None);
+    };
+
+    Ok(Some(store.join(format!("{digest}.png"))))
 }
 
-/// Whether a made picture still says something true about the thing.
-///
-/// Made before the thing last changed, it is a picture of what that thing used
-/// to be. A photograph edited on this device would go on showing the version
-/// before the edit for as long as the store was believed.
-pub fn fresh(made: SystemTime, changed: SystemTime) -> Fresh {
-    match made >= changed {
+pub fn fresh(made: SystemTime, changed: SystemTime) -> Result<Fresh, Never> {
+    Ok(match made >= changed {
         true => Fresh::Yes,
         false => Fresh::Stale,
-    }
+    })
 }
 
-/// Whether a picture in the store is still a picture of what it names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Fresh {
-    /// It was made after the thing last changed.
     Yes,
-    /// The thing has changed since, so the picture is of what it used to be.
     Stale,
 }
 
-/// The one on disk, if there is one and it is still true.
-pub fn found(store: &Path, path: &Path) -> Option<PathBuf> {
-    let picture = of(store, &address(path)?)?;
+pub fn found(store: &Path, path: &Path) -> Result<Option<PathBuf>, Never> {
+    let Some(address) = address(path)? else { return Ok(None) };
 
-    let Ok(made) = picture.metadata().and_then(|held| held.modified()) else { return None };
+    let Some(picture) = of(store, &address)? else { return Ok(None) };
 
-    let Ok(changed) = path.metadata().and_then(|held| held.modified()) else { return None };
+    let Ok(made) = picture.metadata().and_then(|held| held.modified()) else { return Ok(None) };
 
-    match fresh(made, changed) {
+    let Ok(changed) = path.metadata().and_then(|held| held.modified()) else { return Ok(None) };
+
+    let fresh = fresh(made, changed)?;
+
+    Ok(match fresh {
         Fresh::Yes => Some(picture),
         Fresh::Stale => None,
-    }
+    })
 }
 
 #[cfg(test)]
@@ -103,36 +79,46 @@ mod tests {
         Path::new("/home/ada/.cache").to_path_buf()
     }
 
-    #[test]
-    fn the_store_is_where_every_other_desktop_looks() {
-        assert_eq!(store(&cache()), Path::new("/home/ada/.cache/thumbnails/normal"));
+    fn store_of(cache: &Path) -> PathBuf {
+        let Ok(store) = store(cache);
+
+        store
     }
 
-    /// The name the shared store gives a picture is the digest of the address,
-    /// so anything else reading the store finds the same one.
+    fn named(store: &Path, address: &str) -> PathBuf {
+        let Ok(name) = of(store, address);
+
+        name.expect("a name")
+    }
+
+    #[test]
+    fn the_store_is_where_every_other_desktop_looks() {
+        assert_eq!(store_of(&cache()), Path::new("/home/ada/.cache/thumbnails/normal"));
+    }
+
     #[test]
     fn a_picture_is_named_for_the_address_of_the_thing_it_is_of() {
-        let store = store(&cache());
-        let one = of(&store, "file:///home/ada/Pictures/beach.jpg").expect("a name");
-        let same = of(&store, "file:///home/ada/Pictures/beach.jpg").expect("a name");
-        let other = of(&store, "file:///home/ada/Pictures/boat.jpg").expect("a name");
+        let store = store_of(&cache());
+        let one = named(&store, "file:///home/ada/Pictures/beach.jpg");
+        let same = named(&store, "file:///home/ada/Pictures/beach.jpg");
+        let other = named(&store, "file:///home/ada/Pictures/boat.jpg");
+
         assert_eq!(one, same);
         assert_ne!(one, other);
         assert!(one.starts_with(&store));
         assert_eq!(one.extension().and_then(|end| end.to_str()), Some("png"));
     }
 
-    /// A name with a space in it is still one address, and one the store agrees
-    /// with. Handed the path rather than the address, every one of those would
-    /// be a picture nothing else could find.
     #[test]
     fn an_address_is_written_the_way_the_store_expects_it() {
-        let said = address(Path::new("/home/ada/Pictures/a day out.jpg")).expect("an address");
+        let Ok(said) = address(Path::new("/home/ada/Pictures/a day out.jpg"));
+
+        let said = said.expect("an address");
+
         assert!(said.starts_with("file:///"));
         assert!(!said.contains(' '), "{said}");
     }
 
-    /// One thing, one picture, whichever way it was walked to.
     #[test]
     fn a_thing_reached_through_a_link_has_the_address_of_the_thing() {
         let real = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/thumbs.rs");
@@ -144,8 +130,8 @@ mod tests {
     fn a_picture_made_before_the_thing_changed_is_out_of_date() {
         let then = SystemTime::UNIX_EPOCH;
         let now = then + Duration::from_secs(60);
-        assert_eq!(fresh(now, then), Fresh::Yes);
-        assert_eq!(fresh(then, then), Fresh::Yes);
-        assert_eq!(fresh(then, now), Fresh::Stale);
+        assert_eq!(fresh(now, then), Ok(Fresh::Yes));
+        assert_eq!(fresh(then, then), Ok(Fresh::Yes));
+        assert_eq!(fresh(then, now), Ok(Fresh::Stale));
     }
 }

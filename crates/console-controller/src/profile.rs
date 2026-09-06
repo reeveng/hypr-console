@@ -1,180 +1,406 @@
-//! Which profile the pad is wearing, and whether to do anything about it.
+//! Which profile the pad is wearing, and the one switch left that really is
+//! one.
 //!
-//! `Mode::profile` answers what the pad *should* wear, and it is a function of
-//! what is on the screen, so it cannot be stale. Getting the pad to wear it is
-//! the other half, and that half was wrong.
+//! ```text
+//! controller-profile router    every button, said as itself, for the daemon
+//! controller-profile game      buttons stay a gamepad, for Steam and games
+//! controller-profile           print which one is active
+//! ```
 //!
-//! Loading a profile is not instant. `controller-profile` waits for
-//! InputPlumber to reach the bus and then asks it to destroy the pad and build
-//! another, and the daemon cannot wait for that -- waiting is a daemon that
-//! stops reading the pad for as long as the load takes, which on a booting
-//! device is a minute. So the load is spawned and let go of.
+//! `desktop` and `tabs` are the same file as `router` now and are kept as
+//! words for it. There used to be one profile for the desktop and another for
+//! while a chooser was up, and swapping them destroyed the pad and built a new
+//! one on every menu open and close. What a button means with a chooser up is
+//! this daemon's to say -- `console_controller::means` -- so there is one
+//! profile and nothing to swap.
 //!
-//! Let go of, it is in flight, and a thing in flight has not happened yet. The
-//! daemon used to decide whether to load by asking the bus which profile was
-//! on, which reports the profile from before the load it is itself waiting on.
-//! So a card that came and went inside one load left the pad wearing what the
-//! card wanted, with the card gone: the second look was told the old answer,
-//! agreed with it, did nothing, and then the first load landed.
+//! Two more words went the same way and for a better reason. `keyboard` and
+//! `asking` each translated nothing; they were loaded so one program could
+//! have the front of the machine to itself while its surface was up, which is
+//! a thing a profile cannot promise -- six programs can load one and the last
+//! one wins. That is asked of the kernel now, with EVIOCGRAB, by
+//! `console_input_claim`, and nothing has to be undone when a program dies
+//! because the kernel lets go when the process does.
 //!
-//! The other half of the same fault is that this daemon is not the only thing
-//! that loads a profile. A panel loads one before it draws, Game Mode loads
-//! one, the unit loads one at start. So the pad can be taken away from under a
-//! load of this daemon's by a load it never saw, and the mode it read is right
-//! while the pad is wrong. That is worth one more go and not worth an argument,
-//! which is what `TRIES` is.
+//! So the pad wears the router from login to shutdown, and the one switch left
+//! is leaving for Game Mode and coming back.
+//!
+//! **The wait is the reason this is a state machine at all.** InputPlumber
+//! waits for udev to finish enumerating the controllers before it starts, so
+//! at login it is not on the bus yet, and the script this replaced sat in a
+//! `sleep 1` loop for up to a minute. A loop with a sleep in it is a decision
+//! that can only be observed by waiting for it; a program that asks for a
+//! stretch and is told when it has gone by can be handed sixty of them in no
+//! time at all, which is what `the_wait_for_the_bus` below does.
 
-/// What the pad is wearing, as far as anyone can tell.
-///
-/// `None` where the bus would not answer. That is not the same as "some other
-/// profile" and must not be treated as one: the bus is least askable exactly
-/// while a load is tearing the pad down and building another, so reading
-/// silence as disagreement is a daemon that loads again every time a load is
-/// already happening, and each load rebuilds the pad.
-pub type Worn<'a> = Option<&'a str>;
+use std::time::Duration;
 
-/// How many times running to ask for the same profile before leaving it.
-///
-/// Two, because the second is the one that answers something else having taken
-/// the pad while this daemon's load was in the air, and a third would only be
-/// answering a machine that is refusing. A profile that will not load is a
-/// fault to be read in the journal, not one to be asked about at the rate this
-/// loop runs at. Anything that changes the screen starts the count again,
-/// because that is a new question.
-pub const TRIES: u8 = 2;
+use console_external_programs::Program as Theirs;
+use console_gamepad::router::{self, PROFILES};
+use console_never::Never;
+use console_program_contract::{
+    Argv, Doing, Ending, Opening, Program, Round, Runs, Turn, Wants, Went, Word,
+};
 
-/// The last profile this daemon asked for, and how many times running.
-///
-/// The one thing it has to remember, and it is about its own asking rather than
-/// about the machine. Everything else is read: what is in front comes off the
-/// compositor and what is worn comes off the bus.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct Asked {
-    pub profile: String,
-    pub times: u8,
+const BUS: &str = "org.shadowblip.InputPlumber";
+
+const OBJECT: &str = "/org/shadowblip/InputPlumber/CompositeDevice0";
+
+const FACE: &str = "org.shadowblip.Input.CompositeDevice";
+
+const AGAIN: Round = Round { called: "the bus", every: Duration::from_secs(1) };
+
+const MOST: u32 = 60;
+
+const GAME: &str = "game.yaml";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Which {
+    Router,
+    Game,
+    Asking,
+    Wrong(String),
 }
 
-/// Whether to load a profile now, and which.
-///
-/// Four ways to answer nothing, and they are worth telling apart. Something is
-/// Whether a profile load this daemon started is still going.
+impl Which {
+    pub fn of(argv: &Argv) -> Result<Self, Never> {
+        let Ok(first) = argv.first();
+
+        Ok(match first {
+            None => Which::Asking,
+            Some("router" | "desktop" | "tabs") => Which::Router,
+            Some("game") => Which::Game,
+            Some(word) => Which::Wrong(word.to_string()),
+        })
+    }
+
+    pub fn file(&self) -> Result<Option<String>, Never> {
+        Ok(match self {
+            Which::Router => Some(format!("{PROFILES}{}", router::FILE)),
+            Which::Game => Some(format!("{PROFILES}{GAME}")),
+            Which::Asking | Which::Wrong(_) => None,
+        })
+    }
+
+    pub fn buzz(&self) -> Result<Option<Buzz>, Never> {
+        Ok(match self {
+            Which::Router => Some(Buzz::Off),
+            Which::Game => Some(Buzz::On),
+            Which::Asking | Which::Wrong(_) => None,
+        })
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Loading {
-    /// One is in flight, and what the pad should wear when it lands is not
-    /// decided yet.
-    InFlight,
-    /// Nothing is loading, so what the pad wears now is what it wears.
-    Settled,
+pub enum Buzz {
+    On,
+    Off,
 }
 
-/// already on its way, so anything decided here would race it. The bus cannot
-/// be asked, so there is no answer to disagree with. The pad is already wearing
-/// what it should. Or this has asked for that same profile as often as it is
-/// going to.
-///
-/// Nothing is queued while a load is in flight, because what the pad should
-/// wear when that load lands is whatever is in front of you then, not whatever
-/// was in front of you now. The caller looks again.
-pub fn wanted(want: &str, worn: Worn, loading: Loading, asked: &Asked) -> Option<Asked> {
-    if loading == Loading::InFlight {
-        return None;
+impl Buzz {
+    pub const fn written(self) -> Result<&'static str, Never> {
+        Ok(match self {
+            Buzz::On => "true",
+            Buzz::Off => "false",
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Its {
+    Buzzing(Buzz),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Step {
+    Opening,
+    Waiting,
+    Loading,
+    Telling,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Asking {
+    pub wants: Which,
+    pub step: Step,
+    pub tried: u32,
+}
+
+pub struct Profile;
+
+impl Program for Profile {
+    type State = Asking;
+    type Hears = console_never::Never;
+    type Does = Its;
+
+    fn opening(argv: &Argv) -> Opening<Asking> {
+        let Ok(wants) = Which::of(argv);
+        let holding = Asking { wants, step: Step::Opening, tried: 0 };
+        let Ok(file) = holding.wants.file();
+
+        let Ok(opening) = match file {
+            Some(_) => Opening::listening(holding, vec![Wants::Round(AGAIN)]),
+            None => Opening::holding(holding),
+        };
+
+        opening
     }
 
-    match worn {
-        None => None,
-        Some(now) if now.eq_ignore_ascii_case(want) => None,
-        Some(_) if asked.profile == want && asked.times >= TRIES => None,
-        Some(_) => Some(Asked {
-            profile: want.to_string(),
-            times: match asked.profile == want {
-                true => asked.times + 1,
-                false => 1,
-            },
-        }),
+    fn heard(state: &Asking, word: &Word<console_never::Never>) -> Turn<Asking, Its> {
+        let Ok(turn) = match (&state.wants, word) {
+            (Which::Wrong(word), Word::Opened) => Turn::doing(
+                state.clone(),
+                vec![Doing::Stop(Ending::Badly(format!(
+                    "{word}: usage: controller-profile [router|game]"
+                )))],
+            ),
+
+            (Which::Asking, Word::Opened) => {
+                let Ok(reading) = reading();
+
+                Turn::doing(
+                    Asking { step: Step::Telling, ..state.clone() },
+                    vec![Doing::Ask(reading)],
+                )
+            }
+
+            (Which::Router | Which::Game, Word::Opened) => {
+                let Ok(reading) = reading();
+                let Ok(buzzing) = buzzing(&state.wants);
+
+                Turn::doing(
+                    Asking { step: Step::Waiting, ..state.clone() },
+                    buzzing.into_iter().chain([Doing::Ask(reading)]).collect(),
+                )
+            }
+
+            (_, Word::Answered(answer)) => answered(state, &answer.went, &answer.said),
+
+            (_, Word::CameRound(_, _)) => tried(state),
+
+            (_, Word::Changed(_) | Word::Chose(_) | Word::Stopping | Word::Its(_)) => {
+                Turn::nothing(state.clone())
+            }
+        };
+
+        turn
     }
+}
+
+fn answered(state: &Asking, went: &Went, said: &str) -> Result<Turn<Asking, Its>, Never> {
+    match (state.step, went) {
+        (Step::Waiting, Went::Badly(_)) => Turn::nothing(state.clone()),
+
+        (Step::Waiting, Went::Well) => {
+            let Ok(file) = state.wants.file();
+
+            match file {
+            Some(file) => {
+                let Ok(loading) = loading(&file);
+
+                Turn::doing(
+                    Asking { step: Step::Loading, ..state.clone() },
+                    vec![Doing::Ask(loading)],
+                )
+            }
+            None => Turn::doing(state.clone(), vec![Doing::Stop(Ending::Done)]),
+            }
+        },
+
+        (Step::Loading, Went::Well) => {
+            Turn::doing(state.clone(), vec![Doing::Stop(Ending::Done)])
+        }
+
+        (Step::Loading, Went::Badly(_)) => {
+            let Ok(file) = state.wants.file();
+            let named = file.unwrap_or_else(|| "the profile".to_string());
+
+            Turn::doing(
+                state.clone(),
+                vec![Doing::Stop(Ending::Badly(format!("{named} would not load")))],
+            )
+        },
+
+        (Step::Telling, Went::Well) => {
+            let Ok(named) = named(said);
+
+            Turn::doing(
+                state.clone(),
+                vec![Doing::Print(named.unwrap_or_default()), Doing::Stop(Ending::Done)],
+            )
+        }
+
+        (Step::Telling, Went::Badly(_)) => Turn::doing(
+            state.clone(),
+            vec![Doing::Stop(Ending::Badly(
+                "InputPlumber is not on the bus, so nothing can say which profile is on".to_string(),
+            ))],
+        ),
+
+        (Step::Opening, _) => Turn::nothing(state.clone()),
+    }
+}
+
+fn tried(state: &Asking) -> Result<Turn<Asking, Its>, Never> {
+    let tried = state.tried.saturating_add(1);
+
+    match tried < MOST {
+        true => {
+            let Ok(reading) = reading();
+
+            Turn::doing(Asking { tried, ..state.clone() }, vec![Doing::Ask(reading)])
+        }
+        false => Turn::doing(
+            Asking { tried, ..state.clone() },
+            vec![Doing::Stop(Ending::Badly(
+                "InputPlumber never appeared on the bus".to_string(),
+            ))],
+        ),
+    }
+}
+
+fn buzzing(wants: &Which) -> Result<Vec<Doing<Its>>, Never> {
+    let Ok(buzz) = wants.buzz();
+
+    Ok(buzz.map(|buzz| Doing::Its(Its::Buzzing(buzz))).into_iter().collect())
+}
+
+fn reading() -> Result<Runs, Never> {
+    Runs::theirs(
+        Theirs::Busctl,
+        &["--system", "get-property", BUS, OBJECT, FACE, "ProfileName"],
+    )
+}
+
+fn loading(file: &str) -> Result<Runs, Never> {
+    Runs::theirs(
+        Theirs::Busctl,
+        &["--system", "call", BUS, OBJECT, FACE, "LoadProfilePath", "s", file],
+    )
+}
+
+pub fn named(said: &str) -> Result<Option<String>, Never> {
+    let Some((_, after)) = said.split_once('"') else { return Ok(None) };
+
+    let Some((name, _)) = after.split_once('"') else { return Ok(None) };
+
+    Ok(Some(name.to_string()))
 }
 
 #[cfg(test)]
 mod tests {
+    use console_program_contract::{Answer, told};
+
     use super::*;
-    use crate::mode::Mode;
 
-    fn nothing() -> Asked {
-        Asked::default()
-    }
+    fn answered_with(went: Went, said: &str) -> Word<Never> {
+        let Ok(reading) = reading();
 
-    fn asked(profile: &str, times: u8) -> Asked {
-        Asked { profile: profile.to_string(), times }
+        Word::Answered(Answer { ran: reading, said: said.to_string(), went })
     }
 
     #[test]
-    fn a_pad_wearing_the_wrong_profile_is_given_the_right_one() {
-        assert_eq!(wanted("keyboard", Some("Router"), Loading::Settled, &nothing()), Some(asked("keyboard", 1)));
+    fn the_desktops_word_and_the_router_are_the_same_file() {
+        let Ok(desktop) = Argv::of(&["desktop"]);
+        let Ok(tabs) = Argv::of(&["tabs"]);
+        let Ok(router) = Argv::of(&["router"]);
+
+        assert_eq!(Which::of(&desktop), Ok(Which::Router));
+        assert_eq!(Which::of(&tabs), Ok(Which::Router));
+        assert_eq!(Which::of(&router), Ok(Which::Router));
     }
 
-    /// InputPlumber answers `Desktop` where this says `desktop`, and has since
-    /// before any of this was written.
     #[test]
-    fn the_bus_answers_in_its_own_capitals() {
-        assert_eq!(wanted("router", Some("Router"), Loading::Settled, &nothing()), None);
-        assert_eq!(wanted("asking", Some("Asking"), Loading::Settled, &nothing()), None);
+    fn the_buzz_is_off_for_the_desktop_and_on_for_a_game() {
+        let Ok(router) = Argv::of(&["router"]);
+        let Ok(playing) = Argv::of(&["game"]);
+        let Ok(said) = told::<Profile>(&router, &[Word::Opened]);
+        let Ok(game) = told::<Profile>(&playing, &[Word::Opened]);
+        let Ok(first) = said.on(0);
+        let Ok(began) = game.on(0);
+
+        assert_eq!(first.and_then(|doings| doings.first()), Some(&Doing::Its(Its::Buzzing(Buzz::Off))));
+        assert_eq!(began.and_then(|doings| doings.first()), Some(&Doing::Its(Its::Buzzing(Buzz::On))));
     }
 
-    /// The whole of the fault. A card that came and went inside one load left
-    /// the pad wearing what the card wanted, because the second look asked the
-    /// bus, was told the profile from before the load still in flight, agreed
-    /// with it, and did nothing.
     #[test]
-    fn nothing_is_loaded_over_a_load_that_has_not_landed() {
-        assert_eq!(wanted("keyboard", Some("Keyboard"), Loading::InFlight, &nothing()), None);
-        assert_eq!(wanted("keyboard", Some("Asking"), Loading::InFlight, &nothing()), None);
-        assert_eq!(wanted("keyboard", None, Loading::InFlight, &nothing()), None);
+    fn the_wait_for_the_bus_ends_the_moment_it_answers() {
+        let mut words = vec![Word::Opened, answered_with(Went::Badly(Some(1)), "")];
+
+        for _ in 0..40 {
+            words.push(Word::CameRound(AGAIN, Duration::ZERO));
+            words.push(answered_with(Went::Badly(Some(1)), ""));
+        }
+
+        words.push(Word::CameRound(AGAIN, Duration::ZERO));
+        words.push(answered_with(Went::Well, "s \"router\""));
+
+        let Ok(router) = Argv::of(&["router"]);
+        let Ok(said) = told::<Profile>(&router, &words);
+        let Ok(doings) = said.doings();
+        let Ok(loading) = loading("/etc/inputplumber/profiles/router.yaml");
+
+        assert_eq!(doings.last(), Some(&Doing::Ask(loading)));
     }
 
-    /// A bus that will not answer is not a bus that disagrees. Read as
-    /// disagreement -- which is what an empty string compared against a profile
-    /// name came to -- every look during a rebuild starts another rebuild, and
-    /// a rebuild is what makes the bus unanswerable.
     #[test]
-    fn a_bus_that_says_nothing_is_not_a_bus_that_says_something_else() {
-        assert_eq!(wanted("router", None, Loading::Settled, &nothing()), None);
-    }
+    fn a_bus_that_never_appears_is_said_out_loud_rather_than_waited_on_for_ever() {
+        let mut words = vec![Word::Opened, answered_with(Went::Badly(Some(1)), "")];
 
-    /// The other half of the fault, from the other side. A panel loads its
-    /// profile before it draws, so a load of this daemon's can land and then be
-    /// taken away by one it never saw. Asking once more is what answers that.
-    #[test]
-    fn a_profile_taken_away_by_somebody_else_is_asked_for_once_more() {
-        let once = wanted("asking", Some("Tabs"), Loading::Settled, &asked("asking", 1));
-        assert_eq!(once, Some(asked("asking", 2)));
-    }
+        for _ in 0..MOST {
+            words.push(Word::CameRound(AGAIN, Duration::ZERO));
+            words.push(answered_with(Went::Badly(Some(1)), ""));
+        }
 
-    /// And not for ever. A machine that will not take a profile is a fault for
-    /// the journal, not one to argue with fifty times a second.
-    #[test]
-    fn a_profile_that_will_not_load_is_left_alone_after_that() {
-        assert_eq!(wanted("asking", Some("Tabs"), Loading::Settled, &asked("asking", TRIES)), None);
-    }
+        let Ok(router) = Argv::of(&["router"]);
+        let Ok(said) = told::<Profile>(&router, &words);
+        let Ok(doings) = said.doings();
 
-    /// A different profile is a different question, so the count starts again.
-    /// Otherwise a mode nobody could reach would poison the one after it.
-    #[test]
-    fn something_else_in_front_is_asked_for_from_the_start() {
         assert_eq!(
-            wanted("desktop", Some("Tabs"), Loading::Settled, &asked("asking", TRIES)),
-            Some(asked("desktop", 1))
+            doings.last(),
+            Some(&Doing::Stop(Ending::Badly(
+                "InputPlumber never appeared on the bus".to_string()
+            )))
         );
     }
 
-    /// Read together with the mode, which is where the wanted profile comes
-    /// from. Nothing here decides what is in front; it decides what to do about
-    /// the answer.
     #[test]
-    fn what_is_in_front_decides_the_profile_and_this_decides_the_load() {
-        assert_eq!(
-            wanted(Mode::Asking.profile(), Some("Tabs"), Loading::Settled, &nothing()),
-            Some(asked("asking", 1))
+    fn asking_which_profile_is_on_prints_the_name_out_of_what_the_bus_said() {
+        let Ok(said) = told::<Profile>(
+            &Argv::default(),
+            &[Word::Opened, answered_with(Went::Well, "s \"router\"\n")],
         );
-        assert_eq!(wanted(Mode::Desktop.profile(), Some("Router"), Loading::Settled, &nothing()), None);
+
+        assert_eq!(
+            said.on(1),
+            Ok(Some([Doing::Print("router".to_string()), Doing::Stop(Ending::Done)].as_slice()))
+        );
+    }
+
+    #[test]
+    fn a_word_this_program_does_not_know_is_refused_with_the_usage() {
+        let Ok(keyboard) = Argv::of(&["keyboard"]);
+        let Ok(said) = told::<Profile>(&keyboard, &[Word::Opened]);
+
+        assert_eq!(
+            said.on(0),
+            Ok(Some(
+                [Doing::Stop(Ending::Badly(
+                    "keyboard: usage: controller-profile [router|game]".to_string()
+                ))]
+                .as_slice()
+            ))
+        );
+    }
+
+    #[test]
+    fn nothing_waits_for_a_bus_it_is_only_asking_about() {
+        let Ok(game) = Argv::of(&["game"]);
+
+        let asking = Profile::opening(&Argv::default());
+        let loading = Profile::opening(&game);
+
+        assert_eq!(asking.wants, Vec::new());
+        assert_eq!(loading.wants, vec![Wants::Round(AGAIN)]);
     }
 }

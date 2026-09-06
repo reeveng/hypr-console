@@ -34,15 +34,18 @@ name = "console-scale"
 path = "src/bin/console-scale.rs"
 
 [dependencies]
-console-number.workspace = true
+console-external-programs.workspace = true
+console-never.workspace = true
+console-number-conversion.workspace = true
 console-defaults.workspace = true
-console-home.workspace = true
-console-notices.workspace = true
+console-home-screen.workspace = true
+console-program-contract.workspace = true
+console-notifications.workspace = true
 console-panel.workspace = true
 console-screen.workspace = true
-console-sky.workspace = true
-console-voice.workspace = true
-console-words.workspace = true
+console-wallpaper.workspace = true
+console-dictation.workspace = true
+console-translation.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

@@ -8,28 +8,35 @@
 //! Both of those used to be answered somewhere else -- by another program
 //! sending this one SIGSTOP, and by a button simply not appearing in a table.
 //! See `console_controller::mode`.
+//!
+//! Both of those programs take the devices themselves now, so nothing reaches
+//! this daemon while either is up whether or not this says so. It says so
+//! anyway, and the two are not the same answer: a claim is taken a moment after
+//! a surface goes up and given back a moment after it comes down, and this is
+//! what covers those two moments.
 
-use console_pad::jobs::Layer;
+use console_gamepad::jobs::Layer;
+use console_never::Never;
 
 use crate::doing::Doing;
 use crate::means::{Job, Press, Table};
 use crate::mode::{Acts, Mode};
 
-/// The job a press lands on, if this daemon is reading and anything is bound.
 pub fn job_for(
     table: &Table,
     mode: Mode,
     button: &str,
     layer: Layer,
-) -> Option<&'static Job> {
-    match mode.acts() {
+) -> Result<Option<&'static Job>, Never> {
+    let Ok(acts) = mode.acts();
+
+    match acts {
         Acts::OnPresses => table.what(button, layer, mode),
-        Acts::NotReading => None,
+        Acts::NotReading => Ok(None),
     }
 }
 
-/// What that job does about a press, on the way down or on the way back up.
-pub fn acted(job: &Job, down: Press) -> Option<Doing> {
+pub fn acted(job: &Job, down: Press) -> Result<Option<Doing>, Never> {
     job.what.does(down)
 }
 
@@ -37,14 +44,18 @@ pub fn acted(job: &Job, down: Press) -> Option<Doing> {
 mod tests {
     use super::*;
     use crate::means::What;
-    use console_pad::jobs::ALONE;
+    use console_gamepad::jobs::ALONE;
 
     fn table() -> Table {
-        Table::ours()
+        let Ok(ours) = Table::ours();
+
+        ours
     }
 
     fn what(mode: Mode, button: &str) -> Option<What> {
-        job_for(&table(), mode, button, ALONE).map(|job| job.what)
+        let Ok(found) = job_for(&table(), mode, button, ALONE);
+
+        found.map(|job| job.what)
     }
 
     #[test]
@@ -53,9 +64,6 @@ mod tests {
         assert_eq!(what(Mode::Desktop, "legion-right"), Some(What::Settings));
     }
 
-    /// While the on-screen keyboard is up the pad is its own, and while the
-    /// card is asking which button that was the pad is nobody's. Both are the
-    /// same answer: not ours to act on.
     #[test]
     fn nothing_is_acted_on_where_this_daemon_is_not_the_one_reading() {
         for mode in [Mode::Keyboard, Mode::Asking] {
@@ -64,8 +72,6 @@ mod tests {
         }
     }
 
-    /// A button nothing is bound to is a button that does nothing, and not a
-    /// button that does something else.
     #[test]
     fn a_button_with_nothing_on_it_does_nothing() {
         assert_eq!(what(Mode::Desktop, "l3"), None);

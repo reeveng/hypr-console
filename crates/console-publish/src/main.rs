@@ -3,8 +3,10 @@
 //!     console-publish /tmp/hypr-console
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode};
+use std::process::ExitCode;
 
+use console_external_programs::Program;
+use console_never::Never;
 use console_publish::names::{self, Watched};
 use console_publish::papers;
 use console_publish::tree;
@@ -24,108 +26,120 @@ fn run() -> Result<ExitCode, String> {
         [path] if !path.starts_with('-') => PathBuf::from(path),
         _ => return Err("console-publish takes one path to build the copy at".to_string()),
     };
-    let repo = repository()?;
+    let repo = console_repository::root()?;
 
     publish(&repo, &where_)?;
     println!("built {}", where_.display());
     checked(&repo, &where_)
 }
 
-/// The copy, built from nothing every time.
 fn publish(repo: &Path, where_: &Path) -> Result<(), String> {
-    if where_.exists() {
-        std::fs::remove_dir_all(where_)
-            .map_err(|fault| format!("{} could not be cleared: {fault}", where_.display()))?;
+    match where_.exists() {
+        true => std::fs::remove_dir_all(where_)
+            .map_err(|fault| format!("{} could not be cleared: {fault}", where_.display()))?,
+        false => {}
     }
 
     std::fs::create_dir_all(where_)
         .map_err(|fault| format!("{} could not be made: {fault}", where_.display()))?;
 
-    // Carried under the name it already has. The tree names nobody: the
-    // manifest writes `@user@` for whoever a desktop belongs to and the machine
-    // fills it in, so there is no longer a path to rewrite on the way out.
-    for name in tree::carried(tracked(repo)?) {
+    let tracked = tracked(repo)?;
+
+    let Ok(carried) = tree::carried(tracked);
+
+    for name in carried {
         carry(&repo.join(&name), &where_.join(&name))?;
     }
 
     let manifest = where_.join("desktop.conf");
     let held = read(&manifest)?;
-    write(&manifest, &tree::manifest(&held))?;
+    let Ok(written) = tree::manifest(&held);
+
+    write(&manifest, &written)?;
     write(&where_.join("docs/forks.md"), papers::FORKS)?;
-    write(&where_.join("README.md"), papers::README)?;
-    write(&where_.join("LICENSE"), papers::LICENCE)
+    write(&where_.join("README.md"), papers::README)
 }
 
-/// One file, carried whole. Nothing is rewritten on the way.
 fn carry(source: &Path, target: &Path) -> Result<(), String> {
-    if let Some(holding) = target.parent() {
-        std::fs::create_dir_all(holding)
-            .map_err(|fault| format!("{} could not be made: {fault}", holding.display()))?;
+    match target.parent() {
+        Some(holding) => std::fs::create_dir_all(holding)
+            .map_err(|fault| format!("{} could not be made: {fault}", holding.display()))?,
+        None => {}
     }
 
     let held = std::fs::read(source)
         .map_err(|fault| format!("{} could not be read: {fault}", source.display()))?;
     std::fs::write(target, &held)
         .map_err(|fault| format!("{} could not be written: {fault}", target.display()))?;
-    let how = std::fs::metadata(source)
-        .map_err(|fault| format!("{} could not be read: {fault}", source.display()))?
-        .permissions();
+    let about = std::fs::metadata(source)
+        .map_err(|fault| format!("{} could not be read: {fault}", source.display()))?;
+    let how = about.permissions();
     std::fs::set_permissions(target, how)
         .map_err(|fault| format!("{} could not be set: {fault}", target.display()))
 }
 
-/// Nobody's name, and the tests still pass.
-///
-/// The tests are run against the copy rather than against this tree, because
-/// what is about to be pushed is the thing worth knowing passes.
 fn checked(repo: &Path, where_: &Path) -> Result<ExitCode, String> {
-    let (names, missing) = names::watched();
+    let Ok((names, missing)) = names::watched();
 
-    if let Some(said) = missing {
-        eprintln!("{said}");
+    match missing {
+        Some(said) => eprintln!("{said}"),
+        None => {}
     }
 
     let said = talking(where_, &names)?;
 
-    if !said.is_empty() {
-        eprintln!("still says too much:");
+    match said.is_empty() {
+        true => {}
+        false => {
+            eprintln!("still says too much:");
 
-        for (path, watched) in &said {
-            eprintln!("  {} says {}, which is {}", path.display(), watched.name, watched.what);
+            for (path, watched) in &said {
+                eprintln!("  {} says {}, which is {}", path.display(), watched.name, watched.what);
+            }
+
+            return Ok(ExitCode::FAILURE);
         }
-
-        return Ok(ExitCode::FAILURE);
     }
 
     println!("nothing of anybody's name in it");
 
-    // Told to build nothing inside the copy. What comes out of here is what
-    // somebody would push, and a `target/` in it is neither this desktop nor a
-    // mistake anybody would notice until it was pushed.
-    let passed = ran(
+    let where_it_builds = [("CARGO_TARGET_DIR", repo.join("target/published").display().to_string())];
+
+    let Ok(built) = ran(
         where_,
-        "cargo",
-        &["test", "--quiet", "--workspace"],
-        &[("CARGO_TARGET_DIR", repo.join("target/published").display().to_string())],
+        Program::Cargo,
+        &["build", "--quiet", "--workspace", "--all-features"],
+        &where_it_builds,
     );
+
+    match built {
+        Passed::No => return Ok(ExitCode::FAILURE),
+        Passed::Yes => {}
+    }
+
+    let Ok(passed) = ran(
+        where_,
+        Program::Cargo,
+        &["test", "--quiet", "--workspace", "--all-features"],
+        &where_it_builds,
+    );
+
     Ok(match passed {
         Passed::Yes => ExitCode::SUCCESS,
         Passed::No => ExitCode::FAILURE,
     })
 }
 
-/// Whether a suite run inside the copy came back clean.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Passed {
-    /// It ran, and every test in it passed.
     Yes,
-    /// It failed, or it would not run at all.
     No,
 }
 
-/// One test suite, run inside the copy. Says whether it passed.
-fn ran(where_: &Path, program: &str, args: &[&str], told: &[(&str, String)]) -> Passed {
-    match Command::new(program)
+fn ran(where_: &Path, program: Program, args: &[&str], told: &[(&str, String)]) -> Result<Passed, Never> {
+    let Ok(mut command) = program.command();
+
+    Ok(match command
         .args(args)
         .envs(told.iter().map(|(name, value)| (*name, value)))
         .current_dir(where_)
@@ -136,13 +150,14 @@ fn ran(where_: &Path, program: &str, args: &[&str], told: &[(&str, String)]) -> 
             false => Passed::No,
         },
         Err(fault) => {
-            eprintln!("{program} would not run: {fault}");
+            let Ok(name) = program.name();
+
+            eprintln!("{name} would not run: {fault}");
             Passed::No
         }
-    }
+    })
 }
 
-/// Every file in the copy that still holds somebody's name, and whose.
 fn talking<'a>(
     where_: &Path,
     names: &'a [Watched],
@@ -155,20 +170,23 @@ fn talking<'a>(
             .map_err(|fault| format!("{} could not be read: {fault}", holding.display()))?;
 
         for found in inside {
-            let path = found.map_err(|fault| format!("{fault}"))?.path();
+            let found = found.map_err(|fault| format!("{fault}"))?;
+            let path = found.path();
 
             match path.is_dir() {
                 true if path.file_name().is_some_and(|name| name == ".git") => (),
                 true => asking.push(path),
-                // Only text can say a name. What is not text is carried whole,
-                // and the one captured device in here is text.
-                false => {
-                    if let Ok(Ok(text)) = std::fs::read(&path).map(String::from_utf8) {
-                        if let Some(watched) = names::leaks(&text, names) {
-                            said.push((path, watched));
+                false => match std::fs::read(&path).map(String::from_utf8) {
+                    Ok(Ok(text)) => {
+                        let Ok(leaks) = names::leaks(&text, names);
+
+                        match leaks {
+                            Some(watched) => said.push((path, watched)),
+                            None => {}
                         }
-                    }
-                }
+                    },
+                    Ok(Err(_)) | Err(_) => {}
+                },
             }
         }
     }
@@ -177,10 +195,10 @@ fn talking<'a>(
     Ok(said)
 }
 
-/// Everything git is holding, which is what a clone would get.
 fn tracked(repo: &Path) -> Result<Vec<String>, String> {
     let at = repo.to_str().ok_or_else(|| format!("{} is not a name git can be given", repo.display()))?;
-    let out = Command::new("git")
+    let Ok(mut git) = Program::Git.command();
+    let out = git
         .args(["-C", at, "ls-files"])
         .output()
         .map_err(|fault| format!("git would not run: {fault}"))?;
@@ -205,16 +223,3 @@ fn write(path: &Path, body: &str) -> Result<(), String> {
         .map_err(|fault| format!("{} could not be written: {fault}", path.display()))
 }
 
-/// The repository this is being run inside.
-fn repository() -> Result<PathBuf, String> {
-    let here = std::env::current_dir().map_err(|fault| format!("no working directory: {fault}"))?;
-    here.ancestors()
-        .find(|at| at.join("desktop.conf").is_file())
-        .map(Path::to_path_buf)
-        .ok_or_else(|| {
-            format!(
-                "no desktop.conf above {}; run this inside the repository",
-                here.display()
-            )
-        })
-}

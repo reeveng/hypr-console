@@ -1,5 +1,5 @@
 [Unit]
-Description=Syncthing, keeping folders in step with the machines it is paired with
+Description=Shared folders
 PartOf=console.target
 
 [Service]
@@ -14,6 +14,13 @@ RestartSec=5
 # failure they would be a service that stops the first time it is reconfigured.
 SuccessExitStatus=3 4
 RestartForceExitStatus=3 4
+
+# What this reaches past `console-.service.d/confining.conf`, and why.
+#
+# The home directory and the network, which between them are the program: it
+# keeps folders in step with other machines. No device node, and everything
+# else the prefix drop-in takes away it has never wanted.
+PrivateDevices=yes
 
 [Install]
 WantedBy=console.target

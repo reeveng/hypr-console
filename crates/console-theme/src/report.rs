@@ -1,23 +1,22 @@
 //! The numbers, written down where somebody can read them without running this.
 
 use console_colour as col;
+use console_never::Never;
 
 use crate::measure::Row;
 use crate::palette::Palette;
 use crate::spec::Spec;
 use crate::terminal::{SLOTS, Shade, Terminal};
 
-/// A ratio as it is written: `7:1` rather than `7.0:1`, `4.5:1` as it is.
-pub fn ratio(value: f64) -> String {
-    format!("{value}")
+pub fn ratio(value: f64) -> Result<String, Never> {
+    Ok(format!("{value}"))
 }
 
-/// An `Lc` floor as it is written, and a dash where there is no claim to make.
-pub fn asked_lc(value: f64) -> String {
-    match value > 0.0 {
+pub fn asked_lc(value: f64) -> Result<String, Never> {
+    Ok(match value > 0.0 {
         true => format!("Lc {value}"),
         false => "--".to_string(),
-    }
+    })
 }
 
 pub fn write(
@@ -53,7 +52,9 @@ pub fn write(
         .colour
         .iter()
         .map(|(name, declared)| {
-            Ok(format!("| `{name}` | `#{}` | {} |", palette.must(name)?, declared.spent))
+            let colour = palette.must(name)?;
+
+            Ok(format!("| `{name}` | `#{colour}` | {} |", declared.spent))
         })
         .collect::<Result<Vec<String>, col::Short>>()?;
 
@@ -66,16 +67,17 @@ pub fn write(
     ]
     .into_iter()
     .chain(rows.iter().map(|row| {
+        let Ok(asked) = ratio(row.asked);
+
+        let Ok(grade) = row.grade();
+
+        let Ok(lc) = asked_lc(row.asked_lc);
+
+        let Ok(grade_lc) = row.grade_lc();
+
         format!(
-            "| `{}` | `{}` | {}:1 | **{:.2}:1** | {} | {} | **{:.1}** | {} |",
-            row.front,
-            row.back,
-            ratio(row.asked),
-            row.got,
-            row.grade(),
-            asked_lc(row.asked_lc),
-            row.got_lc,
-            row.grade_lc()
+            "| `{}` | `{}` | {asked}:1 | **{:.2}:1** | {grade} | {lc} | **{:.1}** | {grade_lc} |",
+            row.front, row.back, row.got, row.got_lc
         )
     }));
 
@@ -88,16 +90,18 @@ pub fn write(
     ]
     .into_iter()
     .chain(SLOTS.map(|slot| {
-        let (normal, bright) = (
-            terminal.slot(Shade::Normal, slot),
-            terminal.slot(Shade::Bright, slot),
-        );
+        let Ok(normal) = terminal.slot(Shade::Normal, slot);
+
+        let Ok(bright) = terminal.slot(Shade::Bright, slot);
+
+        let Ok(normal_ratio) = col::contrast(normal, &terminal.background);
+        let Ok(normal_lc) = col::lc(normal, &terminal.background);
+        let Ok(bright_ratio) = col::contrast(bright, &terminal.background);
+        let Ok(bright_lc) = col::lc(bright, &terminal.background);
+
         format!(
-            "| {slot} | `#{normal}` | {:.2}:1 | {:.1} | `#{bright}` | {:.2}:1 | {:.1} |",
-            col::contrast(normal, &terminal.background),
-            col::lc(normal, &terminal.background),
-            col::contrast(bright, &terminal.background),
-            col::lc(bright, &terminal.background)
+            "| {slot} | `#{normal}` | {normal_ratio:.2}:1 | {normal_lc:.1} \
+             | `#{bright}` | {bright_ratio:.2}:1 | {bright_lc:.1} |"
         )
     }));
 
@@ -125,16 +129,16 @@ mod tests {
 
     #[test]
     fn a_whole_ratio_loses_its_nought() {
-        assert_eq!(ratio(7.0), "7");
-        assert_eq!(ratio(4.5), "4.5");
-        assert_eq!(ratio(1.05), "1.05");
-        assert_eq!(ratio(10.0), "10");
+        assert_eq!(ratio(7.0), Ok("7".to_string()));
+        assert_eq!(ratio(4.5), Ok("4.5".to_string()));
+        assert_eq!(ratio(1.05), Ok("1.05".to_string()));
+        assert_eq!(ratio(10.0), Ok("10".to_string()));
     }
 
     #[test]
     fn a_pairing_with_no_lc_to_ask_for_says_so_rather_than_saying_nought() {
-        assert_eq!(asked_lc(75.0), "Lc 75");
-        assert_eq!(asked_lc(0.0), "--");
+        assert_eq!(asked_lc(75.0), Ok("Lc 75".to_string()));
+        assert_eq!(asked_lc(0.0), Ok("--".to_string()));
     }
 
     #[test]
@@ -164,8 +168,6 @@ mod tests {
 
     #[test]
     fn nothing_in_it_is_reported_as_under() {
-        // The report is only written when the palette clears what it declares,
-        // so an "under" in it would mean the gate above it let something past.
         assert!(!written().contains("| under |"));
     }
 }

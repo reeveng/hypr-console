@@ -17,7 +17,7 @@ which stable cannot do; `rust-toolchain.toml` pins the nightly and the
 
     EXPLICIT001  fallible fns return Result<T, E>
     EXPLICIT002  infallible fns return Result<T, Never>
-    EXPLICIT003  Result<T, !> is forbidden
+    EXPLICIT003  Result<T, !> is forbidden; the name is Never
     EXPLICIT004  unwrap / expect / panic / todo / unimplemented / unreachable
     EXPLICIT005  fallible values must be handled or propagated
     EXPLICIT006  Option is for `may not exist`, not for errors
@@ -34,17 +34,25 @@ which stable cannot do; `rust-toolchain.toml` pins the nightly and the
     EXPLICIT017  `?` stands alone: the whole of a statement, never buried
     EXPLICIT018  an `allow` carries its reason, in the attribute
     EXPLICIT019  no `if`; a decision is a `match` that names both outcomes
+    EXPLICIT020  no comments; a `//!` head and a `// SAFETY:` are the two that stay
 
 All of them are written. Each is one crate with a `ui/` case beside it.
 
-The suite has two tiers, and the level in the lint's own source says which a
-rule is in. The rules the workspace already keeps are `Deny` (002 aside), and
-the gate fails on them. 013 through 019 are `Warn`: they describe where the
-workspace is going, and every gate run prints the remaining distance so it is
-never out of sight -- warned, not blocked, for the sake of getting anything
-shipped meanwhile. A rule moves from `Warn` to `Deny` in its own crate when
-the last call site that broke it is fixed, and by the ratchet's one law it
-never moves back.
+The level in the lint's own source says which tier a rule is in, and every
+rule the workspace keeps is `Deny`: the gate fails on all twenty. Nothing
+stands in the `Warn` tier, which is where a rule written ahead of the code
+waits, printing its remaining distance on every run so it is never out of
+sight. A rule moves from `Warn` to `Deny` in its own crate when the last call
+site that broke it is fixed, and by the ratchet's one law it never moves back.
+018 came out the quiet way: it was written after the
+policy it names was already kept everywhere, so its last call site was answered
+before the rule existed to count it. 017 came out the long way, which is the way the ratchet
+expects -- every buried `?` in the tree lifted into a `let` of its own, one
+crate at a time. 020 came out the way that should not be necessary: what it
+forbids had been swept out of the tree once already, by hand, and was back in
+most of the crates by the time anybody looked. 019 came out the longest
+way of all, because it was the rule the whole tree broke: every guard clause, every `if let`, every `else if`
+chain rewritten as a `match` that names what the other path was.
 
 Three of the first twelve cannot read their own rule off a signature, so they
 read it off the code instead, and it is worth knowing which way:
@@ -77,42 +85,106 @@ read as a unit.
 A comment belongs to the block it explains, so the blank line goes above the
 pair rather than between them, and an attribute is read the same way.
 
-**002 is registered `Allow`, alone in the suite.** The other eleven describe a
-workspace that is nearly there. This one describes a workspace that does not
-exist yet: there is no `Never` type here, and turning it on denies every
-function in the tree. It is written so the rule is real and countable rather
-than a line in a README:
+It is also the one rule in the suite a machine can apply. What it asks for is a
+newline at a place the rule has already walked to, so it offers exactly that,
+machine-applicable:
 
-    cargo dylint --all -- --all-targets -- -W explicit002_infallible_result
+    cargo dylint --fix --lib explicit013_breathing_room
 
-Adopting it for good is a decision about the whole codebase, and it wants a
-`Never` type first.
+The other rules do not, and will not. Each of them is asking for a decision --
+a name for the case that was left out, a sentence saying why an `unsafe` is
+sound -- and a machine that guessed one would be writing the thing the rule
+exists to prevent. A blank line is the one thing here that changes what a file
+says to a reader and nothing at all to the compiler.
 
-**007 and 008 skip a method that implements a trait.** Both rules are about a
-choice: a signature that says `bool` where it could have said what the `bool`
-means. In an impl of somebody else's trait there is no choice to skip past --
+**002 was the last rule to reach `Deny`, and it took the longest.** The other
+nineteen described a workspace that already kept them by the time they were
+written. This one described one it was walking towards, and it waited longer
+than any of them for a reason none of the others had: it had nowhere to point.
+`Result<T, Never>` needs a `Never`, and there was no such type here at all.
+`console-never` is that type -- an enum with no variants, so the `Err` a caller
+does not write is a case the compiler agrees cannot arrive.
+
+It was registered `Allow` for as long as that was true, which is not what the
+warned tier is for. `Allow` prints nothing, so the rule was real only in the
+sense that its source existed; the distance had never once been counted. It
+went to `Warn`, which counted it, and stayed there while the tree was carried
+across a crate at a time. What the count is read with, for whatever rule stands
+in that tier next:
+
+    just explicit
+
+The command this file used to give for counting it did not work. `cargo dylint
+--all -- --all-targets -- -W explicit002_infallible_result` passes `-W` past a
+second `--` to `cargo check`, which takes no trailing arguments and refuses the
+whole run -- so the one number that would have said what adopting the rule
+costs was never printed by anybody who tried. A lint level for a whole run goes
+through `RUSTFLAGS` or through the tier in the lint's own source, and the tier
+is the honest place for it.
+
+What it cost was not the signatures. Every function that gains a `Result` hands
+its callers one to meet, and 005 and 017 between them say how: `let answered =
+asked()?;`, one call to a statement, everything nested lifted out. So the rule
+was adopted a crate at a time, the way 019 was, rather than swept -- and the
+last crates to cross were the ones with the most arithmetic in them, because
+`console-number-conversion` reaches every screen this desktop draws.
+
+**002, 007 and 008 skip a method that implements a trait.** All three are about
+a choice: a signature that says `bool`, or says nothing at all, where it could
+have said what it meant. In an impl of somebody else's trait there is no choice to skip past --
 `PartialEq::eq` answers with a `bool` because the trait says it does, and a
-type that wants to be compared has no other way to say so. Denying it would
-leave an allow on every such impl, which is a rule that has stopped asking
-anything. Where the choice was made is the trait, and a trait written here is
-linted where it is written.
+type that wants to be compared has no other way to say so. `Drop::drop` answers with nothing and
+`Default::default` answers with `Self` for the same reason. Denying any of it
+would leave an allow on every such impl, which is a rule that has stopped
+asking anything. Where the choice was made is the trait, and a trait written
+here is linted where it is written.
+
+002 skips two more for the same reason, and they are worth naming because they
+are the only places in this tree where the shape of a function was never on
+offer. An `extern "C"` function belongs to whoever calls it, which here is a
+signal and GTK, and `Result` does not cross that boundary. And `fn main` has no
+caller at all -- the rule's argument is that a caller should not change shape
+when the thing it calls learns how to fail, and the entry point has none to
+spare. It is asked by the entry point's own def id rather than by the name, so
+a helper somebody called `main` is still asked.
+
+What a function answers is read after the aliases are resolved. `Done` in
+`console-test-stages` is `Result<(), Why>`, and every check body in the tree is
+written in it; read as it is written, those were the one thing this rule cannot
+ask for -- a function that already says how it fails, told to say it again in a
+way that cannot.
 
 ## The six that came later
 
 014 through 019 arrived together, and each is one of the first thirteen said
-again about a place the first pass did not look.
+again about a place the first pass did not look. 020 came after them on its
+own, and is not about the code at all.
 
 **014** is 004 about syntax instead of calls: `xs[i]` and `&s[a..b]` are
 panics nobody declared, and `get` turns the absence into a value that 005 then
-makes sure is met.
+makes sure is met. Const contexts are left alone, exactly as 015 leaves them:
+an index the compiler evaluates and finds out of range fails the build, which
+is a failure with a name, at the right time, on the machine that has a screen.
 
 **015** is about the one behaviour in the language that differs by build
 profile: bare `+`, `-`, `*` and the shifts panic in debug and wrap in release,
 and `/` and `%` panic on zero in both. `checked_*`, `saturating_*` and
 `wrapping_*` each name a policy at the site. Const contexts are left alone --
 arithmetic the compiler evaluates fails the build, which is a failure with a
-name, at the right time. `console-number`'s hand-rolled float decoder is what
-this rule looks like adopted early.
+name, at the right time -- and a negated literal with them, because `-1` is
+how a negative number is written rather than a subtraction anybody performs.
+`console-number-conversion`'s hand-rolled float decoder is what this rule looks like
+adopted early.
+
+Adopting it everywhere else said one thing worth writing down. Nearly every
+site wanted `saturating_*`, because nearly every number in this tree is a size,
+a coordinate or a count, and the nearest one that can be drawn is a better
+answer to a value off the end than a panic in one profile and a wrap in the
+other. Where it wanted something else, it wanted it for a reason that had to
+be written beside it: `wrapping_*` where the distance is provably under the
+width or the value is a seed, `checked_div` and `checked_rem` where the
+divisor came from outside and the `unwrap_or` says what a zero comes to. A
+policy nobody can say the reason for is the site to look at twice.
 
 **016** is about time: `_ =>` on an enum decides variants that do not exist
 yet, silently, at every catch-all in the tree. Named variants make a new
@@ -146,6 +218,33 @@ not an `if` and is left alone: both of its outcomes are already written, and
 one of them is required to leave. A `while` desugars to an `if` nobody wrote
 and is not charged for it.
 
+**020 is not about Rust at all.** It is about the other language a source file
+is written in, the one nothing compiles. Every `///` and every `//` in the
+workspace was deleted once, on the rule that a sentence beside a line of code is
+a second statement of the same thing that nothing keeps true; what was worth
+keeping went to `docs/`. Then they came back, a `///` at a time, because the
+rule was a paragraph somebody had read and not a thing the build could fail on.
+That is the whole argument for this rule existing: it is not a stronger claim
+than the paragraph made, it is the same claim with a gate under it.
+
+Two stay. A `//!` module head, because what a file is *for* is the one thing no
+line inside it can say, and a `// SAFETY:` reason, because EXPLICIT012 will not
+pass an `unsafe` block without one -- a rule that forbade it would leave every
+`unsafe` in the tree between two rules that cannot both be kept. A reason often
+runs past its first line, so it is the run that is allowed once its first line
+says `SAFETY:`, which is how 012 reads it too.
+
+It reads the text of the file rather than the syntax tree. A comment is not in
+the tree: `///` survives as an attribute and could be caught there, but `//` is
+thrown away before any pass runs, so half the rule would be written against the
+text anyway -- and a rule enforced by two mechanisms is a rule with two sets of
+edge cases. It uses the compiler's own lexer, which knows that a `//` inside a
+string is a string.
+
+The head it points at is not itself judged. Whether a `//!` earns its place is a
+reading, and a lint cannot do a reading; `todos.md` carries that as work for a
+person.
+
 ## Where a rule does not apply
 
 A rule is allowed at a call site only when the harm it names is absent there,
@@ -176,7 +275,7 @@ of named checks -- `same`, `not_same`, `more_than`, `less_than`, `empty`,
 The lesson is that an allow's reason has to hold at every call site, not at the
 ones that come to mind.
 
-`console-number` came off the same way, and it is the better story because the
+`console-number-conversion` came off the same way, and it is the better story because the
 reason was true. Float to whole number and count to float genuinely have no
 conversion in the standard library -- no `From` and no `TryFrom` in either
 direction, and the compiler says so if you ask it. What the allow's reason did
@@ -266,7 +365,7 @@ at the site.
 ### A helper for a repeated fault belongs to one crate
 
 Where a crate meets one kind of fault in several places and answers it the same
-way each time, a private helper is right. `console-door` has one:
+way each time, a private helper is right. `console-onscreen` has one:
 
     fn asked(name: &str) -> Result<String, String> {
         std::env::var(name).map_err(|fault| format!("{name}: {fault}"))
@@ -322,9 +421,9 @@ put a `match`. Every crate inherits that table with `[lints] workspace = true`
 and says nothing else about lints, so the next crate is covered before it is
 written.
 
-## Tests are exempt
+## Tests are exempt, except from 020
 
-Every lint returns early when `cx.sess().opts.test` is set. A test that panics
+Every lint but one returns early when `cx.sess().opts.test` is set. A test that panics
 is a test that fails, which is what a test is for, and an `as` in a fixture is
 arithmetic nobody ships.
 
@@ -333,12 +432,21 @@ target, and the ordinary build of the same library is linted as production, so
 a `#[cfg(test)] mod tests` inside a crate is skipped while the crate around it
 is not.
 
+020 is the exception, and it is the exception because the reason above does not
+reach it. Every other rule is exempt where the harm it names is absent, and a
+comment in a test is prose beside code read by the same person and going stale
+at the same rate -- a test is where somebody goes to find out what a thing is
+supposed to do, so it is the last place that should be explaining itself twice.
+Exempting it would also cut the rule along a line nobody can see from the file:
+`tests/the_tree.rs` is a test build and a `#[cfg(test)] mod` inside a library is
+not, so the same comment would be legal in one and not in the other.
+
 ## What it is, and what it is not yet
 
 `just explicit-gate` is a gate. It denies the rules that nothing in the tree
-breaks and allows the rest by name, in one ALLOW list in the justfile. A rule
-moves out of that list when the last call site that broke it is fixed, and it
-never moves back. That is the whole ratchet.
+breaks and warns the rest; which tier a rule is in is the level in its own
+crate and nowhere else. A rule moves up when the last call site that broke it
+is fixed, and it never moves back. That is the whole ratchet.
 
 `just explicit` is the other half: every rule over every crate, counted rather
 than enforced, so the distance is visible whether or not it is being enforced

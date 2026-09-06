@@ -9,14 +9,19 @@
 //! during that beat and another outside it. Pressed there it closed the window
 //! behind a menu that had just opened.
 
-use std::process::Command;
 
+use console_external_programs::Program;
 use console_panel::chooser;
 
 fn main() {
-    if chooser::put_away() == chooser::Away::Told {
-        return;
+    let Ok(away) = chooser::put_away();
+
+    match away == chooser::Away::Told {
+        true => return,
+        false => {},
     }
 
-    let _ = Command::new("hyprctl").args(["dispatch", "hl.dsp.window.close()"]).status();
+    let Ok(mut closing) = Program::Hyprctl.command();
+
+    let _ = closing.args(["dispatch", "hl.dsp.window.close()"]).status();
 }

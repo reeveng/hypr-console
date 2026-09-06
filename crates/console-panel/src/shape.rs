@@ -20,38 +20,21 @@
 //! what the compositor grants them, and they all get it from here.
 
 
-use console_number::whole_i32;
-/// Out of a hundred.
-///
-/// Wide enough for a network's name and the reading beside it, with enough of
-/// the desktop left down each side to say that this is a card lying on it
-/// rather than the screen itself.
-pub const PART: i32 = 88;
+use console_never::Never;
+use console_number_conversion::whole_i32;
+pub const PART: i32 = 93;
 
-/// That share of a given room.
-pub fn part_of(room: i32) -> i32 {
+pub fn part_of(room: i32) -> Result<i32, Never> {
     share(room, PART)
 }
 
-/// Out of a hundred, downwards.
-///
-/// They were three heights once, and two of those were numbers of points: the
-/// settings stopped at 430, the guide at 500, and the menu was as tall as it
-/// had rows for, so every list was a different height and the tab strip, which
-/// is what the shoulders act on, was never twice in the same place. One share
-/// leaves them all where the last one was.
-///
-/// Of the screen rather than of the room, so that every panel is the same
-/// height on a quiet desktop. They take the smaller of this and what they are
-/// granted, so a keyboard coming up still takes its part of them.
-pub const TALL: i32 = 72;
+pub const TALL: i32 = 80;
 
-/// That share of a given screen, downwards.
-pub fn tall_part_of(screen: i32) -> i32 {
+pub fn tall_part_of(screen: i32) -> Result<i32, Never> {
     share(screen, TALL)
 }
 
-fn share(room: i32, part: i32) -> i32 {
+fn share(room: i32, part: i32) -> Result<i32, Never> {
     whole_i32(f64::from(room) * f64::from(part) / 100.0)
 }
 
@@ -61,21 +44,19 @@ mod tests {
 
     #[test]
     fn the_same_share_of_either_way_up() {
-        assert_eq!(part_of(1024), 901);
-        assert_eq!(part_of(640), 563);
+        assert_eq!(part_of(1024), Ok(952));
+        assert_eq!(part_of(640), Ok(595));
     }
 
     #[test]
     fn no_room_is_no_panel_rather_than_a_negative_one() {
-        assert_eq!(part_of(0), 0);
-        assert_eq!(tall_part_of(0), 0);
+        assert_eq!(part_of(0), Ok(0));
+        assert_eq!(tall_part_of(0), Ok(0));
     }
 
-    /// The three surfaces are the same height on the same screen, which is the
-    /// whole of what this is for.
     #[test]
     fn the_same_height_whatever_is_being_shown() {
-        assert_eq!(tall_part_of(640), 461);
-        assert_eq!(tall_part_of(1024), 737);
+        assert_eq!(tall_part_of(640), Ok(512));
+        assert_eq!(tall_part_of(1024), Ok(819));
     }
 }

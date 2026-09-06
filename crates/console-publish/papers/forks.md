@@ -47,7 +47,7 @@ playing is in, so that Y over it can open the file.
 ## The on-screen keyboard, which used to be on this list
 
 It was wvkbd, a fork carried as a compiled program, and it is now this
-repository's own: `crates/keyboard`, built on the device like everything else
+repository's own: `crates/console-keyboard`, built on the device like everything else
 here. What it types it does not carry -- each alphabet is composed at startup
 from the system's own xkb symbols, so a language is a word on the keyboard's
 command line rather than a table in this tree.

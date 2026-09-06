@@ -5,7 +5,7 @@
 //! in a state nobody chose: whatever the last session left, whatever an apply
 //! that did not finish left, and whatever did not come up this time.
 //!
-//! The checks in `console-checks` already ask most of these questions and they
+//! The checks in `console-feature-checks` already ask most of these questions and they
 //! are a suite somebody runs. That is the right shape for them and the wrong
 //! shape for this: a fault nobody is looking for is found by a person who
 //! already suspects something, which means it is found late or not at all. The
@@ -36,182 +36,161 @@
 //!     unit restarts, so a daemon dying every few minutes is `active` at almost
 //!     every moment anybody looks.
 
-/// One piece of the desktop, in words and by name.
-///
-/// The words come from the unit's own `Description=`, which is where this
-/// desktop already says what each piece is for. Kept there rather than in a
-/// table here: a second list of names is a list that goes stale the first day
-/// somebody adds a service, and the one in the unit file is the one systemd
-/// prints as well.
+use console_never::Never;
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Piece {
-    /// What it is, in words. The unit's name where nothing described it.
     pub said: String,
-    /// The unit, for somebody who is going to go and look.
     pub unit: String,
 }
 
 impl Piece {
-    /// A piece described in words, or named after its unit where the
-    /// description was empty -- which is a unit file this tree did not write.
-    pub fn new(unit: &str, said: &str) -> Piece {
+    pub fn new(unit: &str, said: &str) -> Result<Piece, Never> {
         let said = match said.trim().is_empty() {
             true => unit.to_string(),
             false => said.trim().to_string(),
         };
 
-        Piece { said, unit: unit.to_string() }
+        Ok(Piece { said, unit: unit.to_string() })
     }
 
-    /// How it reads on a card: the words, with the name after them for
-    /// somebody who is going to look it up.
-    fn spoken(&self) -> String {
-        match self.said == self.unit {
+    fn spoken(&self) -> Result<String, Never> {
+        Ok(match self.said == self.unit {
             true => self.unit.clone(),
             false => format!("{} ({})", self.said, self.unit),
-        }
+        })
     }
 }
 
-/// Whether the machine is the way it was left.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Well {
-    /// Everything asked came back the way it should.
     Yes,
-    /// Something did not, and there is a card to raise about it.
     No,
 }
 
-/// What a machine that has just come up said about itself.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Standing {
-    /// The files an apply was in the middle of laying down when it stopped,
-    /// read off the plan it wrote before the first rename.
-    ///
-    /// The plainest evidence there is, and the only one that says which files.
-    /// Litter beside a file says an apply stopped; this says what it was doing.
     pub midway: Vec<String>,
-    /// Live paths with a staged or kept copy still beside them.
     pub leftovers: Vec<String>,
-    /// Live paths whose content is not what the manifest says.
     pub adrift: Vec<String>,
-    /// The pieces of the desktop that are not running, each as the words the
-    /// unit is described in and the unit's own name.
-    ///
-    /// Both, because the two halves are for two moments. The words are what
-    /// somebody holding the machine reads -- *the status bar* rather than
-    /// `console-bar.service` -- and the name is what they type when they go
-    /// looking. A card with only the name is a card that means nothing to the
-    /// person it woke up; a card with only the words is one they cannot act on.
     pub down: Vec<Piece>,
-    /// The same, for pieces that have died and been started again, and how
-    /// many times.
     pub restarted: Vec<(Piece, u32)>,
 }
 
 impl Standing {
-    /// Whether anything is wrong.
-    pub fn well(&self) -> Well {
+    pub fn well(&self) -> Result<Well, Never> {
         let quiet = self.midway.is_empty()
             && self.leftovers.is_empty()
             && self.adrift.is_empty()
             && self.down.is_empty()
             && self.restarted.is_empty();
 
-        match quiet {
+        Ok(match quiet {
             true => Well::Yes,
             false => Well::No,
-        }
+        })
     }
 
-    /// What to put on somebody's screen, or nothing where all is well.
-    ///
-    /// One card however many things are wrong. Four cards for four faults on a
-    /// handheld is four things to dismiss with a thumb before the screen is
-    /// usable, and they are one fact anyway: this machine is not the way it was
-    /// left.
-    ///
-    /// The summary names the worst of them and the body says the rest, because
-    /// a card is read at a glance and the glance should land on the thing that
-    /// matters most. Worst first is the order they are written in below: a half
-    /// release beats drift, which beats a piece that is down, which beats a
-    /// piece that came back.
-    pub fn said(&self) -> Option<(String, String)> {
-        if self.well() == Well::Yes {
-            return None;
+    pub fn said(&self) -> Result<Option<(String, String)>, Never> {
+        let Ok(well) = self.well();
+
+        match well == Well::Yes {
+            true => return Ok(None),
+            false => {},
         }
 
         let mut lines: Vec<String> = Vec::new();
 
-        if !self.midway.is_empty() {
-            lines.push(format!(
-                "The last update stopped while it was swapping files over, so part of this \
-                 machine is new and part of it is old. It was in the middle of {}. Updating \
-                 again puts the whole of it back: run `console apply`.",
-                self.midway.join(", ")
-            ));
+        match !self.midway.is_empty() {
+            true => {
+                lines.push(format!(
+                    "Some files are new and some are old: {}. Run `console apply` to finish it.",
+                    self.midway.join(", ")
+                ));
+            }
+            false => {},
         }
 
-        if !self.leftovers.is_empty() {
-            lines.push(format!(
-                "The last update did not finish. There is a half-written copy left beside {}. \
-                 Updating again clears it up: run `console apply`.",
-                self.leftovers.join(", ")
-            ));
+        match !self.leftovers.is_empty() {
+            true => {
+                lines.push(format!(
+                    "A half-written copy is left beside {}. Run `console apply` to clear it.",
+                    self.leftovers.join(", ")
+                ));
+            }
+            false => {},
         }
 
-        if !self.adrift.is_empty() {
-            lines.push(format!(
-                "These files have been changed since the last update, so what is running is not \
-                 what this desktop was told to be: {}. `console check` says what is different.",
-                self.adrift.join(", ")
-            ));
+        match !self.adrift.is_empty() {
+            true => {
+                lines.push(format!(
+                    "Changed since the last update: {}. Run `console check` to see what.",
+                    self.adrift.join(", ")
+                ));
+            }
+            false => {},
         }
 
-        if !self.down.is_empty() {
-            let named: Vec<String> = self.down.iter().map(Piece::spoken).collect();
-            lines.push(format!(
-                "This did not start and is not running: {}. It will not come back on its own \
-                 this time. `console check` says more.",
-                named.join(", ")
-            ));
+        match !self.down.is_empty() {
+            true => {
+                let Ok(named) =
+                    self.down.iter().map(Piece::spoken).collect::<Result<Vec<String>, Never>>();
+
+                lines.push(format!(
+                    "Not running: {}. It won't start on its own.",
+                    named.join(", ")
+                ));
+            }
+            false => {},
         }
 
-        if !self.restarted.is_empty() {
-            let counted: Vec<String> = self
-                .restarted
-                .iter()
-                .map(|(piece, times)| format!("{} \u{2014} {times} times", piece.spoken()))
-                .collect();
-            lines.push(format!(
-                "This kept stopping and starting again since the machine came up: {}. It is \
-                 working now, which is why nothing looked wrong.",
-                counted.join(", ")
-            ));
+        match !self.restarted.is_empty() {
+            true => {
+                let Ok(counted) = self
+                    .restarted
+                    .iter()
+                    .map(|(piece, times)| {
+                        let Ok(spoken) = piece.spoken();
+
+                        Ok(format!("{spoken} \u{2014} {times} times"))
+                    })
+                    .collect::<Result<Vec<String>, Never>>();
+
+                lines.push(format!(
+                    "Kept stopping and starting since this machine came up: {}. It's working now.",
+                    counted.join(", ")
+                ));
+            }
+            false => {},
         }
 
-        Some((self.summary(), lines.join("\n\n")))
+        let Ok(summary) = self.summary();
+
+        Ok(Some((summary, lines.join("\n\n"))))
     }
 
-    /// The one line at the top of the card.
-    fn summary(&self) -> String {
-        if !self.midway.is_empty() {
-            return "The last update stopped halfway".to_string();
+    fn summary(&self) -> Result<String, Never> {
+        match !self.midway.is_empty() {
+            true => return Ok("Update stopped halfway".to_string()),
+            false => {},
         }
 
-        if !self.leftovers.is_empty() {
-            return "The last update did not finish".to_string();
+        match !self.leftovers.is_empty() {
+            true => return Ok("Update didn't finish".to_string()),
+            false => {},
         }
 
-        if !self.adrift.is_empty() {
-            return "Something on this machine has been changed".to_string();
+        match !self.adrift.is_empty() {
+            true => return Ok("Files have changed".to_string()),
+            false => {},
         }
 
-        if !self.down.is_empty() {
-            return "Part of the desktop did not start".to_string();
+        match !self.down.is_empty() {
+            true => return Ok("Something didn't start".to_string()),
+            false => {},
         }
 
-        "Part of the desktop keeps stopping".to_string()
+        Ok("Something keeps restarting".to_string())
     }
 }
 
@@ -219,42 +198,45 @@ impl Standing {
 mod tests {
     use super::*;
 
-    /// A machine with nothing wrong says nothing at all. The whole thing is
-    /// worthless if it cries at every boot: a card that is always there is a
-    /// card nobody reads, and the one boot it means something is the one it is
-    /// ignored on.
+    fn piece(unit: &str, said: &str) -> Piece {
+        let Ok(piece) = Piece::new(unit, said);
+
+        piece
+    }
+
+    fn card(standing: &Standing) -> (String, String) {
+        let Ok(said) = standing.said();
+
+        said.expect("a card")
+    }
+
     #[test]
     fn a_machine_that_is_the_way_it_was_left_says_nothing() {
         let standing = Standing::default();
-        assert_eq!(standing.well(), Well::Yes);
-        assert_eq!(standing.said(), None);
+        assert_eq!(standing.well(), Ok(Well::Yes));
+        assert_eq!(standing.said(), Ok(None));
     }
 
-    /// The fault this exists for: a machine stopped inside an apply comes up
-    /// wearing half a release, and until now nothing on it would ever mention
-    /// that.
     #[test]
     fn something_left_beside_a_file_is_an_apply_that_did_not_finish() {
         let standing =
             Standing { leftovers: vec!["/usr/local/bin/launcher".into()], ..Standing::default() };
-        let (summary, body) = standing.said().expect("a card");
-        assert_eq!(summary, "The last update did not finish");
+        let (summary, body) = card(&standing);
+        assert_eq!(summary, "Update didn't finish");
         assert!(body.contains("/usr/local/bin/launcher"), "{body}");
         assert!(body.contains("console apply"), "{body}");
     }
 
-    /// One card, however many things are wrong. Four cards on a handheld is
-    /// four things to clear with a thumb before the screen can be used.
     #[test]
     fn everything_wrong_at_once_is_still_one_card() {
         let standing = Standing {
             midway: Vec::new(),
             leftovers: vec!["/usr/local/bin/launcher".into()],
             adrift: vec!["/etc/pamac.conf".into()],
-            down: vec![Piece::new("console-bar.service", "Status bar")],
-            restarted: vec![(Piece::new("console-sky.service", "Which wallpaper is up"), 4)],
+            down: vec![piece("console-bar.service", "Status bar")],
+            restarted: vec![(piece("console-sky.service", "Which wallpaper is up"), 4)],
         };
-        let (_, body) = standing.said().expect("a card");
+        let (_, body) = card(&standing);
         assert!(body.contains("/usr/local/bin/launcher"), "{body}");
         assert!(body.contains("/etc/pamac.conf"), "{body}");
         assert!(body.contains("console-bar.service"), "{body}");
@@ -262,103 +244,85 @@ mod tests {
         assert!(body.contains("4 times"), "{body}");
     }
 
-    /// A card names the piece the way a person would, and keeps the unit for
-    /// somebody who is going to go and look. Neither half is enough on its
-    /// own: a card that says only `console-bar.service` means nothing to the
-    /// person it woke up, and one that says only *Status bar* leaves them with
-    /// nothing to type.
     #[test]
     fn a_piece_is_said_in_words_with_its_unit_beside_it() {
         let standing = Standing {
-            down: vec![Piece::new("console-bar.service", "Status bar")],
+            down: vec![piece("console-bar.service", "Status bar")],
             ..Standing::default()
         };
-        let (summary, body) = standing.said().expect("a card");
-        assert_eq!(summary, "Part of the desktop did not start");
+        let (summary, body) = card(&standing);
+        assert_eq!(summary, "Something didn't start");
         assert!(body.contains("Status bar"), "{body}");
         assert!(body.contains("console-bar.service"), "{body}");
     }
 
-    /// A unit this tree did not write has no description to read, and a card
-    /// that said nothing at all about it would be worse than one that says its
-    /// name twice.
     #[test]
     fn a_piece_nothing_described_is_said_by_its_unit_alone() {
-        let piece = Piece::new("something-else.service", "   ");
-        assert_eq!(piece.said, "something-else.service");
-        assert_eq!(piece.spoken(), "something-else.service");
+        let alone = piece("something-else.service", "   ");
+        assert_eq!(alone.said, "something-else.service");
+        assert_eq!(alone.spoken(), Ok("something-else.service".to_string()));
     }
 
-    /// An apply that stopped inside the swap is the worst thing this can find,
-    /// and the only one that can say which files were in flight.
     #[test]
     fn a_plan_left_behind_is_an_apply_that_stopped_partway_through() {
         let standing = Standing {
             midway: vec!["/usr/local/bin/launcher".into(), "/usr/local/bin/console".into()],
             ..Standing::default()
         };
-        let (summary, body) = standing.said().expect("a card");
-        assert_eq!(summary, "The last update stopped halfway");
+        let (summary, body) = card(&standing);
+        assert_eq!(summary, "Update stopped halfway");
         assert!(body.contains("/usr/local/bin/launcher"), "{body}");
-        assert!(body.contains("part of it is old"), "{body}");
+        assert!(body.contains("some are old"), "{body}");
     }
 
-    /// The glance lands on the worst of them.
     #[test]
     fn the_summary_names_the_worst_thing_that_is_wrong() {
         let only_restarts = Standing {
-            restarted: vec![(Piece::new("console-sky.service", "Which wallpaper is up"), 2)],
+            restarted: vec![(piece("console-sky.service", "Which wallpaper is up"), 2)],
             ..Standing::default()
         };
-        assert_eq!(only_restarts.said().expect("a card").0, "Part of the desktop keeps stopping");
+        assert_eq!(card(&only_restarts).0, "Something keeps restarting");
 
         let also_down = Standing {
-            down: vec![Piece::new("console-bar.service", "Status bar")],
+            down: vec![piece("console-bar.service", "Status bar")],
             ..only_restarts.clone()
         };
-        assert_eq!(also_down.said().expect("a card").0, "Part of the desktop did not start");
+        assert_eq!(card(&also_down).0, "Something didn't start");
 
         let also_adrift =
             Standing { adrift: vec!["/etc/pamac.conf".into()], ..also_down.clone() };
-        assert_eq!(
-            also_adrift.said().expect("a card").0,
-            "Something on this machine has been changed"
-        );
+        assert_eq!(card(&also_adrift).0, "Files have changed");
 
         let also_left =
             Standing { leftovers: vec!["/usr/local/bin/launcher".into()], ..also_adrift };
-        assert_eq!(also_left.said().expect("a card").0, "The last update did not finish");
+        assert_eq!(card(&also_left).0, "Update didn't finish");
 
         let also_midway =
             Standing { midway: vec!["/usr/local/bin/console".into()], ..also_left };
-        assert_eq!(also_midway.said().expect("a card").0, "The last update stopped halfway");
+        assert_eq!(card(&also_midway).0, "Update stopped halfway");
     }
 
-    /// A unit that is running now and has died four times is the one this is
-    /// really for -- it is `active` at every moment anybody looks.
     #[test]
     fn a_piece_that_came_back_is_worth_saying_even_though_it_is_running() {
         let standing = Standing {
-            restarted: vec![(Piece::new("console-sky.service", "Which wallpaper is up"), 4)],
+            restarted: vec![(piece("console-sky.service", "Which wallpaper is up"), 4)],
             ..Standing::default()
         };
-        assert_eq!(standing.well(), Well::No);
-        let (_, body) = standing.said().expect("a card");
-        assert!(body.contains("working now"), "{body}");
+        assert_eq!(standing.well(), Ok(Well::No));
+        let (_, body) = card(&standing);
+        assert!(body.contains("It's working now"), "{body}");
     }
 
-    /// Nothing on a card names a thing only this repository knows about. The
-    /// person reading it is holding a handheld, not reading the source.
     #[test]
     fn a_card_says_nothing_only_this_tree_would_understand() {
         let standing = Standing {
             midway: vec!["/usr/local/bin/console".into()],
             leftovers: vec!["/usr/local/bin/launcher".into()],
             adrift: vec!["/etc/pamac.conf".into()],
-            down: vec![Piece::new("console-bar.service", "Status bar")],
-            restarted: vec![(Piece::new("console-sky.service", "Which wallpaper is up"), 4)],
+            down: vec![piece("console-bar.service", "Status bar")],
+            restarted: vec![(piece("console-sky.service", "Which wallpaper is up"), 4)],
         };
-        let (summary, body) = standing.said().expect("a card");
+        let (summary, body) = card(&standing);
         let said = format!("{summary}\n{body}").to_lowercase();
 
         for jargon in ["manifest", "journalctl", "systemd", "unit", "release", "drift", "adrift"] {

@@ -13,43 +13,225 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use console_colour as col;
-use regex::Regex;
 
 fn root() -> PathBuf {
     {
-    // Tidied by `canonicalize` where that works and left as it stands where it
-    // does not. What `CARGO_MANIFEST_DIR` gives is already absolute and already
-    // right; canonicalizing only takes the `../..` out of the middle. It fails
-    // under a sandbox that will not let a process resolve a path it can
-    // otherwise read, and a test that stops there reports the sandbox as a
-    // missing repository.
     let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     from.canonicalize().unwrap_or(from)
 }
 }
 
-/// Every way a colour is written down on this machine.
-///
-/// A stylesheet says `#rrggbb`, a terminal says `0xrrggbb`, the compositor
-/// says `rgba(rrggbbaa)`, a shell variable says the digits bare, and KDE says
-/// three decimal numbers. Anchoring the last two to an assignment keeps a font
-/// size out of it: KDE writes `font=Noto Sans,16,-1,5,400,0,0` in the same
-/// file as its colours.
-fn colour() -> Regex {
-    // Joined rather than written as one string: a raw string takes no line
-    // continuation, so a pattern split over lines to be read carries the
-    // newlines into itself and quietly stops matching most of what it names.
-    let ways = [
-        r"#([0-9a-fA-F]{6})\b",
-        r"0x([0-9a-fA-F]{6})\b",
-        r"rgba\(([0-9a-fA-F]{6})ff\)",
-        r"^\w+=([0-9a-fA-F]{6})$",
-        r"^\w+=(\d{1,3},\s?\d{1,3},\s?\d{1,3})$",
-    ];
-    Regex::new(&format!("(?m){}", ways.join("|"))).expect("the pattern compiles")
+const HEX: usize = 6;
+
+fn is_word(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
 }
 
-/// Every file under `files/` that a person could have typed a colour into.
+fn run_of(said: &str, taken: impl Fn(char) -> bool) -> usize {
+    said.chars().take_while(|c| taken(*c)).map(char::len_utf8).sum()
+}
+
+fn hex_six(said: &str) -> Option<&str> {
+    let code = said.get(..HEX)?;
+
+    match code.chars().all(|c| c.is_ascii_hexdigit()) {
+        true => Some(code),
+        false => None,
+    }
+}
+
+fn hex_word(said: &str) -> Option<&str> {
+    let code = hex_six(said)?;
+
+    match said.get(HEX..).and_then(|after| after.chars().next()) {
+        Some(c) if is_word(c) => None,
+        Some(_) | None => Some(code),
+    }
+}
+
+fn decimal_triple(said: &str) -> bool {
+    let mut left = said;
+
+    for band in 0..3u8 {
+        let run = run_of(left, |c| c.is_ascii_digit());
+
+        match (1..=3).contains(&run) {
+            true => {}
+            false => return false,
+        }
+
+        let Some(after) = left.get(run..) else { return false };
+
+        left = match band {
+            2 => after,
+            _ => {
+                let Some(past) = after.strip_prefix(',') else { return false };
+
+                match past.chars().next() {
+                    Some(space) if space.is_whitespace() => {
+                        past.get(space.len_utf8()..).unwrap_or("")
+                    }
+                    Some(_) | None => past,
+                }
+            }
+        };
+    }
+
+    left.is_empty()
+}
+
+fn colour_at(rest: &str, line: Option<&str>) -> Option<(String, usize)> {
+    match rest.strip_prefix('#').and_then(hex_word) {
+        Some(code) => return Some((code.to_string(), HEX.saturating_add(1))),
+        None => {}
+    }
+
+    match rest.strip_prefix("0x").and_then(hex_word) {
+        Some(code) => return Some((code.to_string(), HEX.saturating_add(2))),
+        None => {}
+    }
+
+    let inside = rest.strip_prefix("rgba(");
+    let opaque = inside.and_then(|after| {
+        let closed = after.get(HEX..).is_some_and(|tail| tail.starts_with("ff)"));
+
+        match closed {
+            true => hex_six(after),
+            false => None,
+        }
+    });
+
+    match opaque {
+        Some(code) => return Some((code.to_string(), HEX.saturating_add(8))),
+        None => {}
+    }
+
+    let line = line?;
+    let named = run_of(line, is_word);
+    let value = match named {
+        0 => return None,
+        _ => line.get(named..)?.strip_prefix('=')?,
+    };
+
+    match hex_six(value) {
+        Some(code) if code.len() == value.len() => return Some((code.to_string(), line.len())),
+        Some(_) | None => {}
+    }
+
+    match decimal_triple(value) {
+        true => Some((value.to_string(), line.len())),
+        false => None,
+    }
+}
+
+fn colours_in(text: &str) -> Vec<String> {
+    let mut found: Vec<String> = Vec::new();
+    let mut at: usize = 0;
+
+    while at < text.len() {
+        let Some(rest) = text.get(at..) else { break };
+        let opens = at == 0 || text.get(..at).is_some_and(|before| before.ends_with('\n'));
+        let line = match opens {
+            true => rest.split('\n').next(),
+            false => None,
+        };
+
+        match colour_at(rest, line) {
+            Some((code, took)) => {
+                found.push(code);
+                at = at.saturating_add(took);
+            }
+            None => at = at.saturating_add(rest.chars().next().map_or(1, char::len_utf8)),
+        }
+    }
+
+    found
+}
+
+fn holds_a_colour(text: &str) -> bool {
+    !colours_in(text).is_empty()
+}
+
+fn names_asked(code: &str) -> Vec<String> {
+    let mut found: Vec<String> = Vec::new();
+    let mut left = code;
+
+    while let Some(at) = left.find('@') {
+        let after = left.get(at.saturating_add(1)..).unwrap_or("");
+        let opens = after.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_');
+        let run = match opens {
+            true => run_of(after, |c| c.is_ascii_alphanumeric() || c == '_' || c == '-'),
+            false => 0,
+        };
+
+        left = match run {
+            0 => after,
+            _ => {
+                found.extend(after.get(..run).map(str::to_string));
+                after.get(run..).unwrap_or("")
+            }
+        };
+    }
+
+    found
+}
+
+fn property_held(line: &str) -> Option<String> {
+    let said = line.trim_start();
+    let after = said.strip_prefix("--")?;
+    let run = run_of(after, |c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+    let name = match run {
+        0 => return None,
+        _ => said.get(..run.saturating_add(2))?,
+    };
+
+    after.get(run..)?.trim_start().strip_prefix(':').map(|_| name.to_string())
+}
+
+fn properties_asked(code: &str) -> Vec<(String, char)> {
+    let mut found: Vec<(String, char)> = Vec::new();
+    let mut left = code;
+
+    while let Some(at) = left.find("var(") {
+        let after = left.get(at.saturating_add(4)..).unwrap_or("");
+
+        left = match asked_at(after) {
+            Some((name, closed, took)) => {
+                found.push((name, closed));
+                after.get(took..).unwrap_or("")
+            }
+            None => after,
+        };
+    }
+
+    found
+}
+
+fn asked_at(after: &str) -> Option<(String, char, usize)> {
+    let space = run_of(after, char::is_whitespace);
+    let named = after.get(space..)?;
+    let run = run_of(named.strip_prefix("--")?, |c| {
+        c.is_ascii_alphanumeric() || c == '_' || c == '-'
+    });
+    let whole = run.saturating_add(2);
+    let name = match run {
+        0 => return None,
+        _ => named.get(..whole)?,
+    };
+    let tail = named.get(whole..)?;
+    let padding = run_of(tail, char::is_whitespace);
+    let closed = tail.get(padding..)?.chars().next()?;
+
+    match closed {
+        ',' | ')' => Some((
+            name.to_string(),
+            closed,
+            space.saturating_add(whole).saturating_add(padding).saturating_add(1),
+        )),
+        _ => None,
+    }
+}
+
 fn carrying(files: &Path) -> Vec<(PathBuf, String)> {
     fn walk(at: &Path, into: &mut Vec<PathBuf>) {
         let Ok(entries) = std::fs::read_dir(at) else { return };
@@ -67,13 +249,11 @@ fn carrying(files: &Path) -> Vec<(PathBuf, String)> {
     walk(files, &mut paths);
     paths
         .into_iter()
-        // The keyboard and hyprsession are compiled programs.
         .filter_map(|path| std::fs::read(&path).ok().map(|held| (path, held)))
         .filter_map(|(path, held)| String::from_utf8(held).ok().map(|text| (path, text)))
         .collect()
 }
 
-/// A declared colour as any of the ways it may be written.
 fn forms<'a>(codes: impl Iterator<Item = &'a str>) -> BTreeSet<String> {
     codes
         .flat_map(|code| {
@@ -85,9 +265,6 @@ fn forms<'a>(codes: impl Iterator<Item = &'a str>) -> BTreeSet<String> {
         .collect()
 }
 
-/// The at-words GTK's stylesheet language has of its own, which name a rule
-/// rather than a colour. Everything else after an `@` is a colour somebody
-/// defined, or meant to.
 const AT_RULES: [&str; 16] = [
     "import", "define-color", "media", "keyframes", "supports", "namespace", "charset",
     "font-face", "layer", "property", "container", "page", "document", "scope", "starting-style",
@@ -97,24 +274,8 @@ const AT_RULES: [&str; 16] = [
 mod the_names {
     use super::*;
 
-    /// Every colour the desktop asks for by name is one something defines.
-    ///
-    /// GTK does not fail on `@fill` where nothing defined `fill`. It drops the
-    /// one declaration and carries on, so the file parses, the widget lays out,
-    /// and the only sign is a thing that never paints. The strip under the bar
-    /// spent a release like that: every one of its gradient rules named a
-    /// colour the palette did not write, so it filled to no percentage an apply
-    /// ever reported. Nothing logged, nothing failed, and it was never seen.
-    ///
-    /// So the two lists are held together here rather than by whoever next
-    /// reads both files: a name asked for, and a name defined.
     #[test]
     fn every_name_the_desktop_asks_for_is_defined() {
-        // Both trees. `files` is what is laid on the machine, and `crates` is
-        // where a program keeps the stylesheet it loads from a string of its
-        // own -- the home screen's is there, and asked for a colour nobody had
-        // defined for as long as it existed. A check that looked at only the
-        // first of these would have gone on passing over it.
         let files = root().join("files");
         let sheets: Vec<(PathBuf, String)> = [files.clone(), root().join("crates")]
             .iter()
@@ -124,10 +285,6 @@ mod the_names {
 
         assert!(!sheets.is_empty(), "no stylesheets under {}", files.display());
 
-        let at = Regex::new(r"@([A-Za-z_][A-Za-z0-9_-]*)").expect("a pattern");
-
-        // Every name defined anywhere among them. The sheets `@import` one
-        // another, so a name defined in the palette is a name the bar may use.
         let defined: BTreeSet<String> = sheets
             .iter()
             .flat_map(|(_, said)| {
@@ -144,14 +301,10 @@ mod the_names {
 
         for (path, said) in &sheets {
             for line in said.lines() {
-                // A comment can hold an `@` as prose -- the strip's own
-                // stylesheet explains itself in one -- and prose is not a rule.
                 let code = line.split("/*").next().unwrap_or(line);
 
-                for found in at.captures_iter(code) {
-                    let name = &found[1];
-
-                    if AT_RULES.contains(&name) || defined.contains(name) {
+                for name in names_asked(code) {
+                    if AT_RULES.contains(&name.as_str()) || defined.contains(&name) {
                         continue;
                     }
 
@@ -168,21 +321,6 @@ mod the_names {
         assert!(missing.is_empty(), "a colour nobody defined is a rule GTK drops:\n  {}", missing.join("\n  "));
     }
 
-    /// The same, for the half of the desktop that speaks the browser's CSS.
-    ///
-    /// The add-on's stylesheets do not say `@name`; they say `var(--name)`, and
-    /// the palette written for them defines custom properties rather than GTK
-    /// colours. So the check above sweeps those files and finds nothing to look
-    /// at in them -- the names it knows how to read are not the names they use.
-    ///
-    /// The failure is the same failure. A `var()` naming a property nobody
-    /// defined is invalid at computed-value time, which is the browser's way of
-    /// dropping one declaration and carrying on: the rule parses, the element
-    /// lays out, and the colour is simply not the one anybody wrote. In a shadow
-    /// root nothing is even logged.
-    ///
-    /// A `var()` given a fallback is not this fault -- it named a second answer
-    /// on purpose -- so those are left alone.
     #[test]
     fn every_property_the_browser_asks_for_is_defined() {
         let files = root().join("files");
@@ -192,12 +330,9 @@ mod the_names {
             .filter(|(path, _)| path.extension().is_some_and(|end| end == "css"))
             .collect();
 
-        let held = Regex::new(r"(?m)^\s*(--[A-Za-z0-9_-]+)\s*:").expect("a pattern");
-        let asked = Regex::new(r"var\(\s*(--[A-Za-z0-9_-]+)\s*([,)])").expect("a pattern");
-
         let defined: BTreeSet<String> = sheets
             .iter()
-            .flat_map(|(_, said)| held.captures_iter(said).map(|found| found[1].to_string()))
+            .flat_map(|(_, said)| said.lines().filter_map(property_held))
             .collect();
 
         assert!(defined.contains("--text"), "the browser's palette defines nothing");
@@ -208,18 +343,14 @@ mod the_names {
             for line in said.lines() {
                 let code = line.split("/*").next().unwrap_or(line);
 
-                for found in asked.captures_iter(code) {
-                    // A comma is a fallback, which is somebody saying what to
-                    // do when the name is not there. That is an answer, not a
-                    // hole.
-                    if &found[2] == "," || defined.contains(&found[1]) {
+                for (name, closed) in properties_asked(code) {
+                    if closed == ',' || defined.contains(&name) {
                         continue;
                     }
 
                     missing.push(format!(
-                        "{} asks for var({}), which nothing defines",
+                        "{} asks for var({name}), which nothing defines",
                         path.strip_prefix(&files).unwrap_or(path).display(),
-                        &found[1]
                     ));
                 }
             }
@@ -238,11 +369,6 @@ mod the_names {
 mod the_engine {
     use super::*;
 
-    /// Produced by `Codincod.Design.Oklch`, which is the same arithmetic
-    /// written independently in Elixir for the site's themes and checked by
-    /// its own tests. Two implementations agreeing on a colour and a ratio is
-    /// worth more than one implementation agreeing with itself, and these are
-    /// the numbers that agreement was recorded at.
     const VECTORS: [(f64, f64, f64, &str, f64); 11] = [
         (0.125, 0.014, 318.0, "08050a", 1.3119),
         (0.215, 0.020, 318.0, "1d1720", 1.1372),
@@ -260,9 +386,12 @@ mod the_engine {
     #[test]
     fn it_agrees_with_the_other_implementation() {
         for (lightness, chroma, hue, expected, ratio) in VECTORS {
-            let got = col::hexcode(lightness, chroma, hue);
+            let Ok(got) = col::hexcode(lightness, chroma, hue);
+
             assert_eq!(got, expected, "at oklch({lightness} {chroma} {hue})");
-            let reached = col::contrast(&got, "2b212e");
+
+            let Ok(reached) = col::contrast(&got, "2b212e");
+
             assert!(
                 (reached - ratio).abs() < 1e-4,
                 "#{got} on #2b212e is {reached:.4}:1, recorded as {ratio}:1"
@@ -270,14 +399,6 @@ mod the_engine {
         }
     }
 
-    /// The three pairings APCA's own documentation states an answer for.
-    ///
-    /// The same argument as the vectors above and the more important half of
-    /// it: the ratio is arithmetic anybody can check by hand, and this is not.
-    /// It has two exponents, a soft clamp and an offset, and getting any of
-    /// them slightly wrong gives numbers that look entirely plausible and are
-    /// wrong everywhere. These are the published values, so they are the only
-    /// thing here that did not come out of this implementation.
     const APCA: [(&str, &str, f64); 3] = [
         ("000000", "ffffff", 106.04),
         ("ffffff", "000000", -107.88),
@@ -287,7 +408,8 @@ mod the_engine {
     #[test]
     fn the_apca_numbers_are_the_published_ones() {
         for (ink, ground, expected) in APCA {
-            let got = col::lc(ink, ground);
+            let Ok(got) = col::lc(ink, ground);
+
             assert!(
                 (got - expected).abs() < 0.01,
                 "#{ink} on #{ground} is Lc {got:.3}, published as Lc {expected}"
@@ -297,34 +419,35 @@ mod the_engine {
 
     #[test]
     fn the_polarity_is_the_whole_point_and_is_not_symmetric() {
-        // The fact a ratio cannot express. Swap the ink and the ground and
-        // WCAG gives the same number back; APCA does not, and the difference
-        // is which of the two is the paper.
-        assert_eq!(col::contrast("000000", "ffffff"), col::contrast("ffffff", "000000"));
-        assert!(col::lc("ffffff", "000000").abs() != col::lc("000000", "ffffff").abs());
+        let Ok(one) = col::contrast("000000", "ffffff");
+        let Ok(other) = col::contrast("ffffff", "000000");
+        let Ok(white_on_black) = col::lc("ffffff", "000000");
+        let Ok(black_on_white) = col::lc("000000", "ffffff");
+
+        assert_eq!(one, other);
+        assert!(white_on_black.abs() != black_on_white.abs());
     }
 
     #[test]
     fn a_colour_on_itself_is_no_contrast_in_either_measure() {
-        assert!((col::contrast("372c3a", "372c3a") - 1.0).abs() < 1e-12);
-        assert_eq!(col::lc("372c3a", "372c3a"), 0.0);
+        let Ok(ratio) = col::contrast("372c3a", "372c3a");
+        let Ok(lc) = col::lc("372c3a", "372c3a");
+
+        assert!((ratio - 1.0).abs() < 1e-12);
+        assert_eq!(lc, 0.0);
     }
 
     #[test]
     fn wcag_flatters_a_dark_pair_and_apca_does_not() {
-        // The reason this palette asks for both, in one pair of assertions.
-        // The same grey is a better ratio on black than on white and a far
-        // worse Lc, and only one of those two claims matches what an eye does.
-        let (on_black, on_white) = (
-            col::contrast("767676", "000000"),
-            col::contrast("767676", "ffffff"),
-        );
+        let Ok(on_black) = col::contrast("767676", "000000");
+        let Ok(on_white) = col::contrast("767676", "ffffff");
+
         assert!(on_black > on_white, "{on_black} should beat {on_white}");
 
-        let (lc_black, lc_white) = (
-            col::lc("767676", "000000").abs(),
-            col::lc("767676", "ffffff").abs(),
-        );
+        let Ok(black) = col::lc("767676", "000000");
+        let Ok(white) = col::lc("767676", "ffffff");
+
+        let (lc_black, lc_white) = (black.abs(), white.abs());
         assert!(lc_black < lc_white, "Lc {lc_black} should be under Lc {lc_white}");
     }
 }
@@ -334,7 +457,6 @@ mod the_palette {
 
     #[test]
     fn every_pairing_clears_what_it_declares() {
-        // The whole promise, in one assertion.
         let done = check();
         assert!(done.status.success(), "{}{}", done.stdout, done.stderr);
         assert!(done.stdout.contains("all clearing both measures"), "{}", done.stdout);
@@ -342,7 +464,6 @@ mod the_palette {
 
     #[test]
     fn the_files_say_what_the_palette_says() {
-        // Nothing has been edited in place since the palette was last spent.
         let done = check();
         assert!(
             done.status.success(),
@@ -367,37 +488,25 @@ mod the_palette {
 mod the_tree {
     use super::*;
 
-    /// Every hex installed on the machine is one the palette declares.
-    ///
-    /// Not only the files the generator writes: the whole tree, so that a
-    /// colour typed in by hand is caught wherever somebody types it. That is
-    /// the drift this was built to stop. A hex put in by hand is invisible
-    /// until somebody looks at the screen in the right light, and by then it
-    /// has been there for months.
     #[test]
     fn no_file_anywhere_carries_a_colour_from_outside_the_palette() {
         let (root, spent) = (root(), spent());
         let lifted: Vec<String> = spent
             .iter()
-            .map(|(_, code)| col::lift(code, bright_lift()))
+            .map(|(_, code)| {
+                let Ok(lifted) = col::lift(code, bright_lift());
+
+                lifted
+            })
             .collect();
         let known: BTreeSet<String> = forms(spent.iter().map(|(_, code)| code.as_str()))
             .into_iter()
             .chain(forms(lifted.iter().map(String::as_str)))
             .collect();
 
-        let pattern = colour();
         for (path, text) in carrying(&root.join("files")) {
-            for found in pattern.captures_iter(&text) {
-                let written = found
-                    .iter()
-                    .skip(1)
-                    .flatten()
-                    .next()
-                    .expect("one group matched")
-                    .as_str()
-                    .to_lowercase()
-                    .replace(' ', "");
+            for found in colours_in(&text) {
+                let written = found.to_lowercase().replace(' ', "");
                 assert!(
                     known.contains(&written),
                     "{} carries #{written}, which is not a colour theme/palette.toml declares",
@@ -407,16 +516,6 @@ mod the_tree {
         }
     }
 
-    /// And the rest of the desktop imports it.
-    ///
-    /// A stylesheet, a terminal, a keyboard and a browser can each import a
-    /// file written in their own language, so each of them does, and the hex
-    /// lives in one place per language rather than in every file that spends
-    /// it. The ones that cannot import anything are KDE's ini format and
-    /// mako's, neither of which has an include, a `user.js`, which is a list
-    /// of literals, the compositor, whose config is written rather than
-    /// imported because a Lua file that fails to load takes the session with
-    /// it, and a picture.
     #[test]
     fn only_the_palette_holds_a_colour() {
         let allowed: BTreeSet<&str> = BTreeSet::from([
@@ -431,10 +530,9 @@ mod the_tree {
             "usr/share/icons/console-placeholder.svg",
         ]);
         let files = root().join("files");
-        let pattern = colour();
         let holding: BTreeSet<String> = carrying(&files)
             .into_iter()
-            .filter(|(_, text)| pattern.is_match(text))
+            .filter(|(_, text)| holds_a_colour(text))
             .map(|(path, _)| path.strip_prefix(&files).expect("under files/").display().to_string())
             .collect();
         let allowed: BTreeSet<String> = allowed.iter().map(|name| name.to_string()).collect();
@@ -445,7 +543,6 @@ mod the_tree {
         );
     }
 
-    /// A colour nothing uses is a colour nobody maintains.
     #[test]
     fn every_colour_is_spent() {
         let written: String = carrying(&root().join("files"))
@@ -460,8 +557,6 @@ mod the_tree {
         }
     }
 }
-
-// ------------------------------------------------------------ what runs it
 
 struct Said {
     status: std::process::ExitStatus,
@@ -482,11 +577,6 @@ fn check() -> Said {
     }
 }
 
-/// The palette as it stands, as (name, six hex digits).
-///
-/// Taken by running the tool rather than by linking to it, because the tool is
-/// a binary and its insides are its own. The report is the palette written
-/// down, so it is read from there.
 fn spent() -> Vec<(String, String)> {
     let report = std::fs::read_to_string(root().join("theme/report.md")).expect("the report");
     report
@@ -513,4 +603,70 @@ fn bright_lift() -> f64 {
     let declared = std::fs::read_to_string(root().join("theme/palette.toml")).expect("read");
     let spec: toml::Table = declared.parse().expect("it parses");
     spec["terminal"]["bright_lift"].as_float().expect("a number")
+}
+
+mod the_scanner {
+    use super::*;
+
+    #[test]
+    fn six_hex_digits_are_a_colour_and_seven_are_something_else() {
+        assert_eq!(colours_in("#123456"), ["123456"]);
+        assert_eq!(colours_in("#1234567"), [] as [String; 0]);
+        assert_eq!(colours_in("#12345"), [] as [String; 0]);
+        assert_eq!(colours_in("0xAABBCC."), ["AABBCC"]);
+        assert_eq!(colours_in("0xAABBCCD"), [] as [String; 0]);
+        assert_eq!(colours_in("#aabbcc\u{00e9}"), [] as [String; 0]);
+    }
+
+    #[test]
+    fn a_colour_with_an_alpha_is_only_the_opaque_one() {
+        assert_eq!(colours_in("rgba(112233ff)"), ["112233"]);
+        assert_eq!(colours_in("rgba(112233fe)"), [] as [String; 0]);
+    }
+
+    #[test]
+    fn a_name_and_a_value_are_a_colour_only_as_the_whole_line() {
+        assert_eq!(colours_in("fg=aabbcc"), ["aabbcc"]);
+        assert_eq!(colours_in(" fg=aabbcc"), [] as [String; 0]);
+        assert_eq!(colours_in("fg=aabbccd"), [] as [String; 0]);
+        assert_eq!(colours_in("a=b=aabbcc"), [] as [String; 0]);
+        assert_eq!(colours_in("#aabbcc\nfg=1,2,3\n0xddeeff\n"), ["aabbcc", "1,2,3", "ddeeff"]);
+    }
+
+    #[test]
+    fn three_numbers_are_a_colour_and_a_fourth_digit_is_not() {
+        assert_eq!(colours_in("fg=1,2,3"), ["1,2,3"]);
+        assert_eq!(colours_in("fg=1, 2, 3"), ["1, 2, 3"]);
+        assert_eq!(colours_in("fg=1,  2,3"), [] as [String; 0]);
+        assert_eq!(colours_in("fg=1234,2,3"), [] as [String; 0]);
+        assert_eq!(colours_in("fg=1,2"), [] as [String; 0]);
+    }
+
+    #[test]
+    fn a_name_starts_with_a_letter_and_carries_on_with_more_than_letters() {
+        assert_eq!(names_asked("@name @-bad @_x-9 a@b @@c"), ["name", "_x-9", "b", "c"]);
+    }
+
+    #[test]
+    fn a_property_is_declared_only_where_a_declaration_can_start() {
+        assert_eq!(property_held("  --x : red;"), Some("--x".to_string()));
+        assert_eq!(property_held("--x:red"), Some("--x".to_string()));
+        assert_eq!(property_held("x --y: red"), None);
+        assert_eq!(property_held("-- : red"), None);
+    }
+
+    #[test]
+    fn what_closed_a_var_is_the_difference_between_asking_and_preferring() {
+        assert_eq!(
+            properties_asked("var(--a) var(--b, x) var(--c)"),
+            [
+                ("--a".to_string(), ')'),
+                ("--b".to_string(), ','),
+                ("--c".to_string(), ')'),
+            ]
+        );
+        assert_eq!(properties_asked("var( --a )"), [("--a".to_string(), ')')]);
+        assert_eq!(properties_asked("var(--a;"), [] as [(String, char); 0]);
+        assert_eq!(properties_asked("var(--)"), [] as [(String, char); 0]);
+    }
 }

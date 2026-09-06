@@ -16,20 +16,15 @@ pub mod policies;
 
 use std::path::PathBuf;
 
-fn home() -> PathBuf {
-    PathBuf::from(match std::env::var("HOME") {
+use console_never::Never;
+
+fn home() -> Result<PathBuf, Never> {
+    Ok(PathBuf::from(match std::env::var("HOME") {
         Ok(h) => h,
         Err(_) => "/root".to_string(),
-    })
+    }))
 }
 
-/// What the settings file says now, so a change can be written into it without
-/// taking the other lines out.
-///
-/// Nothing where there is no file: nobody has chosen anything yet, and the
-/// write below is the first choice. A file that is there and will not be read
-/// is not that, and writing over it would throw away every other choice on this
-/// machine -- which is the one thing this function must not do quietly.
 fn held(at: &std::path::Path) -> Result<String, String> {
     match std::fs::read_to_string(at) {
         Ok(said) => Ok(said),
@@ -38,28 +33,25 @@ fn held(at: &std::path::Path) -> Result<String, String> {
     }
 }
 
-/// The file the choices that are nobody else's live in.
-pub fn where_() -> PathBuf {
-    home().join(".config/console/defaults")
+pub fn where_() -> Result<PathBuf, Never> {
+    let home = home()?;
+
+    Ok(home.join(".config/console/defaults"))
 }
 
-/// What a settings file says, as a value for each key.
-///
-/// Written by hand as readily as by the panel, so a line that is not a setting
-/// is passed over rather than argued with.
-pub fn read(said: &str) -> Vec<(String, String)> {
-    said.lines()
+pub fn read(said: &str) -> Result<Vec<(String, String)>, Never> {
+    Ok(said
+        .lines()
         .map(str::trim)
         .filter(|line| !line.starts_with('#'))
         .filter_map(|line| line.split_once('='))
         .map(|(key, value)| (key.trim().to_string(), value.trim().to_string()))
         .filter(|(key, _)| !key.is_empty())
-        .collect()
+        .collect())
 }
 
-/// The same, with one key set to something and the rest left where they are.
-pub fn written(said: &str, key: &str, value: &str) -> String {
-    let mut settings = read(said);
+pub fn written(said: &str, key: &str, value: &str) -> Result<String, Never> {
+    let mut settings = read(said)?;
 
     match settings.iter_mut().find(|(named, _)| named == key) {
         Some(found) => found.1 = value.to_string(),
@@ -67,41 +59,50 @@ pub fn written(said: &str, key: &str, value: &str) -> String {
     }
 
     settings.sort_by(|one, two| one.0.cmp(&two.0));
-    settings.iter().map(|(key, value)| format!("{key}={value}\n")).collect()
+
+    Ok(settings.iter().map(|(key, value)| format!("{key}={value}\n")).collect())
 }
 
-/// What one key says, out of the file as it stands.
-pub fn setting(key: &str) -> Option<String> {
-    let said = match std::fs::read_to_string(where_()) {
+pub fn setting(key: &str) -> Result<Option<String>, Never> {
+    let at = where_()?;
+
+    let said = match std::fs::read_to_string(&at) {
         Ok(s) => s,
-        Err(_) => return None,
+        Err(_) => return Ok(None),
     };
-    read(&said).into_iter().find(|(named, _)| named == key).map(|(_, value)| value)
+
+    let settings = read(&said)?;
+
+    Ok(settings.into_iter().find(|(named, _)| named == key).map(|(_, value)| value))
 }
 
-/// Set one key, leaving the file's other lines alone.
-pub fn set(key: &str, value: &str) {
-    let at = where_();
+pub fn set(key: &str, value: &str) -> Result<(), Never> {
+    let at = where_()?;
 
-    if let Some(parent) = at.parent() {
-        let _ = std::fs::create_dir_all(parent);
+    match at.parent() {
+        Some(parent) => {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        None => {}
     }
 
     let said = match held(&at) {
         Ok(said) => said,
-        // Refused rather than written over. The alternative is one unreadable
-        // file turning into every other choice on this machine being silently
-        // forgotten, which is a worse thing than this setting not sticking.
         Err(fault) => {
             eprintln!("console-defaults: {fault}; leaving it as it is");
 
-            return;
+            return Ok(());
         }
     };
 
-    if let Err(fault) = std::fs::write(&at, written(&said, key, value)) {
-        eprintln!("console-defaults: {}: {fault}", at.display());
+    let written = written(&said, key, value)?;
+
+    match std::fs::write(&at, written) {
+        Ok(()) => {}
+        Err(fault) => eprintln!("console-defaults: {}: {fault}", at.display()),
     }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -110,23 +111,31 @@ mod tests {
 
     #[test]
     fn a_setting_is_a_key_and_a_value() {
-        assert_eq!(read("search=startpage\n"), [("search".to_string(), "startpage".to_string())]);
+        assert_eq!(
+            read("search=startpage\n"),
+            Ok(vec![("search".to_string(), "startpage".to_string())])
+        );
     }
 
     #[test]
     fn a_file_written_by_hand_is_read_the_same() {
         let said = "# which engine\n  search = startpage  \n\nnonsense\n";
-        assert_eq!(read(said), [("search".to_string(), "startpage".to_string())]);
+
+        assert_eq!(read(said), Ok(vec![("search".to_string(), "startpage".to_string())]));
     }
 
     #[test]
     fn setting_one_leaves_the_others_where_they_were() {
         let said = "browser=librewolf.desktop\nsearch=duckduckgo\n";
-        assert_eq!(written(said, "search", "startpage"), "browser=librewolf.desktop\nsearch=startpage\n");
+
+        assert_eq!(
+            written(said, "search", "startpage"),
+            Ok("browser=librewolf.desktop\nsearch=startpage\n".to_string())
+        );
     }
 
     #[test]
     fn setting_one_that_was_never_there_writes_it() {
-        assert_eq!(written("", "search", "wikipedia"), "search=wikipedia\n");
+        assert_eq!(written("", "search", "wikipedia"), Ok("search=wikipedia\n".to_string()));
     }
 }

@@ -11,12 +11,26 @@ handed. Nothing compiled travels, and no file is copied into place from here.
 
 That is why the tree has to be committed before anything is sent. What reaches
 the device is the history, so what is deployed is what somebody can look at
-afterwards and read. `tools/console-deploy` refuses a dirty tree for that
+afterwards and read. `console-deploy` refuses a dirty tree for that
 reason, and its escape hatch is a clone: when other work is uncommitted in this
 checkout, send the history alone out of a copy nobody is working in.
 
     clone=$(mktemp -d)/console && git clone . "$clone" && cd "$clone"
-    tools/console-deploy
+    just deploy
+
+## Who is asked
+
+A deploy stops twice to ask, and neither question is this laptop's to answer.
+The machine that is about to change is in somebody's hands, and the second
+question -- whether to press every feature now -- takes their screen for
+several minutes. So the question goes to the device: `console-confirm` raises a
+card in their session, they answer it with the pad, and its status comes back
+as the answer.
+
+`--yes` skips both, and means a person has already said so. A device with no
+card to raise -- the first deploy that carries one, or a machine whose desktop
+is not up -- says so with a status of its own, and the question falls back to
+this terminal rather than being decided for anybody.
 
 ## The address
 

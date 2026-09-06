@@ -45,6 +45,18 @@ comes back as a nil value rather than as a dispatcher nobody has.
 of it reads the copy under the stage, so a setting a picture is meant to show
 has to be written there while the run is going rather than here beforehand.
 
+An absolute path compiled into a program is this machine's, not the stage's.
+Every file under `files/` is rewritten on the way in, so a path written in one
+of them points back into the stage; a path written in Rust is not rewritten by
+anything. Ask where the running program is and work out from there --
+`console_colour::spent::beside` finds the palette its own tree spends, and
+`console_keyboard::asked::beside` finds the keyboard installed next to whoever
+is asking. Both of those were `/usr/local/...` once, which is why the keyboard
+stood on this stage for as long as it did with nothing able to raise it and no
+colour on it that this repository spends. On the device the two answers are the
+same path, so a program that asks is right in both places and a program that
+knows is right in one.
+
 A picture is taken as soon as something reaches the screen, which is before a
 panel that is still reading the machine has drawn its rows. A tab that
 photographs empty is as likely to be one caught early as one that is broken.

@@ -8,13 +8,19 @@ use rustc_hir::{AmbigArg, GenericArg, QPath, Ty, TyKind};
 use rustc_lint::{LateContext, LateLintPass, LintContext};
 
 dylint_linting::declare_late_lint! {
-    /// EXPLICIT003: `Result<T, !>` is forbidden. A `Result` whose error is the
-    /// never type is a `Result` that cannot fail, written as though it could.
-    /// It costs every caller a `match` arm that can never be taken. Return `T`,
-    /// or give the error a name that says what went wrong.
+    /// EXPLICIT003: `Result<T, !>` is forbidden. Give the error a name -- one
+    /// that says what went wrong, or `Never`, which says that nothing can.
+    ///
+    /// This is not the opposite of EXPLICIT002, which asks for `Result<T,
+    /// Never>` on every function that cannot fail. The two agree about the
+    /// shape and disagree only about the spelling, and the spelling is the
+    /// whole of what this rule is for: `!` is the compiler's word for a hole in
+    /// the type system, and a reader meeting it in a signature cannot tell
+    /// whether the author meant *this cannot fail* or had not yet decided what
+    /// failing would look like. `Never` is a promise with a name on it.
     pub EXPLICIT003_NO_NEVER_ERROR,
     Deny,
-    "`Result<T, !>` is forbidden; return the value, or name a real error type"
+    "`Result<T, !>` is forbidden; name the error, `Never` where nothing can go wrong"
 }
 
 // Tests are exempt, as everywhere in this suite: the harness build of a target
@@ -69,9 +75,9 @@ impl<'tcx> LateLintPass<'tcx> for Explicit003NoNeverError {
                 cx,
                 EXPLICIT003_NO_NEVER_ERROR,
                 err.span,
-                "`Result<T, !>` is forbidden: an error that cannot happen is not an error",
+                "`Result<T, !>` is forbidden: the compiler has no name for this error",
                 None,
-                "return `T` on its own, or name an error type that says what went wrong",
+                "name it: `Never` where nothing can go wrong, or a type that says what did",
             );
         }
     }

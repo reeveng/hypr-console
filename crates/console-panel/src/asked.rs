@@ -11,12 +11,22 @@
 //! by name. Blocking the signals and waiting for them on a thread of our own
 //! was the other way, and it is the wrong one: a blocked mask is inherited by
 //! every child the panel starts.
+//!
+//! Above everything else on the loop, which is not a preference. A panel whose
+//! compositor has gone spins: the display's own source is handed a socket that
+//! is hung up, says it is ready, is dispatched, finds nothing, and says it is
+//! ready again, forever. At the same priority the signal waits its turn behind
+//! that and never gets one -- a stray viewer sat at ninety per cent of a core
+//! for forty minutes, ignoring every SIGTERM, holding the screen shut against
+//! each panel that asked for it after. Being asked to stop is the one thing
+//! that has to keep working when the loop is otherwise wedged, so it goes
+//! first.
 
 use std::rc::Rc;
 
+use console_never::Never;
 use gtk4::glib;
 
-/// What a chooser is asked to stop with.
 pub const STOPPING: [i32; 3] = [libc::SIGHUP, libc::SIGINT, libc::SIGTERM];
 
 unsafe extern "C" {
@@ -29,18 +39,16 @@ unsafe extern "C" {
     ) -> u32;
 }
 
-/// Do this on the main loop, the first time any of them arrives.
-pub fn stops_when_asked(then: impl Fn() + 'static) {
+pub fn stops_when_asked(then: impl Fn() + 'static) -> Result<(), Never> {
     let shared: Rc<dyn Fn()> = Rc::new(then);
 
     for number in STOPPING {
         let held = Box::into_raw(Box::new(Rc::clone(&shared))).cast::<std::ffi::c_void>();
 
         // SAFETY: the box is handed over with the notify that frees it, and
-        // the source is the main loop's from here on.
         unsafe {
             g_unix_signal_add_full(
-                glib::ffi::G_PRIORITY_DEFAULT,
+                glib::ffi::G_PRIORITY_HIGH,
                 number,
                 Some(answer),
                 held,
@@ -48,13 +56,12 @@ pub fn stops_when_asked(then: impl Fn() + 'static) {
             );
         }
     }
+
+    Ok(())
 }
 
-/// The signal, arrived somewhere it is safe to do something about.
 unsafe extern "C" fn answer(data: glib::ffi::gpointer) -> glib::ffi::gboolean {
     // SAFETY: `data` is the box `stops_when_asked` leaked, and glib hands back
-    // the same pointer it was given. It stays alive until `forget` runs, which
-    // glib does after the last call to this, so the borrow cannot outlive it.
     let then = unsafe { &*data.cast::<Rc<dyn Fn()>>() };
     then();
     glib::ffi::GFALSE
@@ -62,7 +69,5 @@ unsafe extern "C" fn answer(data: glib::ffi::gpointer) -> glib::ffi::gboolean {
 
 unsafe extern "C" fn forget(data: glib::ffi::gpointer) {
     // SAFETY: the same pointer again, and this is the notify glib calls once
-    // when the source is gone. Taking the box back is what frees it, and
-    // nothing can reach it afterwards.
     drop(unsafe { Box::from_raw(data.cast::<Rc<dyn Fn()>>()) });
 }

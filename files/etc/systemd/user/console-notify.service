@@ -15,5 +15,15 @@ ExecStopPost=-/usr/local/bin/console-fell %n
 Restart=always
 RestartSec=2
 
+# What this reaches past `console-.service.d/confining.conf`, and why.
+#
+# mako reads one config file and the icon a card names, and draws through the
+# compositor's socket. It opens no device node, it writes nothing in the home
+# directory, and the bus is the only thing it speaks to -- which is the whole
+# point of a name anything on the machine can raise a card through.
+PrivateDevices=yes
+ProtectHome=read-only
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+
 [Install]
 WantedBy=console.target

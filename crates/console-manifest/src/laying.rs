@@ -22,178 +22,86 @@
 
 use std::path::{Path, PathBuf};
 
-/// What a file is called while it is staged and not yet in place.
-///
-/// Beside where it goes rather than in a directory of its own, because a
-/// rename across filesystems is not a rename: it is a copy and a delete, and
-/// the whole of what makes this safe is that it is neither.
+use console_never::Never;
+
 pub const STAGED: &str = "console-new";
 
-/// What the file that was there is called once something is over it.
 pub const KEPT: &str = "console-old";
 
-/// One of those names, for a path.
-fn beside(live: &Path, ending: &str) -> PathBuf {
+fn beside(live: &Path, ending: &str) -> Result<PathBuf, Never> {
     let name = live.file_name().and_then(|name| name.to_str()).unwrap_or("file");
-    live.with_file_name(format!("{name}.{ending}"))
+
+    Ok(live.with_file_name(format!("{name}.{ending}")))
 }
 
-/// Where a file waits between being written and being put in place.
-pub fn staged(live: &Path) -> PathBuf {
+pub fn staged(live: &Path) -> Result<PathBuf, Never> {
     beside(live, STAGED)
 }
 
-/// Where the file it replaces is kept, in case it has to go back.
-pub fn kept(live: &Path) -> PathBuf {
+pub fn kept(live: &Path) -> Result<PathBuf, Never> {
     beside(live, KEPT)
 }
 
-/// What putting one file back means.
-///
-/// Two different acts, and telling them apart is the whole of why the plan is
-/// written down rather than worked out at the time. A file that replaced
-/// another goes back to being that other one. A file that replaced nothing was
-/// not there before this apply, and putting it back means it is not there now.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Back {
-    /// There was a file here, it is kept, and it goes over this one again.
     Kept,
-    /// There was nothing here. This is removed.
     Gone,
 }
 
-/// One file this apply laid down, and how to undo it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Laid {
-    /// The live path, as the machine has it.
     pub at: String,
     pub back: Back,
 }
 
-/// How to undo an apply, given what it laid down.
-///
-/// Backwards, because a later file may sit in a directory an earlier one made,
-/// and because the order things were done in is the only order anybody can
-/// hold in their head when reading what happened.
-pub fn undoing(laid: &[Laid]) -> Vec<&Laid> {
-    laid.iter().rev().collect()
+pub fn undoing(laid: &[Laid]) -> Result<Vec<&Laid>, Never> {
+    Ok(laid.iter().rev().collect())
 }
 
-/// What laying a release down needs of a machine.
-///
-/// A trait so that the order these happen in can be held to without a machine
-/// to happen on. What `Deploy` decides -- everything staged before anything
-/// moves, what is undone and in which direction -- is the half worth being sure
-/// of, and it is the half that could not be asked a question before this,
-/// because it called straight into code that writes to `/` and wants to be
-/// root.
-///
-/// That mattered most for the undoing. The undoing is what runs when a deploy
-/// has already gone wrong, so it is the least exercised thing here and the
-/// worst one to be wrong about: an undo nobody has ever watched is worse than
-/// no undo at all, because a machine with one is trusted.
 pub trait Lays {
-    /// Write a file beside where it goes.
     fn stage(&mut self, from: &Path, live: &str) -> Result<(), String>;
 
-    /// Move a staged file over the live one, keeping what was there.
     fn swap(&mut self, live: &str) -> Result<Back, String>;
 
-    /// Put one file back the way it was.
     fn put_back(&mut self, laid: &Laid) -> Result<(), String>;
 
-    /// Throw away a staged file that is not going to be used.
     fn drop_staged(&mut self, live: &str);
 
-    /// Throw away the copy kept in case a file had to go back.
     fn drop_kept(&mut self, live: &str);
 
-    /// What putting this file back would mean, asked before anything moves.
-    ///
-    /// `swap` answers the same question as it goes, and that answer lives in
-    /// this process. This one is asked of every file first, so the whole plan
-    /// can be written down while it is still true of a machine nothing has
-    /// happened to yet.
     fn standing(&self, live: &str) -> Back;
 
-    /// Write the plan somewhere a machine that stopped can be read.
     fn note(&mut self, laid: &[Laid]) -> Result<(), String>;
 
-    /// Take it away, the release having stood up or been walked back.
     fn forget_note(&mut self);
 }
 
-/// One file put back, and what became of it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Undone {
     pub at: String,
     pub put: Put,
 }
 
-/// What became of one file that was asked to go back.
-///
-/// Two states rather than an `Option` holding a fault. Most files go back and
-/// have nothing to report, and an absence is a fair way to write that -- but
-/// the other half of it is a machine still carrying a file from a release that
-/// was walked back, which is not a value that is missing. It is the news.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Put {
-    /// It is where it was before the release.
     Back,
-    /// It is not, and this is why.
     NotBack(String),
 }
 
-/// One release, staged and then put in place.
-///
-/// An apply used to lay each file down as it worked it out. Every file arrived
-/// atomically, but the set of them did not: between the first and the last
-/// there is a machine running some of one release and some of another, and a
-/// file that could not be written left the ones before it already in place with
-/// nothing recording that they were.
-///
-/// So this holds the two halves apart. Everything is staged beside where it
-/// goes, and nothing moves until all of it staged. Then the moves happen one
-/// after another with no work between them, which is as close to one moment as
-/// a filesystem offers. What each move replaced is kept, so the whole of it can
-/// go back if what came up does not run.
 #[derive(Debug, Default)]
 pub struct Deploy {
-    /// Live paths written beside their names and not yet moved over them.
     staged: Vec<String>,
-    /// What has been moved into place, in the order it was, and how to undo it.
     laid: Vec<Laid>,
 }
 
 impl Deploy {
-    /// Write one file beside where it goes.
     pub fn stage(&mut self, lays: &mut impl Lays, from: &Path, live: &str) -> Result<(), String> {
         lays.stage(from, live)?;
         self.staged.push(live.to_string());
         Ok(())
     }
 
-    /// Move all of it into place.
-    ///
-    /// Nothing between the moves, on purpose. Every read, every decision and
-    /// every fallible thing has already happened; what is left is renames,
-    /// which is the shortest this can be made.
-    ///
-    /// A move that will not go undoes the ones before it. Half a release put
-    /// down is the state this whole arrangement exists to make impossible, and
-    /// it is not made better by being the state the failure leaves behind.
     pub fn swap(&mut self, lays: &mut impl Lays) -> Result<Vec<Undone>, String> {
-        // The plan, written down before the first rename and true of the
-        // machine as it stands at this moment. Until this existed the only
-        // record of what an apply had done lived in this process, which is the
-        // right lifetime for undoing the run it belongs to and the wrong one
-        // for a machine that stopped: a power cut inside the renames left some
-        // of one release and some of another with nothing on disk saying which
-        // files had gone or what they had been.
-        //
-        // It is written and not merely attempted. A swap that cannot say what
-        // it is about to do is one nobody could walk back, and the moment to
-        // find that out is while the machine is still untouched.
         let plan: Vec<Laid> = self
             .staged
             .iter()
@@ -205,8 +113,9 @@ impl Deploy {
             match lays.swap(&live) {
                 Ok(back) => self.laid.push(Laid { at: live, back }),
                 Err(fault) => {
-                    self.abandon(lays);
-                    let put_back = self.undo(lays);
+                    let Ok(()) = self.abandon(lays);
+                    let Ok(put_back) = self.undo(lays);
+
                     return Err(match put_back.is_empty() {
                         true => fault,
                         false => format!("{fault} (and what was already down went back)"),
@@ -218,25 +127,18 @@ impl Deploy {
         Ok(Vec::new())
     }
 
-    /// Throw away what was staged and is not going to be used.
-    pub fn abandon(&mut self, lays: &mut impl Lays) {
+    pub fn abandon(&mut self, lays: &mut impl Lays) -> Result<(), Never> {
         for live in std::mem::take(&mut self.staged) {
             lays.drop_staged(&live);
         }
+
+        Ok(())
     }
 
-    /// Put the machine back the way it was.
-    ///
-    /// Backwards, because a file may sit in a directory a file before it made,
-    /// and because the order things were done in is the only order anybody can
-    /// hold in their head while reading what happened.
-    ///
-    /// Every one is tried even where one fails. Stopping at the first would
-    /// leave a machine half undone, which is the state this exists to get out
-    /// of rather than a second version of it.
-    pub fn undo(&mut self, lays: &mut impl Lays) -> Vec<Undone> {
+    pub fn undo(&mut self, lays: &mut impl Lays) -> Result<Vec<Undone>, Never> {
         let laid = std::mem::take(&mut self.laid);
-        let undone: Vec<Undone> = undoing(&laid)
+        let Ok(undoing) = undoing(&laid);
+        let undone: Vec<Undone> = undoing
             .into_iter()
             .map(|one| Undone {
                 at: one.at.clone(),
@@ -247,28 +149,43 @@ impl Deploy {
             })
             .collect();
 
-        // The machine is back where it started, so there is no half-laid
-        // release for anybody to find a note about.
         lays.forget_note();
-        undone
+
+        Ok(undone)
     }
 
-    /// Let go of what was kept, the release having stood up.
-    pub fn settle(&mut self, lays: &mut impl Lays) {
+    pub fn settle(&mut self, lays: &mut impl Lays) -> Result<(), Never> {
         for one in std::mem::take(&mut self.laid) {
             lays.drop_kept(&one.at);
         }
 
-        // Last, and after the kept copies are gone. The note is what says a
-        // release is in the middle of being laid down; while any of this is
-        // still half done it should be there to be found.
         lays.forget_note();
+
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn staged(live: &Path) -> PathBuf {
+        let Ok(staged) = super::staged(live);
+
+        staged
+    }
+
+    fn kept(live: &Path) -> PathBuf {
+        let Ok(kept) = super::kept(live);
+
+        kept
+    }
+
+    fn undoing(laid: &[Laid]) -> Vec<&Laid> {
+        let Ok(undoing) = super::undoing(laid);
+
+        undoing
+    }
 
     #[test]
     fn a_file_waits_and_is_kept_beside_where_it_goes() {
@@ -277,9 +194,6 @@ mod tests {
         assert_eq!(kept(live), Path::new("/usr/local/bin/launcher.console-old"));
     }
 
-    /// Beside it, and not under a directory of this engine's own. A rename
-    /// across filesystems is a copy and a delete, and a copy of a program a
-    /// service is running is not the program it is running.
     #[test]
     fn what_waits_is_in_the_directory_it_is_going_into() {
         let live = Path::new("/etc/systemd/user/console-bar.service");
@@ -287,9 +201,6 @@ mod tests {
         assert_eq!(kept(live).parent(), live.parent());
     }
 
-    /// A file that replaced nothing is not put back, it is taken away. Undone
-    /// the other way, an apply that failed halfway would leave behind the
-    /// programs it had already installed, which is the state it is undoing.
     #[test]
     fn undoing_a_file_that_replaced_nothing_removes_it() {
         let laid = Laid { at: "/usr/local/bin/new-thing".into(), back: Back::Gone };
@@ -297,18 +208,6 @@ mod tests {
         assert_eq!(laid.back, Back::Gone);
     }
 
-    /// The property the whole arrangement rests on, held to the filesystem
-    /// rather than to a comment.
-    ///
-    /// A service executing a program goes on executing it while that program
-    /// is replaced, because a rename replaces a name and the inode lives on
-    /// under whoever still holds it. Linking the old one aside is what keeps
-    /// hold of it, so putting it back is the same inode and not a copy that
-    /// resembles it.
-    ///
-    /// Written as a test because the day somebody reaches for `fs::copy` here
-    /// -- and it looks like the obvious thing -- everything still passes and a
-    /// daemon dies mid-apply six months later.
     #[test]
     fn what_was_there_survives_being_replaced_and_comes_back_the_same_thing() {
         use std::os::unix::fs::MetadataExt;
@@ -323,26 +222,16 @@ mod tests {
         std::fs::write(staged(&live), b"the new one").expect("the new one");
         std::fs::rename(staged(&live), &live).expect("putting it in place");
 
-        // The name is the new program; what was running is still there, and
-        // still the same file rather than a likeness of it.
         assert_eq!(std::fs::read(&live).unwrap(), b"the new one");
         assert_eq!(std::fs::read(kept(&live)).unwrap(), b"the one that is running");
         assert_eq!(std::fs::metadata(kept(&live)).unwrap().ino(), was);
 
-        // And putting it back is a rename, so it is that same file again.
         std::fs::rename(kept(&live), &live).expect("putting it back");
         assert_eq!(std::fs::metadata(&live).unwrap().ino(), was);
 
         std::fs::remove_dir_all(&here).ok();
     }
 
-    /// Nothing here copies a file into place, and this is the guard on that.
-    ///
-    /// `fs::copy` writes through an existing inode where one is there, which
-    /// is the one thing that reaches inside a running program: the bytes under
-    /// a daemon change while it is executing them. Every laying down here is a
-    /// write beside and a rename over, and a change that quietly became a copy
-    /// would pass every other test in this file.
     #[test]
     fn no_file_is_laid_down_by_copying_it() {
         let machine = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/machine.rs");
@@ -355,25 +244,16 @@ mod tests {
         assert!(copies.is_empty(), "a file is laid down by copying it again: {copies:?}");
     }
 
-    /// A machine that is not one, so the order a release is laid down in can
-    /// be asked about without root and without a device.
     #[derive(Default)]
     struct Paper {
-        /// What is on it, live path to content.
         on: std::collections::BTreeMap<String, String>,
-        /// What is staged beside a live path, not yet over it.
         waiting: std::collections::BTreeMap<String, String>,
-        /// What was there before something went over it.
         aside: std::collections::BTreeMap<String, String>,
-        /// What has been written down about a swap in progress.
         noted: Vec<Laid>,
-        /// Whether this machine refuses to write the plan down at all.
         wont_note: bool,
-        /// Paths this machine refuses, and at which half.
         wont_stage: Vec<String>,
         wont_swap: Vec<String>,
         wont_put_back: Vec<String>,
-        /// Everything asked of it, in order.
         asked: Vec<String>,
     }
 
@@ -386,8 +266,11 @@ mod tests {
     impl Lays for Paper {
         fn stage(&mut self, from: &Path, live: &str) -> Result<(), String> {
             self.asked.push(format!("stage {live}"));
-            if self.wont_stage.iter().any(|which| which == live) {
-                return Err(format!("{live}: will not stage"));
+            match self.wont_stage.iter().any(|which| which == live) {
+                true => {
+                    return Err(format!("{live}: will not stage"));
+                }
+                false => {},
             }
             let held = from.file_name().unwrap().to_string_lossy().to_string();
             self.waiting.insert(live.to_string(), held);
@@ -396,8 +279,11 @@ mod tests {
 
         fn swap(&mut self, live: &str) -> Result<Back, String> {
             self.asked.push(format!("swap {live}"));
-            if self.wont_swap.iter().any(|which| which == live) {
-                return Err(format!("{live}: will not go into place"));
+            match self.wont_swap.iter().any(|which| which == live) {
+                true => {
+                    return Err(format!("{live}: will not go into place"));
+                }
+                false => {},
             }
             let coming = self.waiting.remove(live).expect("something staged");
             let back = match self.on.insert(live.to_string(), coming) {
@@ -412,8 +298,11 @@ mod tests {
 
         fn put_back(&mut self, laid: &Laid) -> Result<(), String> {
             self.asked.push(format!("put back {}", laid.at));
-            if self.wont_put_back.iter().any(|which| which == &laid.at) {
-                return Err(format!("{}: will not go back", laid.at));
+            match self.wont_put_back.iter().any(|which| which == &laid.at) {
+                true => {
+                    return Err(format!("{}: will not go back", laid.at));
+                }
+                false => {},
             }
             match laid.back {
                 Back::Kept => {
@@ -447,8 +336,9 @@ mod tests {
         fn note(&mut self, laid: &[Laid]) -> Result<(), String> {
             self.asked.push(format!("note {}", laid.len()));
 
-            if self.wont_note {
-                return Err("the plan could not be written down".to_string());
+            match self.wont_note {
+                true => return Err("the plan could not be written down".to_string()),
+                false => {},
             }
 
             self.noted = laid.to_vec();
@@ -472,7 +362,6 @@ mod tests {
         }
     }
 
-    /// Nothing moves until all of it is staged. The whole point, held to.
     #[test]
     fn staging_changes_nothing_and_swapping_changes_all_of_it() {
         let mut paper = machine_with(&[("/bin/one", "old one"), ("/bin/two", "old two")]);
@@ -488,8 +377,6 @@ mod tests {
         assert_eq!(paper.holding("/bin/two"), Some("new two"));
     }
 
-    /// A file that will not stage leaves the machine exactly as it was, and
-    /// the caller throws away what was staged before it.
     #[test]
     fn a_release_that_cannot_be_staged_whole_is_not_laid_down_at_all() {
         let mut paper = machine_with(&[("/bin/one", "old one"), ("/bin/two", "old two")]);
@@ -498,16 +385,13 @@ mod tests {
 
         deploy.stage(&mut paper, &from("new one"), "/bin/one").expect("staged");
         assert!(deploy.stage(&mut paper, &from("new two"), "/bin/two").is_err());
-        deploy.abandon(&mut paper);
+        let Ok(()) = deploy.abandon(&mut paper);
 
         assert_eq!(paper.holding("/bin/one"), Some("old one"));
         assert_eq!(paper.holding("/bin/two"), Some("old two"));
         assert!(paper.waiting.is_empty(), "something is still staged: {:?}", paper.waiting);
     }
 
-    /// The undoing, which is the thing that only runs when a deploy has already
-    /// gone wrong and so is the one nobody watches. A move that will not go
-    /// puts back the ones that did.
     #[test]
     fn a_move_that_will_not_go_puts_back_the_ones_that_did() {
         let mut paper = machine_with(&[("/bin/one", "old one"), ("/bin/two", "old two")]);
@@ -523,9 +407,6 @@ mod tests {
         assert_eq!(paper.holding("/bin/two"), Some("old two"));
     }
 
-    /// A file this release put where there was none is taken away rather than
-    /// put back. Undone the other way it would be left behind, which is the
-    /// half-release the undoing exists to clear.
     #[test]
     fn undoing_takes_away_what_replaced_nothing() {
         let mut paper = machine_with(&[("/bin/one", "old one")]);
@@ -536,12 +417,11 @@ mod tests {
         deploy.swap(&mut paper).expect("swapped");
         assert_eq!(paper.holding("/bin/two"), Some("brand new"));
 
-        deploy.undo(&mut paper);
+        let Ok(_) = deploy.undo(&mut paper);
         assert_eq!(paper.holding("/bin/one"), Some("old one"));
         assert_eq!(paper.holding("/bin/two"), None);
     }
 
-    /// Backwards, because a file may sit in a directory a file before it made.
     #[test]
     fn the_undoing_happens_in_the_order_it_was_done_in_reversed() {
         let mut paper = machine_with(&[("/bin/one", "old one"), ("/bin/two", "old two")]);
@@ -551,14 +431,11 @@ mod tests {
         deploy.stage(&mut paper, &from("new two"), "/bin/two").expect("staged");
         deploy.swap(&mut paper).expect("swapped");
         paper.asked.clear();
-        deploy.undo(&mut paper);
+        let Ok(_) = deploy.undo(&mut paper);
 
         assert_eq!(paper.asked, ["put back /bin/two", "put back /bin/one", "forget note"]);
     }
 
-    /// One file refusing to go back does not stop the rest going back. Stopping
-    /// at the first would leave a machine half undone, which is the state this
-    /// is getting out of rather than a second version of it.
     #[test]
     fn a_file_that_will_not_go_back_does_not_keep_the_others_out_of_place() {
         let mut paper = machine_with(&[("/bin/one", "old one"), ("/bin/two", "old two")]);
@@ -569,7 +446,7 @@ mod tests {
         deploy.stage(&mut paper, &from("new two"), "/bin/two").expect("staged");
         deploy.swap(&mut paper).expect("swapped");
 
-        let undone = deploy.undo(&mut paper);
+        let Ok(undone) = deploy.undo(&mut paper);
         assert_eq!(undone.len(), 2);
         assert!(matches!(undone[0].put, Put::NotBack(_)), "the one that refuses says so");
         assert_eq!(undone[1].put, Put::Back, "the one that can go back went back");
@@ -577,9 +454,6 @@ mod tests {
         assert_eq!(paper.holding("/bin/two"), Some("new two"));
     }
 
-    /// Settling lets go of what was kept, and after it there is nothing to undo
-    /// with. A release that has stood up is not one to be walked back on the
-    /// next failure of something else.
     #[test]
     fn settling_lets_go_and_leaves_nothing_to_put_back() {
         let mut paper = machine_with(&[("/bin/one", "old one")]);
@@ -587,19 +461,13 @@ mod tests {
 
         deploy.stage(&mut paper, &from("new one"), "/bin/one").expect("staged");
         deploy.swap(&mut paper).expect("swapped");
-        deploy.settle(&mut paper);
+        let Ok(()) = deploy.settle(&mut paper);
 
         assert!(paper.aside.is_empty(), "something is still kept: {:?}", paper.aside);
-        deploy.undo(&mut paper);
+        let Ok(_) = deploy.undo(&mut paper);
         assert_eq!(paper.holding("/bin/one"), Some("new one"));
     }
 
-    /// The plan is written down before a single file moves, and it describes
-    /// the machine as it stands before any of them has.
-    ///
-    /// The fault it answers: a power cut inside the renames used to leave some
-    /// of one release and some of another, with the only record of what had
-    /// happened in a process that was no longer running.
     #[test]
     fn the_plan_is_written_down_before_anything_moves() {
         let mut paper = machine_with(&[("/bin/one", "old one")]);
@@ -611,10 +479,6 @@ mod tests {
         deploy.swap(&mut paper).expect("swapped");
 
         assert_eq!(paper.asked.first().map(String::as_str), Some("note 2"), "{:?}", paper.asked);
-        // And it says what each file would mean if it had to go back, decided
-        // while the machine was still untouched: one replaced something, one
-        // replaced nothing. It is still there, because the release has been
-        // swapped in and has not yet stood up.
         assert_eq!(
             paper.noted,
             [
@@ -624,9 +488,6 @@ mod tests {
         );
     }
 
-    /// What the plan says about each file, asked of the machine before it
-    /// changes. One replaced something and goes back to it; one replaced
-    /// nothing and has to be taken away.
     #[test]
     fn the_plan_says_which_files_replaced_something_and_which_replaced_nothing() {
         let paper = machine_with(&[("/bin/one", "old one")]);
@@ -634,10 +495,6 @@ mod tests {
         assert_eq!(paper.standing("/bin/two"), Back::Gone);
     }
 
-    /// A machine that cannot write the plan down does not swap at all.
-    ///
-    /// The moment to find out that nobody could walk this back is while the
-    /// machine is still the one that was working.
     #[test]
     fn a_swap_that_cannot_be_written_down_does_not_happen() {
         let mut paper = machine_with(&[("/bin/one", "old one")]);
@@ -649,15 +506,13 @@ mod tests {
         assert_eq!(paper.holding("/bin/one"), Some("old one"));
     }
 
-    /// The note goes when the release stands up, and when it is walked back.
-    /// Either way there is no half-laid release left for anybody to find.
     #[test]
     fn the_note_goes_whether_the_release_stood_up_or_was_put_back() {
         let mut paper = machine_with(&[("/bin/one", "old one")]);
         let mut deploy = Deploy::default();
         deploy.stage(&mut paper, &from("new one"), "/bin/one").expect("staged");
         deploy.swap(&mut paper).expect("swapped");
-        deploy.settle(&mut paper);
+        let Ok(()) = deploy.settle(&mut paper);
         assert!(paper.asked.contains(&"forget note".to_string()), "{:?}", paper.asked);
 
         let mut paper = machine_with(&[("/bin/one", "old one")]);
@@ -665,11 +520,10 @@ mod tests {
         deploy.stage(&mut paper, &from("new one"), "/bin/one").expect("staged");
         deploy.swap(&mut paper).expect("swapped");
         paper.asked.clear();
-        deploy.undo(&mut paper);
+        let Ok(_) = deploy.undo(&mut paper);
         assert!(paper.asked.contains(&"forget note".to_string()), "{:?}", paper.asked);
     }
 
-    /// Backwards, so a file is put back before the directory it needed.
     #[test]
     fn an_apply_is_undone_in_the_order_it_was_done_in_reversed() {
         let laid = [

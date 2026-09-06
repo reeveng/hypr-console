@@ -8,8 +8,6 @@ use std::path::PathBuf;
 
 use console_music::ascii;
 
-/// How tall a cover is drawn where nobody says: enough rows to be read as a
-/// sleeve, few enough to sit in a terminal beside the words.
 const ROWS: usize = 40;
 
 fn main() {
@@ -30,7 +28,9 @@ fn main() {
         }
     };
 
-    let Some(cover) = ascii::read(&path, rows) else {
+    let Ok(read) = ascii::read(&path, rows);
+
+    let Some(cover) = read else {
         eprintln!("no picture in {}", path.display());
         std::process::exit(1);
     };

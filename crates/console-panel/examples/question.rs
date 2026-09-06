@@ -12,10 +12,17 @@ use console_panel::panel;
 
 fn main() {
     let build = Arc::new(|| {
-        vec![Page::new("Pictures", Rows::asked(|| vec![Row::said("holiday.jpg", "")]))
-            .on_arriving(|showing| {
-                showing.sure("Throw this away?", "holiday.jpg", &["Delete"], Arc::new(|_, _| ()));
-            })]
+        let Ok(asked) = Rows::asked(|| {
+            let Ok(row) = Row::said("holiday.jpg", "");
+
+            vec![row]
+        });
+        let Ok(page) = Page::new("Pictures", asked);
+        let Ok(page) = page.on_arriving(|showing| {
+            showing.sure("Throw this away?", "holiday.jpg", &["Delete"], Arc::new(|_, _| ()));
+        });
+
+        vec![page]
     });
-    panel::show(build, 0, None);
+    let Ok(()) = panel::show(build, 0, None);
 }

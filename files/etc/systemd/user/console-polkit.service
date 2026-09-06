@@ -1,5 +1,5 @@
 [Unit]
-Description=The password box, for anything that needs permission
+Description=Password prompt
 PartOf=console.target
 
 [Service]
@@ -14,6 +14,15 @@ ExecStart=/usr/lib/polkit-kde-authentication-agent-1
 ExecStopPost=-/usr/local/bin/console-fell %n
 Restart=always
 RestartSec=2
+
+# What this reaches past `console-.service.d/confining.conf`, and why.
+#
+# No `PrivateDevices=`: the box is a Qt window and Qt draws through a render
+# node. No `ProtectHome=` either, because Qt keeps its own caches there and a
+# password box that stalls on a read-only cache is a permission nobody can
+# give. What it may not do is leave the machine, which for a program that only
+# ever asks the session a question is the whole of what it needs.
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
 
 [Install]
 WantedBy=console.target

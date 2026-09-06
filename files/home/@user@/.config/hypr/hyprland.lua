@@ -7,6 +7,49 @@
 --
 -- Reload after an edit with:  hyprctl reload
 
+--------------------------------------------------------------- the way back
+
+-- The power button turns the panel on. It is the first thing in this file, and
+-- being first is half of what it is for.
+--
+-- A screen that is off and will not come back is this device at its worst. The
+-- machine is running, every button works, and none of them can be seen to, so
+-- there is nothing to tell it from a dead one by looking -- and the way out,
+-- until this line existed, was an ssh session, which is not a thing the person
+-- holding it has.
+--
+-- It is a real state and not a worry. hypridle blanks the panel on its
+-- five-minute rule and resumes only a rule it idled on, so a lost resume --
+-- Steam sends a screensaver inhibit every couple of minutes, and one arriving
+-- while that rule is idle is enough -- leaves the panel off with nothing left
+-- that intends to put it back. `console-brightness undim` now does for every
+-- case where something is still running to run it. This is the answer for the
+-- case where nothing is.
+--
+-- First, because a config that fails to load here abandons every line after the
+-- failure and leaves a session with no bindings -- the reason spelled out over
+-- the palette below. A way out registered before anything that could break is a
+-- way out that survives the break.
+--
+-- It runs `console-brightness undim` rather than dispatching the dpms itself,
+-- for two reasons. That program is where putting the screen back already lives,
+-- so this gets the backlight and the panel together and there is one place that
+-- decides what coming back means. And `exec_cmd` is the form five binds below
+-- this already use, where a dispatch of dpms from a bind is a shape nothing on
+-- this machine has ever run -- which is not what the first line of this file
+-- should be, because a line that fails here takes every line after it.
+--
+-- `locked` so it answers whatever is up. It only ever turns things on: nothing
+-- here blanks the panel, the idle daemon does that on a timer, and a button
+-- somebody reaches for in the dark must not be able to cause what they are
+-- reaching out of.
+--
+-- The key gets this far because logind is told to ignore it -- `HandlePowerKey`,
+-- in a drop-in this desktop does not own -- and because no claim can swallow it:
+-- `console_input_claim` takes the pad and the keyboard InputPlumber makes, and
+-- the power button is the ACPI PNP0C0C device with one key on it.
+hl.bind("XF86PowerOff", hl.dsp.exec_cmd("/usr/local/bin/console-brightness undim"), { locked = true })
+
 ------------------------------------------------------------------ the screen
 
 -- The panel is mounted portrait and rotated a quarter turn into landscape.

@@ -13,24 +13,22 @@
 
 use std::path::Path;
 
+use console_never::Never;
 use gtk4::glib;
 use console_music::library::{self, folder};
 use console_music::looking::{self, Song};
 use console_music::tags;
 
-/// How often what has been read so far is written down.
-///
-/// A library read for three minutes and written at the end is a library read
-/// from the top again after anything at all interrupts it.
 const NOW_AND_THEN: usize = 50;
 
 fn main() {
     let cache = glib::user_cache_dir();
-    let at = looking::at(&cache);
+
+    let Ok(at) = looking::at(&cache);
+
     let said = match std::fs::read_to_string(&at) {
         Ok(said) => said,
 
-        // No file is the first run, and the walk below is what makes one.
         Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => String::new(),
 
         Err(fault) => {
@@ -39,46 +37,64 @@ fn main() {
         }
     };
 
-    let known = looking::kept(&said);
-    // The walk says what there is and the file only says what those songs
-    // said, so this is also what forgets a song that has been deleted.
-    let mut songs = looking::songs(&folder(), &library::things, &known);
-    let mut read = 0;
+    let Ok(known) = looking::kept(&said);
+
+    let Ok(music) = folder();
+
+    let Ok(mut songs) = looking::songs(&music, &library::things, &known);
+
+    let mut read: usize = 0;
 
     for one in 0..songs.len() {
-        if songs[one].read {
-            continue;
+        let Some(song) = songs.get(one) else { continue };
+
+        match song.read {
+            true => continue,
+            false => {},
         }
 
-        let said = tags::of(&songs[one].path);
-        songs[one] = Song { tags: said, read: true, ..songs[one].clone() };
-        read += 1;
+        let Ok(said) = tags::of(&song.path);
 
-        if read % NOW_AND_THEN == 0 {
-            wrote(&at, &songs);
+        let song = Song { tags: said, read: true, ..song.clone() };
+
+        let Some(slot) = songs.get_mut(one) else { continue };
+
+        *slot = song;
+        read = read.saturating_add(1);
+
+        match read.wrapping_rem(NOW_AND_THEN) {
+            0 => {
+                let Ok(()) = wrote(&at, &songs);
+            },
+            _ => {},
         }
     }
 
-    // Written even when nothing was read, so a song deleted since the last
-    // reading leaves the file it was written into.
-    wrote(&at, &songs);
+    let Ok(()) = wrote(&at, &songs);
 }
 
-/// What has been read, where the panel looks for it.
-///
-/// Beside itself and drawn over, because the panel reads this file on every
-/// letter typed into the line and half a file is a library that says nothing.
-fn wrote(at: &Path, songs: &[Song]) {
-    let Some(folder) = at.parent() else { return };
+fn wrote(at: &Path, songs: &[Song]) -> Result<(), Never> {
+    let Some(folder) = at.parent() else { return Ok(()) };
 
     let _ = std::fs::create_dir_all(folder);
+
     let part = at.with_extension("part");
 
-    if let Err(fault) = std::fs::write(&part, looking::written(songs)) {
-        eprintln!("music-index: {}: writing what was read about the songs: {fault}", part.display());
+    let written = looking::written(songs)?;
 
-        return;
+    match std::fs::write(&part, written) {
+        Ok(()) => {},
+        Err(fault) => {
+            eprintln!(
+                "music-index: {}: writing what was read about the songs: {fault}",
+                part.display()
+            );
+
+            return Ok(());
+        }
     }
 
     let _ = std::fs::rename(&part, at);
+
+    Ok(())
 }

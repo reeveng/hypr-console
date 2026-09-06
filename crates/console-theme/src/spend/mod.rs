@@ -22,41 +22,27 @@ pub mod paper;
 pub mod shell;
 
 use console_colour::Short;
+use console_never::Never;
 use std::path::{Path, PathBuf};
 
 use crate::palette::Palette;
 use crate::terminal::Terminal;
 
-/// The colours every palette file writes out, in the order they are written.
-///
-/// A colour left out of here is a colour no stylesheet defines, and GTK
-/// answers a name nobody defined by dropping that one declaration and carrying
-/// on -- so the rule using it is simply never drawn, with nothing logged and
-/// nothing failed. `fill` sat outside this list while the strip under the bar
-/// asked for it by name, and the strip painted at no percentage an apply ever
-/// reported. `every_name_the_desktop_asks_for_is_defined` holds this list
-/// against the files that name colours.
 pub const ROLES: [&str; 17] = [
     "night", "ground", "panel", "fill", "edge", "text", "soft", "pink", "rose", "mauve", "lilac",
     "sky", "mint", "leaf", "butter", "peach", "coral",
 ];
 
-/// The column a list of names is aligned into.
-pub fn widest<const N: usize>(names: [&str; N]) -> usize {
-    names.iter().map(|name| name.len()).max().unwrap_or(0)
+pub fn widest<const N: usize>(names: [&str; N]) -> Result<usize, Never> {
+    Ok(names.iter().map(|name| name.len()).max().unwrap_or(0))
 }
 
-/// How much of a file is ours.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum How {
-    /// A file that is nothing but colour, written from end to end.
     Whole,
-    /// A file somebody else owns, where only what lies between the markers is
-    /// written.
     Region,
 }
 
-/// One file the palette reaches, and what it should hold.
 #[derive(Debug, Clone)]
 pub struct Written {
     pub path: PathBuf,
@@ -64,11 +50,6 @@ pub struct Written {
     pub body: String,
 }
 
-/// Every file the palette reaches.
-///
-/// Five of these are the palette itself, one per language that has to be
-/// spoken. The rest of the desktop imports whichever of them speaks its own,
-/// so this list is nearly the whole of where a colour appears on the machine.
 pub fn everywhere(
     files: &Path,
     palette: &Palette,
@@ -87,44 +68,28 @@ pub fn everywhere(
         body,
     };
 
+    let css = gtk::spend(palette)?;
+    let stylesheet = librewolf::stylesheet(palette)?;
+    let sh = shell::spend(palette)?;
+    let kdeglobals = kde::spend(palette)?;
+    let mako = mako::spend(palette)?;
+    let prefs = librewolf::prefs(palette)?;
+    let hypr = hyprland::spend(palette)?;
+    let paper = paper::spend(palette)?;
+    let icon = icon::spend(palette)?;
+    let Ok(colours) = alacritty::spend(terminal);
+
     Ok(vec![
-        // The palette, once per language.
-        whole(home.join(".config/console/palette.css"), gtk::spend(palette)?),
-        whole(
-            home.join(".config/console/palette.toml"),
-            alacritty::spend(terminal),
-        ),
-        whole(chrome.join("palette.css"), librewolf::stylesheet(palette)?),
-        whole(
-            files.join("usr/local/lib/console/palette.sh"),
-            shell::spend(palette)?,
-        ),
-        // The three that cannot import anything. KDE's ini format has no
-        // include and neither has mako's, and a user.js is a list of literals.
-        region(home.join(".config/kdeglobals"), kde::spend(palette)?),
-        region(home.join(".config/mako/config"), mako::spend(palette)?),
-        region(
-            home.join(".librewolf/console/user.js"),
-            librewolf::prefs(palette)?,
-        ),
-        // The compositor. Written rather than imported: a Lua file that fails
-        // to load takes the whole session with it, and the session is the
-        // thing the person holding this device is standing on.
-        region(
-            home.join(".config/hypr/hyprland.lua"),
-            hyprland::spend(palette)?,
-        ),
-        // The unit that starts the wallpaper daemon, which sets the colour
-        // behind everything for the moment before `console-sky` has chosen.
-        region(
-            files.join("etc/systemd/user/console-paper.service"),
-            paper::spend(palette)?,
-        ),
-        // Drawn.
-        whole(
-            files.join("usr/share/icons/console-placeholder.svg"),
-            icon::spend(palette)?,
-        ),
+        whole(home.join(".config/console/palette.css"), css),
+        whole(home.join(".config/console/palette.toml"), colours),
+        whole(chrome.join("palette.css"), stylesheet),
+        whole(files.join("usr/local/lib/console/palette.sh"), sh),
+        region(home.join(".config/kdeglobals"), kdeglobals),
+        region(home.join(".config/mako/config"), mako),
+        region(home.join(".librewolf/console/user.js"), prefs),
+        region(home.join(".config/hypr/hyprland.lua"), hypr),
+        region(files.join("etc/systemd/user/console-paper.service"), paper),
+        whole(files.join("usr/share/icons/console-placeholder.svg"), icon),
     ])
 }
 
@@ -135,7 +100,6 @@ pub mod tests {
 
     const DECLARED: &str = include_str!("../../../../theme/palette.toml");
 
-    /// The palette this desktop actually wears.
     pub fn palette_spec() -> Spec {
         toml::from_str(DECLARED).expect("theme/palette.toml parses")
     }
@@ -199,10 +163,10 @@ pub mod tests {
             .map(|w| w.path.display().to_string())
             .collect();
         for wanted in [
-            ".config/console/palette.css",      // GTK, and everything that imports it
-            ".config/console/palette.toml",     // the terminal
-            "chrome/palette.css",              // the browser
-            "usr/local/lib/console/palette.sh", // the keyboard
+            ".config/console/palette.css",
+            ".config/console/palette.toml",
+            "chrome/palette.css",
+            "usr/local/lib/console/palette.sh",
         ] {
             assert!(
                 paths.iter().any(|p| p.contains(wanted)),

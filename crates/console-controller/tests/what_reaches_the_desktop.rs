@@ -13,61 +13,83 @@
 
 use console_controller::means::{JOBS, Table};
 use console_controller::mode::Mode;
-use console_pad::jobs::Jobs;
-use console_pad::routing::arrives;
-use console_pad::vocabulary::button_name;
+use console_gamepad::jobs::{ALONE, Jobs};
+use console_gamepad::routing::arrives;
+use console_gamepad::vocabulary::button_name;
 
-/// Every job is on a button that arrives somewhere.
+fn ok<T>(answer: Result<T, console_never::Never>) -> T {
+    let Ok(value) = answer;
+
+    value
+}
+
 #[test]
 fn every_job_is_on_a_button_that_reaches_the_daemon() {
     for job in JOBS {
         for (_, button) in job.bound {
             let named = button_name(button).expect("a button this desktop has a word for");
-            assert!(arrives(named).is_some(), "{} is on {button}, which arrives nowhere", job.slug);
+            assert!(
+                ok(arrives(named)).is_some(),
+                "{} is on {button}, which arrives nowhere",
+                job.slug
+            );
         }
     }
 }
 
-/// And every button a job is on can be pressed to reach that job, in the place
-/// the job is for. The table is asked the way the daemon asks it, so a job
-/// that is bound and unreachable is a failure here rather than a surprise on
-/// the machine.
 #[test]
 fn every_job_can_be_reached_by_pressing_what_it_is_bound_to() {
-    let table = Table::of(&Jobs::none());
+    let table = ok(Table::of(&ok(Jobs::none())));
     for job in JOBS {
         let mode = match job.when {
             console_controller::means::When::WithAChooserUp => Mode::Tabs,
-            // The home screen's own are on buttons the desktop has jobs for,
-            // and the desktop's are what a press reaches while the apps are
-            // not drawn. Each is asked about where it is for, which is the
-            // whole of what this test is: a job nothing can press is a job
-            // nobody has.
             console_controller::means::When::OnTheHomeScreen => Mode::Home,
             console_controller::means::When::StandingOnASquare => Mode::Standing,
             _ => Mode::Desktop,
         };
         for (layer, button) in job.bound {
-            let found = table.what(button, *layer, mode);
+            let Ok(found) = table.what(button, *layer, mode);
+
             assert_eq!(found.map(|found| found.slug), Some(job.slug), "{} is unreachable", job.slug);
         }
     }
 }
 
-/// The one thing the on-screen keyboard needs of all this: while it is up, the
-/// pad is its own. It reads the pad itself, and a daemon acting on the same
-/// presses would move the highlight twice.
 #[test]
 fn the_keyboard_keeps_the_pad_while_it_is_up() {
-    let table = Table::of(&Jobs::none());
+    let table = ok(Table::of(&ok(Jobs::none())));
     for job in JOBS {
         for (layer, button) in job.bound {
             assert!(
-                console_controller::buttons::job_for(&table, Mode::Keyboard, button, *layer)
+                ok(console_controller::buttons::job_for(&table, Mode::Keyboard, button, *layer))
                     .is_none(),
                 "{} acts while the keyboard is up",
                 job.slug
             );
         }
+    }
+}
+
+#[test]
+fn the_right_stick_pressed_is_the_same_answer_as_a() {
+    let table = ok(Table::of(&ok(Jobs::none())));
+
+    for mode in [
+        Mode::Desktop,
+        Mode::Tabs,
+        Mode::Home,
+        Mode::Standing,
+        Mode::Keyboard,
+        Mode::Asking,
+    ] {
+        let Ok(accepts) = table.what("a", ALONE, mode);
+        let Ok(stick) = table.what("r3", ALONE, mode);
+
+        assert_eq!(
+            accepts.map(|job| job.slug),
+            stick.map(|job| job.slug),
+            "the right stick pressed and A part company in {mode:?}, \
+             so the thumb already on the stick has to move to accept"
+        );
     }
 }

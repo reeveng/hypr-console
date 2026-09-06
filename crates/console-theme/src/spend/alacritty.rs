@@ -1,11 +1,10 @@
 //! The terminal's colours as a file alacritty imports.
 
+use console_never::Never;
+
 use crate::terminal::{SLOTS, Shade, Terminal};
 
-/// TOML has no way to name a colour once and use it twice, so the sixteen are
-/// spelled out. They are spelled out here and nowhere else, and
-/// `alacritty.toml` names this file rather than repeating them.
-pub fn spend(terminal: &Terminal) -> String {
+pub fn spend(terminal: &Terminal) -> Result<String, Never> {
     let head = [
         "# Written by console-theme from theme/palette.toml.".to_string(),
         "# Imported by alacritty.toml, which holds no colour of its own.".to_string(),
@@ -24,14 +23,16 @@ pub fn spend(terminal: &Terminal) -> String {
     ];
 
     let sixteen = [Shade::Normal, Shade::Bright].into_iter().flat_map(|shade| {
-        [String::new(), format!("[colors.{}]", shade.name())]
-            .into_iter()
-            .chain(SLOTS.map(|slot| {
-                format!("{slot} = \"0x{}\"", terminal.slot(shade, slot))
-            }))
+        let Ok(name) = shade.name();
+
+        [String::new(), format!("[colors.{name}]")].into_iter().chain(SLOTS.map(|slot| {
+            let Ok(code) = terminal.slot(shade, slot);
+
+            format!("{slot} = \"0x{code}\"")
+        }))
     });
 
-    format!("{}\n", head.into_iter().chain(sixteen).collect::<Vec<_>>().join("\n"))
+    Ok(format!("{}\n", head.into_iter().chain(sixteen).collect::<Vec<_>>().join("\n")))
 }
 
 #[cfg(test)]
@@ -40,7 +41,12 @@ mod tests {
     use crate::spend::tests::{blossom, palette_spec};
 
     fn written() -> String {
-        spend(&Terminal::of(&palette_spec(), &blossom()).expect("the terminal table is declared"))
+        let terminal =
+            Terminal::of(&palette_spec(), &blossom()).expect("the terminal table is declared");
+
+        let Ok(said) = spend(&terminal);
+
+        said
     }
 
     #[test]
@@ -65,8 +71,6 @@ mod tests {
 
     #[test]
     fn what_the_cursor_and_the_selection_carry_is_the_background() {
-        // Ink on a fill. The fill is what carries the contrast, so the letter
-        // under the cursor is the terminal's own ground and not the foreground.
         let toml = written();
         let terminal = Terminal::of(&palette_spec(), &blossom()).expect("the terminal table is declared");
         let carried = format!("text = \"0x{}\"", terminal.background);

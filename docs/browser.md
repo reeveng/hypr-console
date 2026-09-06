@@ -6,7 +6,7 @@ a link and A clicked wherever the pointer had got to, so the browser was the
 one window on the machine where getting somewhere was aiming rather than
 choosing, and the smaller the link the longer it took.
 
-`crates/console-web` is the add-on that keeps the promise inside a page.
+`crates/console-browser-extension` is the add-on that keeps the promise inside a page.
 [`docs/button-contract.md`](button-contract.md) is what the buttons mean;
 this is what they come to once a page has the screen.
 
@@ -174,7 +174,7 @@ for a long time it could not. Those are chrome, and an add-on written in the
 ordinary way cannot touch chrome at all -- it can ask the browser to open a tab,
 and it cannot put the focus in the address bar of the window it is running in.
 
-`crates/console-web/web/around.js` is how it does now. An experiment API runs
+`crates/console-browser-extension/web/around.js` is how it does now. An experiment API runs
 in the parent process with the browser's own privileges rather than an add-on's,
 and it is allowed here for exactly the reason the add-on is unsigned here: a
 build without `MOZ_REQUIRE_SIGNING` is one where `EXPERIMENTS_ENABLED` follows a
@@ -208,7 +208,7 @@ add-on in that order, so one restart has both.
 `console apply` packs it and then tells the browser about it, in that order.
 
 1. `console-web` reads the profile's own `palette.css`, packs it with the files
-   from `crates/console-web/web/` into `/usr/local/lib/console/console-web.xpi`,
+   from `crates/console-browser-extension/web/` into `/usr/local/lib/console/console-web.xpi`,
    and writes a note beside it saying what was packed and as what version.
 2. `console-engine` writes the browser's policy, which installs the add-on from
    that file.

@@ -39,7 +39,8 @@
 //! the lock being free is the screen being free.
 
 
-use console_number::fitted;
+use console_never::Never;
+use console_number_conversion::fitted;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::fd::AsRawFd;
@@ -48,37 +49,12 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicI32, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-/// The wait between tries at the lock, and how many of them.
-///
-/// Long enough to outlast the pad being handed back, which is the slowest
-/// thing the one going does and the reason it is still holding the lock while
-/// it does it. Waiting less than that turns a panel asked for right after
-/// another closed into a panel that never draws.
 pub const BREATH: Duration = Duration::from_millis(20);
 
-/// How long to keep trying, in breaths.
-///
-/// Ten seconds. Nothing between two choosers is slow -- the one going drops the
-/// lock as the kernel closes its files -- so this is not a budget for the
-/// handover, it is the point at which a panel that cannot get the lock gives up
-/// and says so rather than hanging on a lock nothing is going to release.
 pub const PATIENCE: u128 = Duration::from_secs(10).as_millis() / BREATH.as_millis();
 
-/// How long a chooser that has the screen but has not drawn on it is given to
-/// appear.
-///
-/// Longer than one takes to draw, and short enough that a chooser which hangs
-/// before it draws cannot shut the screen for the rest of the session: waiting
-/// for it forever would be a desktop where no button opens anything and
-/// nothing says why.
 pub const COMING: usize = 100;
 
-/// What this process is holding, for as long as it lives.
-///
-/// A lock is released when the last handle to it is closed, and a caller who is
-/// not expecting to be holding anything has no reason to keep one. The door is
-/// kept beside it so that saying the chooser has appeared says nothing the
-/// caller has to remember.
 static HELD: Mutex<Option<Holding>> = Mutex::new(None);
 
 struct Holding {
@@ -86,52 +62,25 @@ struct Holding {
     name: String,
 }
 
-/// What is on the screen, when that is another process.
 static SHOWING: AtomicI32 = AtomicI32::new(0);
 
-/// How long the last ask for the screen took, in nanoseconds.
-///
-/// Kept here rather than handed back, because `alone` answers a question with
-/// one word -- may this process draw -- and the panel that draws is started
-/// afterwards by a caller that never sees this call's clock. It is the one
-/// stretch of an opening that is over before the panel exists, and on the road
-/// where one chooser replaces another it is the whole of the difference
-/// between a press that feels immediate and one that does not.
 static WAITED: AtomicU64 = AtomicU64::new(0);
 
-/// How long the ask for the screen took.
-pub fn waited_for_screen() -> Duration {
-    Duration::from_nanos(WAITED.load(Ordering::SeqCst))
+pub fn waited_for_screen() -> Result<Duration, Never> {
+    Ok(Duration::from_nanos(WAITED.load(Ordering::SeqCst)))
 }
 
-/// The clock over one ask, however that ask ends.
-///
-/// A guard rather than a line before each `return`, because `alone` leaves by
-/// eight roads and the two that wait are not the two anybody would remember to
-/// stamp.
 struct Asking(Instant);
 
 impl Drop for Asking {
     fn drop(&mut self) {
-        WAITED.store(fitted(self.0.elapsed().as_nanos()), Ordering::SeqCst);
+        let Ok(whole) = fitted(self.0.elapsed().as_nanos());
+        WAITED.store(whole, Ordering::SeqCst);
     }
 }
 
-/// The chooser on the screen is drawn by something this one started.
-///
-/// The screen is handed over by signalling whoever holds the lock, and a
-/// holder that dies without taking its window down leaves the screen occupied
-/// by something nothing is waiting on any more: the menu stayed up, nothing
-/// put the pad back, and picking a row ran nothing at all. So being asked to
-/// go takes the window down and then leaves by the ordinary road, which hands
-/// the pad back and lets the lock go as it always would.
-pub fn showing(pid: i32) {
+pub fn showing(pid: i32) -> Result<(), Never> {
     SHOWING.store(pid, Ordering::SeqCst);
-    // A function is turned into the number `signal` takes it as, which is
-    // the one conversion in this workspace that has no `From` to call and no
-    // console-number to call it through: there is no trait that turns a
-    // function into an integer, because outside this call there is no reason
-    // to want one.
     #[cfg_attr(
         dylint_lib = "explicit011_no_as_cast",
         allow(
@@ -145,11 +94,14 @@ pub fn showing(pid: i32) {
         // SAFETY: the handler stores nothing and calls nothing that allocates.
         unsafe { libc::signal(number, answer) };
     }
+
+    Ok(())
 }
 
-/// Nothing is on the screen any more, so nothing is taken down.
-pub fn showing_nothing() {
+pub fn showing_nothing() -> Result<(), Never> {
     SHOWING.store(0, Ordering::SeqCst);
+
+    Ok(())
 }
 
 extern "C" fn asked(_number: libc::c_int) {
@@ -164,305 +116,278 @@ extern "C" fn asked(_number: libc::c_int) {
     }
 }
 
-/// The lock's file, under whatever this session calls its runtime.
-pub fn where_() -> PathBuf {
+pub fn where_() -> Result<PathBuf, Never> {
     let runtime = match std::env::var("XDG_RUNTIME_DIR") {
-        Ok(runtime) if !runtime.is_empty() => runtime,
-        _ => "/tmp".to_string(),
+        Ok(runtime) => Some(runtime),
+        Err(_) => None,
     };
 
-    Path::new(&runtime).join("console").join("chooser.lock")
+    let screen = match std::env::var("WAYLAND_DISPLAY") {
+        Ok(screen) => Some(screen),
+        Err(_) => None,
+    };
+
+    under(runtime.as_deref(), screen.as_deref())
 }
 
-/// Whether the lock came free when it was asked for.
+fn under(runtime: Option<&str>, screen: Option<&str>) -> Result<PathBuf, Never> {
+    let runtime = match runtime {
+        Some(runtime) if !runtime.is_empty() => runtime,
+        Some(_) | None => "/tmp",
+    };
+
+    let screen = match screen {
+        Some(screen) if !screen.is_empty() => screen,
+        Some(_) | None => "no-screen-named",
+    };
+
+    Ok(Path::new(runtime).join("console").join(format!("chooser-{screen}.lock")))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Took {
-    /// It did, so nobody else is holding the screen.
     It,
-    /// Somebody else has it.
     Not,
 }
 
-/// Try the lock once, without waiting for it.
-pub fn take(handle: &File) -> Took {
+pub fn take(handle: &File) -> Result<Took, Never> {
     // SAFETY: the descriptor is this file's, and open for as long as the call.
-    match unsafe { libc::flock(handle.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) == 0 } {
+    Ok(match unsafe { libc::flock(handle.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) == 0 } {
         true => Took::It,
         false => Took::Not,
-    }
+    })
 }
 
-/// Who has it, and which door they came out of.
-///
-/// The name written beside the pid is the door, not the program. Two of the
-/// bar's icons are the same program at different tabs, and tapping one while
-/// the other is up should move the panel rather than close it.
-pub fn holder(said: &str) -> (i32, &str) {
+pub fn holder(said: &str) -> Result<(i32, &str), Never> {
     let (pid, name) = said.trim().split_once(' ').unwrap_or((said.trim(), ""));
 
-    // Nought is a pid nothing runs under, which every caller reads as nobody
-    // holding the door -- the right answer for a line that is not one of ours.
-    let Ok(pid) = pid.parse::<i32>() else { return (0, name) };
+    let Ok(pid) = pid.parse::<i32>() else { return Ok((0, name)) };
 
-    (pid, name)
+    Ok((pid, name))
 }
 
-/// The name a door is written down under.
-///
-/// What is read back comes through `trim`, because a chooser on its way has a
-/// pid and no door at all, and the line written then is a pid with nothing
-/// after the space. So a name that ends in a space cannot come back out of the
-/// file as it went in.
-///
-/// A panel that takes a tab names its door after the tab it was asked for, and
-/// asked for without one -- the bell on the bar, the settings on the Menu
-/// button -- the name ends in the space where the tab was not. The bell wrote
-/// "notices " and read "notices", did not recognise its own door, and put the
-/// panel away for being somebody else's and opened it again in the same press.
-/// Every other icon along that edge names a tab, which is why it was only the
-/// bell that flickered.
-fn door(name: &str) -> &str {
-    name.trim()
+fn door(name: &str) -> Result<&str, Never> {
+    Ok(name.trim())
 }
 
-/// What became of the one that had the screen and had not drawn on it.
 enum Meanwhile {
     Drawn,
     Free,
     Stuck,
 }
 
-/// Wait on the one holding the screen, for as long as one takes to appear.
-///
-/// The lock is asked about first: a chooser on its way out has let go of its
-/// door before it lets go of the lock, and the press waiting on it wants the
-/// screen the moment it is free rather than at the end of the wait.
-fn meanwhile(handle: &mut File) -> Meanwhile {
+fn meanwhile(handle: &mut File) -> Result<Meanwhile, Never> {
     for _ in 0..COMING {
         std::thread::sleep(BREATH);
 
-        if take(handle) == Took::It {
-            return Meanwhile::Free;
+        let Ok(took) = take(handle);
+
+        match took == Took::It {
+            true => return Ok(Meanwhile::Free),
+            false => {},
         }
 
-        if !holder(&read(handle)).1.is_empty() {
-            return Meanwhile::Drawn;
+        let Ok(said) = read(handle);
+        let Ok((_pid, drawn)) = holder(&said);
+
+        match !drawn.is_empty() {
+            true => return Ok(Meanwhile::Drawn),
+            false => {},
         }
     }
 
-    Meanwhile::Stuck
+    Ok(Meanwhile::Stuck)
 }
 
-fn read(handle: &mut File) -> String {
+fn read(handle: &mut File) -> Result<String, Never> {
     let mut said = String::new();
     let _ = handle.seek(SeekFrom::Start(0));
     let _ = handle.read_to_string(&mut said);
-    said
+
+    Ok(said)
 }
 
-fn written(handle: &mut File, name: &str) {
+fn written(handle: &mut File, name: &str) -> Result<(), Never> {
     let _ = handle.seek(SeekFrom::Start(0));
     let _ = handle.set_len(0);
     let _ = write!(handle, "{} {name}", std::process::id());
     let _ = handle.flush();
+
+    Ok(())
 }
 
-/// What the same door asked twice means.
-///
-/// A finger on the bar has no other way to put a panel away, so the icon that
-/// brought it out closes it again. A paddle is not that: the left paddle opens
-/// and the right paddle closes, in every profile and whatever is on screen, so
-/// the menu asked for while the menu is up stays as it is.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Again {
     Closes,
     Keeps,
 }
 
-/// Put away whatever is up, and say whether there was anything.
-///
-/// The holder is told rather than killed outright: it takes its own window
-/// down, hands the desktop's buttons back and goes, which is the same road out
-/// as every other.
-pub fn put_away() -> Away {
-    let Ok(mut handle) = OpenOptions::new().read(true).write(true).open(where_()) else {
-        return Away::Nothing;
+pub fn put_away() -> Result<Away, Never> {
+    let Ok(where_) = where_();
+
+    let Ok(mut handle) = OpenOptions::new().read(true).write(true).open(where_) else {
+        return Ok(Away::Nothing);
     };
 
-    // Nobody is holding it, so there is nothing on screen to put away.
-    if take(&handle) == Took::It {
-        return Away::Nothing;
+    let Ok(took) = take(&handle);
+
+    match took == Took::It {
+        true => return Ok(Away::Nothing),
+        false => {},
     }
 
-    let (pid, _) = holder(&read(&mut handle));
+    let Ok(said) = read(&mut handle);
+    let Ok((pid, _door)) = holder(&said);
 
-    if pid <= 0 {
-        return Away::Nothing;
+    match pid <= 0 {
+        true => return Ok(Away::Nothing),
+        false => {},
     }
 
     // SAFETY: a signal to a pid, which is what the file said was there.
     unsafe { libc::kill(pid, libc::SIGTERM) };
 
-    Away::Told
+    Ok(Away::Told)
 }
 
-/// Whether there was anything on the screen to put away.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Away {
-    /// Somebody was holding it, and has been told to go.
     Told,
-    /// Nobody was, so this press has to mean something else.
     Nothing,
 }
 
-/// True if this process may be the chooser, false if it may not.
-///
-/// False means there is nothing more to do: either the panel that was up has
-/// been closed by this call, which is what the same door asked twice means, or
-/// something else is holding the screen and will not let go, or one is on its
-/// way and this press is somebody who has not seen it yet.
-/// The door state, through a lock that a panic elsewhere cannot take away.
-///
-/// A poisoned mutex means some other thread died holding this, and the value
-/// behind it is a door name and a file handle -- there is no half-written state
-/// for a panic to have left. Refusing to open the chooser because of a thread
-/// that already died would turn one fault into a desktop where the menu button
-/// does nothing.
-fn holding() -> std::sync::MutexGuard<'static, Option<Holding>> {
-    match HELD.lock() {
+fn holding() -> Result<std::sync::MutexGuard<'static, Option<Holding>>, Never> {
+    Ok(match HELD.lock() {
         Ok(held) => held,
 
-        // A thread that panicked while holding this is the case the paragraph
-        // above is about: what it left behind is a door name and a file
-        // handle, and refusing the chooser over it helps nobody.
         Err(poisoned) => poisoned.into_inner(),
-    }
+    })
 }
 
-/// Whether this process may be the chooser.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Alone {
-    /// It may: the screen is this process's now.
     Yes,
-    /// It may not, and there is nothing more to do.
     No,
 }
 
-pub fn alone(name: &str, again: Again) -> Alone {
+pub fn alone(name: &str, again: Again) -> Result<Alone, Never> {
     let _asking = Asking(Instant::now());
-    let name = door(name);
-    let mut held = holding();
+    let Ok(name) = door(name);
+    let Ok(mut held) = holding();
 
-    if held.is_some() {
-        return Alone::Yes;
+    match held.is_some() {
+        true => return Ok(Alone::Yes),
+        false => {},
     }
 
-    let path = where_();
+    let Ok(path) = where_();
     let opened = path
         .parent()
         .map(std::fs::create_dir_all)
         .transpose()
         .and_then(|_| OpenOptions::new().read(true).write(true).create(true).truncate(false).open(&path));
 
-    // Nowhere to keep a lock is not a reason to refuse.
-    let Ok(mut handle) = opened else { return Alone::Yes };
+    let Ok(mut handle) = opened else { return Ok(Alone::Yes) };
 
-    if take(&handle) == Took::Not {
-        let said = read(&mut handle);
-        let (pid, holding) = holder(&said);
+    let Ok(took) = take(&handle);
 
-        // A second chooser inside one process is a program asking twice, and
-        // there is no taking the screen from yourself.
-        if pid == 0 || pid == fitted::<u32, i32>(std::process::id()) {
-            return Alone::No;
-        }
+    match took == Took::Not {
+        true => {
+            let Ok(said) = read(&mut handle);
+            let Ok((pid, holding)) = holder(&said);
 
-        // Asked again through the door it came out of, by something that only
-        // opens: it is open.
-        if holding == name && again == Again::Keeps {
-            eprintln!("{name}: {pid} is showing it, and this door only opens");
-            return Alone::No;
-        }
+            let Ok(ours) = fitted::<u32, i32>(std::process::id());
 
-        // Somebody has the lock but has not drawn yet. A press now is a
-        // thumb that has not seen the chooser rather than one putting it
-        // away, and closing what has not appeared is how one press became
-        // two: the paddle cancelled the menu it had just asked for, and the
-        // next press was the one that seemed to work. So wait for it, and
-        // take the screen only if it never comes.
-        if holding.is_empty() {
-            match meanwhile(&mut handle) {
-                Meanwhile::Drawn => return Alone::No,
-                Meanwhile::Free => return kept(&mut held, handle, name),
-                Meanwhile::Stuck => {}
-            }
-        }
-
-        // SAFETY: a signal to a pid, which is what the file said was there.
-        unsafe { libc::kill(pid, libc::SIGTERM) };
-
-        let waited = (0..PATIENCE).any(|_| {
-            let got = take(&handle);
-
-            if got == Took::Not {
-                std::thread::sleep(BREATH);
+            match pid == 0 || pid == ours {
+                true => return Ok(Alone::No),
+                false => {},
             }
 
-            got == Took::It
-        });
+            match holding == name && again == Again::Keeps {
+                true => {
+                    eprintln!("{name}: {pid} is showing it, and this door only opens");
 
-        // It will not go, and two of them is worse. Say so: a press that
-        // does nothing is otherwise a button reported as broken, with a
-        // journal that shows the press arriving and the chooser running.
-        if !waited {
-            eprintln!("{name}: {pid} has the screen and will not give it up");
-            return Alone::No;
-        }
+                    return Ok(Alone::No);
+                }
+                false => {},
+            }
 
-        if holding == name {
-            return Alone::No;
+            match holding.is_empty() {
+                true => {
+                    let Ok(meanwhile) = meanwhile(&mut handle);
+
+                    match meanwhile {
+                        Meanwhile::Drawn => return Ok(Alone::No),
+                        Meanwhile::Free => return kept(&mut held, handle, name),
+                        Meanwhile::Stuck => {}
+                    }
+                }
+                false => {},
+            }
+
+            // SAFETY: a signal to a pid, which is what the file said was there.
+            unsafe { libc::kill(pid, libc::SIGTERM) };
+
+            let waited = (0..PATIENCE).any(|_| {
+                let Ok(got) = take(&handle);
+
+                match got == Took::Not {
+                    true => {
+                        std::thread::sleep(BREATH);
+                    }
+                    false => {},
+                }
+
+                got == Took::It
+            });
+
+            match !waited {
+                true => {
+                    eprintln!("{name}: {pid} has the screen and will not give it up");
+
+                    return Ok(Alone::No);
+                }
+                false => {},
+            }
+
+            match holding == name {
+                true => return Ok(Alone::No),
+                false => {},
+            }
         }
+        false => {},
     }
 
     kept(&mut held, handle, name)
 }
 
-/// The screen is this process's now.
-///
-/// The door is left blank until it has been drawn on, so that a second press
-/// is let through to the one already coming rather than closing it.
-fn kept(held: &mut Option<Holding>, mut handle: File, name: &str) -> Alone {
-    written(&mut handle, "");
+fn kept(held: &mut Option<Holding>, mut handle: File, name: &str) -> Result<Alone, Never> {
+    let Ok(()) = written(&mut handle, "");
+
     *held = Some(Holding { handle, name: name.to_string() });
-    Alone::Yes
+
+    Ok(Alone::Yes)
 }
 
-/// The chooser is on the screen.
-///
-/// Until this is said the door is left blank, so that a second press is let
-/// through to the one already coming rather than closing it.
-pub fn drawn() {
-    let mut held = holding();
+pub fn drawn() -> Result<(), Never> {
+    let Ok(mut held) = holding();
 
-    let Some(holding) = held.as_mut() else { return };
+    let Some(holding) = held.as_mut() else { return Ok(()) };
 
     let name = holding.name.clone();
-    written(&mut holding.handle, &name);
+    let Ok(()) = written(&mut holding.handle, &name);
+
+    Ok(())
 }
 
-/// The chooser is off the screen, and what is left is this process going.
-///
-/// The door goes blank rather than staying named, so a press arriving while
-/// the last of it is winding down waits for the screen instead of reading it
-/// as a chooser to close. A chooser whose window has gone but which is still
-/// holding the lock is what one press in every open-and-close disappeared
-/// into.
-pub fn gone() {
-    let mut held = holding();
+pub fn gone() -> Result<(), Never> {
+    let Ok(mut held) = holding();
 
-    let Some(holding) = held.as_mut() else { return };
+    let Some(holding) = held.as_mut() else { return Ok(()) };
 
-    written(&mut holding.handle, "");
+    let Ok(()) = written(&mut holding.handle, "");
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -471,42 +396,55 @@ mod tests {
 
     #[test]
     fn the_lock_lives_under_the_sessions_own_runtime() {
-        // SAFETY: one thread, and the variable is put back before it ends.
-        unsafe { std::env::set_var("XDG_RUNTIME_DIR", "/run/user/1000") };
-        assert_eq!(where_(), Path::new("/run/user/1000/console/chooser.lock"));
-        unsafe { std::env::remove_var("XDG_RUNTIME_DIR") };
-        assert_eq!(where_(), Path::new("/tmp/console/chooser.lock"));
+        assert_eq!(
+            under(Some("/run/user/1000"), Some("wayland-1")),
+            Ok(PathBuf::from("/run/user/1000/console/chooser-wayland-1.lock"))
+        );
+        assert_eq!(
+            under(None, Some("wayland-1")),
+            Ok(PathBuf::from("/tmp/console/chooser-wayland-1.lock"))
+        );
+        assert_eq!(under(None, None), Ok(PathBuf::from("/tmp/console/chooser-no-screen-named.lock")));
     }
 
-    /// Two of the bar's icons are the same program at different tabs, so what
-    /// is written down is the door rather than the program.
+    #[test]
+    fn a_variable_set_to_nothing_has_not_named_a_screen() {
+        assert_eq!(
+            under(Some(""), Some("")),
+            Ok(PathBuf::from("/tmp/console/chooser-no-screen-named.lock"))
+        );
+    }
+
+    #[test]
+    fn two_screens_under_one_runtime_are_two_locks() {
+        let Ok(login) = under(Some("/run/user/1000"), Some("wayland-1"));
+        let Ok(nested) = under(Some("/run/user/1000"), Some("wayland-7"));
+
+        assert_ne!(login, nested);
+    }
+
     #[test]
     fn the_file_says_who_is_holding_it_and_which_door_they_came_out_of() {
-        assert_eq!(holder("1234 settings sound"), (1234, "settings sound"));
-        assert_eq!(holder("1234 "), (1234, ""));
+        assert_eq!(holder("1234 settings sound"), Ok((1234, "settings sound")));
+        assert_eq!(holder("1234 "), Ok((1234, "")));
     }
 
-    /// The door is left blank until the chooser is on the screen, which is
-    /// how a press that arrives while one is coming is told from a press
-    /// putting one away.
     #[test]
     fn a_chooser_on_its_way_has_a_pid_and_no_door() {
-        assert_eq!(holder("1234"), (1234, ""));
+        assert_eq!(holder("1234"), Ok((1234, "")));
     }
 
-    /// Which is what the bell on the bar asks for: a panel with no tab named,
-    /// whose door would otherwise be written with the space where the tab was
-    /// not and read back without it.
     #[test]
     fn a_door_named_for_a_tab_it_was_not_given_is_the_name_on_its_own() {
-        let name = door("notices ");
+        let Ok(name) = door("notices ");
+
         assert_eq!(name, "notices");
-        assert_eq!(holder(&format!("1234 {name}")), (1234, name));
+        assert_eq!(holder(&format!("1234 {name}")), Ok((1234, name)));
     }
 
     #[test]
     fn a_file_saying_nothing_names_nobody() {
-        assert_eq!(holder(""), (0, ""));
-        assert_eq!(holder("what"), (0, ""));
+        assert_eq!(holder(""), Ok((0, "")));
+        assert_eq!(holder("what"), Ok((0, "")));
     }
 }

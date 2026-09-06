@@ -14,50 +14,34 @@
 use console_controller::doing::Doing;
 use console_controller::means::{Job, Press, Table, What, When};
 use console_files::doing::{self, Deed};
-use console_pad::jobs::{ALONE, Binding, Held, Layer, Played};
+use console_gamepad::jobs::{ALONE, Binding, Held, Layer, Played};
+use console_never::Never;
 
 use crate::binds::binds;
 
-/// The section whose rows are things to do rather than things to know.
-///
-/// One word a tab, where there is one. These are read along a strip on a
-/// handheld, at a glance, by somebody who stopped reading because they could
-/// not remember a button: a title that has to be read twice has already cost
-/// more than it saves.
 pub const DOABLE: &str = "Anywhere";
 
-/// The section about what is in front of you when a chooser is up.
 pub const MENUS: &str = "Menus";
 
-/// The layers, and what each of them is headed.
-///
-/// The layer with nothing held is not in here: it is the whole of the rest of
-/// the guide. These three are the second thing a button does, and nothing is
-/// on R2 or on both triggers as this desktop ships -- so those two headings do
-/// not appear at all until somebody puts something there, which is a section
-/// read out of the table doing exactly what it should.
-const HELD: [(Layer, &str); 3] = [
+const HELD: [(Result<Layer, Never>, &str); 3] = [
     (Layer::of(Held::Down, Held::Up), "L2"),
     (Layer::of(Held::Up, Held::Down), "R2"),
     (Layer::of(Held::Down, Held::Down), "L2 + R2"),
 ];
 
-/// One line of the guide: a button, and what it does.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Line {
     pub button: String,
     pub does: String,
-    /// What the desktop runs when it is pressed, where anything is.
     pub runs: Option<Vec<String>>,
 }
 
 impl Line {
-    pub fn new(button: &str, does: &str) -> Self {
-        Line { button: button.to_string(), does: does.to_string(), runs: None }
+    pub fn new(button: &str, does: &str) -> Result<Self, Never> {
+        Ok(Line { button: button.to_string(), does: does.to_string(), runs: None })
     }
 }
 
-/// One heading and its lines.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Section {
     pub title: String,
@@ -65,256 +49,250 @@ pub struct Section {
 }
 
 impl Section {
-    fn of(title: &str, lines: Vec<Line>) -> Self {
-        Section { title: title.to_string(), lines }
+    fn of(title: &str, lines: Vec<Line>) -> Result<Self, Never> {
+        Ok(Section { title: title.to_string(), lines })
     }
 }
 
-/// A button, said the way this guide says it.
-///
-/// The words on the machine with the dashes taken out and the first letter
-/// raised. The d-pad keeps its dash, because that is how it is written
-/// everywhere else here and how anybody says it out loud.
-pub fn said(button: &str) -> String {
+pub fn said(button: &str) -> Result<String, Never> {
     let said = match button.strip_prefix("dpad-") {
         Some(way) => format!("d-pad {way}"),
         None => button.replace('-', " "),
     };
     let mut letters = said.chars();
 
-    match letters.next() {
+    Ok(match letters.next() {
         Some(first) => first.to_uppercase().collect::<String>() + letters.as_str(),
         None => String::new(),
-    }
+    })
 }
 
-/// The jobs on one layer, as lines, in the order the table holds them.
-///
-/// A job with nothing on this layer is not a line here, which is what makes a
-/// heading with no rows under it a heading nothing prints.
-fn lines(table: &Table, layer: Layer, wanted: impl Fn(&Job) -> bool) -> Vec<Line> {
-    table
-        .every()
+fn lines(table: &Table, layer: Layer, wanted: impl Fn(&Job) -> bool) -> Result<Vec<Line>, Never> {
+    let Ok(every) = table.every();
+
+    Ok(every
         .filter(|(job, _)| wanted(job))
-        .filter_map(|(job, bound)| line(job, bound, layer))
-        .collect()
+        .filter_map(|(job, bound)| {
+            let Ok(line) = line(job, bound, layer);
+
+            line
+        })
+        .collect())
 }
 
-/// One job, where anything on this layer plays it.
-///
-/// Two buttons doing one job is one line naming both, which is how the guide
-/// has always said the shoulders and how somebody reads it: the button with a
-/// keyboard drawn on it and X are not two things to learn.
-fn line(job: &Job, bound: &[Binding], layer: Layer) -> Option<Line> {
+fn line(job: &Job, bound: &[Binding], layer: Layer) -> Result<Option<Line>, Never> {
     let on: Vec<String> = bound
         .iter()
-        .filter(|one| one.played() == Played::ByAButton && one.layer == layer)
-        .map(|one| said(&one.button))
+        .filter(|one| {
+            let Ok(played) = one.played();
+
+            played == Played::ByAButton && one.layer == layer
+        })
+        .map(|one| {
+            let Ok(said) = said(&one.button);
+
+            said
+        })
         .collect();
 
-    match on.is_empty() {
-        // A job with no button at all is not a line. This is a guide to what
-        // pressing something comes to, and somebody who has taken the button
-        // off a job is told about it on the screen where they took it off.
+    let Ok(runs) = runs_for(job.what);
+    let Ok(says) = job.what.says();
+
+    Ok(match on.is_empty() {
         true => None,
-        false => Some(Line {
-            button: on.join(" / "),
-            does: job.what.says().to_string(),
-            runs: runs_for(job.what),
-        }),
-    }
+        false => Some(Line { button: on.join(" / "), does: says.to_string(), runs }),
+    })
 }
 
-/// What the desktop runs when a job is asked for, where it runs anything.
-///
-/// Read off the one table that says what a button is for, so the guide cannot
-/// promise something the desktop does not do -- and, since that table now
-/// carries the jobs this desktop does not itself carry out, cannot quietly
-/// omit one either. X was exactly that omission: the guide could only report
-/// what the profile said, and the profile said `North`.
-///
-/// Asked on the way down, because a row that does what it describes is doing
-/// the press and not the release. A job that sends a key rather than starting
-/// something is nothing a row can do for you: pressing Enter at a guide is not
-/// choosing the row the guide is describing.
-pub fn runs_for(what: What) -> Option<Vec<String>> {
-    match what.does(Press::Down)? {
+pub fn runs_for(what: What) -> Result<Option<Vec<String>>, Never> {
+    let Ok(does) = what.does(Press::Down);
+
+    let Some(doing) = does else { return Ok(None) };
+
+    Ok(match doing {
         Doing::Run(argv) => Some(argv),
-        // A key, or a word to the home screen. Neither is a program the guide
-        // could name, and neither is something a row of the guide could do
-        // for you: pressing Enter at a guide is not choosing the row the guide
-        // is describing, and moving the home screen's highlight from here
-        // would be moving a highlight nobody can see.
         Doing::Frame(_) | Doing::Tell(_) => None,
+    })
+}
+
+fn what_can_be_done() -> Result<String, Never> {
+    let mut said: Vec<&str> = Vec::new();
+
+    for deed in doing::EVERY {
+        let says = Deed::says(deed)?;
+
+        said.push(says);
     }
+
+    Ok(said.join(", "))
 }
 
-/// What Y offers on a thing in the files, read off the list the panel offers.
-///
-/// The list is the whole answer, and shorter than a sentence about it. Written
-/// once: a deed the files learn is a deed named here, without anybody
-/// remembering that the guide exists.
-fn what_can_be_done() -> String {
-    let said: Vec<&str> = doing::EVERY.iter().map(|deed| Deed::says(*deed)).collect();
-    said.join(", ")
-}
-
-/// The whole guide.
-pub fn sections(table: &Table, lua: &str) -> Vec<Section> {
-    // What a press comes to on its own, and then the things on this device
-    // that are not buttons at all and so are in no table.
-    let mut around = lines(table, ALONE, |job| {
+pub fn sections(table: &Table, lua: &str) -> Result<Vec<Section>, Never> {
+    let Ok(mut around) = lines(table, ALONE, |job| {
         !matches!(
             job.when,
             When::WithAChooserUp | When::OnTheHomeScreen | When::StandingOnASquare
         )
     });
-    around.extend([
-        Line::new("Volume rocker", "louder, quieter, unmute"),
-        Line::new("Touchpad", "move the pointer"),
-        Line::new("Tap the touchpad", "click"),
-        Line::new("Press the touchpad in", "click and hold to drag"),
-        Line::new("The screen", "tap to click, drag to scroll"),
-        Line::new("The bar", "tap its icons"),
-    ]);
-    // What a chooser makes of the same buttons, and then the ways of driving
-    // one that are the panel's own doing rather than any button's.
-    let mut menus = lines(table, ALONE, |job| job.when == When::WithAChooserUp);
-    menus.extend([
-        Line::new("D-pad", "move the highlight"),
-        Line::new("B", "back out"),
-        Line::new("X", "show or hide the keyboard"),
-        Line::new("Typing", "the top row of a menu that has one"),
-        Line::new("D-pad left / right", "move a level"),
-        Line::new("Right paddle, top", "close the menu"),
-        Line::new("Legion right", "the settings"),
-        Line::new("Menu", "this guide"),
-        Line::new("Tap a row", "the same as A"),
-        Line::new("\u{2039} and \u{203a}", "the tab before or after"),
-        Line::new("\u{2212} and +", "move a level with a finger"),
-        Line::new("\u{d7}", "close, the same as B"),
-        Line::new("Its bar icon", "tap it again to close"),
+    let Ok(rest) = written(&[
+        ("Volume rocker", "louder, quieter, unmute"),
+        ("Touchpad", "move the pointer"),
+        ("Tap the touchpad", "click"),
+        ("Press the touchpad in", "click and hold to drag"),
+        ("The screen", "tap to click, drag to scroll"),
+        ("The bar", "tap its icons"),
     ]);
 
-    let mut every = vec![Section::of(DOABLE, around)];
-    every.extend(
-        HELD.iter().map(|(layer, title)| Section::of(title, lines(table, *layer, |_| true))),
-    );
-    every.extend([
-        Section::of(
-            "Keyboard",
-            vec![
-                Line::new("X", "put the keyboard away"),
-                Line::new("A", "press the key you are on"),
-                Line::new("B", "backspace"),
-                Line::new("Y", "shift"),
-                Line::new("D-pad", "move between keys"),
-                Line::new("L1 / R1", "previous / next set of keys"),
-                Line::new("Menu", "enter"),
-                Line::new("Stick press", "press the key you are on"),
-            ],
-        ),
-        Section::of(MENUS, menus),
-        // The desktop with the apps drawn on it. Its own buttons are read off
-        // the table like everything else, and under them the things a finger
-        // does, which are the same deeds said the other way round: everything
-        // here can be reached with the pad alone and with the screen alone,
-        // which is what a machine that is held rather than pointed at has to
-        // be.
-        //
-        // Both sets of jobs, because the ones that only apply once there is a
-        // highlight up are still the home screen's -- a guide that left them
-        // out would be a guide that does not mention A.
-        Section::of(
-            "Home screen",
-            {
-                let mut home = lines(table, ALONE, |job| {
-                    matches!(job.when, When::OnTheHomeScreen | When::StandingOnASquare)
-                });
-                home.extend([
-                    Line::new("D-pad, first press", "show where you are standing"),
-                    Line::new("D-pad off the side", "the pane before or after"),
-                    Line::new("Hold A", "pick an app up; press again to put it down"),
-                    Line::new("Tap an app", "the same as A"),
-                    Line::new("Hold a finger on one", "pick it up"),
-                    Line::new("Swipe sideways", "the pane before or after"),
-                    Line::new("Swipe up", "the menu"),
-                ]);
-                home
-            },
-        ),
-        Section::of(
-            "Files",
-            vec![
-                Line::new("L1 / R1", "Home, and whatever is plugged in"),
-                Line::new("A", "open a folder or a file"),
-                Line::new("B", "the folder above"),
-                Line::new("Y", &what_can_be_done()),
-                Line::new("New folder", "under Y, in whichever folder you are in"),
-                Line::new("Copy or Move", "pick it up; a row puts it down"),
-                Line::new("Delete", "asks first; goes to the wastebasket"),
-                Line::new("Row nought", "the folder above, with a finger"),
-            ],
-        ),
-        Section::of(
-            "Music",
-            vec![
-                Line::new("A", "play a song, or a folder of them"),
-                Line::new("Y", "show it in the files, where it is renamed or thrown away"),
-                Line::new("Typing", "a song, whose it is, or anything it says"),
-                Line::new("D-pad left / right", "the song before it, the song after it"),
-                Line::new("Play them in any order", "on Playing, under what is on"),
-                Line::new("Play this one over", "on Playing, under what is on"),
-            ],
-        ),
-        // What the buttons come to inside a page, which is the one place on
-        // this device where they are not the table's doing. The add-on this
-        // desktop packs for the browser is what makes them mean this, and no
-        // table mentions any of it, so these rows are hand-written and are a
-        // promise somebody has to keep by hand. docs/browser.md is the rest.
-        Section::of(
-            "Browser",
-            vec![
-                Line::new("Y", "label everything on the page that can be pressed"),
-                Line::new("D-pad", "walk between those things, one at a time"),
-                Line::new("A", "take the one you are standing on"),
-                Line::new("B", "put the labels away, and then go back a page"),
-                Line::new("Y again", "the same labels, opening in a new tab"),
-                Line::new("Along the bottom", "look for something, the tabs, a new tab, close this one"),
-                Line::new("A new tab", "opens on the line to type a question into"),
-                Line::new("X", "the keyboard, for the line being typed into"),
-            ],
-        ),
-        // What the front of the machine means once Steam has the screen, which
-        // is almost nothing: it is Steam's there, down to the button that left
-        // for it. The one thing this desktop keeps is the hold, and a hold is
-        // not something anybody finds by pressing.
-        Section::of(
-            "Steam",
-            vec![
-                Line::new("Legion left", "Steam's own menu, which is Steam's to draw"),
-                Line::new("Legion left, held", "back to this desktop"),
-                Line::new("Everything else", "the pad, untouched, the way a game expects it"),
-            ],
-        ),
-        Section::of(
-            "Shortcuts",
-            binds(lua)
-                .into_iter()
-                .map(|bind| Line { button: bind.keys, does: bind.does, runs: Some(bind.runs) })
-                .collect(),
-        ),
+    around.extend(rest);
+
+    let Ok(mut menus) = lines(table, ALONE, |job| job.when == When::WithAChooserUp);
+    let Ok(rest) = written(&[
+        ("D-pad", "move the highlight"),
+        ("Y, in the menu", "put an app on the home screen, or take it off"),
+        ("B", "back out"),
+        ("X", "show or hide the keyboard"),
+        ("Typing", "the top row of a menu that has one"),
+        ("D-pad left / right", "move a level"),
+        ("Right paddle, top", "close the menu"),
+        ("Legion right", "the settings"),
+        ("Menu", "this guide"),
+        ("Tap a row", "the same as A"),
+        ("\u{2039} and \u{203a}", "the tab before or after"),
+        ("\u{2212} and +", "move a level with a finger"),
+        ("\u{d7}", "close, the same as B"),
+        ("Its bar icon", "tap it again to close"),
     ]);
-    every
+
+    menus.extend(rest);
+
+    let Ok(mut home) = lines(table, ALONE, |job| {
+        matches!(job.when, When::OnTheHomeScreen | When::StandingOnASquare)
+    });
+    let Ok(rest) = written(&[
+        ("D-pad, first press", "show where you are standing"),
+        ("D-pad off the side", "the pane before or after"),
+        ("Move it", "under Y; the d-pad carries it, A puts it down"),
+        ("Take it off", "under Y, on the square it is on"),
+        ("An empty square", "the menu, to put one there"),
+        ("Tap an app", "the same as A"),
+        ("Hold a finger on one", "pick it up"),
+        ("Swipe sideways", "the pane before or after"),
+        ("Swipe up", "the menu"),
+    ]);
+
+    home.extend(rest);
+
+    let Ok(what_can_be_done) = what_can_be_done();
+    let Ok(keyboard) = written(&[
+        ("X", "put the keyboard away"),
+        ("A", "press the key you are on"),
+        ("B", "backspace"),
+        ("Y", "shift"),
+        ("D-pad", "move between keys"),
+        ("L1 / R1", "previous / next set of keys"),
+        ("Menu", "enter"),
+        ("Stick press", "press the key you are on"),
+    ]);
+    let Ok(files) = written(&[
+        ("L1 / R1", "Home, and whatever is plugged in"),
+        ("A", "open a folder or a file"),
+        ("B", "the folder above"),
+        ("Y", &what_can_be_done),
+        ("New folder", "under Y, in whichever folder you are in"),
+        ("Copy or Move", "pick it up; a row puts it down"),
+        ("Delete", "asks first; goes to the wastebasket"),
+        ("Row nought", "the folder above, with a finger"),
+    ]);
+    let Ok(music) = written(&[
+        ("A", "play a song, or a folder of them"),
+        ("Y", "show it in the files, where it is renamed or thrown away"),
+        ("Typing", "a song, whose it is, or anything it says"),
+        ("D-pad left / right", "the song before it, the song after it"),
+        ("Play them in any order", "on Playing, under what is on"),
+        ("Play this one over", "on Playing, under what is on"),
+    ]);
+    let Ok(browser) = written(&[
+        ("Y", "label everything on the page that can be pressed"),
+        ("D-pad", "walk between those things, one at a time"),
+        ("A", "take the one you are standing on"),
+        ("B", "put the labels away, and then go back a page"),
+        ("Y again", "the same labels, opening in a new tab"),
+        ("Along the bottom", "look for something, the tabs, a new tab, close this one"),
+        ("A new tab", "opens on the line to type a question into"),
+        ("X", "the keyboard, for the line being typed into"),
+    ]);
+    let Ok(steam) = written(&[
+        ("Legion left", "Steam's own menu, which is Steam's to draw"),
+        ("Legion left, held", "back to this desktop"),
+        ("Everything else", "the pad, untouched, the way a game expects it"),
+    ]);
+    let Ok(binds) = binds(lua);
+    let shortcuts: Vec<Line> = binds
+        .into_iter()
+        .map(|bind| Line { button: bind.keys, does: bind.does, runs: Some(bind.runs) })
+        .collect();
+
+    let Ok(anywhere) = Section::of(DOABLE, around);
+    let mut every = vec![anywhere];
+
+    for (held, title) in HELD {
+        let Ok(layer) = held;
+        let Ok(under) = lines(table, layer, |_| true);
+        let Ok(section) = Section::of(title, under);
+
+        every.push(section);
+    }
+
+    for (title, lines) in [
+        ("Keyboard", keyboard),
+        (MENUS, menus),
+        ("Home screen", home),
+        ("Files", files),
+        ("Music", music),
+        ("Browser", browser),
+        ("Steam", steam),
+        ("Shortcuts", shortcuts),
+    ] {
+        let Ok(section) = Section::of(title, lines);
+
+        every.push(section);
+    }
+
+    Ok(every)
+}
+
+fn written(said: &[(&str, &str)]) -> Result<Vec<Line>, Never> {
+    Ok(said
+        .iter()
+        .map(|(button, does)| {
+            let Ok(line) = Line::new(button, does);
+
+            line
+        })
+        .collect())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use console_pad::jobs::Jobs;
+    use console_gamepad::jobs::Jobs;
 
     fn ours() -> Table {
-        Table::ours()
+        let Ok(table) = Table::ours();
+
+        table
+    }
+
+    fn moved(said: &Jobs) -> Table {
+        let Ok(table) = Table::of(said);
+
+        table
+    }
+
+    fn sections(table: &Table, lua: &str) -> Vec<Section> {
+        let Ok(sections) = super::sections(table, lua);
+
+        sections
     }
 
     fn section<'a>(every: &'a [Section], title: &str) -> &'a Section {
@@ -325,8 +303,6 @@ mod tests {
         section.lines.iter().find(|line| line.button == button).expect("a line")
     }
 
-    /// The second thing a button does is read out of the table rather than
-    /// written down here, which is what makes it true.
     #[test]
     fn what_a_trigger_held_makes_of_a_button_comes_from_the_table() {
         let every = sections(&ours(), "");
@@ -335,8 +311,6 @@ mod tests {
         assert_eq!(line(held, "Right paddle bottom").does, "a screenshot");
     }
 
-    /// A layer nobody has put anything on is a heading nothing prints. R2 is
-    /// the whole of this desktop's second trigger as it ships: empty.
     #[test]
     fn a_layer_with_nothing_on_it_has_nothing_under_it() {
         let every = sections(&ours(), "");
@@ -344,13 +318,10 @@ mod tests {
         assert!(section(&every, "L2 + R2").lines.is_empty());
     }
 
-    /// The one thing the whole rework is for: a job somebody moved is named on
-    /// the button they moved it to, in the section for the layer they put it
-    /// on, and nowhere else.
     #[test]
     fn a_job_somebody_moved_is_named_where_they_moved_it() {
         let said = Jobs::read("[jobs]\nscreenshot = \"r2 + a\"\n").expect("a table");
-        let every = sections(&Table::of(&said), "");
+        let every = sections(&moved(&said), "");
         assert_eq!(line(section(&every, "R2"), "A").does, "a screenshot");
         assert!(
             !section(&every, "L2").lines.iter().any(|line| line.does == "a screenshot"),
@@ -358,53 +329,43 @@ mod tests {
         );
     }
 
-    /// A job left with no button at all is not a line. This is a guide to what
-    /// pressing something comes to.
     #[test]
     fn a_job_with_no_button_is_not_something_to_press() {
         let said = Jobs::read("[jobs]\nmenu = \"\"\n").expect("a table");
-        let every = sections(&Table::of(&said), "");
+        let every = sections(&moved(&said), "");
         assert!(!section(&every, DOABLE).lines.iter().any(|line| line.does == "the menu"));
     }
 
-    /// Two buttons doing one job is one line naming both.
     #[test]
     fn two_buttons_that_do_one_thing_are_one_line() {
         let every = sections(&ours(), "");
         assert_eq!(line(section(&every, DOABLE), "X / Keyboard").does, "show or hide the keyboard");
     }
 
-    /// The table is the answer to what a row does, so a button given something
-    /// new to do becomes something new to press here without anybody saying so
-    /// twice.
     #[test]
     fn what_a_button_runs_comes_from_the_table_that_runs_it() {
-        assert_eq!(runs_for(What::PutAway), Some(vec!["put-away".to_string()]));
-        assert_eq!(runs_for(What::GameMode), Some(vec!["game-mode".to_string()]));
-        // A key is not something a row can do for you.
-        assert_eq!(runs_for(What::Back), None);
+        assert_eq!(runs_for(What::PutAway), Ok(Some(vec!["put-away".to_string()])));
+        assert_eq!(runs_for(What::GameMode), Ok(Some(vec!["game-mode".to_string()])));
+        assert_eq!(runs_for(What::Back), Ok(None));
     }
 
-    /// A button said the way somebody would say it out loud.
     #[test]
     fn a_button_is_said_the_way_it_is_spoken() {
-        assert_eq!(said("dpad-up"), "D-pad up");
-        assert_eq!(said("right-paddle-bottom"), "Right paddle bottom");
-        assert_eq!(said("l1"), "L1");
-        assert_eq!(said("legion-right"), "Legion right");
+        assert_eq!(said("dpad-up"), Ok("D-pad up".to_string()));
+        assert_eq!(said("right-paddle-bottom"), Ok("Right paddle bottom".to_string()));
+        assert_eq!(said("l1"), Ok("L1".to_string()));
+        assert_eq!(said("legion-right"), Ok("Legion right".to_string()));
     }
 
     #[test]
     fn the_guide_holds_together_with_nothing_read_off_the_machine() {
         let sections = sections(&ours(), "");
+
         assert_eq!(sections[0].title, DOABLE);
         assert!(!sections[0].lines.is_empty(), "the parts nothing has to be read for");
         assert!(sections.last().expect("a section").lines.is_empty(), "no keyboard, no binds");
     }
 
-    /// A guide is read on a device with no keyboard plugged into it, so the
-    /// keys it names are keys nobody can press. Every one of them is doable
-    /// from the guide instead.
     #[test]
     fn every_typed_bind_carries_a_way_of_asking_for_it() {
         let lua = "
@@ -416,9 +377,6 @@ hl.bind(mod .. \"W\", hl.dsp.window.close())
         assert!(typed.iter().all(|line| line.runs.is_some()), "a key nobody can press and nothing can ask for");
     }
 
-    /// A guide is read by somebody who does not know the answer, and a button
-    /// answered twice in one breath is worse than a button not answered at
-    /// all: they have to work out which of the two they are looking at.
     #[test]
     fn nothing_is_answered_twice_in_one_section() {
         for section in sections(&ours(), "") {
@@ -430,16 +388,15 @@ hl.bind(mod .. \"W\", hl.dsp.window.close())
         }
     }
 
-    /// The files name what can be done with a thing, and the guide says it in
-    /// one line. Read off the same list the panel offers, so a deed the files
-    /// learn is a deed the guide names.
     #[test]
     fn the_guide_names_every_deed_the_files_offer() {
         let sections = sections(&ours(), "");
         let files = section(&sections, "Files");
         let said = &line(files, "Y").does;
         for deed in doing::EVERY {
-            assert!(said.contains(Deed::says(deed)), "the guide does not name {}", Deed::says(deed));
+            let Ok(says) = Deed::says(deed);
+
+            assert!(said.contains(says), "the guide does not name {says}");
         }
     }
 

@@ -1,0 +1,37 @@
+[package]
+name = "console-test-stages"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_test_stages"
+path = "src/lib.rs"
+
+[dependencies]
+console-external-programs.workspace = true
+console-never.workspace = true
+console-onscreen.workspace = true
+console-number-conversion.workspace = true
+# Reading a screenshot back as pixels. The same version `console-keyboard`
+# draws with, deliberately: two versions here fork the whole glib stack --
+# glib, its proc macro, and four -sys crates -- and this machine compiles both.
+cairo-rs = { version = "0.22", features = ["png"] }
+evdev = "0.13"
+console-colour.workspace = true
+console-controller.workspace = true
+# `read` because a stage says what a button does, which means opening the
+# profiles. Nothing on the device does that; see `console-gamepad` for why it
+# is a feature.
+console-gamepad = { workspace = true, features = ["read"] }
+console-screen.workspace = true
+console-panel.workspace = true
+# The strip under the bar and the card beside it. A device run fills the same
+# file an apply does, from the other end of the ssh; see `watching`.
+console-notifications.workspace = true
+serde_json = "1"
+libc = "0.2"
+
+[lints]
+workspace = true

@@ -14,18 +14,16 @@ use console_panel::panel;
 
 fn main() {
     let build = Arc::new(|| {
-        vec![
-            Page::new(
-                "Wallpaper",
-                Rows::asked(|| {
-                    vec![
-                        Row::said("Follow the weather", ""),
-                        Row::said("Star Ride", "Abi Toads"),
-                    ]
-                }),
-            )
-            .on_arriving(|showing| showing.note("Star Ride is going up")),
-        ]
+        let Ok(asked) = Rows::asked(|| {
+            let Ok(weather) = Row::said("Follow the weather", "");
+            let Ok(picture) = Row::said("Star Ride", "Abi Toads");
+
+            vec![weather, picture]
+        });
+        let Ok(page) = Page::new("Wallpaper", asked);
+        let Ok(page) = page.on_arriving(|showing| showing.note("Star Ride is going up"));
+
+        vec![page]
     });
-    panel::show(build, 0, None);
+    let Ok(()) = panel::show(build, 0, None);
 }

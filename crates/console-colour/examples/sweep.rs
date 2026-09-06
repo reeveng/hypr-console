@@ -1,5 +1,3 @@
-// Prints what every function in the crate answers over a wide sweep, so the
-// same sweep taken from somewhere else can be diffed against it.
 use console_colour as col;
 
 fn main() {
@@ -12,13 +10,13 @@ fn main() {
             let mut chroma = 0.0;
 
             while chroma <= 0.2001 {
-                let code = col::hexcode(lightness, chroma, hue);
-                let (l, c, h) = col::to_oklch(&code);
+                let Ok(code) = col::hexcode(lightness, chroma, hue);
+                let Ok((l, c, h)) = col::to_oklch(&code);
+                let Ok(fitted) = col::fit(lightness, chroma, hue);
+                let Ok(lifted) = col::lift(&code, 0.07);
+
                 println!(
-                    "hex {hue} {lightness} {chroma} {code} {:.12} {:.12} {:.12} {:.12} {}",
-                    col::fit(lightness, chroma, hue),
-                    l, c, h,
-                    col::lift(&code, 0.07)
+                    "hex {hue} {lightness} {chroma} {code} {fitted:.12} {l:.12} {c:.12} {h:.12} {lifted}"
                 );
                 chroma += 0.025;
             }
@@ -31,9 +29,6 @@ fn main() {
 
     let grounds = ["2a1a24".to_string(), "3d2833".to_string()];
 
-    // A pairing that will not clear says why, and the sweep prints the reason
-    // in the column the number would have been in, so a run that differs shows
-    // which pairing stopped clearing rather than going quiet.
     let said = |found: Result<f64, col::Short>| match found {
         Ok(value) => format!("{value:.15}"),
         Err(why) => why.0,
@@ -56,13 +51,19 @@ fn main() {
 
     for one in codes {
         for other in codes {
-            println!("contrast {one} {other} {:.12}", col::contrast(one, other));
+            let Ok(contrast) = col::contrast(one, other);
+
+            println!("contrast {one} {other} {contrast:.12}");
 
             for alpha in [0.0, 0.075, 0.26, 0.5, 0.52, 0.88, 1.0] {
-                println!("over {one} {other} {alpha} {}", col::over(one, other, alpha));
+                let Ok(over) = col::over(one, other, alpha);
+
+                println!("over {one} {other} {alpha} {over}");
             }
         }
 
-        println!("lum {one} {:.15}", col::luminance(one));
+        let Ok(luminance) = col::luminance(one);
+
+        println!("lum {one} {luminance:.15}");
     }
 }

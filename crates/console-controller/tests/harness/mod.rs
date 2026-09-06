@@ -11,52 +11,46 @@ use console_controller::doing::{Doing, Out};
 use console_controller::finding::Says;
 use console_controller::reading::Ranges;
 use console_controller::turning::{Gone, Plugged, Took, Turning};
-use console_pad::capture::{Descriptor, captured};
-use console_pad::devices::Devices;
-use console_pad::go::{Held, LegionGo};
-use console_pad::router::every_profile;
-use console_pad::world::World;
+use console_gamepad::capture::{Descriptor, captured};
+use console_gamepad::devices::Devices;
+use console_gamepad::go::{Held, LegionGo};
+use console_gamepad::router::every_profile;
+use console_gamepad::world::World;
 
-/// The front of a Legion Go, and the four devices behind it.
 pub type Go = LegionGo<World, Held>;
 
-/// The repository, which is where the profiles are.
-///
-/// Tidied by `canonicalize` where that works and left as it stands where it
-/// does not, the way `console_stage::root` is. What `CARGO_MANIFEST_DIR` gives
-/// is already absolute and already right; canonicalizing only takes the `../..`
-/// out of the middle of it. It fails under a sandbox that will not let a
-/// process resolve a path it can otherwise read, and it failed here only when
-/// the whole workspace was tested at once -- thirty-six tests reporting a
-/// missing repository, on a machine holding the repository.
 pub fn root() -> std::path::PathBuf {
     let from = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     from.canonicalize().unwrap_or(from)
 }
 
-/// A machine holding a profile, and nothing of this one taking part.
+fn ok<T>(answer: Result<T, console_never::Never>) -> T {
+    let Ok(value) = answer;
+
+    value
+}
+
 pub fn go(profile: &str) -> Go {
-    let devices = Devices::new(captured().expect("the capture carried in this program parses"), World::of(captured().expect("the capture carried in this program parses")));
+    let world = ok(World::of(captured().expect("the capture carried in this program parses")));
+    let devices =
+        ok(Devices::new(captured().expect("the capture carried in this program parses"), world));
     LegionGo::new(every_profile(&root()).expect("the profiles"), devices, Held::default(), profile)
         .expect("a pad")
 }
 
-/// That world, offered to the daemon as somewhere devices are plugged in.
 struct Plug<'a> {
     devices: &'a mut Devices<World>,
 }
 
 impl Plug<'_> {
     fn descriptor(&self, path: &str) -> Option<&Descriptor> {
-        self.devices.descriptors.get(self.devices.sink.role_at(path)?)
+        self.devices.descriptors.get(ok(self.devices.sink.role_at(path))?)
     }
 }
 
 impl Plugged for Plug<'_> {
     fn every(&self) -> Vec<Says> {
-        self.devices
-            .sink
-            .plugged()
+        ok(self.devices.sink.plugged())
             .into_iter()
             .filter_map(|path| {
                 let told = self.descriptor(&path)?;
@@ -72,7 +66,7 @@ impl Plugged for Plug<'_> {
     }
 
     fn open(&mut self, path: &str) -> Took {
-        match self.devices.sink.role_at(path).is_some() {
+        match ok(self.devices.sink.role_at(path)).is_some() {
             true => Took::Held,
             false => Took::Refused,
         }
@@ -81,30 +75,31 @@ impl Plugged for Plug<'_> {
     fn ranges(&self, path: &str) -> Ranges {
         let Some(told) = self.descriptor(path) else { return Ranges::default() };
         Ranges {
-            stick: told.axis(AbsoluteAxisCode::ABS_RX.0).map_or(1, |axis| axis.span()),
-            trigger: told.axis(AbsoluteAxisCode::ABS_Z.0).map_or((0, 1), |axis| (axis.min, axis.max)),
+            stick: ok(told.axis(AbsoluteAxisCode::ABS_RX.0)).map_or(1, |axis| ok(axis.span())),
+            trigger: ok(told.axis(AbsoluteAxisCode::ABS_Z.0))
+                .map_or((0, 1), |axis| (axis.min, axis.max)),
         }
     }
 
     fn drain(&mut self, path: &str) -> Result<Vec<InputEvent>, Gone> {
-        let Some(role) = self.devices.sink.role_at(path).map(str::to_string) else {
+        let Some(role) = ok(self.devices.sink.role_at(path)).map(str::to_string) else {
             return Err(Gone);
         };
-        Ok(self.devices.sink.devices.get_mut(&role).map(console_pad::world::Device::drain).unwrap_or_default())
+        let arrived =
+            self.devices.sink.devices.get_mut(&role).map(|device| ok(device.drain()));
+
+        Ok(arrived.unwrap_or_default())
     }
 }
 
-/// Every command the daemon started, and everything it wrote.
 #[derive(Debug, Default)]
 pub struct Did {
     pub commands: Vec<Vec<String>>,
     pub written: Vec<Out>,
-    /// What was said to the home screen, in the order it was said.
-    pub told: Vec<console_door::Said>,
+    pub told: Vec<console_onscreen::Said>,
 }
 
 impl Did {
-    /// Just the program of each, which is usually the whole question.
     pub fn names(&self) -> Vec<String> {
         self.commands
             .iter()
@@ -113,7 +108,6 @@ impl Did {
             .collect()
     }
 
-    /// What was asked of the compositor, as the argument it was given.
     pub fn dispatched(&self) -> Vec<String> {
         self.commands
             .iter()
@@ -123,18 +117,15 @@ impl Did {
             .collect()
     }
 
-    /// Everything written of one kind and one code, in order.
     pub fn of_kind(&self, kind: EventType, code: u16) -> Vec<i32> {
         self.written.iter().filter(|out| out.kind == kind && out.code == code).map(|out| out.value).collect()
     }
 
-    /// One axis or one button added up, which is how far a wheel turned.
     pub fn total(&self, kind: EventType, code: u16) -> i32 {
         self.of_kind(kind, code).iter().sum()
     }
 }
 
-/// The daemon, loaded but not yet running.
 pub struct Daemon {
     turning: Turning,
     now: f64,
@@ -147,40 +138,33 @@ impl Default for Daemon {
     }
 }
 
-/// What happens partway through a run, by the turn it happens on.
-///
-/// Anything that has to happen while the daemon is running rather than before
-/// it starts belongs here, because a daemon started twice is two daemons.
 pub type Script<'a> = BTreeMap<usize, Box<dyn FnMut(&mut Go) + 'a>>;
 
 impl Daemon {
-    /// The daemon was stopped for a while, and the world went on without it.
-    ///
-    /// Which is what the on-screen keyboard does to it: the process is
-    /// stopped outright, its devices stay open, and everything pressed
-    /// meanwhile is waiting on them when it starts again.
     pub fn stopped_for(&mut self, seconds: f64) -> &mut Self {
         self.now += seconds;
         self
     }
 
-    /// Turn the daemon's loop over, and stop it after so many turns.
     pub fn run(&mut self, go: &mut Go, turns: usize) -> &mut Self {
         self.between(go, turns, &mut Script::new())
     }
 
-    /// The same, with something happening partway through.
     pub fn between(&mut self, go: &mut Go, turns: usize, script: &mut Script) -> &mut Self {
         for turn in 1..=turns {
             let mut plug = Plug { devices: &mut go.devices };
-            for what in self.turning.turn(&mut plug, self.now) {
+            let Ok(turned) = self.turning.turn(&mut plug, self.now);
+
+            for what in turned {
                 match what {
                     Doing::Run(argv) => self.did.commands.push(argv),
                     Doing::Frame(frame) => self.did.written.extend(frame),
                     Doing::Tell(said) => self.did.told.push(said),
                 }
             }
-            self.now += self.turning.poll();
+            let Ok(poll) = self.turning.poll();
+
+            self.now += poll;
             if let Some(happens) = script.get_mut(&turn) {
                 happens(go);
             }

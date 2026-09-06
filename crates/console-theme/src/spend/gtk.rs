@@ -10,8 +10,6 @@ use console_colour::Short;
 use crate::palette::Palette;
 use crate::spend::{ROLES, breeze, widest};
 
-/// What libadwaita calls things. Breeze's own vocabulary is longer and is
-/// worked out by rule; this one is short enough to say outright.
 const ADWAITA: [(&str, &str); 28] = [
     ("accent_bg_color", "pink"), ("accent_color", "pink"),
     ("accent_fg_color", "night"), ("borders", "edge"),
@@ -29,37 +27,39 @@ const ADWAITA: [(&str, &str); 28] = [
     ("window_bg_color", "panel"), ("window_fg_color", "text"),
 ];
 
-/// The column libadwaita's names are aligned into. Written down rather than
-/// measured, because these names are a fixed vocabulary and Breeze's are not.
 const ADWAITA_WIDTH: usize = 28;
 
 const SUFFIX: &str = "_breeze";
 
 pub fn spend(palette: &Palette) -> Result<String, Short> {
-    let width = widest(ROLES);
+    let Ok(width) = widest(ROLES);
     let colours = ROLES
         .iter()
-        .map(|name| Ok(format!("@define-color {name:<width$} #{};", palette.must(name)?)))
-        .collect::<Result<Vec<_>, Short>>()?
-        .into_iter();
+        .map(|name| {
+            let colour = palette.must(name)?;
+
+            Ok(format!("@define-color {name:<width$} #{colour};"))
+        })
+        .collect::<Result<Vec<_>, Short>>()?;
+    let colours = colours.into_iter();
 
     let adwaita = ADWAITA.iter().map(|(name, role)| {
         format!("@define-color {name:<ADWAITA_WIDTH$} @{role};")
     });
 
-    let breeze_width = widest(breeze::NAMES) + SUFFIX.len();
+    let Ok(widest) = widest(breeze::NAMES);
+
+    let breeze_width = widest.saturating_add(SUFFIX.len());
     let sorted = {
         let mut names = breeze::NAMES;
         names.sort_unstable();
         names
     };
-    // A name with no colour decided for it is left out rather than panicked
-    // over. It cannot happen -- `every_name_breeze_reads_has_a_colour_decided`
-    // holds `NAMES` against `role` -- and if it ever does, the cost is one
-    // widget wearing the toolkit's own grey instead of a theme that fails to
-    // write at all.
     let breeze = sorted.into_iter().filter_map(move |name| {
-        let role = breeze::role(name)?;
+        let Ok(role) = breeze::role(name);
+
+        let role = role?;
+
         Some(format!("@define-color {:<breeze_width$} @{role};", format!("{name}{SUFFIX}")))
     });
 

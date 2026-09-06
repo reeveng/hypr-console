@@ -26,26 +26,34 @@ use std::path::{Path, PathBuf};
 
 use console_defaults::engines;
 use console_defaults::policies::{self, CHROMIUM, FIREFOX, LIBREWOLF, Where};
+use console_never::Never;
 
 fn main() -> std::process::ExitCode {
-    let key = std::env::args().nth(1).unwrap_or_else(engines::chosen);
+    let Ok(chosen) = engines::chosen();
+    let key = std::env::args().nth(1).unwrap_or(chosen);
+    let Ok(known) = engines::one(&key);
 
-    let Some(engine) = engines::one(&key) else {
+    let Some(engine) = known else {
         eprintln!("{key}: not an engine this machine knows");
         return std::process::ExitCode::from(1);
     };
 
-    let said = |place: &Where| match place.file == CHROMIUM.file {
-        true => policies::chromium(engine),
-        false => policies::mozilla(place, engine, &shipped(place)),
-    };
-
     for place in [&CHROMIUM, &FIREFOX, &LIBREWOLF] {
-        if here(place.program) == Installed::No {
-            continue;
+        let Ok(installed) = here(place.program);
+
+        match installed {
+            Installed::Yes => {}
+            Installed::No => continue,
         }
 
-        match wrote(Path::new(place.file), &said(place)) {
+        let Ok(shipped) = shipped(place);
+
+        let Ok(said) = match place.file == CHROMIUM.file {
+            true => policies::chromium(engine),
+            false => policies::mozilla(place, engine, &shipped),
+        };
+
+        match wrote(Path::new(place.file), &said) {
             Ok(()) => println!("{}: {}", engine.says, place.file),
             Err(why) => eprintln!("{}: {why}", place.file),
         }
@@ -54,17 +62,9 @@ fn main() -> std::process::ExitCode {
     std::process::ExitCode::SUCCESS
 }
 
-/// What the browser ships, read at the moment of writing rather than kept.
-///
-/// An update to the browser is then carried into ours the next time an engine
-/// is chosen, instead of ours going quietly out of date against it.
-fn shipped(place: &Where) -> String {
-    match place.beneath.is_empty() {
+fn shipped(place: &Where) -> Result<String, Never> {
+    Ok(match place.beneath.is_empty() {
         true => String::new(),
-        // Nothing where the browser ships no list of its own, which is the
-        // ordinary case and is what the caller merges against. A list that is
-        // there and will not be read gives the same empty answer and means
-        // something else: ours is about to go out of date against it in silence.
         false => match std::fs::read_to_string(place.beneath) {
             Ok(said) => said,
             Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => String::new(),
@@ -74,23 +74,16 @@ fn shipped(place: &Where) -> String {
                 String::new()
             }
         },
-    }
+    })
 }
 
-/// Whether a program is on this machine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Installed {
-    /// It is somewhere on the PATH, so there is a browser to write a policy for.
     Yes,
-    /// It is not, and there is nothing here to configure.
     No,
 }
 
-fn here(program: &str) -> Installed {
-    // No PATH is a session that named none, and the two directories below are
-    // where a browser is on this machine. A PATH set to something that is not
-    // text is somebody's environment being wrong rather than absent, and it
-    // used to reach here as the same fallback without a word.
+fn here(program: &str) -> Result<Installed, Never> {
     let path = match std::env::var("PATH") {
         Ok(path) => path,
         Err(std::env::VarError::NotPresent) => "/usr/bin:/usr/local/bin".to_string(),
@@ -106,17 +99,16 @@ fn here(program: &str) -> Installed {
         .filter(|at| !at.is_empty())
         .any(|at| PathBuf::from(at).join(program).exists());
 
-    match found {
+    Ok(match found {
         true => Installed::Yes,
         false => Installed::No,
-    }
+    })
 }
 
-/// Write one policy, making the directory it goes in if the browser's package
-/// did not.
 fn wrote(at: &Path, said: &str) -> std::io::Result<()> {
-    if let Some(parent) = at.parent() {
-        std::fs::create_dir_all(parent)?;
+    match at.parent() {
+        Some(parent) => std::fs::create_dir_all(parent)?,
+        None => {}
     }
 
     std::fs::write(at, said)

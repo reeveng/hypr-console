@@ -1,12 +1,11 @@
 //! What is in the music folder.
 
+use console_never::Never;
 use std::path::{Path, PathBuf};
 
-/// What kew will play, which is what is worth listing.
 pub const KINDS: [&str; 9] =
     ["aac", "flac", "m4a", "mp3", "ogg", "opus", "wav", "webm", "wma"];
 
-/// One thing to choose: a folder of songs, or a song.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Thing {
     pub name: String,
@@ -14,11 +13,7 @@ pub struct Thing {
     pub folder: bool,
 }
 
-/// Where the music is.
-///
-/// kew's own setting first, so that the panel and the player never disagree
-/// about which folder they are talking about.
-pub fn folder() -> PathBuf {
+pub fn folder() -> Result<PathBuf, Never> {
     let home = match std::env::var("HOME") {
         Ok(home) => home,
 
@@ -28,44 +23,34 @@ pub fn folder() -> PathBuf {
         }
     };
 
-    said_by_kew()
+    let said = said_by_kew()?;
+
+    Ok(said
         .map(|said| PathBuf::from(said.replace('~', &home)))
-        .unwrap_or_else(|| PathBuf::from(home).join("Music"))
+        .unwrap_or_else(|| PathBuf::from(home).join("Music")))
 }
 
-fn said_by_kew() -> Option<String> {
+fn said_by_kew() -> Result<Option<String>, Never> {
     let config = gtk4::glib::user_config_dir().join("kew/kewrc");
 
-    let Ok(said) = std::fs::read_to_string(config) else { return None };
+    let Ok(said) = std::fs::read_to_string(config) else { return Ok(None) };
 
     path_in(&said)
 }
 
-/// The music path out of kew's settings file.
-pub fn path_in(kewrc: &str) -> Option<String> {
-    kewrc
+pub fn path_in(kewrc: &str) -> Result<Option<String>, Never> {
+    Ok(kewrc
         .lines()
         .find_map(|line| line.trim().strip_prefix("path="))
         .map(|said| said.trim().to_string())
-        .filter(|said| !said.is_empty())
+        .filter(|said| !said.is_empty()))
 }
 
-/// Tell kew where the music is, if nothing has told it yet.
-///
-/// kew asks this once, on its first run, by printing the question and reading
-/// the answer off the terminal. Started by a panel it has no terminal: it says
-/// "Error reading input" into nothing and stops before it has played a note,
-/// so every press of A does nothing and says nothing about why. The panel
-/// already knows the answer -- it is the folder it is listing -- so it writes
-/// it down before kew is ever asked to play.
-pub fn tell_kew(folder: &Path) {
+pub fn tell_kew(folder: &Path) -> Result<(), Never> {
     let config = gtk4::glib::user_config_dir().join("kew/kewrc");
     let said = match std::fs::read_to_string(&config) {
         Ok(said) => said,
 
-        // Never having had the file is kew's first run, which is the whole
-        // case this exists for. A file that is there and will not open is not:
-        // it is about to be written over, so it is said first.
         Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => String::new(),
 
         Err(fault) => {
@@ -74,105 +59,110 @@ pub fn tell_kew(folder: &Path) {
         }
     };
 
-    let Some(writing) = with_path(&said, &folder.to_string_lossy()) else { return };
+    let with_path = with_path(&said, &folder.to_string_lossy())?;
+
+    let Some(writing) = with_path else { return Ok(()) };
 
     let _ = std::fs::create_dir_all(config.parent().unwrap_or(&config));
     let _ = std::fs::write(&config, writing);
+
+    Ok(())
 }
 
-/// kew's settings file with the music folder named in it, or nothing to do.
-///
-/// The line is written where it already is rather than added at the end,
-/// because the file kew makes on its first run has `path=` in it and empty,
-/// and a settings file that says the same thing twice is one nobody can read.
-pub fn with_path(kewrc: &str, folder: &str) -> Option<String> {
-    if path_in(kewrc).is_some() {
-        return None;
+pub fn with_path(kewrc: &str, folder: &str) -> Result<Option<String>, Never> {
+    let already = path_in(kewrc)?;
+
+    match already.is_some() {
+        true => return Ok(None),
+        false => {},
     }
 
     let told = format!("path={folder}");
     let mut lines: Vec<String> = kewrc.lines().map(|line| line.to_string()).collect();
 
     match lines.iter().position(|line| line.trim().starts_with("path=")) {
-        Some(at) => lines[at] = told,
+        Some(at) => match lines.get_mut(at) {
+            Some(line) => *line = told,
+            None => lines.push(told),
+        },
         None => lines.push(told),
     }
 
-    Some(lines.join("\n") + "\n")
+    Ok(Some(lines.join("\n") + "\n"))
 }
 
-/// What is in a folder, folders first and each in name order.
-pub fn things(folder: &Path) -> Vec<Thing> {
-    let Ok(reading) = std::fs::read_dir(folder) else { return Vec::new() };
+pub fn things(folder: &Path) -> Result<Vec<Thing>, Never> {
+    let Ok(reading) = std::fs::read_dir(folder) else { return Ok(Vec::new()) };
 
-    let mut things: Vec<Thing> = reading
-        .flatten()
-        .filter_map(|entry| about(&entry.path()))
-        .collect();
+    let mut things: Vec<Thing> = Vec::new();
 
-    things.sort_by_key(|thing| (!thing.folder, thing.name.to_lowercase()));
-    things
-}
+    for entry in reading.flatten() {
+        let about = about(&entry.path())?;
 
-/// What one path in a music folder is, if it is anything.
-fn about(path: &Path) -> Option<Thing> {
-    let name = path.file_name()?.to_string_lossy().to_string();
-
-    if name.starts_with('.') {
-        return None;
+        match about {
+            Some(thing) => things.push(thing),
+            None => {},
+        }
     }
 
+    things.sort_by_key(|thing| (!thing.folder, thing.name.to_lowercase()));
+
+    Ok(things)
+}
+
+fn about(path: &Path) -> Result<Option<Thing>, Never> {
+    let Some(called) = path.file_name() else { return Ok(None) };
+
+    let name = called.to_string_lossy().to_string();
+
+    match name.starts_with('.') {
+        true => return Ok(None),
+        false => {},
+    }
+
+    let playable = playable(path)?;
+
     match path.is_dir() {
-        true => Some(Thing { name, path: path.to_path_buf(), folder: true }),
-        false => match playable(path) {
+        true => Ok(Some(Thing { name, path: path.to_path_buf(), folder: true })),
+        false => match playable {
             Playable::Yes => {
-                Some(Thing { name: named(&name), path: path.to_path_buf(), folder: false })
+                let named = named(&name)?;
+
+                Ok(Some(Thing { name: named, path: path.to_path_buf(), folder: false }))
             }
-            Playable::No => None,
+            Playable::No => Ok(None),
         },
     }
 }
 
-/// Whether kew would play a file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Playable {
-    /// It is a kind kew reads.
     Yes,
-    /// It is a cover, a note, or something else in the folder.
     No,
 }
 
-/// Whether one thing to play is a folder or a song.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
-    /// Played whole, in the order it is in.
     AFolder,
-    /// One song.
     ASong,
 }
 
-/// Whether kew would play this file.
-pub fn playable(path: &Path) -> Playable {
-    let Some(kind) = path.extension() else { return Playable::No };
+pub fn playable(path: &Path) -> Result<Playable, Never> {
+    let Some(kind) = path.extension() else { return Ok(Playable::No) };
 
-    match KINDS.contains(&kind.to_string_lossy().to_lowercase().as_str()) {
+    Ok(match KINDS.contains(&kind.to_string_lossy().to_lowercase().as_str()) {
         true => Playable::Yes,
         false => Playable::No,
-    }
+    })
 }
 
-/// A filename, as a title.
-///
-/// The extension goes, and so does the YouTube id a download leaves in square
-/// brackets at the end. Both of them are the file's business rather than the
-/// song's.
-pub fn named(filename: &str) -> String {
+pub fn named(filename: &str) -> Result<String, Never> {
     let name = filename.rsplit_once('.').map_or(filename, |(stem, _)| stem);
 
-    match name.rsplit_once(" [") {
+    Ok(match name.rsplit_once(" [") {
         Some((title, tail)) if tail.ends_with(']') => title.trim().to_string(),
-        _ => name.trim().to_string(),
-    }
+        Some(_) | None => name.trim().to_string(),
+    })
 }
 
 #[cfg(test)]
@@ -181,37 +171,36 @@ mod tests {
 
     #[test]
     fn kews_own_path_is_the_one_used() {
-        assert_eq!(path_in("path=~/Music\nvolume=50\n"), Some("~/Music".to_string()));
-        assert_eq!(path_in("volume=50\n"), None);
+        assert_eq!(path_in("path=~/Music\nvolume=50\n"), Ok(Some("~/Music".to_string())));
+        assert_eq!(path_in("volume=50\n"), Ok(None));
     }
 
-    /// The empty one kew writes on its first run is the one that matters: left
-    /// as it is, kew stops to ask a question nobody can answer.
     #[test]
     fn a_settings_file_that_names_no_folder_is_given_one() {
-        let said = with_path("[miscellaneous]\n\npath=\n\nvolume=50\n", "/home/ada/Music");
+        let Ok(said) = with_path("[miscellaneous]\n\npath=\n\nvolume=50\n", "/home/ada/Music");
+
+        let Ok(empty) = with_path("", "/home/ada/Music");
+
         assert_eq!(said.as_deref(), Some("[miscellaneous]\n\npath=/home/ada/Music\n\nvolume=50\n"));
-        assert_eq!(with_path("", "/home/ada/Music").as_deref(), Some("path=/home/ada/Music\n"));
+        assert_eq!(empty.as_deref(), Some("path=/home/ada/Music\n"));
     }
 
-    /// A person who has said where their music is has said it, and a panel
-    /// that writes over that is a panel that moves their library.
     #[test]
     fn a_settings_file_that_names_one_is_left_alone() {
-        assert_eq!(with_path("path=~/Songs\n", "/home/ada/Music"), None);
+        assert_eq!(with_path("path=~/Songs\n", "/home/ada/Music"), Ok(None));
     }
 
     #[test]
     fn a_download_keeps_its_title_and_loses_its_id() {
-        assert_eq!(named("505 [qU9mHegkTc4].opus"), "505");
-        assert_eq!(named("227.Pink + White.flac"), "227.Pink + White");
+        assert_eq!(named("505 [qU9mHegkTc4].opus"), Ok("505".to_string()));
+        assert_eq!(named("227.Pink + White.flac"), Ok("227.Pink + White".to_string()));
     }
 
     #[test]
     fn only_what_the_player_plays_is_listed() {
-        assert_eq!(playable(Path::new("/a/b.OPUS")), Playable::Yes);
-        assert_eq!(playable(Path::new("/a/b.mp3")), Playable::Yes);
-        assert_eq!(playable(Path::new("/a/cover.jpg")), Playable::No);
-        assert_eq!(playable(Path::new("/a/notes")), Playable::No);
+        assert_eq!(playable(Path::new("/a/b.OPUS")), Ok(Playable::Yes));
+        assert_eq!(playable(Path::new("/a/b.mp3")), Ok(Playable::Yes));
+        assert_eq!(playable(Path::new("/a/cover.jpg")), Ok(Playable::No));
+        assert_eq!(playable(Path::new("/a/notes")), Ok(Playable::No));
     }
 }

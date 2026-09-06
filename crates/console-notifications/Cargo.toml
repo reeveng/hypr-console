@@ -1,0 +1,44 @@
+[package]
+name = "console-notifications"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_notifications"
+path = "src/lib.rs"
+
+[[bin]]
+name = "notices-panel"
+path = "src/bin/notices-panel.rs"
+
+[[bin]]
+name = "console-say"
+path = "src/bin/console-say.rs"
+
+[[bin]]
+name = "console-fell"
+path = "src/bin/console-fell.rs"
+
+[[bin]]
+name = "console-updating"
+path = "src/bin/console-updating.rs"
+
+# The bar's half of the same subject: the card says an apply is running, this
+# says how much longer.
+[[bin]]
+name = "bar-updating"
+path = "src/bin/bar-updating.rs"
+
+[dependencies]
+console-external-programs.workspace = true
+console-never.workspace = true
+console-panel.workspace = true
+console-program-contract.workspace = true
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[lints]
+workspace = true

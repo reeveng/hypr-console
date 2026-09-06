@@ -81,7 +81,11 @@ target for what the row does anyway.
 ## What a row keeps room for at its front
 
 `Row::picturing` keeps a square at the front of the row: a photograph's own
-thumbnail, or an icon named out of the theme, or nothing.
+thumbnail, or an icon out of the theme, or nothing. Which icon is a variant of
+`console_panel::icons::Icon` rather than a name spelled at the call site, so
+that the list of icons this desktop needs is one list a device-tier check can
+hold against the theme the machine actually has. It found one that was not
+there.
 
 Asked of the whole list rather than of each row, so the names start in one
 place. A folder wears the folder icon, which is symbolic and therefore drawn in
@@ -154,9 +158,17 @@ A card about one thing is the case that looks like the exception and is not. The
 now-playing card is one song from the sleeve to the row of buttons, so every row
 of it a thumb can stand on offers the same Y and opens the files panel on that
 song. Every row of that card is about the same thing, so the row is still what
-answered. What it must not do is put Y on the row a card is *titled* with: a
-title is a heading, the highlight walks past it, and a button offered only there
-is a button that cannot be pressed from anywhere.
+answered. What it must not do is put Y on the row a card is *titled* with and
+nowhere else: a title is a heading, the highlight walks past it, and a button
+offered only there is a button that cannot be pressed from anywhere.
+
+The mark is a different question from the offer. One offer made by three rows
+draws three marks down one card about one song, which reads as three different
+things a finger could do; so the rows a thumb stands on carry Y with no mark of
+their own, and the card draws it once, in the corner of its head, where a card
+about one thing has always put what else there is. `Row::ended` with two empty
+ends is how a row says it carries the offer and draws nothing for it, and
+`one_mark_for_one_subject` is the rule held against the card that comes out.
 
 ## The name of a list is not one of its rows
 
@@ -198,8 +210,65 @@ changed, which is worse than a thing that is missing.
 
 So: a tap on a row is A. Row nought is B. The **−** and **+** on a row are left
 and right. The **‹** and **›** either side of the strip are the shoulders. The
-**×** is the way out of the card. `crates/console-manifest` holds the bar to
-this, and the table in the button contract is the list.
+**⋯** at the end of a row is Y. The **×** is the way out of the card.
+`crates/console-manifest` holds the bar to this, and the table in the button
+contract is the list.
+
+A row may ask to wear no marks at all, by naming two ends that are both empty.
+It is what a picture asks for: the whole width is the picture's, a hand steps it
+by pushing it aside, and a button hung on the far edge would be a thing floating
+in the middle of what somebody is looking at. It takes the marks off and never
+the deed -- Y still answers on a bare row, drawn on the row beside it -- which
+is how a card with one subject ends up with one **⋯** rather than one per line
+it is written on. That is where the two viewers this was read against put it:
+Loupe behind a single button on its bar, the phone galleries behind a single
+overflow at the end of the actions.
+
+The **⋯** is drawn on every other row that has something behind Y, the way the ends
+of a level are drawn on every row that carries one, and it presses that row's
+own offer rather than whatever the highlight is on. That difference is the
+whole of why it is not simply Y wired to a button: a thumb asks about the row
+it is standing on, and a finger asks about the row it has landed on, and those
+are the same question only while nobody is using the screen.
+
+It is the mark the panel drew last, and what it cost to be without it is the
+measure of the rule. Renaming a file, deleting one, picking one up, what a
+film's subtitles are, how fast it plays, opening it over the whole screen --
+every one of those lived behind Y and behind nothing else, so a machine put
+down on a table could look at all of them and change none of them.
+
+## A swipe across a row is that row's level
+
+Left and right on a row that carries a level is the one thing this desktop
+offers that a finger could otherwise reach only by aiming at a mark the width of
+a thumbnail. Every gallery anybody arriving here has already used steps to the
+next picture by pushing the one in front of them out of the way, so a swipe is
+wired to the row's own level closure -- the same one the **−** and **+** press
+and the same one the d-pad calls. Nothing has to be taught it: a row that gains
+a level gains the mark, the button and the hand together, and a panel cannot be
+written that answers one and not the others.
+
+The sign is the one every phone uses and it is the opposite of the arithmetic:
+pushed to the left brings the *next* thing in from the right, because the hand
+is moving the thing being looked at rather than the place in the list. A drag
+that is mostly downward is the list being scrolled and is left alone, and a
+thumb resting on a row has no speed in it and has asked for nothing.
+
+Touch and the touchpad both, which is what Loupe does. Nothing is lost by taking
+both -- a press and a release in the same place has no speed in it, so a tap is
+never read as a push -- and it is the difference between a gesture a check can
+make and one only a thumb can.
+
+## Opened out, the way back comes off the strip
+
+A picture opened over the whole screen has no tab strip, which is where the
+**×** lives, and a card with no × is a card a finger cannot leave. So the mark
+comes off the strip and lies on the picture, in the corner, and it keeps the
+same hours as everything else the card draws: a page that has put its own rows
+away -- a film being watched, a few seconds after the last press -- is a page
+that wants the screen, and the next tap anywhere brings the rows and the mark
+back together. That tap is spent doing only that, which is the rule the pad has
+always been held to and the screen was not.
 
 ## A question is a surface, not a list
 
@@ -250,6 +319,29 @@ A row nothing happens to cannot be the row a card opens on, whatever it says
 about itself. The highlight would be standing where A does nothing, which is the
 fault this rule exists to avoid rather than one to introduce by another door.
 
+## A card about one thing is set in the middle of its room
+
+A list starts at the top of the card and grows down it, because that is where
+reading starts and because a row that lands late must not move the rows above
+it.
+
+A card is not a list, and the now-playing card is the case that shows it. It is
+three rows -- the sleeve with the title beside it, the bar, the row of buttons
+-- and the card it is drawn on is the same height as the one the menu fills,
+because the card is one size whatever is on it. So the whole player sat against
+the top edge with a third of the card empty under it, which reads as a surface
+that has not finished loading rather than as one that is about a single song.
+
+`Page::in_the_middle` says the page is a card, and its rows are set in the
+middle of the room instead of from the top. It is a property of the page rather
+than something worked out from how many rows there are: a tab that centred
+itself whenever its rows happened to be short would move every row on it the
+moment one more arrived, which is the fault the remembered rows exist to avoid.
+
+It is the same answer a picture opened out already got, and now it is one
+answer rather than two: `Opened::Out` centres what it draws because the screen
+is the picture's, and a card centres because the card is about one thing.
+
 ## What is slow does not happen where the drawing happens
 
 A panel that is waiting is a panel that has stopped answering the buttons, which
@@ -290,7 +382,7 @@ lands late moves every row under it.
 They are not unknowable, though. They were known last time. `console_panel::before`
 writes down what a command said as it answers, and the tab's `meanwhile` builds
 its rows out of what was written down. The menu keeps its own list the same way,
-under `console_menu::kept`.
+under `console_applications::kept`.
 
 Three things make it honest rather than a guess drawn as an answer:
 
@@ -333,10 +425,63 @@ loader, the wait for whatever chooser had the screen, GTK coming up, the card
 being built, the rows going on it, and the first frame. One line per opening,
 with the stretches as its fields, so a question about the menu is a question
 anybody can ask the file rather than a print somebody adds and takes out again.
-`console_timings` is the writing and `console-timings` is the reading.
+`console_wait_times` is the writing and `console-wait-times` is the reading.
 
 It is on always. Timings that have to be asked for are timings nobody has when
 they want them, because the opening worth reading about already happened.
+
+The line is handed to a queue and written by a thread of the process's own, so
+the stopwatch does not cost the thing it is timing: the frame that was about to
+be drawn does not wait for a disk. A program whose whole run is one wait -- the
+two session switches, the desktop starting -- calls `settled` before it exits,
+because a queued line is in that process and nowhere else.
+
+### `press`, and the lines that do not have one
+
+`press` is the only stretch nothing in the timed process can see, and it is
+there when whoever started the program stamped it. That is the daemon, which
+holds a press for as long as a turn of its loop takes before it starts
+anything, and a panel starting an application because somebody pressed a row.
+
+An opening from the bar has no `press`, and that is not a stamp going missing.
+Waybar forks on the touch, so the fork *is* the press: `exec` already holds the
+whole of that wait and there is nothing before it to measure. The bar says so
+rather than leaving it to be worked out -- its clicks carry `CONSOLE_FROM=bar`,
+and every line records `from` under `with`.
+
+Two rules keep the field honest, and both exist because it was wrong before
+them. A stamp that is not there leaves the field out rather than writing a
+zero, because zero is a measurement and means the machine answered instantly.
+And a stamp goes stale: the environment is inherited, so a panel started by a
+press hands that press to everything it ever starts, and a stamp read back
+minutes later measured a wait that was over minutes ago. Anything past `STALE`
+is not a press, and anything a panel starts that nobody pressed -- a picture
+drawn in the background, a program asked a question, a watcher -- has both
+marks taken off it.
+
+### What is timed that is not a panel
+
+Three waits are not a GTK surface and had to say so themselves.
+
+The **keyboard** is cairo on a layer surface of its own, so nothing above
+reaches it. It writes `keyboard`/`starting` once, with the palette, the
+keymaps, the compositor and the typist as its stretches; `keyboard`/`showing`
+every time it is asked onto the screen, from the signal to the first frame; and
+`keyboard`/`language` around a layer change, which is where an xkb keymap is
+compiled and the one place it is likely to be slow.
+
+The **daemon** writes `controller`/`press`: the stretch between the pad saying
+something and the daemon deciding to act on it, which is what says whether a
+slow opening is the daemon or the toolkit. A turn happens twenty times a second
+and almost all of them decide nothing and write nothing. One that starts a
+program always writes; one that only scrolled writes if it took longer than a
+frame.
+
+The **session switch** is the longest wait on the machine. `console_session`
+times the steps of going and coming back, but a switch usually does not get to
+write its line -- the session going down takes the program writing it too. What
+always lands is `session`/`starting`, measured in the session coming up, which
+is the half somebody is sitting there watching.
 
 Two things it says that reading the code does not. The first is that most of an
 opening is the rows: they are built one at a time and each of them opens its own
@@ -350,6 +495,15 @@ The store is `~/.local/state/console/waited.jsonl`, beside the tab a panel was
 left on, and not under `~/.cache` with the readings a tab draws itself from:
 those are the machine's own answers to questions anybody can ask it again, and
 this is the only record that the menu was slow on Tuesday.
+
+It is kept. The rotation is at ten gigabytes, which on this device is a stop
+against a program stuck in a loop rather than a retention policy: the question
+these lines exist to answer is whether the machine is getting slower, and a
+store that holds a week cannot be asked it. So nothing is thinned to make room
+-- the music panel's line per refresh stays where it is -- and the reading is
+what changed instead. `console-wait-times` walks the file a line at a time and
+holds a window of the last few thousand; `--all` is for whoever wants the year
+and has the memory for it.
 
 ## Most of what an opening cost was the machine being asleep
 
@@ -380,6 +534,61 @@ at a time, the tab is still drawn twice, and both are still worth what they
 cost. It is a reason to measure a change against a machine that is awake, since
 otherwise half of what any change appears to buy is the clock.
 
+## And the rest of it was starting a program at all
+
+The store went on saying the same thing after the clock was dealt with, and by
+then it was saying it about a machine that was awake: on every surface the two
+largest stretches are `exec` and the toolkit coming up. Neither is work about
+the panel. They are what it costs to begin from nothing, and this desktop began
+from nothing fifteen times an evening because a panel was a process.
+
+So the panels are held by one program. `console-panels` opens the display once,
+parses the stylesheet once, reads the icon theme once, and draws whichever
+panel it is asked for; `crates/console-panel-host` is that program and its head
+is the argument. What each panel crate hands it is a `Card` — a closure that
+builds the pages, and the shutting-down its `main` used to do after the loop
+ended — and what decides whether one may open at all is a `Door`, which is a
+name and a rule about opening it twice.
+
+**The panel's own program did not go away, and that is the load-bearing part.**
+The one-chooser lock is a `flock` held open for as long as a process lives, and
+the kernel drops it however that process ends — which is what lets a chooser
+that was killed outright leave nothing behind for the next one to trip on. A
+host that outlived every panel would be a host that never let go. So `launcher`
+is still exec'd by the bar, the paddle, the compositor's key and the menu's own
+`.desktop` file; it still takes the lock, and it now stands there with nothing
+to draw until the host says the surface is gone. Everything that reads the
+screen — the daemon deciding a chooser is up, the bar lighting an icon, a check
+asking `hyprctl` what is on which layer — sees exactly what it saw before,
+under the same namespace.
+
+**A panel with no host is merely slower.** This is a daemon and it can be down,
+and nothing may be written as though it cannot: a socket that refuses is a
+panel that draws itself in its own process, the way every panel did, and says
+so on the journal rather than on the screen. It is the rule
+`console-event-broker` already keeps, for the same reason.
+
+**Nothing is kept between openings.** The window is destroyed and built again
+rather than hidden and shown, and the card is built by the same call the old
+`main` made. That gives back a little of what the change bought — the layer
+surface and the first frame are still per-opening — and it is worth it: a
+surface that survived would be a surface holding a reading nobody refreshed,
+which `docs/programs.md` names as the one real hazard in a program that holds
+state. The two caches the menu kept in `static`s are one opening's now for
+exactly that reason. `330-a-panel-opened-again-is-drawn-again` presses it on
+the device, and presses it three times rather than twice: it is the third
+opening, the one over a panel that was drawn in between, that would come back
+built out of somebody else's leavings.
+
+**A closed panel has to cost nothing.** This is what a resident process owes a
+handheld, and it is not automatic. A GTK loop with no surface mapped has no
+frame clock to tick and sits in `poll`, so being warm costs memory rather than
+battery — but only if what the panel held while it was up is let go when it
+closes. A watch is a `busctl monitor` or a `pactl subscribe`, an actor is a
+thread, and both used to be bounded by the process ending. `shut` releases them
+by name now, and `340-a-closed-panel-is-holding-nothing` is the check, on the
+device, because a child left behind is a child on the device.
+
 ## One card, one size
 
 `console_panel::shape` is the only place that says how big any of this is, as a
@@ -396,11 +605,11 @@ twice in the same place.
 against the one table that decides what they do, on the desktop and with a
 chooser up. Change what A does and it fails. It reads the table the daemon
 itself reads rather than a copy of it, which is why it does not go stale.
-`crates/console-pad/tests/the_button_contract.rs` keeps the part that is about
+`crates/console-gamepad/tests/the_button_contract.rs` keeps the part that is about
 the files: every profile the switcher names exists, and every one of them
 publishes all three devices.
 
-`crates/console-checks` opens each surface in a nested desktop and asks whether
+`crates/console-feature-checks` opens each surface in a nested desktop and asks whether
 anything was drawn. That is what catches a panel that raises a window and then
 fails on its first screenful, which no unit test can see.
 

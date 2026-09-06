@@ -1,5 +1,5 @@
 [Unit]
-Description=Game Mode: hold the left Legion button to come back here
+Description=Return from Game Mode
 # Started by the Game Mode session and stopped with it. This is the desktop's
 # one foothold while Steam has the screen, and the desktop's own target is not
 # running to pull it in: console.target is stopped on the way to Game Mode.
@@ -13,3 +13,15 @@ ExecStart=/usr/local/bin/game-return
 ExecStopPost=-/usr/local/bin/console-fell %n
 Restart=always
 RestartSec=2
+
+# What this reaches past `console-.service.d/confining.conf`, and why.
+#
+# /dev/input, because this is a program that exists to notice one button being
+# held while Steam has the screen. Everything else it does is a message to the
+# manager on this machine.
+#
+# `RestrictAddressFamilies=AF_UNIX AF_NETLINK` was here and is gone, for the
+# reason `confining.conf` gives: it is seccomp, and seccomp on a unit of an
+# unprivileged manager is `NoNewPrivileges=` on the process whatever the flag
+# says. Holding the button runs `desktop-mode`, which records the session with
+# `pkexec`, so this is the other of the two that cannot carry it.

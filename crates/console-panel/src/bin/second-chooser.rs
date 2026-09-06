@@ -8,23 +8,28 @@
 //! waiting for a line is waiting for the lock and waiting for a moment is a test
 //! that fails on a busy machine.
 
+use console_never::Never;
 use console_panel::chooser::{Again, Alone, alone, drawn, gone};
 
-/// Long enough that the test decides when it ends, and short enough that one
-/// left behind is gone before anybody notices.
 const KEPT: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// How long the one on its way takes to get there.
 const DRAWING: std::time::Duration = std::time::Duration::from_millis(200);
 
-/// How long the last of one takes, once its window has gone.
 const GOING: std::time::Duration = std::time::Duration::from_millis(300);
 
-fn said(so: Alone) -> &'static str {
-    match so {
+fn said(so: Alone) -> Result<&'static str, Never> {
+    Ok(match so {
         Alone::Yes => "yes",
         Alone::No => "no",
-    }
+    })
+}
+
+fn took(name: &str) -> Result<(), Never> {
+    let Ok(alone) = alone(name, Again::Closes);
+
+    assert_eq!(alone, Alone::Yes, "something was already holding it");
+
+    Ok(())
 }
 
 fn main() {
@@ -33,42 +38,49 @@ fn main() {
 
     match asked.first().map(String::as_str) {
         Some("hold") => {
-            assert_eq!(alone(&name, Again::Closes), Alone::Yes, "something was already holding it");
-            drawn();
+            let Ok(()) = took(&name);
+            let Ok(()) = drawn();
+
             println!("held");
             std::thread::sleep(KEPT);
         }
-        // Holding the screen without having drawn on it yet, which is every
-        // chooser between the button and the first frame.
         Some("coming") => {
-            assert_eq!(alone(&name, Again::Closes), Alone::Yes, "something was already holding it");
+            let Ok(()) = took(&name);
+
             println!("held");
             std::thread::sleep(DRAWING);
-            drawn();
+
+            let Ok(()) = drawn();
+
             std::thread::sleep(KEPT);
         }
-        // One whose window has gone and which is still holding the lock,
-        // which is every chooser for the last of its life.
         Some("going") => {
-            assert_eq!(alone(&name, Again::Closes), Alone::Yes, "something was already holding it");
-            drawn();
-            gone();
+            let Ok(()) = took(&name);
+            let Ok(()) = drawn();
+            let Ok(()) = gone();
+
             println!("held");
             std::thread::sleep(GOING);
         }
-        // One that took the screen and never draws on it. Nothing should be
-        // able to shut the screen for the rest of the session.
         Some("stuck") => {
-            assert_eq!(alone(&name, Again::Closes), Alone::Yes, "something was already holding it");
+            let Ok(()) = took(&name);
+
             println!("held");
             std::thread::sleep(KEPT);
         }
-        // Asking is not taking, so the one holding it may ask again.
-        Some("twice") => println!(
-            "{} {}",
-            said(alone(&name, Again::Closes)),
-            said(alone(&name, Again::Closes))
-        ),
-        _ => println!("{}", said(alone(&name, Again::Closes))),
+        Some("twice") => {
+            let Ok(one) = alone(&name, Again::Closes);
+            let Ok(other) = alone(&name, Again::Closes);
+            let Ok(one) = said(one);
+            let Ok(other) = said(other);
+
+            println!("{one} {other}");
+        }
+        Some(_) | None => {
+            let Ok(so) = alone(&name, Again::Closes);
+            let Ok(so) = said(so);
+
+            println!("{so}");
+        }
     }
 }

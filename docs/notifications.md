@@ -68,6 +68,26 @@ everything `console-say` raises is critical, because the whole point of it is
 that a thing which broke while nobody was looking is still there when somebody
 looks.
 
+## What a card says
+
+A name and a sentence. The summary names the thing a person already knows -- the
+words on the unit, the words on the tab -- and says what happened to it: *Status
+bar restarted*, *Battery low*, *Update stopped halfway*. The body is one sentence
+under it, and it is allowed to be missing.
+
+What was there before was a paragraph. A card that explains why the thing is
+worth knowing, what the machine is going to do about it and what to type is four
+sentences of argument on a surface that is gone in five seconds, and none of it
+is read: somebody who has just been handed a card is deciding whether to stop
+what they are doing, and that is one word of work. The argument belongs in the
+file that decided it and the detail belongs in the journal, which is where the
+reason a service fell over is now written rather than on the card.
+
+The names are the same half of it. A unit's `Description=` is what a fall puts at
+the top of the card, so it is a name for the thing and not a summary of the crate
+behind it: *Desktop events*, not *one subscription per source, handed to whoever
+asked for it*. Nothing on the screen is the place to say how something works.
+
 ## The one reading that raises its own card
 
 The screen and the volume both say where they got to, and both are raised by
@@ -209,8 +229,8 @@ Two tabs, because a notification is in one of two states.
 **Waiting** is what is on the screen now, a row each. A row opens onto the
 whole of what it said -- who said it, the summary, and the body under them --
 and that page is the only place the body can be read. A card is 320 by 140 and
-the body is the half that does not fit: the summary says a thing broke and the
-body says which service it was. Under the notifications is **Clear them all**,
+the body is the half that does not fit: the summary names what broke and the
+body says what happened to it. Under the notifications is **Clear them all**,
 which is what the bell's tap used to do on its own.
 
 The body needs mako 1.11, which is where `makoctl list -j` arrived, and the

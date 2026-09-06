@@ -2,9 +2,11 @@
 
 use std::path::PathBuf;
 
-use crate::listing::{Entry, Still};
+use console_never::Never;
 
-/// One thing that can be done to a file or a folder.
+use crate::listing::{Entry, Still};
+use crate::unzipping::Packed;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Deed {
     Copy,
@@ -13,101 +15,79 @@ pub enum Deed {
     Open,
     OpenWith,
     Rename,
+    Unzip,
     Wallpaper,
 }
 
 impl Deed {
-    /// What the row says.
-    pub fn says(self) -> &'static str {
-        match self {
+    pub fn says(self) -> Result<&'static str, Never> {
+        Ok(match self {
             Deed::Copy => "Copy",
             Deed::Delete => "Delete",
             Deed::Move => "Move",
             Deed::Open => "Open",
             Deed::OpenWith => "Open with",
             Deed::Rename => "Rename",
+            Deed::Unzip => "Unzip",
             Deed::Wallpaper => "Use as wallpaper",
-        }
+        })
     }
 
-    /// What this deed has to be handed before it is worth offering.
-    ///
-    /// A folder is walked into rather than opened, and nothing on this machine
-    /// opens one with a program, so the ones about a file are not offered on a
-    /// folder at all.
-    ///
-    /// A wallpaper is one still image, so the deed that makes one is offered
-    /// on a photograph and not on a film. The settings can only offer what is
-    /// already in Pictures/Wallpapers, and putting a photograph there means
-    /// knowing there is such a folder; offered on the photograph itself it is
-    /// one press, from the folder her camera wrote it into.
-    pub fn wants(self) -> Wants {
-        match self {
+    pub fn wants(self) -> Result<Wants, Never> {
+        Ok(match self {
             Deed::Wallpaper => Wants::APicture,
+            Deed::Unzip => Wants::AnArchive,
             Deed::Open | Deed::OpenWith => Wants::AFile,
             Deed::Copy | Deed::Delete | Deed::Move | Deed::Rename => Wants::Anything,
-        }
+        })
     }
 
-    /// Whether it has to be asked about before it is done.
-    ///
-    /// One of these throws something away. It goes to the wastebasket rather
-    /// than off the disk, which is a thing a person can be told and not a thing
-    /// this device shows her anywhere, so as far as anybody holding it is
-    /// concerned it is gone. A menu where the wrong row under a thumb loses a
-    /// photograph is a menu that has to ask.
-    pub fn asks(self) -> Asks {
-        match self == Deed::Delete {
+    pub fn asks(self) -> Result<Asks, Never> {
+        Ok(match self == Deed::Delete {
             true => Asks::First,
             false => Asks::Nothing,
-        }
+        })
     }
 }
 
-/// What a deed has to be handed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Wants {
-    /// A still image, and not a film or a folder.
     APicture,
-    /// A file of any kind, and not a folder.
+    AnArchive,
     AFile,
-    /// Anything a listing holds, folders included.
     Anything,
 }
 
-/// Whether a deed asks before it does what it does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Asks {
-    /// It throws something away, so it asks first.
     First,
-    /// It can be taken back, so it does not.
     Nothing,
 }
 
-/// What is offered for one thing, in the order a thumb meets it.
-///
-/// Not the alphabet, which is the rule for lists of names and the wrong one
-/// here. Open is first because it is what most presses of Y are on the way to,
-/// and Delete is last because it is the one that cannot be taken back and the
-/// last row is the hardest one to arrive at by accident.
-///
-/// A folder is walked into rather than opened, and nothing on this machine
-/// opens one with a program, so the two that are about a file are left off it.
-pub fn ways(entry: &Entry) -> Vec<Deed> {
-    EVERY
-        .into_iter()
-        .filter(|deed| !entry.folder || deed.wants() == Wants::Anything)
-        .filter(|deed| deed.wants() != Wants::APicture || entry.a_picture() == Still::APicture)
-        .collect()
+pub fn ways(entry: &Entry) -> Result<Vec<Deed>, Never> {
+    let still = entry.a_picture()?;
+    let packed = entry.an_archive()?;
+    let mut ways: Vec<Deed> = Vec::new();
+
+    for deed in EVERY {
+        let wants = deed.wants()?;
+        let allowed = (!entry.folder || wants == Wants::Anything)
+            && (wants != Wants::APicture || still == Still::APicture)
+            && (wants != Wants::AnArchive || packed == Packed::AnArchive);
+
+        match allowed {
+            true => ways.push(deed),
+            false => {},
+        }
+    }
+
+    Ok(ways)
 }
 
-/// Every deed there is, in the order a file offers them.
-///
-/// One list, so that the guide can say what Y is for without being told
-/// separately: a deed added here is a deed the guide names.
-pub const EVERY: [Deed; 7] = [
+pub const EVERY: [Deed; 8] = [
     Deed::Open,
     Deed::OpenWith,
+    Deed::Unzip,
     Deed::Rename,
     Deed::Copy,
     Deed::Move,
@@ -115,20 +95,12 @@ pub const EVERY: [Deed; 7] = [
     Deed::Delete,
 ];
 
-/// Whether what is being carried leaves where it came from.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Carrying {
-    /// It is being moved, so putting it down takes it out of the old folder.
     ToMove,
-    /// It is being copied, so it stays where it is as well.
     ToCopy,
 }
 
-/// Something picked up in one folder, waiting to be put down in another.
-///
-/// One for the whole panel rather than one per tab, because carrying a
-/// photograph from Pictures to a stick is the reason this exists and the two
-/// are different tabs.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Holding {
     pub name: String,
@@ -137,40 +109,27 @@ pub struct Holding {
 }
 
 impl Holding {
-    pub fn of(entry: &Entry, path: PathBuf, moving: Carrying) -> Self {
-        Holding { name: entry.name.clone(), path, moving }
+    pub fn of(entry: &Entry, path: PathBuf, moving: Carrying) -> Result<Self, Never> {
+        Ok(Holding { name: entry.name.clone(), path, moving })
     }
 
-    /// The row that puts it down, which every folder carries while anything is
-    /// held.
-    ///
-    /// At the top of the listing rather than the end of it. Putting a thing
-    /// down is the finishing of something already begun, and a folder of two
-    /// hundred photographs would otherwise have to be walked to the bottom of
-    /// to finish it.
-    pub fn says(&self) -> String {
+    pub fn says(&self) -> Result<String, Never> {
         let word = match self.moving {
             Carrying::ToMove => "Move",
             Carrying::ToCopy => "Put",
         };
-        format!("{word} {} here", self.name)
+
+        Ok(format!("{word} {} here", self.name))
     }
 }
 
-/// A typed name, or nothing if it is not one.
-///
-/// A slash would make the name a path, so a rename could put a thing somewhere
-/// else entirely, and the two that walk the tree would make it disappear.
-/// Trimmed because an on-screen keyboard has a space bar next to everything and
-/// a name with one on the end is a name that looks right and matches nothing.
-pub fn a_name(word: &str) -> Option<String> {
+pub fn a_name(word: &str) -> Result<Option<String>, Never> {
     let word = word.trim();
     let usable = !word.is_empty() && !word.contains('/') && word != "." && word != "..";
-    usable.then(|| word.to_string())
+
+    Ok(usable.then(|| word.to_string()))
 }
 
-/// What is asked before a thing is thrown away. The thing itself is named
-/// under it.
 pub const SURE: &str = "Throw this away?";
 
 #[cfg(test)]
@@ -178,82 +137,135 @@ mod tests {
     use super::*;
     use std::path::Path;
 
+    fn file(name: &str) -> Entry {
+        let Ok(entry) = Entry::file(name, 1);
+
+        entry
+    }
+
+    fn folder(name: &str) -> Entry {
+        let Ok(entry) = Entry::folder(name);
+
+        entry
+    }
+
+    fn of_kind(entry: Entry, kind: &str) -> Entry {
+        let Ok(entry) = entry.of_kind(kind);
+
+        entry
+    }
+
     fn held(name: &str, moving: Carrying) -> Holding {
-        Holding::of(&Entry::file(name, 1), Path::new("/home/ada").join(name), moving)
+        let Ok(holding) = Holding::of(&file(name), Path::new("/home/ada").join(name), moving);
+
+        holding
+    }
+
+    fn open_to(entry: &Entry) -> Vec<Deed> {
+        let Ok(ways) = ways(entry);
+
+        ways
+    }
+
+    fn word(deed: Deed) -> &'static str {
+        let Ok(says) = deed.says();
+
+        says
     }
 
     #[test]
     fn a_file_can_be_opened_and_a_folder_is_walked_into() {
-        assert!(ways(&Entry::file("beach.jpg", 1)).contains(&Deed::Open));
-        assert!(!ways(&Entry::folder("Holiday")).contains(&Deed::Open));
-        assert!(!ways(&Entry::folder("Holiday")).contains(&Deed::OpenWith));
+        assert!(open_to(&file("beach.jpg")).contains(&Deed::Open));
+        assert!(!open_to(&folder("Holiday")).contains(&Deed::Open));
+        assert!(!open_to(&folder("Holiday")).contains(&Deed::OpenWith));
     }
 
-    /// Everything that can be done to a file can be done to a folder, apart
-    /// from the two that are about opening one.
     #[test]
     fn a_folder_can_be_renamed_carried_and_thrown_away_like_anything_else() {
         for deed in [Deed::Copy, Deed::Delete, Deed::Move, Deed::Rename] {
-            assert!(ways(&Entry::folder("Holiday")).contains(&deed), "{}", deed.says());
+            assert!(open_to(&folder("Holiday")).contains(&deed), "{}", word(deed));
         }
     }
 
-    /// The one that cannot be taken back is the hardest row to arrive at by
-    /// accident, and the one most presses of Y are on the way to is the first.
     #[test]
     fn open_is_the_first_way_and_delete_is_the_last() {
-        let ways = ways(&Entry::file("beach.jpg", 1));
+        let ways = open_to(&file("beach.jpg"));
+
         assert_eq!(ways.first(), Some(&Deed::Open));
         assert_eq!(ways.last(), Some(&Deed::Delete));
     }
 
-    /// A wallpaper is one still image. Offered on a film or on a text file it
-    /// would be a row that cannot do what it says.
     #[test]
     fn only_a_picture_can_be_made_the_wallpaper() {
-        let photograph = Entry::file("beach.jpg", 1).of_kind("image/jpeg");
-        let film = Entry::file("beach.mp4", 1).of_kind("video/mp4");
-        assert!(ways(&photograph).contains(&Deed::Wallpaper));
-        assert!(!ways(&film).contains(&Deed::Wallpaper));
-        assert!(!ways(&Entry::file("notes.txt", 1)).contains(&Deed::Wallpaper));
-        assert!(!ways(&Entry::folder("Holiday")).contains(&Deed::Wallpaper));
+        let photograph = of_kind(file("beach.jpg"), "image/jpeg");
+        let film = of_kind(file("beach.mp4"), "video/mp4");
+
+        assert!(open_to(&photograph).contains(&Deed::Wallpaper));
+        assert!(!open_to(&film).contains(&Deed::Wallpaper));
+        assert!(!open_to(&file("notes.txt")).contains(&Deed::Wallpaper));
+        assert!(!open_to(&folder("Holiday")).contains(&Deed::Wallpaper));
+    }
+
+    #[test]
+    fn only_an_archive_is_offered_the_way_out_of_one() {
+        let mod_ = of_kind(file("WickedWhims.zip"), "application/zip");
+        let photograph = of_kind(file("beach.jpg"), "image/jpeg");
+
+        assert!(open_to(&mod_).contains(&Deed::Unzip));
+        assert!(!open_to(&photograph).contains(&Deed::Unzip));
+        assert!(!open_to(&file("notes.txt")).contains(&Deed::Unzip));
+        assert!(!open_to(&folder("Mods")).contains(&Deed::Unzip));
+    }
+
+    #[test]
+    fn unzip_is_offered_before_the_ways_of_carrying_a_thing_about() {
+        let mod_ = of_kind(file("WickedWhims.zip"), "application/zip");
+        let ways = open_to(&mod_);
+
+        let Some(unzip) = ways.iter().position(|deed| *deed == Deed::Unzip) else {
+            panic!("an archive offers no way out of itself")
+        };
+        let Some(rename) = ways.iter().position(|deed| *deed == Deed::Rename) else {
+            panic!("an archive cannot be renamed")
+        };
+
+        assert!(unzip < rename);
     }
 
     #[test]
     fn only_throwing_something_away_is_asked_about() {
-        assert_eq!(Deed::Delete.asks(), Asks::First);
-        for deed in [Deed::Copy, Deed::Move, Deed::Open, Deed::OpenWith, Deed::Rename] {
-            assert_eq!(deed.asks(), Asks::Nothing, "{} asks and should not", deed.says());
+        assert_eq!(Deed::Delete.asks(), Ok(Asks::First));
+
+        for deed in
+            [Deed::Copy, Deed::Move, Deed::Open, Deed::OpenWith, Deed::Rename, Deed::Unzip]
+        {
+            assert_eq!(deed.asks(), Ok(Asks::Nothing), "{} asks and should not", word(deed));
         }
     }
 
     #[test]
     fn what_is_held_says_which_of_the_two_things_it_is_waiting_to_do() {
-        assert_eq!(held("beach.jpg", Carrying::ToCopy).says(), "Put beach.jpg here");
-        assert_eq!(held("beach.jpg", Carrying::ToMove).says(), "Move beach.jpg here");
+        assert_eq!(held("beach.jpg", Carrying::ToCopy).says(), Ok("Put beach.jpg here".to_string()));
+        assert_eq!(held("beach.jpg", Carrying::ToMove).says(), Ok("Move beach.jpg here".to_string()));
     }
 
     #[test]
     fn a_name_that_would_be_a_path_is_not_a_name() {
-        assert_eq!(a_name("holiday.jpg").as_deref(), Some("holiday.jpg"));
-        assert_eq!(a_name("  holiday.jpg  ").as_deref(), Some("holiday.jpg"));
-        assert_eq!(a_name(""), None);
-        assert_eq!(a_name("   "), None);
-        assert_eq!(a_name("../holiday.jpg"), None);
-        assert_eq!(a_name("holiday/2026"), None);
-        assert_eq!(a_name(".."), None);
-        assert_eq!(a_name("."), None);
+        assert_eq!(a_name("holiday.jpg"), Ok(Some("holiday.jpg".to_string())));
+        assert_eq!(a_name("  holiday.jpg  "), Ok(Some("holiday.jpg".to_string())));
+        assert_eq!(a_name(""), Ok(None));
+        assert_eq!(a_name("   "), Ok(None));
+        assert_eq!(a_name("../holiday.jpg"), Ok(None));
+        assert_eq!(a_name("holiday/2026"), Ok(None));
+        assert_eq!(a_name(".."), Ok(None));
+        assert_eq!(a_name("."), Ok(None));
     }
 
-    /// A dotfile is not shown, so a name beginning with one is a thing that
-    /// vanishes the moment it is made. It is still a name somebody may mean.
     #[test]
     fn a_name_may_begin_with_a_dot() {
-        assert_eq!(a_name(".hidden").as_deref(), Some(".hidden"));
+        assert_eq!(a_name(".hidden"), Ok(Some(".hidden".to_string())));
     }
 
-    /// The question is about whatever it was asked over, which the surface
-    /// names underneath it, so nothing here builds a sentence out of a name.
     #[test]
     fn the_question_is_a_sentence_and_carries_no_name() {
         assert!(SURE.ends_with('?'));

@@ -1,100 +1,141 @@
 //! Legion left, held, while Game Mode has the screen.
 //!
-//! Everything else on the front of the machine belongs to Steam for as long as
-//! it is up, and so does this button: the press reaches it untouched. What is
-//! watched for here is the hold, which is how somebody comes back to the
-//! desktop with the button they left on.
+//! Everything it decides is in `console_controller::returning`, where a second
+//! of holding a button can be pressed in no time and a machine that went to
+//! sleep with a thumb on it can be pressed at all. What is here is a real pad,
+//! and the pad going away and coming back, which a profile switch does every
+//! time.
 //!
 //! It is a program of its own because the desktop's own daemon is not there to
 //! do it. Game Mode stops `console.target` behind it, and what is left running
 //! is this, started by the Game Mode session and stopped with it.
 //!
-//! Everything that decides anything is in `console_controller::returning`,
-//! where it can be asked the same question twice. What is here is a machine's
-//! real pad, and the pad going away and coming back, which a profile switch
-//! does every time.
+//! A missing pad is looked for once a second and not more often, and finding
+//! one is said out loud where not finding one is not: a profile switch destroys
+//! the pad and builds another, so an empty moment is the ordinary state of
+//! things rather than a fault.
 
-use std::process::{Child, Command, Stdio};
+use std::process::ExitCode;
 use std::time::Duration;
 
 use evdev::{Device, InputEvent};
-use console_controller::clock::since_boot;
-use console_controller::doing::Doing;
 use console_controller::finding::{self, Says};
-use console_controller::reading::POLL;
-use console_controller::returning::Returning;
-use console_controller::turning::{AWAY_SECONDS, HUNT_SECONDS};
+use console_controller::returning::{Heard, Return};
+use console_controller::turning::HUNT_SECONDS;
+use console_never::Never;
+use console_program_contract::{Argv, Round, Since, Word};
+use console_program_runtime::Carrying;
 
-fn main() -> std::process::ExitCode {
-    let mut returning = Returning::default();
-    let mut pad: Option<(String, Device)> = None;
-    let mut hunted: Option<f64> = None;
-    let mut running: Vec<Child> = Vec::new();
-    let mut last: Option<f64> = None;
+fn main() -> ExitCode {
+    let Ok(code) = console_program_runtime::run::<Return, Pad>(
+        "game-return",
+        &Argv::default(),
+        &mut Pad::default(),
+    );
 
-    loop {
-        // The clock that counts a suspend, as the desktop's own daemon uses.
-        let now = since_boot();
+    code
+}
 
-        // A gap means the machine was not running, and a button that was down
-        // when it stopped is not a button somebody is holding now. Left to
-        // stand, the hold is however long the machine slept and coming back is
-        // the first thing it does on waking.
-        if last.is_some_and(|was| now - was > AWAY_SECONDS) {
-            returning.gone();
-        }
+#[derive(Default)]
+struct Pad {
+    held: Option<(String, Device)>,
+    hunted: Option<Since>,
+}
 
-        last = Some(now);
+impl Carrying for Pad {
+    type Hears = Heard;
+    type Does = Never;
 
-        if pad.is_none() && hunted.is_none_or(|was| now - was >= HUNT_SECONDS) {
-            hunted = Some(now);
-            pad = found();
+    fn its(&mut self, doing: &Never) -> Vec<Word<Heard>> {
+        match *doing {}
+    }
 
-            if let Some((path, _)) = &pad {
-                eprintln!("game-return: reading the pad at {path}");
-            }
-        }
+    fn came(&mut self, _round: &Round, since: Since) -> Result<Vec<Word<Heard>>, Never> {
+        let Ok(()) = self.find(since);
 
-        if let Some((path, device)) = pad.as_mut() {
-            match drain(device) {
-                Ok(arrived) => {
-                    for event in arrived {
-                        returning.saw(event.event_type(), event.code(), event.value(), now);
-                    }
-                }
-                Err(Gone) => {
-                    eprintln!("game-return: the pad at {path} has gone");
-                    pad = None;
-                    returning.gone();
-                }
-            }
-        }
-
-        if let Some(Doing::Run(argv)) = returning.turn(now) {
-            eprintln!("game-return: {}", argv.join(" "));
-            running.extend(run(&argv));
-        }
-
-        running = reaped(running);
-        std::thread::sleep(Duration::from_secs_f64(POLL));
+        self.drained(since)
     }
 }
 
-/// A device that is no longer there.
+fn again() -> Result<Duration, Never> {
+    Ok(Duration::from_secs_f64(HUNT_SECONDS))
+}
+
+impl Pad {
+    fn find(&mut self, since: Since) -> Result<(), Never> {
+        let Ok(again) = again();
+
+        let looking = match &self.held {
+            Some(_) => return Ok(()),
+            None => self.hunted.is_none_or(|was| since.saturating_sub(was) >= again),
+        };
+
+        match looking {
+            true => {},
+            false => return Ok(()),
+        }
+
+        self.hunted = Some(since);
+
+        let Ok(found) = found();
+
+        self.held = found;
+
+        match &self.held {
+            Some((path, _)) => eprintln!("game-return: reading the pad at {path}"),
+            None => {},
+        }
+
+        Ok(())
+    }
+
+    fn drained(&mut self, since: Since) -> Result<Vec<Word<Heard>>, Never> {
+        let Some((path, device)) = self.held.as_mut() else {
+            return Ok(Vec::new());
+        };
+
+        Ok(match drain(device) {
+            Ok(arrived) => arrived
+                .into_iter()
+                .map(|event| {
+                    Word::Its(Heard::Saw {
+                        kind: event.event_type(),
+                        code: event.code(),
+                        value: event.value(),
+                        at: since,
+                    })
+                })
+                .collect(),
+            Err(Gone) => {
+                eprintln!("game-return: the pad at {path} has gone");
+                self.held = None;
+
+                vec![Word::Its(Heard::Gone)]
+            }
+        })
+    }
+}
+
 struct Gone;
 
-/// The pad InputPlumber publishes, or the one this was pointed at.
-///
-/// Pointed at rather than found is how a test hands it a device it made, on a
-/// machine whose own pad answers to the same description.
-fn found() -> Option<(String, Device)> {
+fn found() -> Result<Option<(String, Device)>, Never> {
     let path = match std::env::var("CONSOLE_PAD") {
         Ok(told) if !told.is_empty() => told,
-        _ => {
+        Ok(_) | Err(_) => {
             let every: Vec<Says> = evdev::enumerate()
-                .map(|(path, device)| says(&path.display().to_string(), &device))
+                .map(|(path, device)| {
+                    let Ok(says) = says(&path.display().to_string(), &device);
+
+                    says
+                })
                 .collect();
-            finding::gamepad(&every)?.path.clone()
+            let Ok(gamepad) = finding::gamepad(&every);
+
+            let Some(found) = gamepad else {
+                return Ok(None);
+            };
+
+            found.path.clone()
         }
     };
     let opened = Device::open(&path).and_then(|device| {
@@ -102,18 +143,17 @@ fn found() -> Option<(String, Device)> {
         Ok(device)
     });
 
-    match opened {
+    Ok(match opened {
         Ok(device) => Some((path, device)),
         Err(fault) => {
             eprintln!("game-return: {path}: {fault}");
             None
         }
-    }
+    })
 }
 
-/// What one device says about itself, in the words the rules are written in.
-fn says(path: &str, device: &Device) -> Says {
-    Says {
+fn says(path: &str, device: &Device) -> Result<Says, Never> {
+    Ok(Says {
         path: path.to_string(),
         name: device.name().unwrap_or_default().to_string(),
         phys: device.physical_path().unwrap_or_default().to_string(),
@@ -125,10 +165,9 @@ fn says(path: &str, device: &Device) -> Says {
             .supported_absolute_axes()
             .map(|axes| axes.iter().map(|axis| axis.0).collect())
             .unwrap_or_default(),
-    }
+    })
 }
 
-/// Everything waiting on the pad, or word that it has gone.
 fn drain(device: &mut Device) -> Result<Vec<InputEvent>, Gone> {
     match device.fetch_events() {
         Ok(arrived) => Ok(arrived.collect()),
@@ -137,29 +176,15 @@ fn drain(device: &mut Device) -> Result<Vec<InputEvent>, Gone> {
     }
 }
 
-/// Start something, keeping what it says on the way out: this program's stderr
-/// is the journal, and a way back that refused to work is otherwise a button
-/// reported as broken against a journal showing the hold arriving.
-fn run(argv: &[String]) -> Option<Child> {
-    let (program, rest) = argv.split_first()?;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    match Command::new(program).args(rest).stdout(Stdio::null()).stderr(Stdio::inherit()).spawn() {
-        Ok(child) => Some(child),
-        Err(fault) => {
-            eprintln!("game-return: {program} did not start: {fault}");
-            None
-        }
+    #[test]
+    fn the_hunt_is_the_daemons_own_stretch() {
+        let Ok(again) = again();
+
+        assert_eq!(again, Duration::from_secs(1));
+        assert_eq!(again.as_secs_f64(), HUNT_SECONDS);
     }
-}
-
-/// The ones that have ended, forgotten. A child nobody asks after stays in the
-/// table as a zombie.
-fn reaped(running: Vec<Child>) -> Vec<Child> {
-    running
-        .into_iter()
-        .filter_map(|mut child| match child.try_wait() {
-            Ok(None) => Some(child),
-            _ => None,
-        })
-        .collect()
 }

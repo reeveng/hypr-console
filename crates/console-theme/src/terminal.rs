@@ -2,16 +2,15 @@
 
 use indexmap::IndexMap;
 use console_colour as col;
+use console_never::Never;
 
 use crate::palette::Palette;
 use crate::spec::Spec;
 
-/// The order a terminal's eight are always written in.
 pub const SLOTS: [&str; 8] = [
     "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
 ];
 
-/// The sixteen, and what surrounds them.
 #[derive(Debug, Clone)]
 pub struct Terminal {
     pub background: String,
@@ -22,7 +21,6 @@ pub struct Terminal {
     bright: IndexMap<String, String>,
 }
 
-/// Which half of the sixteen a slot is being asked for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Shade {
     Normal,
@@ -30,50 +28,76 @@ pub enum Shade {
 }
 
 impl Shade {
-    pub fn name(self) -> &'static str {
-        match self {
+    pub fn name(self) -> Result<&'static str, Never> {
+        Ok(match self {
             Shade::Normal => "normal",
             Shade::Bright => "bright",
-        }
+        })
     }
 }
 
 impl Terminal {
-    /// The palette's terminal table, spent.
-    ///
-    /// The bright half is the same colour lifted, which keeps a bold line
-    /// legible without turning it into a different colour. White is the
-    /// exception: bright white is the ink everything else is read in, so it is
-    /// taken rather than derived.
     pub fn of(spec: &Spec, palette: &Palette) -> Result<Self, col::Short> {
         let setting = &spec.terminal;
         let normal: IndexMap<String, String> = setting
             .normal
             .iter()
-            .map(|(slot, name)| Ok((slot.clone(), palette.must(name)?.to_owned())))
-            .collect::<Result<_, col::Short>>()?;
-        let bright = normal
-            .iter()
-            .map(|(slot, code)| match slot.as_str() {
-                "white" => Ok((slot.clone(), palette.must("text")?.to_owned())),
-                _ => Ok((slot.clone(), col::lift(code, setting.bright_lift))),
+            .map(|(slot, name)| {
+                let colour = palette.must(name)?;
+
+                Ok((slot.clone(), colour.to_owned()))
             })
             .collect::<Result<_, col::Short>>()?;
+        let bright: IndexMap<String, String> = normal
+            .iter()
+            .map(|(slot, code)| match slot.as_str() {
+                "white" => {
+                    let text = palette.must("text")?;
+
+                    Ok((slot.clone(), text.to_owned()))
+                }
+                _ => {
+                    let Ok(lifted) = col::lift(code, setting.bright_lift);
+
+                    Ok((slot.clone(), lifted))
+                }
+            })
+            .collect::<Result<_, col::Short>>()?;
+
+        for slot in SLOTS {
+            match (normal.get(slot), bright.get(slot)) {
+                (Some(_), Some(_)) => {},
+                (Some(_) | None, _) => {
+                    return Err(col::Short(format!("the terminal table names no {slot}")));
+                }
+            }
+        }
+
+        let background = palette.must(&setting.background)?;
+        let foreground = palette.must(&setting.foreground)?;
+        let cursor = palette.must(&setting.cursor)?;
+        let selection = palette.must(&setting.selection)?;
+
         Ok(Terminal {
-            background: palette.must(&setting.background)?.to_owned(),
-            foreground: palette.must(&setting.foreground)?.to_owned(),
-            cursor: palette.must(&setting.cursor)?.to_owned(),
-            selection: palette.must(&setting.selection)?.to_owned(),
+            background: background.to_owned(),
+            foreground: foreground.to_owned(),
+            cursor: cursor.to_owned(),
+            selection: selection.to_owned(),
             normal,
             bright,
         })
     }
 
-    pub fn slot(&self, shade: Shade, name: &str) -> &str {
-        match shade {
-            Shade::Normal => &self.normal[name],
-            Shade::Bright => &self.bright[name],
-        }
+    pub fn slot(&self, shade: Shade, name: &str) -> Result<&str, Never> {
+        let held = match shade {
+            Shade::Normal => self.normal.get(name),
+            Shade::Bright => self.bright.get(name),
+        };
+
+        Ok(match held {
+            Some(code) => code,
+            None => &self.background,
+        })
     }
 }
 
@@ -94,19 +118,25 @@ mod tests {
     #[test]
     fn bright_white_is_the_ink_and_not_a_lift_of_black() {
         let (_, palette, terminal) = spent();
-        assert_eq!(terminal.slot(Shade::Bright, "white"), palette.must("text").expect("a declared colour"));
+        assert_eq!(
+            terminal.slot(Shade::Bright, "white"),
+            Ok(palette.must("text").expect("a declared colour"))
+        );
     }
 
     #[test]
     fn every_bright_is_lighter_than_its_normal() {
         let (_, _, terminal) = spent();
         for slot in SLOTS {
-            let (normal, bright) = (
-                terminal.slot(Shade::Normal, slot),
-                terminal.slot(Shade::Bright, slot),
-            );
+            let Ok(normal) = terminal.slot(Shade::Normal, slot);
+
+            let Ok(bright) = terminal.slot(Shade::Bright, slot);
+
+            let Ok(lighter) = col::luminance(bright);
+            let Ok(darker) = col::luminance(normal);
+
             assert!(
-                col::luminance(bright) > col::luminance(normal),
+                lighter > darker,
                 "bright {slot} ({bright}) is no lighter than normal ({normal})"
             );
         }
@@ -114,20 +144,23 @@ mod tests {
 
     #[test]
     fn every_slot_can_be_read_on_the_background() {
-        // The one thing a terminal palette is for. `black` is AA on purpose
-        // and says so in palette.toml; everything else clears AAA.
         let (_, _, terminal) = spent();
         for shade in [Shade::Normal, Shade::Bright] {
             for slot in SLOTS {
-                let got = col::contrast(terminal.slot(shade, slot), &terminal.background);
+                let Ok(code) = terminal.slot(shade, slot);
+
+                let Ok(got) = col::contrast(code, &terminal.background);
+
                 let least = match slot {
                     "black" => 4.5,
                     _ => 7.0,
                 };
+
+                let Ok(name) = shade.name();
+
                 assert!(
                     got >= least,
-                    "{} {slot} reaches only {got:.2}:1 on the background",
-                    shade.name()
+                    "{name} {slot} reaches only {got:.2}:1 on the background"
                 );
             }
         }

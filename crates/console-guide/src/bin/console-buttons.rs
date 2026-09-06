@@ -9,36 +9,25 @@
 use std::io::IsTerminal;
 use std::sync::Arc;
 
-use evdev::{Device, EventType, KeyCode};
-use console_controller::finding::{Says, gamepad, keyboard, says};
+use evdev::{EventType, KeyCode};
 use console_controller::means::Table;
 use console_guide::guide::{DOABLE, Line, Section, sections};
 use console_guide::printed::{COLOURED, PLAIN, guide};
+use console_never::Never;
 use console_panel::page::{Does, Page, Row, Rows};
 use console_panel::{chooser, panel};
-use console_pad::jobs::{Jobs, path_in};
-use console_pad::routing::{self, Hat};
-use console_pad::vocabulary::spoken_for;
+use console_gamepad::jobs::{Jobs, path_in};
+use console_gamepad::vocabulary::{TRIGGERS, spoken_for};
+use console_input_claim::{self as claim, CONTROLLER, Claim, Said, Went, Which};
 
-/// The compositor's declaration, in the home of whoever is running this.
-///
-/// Asked of the environment rather than named, because this runs as the person
-/// whose desktop it is and their home is the one thing the session is certain
-/// of. A name here would be one more place that has to be edited when the
-/// desktop is somebody else's.
-fn hypr() -> String {
-    format!("{}/.config/hypr/hyprland.lua", home())
+fn hypr() -> Result<String, Never> {
+    let Ok(home) = home();
+
+    Ok(format!("{home}/.config/hypr/hyprland.lua"))
 }
 
-/// The home of whoever is running this, or the empty string.
-///
-/// Unset is ordinary and says nothing: the empty string builds the path this
-/// has always built, and a guide printed from a unit with no home still prints
-/// where the buttons started. A HOME set to something that is not text is
-/// somebody pointing at a home and missing, and that arrived here as the same
-/// silence.
-fn home() -> String {
-    match std::env::var("HOME") {
+fn home() -> Result<String, Never> {
+    Ok(match std::env::var("HOME") {
         Ok(home) => home,
         Err(std::env::VarError::NotPresent) => String::new(),
 
@@ -46,11 +35,11 @@ fn home() -> String {
             eprintln!("HOME, looking for what the buttons do: {fault}");
             String::new()
         }
-    }
+    })
 }
 
-fn read() -> Vec<Section> {
-    let at = hypr();
+fn read() -> Result<Vec<Section>, Never> {
+    let Ok(at) = hypr();
 
     let lua = match std::fs::read_to_string(&at) {
         Ok(lua) => lua,
@@ -62,17 +51,14 @@ fn read() -> Vec<Section> {
         }
     };
 
-    sections(&table(), &lua)
+    let Ok(table) = table();
+
+    sections(&table, &lua)
 }
 
-/// What each thing this desktop does is bound to on this machine.
-///
-/// This desktop's own answers, with whatever the person whose desktop it is
-/// has said over them. A file that will not read is read as no file at all:
-/// what the guide would otherwise print is nothing, and a guide that prints
-/// nothing is worse than one that prints where the buttons started.
-fn table() -> Table {
-    let at = path_in(&home());
+fn table() -> Result<Table, Never> {
+    let Ok(home) = home();
+    let Ok(at) = path_in(&home);
 
     let said = match std::fs::read_to_string(&at) {
         Ok(said) => said,
@@ -89,6 +75,7 @@ fn table() -> Table {
 
         Err(fault) => {
             eprintln!("{}: {fault}", at.display());
+
             Table::of(&Jobs::default())
         }
     }
@@ -99,135 +86,133 @@ fn main() {
     let asked_for = |what: &str| asked.iter().any(|word| word == what);
 
     match (asked_for("--identify"), asked_for("--menu")) {
-        (true, _) => identify(),
-        (_, true) => on_screen(),
-        _ => print!("{}", guide(&read(), ink())),
+        (true, _) => {
+            let Ok(()) = identify();
+        },
+        (_, true) => {
+            let Ok(()) = on_screen();
+        },
+        _ => {
+            let Ok(read) = read();
+            let Ok(ink) = ink();
+            let Ok(guide) = guide(&read, ink);
+
+            print!("{guide}");
+        },
     }
 }
 
-fn ink() -> console_guide::printed::Ink {
-    match std::io::stdout().is_terminal() {
+fn ink() -> Result<console_guide::printed::Ink, Never> {
+    Ok(match std::io::stdout().is_terminal() {
         true => COLOURED,
         false => PLAIN,
-    }
+    })
 }
 
-/// The guide as the panel everything else here is drawn as.
-///
-/// A terminal would want a keyboard to scroll it and a keyboard to leave it.
-/// The panel scrolls on the d-pad, moves between sections on the shoulders, and
-/// closes on B, which is what the guide is describing in the first place.
-fn on_screen() {
-    // The guide is a chooser like the others: it takes the controller while it
-    // is up, and the button that opens it pressed twice used to leave two of
-    // them stacked.
-    if chooser::alone("guide", chooser::Again::Closes) == chooser::Alone::No {
-        return;
+fn on_screen() -> Result<(), Never> {
+    let Ok(alone) = chooser::alone("guide", chooser::Again::Closes);
+
+    match alone {
+        chooser::Alone::Yes => {
+            let Ok(()) = panel::show(
+                Arc::new(|| {
+                    let Ok(pages) = pages();
+
+                    pages
+                }),
+                250,
+                None,
+            );
+        }
+        chooser::Alone::No => {}
     }
 
-    panel::show(Arc::new(pages), 250, None);
+    Ok(())
 }
 
-fn pages() -> Vec<Page> {
-    read()
+fn pages() -> Result<Vec<Page>, Never> {
+    let Ok(read) = read();
+
+    Ok(read
         .into_iter()
         .filter(|section| !section.lines.is_empty())
         .map(|section| {
-            let rows = match section.title == DOABLE {
-                true => section.lines.iter().map(doable).collect(),
-                false => section.lines.iter().map(named).collect(),
-            };
-            Page::new(&section.title, Rows::Fixed(rows))
+            let rows = section
+                .lines
+                .iter()
+                .map(|line| {
+                    let Ok(row) = match section.title == DOABLE {
+                        true => doable(line),
+                        false => named(line),
+                    };
+
+                    row
+                })
+                .collect();
+
+            let Ok(page) = Page::new(&section.title, Rows::Fixed(rows));
+
+            page
         })
-        .collect()
+        .collect())
 }
 
-/// The one section that is a list of things the device does, rather than a list
-/// of what a button means, drawn as what it is: the thing on the left, the
-/// button that also does it on the right.
-fn doable(line: &Line) -> Row {
-    row(&capitalised(&line.does), &line.button, line)
+fn doable(line: &Line) -> Result<Row, Never> {
+    let Ok(says) = capitalised(&line.does);
+
+    row(&says, &line.button, line)
 }
 
-/// Every other section, which names a button or a chord and then says what it
-/// means.
-fn named(line: &Line) -> Row {
+fn named(line: &Line) -> Result<Row, Never> {
     row(&line.button, &line.does, line)
 }
 
-/// A row that does what it describes, where there is anything to do.
-///
-/// A guide is read on a device with a keyboard nobody has plugged in and
-/// buttons somebody is still learning, so a line naming a way to do something
-/// is a way to do it. A chord that acts on a window acts on the same window it
-/// would have from the keyboard: a panel is a layer over the screen and not a
-/// window, so what is in front of the compositor is what was in front before
-/// the guide opened.
-///
-/// A row nothing can do keeps its place in the list so the section still reads
-/// as one shape.
-fn row(says: &str, aside: &str, line: &Line) -> Row {
+fn row(says: &str, aside: &str, line: &Line) -> Result<Row, Never> {
     match &line.runs {
         None => Row::said(says, aside),
         Some(argv) => Row::new(says, aside, Does::Run(argv.clone())),
     }
 }
 
-fn capitalised(said: &str) -> String {
+fn capitalised(said: &str) -> Result<String, Never> {
     let mut letters = said.chars();
 
-    match letters.next() {
+    Ok(match letters.next() {
         None => String::new(),
         Some(first) => first.to_uppercase().collect::<String>() + letters.as_str(),
-    }
+    })
 }
 
-/// Name whatever button is pressed next.
-///
-/// The devices are taken while this is naming them, so nothing else acts on a
-/// press. The controller daemon reads the same two, and the close-window
-/// paddle is the one people most want to identify, which would otherwise shut
-/// the window they are reading this in.
-///
-/// Taken and not silenced. This used to stop the daemon with SIGSTOP and start
-/// it again with SIGCONT, which was wrong three ways, and the repository had
-/// already written down all three.
-///
-/// The SIGCONT was unreachable. The only way out this program offers is
-/// Ctrl-C, which kills it before the line that sends it, so on the documented
-/// path the daemon was always left stopped, and "Controller resumed." is a
-/// line almost nobody has seen. The signal named no `--kill-whom=main`, so it
-/// reached everything in the daemon's control group -- the menu this may have
-/// been opened from, and anything opened from that. And stopped is not deaf:
-/// the devices stay open and the kernel goes on queueing, so every button
-/// pressed while identifying was waiting to arrive at once against a desktop
-/// that had moved on, except that with no SIGCONT it never arrived at all.
-///
-/// A grab has none of that shape, and the reason is the whole argument for it:
-/// the kernel holds it, and the kernel lets go when this process does, however
-/// it goes. There is nothing to undo, so there is no path on which undoing is
-/// missed.
-fn identify() {
-    let mut taken = held();
+fn identify() -> Result<(), Never> {
+    let mut claim = match Claim::of(&CONTROLLER) {
+        Ok(claim) => claim,
+        Err(refused) => {
+            let Ok(said) = refused.said();
 
-    if taken.is_empty() {
-        eprintln!("No controller found.");
-        std::process::exit(1);
-    }
+            eprintln!("console-buttons: {said}");
+            std::process::exit(1);
+        }
+    };
 
     println!("Press a button. Ctrl-C to stop.\n");
-    let ink = ink();
+    let Ok(ink) = ink();
 
     loop {
-        for device in &mut taken {
-            let Ok(arrived) = device.fetch_events() else { continue };
+        let Ok(heard) = claim.arrived();
 
-            for event in arrived {
-                let Some(said) = pressed(event.event_type(), event.code(), event.value()) else {
-                    continue;
-                };
+        for (which, event) in heard.events {
+            let Ok(said) = pressed(which, event.event_type(), event.code(), event.value());
 
-                println!("  {}{said}{}", ink.bold, ink.off);
+            let Some(said) = said else { continue };
+
+            println!("  {}{said}{}", ink.bold, ink.off);
+        }
+
+        match heard.gone.is_empty() {
+            true => {}
+            false => {
+                eprintln!("console-buttons: the controller has gone");
+                return Ok(());
             }
         }
 
@@ -235,89 +220,39 @@ fn identify() {
     }
 }
 
-/// What to say about one event, where it is a press worth naming.
-///
-/// The words on the machine, because that is what somebody holding it is
-/// trying to find out and what every screen here answers in. The routing
-/// table is what turns an arrival back into a button, so this says the same
-/// thing the daemon would: a press of the paddle that arrives as `KeyF15` is
-/// `right-paddle-top` here and on the setup screen and in the guide.
-///
-/// The raw code follows it, for the case this program is most often reached
-/// for -- a button this repository has no word for, on a device nobody here
-/// has held. Named or not, a press says something.
-fn pressed(kind: EventType, code: u16, value: i32) -> Option<String> {
-    let button = match kind {
-        EventType::KEY if value == 1 => match routing::button_of_pad(code) {
-            Some(button) => Some(button),
-            None => routing::button_of_key(code),
-        },
-        // A d-pad is a hat, and a hat comes back to the middle. Only the way
-        // out is a press; the way back is the thumb coming off it.
-        EventType::ABSOLUTE if routing::is_hat(code) == Hat::Axis && value != 0 => {
-            routing::button_of_hat(code, value)
-        }
-        _ => return None,
-    };
+fn pressed(which: Which, kind: EventType, code: u16, value: i32) -> Result<Option<String>, Never> {
+    let Ok(device) = which.said();
+
     let raw = match kind {
-        EventType::KEY => format!("code {code}, {:?}", KeyCode::new(code)),
-        _ => format!("axis {code} at {value}"),
+        EventType::KEY => format!("code {code}, {:?}, on the {device}", KeyCode::new(code)),
+        _ => format!("axis {code} at {value}, on the {device}"),
     };
-    Some(match button {
-        Some(button) => format!("{}  ({raw})", spoken_for(button)),
-        None => format!("a button with no name here  ({raw})"),
+
+    let Ok(said) = claim::said(which, kind, code, value);
+
+    Ok(match said {
+        Said::Pressed { button, went: Went::Down } => {
+            let Ok(spoken) = spoken_for(button);
+
+            Some(format!("{spoken}  ({raw})"))
+        }
+        Said::Trigger { trigger, went: Went::Down } => {
+            let Ok(held) = held(trigger);
+
+            Some(format!("{held}  ({raw})"))
+        }
+        Said::Unnamed { code: _, went: Went::Down } => {
+            Some(format!("a button with no name here  ({raw})"))
+        }
+        Said::Pressed { button: _, went: Went::Up }
+        | Said::Trigger { trigger: _, went: Went::Up }
+        | Said::Unnamed { code: _, went: Went::Up }
+        | Said::Nothing => None,
     })
 }
 
-/// How long between looks, with nothing to read.
-///
-/// The devices are non-blocking because there are two of them and blocking on
-/// one is not reading the other. Slow enough that this is not a program that
-/// spins, and far quicker than anybody can press twice.
-const WAIT: std::time::Duration = std::time::Duration::from_millis(10);
-
-/// The two devices a button can arrive on, opened and taken.
-///
-/// Two, because the front of the machine and the back of it are not the same
-/// device. InputPlumber publishes a gamepad carrying the face buttons and the
-/// shoulders, and a keyboard carrying the paddles, and a program that opened
-/// only one of them could not name half the buttons it is asked about --
-/// including the paddles, which are the ones somebody is most likely to be
-/// asking about.
-///
-/// Which is which is `console_controller::finding`, where the rules are
-/// written once and held to a capture of the real devices. Asked here by the
-/// first device with a face button on it, this found the physical controller,
-/// which InputPlumber has grabbed and which would have reported nothing.
-fn held() -> Vec<Device> {
-    let seen: Vec<(String, Device)> = evdev::enumerate()
-        .map(|(path, device)| (path.display().to_string(), device))
-        .collect();
-    let said: Vec<Says> = seen.iter().map(|(path, device)| says(path, device)).collect();
-
-    let wanted: Vec<&str> = [gamepad(&said), keyboard(&said)]
-        .into_iter()
-        .flatten()
-        .map(|says| says.path.as_str())
-        .collect();
-
-    seen.into_iter()
-        .filter(|(path, _)| wanted.contains(&path.as_str()))
-        .filter_map(|(path, mut device)| {
-            if let Err(fault) = device.grab() {
-                // Said rather than swallowed. Read without the grab, every
-                // press is also acted on, and the paddle being named closes
-                // the window the naming is being read in.
-                eprintln!("{path}: cannot take it, so a press will also do what it does: {fault}");
-                return None;
-            }
-
-            if let Err(fault) = device.set_nonblocking(true) {
-                eprintln!("{path}: it will not read without blocking: {fault}");
-                return None;
-            }
-
-            Some(device)
-        })
-        .collect()
+fn held(trigger: &str) -> Result<&str, Never> {
+    Ok(TRIGGERS.iter().find(|(_, named)| *named == trigger).map_or(trigger, |(spoken, _)| *spoken))
 }
+
+const WAIT: std::time::Duration = std::time::Duration::from_millis(10);

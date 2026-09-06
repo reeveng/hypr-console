@@ -24,7 +24,7 @@ far.
 | `ATTRS{name}=="*Legion Controller*Touchpad*"` in `91-console-touchpad.rules` | the kernel's name for the pad, matched |
 | `name = "--legion-controller--touchpad"` in `hyprland.lua` | the same device, under the name Hyprland derives from it |
 | `legion-left` and `legion-right` in the button vocabulary | the two buttons with the Legion mark on them, which is what a person calls them |
-| `LegionGo` in `console-pad` | the type is a model of that hardware, and of nothing else |
+| `LegionGo` in `console-gamepad` | the type is a model of that hardware, and of nothing else |
 | the sentences about the Legion Go's buttons, in `docs/` and in the profiles | true of that hardware, and the reason the button contract reads as it does |
 
 `@user@` is not a name and is not a prefix. It is the mark the manifest writes
@@ -56,8 +56,8 @@ In order, one commit each, every one of them with the whole suite green.
 2. **Developer binaries.** `console-check` `console-desktop` `console-emulate`
    `console-garden` `console-publish` `console-theme`. None is installed, so
    only the `Makefile` and the docs followed them.
-3. **Docs, tools, prose, and the environment.** `tools/console-deploy`,
-   `tools/console-pull`, and `CONSOLE_HOST` `CONSOLE_KEYS` `CONSOLE_PAD`
+3. **Docs, tools, prose, and the environment.** `console-deploy`,
+   `console-pull`, and `CONSOLE_HOST` `CONSOLE_KEYS` `CONSOLE_PAD`
    `CONSOLE_RAN` `CONSOLE_STAGE` `CONSOLE_TOUCHPAD` `CONSOLE_USER`.
 4. **Installed binaries and their entries.** The engine is `console`, and with
    it `console-buttons`, `console-engine`, `console-sky`, the five scripts under
@@ -84,9 +84,13 @@ In order, one commit each, every one of them with the whole suite green.
 
 ## 3. The migration
 
-`tools/console-migrate`, once per device. `just migrate` runs it, and
-`tools/console-migrate --check` says what the machine is called now and changes
-nothing.
+`just migrate`, once per device, and `console-migrate --check` says what the
+machine is called now and changes nothing.
+
+It has been run, and the attic it left is named in `docs/migrations.md`. It
+stays anyway: a machine that was never brought over is a machine this is the
+only way back for, and a sweep that exists only in a commit message is a sweep
+nobody can run.
 
 Run it over ssh from a laptop, in a shell you are already sitting in. The
 desktop is down between the disable and the enable, so a machine doing this
@@ -141,6 +145,28 @@ clone the script was run from is done for you; the rest is
    migration, and it refuses to run while LibreWolf is open.
 4. **The prefix is `console-*`**, as `console-music` set it.
 5. **The hardware keeps its name.** Section 1 is the whole of it.
+6. **A name has to be guessable by somebody who has never been here.** That is
+   the test every crate was held to, and why `again`, `door`, `haste`, `sky`,
+   `garden`, `stage`, `flows`, `menu`, `words` and `pad` are all gone.
+7. **A crate is a thing, and never a place to put a function two callers
+   share.** A `console-duplicate-keys` was made and unmade in one afternoon,
+   and what was actually wrong with the four tests it existed for was that they
+   never said which key was written twice.
+
+Both of those last two were got wrong on the way here, which is why they are
+written down rather than left as taste.
+
+Two names were left alone on purpose. `console-controller` stays because the
+three devices it reads are all the controller's own. `console-nested-desktop`
+sounds strange and is right: a nested compositor is a compositor in another
+compositor's window, and the tree already said *nested desktop* everywhere
+before the crate was called it.
+
+`console-launcher` and `console-applications` are two crates for one feature
+and have to stay two. The launcher's binary reaches for the home screen's
+`Spot` and the home screen's binary reaches for the application index, so one
+crate holding both puts each of `console-home-screen` and `console-launcher` in
+the other's dependency table, which Cargo refuses.
 
 Still open, and small: whether this checkout's own directory moves from
 `~/Documents/projects/legion-go`.

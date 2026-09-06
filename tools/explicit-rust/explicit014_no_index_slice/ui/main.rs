@@ -17,4 +17,11 @@ fn nth_named(xs: &[u8], i: usize) -> Option<u8> {
     xs.get(i).copied()
 }
 
-fn main() {}
+// GOOD — const context: the compiler evaluates it, and an index out of range
+// fails the build, which is a failure with a name.
+const EVERY: [u8; 3] = [1, 2, 3];
+const SECOND: u8 = EVERY[1];
+
+fn main() {
+    let _ = SECOND;
+}

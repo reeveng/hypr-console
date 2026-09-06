@@ -5,7 +5,7 @@
 //! again in whatever she typed it into, so a keyboard that knows the alphabet
 //! and a machine that cannot draw it come to the same thing.
 //!
-//! Whether the keyboard knows the alphabet is `crates/keyboard`'s own question
+//! Whether the keyboard knows the alphabet is `crates/console-keyboard`'s own question
 //! and `tests/the_alphabets.rs` is where it moved to. It used to be here, and
 //! it used to work by running the keyboard the tree carried at
 //! `files/usr/local/bin/virtual-keyboard`, skipping when there was none --
@@ -20,18 +20,11 @@ use std::path::{Path, PathBuf};
 
 fn root() -> PathBuf {
     {
-    // Tidied by `canonicalize` where that works and left as it stands where it
-    // does not. What `CARGO_MANIFEST_DIR` gives is already absolute and already
-    // right; canonicalizing only takes the `../..` out of the middle. It fails
-    // under a sandbox that will not let a process resolve a path it can
-    // otherwise read, and a test that stops there reports the sandbox as a
-    // missing repository.
     let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     from.canonicalize().unwrap_or(from)
 }
 }
 
-/// The package names under [packages] in the manifest.
 fn packages() -> Vec<String> {
     let said = std::fs::read_to_string(root().join("desktop.conf")).expect("the manifest");
     let mut section = String::new();
@@ -56,14 +49,6 @@ fn the_fonts_that_draw_thai_are_installed() {
     );
 }
 
-/// And the symbols the keyboard composes its alphabets out of.
-///
-/// The keyboard ships no keymap. `keyboard::keymap` asks xkbcommon for one, and
-/// xkbcommon reads `/usr/share/X11/xkb/symbols`, so Thai is a layer this device
-/// can type because `xkeyboard-config` is installed and for no other reason. It
-/// arrived with the base install and was never named here, which is the same
-/// gap the toolchain had: a device rebuilt from this manifest alone is not
-/// promised it, and what that looks like is a keyboard that will not start.
 #[test]
 fn the_symbols_the_keyboard_composes_from_are_installed() {
     assert!(

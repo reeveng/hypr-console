@@ -4,18 +4,14 @@
 //! rather than beside the code. Everything that can be decided from a string
 //! alone is tested next to the function that decides it.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use console_external_programs::Program;
+
 fn root() -> PathBuf {
     {
-    // Tidied by `canonicalize` where that works and left as it stands where it
-    // does not. What `CARGO_MANIFEST_DIR` gives is already absolute and already
-    // right; canonicalizing only takes the `../..` out of the middle. It fails
-    // under a sandbox that will not let a process resolve a path it can
-    // otherwise read, and a test that stops there reports the sandbox as a
-    // missing repository.
     let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     from.canonicalize().unwrap_or(from)
 }
@@ -29,12 +25,6 @@ fn console(args: &[&str]) -> (bool, String) {
     (done.status.success(), String::from_utf8_lossy(&done.stdout).into_owned())
 }
 
-/// Every file in the tree, as the path it is installed to.
-///
-/// Bytecode is not one of them. It is written beside whatever imports it, git
-/// is already told to ignore it, and this tree is worked in by more than one
-/// person at once: a stray file from somebody else's test run is not a desktop
-/// file nobody installs.
 fn carried() -> Vec<(PathBuf, String)> {
     fn walk(at: &Path, into: &mut Vec<PathBuf>) {
         let Ok(entries) = std::fs::read_dir(at) else { return };
@@ -68,11 +58,6 @@ fn the_manifest_this_desktop_wears_is_one_the_engine_can_read() {
     }
 }
 
-/// The service brings the daemon up and sets the ground, and `console-sky`
-/// decides what goes on it. A picture named here would be a second opinion
-/// about the wallpaper, and it used to be one: the cherry blossom garden was
-/// painted here and was what anybody saw for the moment before a picture
-/// arrived.
 #[test]
 fn the_paper_service_sets_a_ground_and_paints_no_picture_of_its_own() {
     let unit = root().join("files/etc/systemd/user/console-paper.service");
@@ -92,45 +77,22 @@ fn the_paper_service_sets_a_ground_and_paints_no_picture_of_its_own() {
     );
 }
 
-/// The keyboard is started after the controller, because they share a pad that
-/// neither of them owns.
-///
-/// X is not turned into the keyboard by anything in this tree. Every profile
-/// passes it through as North and the keyboard reads the pad itself, so at
-/// login two programs go looking for one device -- and the controller's own
-/// ExecStartPost loads the desktop profile, which destroys that device and
-/// builds another. Started together, the keyboard could open the one about to
-/// be taken away, and X then did nothing until the next reboot.
-///
-/// After= and not Requires=, so a machine whose controller will not start
-/// still gets a keyboard. `240-the-keyboard-comes-back-with-the-desktop` is
-/// the other half of this and the only one that can see the fault happen; this
-/// is the half that runs on a laptop, and it is here so the line cannot be
-/// tidied away by somebody who reads it as a dependency nothing needs.
 #[test]
-fn the_keyboard_starts_after_the_controller_has_taken_the_pad() {
+fn the_keyboard_follows_nothing_because_it_takes_the_devices_itself() {
     let unit = root().join("files/etc/systemd/user/console-keyboard.service");
     let held = std::fs::read_to_string(&unit).expect("the keyboard service");
-    let after: Vec<&str> = held.lines().filter(|line| line.starts_with("After=")).collect();
+    let ordered: Vec<&str> = held
+        .lines()
+        .filter(|line| line.starts_with("After=") || line.starts_with("Requires="))
+        .collect();
     assert!(
-        after.iter().any(|line| line.contains("console-controller.service")),
-        "the keyboard is not ordered after the controller, so the keyboard and the controller \
-         race for the pad at every login: {after:?}"
-    );
-    assert!(
-        !held.lines().any(|line| line.starts_with("Requires=")),
-        "the keyboard requires the controller rather than merely following it, so a \
-         machine whose controller will not start has no keyboard either"
+        ordered.is_empty(),
+        "the keyboard is ordered against something again: {ordered:?}. It takes the pad and the \
+         keyboard InputPlumber publishes when its surface goes up and hands them back when it \
+         comes down, so there is nothing left for an ordering to protect."
     );
 }
 
-/// Steam is asked to leave before the desktop is.
-///
-/// The menu launches a game through Steam, so Steam can be running on the
-/// desktop when the button for Game Mode is pressed. Killed with the session
-/// it was in, it leaves its installation marked unclean, and the Game Mode
-/// start after that fetches a client manifest over the network and verifies
-/// every executable's checksum before it draws anything.
 #[test]
 fn the_way_to_game_mode_shuts_steam_down_before_the_compositor() {
     let at = root().join("files/usr/local/bin/steamos-session-select");
@@ -169,11 +131,6 @@ fn files_in_the_users_home_are_installed_as_the_user() {
     }
 }
 
-/// Every program the device compiles for itself is one this repository holds.
-///
-/// A crate is named for what it is and the program it makes is named for what
-/// somebody types, so the two are not always the same word and the manifest
-/// names the program.
 #[test]
 fn every_program_the_device_builds_is_one_this_repository_holds() {
     let held = std::fs::read_to_string(root().join("desktop.conf")).expect("desktop.conf");
@@ -187,14 +144,6 @@ fn every_program_the_device_builds_is_one_this_repository_holds() {
     }
 }
 
-/// The bar draws its whole face out of a font, so the font is one the manifest
-/// installs.
-///
-/// It was not, for as long as there has been a bar. Noto Sans carries none of
-/// the Material Design codepoints these icons are, so every glyph on the bar
-/// came from whichever Nerd Font happened to be on the machine, chosen by
-/// fontconfig and named nowhere. A machine put back together from the manifest
-/// alone would have drawn the bar as a row of empty boxes.
 #[test]
 fn the_font_the_bar_draws_its_icons_in_is_one_the_manifest_installs() {
     let style = std::fs::read_to_string(
@@ -218,7 +167,6 @@ fn the_font_the_bar_draws_its_icons_in_is_one_the_manifest_installs() {
     );
 }
 
-/// Every program the workspace makes, by the name it is installed under.
 fn programs() -> Vec<String> {
     let crates = root().join("crates");
     std::fs::read_dir(&crates)
@@ -232,18 +180,11 @@ fn programs() -> Vec<String> {
             };
             match held.get("bin").and_then(toml::Value::as_array) {
                 Some(bins) => bins.iter().filter_map(named).collect::<Vec<_>>(),
-                // A crate with no [[bin]] table makes a program named for
-                // itself, if it makes one at all.
                 None => held.get("package").and_then(named).into_iter().collect(),
             }
         })
         .collect()
 }
-
-// The rules under test, written here rather than reached for, because the
-// engine is a binary and its insides are its own. Any of these three drifting
-// from the engine's own is caught by the engine's own tests, which assert the
-// same rules against the same cases.
 
 fn mode_of(live: &str, head: &[u8]) -> u32 {
     match live {
@@ -255,8 +196,6 @@ fn mode_of(live: &str, head: &[u8]) -> u32 {
     }
 }
 
-/// Whoever the machine this runs on belongs to. The mark stands for them and
-/// the name is never this tree's to know, so the test picks one.
 const SOMEBODY: &str = "ada";
 
 fn owner_of(live: &str) -> &'static str {
@@ -295,24 +234,6 @@ fn section(held: &str, wanted: &str) -> Vec<String> {
         .0
 }
 
-// ------------------------------------------------------- the manifest's word
-//
-// Everything below is a thing `console apply` would happily do, and a person
-// would then find out about at the wrong moment: a file listed with nothing
-// behind it, a file kept in the tree that is never installed anywhere, a script
-// that will not parse, a service that starts a program the manifest does not
-// carry.
-
-/// Everything this desktop is allowed to reach for.
-///
-/// A program the manifest does not carry is normally a mistake: apply installs
-/// half of a working pair and the missing half is found later, by somebody
-/// holding the device. `[elsewhere]` is how the other case is said out loud. It
-/// exists for a program that is somebody else's to publish, which is why the
-/// public copy of this repository has one and this does not.
-///
-/// A built program is carried as its source rather than as itself, so it is
-/// named here by where `console apply` puts it.
 fn carried_or_declared(held: &str) -> BTreeSet<String> {
     section(held, "files")
         .into_iter()
@@ -325,7 +246,6 @@ fn manifest() -> String {
     std::fs::read_to_string(root().join("desktop.conf")).expect("desktop.conf")
 }
 
-/// Every file under a directory in the tree, whatever it is called.
 fn every(under: &str, ending: &str) -> Vec<PathBuf> {
     carried()
         .into_iter()
@@ -346,8 +266,6 @@ fn every_file_the_manifest_lists_is_in_the_tree() {
     }
 }
 
-/// A file nobody lists is a file `console apply` never installs. It reads as part
-/// of the desktop and is not part of it.
 #[test]
 fn every_file_in_the_tree_is_listed() {
     let listed: BTreeSet<String> = section(&manifest(), "files").into_iter().collect();
@@ -368,9 +286,6 @@ fn every_service_has_a_unit_the_manifest_carries() {
     }
 }
 
-/// The target is what the compositor starts, and the only thing it starts. A
-/// service enabled but not wanted by it never runs; one wanted by it and not
-/// enabled is a unit systemd will not have.
 #[test]
 fn the_target_pulls_in_exactly_the_services_that_are_enabled() {
     let held = manifest();
@@ -402,14 +317,11 @@ fn every_program_a_unit_starts_is_carried() {
     }
 }
 
-/// A script that calls another by its full path is a dependency the manifest has
-/// to know about, or apply installs half of a working pair.
 #[test]
 fn every_program_a_carried_script_reaches_for_is_carried() {
     let held = manifest();
     let listed = carried_or_declared(&held);
     for path in every("/usr/local/bin/", "") {
-        // A compiled program reaches for nothing that can be read here.
         let Ok(said) = std::fs::read_to_string(&path) else { continue };
         let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
         for at in reaches_for(&said) {
@@ -418,7 +330,6 @@ fn every_program_a_carried_script_reaches_for_is_carried() {
     }
 }
 
-/// Every program under /usr/local/bin a piece of text names.
 fn reaches_for(said: &str) -> BTreeSet<String> {
     said.match_indices("/usr/local/bin/")
         .map(|(at, _)| {
@@ -440,7 +351,8 @@ fn every_shell_script_parses() {
         if !(first.starts_with("#!") && (first.contains("/sh") || first.contains("bash"))) {
             continue;
         }
-        let done = Command::new("sh").arg("-n").arg(&path).output().expect("sh");
+        let Ok(mut asking) = Program::Sh.command();
+        let done = asking.arg("-n").arg(&path).output().expect("sh");
         assert!(done.status.success(), "{live}: {}", String::from_utf8_lossy(&done.stderr).trim());
     }
 }
@@ -463,23 +375,8 @@ fn every_json_file_parses() {
     }
 }
 
-// ------------------------------------------------------------------ by finger
-//
-// The screen is a touchscreen, and the device is put down as often as it is
-// held. Everything below is something a hand with no controller in it could not
-// do at all until it was there, so each of these is a way back to that.
-
-/// Programs the bar may reach for that come from a package rather than the tree.
-/// `[packages]` is what holds these to the machine; `the_programs` is what
-/// holds them to a package name.
 const OUTSIDE: [&str; 3] = ["activate", "makoctl", "wpctl"];
 
-/// Every module on every bar, as its name and what is written under it.
-///
-/// waybar takes either one bar or a list of them, and this desktop has two:
-/// the bar itself and the thin strip under it that fills while an apply
-/// runs. Both shapes are read here, so a config that goes back to one bar
-/// still answers these questions.
 fn bar_modules() -> Vec<(String, serde_json::Map<String, serde_json::Value>)> {
     let config = root().join("files/home/@user@/.config/waybar/config.jsonc");
     let said = std::fs::read_to_string(config).expect("the bar");
@@ -508,7 +405,6 @@ fn bar_modules() -> Vec<(String, serde_json::Map<String, serde_json::Value>)> {
         .collect()
 }
 
-/// What every on-click in the bar runs, as the module and the first word.
 fn bar_commands() -> Vec<(String, String)> {
     bar_modules()
         .into_iter()
@@ -517,16 +413,17 @@ fn bar_commands() -> Vec<(String, String)> {
                 .iter()
                 .filter(|(key, _)| key.starts_with("on-"))
                 .filter_map(|(_, command)| command.as_str())
-                .filter_map(|command| command.split_whitespace().next())
+                .filter_map(|command| {
+                    command
+                        .split_whitespace()
+                        .find(|word| !word.contains('=') || word.starts_with('-'))
+                })
                 .map(|word| (module.clone(), word.to_string()))
                 .collect::<Vec<(String, String)>>()
         })
         .collect()
 }
 
-/// The bar is the one place a program is named where nothing will complain if it
-/// is gone: the button simply does nothing, and a person decides the machine is
-/// broken. A script that gets renamed has to be renamed here too.
 #[test]
 fn every_program_the_bar_runs_is_carried() {
     let listed = carried_or_declared(&manifest());
@@ -541,9 +438,6 @@ fn every_program_the_bar_runs_is_carried() {
     }
 }
 
-/// The two things a finger has no other road to. Every other button on the pad
-/// has an icon on the bar or a row in a panel; these two had neither, so a
-/// person holding nothing could not open an application or type a letter.
 #[test]
 fn the_bar_has_a_door_for_the_menu_and_for_the_keyboard() {
     let runs: BTreeSet<String> = bar_commands().into_iter().map(|(_, command)| command).collect();
@@ -551,9 +445,6 @@ fn the_bar_has_a_door_for_the_menu_and_for_the_keyboard() {
     assert!(runs.contains("keyboard-toggle"), "there is no way to ask for the keyboard by hand");
 }
 
-/// polkitd asks the session for a password and gives up if nothing answers. With
-/// no agent running, installing something is not a refusal, it is a button that
-/// does nothing and says nothing about why.
 #[test]
 fn something_answers_when_a_password_is_asked_for() {
     let held = manifest();
@@ -567,27 +458,8 @@ fn something_answers_when_a_password_is_asked_for() {
     );
 }
 
-/// The kernel holds fifteen characters of a process's name, and no script may
-/// go looking for a longer one.
-///
-/// `comm` is `TASK_COMM_LEN` bytes, which is sixteen with the terminator, so a
-/// program installed as `virtual-keyboard` is `virtual-keyboar` to anything
-/// asking the kernel what it is called. `pkill -x` and `pgrep -x` compare
-/// against exactly that, so a pattern of sixteen characters matches nothing --
-/// not the wrong thing, nothing -- and says so to nobody. `pgrep` warns; in a
-/// script nobody reads stderr.
-///
-/// Found on the way through a rename. `osk` had `pkill -x wvkbd-mobintl`,
-/// thirteen characters, which worked and hid the rule; the new name is sixteen
-/// and X would have stopped raising the keyboard on the next deploy, with
-/// every test in this tree still green.
-///
-/// The way out is `-f`, which matches the whole command line and has no such
-/// limit. This asks of every script the manifest installs, because the next
-/// one to hit this will not be the keyboard.
 #[test]
 fn nothing_matches_a_process_by_a_name_the_kernel_cannot_hold() {
-    /// What the kernel keeps of a process's name, terminator not counted.
     const COMM: usize = 15;
 
     let bin = root().join("files/usr/local/bin");
@@ -601,7 +473,6 @@ fn nothing_matches_a_process_by_a_name_the_kernel_cannot_hold() {
             if line.starts_with('#') || !(line.contains("pkill") || line.contains("pgrep")) {
                 continue;
             }
-            // `-f` matches the whole command line and is not held to `comm`.
             let words: Vec<&str> = line.split_whitespace().collect();
             let by_name = words.contains(&"-x") && !words.contains(&"-f");
             if !by_name {
@@ -623,31 +494,17 @@ fn nothing_matches_a_process_by_a_name_the_kernel_cannot_hold() {
             );
         }
     }
-    // A test that found nothing to ask would pass a tree where every script
-    // had been rewritten to match badly.
     let _ = asked;
 }
 
-/// The keyboard's toggle can actually reach the keyboard.
-///
-/// The script and the program are two files that have to name each other, and
-/// nothing else in the tree holds them together: the toggle is the only way X
-/// raises the keyboard, and it fails by doing nothing.
 #[test]
 fn the_toggle_names_the_keyboard_the_manifest_installs() {
-    let toggle = root().join("files/usr/local/bin/keyboard-toggle");
-    let held = std::fs::read_to_string(toggle).expect("the toggle");
     let installed = format!("/usr/local/bin/{}", console_controller::mode::KEYBOARD);
-    assert!(
-        held.contains(&installed),
-        "keyboard-toggle does not name {installed}, so X reaches nothing:\n{held}"
+    assert_eq!(
+        console_keyboard::asked::asking(std::path::Path::new(&installed)),
+        Ok(format!("^{installed}( |$)")),
+        "the two ways of asking signal a path the manifest does not install, so X reaches nothing"
     );
-    // Either way the program arrives: carried in [files], or compiled on the
-    // device from [build] and installed into /usr/local/bin under its own name.
-    // The keyboard was the first to move from one to the other -- it was a C
-    // program carried in the tree and is Rust the device builds -- and this
-    // asked only the first question, so the move failed a test that was right
-    // about the thing it was guarding and wrong about where to look.
     let held = manifest();
     let carried = section(&held, "files").iter().any(|path| path == &installed);
     let built = section(&held, "build")
@@ -660,27 +517,16 @@ fn the_toggle_names_the_keyboard_the_manifest_installs() {
     );
 }
 
-/// The engine and the bar agree on which signal wakes the progress module.
-///
-/// These are two numbers in two files in two languages, and nothing but this
-/// holds them together. Wrong, the failure is silent in the worst way: the
-/// apply writes every number faithfully, waybar never hears about any of them,
-/// and the bar sits at whatever it was drawn at when the module first started
-/// -- which is nothing at all, so the whole feature simply is not there and
-/// no line anywhere says so.
-///
-/// The other half of the same agreement -- the words on either side of the
-/// file in `/run` -- is `what_the_engine_writes_is_what_the_bar_reads`, in
-/// `console-notices`.
 #[test]
 fn the_bar_and_the_engine_agree_on_the_signal() {
-    let engine = std::fs::read_to_string(root().join("crates/console-manifest/src/going.rs"))
-        .expect("going.rs");
+    let engine =
+        std::fs::read_to_string(root().join("crates/console-notifications/src/updating.rs"))
+            .expect("updating.rs");
     let sent = engine
         .lines()
         .find_map(|line| line.split_once("\"-RTMIN+"))
         .and_then(|(_, rest)| rest.split('"').next())
-        .expect("going.rs sends no real-time signal at all");
+        .expect("nothing names a real-time signal to wake the bar with");
 
     let config = std::fs::read_to_string(root().join("files/home/@user@/.config/waybar/config.jsonc"))
         .expect("the waybar config");
@@ -705,15 +551,6 @@ fn the_bar_and_the_engine_agree_on_the_signal() {
     );
 }
 
-/// Every module that reads something reads it from a program the device
-/// builds.
-///
-/// `every_program_the_bar_runs_is_carried` asks this of the on-clicks -- what
-/// a tap does. This asks it of the `exec`s -- what a module *is*. They fail
-/// differently: a broken on-click is a button that does nothing when it is
-/// pressed, which somebody notices; a broken `exec` is a module waybar draws
-/// as empty forever, which is indistinguishable from a module that is working
-/// and has nothing to say.
 #[test]
 fn every_module_reads_from_a_program_the_manifest_builds() {
     let built = programs();
@@ -730,24 +567,6 @@ fn every_module_reads_from_a_program_the_manifest_builds() {
     assert!(asked > 1, "no module reads from anything, so this test asked nothing");
 }
 
-/// The strip under the bar is exactly as wide as the screen.
-///
-/// A gradient's percentages are percentages of the box it is painted in, so
-/// the strip's `min-width` is what makes 50% mean half the screen. Written
-/// down, because GTK has no way to ask.
-///
-/// Too narrow and the strip stops short of the right edge, with the fill
-/// running off the end of an apply early. Too wide and half of it is off the
-/// screen, so the fill never appears to finish. Both look like the apply
-/// misbehaving rather than the stylesheet, which is why this holds the number
-/// against the monitor hyprland is actually told to set up.
-///
-/// It is the size this device is set up as, and no longer the only size it can
-/// be: the Screen tab of the settings moves the density, and `console-scale`
-/// writes the width that leaves into a file the stylesheet imports and which
-/// outranks this rule. This is what the strip is on a machine nobody has
-/// changed, and what it falls back to if that file is ever missing -- so it is
-/// still the number the compositor's declaration has to agree with.
 #[test]
 fn the_strip_is_as_wide_as_the_screen() {
     let screen = std::fs::read_to_string(root().join("files/home/@user@/.config/hypr/hyprland.lua"))
@@ -764,8 +583,6 @@ fn the_strip_is_as_wide_as_the_screen() {
     let across: f64 = across.parse().expect("a width");
     let down: f64 = down.split('@').next().expect("a height").parse().expect("a height");
     let scale: f64 = field("scale").parse().expect("a scale");
-    // An odd transform is a quarter turn, which is what this panel is mounted
-    // at: the long side of the panel is the width of the desktop.
     let turned = field("transform").parse::<u32>().expect("a transform") % 2 == 1;
     let wide = match turned {
         true => down,
@@ -788,4 +605,276 @@ fn the_strip_is_as_wide_as_the_screen() {
         "the strip is {written} logical pixels wide and the screen is {logical}, so an apply \
          would fill it to the wrong place"
     );
+}
+
+#[test]
+fn the_power_button_puts_the_panel_back_and_is_bound_before_anything_that_could_fail() {
+    let lua = std::fs::read_to_string(root().join("files/home/@user@/.config/hypr/hyprland.lua"))
+        .expect("the compositor's config");
+
+    let bound = lua
+        .lines()
+        .position(|line| line.contains("hl.bind(\"XF86PowerOff\""))
+        .expect("nothing binds the power key, so a dark screen has no way back");
+
+    assert!(
+        lua.lines().nth(bound).is_some_and(|line| line.contains("console-brightness undim")),
+        "the power key runs something other than the program that puts the screen back"
+    );
+
+    for after in ["hl.config({", "hl.monitor({", "console-theme:begin"] {
+        let at = lua.lines().position(|line| line.contains(after)).expect(after);
+
+        assert!(
+            bound < at,
+            "the power key is bound at line {bound}, after `{after}` at line {at}: a failure \
+             above it takes the only way out of a dark screen with it"
+        );
+    }
+}
+
+#[test]
+fn putting_the_screen_back_puts_the_panel_on_before_it_reads_the_note() {
+    let said =
+        std::fs::read_to_string(root().join("crates/console-settings/src/bin/console-brightness.rs"))
+            .expect("console-brightness");
+    let body = said.split("fn undim(").nth(1).expect("undim");
+    let body = body.split("\nfn ").next().expect("the end of it");
+
+    let on = body.find("panel_on()").expect("undim does not put the panel on");
+    let note = body.find("remembered()").expect("undim does not read the note");
+
+    assert!(on < note, "the panel is put on only after a note that can send undim home early");
+    assert!(
+        said.contains(r#"hl.dsp.dpms({ action = "enable" })"#),
+        "the dpms is not the Lua form, which is the one this compositor answers"
+    );
+}
+
+#[test]
+fn one_thing_puts_the_panel_back_on_when_the_machine_wakes() {
+    let held =
+        std::fs::read_to_string(root().join("files/home/@user@/.config/hypr/hypridle.conf"))
+            .expect("hypridle.conf");
+
+    let waking: Vec<&str> = held
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.starts_with("on-resume"))
+        .collect();
+
+    assert!(!waking.is_empty(), "nothing in hypridle answers a machine waking up");
+
+    for line in waking {
+        assert!(
+            line.contains("console-brightness undim"),
+            "{line}\nhypridle resumes every listener that timed out at the same instant, and \
+             `console-brightness undim` already puts the panel on with this dispatch. A second \
+             one races it: both say ok, the compositor reads as on, and the screen stays dark."
+        );
+    }
+}
+
+fn holding() -> Vec<(String, PathBuf)> {
+    let crates = root().join("crates");
+    std::fs::read_dir(&crates)
+        .expect("crates/")
+        .flatten()
+        .map(|entry| entry.path())
+        .filter_map(|at| std::fs::read_to_string(at.join("Cargo.toml")).ok().map(|held| (at, held)))
+        .filter_map(|(at, held)| held.parse::<toml::Table>().ok().map(|held| (at, held)))
+        .flat_map(|(at, held)| {
+            let bins = held.get("bin").and_then(toml::Value::as_array).cloned().unwrap_or_default();
+            bins.into_iter()
+                .filter_map(move |one| {
+                    let name = one.get("name").and_then(toml::Value::as_str)?.to_owned();
+                    let path = one.get("path").and_then(toml::Value::as_str)?;
+                    Some((name, at.join(path)))
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+fn modules(held: &str) -> BTreeSet<(String, String)> {
+    let ident = |from: &str| -> String {
+        from.chars().take_while(|one| one.is_alphanumeric() || *one == '_').collect()
+    };
+
+    held.match_indices("console_")
+        .filter_map(|(at, _)| {
+            let rest = held.get(at..)?;
+            let whole = ident(rest);
+            let after = rest.get(whole.len()..)?.strip_prefix("::")?;
+            let module = ident(after);
+
+            match module.is_empty() || module.chars().next()?.is_uppercase() {
+                true => None,
+                false => Some((whole.replace('_', "-"), module)),
+            }
+        })
+        .collect()
+}
+
+fn reached_by(bin: &Path) -> String {
+    let own = std::fs::read_to_string(bin).unwrap_or_default();
+    let crates = root().join("crates");
+
+    let mut held = own.clone();
+
+    for (what, module) in modules(&own) {
+        let src = crates.join(&what).join("src");
+        let one = src.join(format!("{module}.rs"));
+        let folded = src.join(&module).join("mod.rs");
+
+        held.push_str(&std::fs::read_to_string(&one).unwrap_or_default());
+        held.push_str(&std::fs::read_to_string(&folded).unwrap_or_default());
+    }
+
+    held
+}
+
+const FORCES: [&str; 15] = [
+    "LockPersonality",
+    "MemoryDenyWriteExecute",
+    "NoNewPrivileges",
+    "PrivateDevices",
+    "ProtectClock",
+    "ProtectHostname",
+    "ProtectKernelLogs",
+    "ProtectKernelModules",
+    "ProtectKernelTunables",
+    "RestrictAddressFamilies",
+    "RestrictNamespaces",
+    "RestrictRealtime",
+    "RestrictSUIDSGID",
+    "SystemCallArchitectures",
+    "SystemCallFilter",
+];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Bound {
+    Seccomp,
+    Free,
+}
+
+fn bound(value: &str) -> Bound {
+    match value.trim() {
+        "" | "no" | "false" | "off" | "0" => Bound::Free,
+        _ => Bound::Seccomp,
+    }
+}
+
+fn read_for(unit: &Path) -> Vec<PathBuf> {
+    let named = unit.file_name().expect("a unit name").to_string_lossy().into_owned();
+    let Some(whose) = named.strip_suffix(".service") else { return Vec::new() };
+
+    let mut theirs: Vec<PathBuf> = every("etc/systemd/user", ".conf")
+        .into_iter()
+        .filter(|path| {
+            let over = path
+                .parent()
+                .and_then(Path::file_name)
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let Some(stem) = over.strip_suffix(".service.d") else { return false };
+
+            stem == whose || (stem.ends_with('-') && whose.starts_with(stem))
+        })
+        .collect();
+
+    theirs.sort_by_key(|path| path.file_name().map(|name| name.to_string_lossy().into_owned()));
+
+    theirs
+}
+
+fn still_seccomp(unit: &Path) -> BTreeSet<String> {
+    let mut standing: BTreeMap<String, Bound> = BTreeMap::new();
+
+    for path in std::iter::once(unit.to_path_buf()).chain(read_for(unit)) {
+        let held = std::fs::read_to_string(&path).unwrap_or_default();
+
+        for line in section(&held, "Service") {
+            let Some((key, value)) = line.split_once('=') else { continue };
+            let key = key.trim();
+
+            match FORCES.contains(&key) {
+                true => {
+                    standing.insert(key.to_owned(), bound(value));
+                }
+                false => {}
+            }
+        }
+    }
+
+    standing
+        .into_iter()
+        .filter(|(_, how)| *how == Bound::Seccomp)
+        .map(|(key, _)| key)
+        .collect()
+}
+
+#[test]
+fn every_unit_that_can_cross_to_game_mode_may_still_become_root() {
+    let switcher = std::fs::read_to_string(root().join("files/usr/local/bin/steamos-session-select"))
+        .expect("the session switcher");
+    assert!(
+        switcher.contains("pkexec"),
+        "the switcher no longer becomes root, and what is below is only about the fact that it does"
+    );
+
+    let confining = std::fs::read_to_string(
+        root().join("files/etc/systemd/user/console-.service.d/confining.conf"),
+    )
+    .expect("the confinement");
+    assert!(
+        confining.contains("NoNewPrivileges=yes"),
+        "nothing takes the setuid bit away any more, so nothing has to be given it back"
+    );
+
+    let holds = holding();
+    let crossing: BTreeSet<String> = holds
+        .iter()
+        .filter(|(_, bin)| reached_by(bin).contains("console_session::"))
+        .map(|(name, _)| name.clone())
+        .collect();
+
+    assert!(!crossing.is_empty(), "nothing in the tree crosses to Game Mode");
+
+    for unit in every("etc/systemd/user", ".service") {
+        let held = std::fs::read_to_string(&unit).unwrap_or_default();
+        let starts: BTreeSet<String> = named_by(&held)
+            .into_iter()
+            .filter_map(|path| path.rsplit_once('/').map(|(_, name)| name.to_string()))
+            .collect();
+
+        let reaches = starts.iter().any(|name| {
+            crossing.contains(name)
+                || holds
+                    .iter()
+                    .filter(|(held, _)| held == name)
+                    .any(|(_, bin)| {
+                        let near = reached_by(bin);
+                        crossing.iter().any(|far| near.contains(far.as_str()))
+                    })
+        });
+
+        match reaches {
+            false => continue,
+            true => {}
+        }
+
+        let named = unit.file_name().expect("a unit name").to_string_lossy().into_owned();
+        let standing = still_seccomp(&unit);
+
+        assert!(
+            standing.is_empty(),
+            "{named} starts a program that crosses to Game Mode, which is done with pkexec, and \
+             after everything read for it {standing:?} is still set. Each of those is seccomp, \
+             and a unit of an unprivileged manager carrying any seccomp at all is a process with \
+             the no-new-privileges bit whatever NoNewPrivileges= says: pkexec fails with \
+             \"pkexec must be setuid root\", the session is never recorded, and the button does \
+             nothing."
+        );
+    }
 }

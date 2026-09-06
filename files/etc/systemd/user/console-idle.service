@@ -1,5 +1,5 @@
 [Unit]
-Description=Dim and lock the screen when nothing is happening
+Description=Screen lock
 PartOf=console.target
 # hypridle's own unit is not used, for the reason none of the others are: what
 # runs on this machine is decided in one place, and its unit is wanted by a
@@ -37,6 +37,16 @@ ExecStopPost=-/usr/bin/hyprctl dispatch 'hl.dsp.dpms({ action = "enable" })'
 ExecStopPost=-/usr/local/bin/console-fell %n
 Restart=always
 RestartSec=5
+
+# What this reaches past `console-.service.d/confining.conf`, and why.
+#
+# hypridle reads its config out of the home directory and writes nothing there;
+# the note saying where the brightness was is in XDG_RUNTIME_DIR, which is not
+# home. The backlight itself is a file in /sys, and `confining.conf` says out
+# loud why /sys is left writable -- this unit is the reason.
+PrivateDevices=yes
+ProtectHome=read-only
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
 
 [Install]
 WantedBy=console.target

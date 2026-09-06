@@ -111,10 +111,10 @@ button, with the job that had it written down as playing nothing.
 What it walks: the buttons are yours, a button means what the screen says,
 the keyboard has the pad, the home screen holds nothing. What it crosses:
 the setup screen's move and the file (`console_pad::jobs`), the table and
-the daemon (`console-controller`), the stage (`console-stage`), the words to
-the home screen (`console-door`).
+the daemon (`console-controller`), the stage (`console-test-stages`), the words to
+the home screen (`console-onscreen`).
 
-This one runs: `crates/console-flows/tests/making_it_yours.rs`, at the fast
+This one runs: `crates/console-flow-tests/tests/making_it_yours.rs`, at the fast
 stage, on every `just test`.
 
 ### Pictures, then a film
@@ -170,7 +170,7 @@ a button doing something the guide never mentions are the two ways a guide
 starts lying, and neither of them can be shut by reading the table twice,
 because one half of each assertion is a press.
 
-This one runs: `crates/console-flows/tests/getting_around.rs`, at the fast
+This one runs: `crates/console-flow-tests/tests/getting_around.rs`, at the fast
 stage, on every `just test`. Two halves are handed up rather than answered
 there. Whether the compositor went where it was asked is the device's, as it
 is for every dispatch. And whether a second chooser actually replaces the
@@ -183,11 +183,12 @@ half, that the door it asks through is the door that keeps.
 Nothing is over the desktop and the home screen is drawn under it, asleep. A
 thumb on the touchpad moves the pointer and A clicks: the home screen owns
 neither. The first d-pad press wakes it -- a highlight appears and nothing
-moves. Walking, standing, and A opens Files. Back on the home screen, A held
-on a square picks it up instead of opening it; carried and put down, the
-grid is rearranged, and the arrangement survives the home screen being
-started again. Through all of it a tap on the bar lands on the bar. B puts
-the highlight away and every button is the desktop's again.
+moves. Walking, standing, and A opens Files. Back on the home screen, Y opens
+the card of what else can be done with the square being stood on, and its
+first row picks the application up; carried and put down, the grid is
+rearranged, and the arrangement survives the home screen being started again.
+Through all of it a tap on the bar lands on the bar. B puts the highlight away
+and every button is the desktop's again.
 
 What it walks: the home screen holds nothing, the d-pad reaches everything,
 a button means what the screen says. What it crosses: the controller, the
@@ -263,7 +264,7 @@ answer is the same either way is not walking, it is strolling.
 
 ## What exists and what is owed
 
-The flows live in `crates/console-flows`: the library carries what every
+The flows live in `crates/console-flow-tests`: the library carries what every
 flow needs said once -- the compositor's answers for the places a flow walks
 through -- and each flow is a test file beside it, run at the fast stage by
 `just test`. *Making it yours* runs today. The scenario files under

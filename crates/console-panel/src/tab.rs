@@ -11,32 +11,35 @@
 //! first tab rather than nothing at all.
 
 use crate::notes;
+use console_never::Never;
 
-/// Which note this is.
 const TAB: &str = "tab";
 
-/// The tab this panel was left on, if it has been up before.
-pub fn last(program: &str) -> Option<String> {
-    read(&notes::read(program, TAB)?)
+pub fn last(program: &str) -> Result<Option<String>, Never> {
+    let Ok(said) = notes::read(program, TAB);
+
+    let Some(said) = said else { return Ok(None) };
+
+    read(&said)
 }
 
-/// The file, as a tab name. A file saying nothing names no tab, which opens
-/// the first one.
-fn read(said: &str) -> Option<String> {
+fn read(said: &str) -> Result<Option<String>, Never> {
     let said = said.trim();
-    (!said.is_empty()).then(|| said.to_string())
+
+    Ok((!said.is_empty()).then(|| said.to_string()))
 }
 
-/// Remember the tab it is on now.
-///
-/// Written only when it changed, so a panel walked back and forth all day
-/// writes once for each tab it stops on.
-pub fn keep(program: &str, title: &str) {
-    if title.is_empty() || last(program).as_deref() == Some(title) {
-        return;
+pub fn keep(program: &str, title: &str) -> Result<(), Never> {
+    let Ok(last) = last(program);
+
+    match title.is_empty() || last.as_deref() == Some(title) {
+        true => return Ok(()),
+        false => {},
     }
 
-    notes::write(program, TAB, &format!("{title}\n"));
+    let Ok(()) = notes::write(program, TAB, &format!("{title}\n"));
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -45,14 +48,13 @@ mod tests {
 
     #[test]
     fn the_name_on_the_tab_is_what_is_read() {
-        assert_eq!(read("Wi-Fi\n"), Some("Wi-Fi".to_string()));
-        assert_eq!(read("  Game Mode  "), Some("Game Mode".to_string()));
+        assert_eq!(read("Wi-Fi\n"), Ok(Some("Wi-Fi".to_string())));
+        assert_eq!(read("  Game Mode  "), Ok(Some("Game Mode".to_string())));
     }
 
-    /// Which opens the first tab, the same as a panel that has never been up.
     #[test]
     fn a_file_saying_nothing_names_no_tab() {
-        assert_eq!(read(""), None);
-        assert_eq!(read("\n  \n"), None);
+        assert_eq!(read(""), Ok(None));
+        assert_eq!(read("\n  \n"), Ok(None));
     }
 }

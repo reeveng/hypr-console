@@ -1,0 +1,19 @@
+error: this function cannot say it succeeded
+  --> $DIR/main.rs:4:15
+   |
+LL | fn plain() -> i32 {
+   |               ^^^
+   |
+   = help: return `Result<T, Never>` so that every call site reads the same whether or not it can fail
+   = note: `#[deny(explicit002_infallible_result)]` on by default
+
+error: this function cannot say it succeeded
+  --> $DIR/main.rs:8:13
+   |
+LL | fn nothing() {}
+   |             ^
+   |
+   = help: return `Result<T, Never>` so that every call site reads the same whether or not it can fail
+
+error: aborting due to 2 previous errors
+

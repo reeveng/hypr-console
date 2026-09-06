@@ -28,13 +28,11 @@ use console_music::player;
 use std::path::PathBuf;
 
 fn main() {
-    // Nothing to open where nothing was named, which is somebody running this
-    // by hand to put a player that has been left in some other state back the
-    // way this desktop leaves it.
     let Some(song) = std::env::args().nth(1).map(PathBuf::from) else {
-        player::onward_only();
+        let Ok(_) = player::onward_only();
+
         return;
     };
 
-    player::onward(&song);
+    let Ok(()) = player::onward(&song);
 }

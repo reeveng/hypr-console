@@ -7,20 +7,13 @@
 use console_colour::Short;
 use crate::palette::Palette;
 
-/// A colour as the three decimal numbers a KDE config file wants.
-///
-/// A code that is not six hex digits is a fault rather than black. Read as
-/// nought it would write a palette that is quietly wrong -- one role the
-/// colour of nothing, in a file nobody opens -- and the palette it came from
-/// is generated, so a code that will not parse is a bug upstream of here and
-/// wants saying.
 fn rgb(code: &str) -> Result<String, Short> {
     let code = code.trim_start_matches('#');
     let mut said: Vec<String> = Vec::new();
 
-    for at in [0, 2, 4] {
+    for at in [0usize, 2, 4] {
         let pair = code
-            .get(at..at + 2)
+            .get(at..at.saturating_add(2))
             .ok_or_else(|| Short(format!("{code} is not the six hex digits a colour is")))?;
         let number = u8::from_str_radix(pair, 16)
             .map_err(|why| Short(format!("{pair}, in {code}, is not a hex number: {why}")))?;
@@ -30,7 +23,6 @@ fn rgb(code: &str) -> Result<String, Short> {
     Ok(said.join(","))
 }
 
-/// The foregrounds every section carries, which do not change between them.
 const INK: [(&str, &str); 10] = [
     ("DecorationFocus", "pink"), ("DecorationHover", "pink"),
     ("ForegroundActive", "peach"), ("ForegroundInactive", "soft"),
@@ -39,7 +31,6 @@ const INK: [(&str, &str); 10] = [
     ("ForegroundPositive", "leaf"), ("ForegroundVisited", "mauve"),
 ];
 
-/// Each section, and the two grounds it is drawn on.
 const SECTIONS: [(&str, &str, &str); 6] = [
     ("Colors:Button", "panel", "ground"),
     ("Colors:Complementary", "ground", "night"),
@@ -49,21 +40,12 @@ const SECTIONS: [(&str, &str, &str); 6] = [
     ("Colors:Window", "ground", "night"),
 ];
 
-/// The eight names a foreground can go by, all of which are the dark ink on a
-/// selection. The fill is the thing carrying contrast there, and a second hue
-/// on top of it would be the one unreadable place in the palette.
 const ON_A_SELECTION: [&str; 8] = [
     "ForegroundActive", "ForegroundInactive", "ForegroundLink",
     "ForegroundNegative", "ForegroundNeutral", "ForegroundNormal",
     "ForegroundPositive", "ForegroundVisited",
 ];
 
-/// Written into a `Vec` a line at a time rather than chained as iterators.
-///
-/// Every line here needs a colour and every colour can now say it is not
-/// declared, and a `?` cannot cross a closure that an iterator adaptor is
-/// holding. Pushing is the plainer shape for it: the file is read top to bottom
-/// and this is now written top to bottom.
 pub fn spend(palette: &Palette) -> Result<String, Short> {
     let at = |role: &str| palette.must(role).and_then(rgb);
 
@@ -71,11 +53,16 @@ pub fn spend(palette: &Palette) -> Result<String, Short> {
 
     for (name, normal, alternate) in SECTIONS {
         lines.push(format!("[{name}]"));
-        lines.push(format!("BackgroundAlternate={}", at(alternate)?));
-        lines.push(format!("BackgroundNormal={}", at(normal)?));
+        let second = at(alternate)?;
+        let first = at(normal)?;
+
+        lines.push(format!("BackgroundAlternate={second}"));
+        lines.push(format!("BackgroundNormal={first}"));
 
         for (role, colour) in INK {
-            lines.push(format!("{role}={}", at(colour)?));
+            let ink = at(colour)?;
+
+            lines.push(format!("{role}={ink}"));
         }
 
         lines.push(String::new());
@@ -83,12 +70,15 @@ pub fn spend(palette: &Palette) -> Result<String, Short> {
 
     lines.push("[Colors:Selection]".to_string());
 
+    let pink = at("pink")?;
+    let night = at("night")?;
+
     for name in ["BackgroundAlternate", "BackgroundNormal", "DecorationFocus", "DecorationHover"] {
-        lines.push(format!("{name}={}", at("pink")?));
+        lines.push(format!("{name}={pink}"));
     }
 
     for role in ON_A_SELECTION {
-        lines.push(format!("{role}={}", at("night")?));
+        lines.push(format!("{role}={night}"));
     }
 
     lines.push(String::new());
@@ -103,7 +93,9 @@ pub fn spend(palette: &Palette) -> Result<String, Short> {
         ("inactiveBlend", "soft"),
         ("inactiveForeground", "soft"),
     ] {
-        lines.push(format!("{name}={}", at(role)?));
+        let colour = at(role)?;
+
+        lines.push(format!("{name}={colour}"));
     }
 
     Ok(lines.join("\n"))

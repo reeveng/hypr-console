@@ -1,5 +1,5 @@
 [Unit]
-Description=Check this machine over shortly after it starts, and every hour after
+Description=Startup check, hourly after that
 PartOf=console.target
 
 [Timer]

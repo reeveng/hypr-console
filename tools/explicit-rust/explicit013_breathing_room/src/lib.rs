@@ -55,16 +55,33 @@
 //! when the next line closes the block around it, continues an `else` chain,
 //! or ends the file. Those are the cases where a blank line would open a hole
 //! rather than close one.
+//!
+//! ## Applying it
+//!
+//! What this rule wants is a newline at a known place, which is the whole of
+//! the fix -- so it is offered as one. `cargo dylint --fix --lib
+//! explicit013_breathing_room` puts every missing blank line in, and the
+//! suggestion is machine-applicable because there is nothing to weigh: the
+//! insertion point is the start of a line the rule has already walked to, and
+//! a blank line changes what the file says to a reader and nothing at all to
+//! the compiler.
+//!
+//! This is the one rule in the suite that can be fixed without a person
+//! reading the site. The other twelve are all asking for a decision -- a name
+//! for a case, a sentence for an `unsafe` -- and a machine that guessed one
+//! would be writing the thing the rule exists to prevent.
 
 extern crate rustc_ast;
+extern crate rustc_errors;
 extern crate rustc_span;
 
-use clippy_utils::diagnostics::span_lint_and_help;
+use clippy_utils::diagnostics::span_lint_and_then;
 use rustc_ast::ast::{
     Block, BlockCheckMode, Expr, ExprKind, Inline, Item, ItemKind, LocalKind, ModKind, Stmt,
     StmtKind, UnsafeSource,
 };
 use rustc_ast::visit::FnKind;
+use rustc_errors::Applicability;
 use rustc_lint::{EarlyContext, EarlyLintPass, LintContext};
 use rustc_span::Span;
 use rustc_span::source_map::SourceMap;
@@ -74,7 +91,7 @@ dylint_linting::declare_early_lint! {
     /// `while`, `for`, `loop`, `let … else`, `unsafe` -- and every declaration
     /// with a body under it is set off by a blank line above and below.
     pub EXPLICIT013_BREATHING_ROOM,
-    Warn,
+    Deny,
     "a block that decides something must have a blank line above and below it"
 }
 
@@ -96,6 +113,25 @@ fn line_at(sm: &SourceMap, span: Span, which: usize) -> Option<String> {
     let loc = sm.lookup_char_pos(span.lo());
     let text = loc.file.get_line(which.checked_sub(1)?)?;
     Some(text.to_string())
+}
+
+/// The empty span at the start of a line, which is where a blank line goes.
+///
+/// The span the diagnostic points at is not the span the fix edits. A report
+/// points at the block, because that is what a reader is being told about; the
+/// newline goes in at the head of the line the walk arrived at, which for a
+/// block with a comment on it is above the comment. Only ever called for a
+/// line `line_at` has already found, so the bounds are known to be there.
+///
+/// Built with `Span::new` rather than `with_lo`/`with_hi`, because those two
+/// carry the other end of the block's own span with them: a low end moved past
+/// the high end is a span the constructor turns round, and the empty point
+/// asked for came back as the newline it was meant to sit after.
+fn line_start(sm: &SourceMap, span: Span, which: usize) -> Option<Span> {
+    let loc = sm.lookup_char_pos(span.lo());
+    let bounds = loc.file.line_bounds(which.checked_sub(1)?);
+
+    Some(Span::new(bounds.start, bounds.start, span.ctxt(), span.parent()))
 }
 
 /// Whether a line is part of the unit below it rather than the line before it.
@@ -177,32 +213,34 @@ fn check_room(cx: &EarlyContext<'_>, span: Span, what: &str) {
     if above > 1
         && let Some(line) = line_at(sm, span, above - 1)
         && !reads_as_gap_above(&line)
+        && let Some(at) = line_start(sm, span, above)
     {
         let said = format!("`{what}` must have a blank line above it");
 
-        span_lint_and_help(
-            cx,
-            EXPLICIT013_BREATHING_ROOM,
-            span.shrink_to_lo(),
-            said,
-            None,
-            "leave a blank line before the block, so it reads as its own thought",
-        );
+        span_lint_and_then(cx, EXPLICIT013_BREATHING_ROOM, span.shrink_to_lo(), said, |diag| {
+            diag.span_suggestion(
+                at,
+                "leave a blank line before the block, so it reads as its own thought",
+                "\n",
+                Applicability::MachineApplicable,
+            );
+        });
     }
 
     if let Some(line) = line_at(sm, span, closes + 1)
         && !reads_as_gap_below(&line)
+        && let Some(at) = line_start(sm, span, closes + 1)
     {
         let said = format!("`{what}` must have a blank line below it");
 
-        span_lint_and_help(
-            cx,
-            EXPLICIT013_BREATHING_ROOM,
-            span.shrink_to_hi(),
-            said,
-            None,
-            "leave a blank line after the block, so what follows is its own thought",
-        );
+        span_lint_and_then(cx, EXPLICIT013_BREATHING_ROOM, span.shrink_to_hi(), said, |diag| {
+            diag.span_suggestion(
+                at,
+                "leave a blank line after the block, so what follows is its own thought",
+                "\n",
+                Applicability::MachineApplicable,
+            );
+        });
     }
 }
 

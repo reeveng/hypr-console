@@ -11,7 +11,7 @@ tried in a second instead of over SSH.
     console-emulate run scenarios/get-around.txt
 
 It builds the four devices InputPlumber publishes, from a real capture kept in
-`crates/console-pad/fixtures/devices.json`. `just capture` asks the device
+`crates/console-gamepad/fixtures/devices.json`. `just capture` asks the device
 again, and a diff means something changed under it.
 
 A press goes through the same profile files the device reads, so this tests the
@@ -30,7 +30,7 @@ compositor. This is most of `just test`.
 answers whether the devices this builds are the ones the daemon goes looking
 for. Nothing it does reaches the desktop you are running it on.
 
-    sudo tools/allow-uinput
+    sudo cargo run --bin allow-uinput
     newgrp input
     just live
 

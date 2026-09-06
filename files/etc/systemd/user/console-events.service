@@ -1,0 +1,32 @@
+[Unit]
+Description=Desktop events
+PartOf=console.target
+# It comes after nothing and nothing comes after it. Every program that asks it
+# for something reconnects for as long as it wants an answer, so a pool that is
+# not up yet is a pool that is asked again in a second -- which is the same
+# thing that has to be true anyway, because this restarts and the programs
+# listening to it do not.
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/console-events
+ExecStopPost=-/usr/local/bin/console-fell %n
+Restart=always
+RestartSec=5
+
+# What this reaches past `console-.service.d/confining.conf`, and why.
+#
+# It opens no device: what it holds is one socket per source and one socket of
+# its own, all of them under the runtime directory. The home directory is
+# read-only rather than gone because a watched path is a topic this will grow
+# and most of the paths anybody would watch are in it; nothing here writes
+# there, and the day something does, this line is where the argument goes.
+#
+# `AF_UNIX` alone. Every source it holds is a socket on this machine, and the
+# one thing that would ever take it off the machine is a mistake.
+PrivateDevices=yes
+ProtectHome=read-only
+RestrictAddressFamilies=AF_UNIX
+
+[Install]
+WantedBy=console.target

@@ -16,7 +16,8 @@
 //! `console_panel::pictures` is the file's shape, who reads it and why.
 
 
-use console_number::fitted;
+use console_never::Never;
+use console_number_conversion::fitted;
 use std::collections::BTreeMap;
 use std::process::ExitCode;
 
@@ -28,21 +29,23 @@ use console_panel::strip::PICTURE;
 fn main() -> ExitCode {
     let wanted: Vec<String> = std::env::args().skip(1).collect();
 
-    if wanted.is_empty() {
-        eprintln!("usage: panel-pictures FILE...");
-        return ExitCode::FAILURE;
+    match wanted.is_empty() {
+        true => {
+            eprintln!("usage: panel-pictures FILE...");
+            return ExitCode::FAILURE;
+        }
+        false => {},
     }
 
-    let mut made: BTreeMap<String, Picture> = kept();
+    let Ok(mut made) = kept();
 
     for of in wanted {
-        match drawn(&of) {
+        let Ok(drawn) = drawn(&of);
+
+        match drawn {
             Some(picture) => {
                 made.insert(of, picture);
             },
-            // A picture nothing can be made of is left out rather than written
-            // as nothing: the row falls back to opening the file itself, which
-            // is where an icon that is really a broken symlink belongs.
             None => {
                 made.remove(&of);
             },
@@ -51,110 +54,110 @@ fn main() -> ExitCode {
 
     let pictures: Vec<Picture> = made.into_values().collect();
 
-    match written(&pictures) {
+    let Ok(written) = written(&pictures);
+
+    match written {
         Written::Yes => ExitCode::SUCCESS,
         Written::No => ExitCode::FAILURE,
     }
 }
 
-/// What the store already holds, minus anything whose file has gone.
-///
-/// Kept rather than thrown away, because two lists share one store: the menu
-/// asks for its applications and the files ask for their thumbnails, and a
-/// store written from one of those alone would take the other's pictures away
-/// every time it was made.
-fn kept() -> BTreeMap<String, Picture> {
-    let Ok(bytes) = std::fs::read(pictures::store()) else { return BTreeMap::new() };
+fn kept() -> Result<BTreeMap<String, Picture>, Never> {
+    let Ok(store) = pictures::store();
 
-    let Some(index) = pictures::read(&bytes) else { return BTreeMap::new() };
+    let Ok(bytes) = std::fs::read(store) else { return Ok(BTreeMap::new()) };
 
-    index
+    let Ok(Some(index)) = pictures::read(&bytes) else { return Ok(BTreeMap::new()) };
+
+    Ok(index
         .into_iter()
         .filter(|(of, _)| std::path::Path::new(of).exists())
         .filter_map(|(of, found)| {
-            let pixels = bytes.get(found.at..found.at + found.long)?.to_vec();
+            let held = bytes.get(found.at..found.at.saturating_add(found.long))?;
+            let pixels = held.to_vec();
             Some((
                 of.clone(),
                 Picture { of, wide: found.wide, tall: found.tall, stride: found.stride, pixels },
             ))
         })
-        .collect()
+        .collect())
 }
 
-/// One picture, at the size a row draws it.
-///
-/// Scaled here rather than at drawing time, which is the whole point: every
-/// row on this device draws its picture in the same square, and working out
-/// what an icon looks like in that square is the expensive half of an SVG.
-fn drawn(of: &str) -> Option<Picture> {
-    let Ok(held) = Pixbuf::from_file_at_scale(of, PICTURE, PICTURE, true) else { return None };
+fn drawn(of: &str) -> Result<Option<Picture>, Never> {
+    let Ok(held) = Pixbuf::from_file_at_scale(of, PICTURE, PICTURE, true) else {
+        return Ok(None);
+    };
 
-    // Four channels always, so the store is one layout and the reader hands
-    // GDK the format it was told to expect. Most icons have an alpha channel
-    // already; the few that do not are the photographs.
     let held = match held.has_alpha() {
         true => held,
 
         false => {
-            let Ok(held) = held.add_alpha(false, 0, 0, 0) else { return None };
+            let Ok(held) = held.add_alpha(false, 0, 0, 0) else { return Ok(None) };
 
             held
         },
     };
 
-    if held.colorspace() != Colorspace::Rgb || held.n_channels() != 4 || held.bits_per_sample() != 8
+    match held.colorspace() != Colorspace::Rgb
+        || held.n_channels() != 4
+        || held.bits_per_sample() != 8
     {
-        return None;
+        true => return Ok(None),
+        false => {},
     }
 
-    Some(Picture {
+    let Ok(wide) = fitted(held.width());
+    let Ok(tall) = fitted(held.height());
+    let Ok(stride) = fitted(held.rowstride());
+
+    Ok(Some(Picture {
         of: of.to_string(),
-        wide: fitted(held.width()),
-        tall: fitted(held.height()),
-        stride: fitted(held.rowstride()),
+        wide,
+        tall,
+        stride,
         pixels: held.read_pixel_bytes().to_vec(),
-    })
+    }))
 }
 
-/// Put the store down whole, or not at all.
-///
-/// Written beside itself and renamed over, because every panel on the machine
-/// reads this file before it draws and a rename is the only way to change it
-/// that no reader can arrive in the middle of.
-/// Whether the store was written.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Written {
-    /// It is on disk, whole, under its own name.
     Yes,
-    /// Something in the way of writing it failed.
     No,
 }
 
-fn written(pictures: &[Picture]) -> Written {
-    let at = pictures::store();
+fn written(pictures: &[Picture]) -> Result<Written, Never> {
+    let Ok(at) = pictures::store();
 
-    let Some(above) = at.parent() else { return Written::No };
+    let Some(above) = at.parent() else { return Ok(Written::No) };
 
-    if let Err(fault) = std::fs::create_dir_all(above) {
-        eprintln!("panel-pictures: {}: {fault}", above.display());
+    match std::fs::create_dir_all(above) {
+        Ok(_) => {},
+        Err(fault) => {
+            eprintln!("panel-pictures: {}: {fault}", above.display());
 
-        return Written::No;
+            return Ok(Written::No);
+        }
     }
 
     let beside = at.with_extension("new");
+    let Ok(said) = pictures::written(pictures);
 
-    if let Err(fault) = std::fs::write(&beside, pictures::written(pictures)) {
-        eprintln!("panel-pictures: {}: {fault}", beside.display());
+    match std::fs::write(&beside, said) {
+        Ok(_) => {},
+        Err(fault) => {
+            eprintln!("panel-pictures: {}: {fault}", beside.display());
 
-        return Written::No;
+            return Ok(Written::No);
+        }
     }
 
-    match std::fs::rename(&beside, &at) {
+    Ok(match std::fs::rename(&beside, &at) {
         Ok(()) => Written::Yes,
 
         Err(fault) => {
             eprintln!("panel-pictures: {}: {fault}", at.display());
+
             Written::No
         }
-    }
+    })
 }

@@ -5,13 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
-[[bin]]
-name = "console-poke"
-path = "src/bin/poke.rs"
-
 [dependencies]
-console-number.workspace = true
-libc = "0.2"
+console-never.workspace = true
+console-number-conversion.workspace = true
 
 [lints]
 workspace = true

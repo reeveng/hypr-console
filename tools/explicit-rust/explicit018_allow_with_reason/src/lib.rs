@@ -19,7 +19,7 @@ dylint_linting::declare_early_lint! {
     /// `expect` is held to the same sentence. `warn` and `deny` are not: they
     /// hide nothing, so they have nothing to explain.
     pub EXPLICIT018_ALLOW_WITH_REASON,
-    Warn,
+    Deny,
     "an `allow` with no `reason` is a rule waived in silence"
 }
 

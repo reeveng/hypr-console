@@ -9,6 +9,7 @@
 
 mod live;
 
+use console_external_programs::Program;
 use evdev::{AbsoluteAxisCode, EventType, KeyCode, RelativeAxisCode};
 
 use live::{READS, or_skip};
@@ -70,9 +71,12 @@ fn a_shoulder_really_reaches_the_compositor() {
     let Some(mut running) = or_skip() else { return };
     running.go.press("r1").expect("a shoulder");
     running.settle();
+
+    let Ok(hyprctl) = Program::Hyprctl.name();
+
     assert_eq!(
         running.commands(),
-        [["hyprctl", "dispatch", r#"hl.dsp.focus({workspace = "+1"})"#]]
+        [[hyprctl, "dispatch", r#"hl.dsp.focus({workspace = "+1"})"#]]
     );
 }
 
@@ -84,8 +88,6 @@ fn a_paddle_really_opens_the_menu() {
     assert_eq!(running.names(), ["launcher"]);
 }
 
-/// The one thing the fast tier cannot check: that a device built from the
-/// capture is the device the daemon is looking for, down to the axes.
 #[test]
 fn the_emulator_publishes_what_the_capture_says() {
     let Some(running) = or_skip() else { return };

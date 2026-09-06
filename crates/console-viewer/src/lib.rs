@@ -75,6 +75,7 @@
 //! and is spent doing only that. [`waking`] is that rule, and it has no clock in
 //! it: what it is handed is how long since the last press.
 
+pub mod card;
 pub mod decoding;
 pub mod fitting;
 pub mod kinds;
@@ -82,3 +83,6 @@ pub mod playing;
 pub mod reel;
 pub mod saying;
 pub mod waking;
+pub mod watching;
+
+pub use card::{WHO, card, door};

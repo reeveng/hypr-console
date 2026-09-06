@@ -1,10 +1,10 @@
-error: `Result<T, !>` is forbidden: an error that cannot happen is not an error
+error: `Result<T, !>` is forbidden: the compiler has no name for this error
   --> $DIR/main.rs:6:33
    |
 LL | fn cannot_fail() -> Result<i32, !> {
    |                                 ^
    |
-   = help: return `T` on its own, or name an error type that says what went wrong
+   = help: name it: `Never` where nothing can go wrong, or a type that says what did
    = note: `#[deny(explicit003_no_never_error)]` on by default
 
 error: aborting due to 1 previous error

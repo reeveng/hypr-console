@@ -1,0 +1,80 @@
+# What has left the manifest and needs nothing done about it.
+#
+# One entry a line, said the way `console_migrations::holds` says it -- a path
+# for a file, `enabled UNIT` or `masked UNIT` for a unit -- with the reason
+# beside it. A name in here is somebody's decision and can be argued with. A
+# name that is simply never mentioned is nothing at all, which is what this file
+# exists to stop.
+#
+# Reaching for this file is the wrong move most of the time. The question to ask
+# first is whether a machine that applied the commit before the removal is still
+# holding the thing, and if it is, it wants a migration and not a line here.
+
+# --- The rename, swept once by tools/console-migrate on 2026-08-29 -------------
+#
+# docs/rename.md section 3 is the whole of it, and step 6 is the sweep: every
+# `legion-*` name the manifest had installed was moved to
+# /var/tmp/console-migration-20260829-234115, which is still on the device. That
+# attic is the evidence, and the device has been read since: no legion-named
+# binary, unit, udev rule, sudoers file or profile survives on it. A migration
+# repeating that work would find nothing to move on the one machine that ever
+# had them, and a machine set up after the rename never had them at all.
+
+/etc/inputplumber/devices.d/50-legion_go.yaml
+/etc/sudoers.d/legion
+/etc/systemd/user/gamescope-session.service.d/legion.conf
+/etc/systemd/user/legion-bar.service
+/etc/systemd/user/legion-controller.service
+/etc/systemd/user/legion-keyboard.service
+/etc/systemd/user/legion-paper.service
+/etc/systemd/user/legion-polkit.service
+/etc/systemd/user/legion-session.service
+/etc/systemd/user/legion-sky.service
+/etc/systemd/user/legion.target
+/etc/udev/rules.d/90-legion-backlight.rules
+/etc/udev/rules.d/91-legion-touchpad.rules
+/home/@user@/.config/legion/palette.css
+/home/@user@/.config/legion/palette.toml
+/home/@user@/.librewolf/legion/chrome/palette.css
+/home/@user@/.librewolf/legion/chrome/userChrome.css
+/home/@user@/.librewolf/legion/chrome/userContent.css
+/home/@user@/.librewolf/legion/user.js
+/home/@user@/.mozilla/firefox/legion/chrome/palette.css
+/home/@user@/.mozilla/firefox/legion/chrome/userChrome.css
+/home/@user@/.mozilla/firefox/legion/chrome/userContent.css
+/home/@user@/.mozilla/firefox/legion/user.js
+/usr/local/bin/legion
+/usr/local/bin/legion-brightness
+/usr/local/bin/legion-buttons
+/usr/local/bin/legion-engine
+/usr/local/bin/legion-fell
+/usr/local/bin/legion-say
+/usr/local/bin/legion-screenshot
+/usr/local/bin/legion-sky
+/usr/local/bin/legion-volume
+/usr/local/lib/legion/chooser.py
+/usr/local/lib/legion/palette.sh
+/usr/local/lib/legion/panel.py
+/usr/local/lib/legion/shape.py
+/usr/share/applications/legion-buttons.desktop
+/usr/share/applications/legion-files.desktop
+/usr/share/applications/legion-syncthing.desktop
+/usr/share/backgrounds/legion.png
+/usr/share/backgrounds/legion.webp
+/usr/share/icons/legion-placeholder.svg
+enabled legion-bar.service
+enabled legion-controller.service
+enabled legion-keyboard.service
+enabled legion-paper.service
+enabled legion-polkit.service
+enabled legion-session.service
+enabled legion-sky.service
+
+# --- Not the desktop's to take ------------------------------------------------
+
+# The desktop's browser is LibreWolf and this file is Firefox's. It was in the
+# manifest while the desktop used Firefox and it names whatever profiles the
+# person has made since, none of which this desktop put there. Sweeping a
+# browser's profile list because a manifest stopped mentioning it is a desktop
+# deciding something about somebody's own machine.
+/home/@user@/.mozilla/firefox/profiles.ini

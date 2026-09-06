@@ -207,6 +207,20 @@ Nothing would have reported the first one. The daemon runs the command, the
 command fails, and the only symptom is a screen that never goes off, which
 reads as a feature that was never installed.
 
+**Only one thing puts the panel back on.** `console-brightness undim` does it
+before it does anything else, because a screen that has gone dark and stayed
+dark is the thing there is otherwise no way out of from the device itself. The
+blank listener used to send the same dispatch on its own resume, which looked
+like belt and braces and was not: hypridle resumes every listener that timed
+out at the same instant, so waking a machine that had been idle past five
+minutes sent the compositor two identical enables at once. Both answered `ok`.
+The compositor then read as on -- `dpmsStatus: 1`, the monitor not disabled --
+with the panel still dark, and the only way out was a disable and an enable
+sent from somewhere else entirely, which on a handheld means another machine
+over ssh. The second dispatch is gone and a test holds it gone: every
+`on-resume` in that file has to be the one that also knows how bright the
+screen was.
+
 ## The colour
 
 `hyprsunset` hands the compositor a colour transform. That is why it is used
@@ -261,3 +275,18 @@ Mode stops behind the switch, so the screen over there is Steam's to dim and
 nothing of ours is running to disagree with it. `console-idle` puts the
 brightness back on the way out, so a machine that left for Game Mode while
 dimmed does not arrive there at its floor.
+
+**The screen a game gets is not the one above.** Gamescope selects the panel's
+own `1600x2560@144` and patches the EDID it presents inward, so an Xwayland
+under it stands at `2560x1600@144`: the turned screen at no scale at all, where
+everything else here is a logical screen with a transform and a density on it.
+Nothing of ours writes that number and nothing of ours could -- it is decided on
+the other side of the switch.
+
+It is written down because a game that guesses its resolution rather than asking
+arrives at neither number, and the fault that makes is silent. The Sims 4 wrote
+`1920x1200` into its own settings on a first run, drew its interface at that size
+onto a surface that was not, and came up black with a menu in one corner --
+rendering the whole time, with nothing in any log of Steam's or ours to say so.
+What answered it was gamescope's own stats pipe, which names the application it
+is presenting and the rate it is presenting at.

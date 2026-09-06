@@ -32,44 +32,34 @@
 
 use std::path::PathBuf;
 
+use console_external_programs::Program;
+use console_never::Never;
+
 use crate::running;
 
-/// Where one answer is kept: named for the panel and for the question, so a
-/// panel that learns to remember one more does not have to be taught where.
-fn beside(note: &str) -> Option<PathBuf> {
-    // A session with neither is one with nowhere of its own to keep an answer.
-    // Nothing is remembered and every tab opens as it did the first time,
-    // which is the same panel and only a slower one.
+fn beside(note: &str) -> Result<Option<PathBuf>, Never> {
     let cache = match (std::env::var("XDG_CACHE_HOME"), std::env::var("HOME")) {
         (Ok(cache), _) => PathBuf::from(cache),
         (Err(_), Ok(home)) => PathBuf::from(home).join(".cache"),
-        (Err(_), Err(_)) => return None,
+        (Err(_), Err(_)) => return Ok(None),
     };
+    let Ok(whose) = whose();
+    let Ok(filed) = filed(note);
 
-    Some(cache.join("console/asked").join(format!("{}.{}", whose(), filed(note))))
+    Ok(Some(cache.join("console/asked").join(format!("{whose}.{filed}"))))
 }
 
-/// Which panel is asking, which is the program that is running.
-fn whose() -> String {
-    std::env::args()
+fn whose() -> Result<String, Never> {
+    Ok(std::env::args()
         .next()
         .and_then(|argv0| {
             std::path::Path::new(&argv0).file_name().and_then(|name| name.to_str()).map(str::to_string)
         })
         .filter(|name| !name.is_empty())
-        .unwrap_or_else(|| "console-panel".to_string())
+        .unwrap_or_else(|| "console-panel".to_string()))
 }
 
-/// A question's name, as a file can be called.
-///
-/// Bluetooth asks one question per device and the name of a device is its
-/// address, which is six numbers and five colons. A colon is a legal thing to
-/// put in a filename here and an illegal thing to put in one nearly everywhere
-/// else, so it does not go in one: anything that is not a letter, a number or a
-/// dash becomes a dash. Two questions that differ only in punctuation would
-/// collide, and none of them do -- the callers name their own questions, and
-/// the names are in the source next to the commands.
-fn filed(note: &str) -> String {
+fn filed(note: &str) -> Result<String, Never> {
     let filed: String = note
         .chars()
         .map(|letter| match letter.is_ascii_alphanumeric() {
@@ -78,60 +68,55 @@ fn filed(note: &str) -> String {
         })
         .collect();
 
-    match filed.is_empty() {
+    Ok(match filed.is_empty() {
         true => "asked".to_string(),
         false => filed,
-    }
+    })
 }
 
-/// What it said the last time anybody asked, or nothing if nobody ever has.
-///
-/// Nothing is the right answer to never having asked, because it is what every
-/// one of these readers already gets from a command that could not be run: an
-/// empty reading is an empty list, which is the tab as it was before any of
-/// this. Nothing here is allowed to be the difference between a panel that
-/// draws and one that does not.
-pub fn last(note: &str) -> String {
-    let Some(path) = beside(note) else { return String::new() };
+pub fn last(note: &str) -> Result<String, Never> {
+    let Ok(beside) = beside(note);
 
-    let Ok(said) = std::fs::read_to_string(path) else { return String::new() };
+    let Some(path) = beside else { return Ok(String::new()) };
 
-    said
+    let Ok(said) = std::fs::read_to_string(path) else { return Ok(String::new()) };
+
+    Ok(said)
 }
 
-/// Run it, and write down what it said.
-pub fn said(note: &str, argv: &[&str]) -> String {
-    let said = running::said(argv);
-    keep(note, &said);
-    said
+pub fn said(note: &str, program: Program, rest: &[&str]) -> Result<String, Never> {
+    let Ok(said) = running::said(program, rest);
+    let Ok(()) = keep(note, &said);
+
+    Ok(said)
 }
 
-/// Write one down, if it is not already what is there.
-///
-/// The Sound tab is drawn again on every event pactl reports, which is several
-/// a second while a volume is being turned, and all but the first of those say
-/// what the file already says. Compared before it is written so that a thumb on
-/// the rocker is not also a thumb on the disk.
-fn keep(note: &str, said: &str) {
-    match last(note) == said {
-        true => return,
+fn keep(note: &str, said: &str) -> Result<(), Never> {
+    let Ok(last) = last(note);
+
+    match last == said {
+        true => return Ok(()),
         false => {},
     }
 
-    let Some(path) = beside(note) else { return };
+    let Ok(beside) = beside(note);
 
-    let Some(holding) = path.parent() else { return };
+    let Some(path) = beside else { return Ok(()) };
+
+    let Some(holding) = path.parent() else { return Ok(()) };
 
     match std::fs::create_dir_all(holding) {
         Ok(()) => {},
         Err(fault) => {
             eprintln!("console: {}: keeping what a tab last said: {fault}", holding.display());
 
-            return;
+            return Ok(());
         }
     }
 
     let _ = std::fs::write(path, said);
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -140,29 +125,25 @@ mod tests {
 
     #[test]
     fn a_question_is_filed_under_a_name_any_filesystem_would_take() {
-        assert_eq!(filed("sinks"), "sinks");
-        assert_eq!(filed("bluetooth AA:BB:CC:DD:EE:FF"), "bluetooth-aa-bb-cc-dd-ee-ff");
-        assert_eq!(filed("opens audio/x-opus+ogg"), "opens-audio-x-opus-ogg");
+        assert_eq!(filed("sinks"), Ok("sinks".to_string()));
+        assert_eq!(
+            filed("bluetooth AA:BB:CC:DD:EE:FF"),
+            Ok("bluetooth-aa-bb-cc-dd-ee-ff".to_string())
+        );
+        assert_eq!(filed("opens audio/x-opus+ogg"), Ok("opens-audio-x-opus-ogg".to_string()));
     }
 
-    /// A question with no name at all would otherwise be filed as the panel and
-    /// a trailing dot, which is a hidden file nobody meant to make.
     #[test]
     fn a_question_with_no_name_is_still_a_file() {
-        assert_eq!(filed(""), "asked");
-        assert_eq!(filed("///"), "---");
+        assert_eq!(filed(""), Ok("asked".to_string()));
+        assert_eq!(filed("///"), Ok("---".to_string()));
     }
 
-    /// The whole of what this is for: a question nobody has ever asked answers
-    /// the way a command that could not be run answers, and the tab drawn from
-    /// it is the tab as it was before any of this.
-    ///
-    /// The cache is left where it is rather than pointed somewhere else. Two
-    /// tests setting an environment variable while the rest of the suite runs
-    /// beside them is a race for the sake of a file that is not there either
-    /// way, and a question named this is a question nothing has ever asked.
     #[test]
     fn a_question_nobody_has_asked_says_nothing() {
-        assert_eq!(last("a question nothing on this machine has ever asked"), "");
+        assert_eq!(
+            last("a question nothing on this machine has ever asked"),
+            Ok(String::new())
+        );
     }
 }

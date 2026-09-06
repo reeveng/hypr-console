@@ -5,16 +5,15 @@
 
 use std::collections::BTreeMap;
 
+use console_never::Never;
 use serde::Deserialize;
 
-/// One channel's share of a volume.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct Channel {
     #[serde(default)]
     pub value_percent: String,
 }
 
-/// A sink or a stream, as pactl describes it.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct Thing {
     #[serde(default)]
@@ -30,60 +29,77 @@ pub struct Thing {
 }
 
 impl Thing {
-    /// One number for a volume that is reported per channel.
-    pub fn level(&self) -> i32 {
-        let Some(channel) = self.volume.values().next() else { return 0 };
+    pub fn level(&self) -> Result<i32, Never> {
+        let Some(channel) = self.volume.values().next() else { return Ok(0) };
 
         let Ok(level) = channel.value_percent.trim_end_matches('%').parse::<i32>() else {
-            return 0;
+            return Ok(0);
         };
 
-        level
+        Ok(level)
     }
 
-    /// What to call a stream, in the words its own application uses.
-    pub fn said(&self) -> String {
+    pub fn said(&self) -> Result<String, Never> {
         for key in ["application.name", "media.name", "node.name"] {
-            if let Some(said) = self.properties.get(key).and_then(|value| value.as_str())
-                && !said.is_empty()
-            {
-                return said.to_string();
+            match self.properties.get(key).and_then(|value| value.as_str()) {
+                Some(said) => match said.is_empty() {
+                    true => {},
+                    false => return Ok(said.to_string()),
+                },
+                None => {},
             }
         }
 
-        "Something".to_string()
+        Ok("Something".to_string())
     }
 }
 
-/// Everything of one kind, or nothing if pactl said something else.
-pub fn read(json: &str) -> Vec<Thing> {
-    match serde_json::from_str(json) {
+pub fn read(json: &str) -> Result<Vec<Thing>, Never> {
+    Ok(match serde_json::from_str(json) {
         Ok(things) => things,
 
         Err(fault) => {
             eprintln!("console: pactl said something this does not know: {fault}");
             Vec::new()
         }
-    }
+    })
 }
 
-/// The speakers: whichever sink is the default, or the first there is.
-pub fn speakers(sinks: &[Thing], default: &str) -> Option<Thing> {
-    sinks
-        .iter()
-        .find(|sink| sink.name == default)
-        .or_else(|| sinks.first())
-        .cloned()
+pub fn speakers(sinks: &[Thing], default: &str) -> Result<Option<Thing>, Never> {
+    Ok(sinks.iter().find(|sink| sink.name == default).or_else(|| sinks.first()).cloned())
 }
 
-/// One of them by the number pactl knows it as.
-pub fn one(things: &[Thing], index: i64) -> Option<&Thing> {
-    things.iter().find(|thing| thing.index == index)
+pub fn one(things: &[Thing], index: i64) -> Result<Option<&Thing>, Never> {
+    Ok(things.iter().find(|thing| thing.index == index))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn read(json: &str) -> Vec<Thing> {
+        let Ok(things) = super::read(json);
+
+        things
+    }
+
+    fn level(thing: &Thing) -> i32 {
+        let Ok(level) = thing.level();
+
+        level
+    }
+
+    fn said(thing: &Thing) -> String {
+        let Ok(said) = thing.said();
+
+        said
+    }
+
+    fn speakers(sinks: &[Thing], default: &str) -> Option<Thing> {
+        let Ok(speakers) = super::speakers(sinks, default);
+
+        speakers
+    }
 
     const SAID: &str = r#"[
       {"index": 43, "name": "alsa_output.pci", "mute": false,
@@ -96,24 +112,23 @@ mod tests {
 
     #[test]
     fn a_volume_reported_per_channel_is_one_number() {
-        assert_eq!(read(SAID)[0].level(), 40);
+        assert_eq!(level(&read(SAID)[0]), 40);
     }
 
-    /// A stream with no volume at all is not a stream at half.
     #[test]
     fn a_thing_saying_nothing_about_its_volume_is_at_nothing() {
-        assert_eq!(read(SAID)[1].level(), 0);
+        assert_eq!(level(&read(SAID)[1]), 0);
     }
 
     #[test]
     fn a_stream_is_called_what_its_own_application_calls_it() {
-        assert_eq!(read(SAID)[1].said(), "Firefox");
-        assert_eq!(read(SAID)[0].said(), "alsa_output.pci");
+        assert_eq!(said(&read(SAID)[1]), "Firefox");
+        assert_eq!(said(&read(SAID)[0]), "alsa_output.pci");
     }
 
     #[test]
     fn a_stream_that_names_itself_nothing_is_still_a_row() {
-        assert_eq!(Thing::default().said(), "Something");
+        assert_eq!(said(&Thing::default()), "Something");
     }
 
     #[test]
@@ -124,9 +139,6 @@ mod tests {
         assert!(speakers(&[], "gone").is_none());
     }
 
-    /// pactl answers with an error on stderr and nothing on stdout when there
-    /// is no sound server. A panel with no Sound tab is worse than one saying
-    /// nothing is playing.
     #[test]
     fn nothing_pactl_says_is_ever_a_reason_to_fail() {
         assert!(read("").is_empty());

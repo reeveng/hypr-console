@@ -50,7 +50,7 @@
     "exec": "bar-door launcher 󰀻",
     "restart-interval": 5,
     "tooltip": false,
-    "on-click": "launcher"
+    "on-click": "CONSOLE_FROM=bar launcher"
   },
 
   "custom/keyboard": {
@@ -91,7 +91,7 @@
     "restart-interval": 5,
     "tooltip": false,
     // Tap opens the mixer; a second tap on the icon itself mutes.
-    "on-click": "settings-panel Sound",
+    "on-click": "CONSOLE_FROM=bar settings-panel Sound",
     "on-click-right": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
     "on-scroll-up": "wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+",
     "on-scroll-down": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"
@@ -103,7 +103,7 @@
     "exec": "bar-say bluetooth",
     "restart-interval": 5,
     "tooltip": false,
-    "on-click": "settings-panel Bluetooth"
+    "on-click": "CONSOLE_FROM=bar settings-panel Bluetooth"
   },
 
   "custom/network": {
@@ -112,7 +112,7 @@
     "exec": "bar-say network",
     "restart-interval": 5,
     "tooltip": false,
-    "on-click": "settings-panel Wi-Fi"
+    "on-click": "CONSOLE_FROM=bar settings-panel Wi-Fi"
   },
 
   "custom/battery": {
@@ -121,7 +121,7 @@
     "exec": "bar-say battery",
     "restart-interval": 5,
     "tooltip": false,
-    "on-click": "settings-panel Battery"
+    "on-click": "CONSOLE_FROM=bar settings-panel Battery"
   },
 
   // The music, beside the sound it comes out of. Not waybar's mpris module,
@@ -136,7 +136,7 @@
     "restart-interval": 5,
     "max-length": 24,
     "tooltip": false,
-    "on-click": "music-panel"
+    "on-click": "CONSOLE_FROM=bar music-panel"
   },
 
   // What the desktop said and nobody has cleared. mako holds a notification
@@ -165,7 +165,7 @@
     "exec": "bar-notice",
     "restart-interval": 5,
     "tooltip": false,
-    "on-click": "notices-panel"
+    "on-click": "CONSOLE_FROM=bar notices-panel"
   },
 
   "tray": { "spacing": 10 }
@@ -196,12 +196,16 @@
 // grows the strip to a line of text as soon as it has a background to draw.
 // `font-size: 0` there is what leaves this the deciding number.
 //
-// `interval: once` with a `signal` rather than a number of seconds. The engine
-// knows when the number changed and says so; a second-by-second read of a file
-// that is not there for days at a time is a wake-up a battery pays for with
-// nothing to show. The signal has to be the one `going::WAKING` sends, and
-// `the_bar_and_the_engine_agree_on_the_signal` is what holds the two numbers
-// together.
+// `interval: once` with a `signal` rather than a number of seconds. Whoever
+// moved the number knows it moved and says so; a second-by-second read of a
+// file that is not there for days at a time is a wake-up a battery pays for
+// with nothing to show. The signal has to be the one `updating::WAKING` sends,
+// and `the_bar_and_the_engine_agree_on_the_signal` is what holds the two
+// numbers together.
+//
+// Two things fill the strip. An apply, from the device itself, and a run of the
+// checks against the device, from the laptop driving it -- which is the other
+// long thing this machine is ever made to do while somebody is holding it.
 {
   "name": "updating",
   "layer": "top",

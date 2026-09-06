@@ -3,6 +3,9 @@
 //!     console-brightness up | down | get
 //!     console-brightness dim | undim
 //!
+//! `undim` also puts the panel back on, which is the machine's only way out of
+//! a screen that has gone dark and stayed dark. See `panel_on`.
+//!
 //! `dim` and `undim` are the pair the idle daemon runs, and they are here
 //! rather than in its configuration because putting a screen back where it was
 //! means having remembered where that was. A `brightnessctl -s` in a config
@@ -24,7 +27,9 @@
 //! nobody pressed them, and a machine that woke you to tell you it had dimmed
 //! itself would be worse than one that did it quietly.
 
-use console_notices::saying::{Kept, Notice, raise_kept};
+use console_external_programs::Program;
+use console_never::Never;
+use console_notifications::saying::{Kept, Notice, raise_kept};
 use console_settings::screen::{
     self, DIMMED, Moved, Way, as_points, now, remembered, set, stepped, undimming,
 };
@@ -32,110 +37,145 @@ use console_settings::screen::{
 fn main() -> std::process::ExitCode {
     let word = std::env::args().nth(1).unwrap_or_default();
 
-    let Some(now) = now() else {
+    let Ok(reading) = now();
+
+    let Some(now) = reading else {
         eprintln!("console-brightness: no backlight at {}", screen::DEVICE);
         return std::process::ExitCode::FAILURE;
     };
 
-    if word == "get" {
-        println!("{}", as_points(now));
-        return std::process::ExitCode::SUCCESS;
+    match word == "get" {
+        true => {
+            let Ok(points) = as_points(now);
+
+            println!("{points}");
+            return std::process::ExitCode::SUCCESS;
+        }
+        false => {},
     }
 
-    if word == "dim" || word == "undim" {
-        return match word.as_str() {
-            "dim" => dim(now),
-            _ => undim(now),
-        };
+    match word == "dim" || word == "undim" {
+        true => {
+            let Ok(done) = match word.as_str() {
+                "dim" => dim(now),
+                _ => undim(now),
+            };
+
+            return done;
+        }
+        false => {},
     }
 
-    let Some(way) = Way::named(&word) else {
+    let Ok(named) = Way::named(&word);
+
+    let Some(way) = named else {
         eprintln!("usage: console-brightness [up|down|get|dim|undim]");
         return std::process::ExitCode::from(2);
     };
 
-    let going = stepped(now, way);
+    let Ok(going) = stepped(now, way);
 
-    if set(going) == Moved::No {
-        eprintln!("console-brightness: the screen would not take it");
-        return std::process::ExitCode::FAILURE;
+    let Ok(moved) = set(going);
+
+    match moved {
+        Moved::No => {
+            eprintln!("console-brightness: the screen would not take it");
+            return std::process::ExitCode::FAILURE;
+        }
+        Moved::Yes => {},
     }
 
-    said(going);
+    let Ok(()) = said(going);
+
     std::process::ExitCode::SUCCESS
 }
 
-/// Say where it has got to, where anything can be told.
-///
-/// One notice, replaced, the same as the rocker's: held down, left under L2
-/// steps every repeat and every step would otherwise be another card, so the
-/// number the last one came back under is kept and handed to `--replace-id`.
-///
-/// A press at either end says the level it is already at rather than nothing.
-/// That is the answer to the question the press was asking -- the screen is as
-/// bright as it goes -- and silence there would read as a button that had
-/// stopped working.
-fn said(going: i64) {
-    let points = as_points(going);
-    let notice = Notice::new(&screen::said(points), "").lasting(1500).valued(points);
-    raise_kept(notice, &Kept::named("brightness"));
+fn said(going: i64) -> Result<(), Never> {
+    let points = as_points(going)?;
+    let words = screen::said(points)?;
+    let notice = Notice::new(&words, "")?;
+    let notice = notice.lasting(1500)?;
+    let notice = notice.valued(points)?;
+    let kept = Kept::named("brightness")?;
+    let Ok(()) = raise_kept(notice, &kept);
+
+    Ok(())
 }
 
-/// Take the screen down, and write down where it was.
-///
-/// A second dim changes nothing. The idle daemon fires each listener once, but
-/// a machine that dimmed twice and remembered the second reading would restore
-/// to the dim it had already applied, and the screen would never come back.
-fn dim(now: i64) -> std::process::ExitCode {
-    let Some(kept) = remembered() else {
+fn dim(now: i64) -> Result<std::process::ExitCode, Never> {
+    let Some(kept) = remembered()? else {
         eprintln!("console-brightness: no XDG_RUNTIME_DIR, so nothing could be remembered");
-        return std::process::ExitCode::FAILURE;
+        return Ok(std::process::ExitCode::FAILURE);
     };
 
-    if kept.exists() {
-        return std::process::ExitCode::SUCCESS;
+    match kept.exists() {
+        true => return Ok(std::process::ExitCode::SUCCESS),
+        false => {},
     }
 
-    if let Err(fault) = std::fs::write(&kept, format!("{now}\n")) {
-        eprintln!("console-brightness: could not write {}: {fault}", kept.display());
+    match std::fs::write(&kept, format!("{now}\n")) {
+        Ok(()) => {},
+        Err(fault) => {
+            eprintln!("console-brightness: could not write {}: {fault}", kept.display());
 
-        return std::process::ExitCode::FAILURE;
+            return Ok(std::process::ExitCode::FAILURE);
+        }
     }
 
-    match set(DIMMED) {
+    let moved = set(DIMMED)?;
+
+    Ok(match moved {
         Moved::Yes => std::process::ExitCode::SUCCESS,
         Moved::No => std::process::ExitCode::FAILURE,
+    })
+}
+
+fn kept_at(kept: &std::path::Path) -> Result<Option<i64>, Never> {
+    let Ok(held) = std::fs::read_to_string(kept) else { return Ok(None) };
+
+    let Ok(was) = held.trim().parse::<i64>() else { return Ok(None) };
+
+    Ok(Some(was))
+}
+
+fn panel_on() -> Result<(), Never> {
+    let mut asking = Program::Hyprctl.command()?;
+    let done = asking.args(["dispatch", r#"hl.dsp.dpms({ action = "enable" })"#]).output();
+
+    match done {
+        Ok(said) if said.status.success() => (),
+        Ok(said) => eprintln!(
+            "console-brightness: the panel would not come on: {}",
+            String::from_utf8_lossy(&said.stderr).trim()
+        ),
+        Err(fault) => eprintln!("console-brightness: no hyprctl to put the panel on: {fault}"),
     }
+
+    Ok(())
 }
 
-/// What the note says, or nothing where there is none and nothing to put back.
-///
-/// A note that will not open and a note that is not a number are the same news
-/// here: there is no level to go back to, and the screen stays where it is.
-fn kept_at(kept: &std::path::Path) -> Option<i64> {
-    let Ok(held) = std::fs::read_to_string(kept) else { return None };
+fn undim(now: i64) -> Result<std::process::ExitCode, Never> {
+    panel_on()?;
 
-    let Ok(was) = held.trim().parse::<i64>() else { return None };
+    let Some(kept) = remembered()? else { return Ok(std::process::ExitCode::SUCCESS) };
 
-    Some(was)
-}
-
-/// Put it back, unless a hand has been on it since.
-///
-/// The note is taken away either way. Leaving it would mean the next dim found
-/// a machine that thinks it is already dim, and a screen at full brightness
-/// that nothing will ever take down again.
-fn undim(now: i64) -> std::process::ExitCode {
-    let Some(kept) = remembered() else { return std::process::ExitCode::SUCCESS };
-
-    let was = kept_at(&kept);
+    let was = kept_at(&kept)?;
     let _ = std::fs::remove_file(&kept);
 
-    match was.and_then(|was| undimming(now, was)) {
-        Some(back) => match set(back) {
-            Moved::Yes => std::process::ExitCode::SUCCESS,
-            Moved::No => std::process::ExitCode::FAILURE,
+    let back = match was {
+        Some(was) => undimming(now, was)?,
+        None => None,
+    };
+
+    match back {
+        Some(back) => {
+            let moved = set(back)?;
+
+            Ok(match moved {
+                Moved::Yes => std::process::ExitCode::SUCCESS,
+                Moved::No => std::process::ExitCode::FAILURE,
+            })
         },
-        None => std::process::ExitCode::SUCCESS,
+        None => Ok(std::process::ExitCode::SUCCESS),
     }
 }

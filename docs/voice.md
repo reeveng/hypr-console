@@ -5,7 +5,7 @@ would have. One press starts listening, the next writes it down. There is
 nothing to hold and nothing to aim at, which is what a button on the back of a
 device has to be.
 
-`crates/console-voice` is the whole of it: a library that decides the shape of
+`crates/console-dictation` is the whole of it: a library that decides the shape of
 each call, and `dictate`, which makes them.
 
 ## What it is made of
@@ -334,7 +334,8 @@ was chosen -- speed -- is a reason that mostly does not apply to what this
 button does. Turbo cuts the decoder, and on a two-second sentence this device
 spends all but a hundredth of a second in the encoder, which turbo does not
 touch. Measuring `ggml-large-v3.bin` against the one in use, on Thai, is the next
-thing to do here. `tools/voice-compare` is that measurement.
+thing to do here. `console_dictation::comparing` is that measurement, and
+`voice-compare` is what runs it.
 
 The rest of what is wrong with dictation on this machine was never the model.
 It was a language guessed from one word, and a Thai word taken apart by a rule

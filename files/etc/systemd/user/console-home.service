@@ -1,5 +1,5 @@
 [Unit]
-Description=The apps on the desktop
+Description=Home screen
 PartOf=console.target
 # The wallpaper is what it is drawn on, and the bar is what it is drawn under.
 # The surface takes the whole screen and clears the bar by a margin of its own

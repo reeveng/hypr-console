@@ -18,7 +18,7 @@ dylint_linting::declare_late_lint! {
     /// the whole of a statement, the right-hand side of a `let`, a `return`,
     /// the tail expression of a block, and the whole body of a `match` arm.
     pub EXPLICIT017_QUESTION_MARK_ALONE,
-    Warn,
+    Deny,
     "`?` buried in an expression hides an early return; lift it into a `let` of its own"
 }
 

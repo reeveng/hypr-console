@@ -19,7 +19,7 @@ dylint_linting::declare_late_lint! {
     /// `let … else` is not an `if` and is left alone: both of its outcomes are
     /// already written, and one of them is required to leave.
     pub EXPLICIT019_NO_IF,
-    Warn,
+    Deny,
     "`if` is forbidden; write a `match` that names both outcomes"
 }
 

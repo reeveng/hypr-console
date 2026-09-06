@@ -9,12 +9,18 @@ license.workspace = true
 name = "console_panel"
 path = "src/lib.rs"
 
-# Not a program on the device. The chooser's lock is between processes, so the
-# test that proves it wants a second process to be the other chooser.
+# A yes or no, put to whoever is holding the device, for the programs that
+# change this machine from a laptop and have no business answering for them.
+[[bin]]
+name = "console-confirm"
+path = "src/bin/console-confirm.rs"
+
 [[bin]]
 name = "put-away"
 path = "src/bin/put-away.rs"
 
+# Not a program on the device. The chooser's lock is between processes, so the
+# test that proves it wants a second process to be the other chooser.
 [[bin]]
 name = "second-chooser"
 path = "src/bin/second-chooser.rs"
@@ -29,14 +35,23 @@ name = "panel-pictures"
 path = "src/bin/panel-pictures.rs"
 
 [dependencies]
-console-number.workspace = true
-console-door.workspace = true
-console-again.workspace = true
-console-timings.workspace = true
+console-child-processes.workspace = true
+console-external-programs.workspace = true
+console-never.workspace = true
+console-number-conversion.workspace = true
+console-onscreen.workspace = true
+console-wait-times.workspace = true
 gtk4 = "0.11"
 gtk4-layer-shell = "0.8"
 libc = "0.2"
 serde_json = "1"
+
+[dev-dependencies]
+# The panel stage, which opens a panel in the nested desktop and reads back what
+# it drew. It depends on this crate in turn, which cargo allows exactly here: a
+# dev-dependency cycle is not a build cycle, because the checks are built after
+# the library they check.
+console-test-stages.workspace = true
 
 [lints]
 workspace = true

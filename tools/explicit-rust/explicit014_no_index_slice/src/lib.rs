@@ -4,6 +4,7 @@
 extern crate rustc_hir;
 
 use clippy_utils::diagnostics::span_lint_and_help;
+use clippy_utils::is_in_const_context;
 use rustc_hir::{Expr, ExprKind};
 use rustc_lint::{LateContext, LateLintPass, LintContext};
 
@@ -12,8 +13,14 @@ dylint_linting::declare_late_lint! {
     /// are panics nobody declared -- the harm EXPLICIT004 names, arriving
     /// through syntax instead of a call. `get` and `get_mut` turn the absence
     /// into a value, and EXPLICIT005 then makes sure the value is met.
+    ///
+    /// Const contexts are left alone, for the reason EXPLICIT015 leaves them
+    /// alone: an index the compiler evaluates and finds out of range fails the
+    /// build. That is a failure with a name, at the right time, on the machine
+    /// that has a screen -- which is the whole of what this rule is asking
+    /// for, already granted.
     pub EXPLICIT014_NO_INDEX_SLICE,
-    Warn,
+    Deny,
     "indexing and slicing are forbidden; ask with `get` and meet the `None`"
 }
 
@@ -33,6 +40,12 @@ impl<'tcx> LateLintPass<'tcx> for Explicit014NoIndexSlice {
         }
 
         if !matches!(expr.kind, ExprKind::Index(..)) {
+            return;
+        }
+
+        // An index the compiler works out is an index the compiler checks. Out
+        // of range there is a build that stops, not a handheld that does.
+        if is_in_const_context(cx) {
             return;
         }
 

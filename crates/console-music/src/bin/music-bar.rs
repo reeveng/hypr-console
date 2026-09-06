@@ -19,17 +19,11 @@ use std::sync::mpsc::{RecvTimeoutError, channel};
 use std::time::Duration;
 
 use console_music::player;
+use console_never::Never;
 use console_panel::door::{Up, is_open, watching_layers};
 
-/// How often the player is asked.
-///
-/// It is asked rather than listened to, because the answer is two D-Bus
-/// properties and the alternative is holding a signal subscription open for the
-/// life of the session. Two seconds is under what anybody notices between a
-/// song changing and the bar saying so.
 const EVERY: Duration = Duration::from_secs(2);
 
-/// What the panel calls its own surface, which is the program's name.
 const PANEL: &str = "music-panel";
 
 const PAUSE: &str = "\u{f03e4}";
@@ -41,19 +35,21 @@ fn main() -> ExitCode {
     };
 
     let mut last = String::new();
-    let opening = listening();
+
+    let Ok(opening) = listening();
 
     loop {
-        let said = line(&icon);
+        let Ok(said) = line(&icon);
 
-        if said != last {
-            println!("{said}");
-            let _ = std::io::stdout().flush();
-            last = said;
+        match said == last {
+            true => {},
+            false => {
+                println!("{said}");
+                let _ = std::io::stdout().flush();
+                last = said;
+            }
         }
 
-        // Woken by the panel opening or closing, so the icon lights the moment
-        // it does rather than at the end of the next two seconds.
         match opening.recv_timeout(EVERY) {
             Ok(()) | Err(RecvTimeoutError::Timeout) => (),
             Err(RecvTimeoutError::Disconnected) => std::thread::sleep(EVERY),
@@ -61,64 +57,40 @@ fn main() -> ExitCode {
     }
 }
 
-/// A word from the compositor whenever a layer opens or closes.
-///
-/// Connected to again for as long as this runs, so the icon goes on lighting
-/// after the socket has been away. Without that it lit until the first time
-/// the connection went and then never again, while the icon itself stayed on
-/// the bar being drawn every two seconds and looking entirely well.
-fn listening() -> std::sync::mpsc::Receiver<()> {
+fn listening() -> Result<std::sync::mpsc::Receiver<()>, Never> {
     let (say, heard) = channel();
 
-    // A compositor this program was not started under is not something waiting
-    // will fix, and it is not a reason to stop drawing the icon. The channel
-    // comes back with nobody left to speak into it, which the loop already
-    // reads as "wake on the timer instead".
-    if let Err(fault) = watching_layers(say) {
-        eprintln!("music-bar: nothing will say when the panel opens: {fault}");
+    match watching_layers(say) {
+        Ok(()) => {},
+        Err(fault) => eprintln!("music-bar: nothing will say when the panel opens: {fault}"),
     }
 
-    heard
+    Ok(heard)
 }
 
-/// What the bar is told, as waybar reads it.
-///
-/// The classes are a list, never one string with a space in it. waybar hands a
-/// string to GTK as a single class name and a class name cannot hold a space,
-/// so `"stopped open"` was one class called `stopped open` and the stylesheet
-/// had no rule for it. This icon always says what the music is doing, so it
-/// always carried a word already, and it was therefore the one reading on the
-/// bar that could never light at all while its own panel was in front.
-fn line(icon: &str) -> String {
-    let playing = player::playing().unwrap_or_default();
+fn line(icon: &str) -> Result<String, Never> {
+    let asked = player::playing()?;
+
+    let playing = asked.unwrap_or_default();
     let (mark, class) = match (playing.stopped, playing.paused) {
         (true, _) => (icon.to_string(), "stopped"),
-        // The glyph and nothing else. The title is as long as whoever named
-        // the file made it, so this module alone was as wide as the other five
-        // together, and it changed width with every song: the whole right-hand
-        // side of the bar shuffled along when a track ended. What is playing is
-        // one tap away, on the panel this icon opens, written out in full.
         (_, true) => (PAUSE.to_string(), "paused"),
         _ => (icon.to_string(), "playing"),
     };
     let lit = match is_open(PANEL) {
         Ok(Up::OnScreen) => Some("open"),
         Ok(Up::NotThere) => None,
-        // The compositor would not answer, so whether the panel is up is not
-        // known. The icon still has to be drawn and it is drawn unlit -- but
-        // unlit here means nobody could ask, which is not what it means on the
-        // line above, and the journal is the only place that difference can be
-        // kept.
         Err(fault) => {
             eprintln!("music-bar: {fault}");
             None
         }
     };
     let worn: Vec<&str> = std::iter::once(class).chain(lit).collect();
-    format!(r#"{{"text": {}, "class": {}}}"#, quoted(&mark), serde_json::Value::from(worn))
+    let quoted = quoted(&mark)?;
+
+    Ok(format!(r#"{{"text": {}, "class": {}}}"#, quoted, serde_json::Value::from(worn)))
 }
 
-/// A string, as JSON holds it.
-fn quoted(said: &str) -> String {
-    serde_json::Value::String(said.to_string()).to_string()
+fn quoted(said: &str) -> Result<String, Never> {
+    Ok(serde_json::Value::String(said.to_string()).to_string())
 }

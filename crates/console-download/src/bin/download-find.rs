@@ -16,98 +16,107 @@
 use std::path::Path;
 use std::process::Command;
 
-use gtk4::glib;
 use console_download::looking::{self, Found, Looked, NO_YT_DLP};
 use console_download::store::{self, Kind, SIDE};
+use console_external_programs::Program;
+use console_never::Never;
+use gtk4::glib;
 
 fn main() {
     let words: Vec<String> = std::env::args().skip(1).collect();
 
-    let Some(kind) = words.first().and_then(|word| Kind::read(word)) else {
+    let Some(kind) = words.first().and_then(|word| {
+        let Ok(kind) = Kind::read(word);
+
+        kind
+    }) else {
         eprintln!("which kind: --audio or --video");
         return;
     };
 
-    // Joined rather than taken one at a time: what was typed is a sentence and
-    // a shell has already taken it apart by the time it arrives here.
-    let asked = words[1..].join(" ").trim().to_string();
+    let asked = words.get(1..).unwrap_or_default().join(" ").trim().to_string();
 
-    if asked.is_empty() {
-        eprintln!("what to look for");
-        return;
+    match asked.is_empty() {
+        true => {
+            eprintln!("what to look for");
+            return;
+        }
+        false => {},
     }
 
     let cache = glib::user_cache_dir();
-    let looked = look(&asked);
-    let _ = std::fs::create_dir_all(store::pictures(&cache));
+    let Ok(looked) = look(&asked);
+    let Ok(pictures) = store::pictures(&cache);
+    let _ = std::fs::create_dir_all(pictures);
 
     for found in &looked.found {
-        picture(&cache, found);
+        let Ok(()) = picture(&cache, found);
     }
 
-    wrote(&cache, kind, &looked);
+    let Ok(()) = wrote(&cache, kind, &looked);
 }
 
-/// yt-dlp, asked for the list.
-///
-/// A search that fails comes back as a search that failed rather than as
-/// nothing at all. Nothing is the same shape as a word nobody has ever uploaded
-/// anything about, and the two want different rows.
-fn look(asked: &str) -> Looked {
-    let argv = looking::search(asked);
+fn look(asked: &str) -> Result<Looked, Never> {
+    let Ok(argv) = looking::search(asked);
     let asked = asked.to_string();
 
-    let Ok(done) = Command::new(&argv[0]).args(&argv[1..]).output() else {
-        return Looked { asked, fault: NO_YT_DLP.to_string(), found: Vec::new() };
+    let Some((program, rest)) = argv.split_first() else {
+        return Ok(Looked { asked, fault: NO_YT_DLP.to_string(), found: Vec::new() });
+    };
+
+    let Ok(done) = Command::new(program).args(rest).output() else {
+        return Ok(Looked { asked, fault: NO_YT_DLP.to_string(), found: Vec::new() });
     };
 
     let said = String::from_utf8_lossy(&done.stdout);
 
-    match done.status.success() {
-        true => Looked { asked, fault: String::new(), found: looking::found_in(&said) },
-        false => Looked {
-            asked,
-            fault: looking::complaint(&String::from_utf8_lossy(&done.stderr)),
-            found: Vec::new(),
+    Ok(match done.status.success() {
+        true => {
+            let Ok(found) = looking::found_in(&said);
+
+            Looked { asked, fault: String::new(), found }
         },
-    }
+        false => {
+            let Ok(fault) = looking::complaint(&String::from_utf8_lossy(&done.stderr));
+
+            Looked { asked, fault, found: Vec::new() }
+        },
+    })
 }
 
-/// The picture of one thing, fetched once and kept.
-///
-/// Fetched beside itself and drawn out into place, because the panel reads this
-/// folder the moment this program ends and half a picture is drawn as GTK's
-/// mark for a broken one.
-fn picture(cache: &Path, found: &Found) {
-    let Some(at) = store::picture_of(cache, &found.id) else { return };
+fn picture(cache: &Path, found: &Found) -> Result<(), Never> {
+    let Ok(Some(at)) = store::picture_of(cache, &found.id) else { return Ok(()) };
 
-    if at.exists() || found.picture.is_empty() {
-        return;
+    match at.exists() || found.picture.is_empty() {
+        true => return Ok(()),
+        false => {},
     }
 
     let part = at.with_extension("part");
-    let fetched = Command::new("curl")
+    let Ok(mut curl) = Program::Curl.command();
+
+    let fetched = curl
         .args(["--silent", "--location", "--max-time", "20", "--output"])
         .arg(&part)
         .arg(&found.picture)
         .status();
 
-    if fetched.is_ok_and(|how| how.success()) {
-        drawn_out(&part, &at);
+    match fetched.is_ok_and(|how| how.success()) {
+        true => {
+            let Ok(()) = drawn_out(&part, &at);
+        },
+        false => {},
     }
 
     let _ = std::fs::remove_file(&part);
+
+    Ok(())
 }
 
-/// What was fetched, written out as something this desktop can draw.
-///
-/// The name a site gives a picture is not what the picture is: YouTube's end in
-/// .jpg and every one of them arrives as a webp, which GTK here has no loader
-/// for and draws as nothing at all -- a row keeping room for a picture that was
-/// fetched, kept, and never seen. ffmpeg is asked what it actually is, and it
-/// is written out small enough for a row while it is open anyway.
-fn drawn_out(part: &Path, at: &Path) {
-    let done = Command::new("ffmpeg")
+fn drawn_out(part: &Path, at: &Path) -> Result<(), Never> {
+    let Ok(mut ffmpeg) = Program::Ffmpeg.command();
+
+    let done = ffmpeg
         .args(["-loglevel", "error", "-y", "-i"])
         .arg(part)
         .args([
@@ -117,33 +126,42 @@ fn drawn_out(part: &Path, at: &Path) {
         .arg(at)
         .status();
 
-    if !done.is_ok_and(|how| how.success()) {
-        let _ = std::fs::remove_file(at);
+    match done.is_ok_and(|how| how.success()) {
+        true => {},
+        false => {
+            let _ = std::fs::remove_file(at);
+        }
     }
+
+    Ok(())
 }
 
-/// What came back, where the panel looks for it.
-fn wrote(cache: &Path, kind: Kind, looked: &Looked) {
-    let _ = std::fs::create_dir_all(store::folder(cache));
-    let at = store::found_at(cache, kind);
+fn wrote(cache: &Path, kind: Kind, looked: &Looked) -> Result<(), Never> {
+    let Ok(folder) = store::folder(cache);
+    let _ = std::fs::create_dir_all(folder);
+    let Ok(at) = store::found_at(cache, kind);
     let part = at.with_extension("part");
 
     let said = match looking::written(looked) {
         Ok(said) => said,
         Err(why) => {
             eprintln!("{why}");
-            return;
+            return Ok(());
         },
     };
 
-    // Written beside and renamed, so a panel reading the file while this runs
-    // sees the search before or the search after and never half of one.
-    if let Err(fault) = std::fs::write(&part, &said) {
-        eprintln!("writing down what the search found: {fault}");
-        return;
+    match std::fs::write(&part, &said) {
+        Ok(()) => {},
+        Err(fault) => {
+            eprintln!("writing down what the search found: {fault}");
+            return Ok(());
+        }
     }
 
-    if let Err(fault) = std::fs::rename(&part, &at) {
-        eprintln!("putting the search where the panel looks for it: {fault}");
+    match std::fs::rename(&part, &at) {
+        Ok(()) => {},
+        Err(fault) => eprintln!("putting the search where the panel looks for it: {fault}"),
     }
+
+    Ok(())
 }

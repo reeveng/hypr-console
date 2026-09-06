@@ -9,14 +9,17 @@ use console_colour::Short;
 
 use crate::spend::{ROLES, widest};
 
-/// Custom properties, which are the only kind the browser's chrome takes.
 pub fn stylesheet(palette: &Palette) -> Result<String, Short> {
-    let width = widest(ROLES);
-    let body = ROLES
+    let Ok(width) = widest(ROLES);
+    let lines = ROLES
         .iter()
-        .map(|name| Ok(format!("  --{name:<width$}: #{};", palette.must(name)?)))
-        .collect::<Result<Vec<_>, Short>>()?
-        .join("\n");
+        .map(|name| {
+            let colour = palette.must(name)?;
+
+            Ok(format!("  --{name:<width$}: #{colour};"))
+        })
+        .collect::<Result<Vec<_>, Short>>()?;
+    let body = lines.join("\n");
     Ok(format!(
         "/* Written by console-theme from theme/palette.toml.\n\
          \x20  userChrome.css and userContent.css both import this and neither\n\
@@ -24,11 +27,6 @@ pub fn stylesheet(palette: &Palette) -> Result<String, Short> {
     ))
 }
 
-/// The colours the browser will not take from a stylesheet.
-///
-/// A page that has not painted yet is painted by the browser, and left alone
-/// that is white: on a dark desktop every link opens with a flash bright
-/// enough to be the brightest thing that happens all day.
 pub fn prefs(palette: &Palette) -> Result<String, Short> {
     [
         ("browser.display.background_color", "night"),
@@ -39,7 +37,11 @@ pub fn prefs(palette: &Palette) -> Result<String, Short> {
         ("browser.active_color", "pink"),
     ]
     .iter()
-    .map(|(pref, role)| Ok(format!("user_pref(\"{pref}\", \"#{}\");", palette.must(role)?)))
+    .map(|(pref, role)| {
+        let colour = palette.must(role)?;
+
+        Ok(format!("user_pref(\"{pref}\", \"#{colour}\");"))
+    })
     .collect::<Result<Vec<_>, Short>>()
     .map(|lines| lines.join("\n"))
 }

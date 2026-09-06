@@ -17,9 +17,11 @@ dylint_linting::declare_late_lint! {
     /// value the other rules make sure is met.
     ///
     /// Const contexts are left alone: arithmetic the compiler evaluates fails
-    /// the build, which is a failure with a name, at the right time.
+    /// the build, which is a failure with a name, at the right time. A negated
+    /// literal is left alone for the same reason -- `-1` is how a negative
+    /// number is written, not a subtraction anybody performs.
     pub EXPLICIT015_NO_BARE_ARITHMETIC,
-    Warn,
+    Deny,
     "bare integer arithmetic is forbidden; name the policy with `checked_*`, `saturating_*`, or `wrapping_*`"
 }
 
@@ -51,6 +53,15 @@ fn is_integral(cx: &LateContext<'_>, expr: &Expr<'_>) -> bool {
     cx.typeck_results().expr_ty(expr).peel_refs().is_integral()
 }
 
+// `-1` is a negative number written down, not a subtraction anybody performs.
+// The compiler evaluates it, and a literal too large for its own type fails the
+// build -- which is the same reason const contexts are left alone above, said
+// about the one piece of arithmetic that is spelled with an operator and is
+// really just how a value is written.
+fn is_written_number(operand: &Expr<'_>) -> bool {
+    matches!(operand.kind, ExprKind::Lit(_))
+}
+
 impl<'tcx> LateLintPass<'tcx> for Explicit015NoBareArithmetic {
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
         if is_test_build(cx) {
@@ -70,7 +81,9 @@ impl<'tcx> LateLintPass<'tcx> for Explicit015NoBareArithmetic {
             ExprKind::AssignOp(op, lhs, _) => {
                 can_misbehave(op.node.into()) && is_integral(cx, lhs)
             }
-            ExprKind::Unary(UnOp::Neg, operand) => is_integral(cx, operand),
+            ExprKind::Unary(UnOp::Neg, operand) => {
+                !is_written_number(operand) && is_integral(cx, operand)
+            }
             _ => false,
         };
 

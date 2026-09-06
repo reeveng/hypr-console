@@ -1,5 +1,5 @@
 [Unit]
-Description=Controller: the buttons, the sticks and scrolling
+Description=Controller
 PartOf=console.target
 
 [Service]
@@ -12,6 +12,20 @@ ExecStartPost=/usr/local/bin/controller-profile router
 ExecStopPost=-/usr/local/bin/console-fell %n
 Restart=always
 RestartSec=2
+
+# What this reaches past `console-.service.d/confining.conf`, and why.
+#
+# /dev/input is the whole of this program's job and /dev/uinput is where its
+# own pointer comes from, so a private /dev is the one line that could never be
+# here. The home directory stays because the daemon stamps the waits store in
+# it. What is left is a program that reads buttons and talks to the compositor,
+# and neither of those is off this machine.
+#
+# `RestrictAddressFamilies=AF_UNIX AF_NETLINK` was that line and it is gone.
+# It is seccomp, and a seccomp of any kind on a unit of an unprivileged manager
+# is `NoNewPrivileges=` on the process however the flag is written -- see the
+# paragraph in `confining.conf`. The left Legion button crosses to Game Mode
+# with `pkexec`, so this unit is one of the two that cannot carry it.
 
 [Install]
 WantedBy=console.target

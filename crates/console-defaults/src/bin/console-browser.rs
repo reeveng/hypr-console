@@ -9,43 +9,48 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use console_defaults::browsers::{applications, asking};
+use console_external_programs::Program;
+use console_never::Never;
 
-/// Where a link goes when nothing on the machine claims to be the browser.
-///
-/// Still a browser: `xdg-open` on a web address is answered by whatever the
-/// desktop does have, and a button that opens nothing at all is a button that
-/// looks broken.
 const ANYWHERE: &str = "https://duckduckgo.com";
 
-/// The .desktop file the machine says is the browser, if it is really there.
-///
-/// Both halves matter. `xdg-settings` can name a file that has been uninstalled
-/// since it was chosen, and launching that is an error nobody sees, because
-/// this runs from a button press with no terminal under it.
-pub fn found(desktop: &str, among: &[PathBuf]) -> Option<PathBuf> {
-    if desktop.is_empty() {
-        return None;
+pub fn found(desktop: &str, among: &[PathBuf]) -> Result<Option<PathBuf>, Never> {
+    match desktop.is_empty() {
+        true => return Ok(None),
+        false => {}
     }
 
-    among.iter().map(|at| at.join(desktop)).find(|at| at.is_file())
+    Ok(among.iter().map(|at| at.join(desktop)).find(|at| at.is_file()))
 }
 
-fn chosen() -> String {
-    let asked = asking();
+fn chosen() -> Result<String, Never> {
+    let asked = asking()?;
 
-    let Ok(said) = Command::new(asked[0]).args(&asked[1..]).output() else {
-        return String::new();
+    let Some((program, rest)) = asked.split_first() else { return Ok(String::new()) };
+
+    let Ok(said) = Command::new(program).args(rest).output() else {
+        return Ok(String::new());
     };
 
-    String::from_utf8_lossy(&said.stdout).trim().to_string()
+    Ok(String::from_utf8_lossy(&said.stdout).trim().to_string())
 }
 
 fn main() {
-    let argv = match found(&chosen(), &applications()) {
-        Some(at) => vec!["gio".to_string(), "launch".to_string(), at.display().to_string()],
-        None => vec!["xdg-open".to_string(), ANYWHERE.to_string()],
+    let Ok(chosen) = chosen();
+    let Ok(among) = applications();
+    let Ok(found) = found(&chosen, &among);
+
+    let Ok(argv) = match found {
+        Some(at) => Program::Gio.argv(&["launch", &at.display().to_string()]),
+        None => Program::XdgOpen.argv(&[ANYWHERE]),
     };
-    let _ = Command::new(&argv[0]).args(&argv[1..]).status();
+
+    match argv.split_first() {
+        Some((program, rest)) => {
+            let _ = Command::new(program).args(rest).status();
+        }
+        None => {}
+    }
 }
 
 #[cfg(test)]
@@ -62,32 +67,29 @@ mod tests {
     #[test]
     fn the_browser_the_machine_names_is_the_one_that_is_opened() {
         let here = somewhere("named");
+
         std::fs::write(here.join("librewolf.desktop"), "[Desktop Entry]\n").expect("a browser");
+
         assert_eq!(
             found("librewolf.desktop", std::slice::from_ref(&here)),
-            Some(here.join("librewolf.desktop"))
+            Ok(Some(here.join("librewolf.desktop")))
         );
+
         let _ = std::fs::remove_dir_all(&here);
     }
 
-    /// xdg-settings goes on naming a browser that has been uninstalled since it
-    /// was chosen, and launching that is an error nobody sees: this runs from a
-    /// button press, with no terminal under it.
     #[test]
     fn a_browser_the_machine_names_and_does_not_have_is_not_opened() {
         let here = somewhere("gone");
-        assert_eq!(found("librewolf.desktop", std::slice::from_ref(&here)), None);
+        assert_eq!(found("librewolf.desktop", std::slice::from_ref(&here)), Ok(None));
         let _ = std::fs::remove_dir_all(&here);
     }
 
     #[test]
     fn a_machine_that_names_no_browser_at_all_opens_the_fallback() {
-        assert_eq!(found("", &[PathBuf::from("/usr/share/applications")]), None);
+        assert_eq!(found("", &[PathBuf::from("/usr/share/applications")]), Ok(None));
     }
 
-    /// The first directory that has it wins, which is the order the menu looks
-    /// in too: a browser installed for this person stands in front of one
-    /// installed for everybody.
     #[test]
     fn the_persons_own_copy_is_found_before_the_machines() {
         let mine = somewhere("mine");
@@ -96,7 +98,7 @@ mod tests {
         std::fs::write(everyones.join("firefox.desktop"), "[Desktop Entry]\n").expect("theirs");
         assert_eq!(
             found("firefox.desktop", &[mine.clone(), everyones.clone()]),
-            Some(mine.join("firefox.desktop"))
+            Ok(Some(mine.join("firefox.desktop")))
         );
         let _ = std::fs::remove_dir_all(&mine);
         let _ = std::fs::remove_dir_all(&everyones);

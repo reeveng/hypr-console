@@ -13,16 +13,16 @@ use console_colour::Short;
 use crate::palette::Palette;
 use crate::spend::ROLES;
 
-/// Not aligned on the equals sign the way the stylesheet is aligned: a space
-/// before it makes the shell read the name as a command, and a palette that
-/// lines up beautifully and stops the keyboard starting is not a trade
-/// anybody wants.
 pub fn spend(palette: &Palette) -> Result<String, Short> {
-    let body = ROLES
+    let lines = ROLES
         .iter()
-        .map(|name| Ok(format!("{name}={}", palette.must(name)?)))
-        .collect::<Result<Vec<_>, Short>>()?
-        .join("\n");
+        .map(|name| {
+            let colour = palette.must(name)?;
+
+            Ok(format!("{name}={colour}"))
+        })
+        .collect::<Result<Vec<_>, Short>>()?;
+    let body = lines.join("\n");
     Ok(format!(
         "# Written by console-theme from theme/palette.toml.\n\
          # Read by the keyboard and the checks, and sourced by the nested\n\
@@ -37,8 +37,6 @@ mod tests {
 
     #[test]
     fn nothing_is_padded_before_the_equals_sign() {
-        // A space there makes the shell read the name as a command, and the
-        // keyboard then starts with no colours or does not start at all.
         for line in spend(&blossom()).expect("every colour it spends is declared").lines().filter(|l| l.contains('=')) {
             let (name, _) = line.split_once('=').expect("an assignment");
             assert!(!name.ends_with(' '), "{line:?} pads before the equals sign");
@@ -57,9 +55,6 @@ mod tests {
 
     #[test]
     fn a_value_is_six_hex_digits_with_no_hash_and_no_quotes() {
-        // The keyboard builds a command line out of these, and it
-        // wants the digits alone. A hash would start a comment in this file
-        // anyway.
         for line in spend(&blossom()).expect("every colour it spends is declared").lines().filter(|l| l.contains('=')) {
             let (_, value) = line.split_once('=').expect("an assignment");
             assert_eq!(value.len(), 6, "{line:?}");

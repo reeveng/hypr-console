@@ -8,7 +8,7 @@
     console-check --stage device --yes --all   every check written for it
 
 `console-check` is `cargo run --bin console-check`, and the checks themselves
-are `crates/console-checks`, one module per feature. The number in front of a
+are `crates/console-feature-checks`, one module per feature. The number in front of a
 check's name is the order they run in. When a feature changes, edit its check
 rather than adding a second one.
 
@@ -23,6 +23,56 @@ page scroll or send a touch.
 Every check that runs without a machine also runs in `cargo test`, so a check
 nobody has run since the feature changed cannot survive to fail on the device
 for a reason that has nothing to do with the device.
+
+## The person holding it is told what is happening
+
+A device run is minutes of somebody's handheld opening menus by itself, and
+everything the run says it says on a terminal in another room. So it says two
+things on the device as well, and no more than two.
+
+The strip under the bar fills as it goes. That row of pixels already exists --
+`console apply` fills it, `console_notifications::updating` is the file both
+ends of it agree on -- and a check run writes the same file the same way, from
+the laptop end of the ssh. Nothing new is drawn: a panel put up to report the
+run would be a layer over the desktop that the checks then have to press
+through, and several of them ask what is on the screen and what colour it is.
+The surface reporting the run would be the run's own worst interference.
+
+A card is raised when it starts, saying how many checks and about how long, and
+replaced by one at the end saying how it went. The strip has its tooltip turned
+off and is two pixels tall, so it can say how much is left and nothing else; the
+card is where the words go. The one at the end stays on the screen when
+something failed, because a run that ends badly while somebody is making tea is
+the whole reason to say it twice.
+
+## Longest first, and how it knows
+
+On the device the checks run longest first. Everywhere else they run in the
+order they grew, which walks the desktop the way it was built; on the device
+that order says nothing anybody watching needs, and it makes the strip crawl
+and jump by turns. Longest first puts the wait at the front, so the strip slows
+early and runs at the end -- which is not a trick played on the reader, it is
+what the run does. `going` weights an apply the same way and for the same
+reason.
+
+How long each check takes is measured rather than declared. The `lasting`
+module of `console-test-stages` times every check as it runs and hands the
+table back to the device, under `~/.local/state/console/checked`, where the
+next run reads it. An apply has few enough stretches to carry estimates in
+their source and be corrected by hand; the checks do not, arriving one or two
+at a time as they do, and a number nobody updates is a bar that lies about a
+run somebody is watching.
+
+A check nothing has ever timed is given the middle of what is known -- not a
+claim about its length, a claim that it is no more surprising than the rest. A
+machine nothing has ever timed gets a strip that counts checks and a card that
+promises no length at all, because a run divided into equal checks tells
+somebody the ten-second one and the two-minute one are the same wait. One run
+fixes that, on that machine, for good.
+
+It costs the order they grew, which is a thing to know before reading a run: a
+check that leaned on the one before it would break. None does. Every check has
+always had to survive being named on its own.
 
 ## The machine is asked only what nothing else can
 
@@ -105,6 +155,68 @@ being busy; run it again before believing it.
 Both are answered here now, so only `--all` asks them of the machine at all.
 That is most of why the short tier is steadier straight after a deploy, and it
 is worth knowing before reading an `--all` run taken in the same minute.
+
+## One panel, on its own
+
+    cargo test -p console-viewer --test a_finger
+    cargo test -p console-panel --test every_panel_answers_a_finger the_files
+
+A tier below the three above, and the one a change to a panel is tried in while
+it is being written. It opens one panel in the nested desktop, with no bar and
+no desktop around it, and asks it what it put on the screen.
+
+A panel says so when `CONSOLE_PANEL_TELLS` names a file: one line per draw, and
+in the line every part of itself a hand is offered and the rectangle it occupies
+in the room the compositor granted. `console_panel::telling` reads it back and
+`console_test_stages::panels` holds it against what the rows were built to
+offer. What that can answer is the question none of the other tiers could: not
+whether the panel is drawn, but whether a hand could use what is drawn.
+
+The rules are the ones in `button-contract.md`. A row that offers something
+behind Y draws a mark a finger can reach, unless it has said out loud that it
+wears none. A card with one subject draws one mark for it. Everything drawn to
+be pressed is inside the room. There is always a way out. Every panel here broke
+the first of those, and no check could see it, because nothing had ever asked a
+panel what it had drawn -- only whether it had drawn.
+
+One test per panel, so a name after the test binary runs one of them: about
+nine seconds for one panel, most of which is a compositor starting.
+
+Most of the contract does not need any of that, and should not be asked for
+here. Whether a row that offers something wears a mark for it is decided from
+the row before a widget exists, in one place that every panel's rows pass
+through, so `wears` in `console_panel::panel` answers it for all ten panels in a
+unit test that costs microseconds. That is where a rule about what a panel
+*decides* belongs. What is left for this tier is what only a real screen can
+say: where the thing it decided to draw actually landed, measured by GTK with
+the real stylesheet at the real size. Every fault this tier has found was of
+that kind -- a button whose padding made the measurement lie, a margin that made
+the surface wider than the output, a mark right-aligned off the glass -- and not
+one of them was visible to any amount of reasoning about rows.
+
+The session it opens is `--bare`: no ground painted, because nothing here looks
+at the picture. What is read back is what the panel wrote down. Painting a
+wallpaper was the longest thing a run of this did and it was spent asking a
+daemon that nothing had started.
+
+It does not open in front of you. Hyprland has no headless-only backend, so a
+nested session is a window on whoever's screen started it, and it used to open
+on their current workspace in the magenta this stage paints and sit there for
+the length of the run. `console-desktop` now asks the running compositor, before
+starting the nested one, to put anything of class `aquamarine` on a special
+workspace of its own, silently. Nothing is written to anybody's config and the
+rule is gone at the next reload.
+
+    hyprctl dispatch togglespecialworkspace console-desktop
+
+is how to watch one while it runs.
+
+The panels take turns. `console_panel::chooser` allows one chooser on a session
+at a time and enforces it by asking whoever holds the screen to leave, which is
+right on the device and wrong here: the lock belongs to the login session and
+the nested sessions are inside it, so two of these running at once are two
+panels asking each other to go. The stage takes an exclusive lock for the length
+of a run rather than asking anybody to remember a flag.
 
 ## It is somebody's machine
 

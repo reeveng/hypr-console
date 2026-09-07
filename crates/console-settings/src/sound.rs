@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 
-use console_never::Never;
+use console_core_never::Never;
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Default, Deserialize)]

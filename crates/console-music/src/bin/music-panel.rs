@@ -5,7 +5,7 @@
 //! screen, asks the host to draw the card on it, and holds the screen until
 //! the card is gone.
 
-use console_never::Never;
+use console_core_never::Never;
 use console_panel::chooser::{self, Alone};
 use console_panel::held::{self, Drawn};
 use console_panel::panel;

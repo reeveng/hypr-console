@@ -31,8 +31,8 @@ use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use console_never::Never;
-use console_number_conversion::{Float, fitted};
+use console_core_never::Never;
+use console_core_number_conversion::{Float, fitted};
 use console_panel::telling::{self, Bare, Line, Offers, Reachable, Spot, Told};
 
 const DRAWN: f64 = 2.5;
@@ -437,7 +437,15 @@ mod tests {
     }
 
     fn line(at: usize, offers: Offers, bare: Bare, spots: Vec<Spot>) -> Line {
-        Line { at, says: String::new(), aside: String::new(), offers, bare, spots }
+        Line {
+            at,
+            says: String::new(),
+            aside: String::new(),
+            offers,
+            bare,
+            standing: console_panel::telling::Standing::No,
+            spots,
+        }
     }
 
     fn card(lines: Vec<Line>, spots: Vec<Spot>) -> Told {

@@ -8,7 +8,7 @@
 //! opens: it takes the screen, asks the host to draw the settings on it, and
 //! holds the screen until they are gone.
 
-use console_never::Never;
+use console_core_never::Never;
 use console_panel::chooser::{self, Alone};
 use console_panel::held::{self, Drawn};
 use console_panel::panel;

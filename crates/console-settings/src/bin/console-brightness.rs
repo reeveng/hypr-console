@@ -27,8 +27,8 @@
 //! nobody pressed them, and a machine that woke you to tell you it had dimmed
 //! itself would be worse than one that did it quietly.
 
-use console_external_programs::Program;
-use console_never::Never;
+use console_core_external_programs::Program;
+use console_core_never::Never;
 use console_notifications::saying::{Kept, Notice, raise_kept};
 use console_settings::screen::{
     self, DIMMED, Moved, Way, as_points, now, remembered, set, stepped, undimming,

@@ -1,0 +1,32 @@
+[package]
+name = "console-input-dictation"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_input_dictation"
+path = "src/lib.rs"
+
+[[bin]]
+name = "dictate"
+path = "src/bin/dictate.rs"
+
+[[bin]]
+name = "voice-compare"
+path = "src/bin/voice-compare.rs"
+
+[dependencies]
+console-program-lifetime.workspace = true
+console-default-applications.workspace = true
+console-core-external-programs.workspace = true
+console-core-atomic-writes.workspace = true
+console-core-never.workspace = true
+console-waiting.workspace = true
+console-program-contract.workspace = true
+console-program-runtime.workspace = true
+libc = "0.2"
+
+[lints]
+workspace = true

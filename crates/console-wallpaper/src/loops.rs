@@ -30,8 +30,8 @@
 //! painted over the still leaves the rest of the still exactly where it was.
 
 
-use console_never::Never;
-use console_number_conversion::{Float, fitted};
+use console_core_never::Never;
+use console_core_number_conversion::{Float, fitted};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Patch {

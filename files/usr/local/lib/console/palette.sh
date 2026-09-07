@@ -1,4 +1,4 @@
-# Written by console-theme from theme/palette.toml.
+# Written by console-palette from theme/palette.toml.
 # Read by the keyboard and the checks, and sourced by the nested
 # desktop. Nothing that reads it holds a colour of its own.
 

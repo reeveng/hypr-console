@@ -16,7 +16,7 @@
 //! is the other, and only the second is here, so the tab can be asked what it
 //! would show without a machine to ask.
 
-use console_never::Never;
+use console_core_never::Never;
 use console_panel::page::{Does, NOW, Row};
 
 #[derive(Debug, Clone, PartialEq, Eq)]

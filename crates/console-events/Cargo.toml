@@ -1,0 +1,39 @@
+[package]
+name = "console-events"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_events"
+path = "src/lib.rs"
+
+# The pool. One of these on the machine, started with the desktop.
+[[bin]]
+name = "console-events"
+path = "src/bin/console-events.rs"
+
+[dependencies]
+# The words. `Topic` and `Changed` are the contract's, not this crate's: what a
+# program is told has one spelling, and a pool that invented a second one would
+# be a translation layer between two halves of the same idea.
+console-program-contract.workspace = true
+# The error of a function that cannot fail, so a call site reads the same
+# whether or not the thing it calls can go wrong.
+console-core-never.workspace = true
+# Where the compositor's socket is, asked once rather than in three crates.
+console-onscreen.workspace = true
+# What reaches for the pool again when it has gone, on both sides, and what
+# reaches for a source that has stopped saying anything.
+console-core-reconnect.workspace = true
+# A source that is somebody else's program is named here rather than spelled at
+# the call site.
+console-core-external-programs.workspace = true
+# `alongside`, so a source dies with the pool that is the only thing holding
+# it. A pool that left a `pactl subscribe` behind would be the fault this crate
+# exists to end, committed by the crate itself.
+console-program-lifetime.workspace = true
+
+[lints]
+workspace = true

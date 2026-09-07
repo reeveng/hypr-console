@@ -8,8 +8,8 @@
     console-check --stage device --yes --all   every check written for it
 
 `console-check` is `cargo run --bin console-check`, and the checks themselves
-are `crates/console-feature-checks`, one module per feature. The number in front of a
-check's name is the order they run in. When a feature changes, edit its check
+are `crates/console-test-checks`, one module per feature. The number in front of
+a check's name is the order they run in. When a feature changes, edit its check
 rather than adding a second one.
 
 A check is written for the stages that can answer it. `Body::Here` is what needs
@@ -38,6 +38,45 @@ run would be a layer over the desktop that the checks then have to press
 through, and several of them ask what is on the screen and what colour it is.
 The surface reporting the run would be the run's own worst interference.
 
+The strip fills while a check runs, not only when one ends. Longest first puts
+the longest check of the run at the front, so the strip used to stand exactly
+where the last run left it through the worst two minutes there are -- the two
+minutes somebody is most likely to decide it has hung. A check that has been
+timed before carries its own estimate, so `lasting::crept` walks its share of
+the strip with the clock and keeps the last tenth of that share back. An
+estimate is right until the machine is busy or the check is waiting on something
+that will not come, and a strip that ran to the end of a check's share and sat
+there would be saying the check had finished when it had not. The last tenth is
+only ever approached. The check arriving is the one thing that fills it.
+
+The number rides over the ssh the run was already making. Every command a check
+sends goes through one place, so the write goes in front of one of those -- no
+second connection, no thread, no timer, and nothing polling a handheld that is
+already busy pressing its own buttons. It is written only when the number has
+changed, so a check that talks to the device forty times does not wake the bar
+forty times, and a check that has stopped talking to it stops moving the strip,
+which is the truth about it.
+
+The terminal driving the run draws the line an apply draws, out of the same
+crate: `docs/deploy.md` argues for that shape and this is the other thing it is
+used for. What it fills with is the run's own progress and never the check's --
+a bar that filled for the check that is running restarts at nothing a dozen
+times in a run, which is a bar that moves in steps however smoothly each step is
+drawn, and how far through the fourth check it is was nobody's question. The
+counter and the name say which check.
+
+That line is drawn on a clock rather than on the ssh, by a thread asking
+`console-waiting` whether the run has ended and redrawing every time the answer
+is no. Two hundred milliseconds, which is pacman's own `UPDATE_SPEED_SEC`: fast
+enough to read as movement, slow enough not to be a program redrawing a terminal
+for its own sake. It keeps moving whether or not the run has anything to say,
+which is the whole point -- what a person is watching for is movement, and
+movement that only happens when the run speaks is movement in steps. Everything
+the run prints takes the same lock and wipes the line first, or the two land on
+the same row. The line is wiped for good when the check ends and the run's own
+result line is printed, because the record of what happened is the list of
+checks and how each one went.
+
 A card is raised when it starts, saying how many checks and about how long, and
 replaced by one at the end saying how it went. The strip has its tooltip turned
 off and is two pixels tall, so it can say how much is left and nothing else; the
@@ -64,11 +103,56 @@ at a time as they do, and a number nobody updates is a bar that lies about a
 run somebody is watching.
 
 A check nothing has ever timed is given the middle of what is known -- not a
-claim about its length, a claim that it is no more surprising than the rest. A
-machine nothing has ever timed gets a strip that counts checks and a card that
-promises no length at all, because a run divided into equal checks tells
-somebody the ten-second one and the two-minute one are the same wait. One run
-fixes that, on that machine, for good.
+claim about its length, a claim that it is no more surprising than the rest.
+
+Only a check that passed teaches the table. One that fails stops at the first
+thing that is wrong, which is usually early, so a red run would otherwise teach
+the table that the slowest thing in it is quick, and the next run's bar would be
+confidently wrong about exactly the check somebody is waiting on. A skipped one
+has not run at all. Neither is a measurement of anything, and a table with a gap
+in it is worth more than a table with a number nobody should believe.
+
+## And a table that travels
+
+What measuring alone cannot do is exist before the first run, and that is the
+run most likely to be watched, because it is the one on a device somebody has
+just put back together. It used to count checks, which tells a person the
+ten-second one and the three-minute one are the same wait.
+
+So a second table is carried in the source, at
+`crates/console-test-stages/fixtures/lengths`, taken off a device that ran them
+all -- `just lengths` is the whole of refreshing it, and a test fails if it
+names a check this tree no longer has or misses one the device answers alone.
+It does not compete with the measured one. Where this machine has timed a check
+its own number is used and the carried file is not consulted; the carried file
+answers only where this machine has nothing to say.
+
+It transfers because the two tables differ mostly by one number. Which check is
+the slow one is a fact about the checks: opening a panel and waiting for it to
+be drawn is longer than reading a file, on every machine, in about the same
+proportion. How fast the whole run goes is a fact about the machine. So the
+shape carries and only the scale does not, and the scale is measurable --
+`pace_of` is this device's own numbers against the carried ones over the checks
+both know, and the rest of the file is carried across at that ratio. A machine
+with nothing measured at all has no ratio and gets the numbers as they stand,
+which is the honest guess: not a claim about that machine, a claim that it is a
+handheld like the one they came off.
+
+Both tables are from before, so a third correction runs during the run itself.
+`Ahead::pace` is the same ratio measured against what has actually happened so
+far -- what the finished checks were expected to take against what they took --
+and it starts at one, so every check that ends says how wrong the estimate was
+and the rest of the bar is rescaled by it. It is clamped: one check that hung is
+not evidence about the run.
+
+## Leaning behind
+
+The bar is bent down a little on purpose. At the halfway mark of the run it says
+forty per cent and it catches up as it goes. A bar that runs ahead of the work
+arrives at ninety-eight and stops, and the last two per cent taking a third of
+the wait is the exact thing that makes somebody stop believing a bar -- once,
+and then for every bar after it. Lagging and then gathering speed is never wrong
+in the direction that costs anything.
 
 It costs the order they grew, which is a thing to know before reading a run: a
 check that leaned on the one before it would break. None does. Every check has
@@ -138,11 +222,35 @@ tier while passing three times out of three on its own. Four checks had the
 fault before it was found.
 
 `drawn()` waits for a chooser to arrive and `gone()` waits for every chooser to
-leave. Both answer whether it happened rather than failing, so the check says
+leave. `changed(reading, from)` waits for something the device can be asked --
+the brightness, the volume, which workspace, how many windows, which song --
+to stop being what it was, which is what most of a check's waiting turns out to
+be. All three answer whether it happened rather than failing, so the check says
 what it was waiting for in its own words. For anything else there is
-`until(what)`, which is what those two are built from. A `settle` with a number
+`until(what)`, which is what the three are built from. A `settle` with a number
 in it is a guess, and a guess in a check is a check that will one day be red for
 a reason that is not the feature.
+
+That paragraph is now a rule the build keeps rather than one a reader is asked
+to remember. EXPLICIT021 denies `thread::sleep` and the glib timers everywhere
+in the tree, and `console-waiting` is where the loop that asks instead lives:
+`until` takes a patience and a question, asks it, asks it again, and answers
+with whether the thing arrived or the patience ran out. What is left over is
+`Device::settle`, which is the gap `until` puts between two questions to the
+handheld -- and a check that calls it directly is a check waiting on a number,
+which is what EXPLICIT022 denies, at the call.
+
+Two kinds of site carry the allow instead, and both say so where they stand.
+Where the check is that *nothing* happened -- the d-pad alone moving no
+desktop, the paddle alone taking no picture -- there is no question to ask, and
+the number is how long the desktop is given to do the wrong thing. Where a
+duration is the press itself -- a d-pad held down so the highlight walks -- the
+elapsing is what was asked for, and that is the same exception EXPLICIT021
+already makes. Everything else is a question, and the last of them to be
+written was the home screen's, which waits on a repaint: what says the
+highlight moved is the colour of the screen, and `lit()` reads it and can fail
+to. That is why `until` carries the fault its question carries -- a wait whose
+question cannot fail is a wait the screen cannot be handed to.
 
 ## The first minute after a deploy is a lie
 
@@ -158,7 +266,7 @@ is worth knowing before reading an `--all` run taken in the same minute.
 
 ## One panel, on its own
 
-    cargo test -p console-viewer --test a_finger
+    cargo test -p console-media-viewer --test a_finger
     cargo test -p console-panel --test every_panel_answers_a_finger the_files
 
 A tier below the three above, and the one a change to a panel is tried in while
@@ -228,3 +336,60 @@ Ask the person holding the device before running anything on it. A clean tree is
 not permission. Another session saying it is finished is not permission. Another
 user clearing a deploy is not permission for the run after it. Whoever is
 holding the device decides what happens on it.
+
+## And it is given back the way it was found
+
+Permission to run is not permission to keep what the run changed. A tier is
+minutes of somebody's handheld moving between workspaces, opening a window,
+turning the screen up and the sound down, and until `putting_back` it left all
+of that wherever the last check happened to stop. The person who lent the
+device got it back on a workspace they had not chosen, at a brightness they had
+not set, with a terminal open that they never opened, and putting that right by
+hand was a chore the run made for them.
+
+What was true before the first press is read once and put back after the last
+check: the workspace, the brightness, the volume, the profile, whether the
+keyboard was up, and every window the run itself opened. Once, at the end,
+rather than between checks -- a check that turns the brightness up is entitled
+to leave it up for the check after it, and `Device::fresh` is already the tidy
+between two of them. The last line of a run says what was handed back, and what
+would not go.
+
+Nothing is put back that the machine would not say. `Level` has a word for a
+reading nobody got, because a brightness that could not be read is not a
+brightness of nought and a run that treated it as one would hand back a black
+screen. A workspace or a profile with no name is the same: there is nothing to
+go back to, so nothing is done.
+
+Some of it cannot be bookkept and had to be answered in the check instead. The
+rule is that a check may take away what it made and may not take away what it
+found:
+
+- `030` opens the window it closes. Pressing the paddle at whatever was in
+  front of you asserts the right thing by taking somebody's window away, and
+  there is no putting that back. It also asks a better question -- not that the
+  count went down, which is true whichever window went, but that the one in
+  front is the one that is gone.
+- `070` takes away the picture it took, by the name that appeared while it was
+  looking. A screenshot of somebody's desktop in the folder they keep their own
+  in is a thing left behind for them to find and delete.
+- `250` closes the browser window it opened rather than every browser window
+  there is. `pkill` is not a way to close a window somebody else may be using.
+- `280` stands down when the machine is already playing something. It would
+  have to stop the player to press this, and a song cannot be put back where it
+  was in somebody's afternoon.
+- The home checks clear the screen with `fresh` rather than with `put-away`,
+  which closes the focused window when no chooser is up.
+
+Ctrl-C is answered rather than fatal, because a run somebody stops halfway is
+the one that would otherwise leave the most behind -- it is usually stopped
+because of what it is doing to their device. The signal sets a flag that the
+loop over the checks reads, and that `Device::until` reads so a wait for
+something that will not now happen ends at once; the check that was running is
+reported as stopped rather than failed, the device is put back, and a second
+Ctrl-C quits the way anything else does.
+
+What a run still leaves: the timings under `~/.local/state/console/checked`,
+which are the run's own and are what the next one reads to draw the strip, and
+a menu that was open before it started, which `fresh` closes on the way in and
+nothing reopens.

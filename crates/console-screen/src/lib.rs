@@ -13,8 +13,8 @@
 //! nothing said so.
 
 
-use console_never::Never;
-use console_number_conversion::whole_u32;
+use console_core_never::Never;
+use console_core_number_conversion::whole_u32;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Screen {

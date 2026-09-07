@@ -14,11 +14,14 @@ path = "src/lib.rs"
 # decides is over there.
 console-program-contract.workspace = true
 # What a program is allowed to name when it wants something run.
-console-external-programs.workspace = true
+console-core-external-programs.workspace = true
 # A child started on somebody's behalf is theirs, and is never ended by us.
-console-child-processes.workspace = true
+console-program-lifetime.workspace = true
 # The error of a program that cannot have one of its own.
-console-never.workspace = true
+console-core-never.workspace = true
+# The one subscription per source on this machine. `Wants::Words` is a program
+# asking to be told, and this is who tells it.
+console-events.workspace = true
 
 [lints]
 workspace = true

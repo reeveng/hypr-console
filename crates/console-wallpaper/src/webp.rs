@@ -5,7 +5,7 @@
 //! ffmpeg's muxer nor any tool packaged here will write the durations this
 //! needs, so the container is written out here. It is a header and a loop.
 
-use console_never::Never;
+use console_core_never::Never;
 
 pub struct Frame {
     pub x: i32,

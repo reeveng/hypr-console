@@ -1,29 +1,25 @@
-//! A launched application is in a cgroup of its own, not the controller's.
-//!
-//! The menu, the panel, the music panel and the file manager are all started
-//! by `console_panel::running::left_running`. Each one of them is a process
-//! whose life is a single press, and what is started under it (the player, the
+//! A launched application is in a cgroup of its own, not the controller's.  The
+//! menu, the panel, the music panel and the file manager are all started by
+//! `console_panel::running::left_running`. Each one of them is a process whose
+//! life is a single press, and what is started under it (the player, the
 //! browser, the file viewer) is a process that has to outlive it. Under cgroup
 //! v2 a child inherits its parent's cgroup, so without an explicit move the
-//! launched program sits in `console-controller.service`'s cgroup. Restarting
-//! the controller then takes the program with it, which is the harm the entry
-//! in `todos.md` describes.
-//!
-//! `left_running` wraps the program in `systemd-run --user --scope`, which
-//! moves the child into a transient scope unit named `run-<pid>-<id>.scope`.
-//! This test runs the same wrap against `/bin/sleep` and reads the child's
-//! cgroup path back out of `/proc/<pid>/cgroup`, asserting the path ends in a
-//! scope rather than the controller's slice.
-//!
-//! Skipped, not failed, on a machine without `systemd-run` or without a user
-//! systemd to talk to. Both are common in a CI environment and neither is a
-//! reason to fail the rest of the suite.
+//! launched program sits in `console-input-controller.service`'s cgroup.
+//! Restarting the controller then takes the program with it, which is the harm
+//! the entry in `todos.md` describes.  `left_running` wraps the program in
+//! `systemd-run --user --scope`, which moves the child into a transient scope
+//! unit named `run-<pid>-<id>.scope`. This test runs the same wrap against
+//! `/bin/sleep` and reads the child's cgroup path back out of
+//! `/proc/<pid>/cgroup`, asserting the path ends in a scope rather than the
+//! controller's slice.  Skipped, not failed, on a machine without `systemd-run`
+//! or without a user systemd to talk to. Both are common in a CI environment
+//! and neither is a reason to fail the rest of the suite.
 
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-use console_external_programs::Program;
+use console_core_external_programs::Program;
 use console_panel::running::scope_around;
 
 #[test]

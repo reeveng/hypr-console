@@ -51,8 +51,8 @@
 //! the machine cannot drift from the curve this says.
 
 
-use console_never::Never;
-use console_number_conversion::whole_u32;
+use console_core_never::Never;
+use console_core_number_conversion::whole_u32;
 use std::fmt::Write;
 use std::path::PathBuf;
 

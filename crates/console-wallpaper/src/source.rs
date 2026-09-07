@@ -14,8 +14,8 @@
 
 use std::path::{Path, PathBuf};
 
-use console_external_programs::Program;
-use console_never::Never;
+use console_core_external_programs::Program;
+use console_core_never::Never;
 use sha2::{Digest, Sha256};
 
 #[derive(Debug, PartialEq, Eq)]

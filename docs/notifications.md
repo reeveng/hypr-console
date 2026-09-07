@@ -104,14 +104,14 @@ colour, so the card and the icon say the same thing at the same moment. Any of
 them can be walked down to *never*.
 
 `bar-say battery` is what watches, and it is the only thing on the machine
-reading the battery at all: it takes a reading every thirty seconds for the
-icon it draws, and a second program on a second clock would be two opinions
-about when one battery crossed something. What a crossing *is* --
-`console_defaults::battery` -- is a function of the reading, the levels and
-what has already been said, so it can be asked without a battery. What is done
-about one is `console-battery`, a program of its own, because the third of them
-waits a quarter of a minute under a card and a bar module is not a thing that
-should hold still for that.
+reading the battery at all: it takes a reading every thirty seconds for the icon
+it draws, and a second program on a second clock would be two opinions about
+when one battery crossed something. What a crossing *is* --
+`console_default_applications::battery` -- is a function of the reading, the
+levels and what has already been said, so it can be asked without a battery.
+What is done about one is `console-battery`, a program of its own, because the
+third of them waits a quarter of a minute under a card and a bar module is not a
+thing that should hold still for that.
 
 Which couples the battery to the bar, and that is worth saying out loud: if
 waybar is not running, nothing is reading the battery and none of the three
@@ -192,17 +192,24 @@ standing over the device is not asking what it is doing; the lines already say
 that. They are asking whether to keep standing there.
 
 The fill is weighted rather than counted. `going.rs` holds what share of an
-apply each of the thirteen stretches usually is, and the build is 62 of the
-hundred on its own. A strip that moved a thirteenth per stretch would sit near
-the left through the minutes of the build and then jump to the end, which is a
-strip that lies twice. Weighted, it crawls at the start, where the time is, and
-runs at the finish, where there is nothing left to wait for. `CONSOLE_TIMINGS=1
-console apply` prints what each stretch actually took, which is how the numbers
-are corrected.
+apply each stretch usually is, and the build is most of the hundred on its own.
+A strip that moved an equal step per stretch would sit near the left through the
+minutes of the build and then jump to the end, which is a strip that lies twice.
+Weighted, it crawls at the start, where the time is, and runs at the finish,
+where there is nothing left to wait for. `CONSOLE_TIMINGS=1 console apply` prints
+what each stretch actually took, which is how the numbers are corrected.
+
+It fills inside a stretch as well as between them, because the stretches that
+matter are the ones long enough to doubt. Cargo names each crate as it starts
+one, pacman names each package as it fetches and writes it, and the files and
+the services are lists whose length is known before the loop begins -- so each
+of those carries the fill a share of its own stretch and the strip moves while
+the longest thing an apply does is happening, rather than at the end of it.
 
 Nothing polls it. The engine writes `/run/console/updating` and signals waybar
-once a stretch -- thirteen wake-ups across a whole apply, and none at all on a
-desktop where nothing is being applied. The engine is root's and the bar is
+when the number changes and only then -- so a stretch that is over in a
+millisecond costs one wake-up, a build costs one per crate, and a desktop where
+nothing is being applied costs none at all. The engine is root's and the bar is
 hers, so a file under `/run` and a real-time signal are the only things that
 cross between them.
 
@@ -210,9 +217,22 @@ It is a second waybar bar rather than a module on the first, because it runs
 the width of the screen and nothing on a bar does that. waybar has no progress
 widget of any kind: a custom module hands over text, a tooltip and a class, and
 the class is all the stylesheet gets. So `bar-updating` sends `at-0` through
-`at-100` in fives and `style.css` has a rule for each, filling a gradient to
-that mark. Two lists in two languages, held together by
+`at-100` and `style.css` has a rule for each, filling a gradient to that mark.
+Two lists in two languages, held together by
 `every_step_the_bar_can_send_is_one_the_style_paints`.
+
+A class is a name written down in advance, so the stylesheet is the ceiling on
+how many places the strip can be in, and for a while it was the thing making the
+strip jump. It painted one step in five per cent, which was as fine as the
+number was when the number only moved a handful of times in a run; once the
+number became continuous -- per crate, per file and per package during an apply,
+and on the clock during a check run -- a strip crossing a screen this wide was
+still moving in jumps of fifty pixels. It is one rule per whole per cent now,
+which is what the number carries and no more. Between two of those the fill is
+walked rather than jumped: GTK interpolates two gradients of the same shape, and
+every rule is the same shape with the stop moved, so a `transition` on the
+module turns the last of the stepping into movement. A GTK that stopped
+interpolating them would put the stepping back and nothing else.
 
 The four pixels are bought rather than taken: they are reserved whether an
 apply is running or not. A strip that appeared only during one would shove

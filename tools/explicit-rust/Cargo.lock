@@ -532,6 +532,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "explicit021_no_sleeping"
+version = "0.1.0"
+dependencies = [
+ "clippy_utils",
+ "dylint_linting",
+ "dylint_testing",
+]
+
+[[package]]
+name = "explicit022_no_settling"
+version = "0.1.0"
+dependencies = [
+ "clippy_utils",
+ "dylint_linting",
+ "dylint_testing",
+]
+
+[[package]]
 name = "fastrand"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

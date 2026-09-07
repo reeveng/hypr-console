@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use console_never::Never;
+use console_core_never::Never;
 
 use crate::listing::{Entry, Still};
 use crate::unzipping::Packed;

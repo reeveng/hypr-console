@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use console_never::Never;
+use console_core_never::Never;
 use console_panel::page::{Does, Row, Showing};
 
 use crate::reading::Notice;

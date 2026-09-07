@@ -48,7 +48,7 @@ Nothing on this panel asks about formats. A person who typed a song's name has
 said what they want, and a list of codecs is a question about containers put to
 somebody holding a handheld.
 
-So the file is chosen by a rule written once, in `console_download::getting`:
+So the file is chosen by a rule written once, in `console_downloads::getting`:
 
 **Sound** is the best the site has, unwrapped rather than re-encoded. The best
 audio a site keeps is already the small one -- four minutes of opus is four

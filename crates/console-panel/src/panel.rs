@@ -5,9 +5,9 @@
 //! `fitting`, and what a button means is `keys`. This puts what they answer on
 //! the screen.
 
-use console_child_processes::{Alongside, alongside};
-use console_never::Never;
-use console_number_conversion::{Float, fitted, toward_zero_i32};
+use console_program_lifetime::{Alongside, alongside};
+use console_core_never::Never;
+use console_core_number_conversion::{Float, fitted, toward_zero_i32};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, VecDeque};
 use std::io::{BufRead, BufReader};
@@ -36,6 +36,10 @@ use crate::strip::{ANSWER, EDGE, GAP, MARGIN, PICTURE, PRESSED, SLEEVE};
 
 const A_HAIR: f64 = 0.5;
 
+const BESIDE: &str = "beside";
+
+const STANDING: &str = "standing";
+
 const BREATH: i32 = 14;
 
 const A_MOMENT: std::time::Duration = std::time::Duration::from_secs(6);
@@ -54,6 +58,7 @@ struct State {
     here: usize,
     at: usize,
     out: bool,
+    beside: bool,
     opened: Opened,
     from_tab: usize,
     wide: i32,
@@ -302,6 +307,7 @@ impl Panel {
                 here,
                 at: 0,
                 out: false,
+                beside: false,
                 opened: Opened::No,
                 from_tab: 0,
                 wide: 0,
@@ -444,6 +450,10 @@ impl Panel {
             Meaning::Choose if self.state.borrow().sure.is_some() => {
                 let Ok(()) = self.answered_sure();
             }
+            Meaning::Choose if self.beside() == Ok(Beside::Yes) => {
+                let Ok(()) = self.stand(Beside::No);
+                let Ok(()) = self.offered();
+            }
             Meaning::Choose if self.leaving() == Ok(Leaving::Yes) => {
                 let Ok(()) = self.shut();
             }
@@ -466,6 +476,7 @@ impl Panel {
             }
             Meaning::More => {
                 let Ok(()) = self.came_back();
+                let Ok(()) = self.stand(Beside::No);
                 let Ok(()) = self.offered();
             }
             Meaning::Nothing => return Ok(glib::Propagation::Proceed),
@@ -475,6 +486,9 @@ impl Panel {
             Meaning::Nudge(step) => {
                 let Ok(()) = self.came_back();
                 let Ok(()) = self.nudge(step);
+            }
+            Meaning::Shut if self.beside() == Ok(Beside::Yes) => {
+                let Ok(()) = self.stand(Beside::No);
             }
             Meaning::Shut if self.state.borrow().opened == Opened::Out => {
                 let Ok(()) = self.close_out();
@@ -583,6 +597,7 @@ impl Panel {
 
     fn chose(self: &Rc<Self>, index: i32) -> Result<(), Never> {
         let Ok(()) = self.came_back();
+        let Ok(()) = self.stand(Beside::No);
 
         let Ok(index) = usize::try_from(index) else { return Ok(()) };
 
@@ -699,6 +714,8 @@ impl Panel {
 
     fn lines_told(&self) -> Result<Vec<telling::Line>, Never> {
         let placed = self.state.borrow().placed.clone();
+        let Ok(beside) = self.beside();
+        let standing = self.rows.selected_row().map(|held| held.index());
 
         Ok(placed
             .iter()
@@ -729,6 +746,11 @@ impl Panel {
                     bare: match bare {
                         Bare::Yes => telling::Bare::Yes,
                         Bare::No => telling::Bare::No,
+                    },
+                    standing: match (standing == Some(which), beside) {
+                        (true, Beside::Yes) => telling::Standing::Beside,
+                        (true, Beside::No) => telling::Standing::On,
+                        (false, Beside::Yes) | (false, Beside::No) => telling::Standing::No,
                     },
                     spots,
                 }
@@ -875,6 +897,8 @@ impl Panel {
     }
 
     fn walk(self: &Rc<Self>, step: i32) -> Result<(), Never> {
+        let Ok(()) = self.stand(Beside::No);
+
         let now = self.rows.selected_row().map_or(0, |row| row.index());
         let Ok(at) = walked(&self.state.borrow().placed, now, step);
 
@@ -882,7 +906,9 @@ impl Panel {
 
         self.rows.select_row(Some(&going));
 
-        self.seen(&going)
+        let Ok(()) = self.seen(&going);
+
+        self.tells()
     }
 
     fn nudge(self: &Rc<Self>, step: i32) -> Result<(), Never> {
@@ -890,21 +916,113 @@ impl Panel {
 
         let Ok(index) = usize::try_from(row.index()) else { return Ok(()) };
 
-        let level = self.state.borrow().placed.get(index).and_then(|row| row.level.clone());
+        let held = {
+            let state = self.state.borrow();
 
-        match level {
-            Some(level) => {
-                level(step);
+            let Some(row) = state.placed.get(index) else { return Ok(()) };
 
-                let Ok(()) = self.redraw();
+            let Ok(wears) = wears(row);
+            let Ok(holds) = holds(row);
+
+            (row.level.clone(), wears, holds)
+        };
+        let (level, wears, holds) = held;
+        let Ok(beside) = self.beside();
+        let Ok(nudged) = nudged(beside, wears, holds, step);
+
+        match nudged {
+            Nudged::Stand => {
+                let Ok(()) = self.stand(Beside::Yes);
             }
-            None => {},
+            Nudged::Back => {
+                let Ok(()) = self.stand(Beside::No);
+            }
+            Nudged::Nothing => {},
+            Nudged::Level => {
+                match level {
+                    Some(level) => {
+                        level(step);
+
+                        let Ok(()) = self.redraw();
+                    }
+                    None => {},
+                }
+            }
         }
 
         Ok(())
     }
 
+    fn beside(&self) -> Result<Beside, Never> {
+        Ok(match self.state.borrow().beside {
+            true => Beside::Yes,
+            false => Beside::No,
+        })
+    }
+
+    fn stand(self: &Rc<Self>, going: Beside) -> Result<(), Never> {
+        let was = std::mem::replace(&mut self.state.borrow_mut().beside, going == Beside::Yes);
+
+        let Ok(()) = self.stood();
+
+        let Ok(now) = self.beside();
+
+        match was == (now == Beside::Yes) {
+            true => Ok(()),
+            false => self.tells(),
+        }
+    }
+
+    fn stood(&self) -> Result<(), Never> {
+        let Ok(every) = self.every_row();
+
+        for held in &every {
+            held.remove_css_class(BESIDE);
+
+            let Ok(offer) = offer_of(held);
+
+            match offer {
+                Some(offer) => offer.remove_css_class(STANDING),
+                None => {},
+            }
+        }
+
+        let standing = self.rows.selected_row().and_then(|held| {
+            let Ok(offer) = offer_of(&held);
+
+            offer.map(|offer| (held, offer))
+        });
+        let Ok(beside) = self.beside();
+
+        match (beside, standing) {
+            (Beside::Yes, Some((held, offer))) => {
+                held.add_css_class(BESIDE);
+                offer.add_css_class(STANDING);
+            }
+            (Beside::Yes, None) => {
+                self.state.borrow_mut().beside = false;
+            }
+            (Beside::No, Some(_)) | (Beside::No, None) => {},
+        }
+
+        Ok(())
+    }
+
+    fn every_row(&self) -> Result<Vec<ListBoxRow>, Never> {
+        let mut every = Vec::new();
+        let mut at = 0;
+
+        while let Some(held) = self.rows.row_at_index(at) {
+            every.push(held);
+            at = at.saturating_add(1);
+        }
+
+        Ok(every)
+    }
+
     fn turn(self: &Rc<Self>, step: i32) -> Result<(), Never> {
+        let Ok(()) = self.stand(Beside::No);
+
         let going = {
             let state = self.state.borrow();
             let from = match state.out {
@@ -1129,7 +1247,7 @@ impl Panel {
         let Some(rows) = rows else { return Ok(()) };
 
         let Ok(whose) = namespace();
-        let Ok(mut waiting) = console_wait_times::Waiting::here(&whose, "list");
+        let Ok(mut waiting) = console_response_times::Waiting::here(&whose, "list");
         let Ok(()) = waiting.named("tab", &tab);
 
         let panel = Rc::clone(self);
@@ -1365,6 +1483,8 @@ impl Panel {
             let Ok(()) = panel.tells();
         });
 
+        let Ok(()) = self.stood();
+
         let Ok(typing) = self.typing_at(at);
 
         match typing {
@@ -1403,7 +1523,13 @@ impl Panel {
     }
 
     fn line(self: &Rc<Self>, row: &Row) -> Result<GtkBox, Never> {
-        let Ok(line) = self.spelled(row);
+        let Ok(said) = self.spelled(row);
+        said.set_widget_name(named::LINE);
+        said.set_hexpand(true);
+
+        let line = GtkBox::new(Orientation::Horizontal, 0);
+        line.append(&said);
+
         let Ok(wears) = wears(row);
 
         match (wears, &row.more) {
@@ -1416,10 +1542,7 @@ impl Panel {
                     false => {},
                 }
 
-                match line.last_child().filter(|last| last.widget_name() == named::INTO) {
-                    Some(into) => line.insert_child_after(&mark, into.prev_sibling().as_ref()),
-                    None => line.append(&mark),
-                }
+                line.append(&mark);
             }
         }
 
@@ -1434,6 +1557,7 @@ impl Panel {
         let panel = Rc::clone(self);
         end.connect_clicked(move |_| {
             let Ok(()) = panel.came_back();
+            let Ok(()) = panel.stand(Beside::No);
 
             match more(&panel) {
                 true => {
@@ -1745,7 +1869,7 @@ impl Panel {
 
             match at == across.at {
                 true => {
-                    button.add_css_class("standing");
+                    button.add_css_class(STANDING);
                 }
                 false => {},
             }
@@ -2319,7 +2443,7 @@ impl Panel {
 
         let mut watching = Command::new(program);
         watching.args(rest).stdout(Stdio::piped()).stderr(Stdio::null());
-        let Ok(()) = console_wait_times::not_a_press(&mut watching);
+        let Ok(()) = console_response_times::not_a_press(&mut watching);
 
         let Ok(mut running) = alongside(&mut watching) else { return Ok(()) };
 
@@ -2373,6 +2497,13 @@ impl Panel {
 
         self.state.borrow_mut().due = true;
         let panel = Rc::clone(self);
+        #[cfg_attr(
+            dylint_lib = "explicit021_no_sleeping",
+            allow(
+                explicit021_no_sleeping,
+                reason = "a thumb on a stick asks for a redraw many times over one movement; this is the window those are gathered in, and `state.due` is what makes the burst one drawing"
+            )
+        )]
         glib::timeout_add_local_once(std::time::Duration::from_millis(250), move || {
             panel.state.borrow_mut().due = false;
             let state = panel.state.borrow();
@@ -2445,6 +2576,13 @@ impl Panel {
         self.note.set_text(said);
         self.note.set_visible(true);
         let panel = Rc::clone(self);
+        #[cfg_attr(
+            dylint_lib = "explicit021_no_sleeping",
+            allow(
+                explicit021_no_sleeping,
+                reason = "a note is shown for a moment and then is not: how long somebody has to read it is the whole of what this decides, and `state.noted` is what keeps a later note from being taken away by an earlier one"
+            )
+        )]
         glib::timeout_add_local_once(A_MOMENT, move || {
             match panel.state.borrow().noted == stamp {
                 true => {
@@ -2465,7 +2603,7 @@ impl Panel {
 
                 let mut doing = Command::new(program);
                 doing.args(rest).stdout(Stdio::null()).stderr(Stdio::null());
-                let Ok(()) = console_wait_times::not_a_press(&mut doing);
+                let Ok(()) = console_response_times::not_a_press(&mut doing);
                 let _ = doing.status();
             })
             .await;
@@ -2480,6 +2618,13 @@ impl Panel {
         let Ok(()) = crate::running::left_running(&argv);
 
         let panel = Rc::clone(self);
+        #[cfg_attr(
+            dylint_lib = "explicit021_no_sleeping",
+            allow(
+                explicit021_no_sleeping,
+                reason = "the program was let go rather than waited on, so there is no child to ask about; this is how long the panel gives it to put something on the screen before drawing what is running"
+            )
+        )]
         glib::timeout_add_local_once(crate::running::SETTLING, move || {
             let Ok(()) = panel.redraw();
         });
@@ -2621,6 +2766,19 @@ enum Wears {
     Nothing,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Holds {
+    Level,
+    Nothing,
+}
+
+fn holds(row: &Row) -> Result<Holds, Never> {
+    Ok(match row.level.is_some() {
+        true => Holds::Level,
+        false => Holds::Nothing,
+    })
+}
+
 fn wears(row: &Row) -> Result<Wears, Never> {
     let Ok(bare) = bare(row);
 
@@ -2630,10 +2788,46 @@ fn wears(row: &Row) -> Result<Wears, Never> {
     })
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Beside {
+    Yes,
+    No,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Nudged {
+    Stand,
+    Back,
+    Level,
+    Nothing,
+}
+
+fn nudged(beside: Beside, wears: Wears, holds: Holds, step: i32) -> Result<Nudged, Never> {
+    Ok(match (beside, wears, holds, step > 0) {
+        (Beside::No, Wears::WhatElse, Holds::Nothing, true) => Nudged::Stand,
+        (Beside::Yes, _, _, false) => Nudged::Back,
+        (Beside::Yes, _, _, true) => Nudged::Nothing,
+        (Beside::No, Wears::WhatElse, Holds::Nothing, false)
+        | (Beside::No, Wears::WhatElse, Holds::Level, _)
+        | (Beside::No, Wears::Nothing, _, _) => Nudged::Level,
+    })
+}
+
 fn bare(row: &Row) -> Result<Bare, Never> {
     Ok(match &row.ends {
         Some((less, more)) if less.is_empty() && more.is_empty() => Bare::Yes,
         Some(_) | None => Bare::No,
+    })
+}
+
+fn offer_of(held: &ListBoxRow) -> Result<Option<Button>, Never> {
+    let Some(line) = held.child() else { return Ok(None) };
+
+    let Some(last) = line.last_child() else { return Ok(None) };
+
+    Ok(match last.widget_name() == named::ELSE {
+        true => last.downcast_ref::<Button>().cloned(),
+        false => None,
     })
 }
 
@@ -3294,9 +3488,11 @@ pub fn raised(
 
 #[cfg(test)]
 mod tests {
-    use console_external_programs::Program;
+    use console_core_external_programs::Program;
 
-    use super::{Drawn, Wears, along, drawn, standing, walked, wears};
+    use super::{
+        Beside, Drawn, Holds, Nudged, Wears, along, drawn, nudged, standing, walked, wears,
+    };
     use crate::page::{Does, Heading, Picture, Row};
 
     #[test]
@@ -3317,6 +3513,31 @@ mod tests {
         let Ok(bare) = offering.ended("", "");
 
         assert_eq!(wears(&bare), Ok(Wears::Nothing));
+    }
+
+    #[test]
+    fn right_off_a_row_stands_on_what_else_it_offers() {
+        let nothing = Holds::Nothing;
+        assert_eq!(nudged(Beside::No, Wears::WhatElse, nothing, 1), Ok(Nudged::Stand));
+        assert_eq!(nudged(Beside::Yes, Wears::WhatElse, nothing, -1), Ok(Nudged::Back));
+    }
+
+    #[test]
+    fn a_row_offering_nothing_spends_left_and_right_on_its_level() {
+        let nothing = Holds::Nothing;
+        assert_eq!(nudged(Beside::No, Wears::Nothing, nothing, 1), Ok(Nudged::Level));
+        assert_eq!(nudged(Beside::No, Wears::Nothing, nothing, -1), Ok(Nudged::Level));
+    }
+
+    #[test]
+    fn a_row_that_spends_left_and_right_on_a_level_keeps_them_for_it() {
+        assert_eq!(nudged(Beside::No, Wears::WhatElse, Holds::Level, 1), Ok(Nudged::Level));
+        assert_eq!(nudged(Beside::No, Wears::WhatElse, Holds::Level, -1), Ok(Nudged::Level));
+    }
+
+    #[test]
+    fn there_is_nothing_past_what_else_there_is() {
+        assert_eq!(nudged(Beside::Yes, Wears::WhatElse, Holds::Nothing, 1), Ok(Nudged::Nothing));
     }
 
     fn heading(says: &str) -> Row {
@@ -3462,7 +3683,7 @@ mod tests {
         assert_eq!(nothing("Nothing is waiting").heading(), Ok(Heading::Yes));
         let Ok(sheet) = crate::style::sheet();
 
-        assert!(sheet.contains("row.nothing {"));
+        assert!(sheet.contains("row.nothing #line {"));
     }
 
     #[test]

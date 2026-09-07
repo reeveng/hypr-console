@@ -108,13 +108,13 @@ desktop left alone, a file with one bad line refused whole while the table
 already loaded goes on answering. And a move onto a taken button takes the
 button, with the job that had it written down as playing nothing.
 
-What it walks: the buttons are yours, a button means what the screen says,
-the keyboard has the pad, the home screen holds nothing. What it crosses:
-the setup screen's move and the file (`console_pad::jobs`), the table and
-the daemon (`console-controller`), the stage (`console-test-stages`), the words to
+What it walks: the buttons are yours, a button means what the screen says, the
+keyboard has the pad, the home screen holds nothing. What it crosses: the setup
+screen's move and the file (`console_pad::jobs`), the table and the daemon
+(`console-input-controller`), the stage (`console-test-stages`), the words to
 the home screen (`console-onscreen`).
 
-This one runs: `crates/console-flow-tests/tests/making_it_yours.rs`, at the fast
+This one runs: `crates/console-test-flows/tests/making_it_yours.rs`, at the fast
 stage, on every `just test`.
 
 ### Pictures, then a film
@@ -170,7 +170,7 @@ a button doing something the guide never mentions are the two ways a guide
 starts lying, and neither of them can be shut by reading the table twice,
 because one half of each assertion is a press.
 
-This one runs: `crates/console-flow-tests/tests/getting_around.rs`, at the fast
+This one runs: `crates/console-test-flows/tests/getting_around.rs`, at the fast
 stage, on every `just test`. Two halves are handed up rather than answered
 there. Whether the compositor went where it was asked is the device's, as it
 is for every dispatch. And whether a second chooser actually replaces the
@@ -264,7 +264,7 @@ answer is the same either way is not walking, it is strolling.
 
 ## What exists and what is owed
 
-The flows live in `crates/console-flow-tests`: the library carries what every
+The flows live in `crates/console-test-flows`: the library carries what every
 flow needs said once -- the compositor's answers for the places a flow walks
 through -- and each flow is a test file beside it, run at the fast stage by
 `just test`. *Making it yours* runs today. The scenario files under

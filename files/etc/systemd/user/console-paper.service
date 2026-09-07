@@ -32,8 +32,8 @@ ExecStart=/usr/bin/awww-daemon --no-cache
 # its own would be a second opinion about the wallpaper.
 #
 # Written by `just theme`, because a unit file can import nothing.
-# console-theme:begin
-# Written by console-theme from theme/palette.toml.
+# console-palette:begin
+# Written by console-palette from theme/palette.toml.
 #
 # awww wants six hex digits and no hash, and a hash would start a
 # comment here anyway.
@@ -49,7 +49,7 @@ ExecStart=/usr/bin/awww-daemon --no-cache
 # desktop is stopped and started faster than a daemon can find a
 # screen.
 ExecStartPost=-/usr/bin/awww clear 110b12
-# console-theme:end
+# console-palette:end
 ExecStopPost=-/usr/local/bin/console-fell %n
 Restart=always
 RestartSec=2

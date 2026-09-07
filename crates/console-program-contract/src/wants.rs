@@ -10,7 +10,7 @@
 
 use std::time::Duration;
 
-use console_never::Never;
+use console_core_never::Never;
 
 use crate::word::Topic;
 

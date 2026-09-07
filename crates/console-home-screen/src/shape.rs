@@ -36,7 +36,7 @@
 //! pixels and what it answers is numbers, so how big a square comes out on a
 //! screen this laptop has not got is a question with an answer here.
 
-use console_never::Never;
+use console_core_never::Never;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Shape {
@@ -298,7 +298,7 @@ const LEAST_WORD: i32 = 10;
 const MOST_WORD: i32 = 22;
 
 fn i32_of(many: usize) -> Result<i32, Never> {
-    console_number_conversion::fitted(many.max(1))
+    console_core_number_conversion::fitted(many.max(1))
 }
 
 #[cfg(test)]

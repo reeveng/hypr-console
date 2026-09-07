@@ -17,14 +17,10 @@
 //! file, and both were written by whichever program happened to be running.
 //! The compositor is not a second opinion about what is on its own screen.
 
-use std::io::{BufRead, BufReader};
-use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
-use std::sync::mpsc::Sender;
 
-use console_external_programs::Program;
-use console_never::Never;
-use console_reconnect::{Round, keep};
+use console_core_external_programs::Program;
+use console_core_never::Never;
 
 pub mod homeward;
 
@@ -241,33 +237,6 @@ pub fn open_on(namespace: &str, tab_: &str) -> Result<Up, String> {
             }
         }
     }
-}
-
-pub fn watching_layers(say: Sender<()>) -> Result<(), String> {
-    let socket = events()?;
-
-    let Ok(()) = keep(move || {
-        let Ok(stream) = UnixStream::connect(&socket) else {
-            return Round::Another;
-        };
-
-        let Ok(()) = say.send(()) else { return Round::Done };
-
-        for line in BufReader::new(stream).lines().map_while(Result::ok) {
-            let Ok(worth) = worth_asking_after(&line);
-
-            match worth {
-                Worth::Asking => {
-                    let Ok(()) = say.send(()) else { return Round::Done };
-                }
-                Worth::Ignoring => {}
-            }
-        }
-
-        Round::Another
-    });
-
-    Ok(())
 }
 
 #[cfg(test)]

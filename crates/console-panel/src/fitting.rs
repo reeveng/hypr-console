@@ -8,7 +8,7 @@
 //! never has to know that either exists.
 
 use crate::shape;
-use console_never::Never;
+use console_core_never::Never;
 
 pub const BREATH: i32 = 16;
 

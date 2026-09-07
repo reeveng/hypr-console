@@ -10,16 +10,16 @@
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use console_child_processes::let_go;
-use console_external_programs::Program;
-use console_never::Never;
+use console_program_lifetime::let_go;
+use console_core_external_programs::Program;
+use console_core_never::Never;
 
 pub fn said(program: Program, rest: &[&str]) -> Result<String, Never> {
     let Ok(mut asking) = program.command();
 
     asking.args(rest);
 
-    let Ok(()) = console_wait_times::not_a_press(&mut asking);
+    let Ok(()) = console_response_times::not_a_press(&mut asking);
 
     let Ok(done) = asking.output() else {
         return Ok(String::new());
@@ -31,7 +31,7 @@ pub fn said(program: Program, rest: &[&str]) -> Result<String, Never> {
 pub fn say(kind: &str, summary: &str, body: &str) -> Result<(), Never> {
     let mut saying = Command::new("console-say");
     saying.args([kind, summary, body]).stdout(Stdio::null()).stderr(Stdio::null());
-    let Ok(()) = console_wait_times::not_a_press(&mut saying);
+    let Ok(()) = console_response_times::not_a_press(&mut saying);
 
     let started = let_go(&mut saying);
 
@@ -63,7 +63,7 @@ pub fn left_running(argv: &[String]) -> Result<(), Never> {
                 .args(wrapped)
                 .stdout(Stdio::null())
                 .stderr(Stdio::null());
-            let Ok(()) = console_wait_times::pressed_here(&mut starting);
+            let Ok(()) = console_response_times::pressed_here(&mut starting);
 
             let _ = let_go(&mut starting);
 
@@ -84,7 +84,7 @@ pub fn left_running(argv: &[String]) -> Result<(), Never> {
         .args(rest)
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    let Ok(()) = console_wait_times::pressed_here(&mut starting);
+    let Ok(()) = console_response_times::pressed_here(&mut starting);
 
     // SAFETY: between the fork and the exec, and setsid is one call that
     unsafe {

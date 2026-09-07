@@ -27,7 +27,7 @@
 
 use std::sync::{Arc, OnceLock};
 
-use console_never::Never;
+use console_core_never::Never;
 use console_onscreen::Said;
 use console_panel::page::{Does, Page, Row, Rows};
 use console_panel::{chooser, panel};

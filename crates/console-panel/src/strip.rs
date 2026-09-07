@@ -6,8 +6,8 @@
 //! in the other language.
 
 
-use console_never::Never;
-use console_number_conversion::fitted;
+use console_core_never::Never;
+use console_core_number_conversion::fitted;
 use std::ops::Range;
 
 pub const GAP: i32 = 4;

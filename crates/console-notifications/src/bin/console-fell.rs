@@ -17,8 +17,8 @@
 //! running, right up to `systemctl --user show -p NRestarts`, which nobody
 //! thinks to ask for because nothing ever suggested it.
 
-use console_external_programs::Program;
-use console_never::Never;
+use console_core_external_programs::Program;
+use console_core_never::Never;
 use console_notifications::saying::{Kept, fault, for_the_journal, journal, raise};
 
 const WELL: &str = "success";

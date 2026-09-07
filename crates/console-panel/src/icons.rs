@@ -1,26 +1,22 @@
-//! Every icon a surface here asks a theme for.
-//!
-//! A stylesheet that names a colour nobody defined drops the declaration and
-//! carries on, which is why `every_name_the_desktop_asks_for_is_defined`
-//! exists. An icon name nobody has is the same fault with a louder ending: GTK
-//! draws the broken square, in the middle of a button, on a handheld with no
-//! terminal in front of it.
-//!
-//! It happened. The music transport asked for
-//! `media-playlist-no-repeat-symbolic`, which is in neither Adwaita nor breeze
-//! on the machine this was written on, for the state the strip is in nearly all
-//! the time -- and nothing anywhere could have said so, because the names were
-//! `&'static str` in a dozen crates and no two of them knew about each other.
-//!
-//! So they are here, one variant each, the way every external program is one
-//! variant of `console_external_programs::Program`. What that buys is the same
-//! thing: the list of icons this desktop needs is [`EVERY`], exhaustive because
-//! the compiler says so, and a check can cross it against the theme the device
-//! actually has. That check is `console_feature_checks::icons` and it is on the
+//! Every icon a surface here asks a theme for.  A stylesheet that names a
+//! colour nobody defined drops the declaration and carries on, which is why
+//! `every_name_the_desktop_asks_for_is_defined` exists. An icon name nobody has
+//! is the same fault with a louder ending: GTK draws the broken square, in the
+//! middle of a button, on a handheld with no terminal in front of it.  It
+//! happened. The music transport asked for `media-playlist-no-repeat-symbolic`,
+//! which is in neither Adwaita nor breeze on the machine this was written on,
+//! for the state the strip is in nearly all the time -- and nothing anywhere
+//! could have said so, because the names were `&'static str` in a dozen crates
+//! and no two of them knew about each other.  So they are here, one variant
+//! each, the way every external program is one variant of
+//! `console_core_external_programs::Program`. What that buys is the same thing:
+//! the list of icons this desktop needs is [`EVERY`], exhaustive because the
+//! compiler says so, and a check can cross it against the theme the device
+//! actually has. That check is `console_test_checks::icons` and it is on the
 //! device tier, because the theme is a package the device installs and a laptop
 //! that has not got it cannot answer.
 
-use console_never::Never;
+use console_core_never::Never;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Icon {

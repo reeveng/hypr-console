@@ -1,0 +1,13 @@
+[package]
+name = "console-how-far"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+
+[lints]
+workspace = true

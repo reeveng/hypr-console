@@ -1,0 +1,115 @@
+//! Tell every browser on this machine what this desktop has decided: which
+//! engine a question is asked of, which add-ons it is given, and the handful of
+//! preferences that make a browser look like the rest of the machine.
+//!
+//! ```text
+//! console-engine <key>   duckduckgo, startpage or wikipedia
+//! console-engine         whatever she has already chosen
+//! ```
+//!
+//! Told without a key it says again what is already true, which is what `console
+//! apply` runs: until an engine had been chosen on the panel these files had
+//! never been written at all, so a machine made from the manifest had browsers
+//! nobody had told anything and add-ons it was supposed to have installed.
+//!
+//! A program of its own because all three browsers read their policy out of
+//! /etc, and both the panel that calls it and the person it belongs to are not
+//! root.
+//! The rule in /etc/sudoers.d/console lets her run this and nothing else, which
+//! is a smaller thing to hand over than a shell.
+//!
+//! A browser that is not on the machine is passed over rather than failed on.
+//! The point of having three is that two of them are usually not the one being
+//! used, and a Wi-Fi panel does not fail because there is no Bluetooth.
+
+use std::path::{Path, PathBuf};
+
+use console_default_applications::engines;
+use console_default_applications::policies::{self, CHROMIUM, FIREFOX, LIBREWOLF, Where};
+use console_core_never::Never;
+
+fn main() -> std::process::ExitCode {
+    let Ok(chosen) = engines::chosen();
+    let key = std::env::args().nth(1).unwrap_or(chosen);
+    let Ok(known) = engines::one(&key);
+
+    let Some(engine) = known else {
+        eprintln!("{key}: not an engine this machine knows");
+        return std::process::ExitCode::from(1);
+    };
+
+    for place in [&CHROMIUM, &FIREFOX, &LIBREWOLF] {
+        let Ok(installed) = here(place.program);
+
+        match installed {
+            Installed::Yes => {}
+            Installed::No => continue,
+        }
+
+        let Ok(shipped) = shipped(place);
+
+        let Ok(said) = match place.file == CHROMIUM.file {
+            true => policies::chromium(engine),
+            false => policies::mozilla(place, engine, &shipped),
+        };
+
+        match wrote(Path::new(place.file), &said) {
+            Ok(()) => println!("{}: {}", engine.says, place.file),
+            Err(why) => eprintln!("{}: {why}", place.file),
+        }
+    }
+
+    std::process::ExitCode::SUCCESS
+}
+
+fn shipped(place: &Where) -> Result<String, Never> {
+    Ok(match place.beneath.is_empty() {
+        true => String::new(),
+        false => match std::fs::read_to_string(place.beneath) {
+            Ok(said) => said,
+            Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(fault) => {
+                eprintln!("console-engine: {}: {fault}", place.beneath);
+
+                String::new()
+            }
+        },
+    })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Installed {
+    Yes,
+    No,
+}
+
+fn here(program: &str) -> Result<Installed, Never> {
+    let path = match std::env::var("PATH") {
+        Ok(path) => path,
+        Err(std::env::VarError::NotPresent) => "/usr/bin:/usr/local/bin".to_string(),
+        Err(fault) => {
+            eprintln!("console-engine: PATH: {fault}");
+
+            "/usr/bin:/usr/local/bin".to_string()
+        }
+    };
+
+    let found = path
+        .split(':')
+        .filter(|at| !at.is_empty())
+        .any(|at| PathBuf::from(at).join(program).exists());
+
+    Ok(match found {
+        true => Installed::Yes,
+        false => Installed::No,
+    })
+}
+
+fn wrote(at: &Path, said: &str) -> std::io::Result<()> {
+    match at.parent() {
+        Some(parent) => std::fs::create_dir_all(parent)?,
+        None => {}
+    }
+
+    std::fs::write(at, said)
+}

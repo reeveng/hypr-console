@@ -22,7 +22,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use console_never::Never;
+use console_core_never::Never;
 use console_program_contract::{Argv, Doing, Ending, Given, Opening, Program, Turn, Word};
 
 use crate::covered::Covered;

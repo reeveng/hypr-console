@@ -21,6 +21,11 @@
 //!   * and does it do anything -- which is a press at the middle of the
 //!     rectangle, with `console-point`, and the next line this writes.
 //!
+//! Each line also says where the highlight is: on the row, beside it on what
+//! else that row offers, or nowhere. A press that only moves the highlight
+//! changes nothing else a check could see, so without this the d-pad's own
+//! answers could be reasoned about and never pressed.
+//!
 //! A line per draw, appended. The stage that drives a panel presses several
 //! times and looks once, so what a check reads is the whole run in order rather
 //! than the last frame of it.
@@ -30,8 +35,8 @@
 
 use std::fmt::Write as _;
 
-use console_never::Never;
-use console_number_conversion::fitted;
+use console_core_never::Never;
+use console_core_number_conversion::fitted;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Spot {
@@ -91,6 +96,13 @@ pub enum Bare {
     No,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Standing {
+    On,
+    Beside,
+    No,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Line {
     pub at: usize,
@@ -98,6 +110,7 @@ pub struct Line {
     pub aside: String,
     pub offers: Offers,
     pub bare: Bare,
+    pub standing: Standing,
     pub spots: Vec<Spot>,
 }
 
@@ -193,7 +206,8 @@ pub fn said(told: &Told) -> Result<String, Never> {
             let Ok(spots) = spots_said(&line.spots);
 
             format!(
-                "{{\"at\":{},\"says\":{},\"aside\":{},\"offers\":{},\"bare\":{},\"spots\":{}}}",
+                "{{\"at\":{},\"says\":{},\"aside\":{},\"offers\":{},\"bare\":{},\
+                 \"standing\":{},\"spots\":{}}}",
                 line.at,
                 says,
                 aside,
@@ -204,6 +218,11 @@ pub fn said(told: &Told) -> Result<String, Never> {
                 match line.bare {
                     Bare::Yes => "true",
                     Bare::No => "false",
+                },
+                match line.standing {
+                    Standing::On => "\"on\"",
+                    Standing::Beside => "\"beside\"",
+                    Standing::No => "\"no\"",
                 },
                 spots
             )
@@ -331,6 +350,11 @@ pub fn read(said: &str) -> Result<Told, String> {
                     Some(true) => Bare::Yes,
                     Some(false) | None => Bare::No,
                 },
+                standing: match held.get("standing").and_then(|held| held.as_str()) {
+                    Some("on") => Standing::On,
+                    Some("beside") => Standing::Beside,
+                    Some(_) | None => Standing::No,
+                },
                 spots: held
                     .get("spots")
                     .and_then(|held| held.as_array())
@@ -381,6 +405,7 @@ mod tests {
                     aside: String::new(),
                     offers: Offers::Yes,
                     bare: Bare::Yes,
+                    standing: Standing::No,
                     spots: Vec::new(),
                 },
                 Line {
@@ -389,6 +414,7 @@ mod tests {
                     aside: "2 of 7".to_string(),
                     offers: Offers::Yes,
                     bare: Bare::No,
+                    standing: Standing::Beside,
                     spots: vec![spot("else", (900, 300), (40, 30))],
                 },
             ],

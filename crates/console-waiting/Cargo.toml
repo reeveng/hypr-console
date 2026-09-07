@@ -1,0 +1,16 @@
+[package]
+name = "console-waiting"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_waiting"
+path = "src/lib.rs"
+
+[dependencies]
+console-core-never = { path = "../console-core-never" }
+
+[lints]
+workspace = true

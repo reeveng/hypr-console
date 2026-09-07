@@ -20,7 +20,7 @@
 //! joined before the next one opens, and a value dropped at the end of a
 //! process is a thing that never had to be said out loud.
 
-use console_never::Never;
+use console_core_never::Never;
 
 use crate::chooser::Again;
 use crate::panel::Build;

@@ -1,0 +1,28 @@
+[package]
+name = "console-button-guide"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_button_guide"
+path = "src/lib.rs"
+
+[[bin]]
+name = "console-buttons"
+path = "src/bin/console-buttons.rs"
+
+[dependencies]
+console-core-external-programs.workspace = true
+evdev = "0.13"
+console-input-controller.workspace = true
+console-files.workspace = true
+console-input-gamepad.workspace = true
+# The devices, taken while a press is being named rather than the daemon stopped.
+console-input-focus.workspace = true
+console-core-never.workspace = true
+console-panel.workspace = true
+
+[lints]
+workspace = true

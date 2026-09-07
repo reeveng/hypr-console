@@ -22,7 +22,7 @@
 
 use std::process::ExitCode;
 
-use console_external_programs::Program;
+use console_core_external_programs::Program;
 use console_settings::warm::{Wanted, Warmth, at, config};
 
 const UNIT: &str = "console-warm.service";

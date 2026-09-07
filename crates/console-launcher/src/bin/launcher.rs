@@ -5,7 +5,7 @@
 //! binds a key to: it takes the screen, asks the host to draw the menu on it,
 //! and holds the screen until the menu is gone.
 
-use console_never::Never;
+use console_core_never::Never;
 use console_panel::chooser::{self, Alone};
 use console_panel::held::{self, Drawn};
 use console_panel::panel;

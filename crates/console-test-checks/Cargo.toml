@@ -1,0 +1,29 @@
+[package]
+name = "console-test-checks"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_test_checks"
+path = "src/lib.rs"
+
+[[bin]]
+name = "console-check"
+path = "src/bin/console-check.rs"
+
+[dependencies]
+console-input-gamepad.workspace = true
+console-home-screen.workspace = true
+console-core-external-programs.workspace = true
+console-core-never.workspace = true
+console-onscreen.workspace = true
+console-panel.workspace = true
+console-test-stages.workspace = true
+evdev = "0.13"
+serde = { version = "1", features = ["derive"] }
+toml = { version = "0.9", default-features = false, features = ["parse", "serde"] }
+
+[lints]
+workspace = true

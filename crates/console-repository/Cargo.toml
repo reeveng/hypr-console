@@ -14,8 +14,8 @@ name = "console-pull"
 path = "src/bin/console-pull.rs"
 
 [dependencies]
-console-external-programs.workspace = true
-console-never.workspace = true
+console-core-external-programs.workspace = true
+console-core-never.workspace = true
 console-program-contract.workspace = true
 console-program-runtime.workspace = true
 

@@ -1,0 +1,11 @@
+error: `device::Device::settle` waits out a number of seconds on the handheld and asks it nothing
+  --> $DIR/main.rs:58:5
+   |
+LL |     stage.settle(1.4);
+   |     ^^^^^^^^^^^^^^^^^
+   |
+   = help: the number is a guess about how long this device takes, made on the day the check was written and relied on by every run since. Say what the check is actually waiting for: `drawn()` for a menu that comes up, `gone()` for one that goes away, or `until(what)` with the question written out. `settle` is the gap those put between two questions, and it is theirs
+   = note: `#[deny(explicit022_no_settling)]` on by default
+
+error: aborting due to 1 previous error
+

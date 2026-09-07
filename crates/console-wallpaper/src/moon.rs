@@ -14,7 +14,7 @@
 //! telescope and does not matter to somebody choosing a picture, so the mean is
 //! what is used and the error is written down here rather than corrected for.
 
-use console_never::Never;
+use console_core_never::Never;
 
 const A_NEW_MOON: f64 = 947_182_440.0;
 

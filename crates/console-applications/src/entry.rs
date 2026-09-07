@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use console_never::Never;
+use console_core_never::Never;
 
 use crate::words::without_field_codes;
 

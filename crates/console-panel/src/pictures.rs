@@ -31,8 +31,8 @@
 //! written by an older version of this is slower and never wrong.
 
 
-use console_never::Never;
-use console_number_conversion::fitted;
+use console_core_never::Never;
+use console_core_number_conversion::fitted;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -249,9 +249,9 @@ pub fn make(wanted: &[String]) -> Result<(), Never> {
         .args(wanted)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
-    let Ok(()) = console_wait_times::not_a_press(&mut drawing);
+    let Ok(()) = console_response_times::not_a_press(&mut drawing);
 
-    let started = console_child_processes::let_go(&mut drawing);
+    let started = console_program_lifetime::let_go(&mut drawing);
 
     match started {
         Ok(_drawing) => {},

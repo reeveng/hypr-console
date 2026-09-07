@@ -9,8 +9,8 @@
 //! uncommitted in it is refused rather than stashed. Refusing is the only
 //! answer that cannot be wrong.
 
-use console_external_programs::Program as Theirs;
-use console_never::Never;
+use console_core_external_programs::Program as Theirs;
+use console_core_never::Never;
 use console_program_contract::{
     Argv, Doing, Ending, Opening, Program, Runs, Turn, Went, Word,
 };
@@ -45,8 +45,8 @@ pub struct Pull;
 
 impl Program for Pull {
     type State = Pulling;
-    type Hears = console_never::Never;
-    type Does = console_never::Never;
+    type Hears = console_core_never::Never;
+    type Does = console_core_never::Never;
 
     fn opening(argv: &Argv) -> Opening<Pulling> {
         let Ok(first) = argv.first();
@@ -58,8 +58,8 @@ impl Program for Pull {
 
     fn heard(
         state: &Pulling,
-        word: &Word<console_never::Never>,
-    ) -> Turn<Pulling, console_never::Never> {
+        word: &Word<console_core_never::Never>,
+    ) -> Turn<Pulling, console_core_never::Never> {
         let Ok(turn) = match (state, word) {
             (Pulling::Opening(Named::Nowhere), Word::Opened) => Turn::doing(
                 state.clone(),
@@ -140,17 +140,17 @@ mod tests {
 
     use super::*;
 
-    fn answered(ran: Runs, said: &str, went: Went) -> Word<console_never::Never> {
+    fn answered(ran: Runs, said: &str, went: Went) -> Word<console_core_never::Never> {
         Word::Answered(Answer { ran, said: said.to_string(), went })
     }
 
-    fn status(said: &str) -> Word<console_never::Never> {
+    fn status(said: &str) -> Word<console_core_never::Never> {
         let Ok(runs) = Runs::theirs(Theirs::Git, &["status", "--porcelain"]);
 
         answered(runs, said, Went::Well)
     }
 
-    fn well(said: &str) -> Word<console_never::Never> {
+    fn well(said: &str) -> Word<console_core_never::Never> {
         let Ok(runs) = Runs::theirs(Theirs::Git, &["log"]);
 
         answered(runs, said, Went::Well)

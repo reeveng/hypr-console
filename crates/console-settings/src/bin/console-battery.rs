@@ -5,21 +5,20 @@
 //! console-battery lower    say it is getting really low
 //! console-battery protect  say the machine is stopping, wait, and stop it
 //! ```
-//!
-//! Run by `bar-say battery`, which is the one thing on this desktop reading
+//!  Run by `bar-say battery`, which is the one thing on this desktop reading
 //! the battery: it takes a reading every thirty seconds for the icon it draws,
-//! and a second program asking the same two files on its own timer would be
-//! two opinions about one battery. What it does with a reading is
-//! `console_defaults::battery`, and what any of it comes to on a screen is
-//! `console_settings::stopping`. This is the part that needs a machine.
-//!
-//! It can be run by hand, which is the only way to find out what the last one
-//! looks like without emptying a battery to five per cent first.
+//! and a second program asking the same two files on its own timer would be two
+//! opinions about one battery. What it does with a reading is
+//! `console_default_applications::battery`, and what any of it comes to on a
+//! screen is `console_settings::stopping`. This is the part that needs a
+//! machine.  It can be run by hand, which is the only way to find out what the
+//! last one looks like without emptying a battery to five per cent first.
 
 use std::process::{Command, ExitCode};
 
-use console_defaults::battery::{Charge, Filling, Step, charge};
-use console_never::Never;
+use console_default_applications::battery::{Charge, Filling, Step, charge};
+use console_core_never::Never;
+use console_waiting::{Patience, Seen, Waited, until};
 use console_notifications::saying::{Kept, journal, raise, raise_kept};
 use console_settings::stopping::{GRACE, LOOKING, Stop, card, for_the_journal, saved, stop};
 
@@ -110,18 +109,25 @@ fn stopping(percent: i32, stop: Stop) -> Result<ExitCode, Never> {
 }
 
 fn plugged_in_within(waiting: std::time::Duration) -> Result<Option<i32>, Never> {
-    let by = std::time::Instant::now() + waiting;
-
-    while std::time::Instant::now() < by {
-        std::thread::sleep(LOOKING.min(by.saturating_duration_since(std::time::Instant::now())));
-
+    let Ok(patience) = Patience::asking_every(waiting, LOOKING);
+    let mut percent = None;
+    let Ok(plugged) = until(patience, || {
         let said = charge()?;
         let now = Charge::of(&said)?;
 
-        match now.filling {
-            Filling::Yes => return Ok(Some(now.percent.unwrap_or_default())),
-            Filling::No => {},
-        }
+        Ok(match now.filling {
+            Filling::Yes => {
+                percent = Some(now.percent.unwrap_or_default());
+
+                Seen::Yes
+            }
+            Filling::No => Seen::NotYet,
+        })
+    });
+
+    match plugged {
+        Waited::Happened => return Ok(percent),
+        Waited::RanOut => {},
     }
 
     Ok(None)

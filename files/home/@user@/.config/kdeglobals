@@ -5,7 +5,7 @@
 # the colours below; the Breeze style paints some of its own and would leave a
 # print dialogue looking like it came from another desktop.
 #
-# The colours between the markers are written by tools/console-theme out of
+# The colours between the markers are written by console-palette out of
 # theme/palette.toml. Change them there.
 
 [General]
@@ -46,7 +46,7 @@ Enable=false
 IntensityAmount=0
 IntensityEffect=0
 
-# console-theme:begin
+# console-palette:begin
 [Colors:Button]
 BackgroundAlternate=35,27,38
 BackgroundNormal=55,44,58
@@ -152,7 +152,7 @@ activeForeground=247,231,243
 inactiveBackground=35,27,38
 inactiveBlend=229,205,224
 inactiveForeground=229,205,224
-# console-theme:end
+# console-palette:end
 
 [DesktopIcons]
 Size=32

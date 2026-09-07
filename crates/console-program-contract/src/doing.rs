@@ -1,20 +1,16 @@
 //! What a program decided, said without being carried out.
-//!
-//! `console_controller::doing` is where this was written once already, for one
-//! daemon, and it is the most reliable thing in this tree. What is here is the
-//! same move made for every program: a decision that is a value can be
+//! `console_input_controller::doing` is where this was written once already,
+//! for one daemon, and it is the most reliable thing in this tree. What is here
+//! is the same move made for every program: a decision that is a value can be
 //! compared, printed, kept in a list and asserted on, and none of those are
-//! things a decision that has already happened can be.
-//!
-//! There is a second reason nobody wrote down until confinement was being
-//! argued about. A program that says what it wants done rather than doing it
-//! is a program whose effects can be held against a declaration *before* they
-//! are carried out, which makes the loop that carries them out the one thing
-//! that has to be trusted instead of every program. That is free once the
-//! programs are functions, and it is the only path to confining the bar --
-//! which needs to start whatever a person chose, and so cannot be given a
-//! narrow enough list of its own.
-//!
+//! things a decision that has already happened can be.  There is a second
+//! reason nobody wrote down until confinement was being argued about. A program
+//! that says what it wants done rather than doing it is a program whose effects
+//! can be held against a declaration *before* they are carried out, which makes
+//! the loop that carries them out the one thing that has to be trusted instead
+//! of every program. That is free once the programs are functions, and it is
+//! the only path to confining the bar -- which needs to start whatever a person
+//! chose, and so cannot be given a narrow enough list of its own.
 //! [`Doing::Watch`] is [`Doing::Ask`] with nothing between the program and the
 //! screen. The difference is not tidiness: `just ready` and a cargo build over
 //! ssh are minutes long, and a run whose output is captured is a run that
@@ -32,8 +28,8 @@
 
 use std::path::PathBuf;
 
-use console_external_programs::Program;
-use console_never::Never;
+use console_core_external_programs::Program;
+use console_core_never::Never;
 
 use crate::wants::Wants;
 use crate::word::Chose;

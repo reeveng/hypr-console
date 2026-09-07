@@ -20,19 +20,19 @@
 //! instead would be a wake-up a second for the life of the session, on a
 //! machine that runs off a battery.
 //!
-//! The socket is connected to again whenever the connection ends. It used to
-//! be connected to once: a bar that started before the compositor had made its
-//! socket left this with nothing to listen to, and it exited so that waybar
-//! would start it again. That net is still there, and it is no longer the only
-//! one -- a connection lost while the bar goes on running is now waited out
-//! here, where the exit could not help.
+//! The compositor is not asked directly. `console-events` holds the one
+//! subscription on this machine and reaches for it again for as long as this
+//! wants words, so a bar that started before the compositor had made its
+//! socket no longer has to exit and be started again to find it: what was a
+//! connection of its own is now a line down the pool's socket, and the
+//! reconnecting is somebody else's.
 
 use std::io::Write;
 use std::process::ExitCode;
 use std::sync::mpsc::channel;
 
-use console_never::Never;
-use console_panel::door::{Up, is_open, watching_layers};
+use console_core_never::Never;
+use console_panel::door::{Up, is_open};
 
 const DOORS: [(&str, &str); 2] = [("keyboard", "virtual-keyboard"), ("launcher", "launcher")];
 
@@ -54,16 +54,18 @@ fn main() -> ExitCode {
     let Ok(mut open) = shown(icon, namespace, None);
     let (word, heard) = channel();
 
-    match watching_layers(word) {
-        Ok(_) => {},
-        Err(why) => {
-            eprintln!("bar-door: nothing to watch: {why}");
-        }
-    }
+    let Ok(()) = console_events::again::layers(word);
 
     while let Ok(()) = heard.recv() {
         let Ok(seen) = shown(icon, namespace, open);
 
+        #[cfg_attr(
+            dylint_lib = "explicit021_no_sleeping",
+            allow(
+                explicit021_no_sleeping,
+                reason = "a layer opening says so several times over; this is the window those are gathered in, and the thing being waited for is the burst stopping"
+            )
+        )]
         std::thread::sleep(SETTLE);
 
         while let Ok(()) = heard.try_recv() {}

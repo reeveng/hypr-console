@@ -12,7 +12,7 @@
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use console_never::Never;
+use console_core_never::Never;
 use gtk4::glib;
 
 pub const SIDE: i32 = 128;

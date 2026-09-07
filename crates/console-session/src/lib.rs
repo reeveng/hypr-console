@@ -121,8 +121,8 @@ const SIZE: &str = "/usr/local/bin/console-scale";
 
 use std::process::Command;
 
-use console_external_programs::Program;
-use console_never::Never;
+use console_core_external_programs::Program;
+use console_core_never::Never;
 
 pub fn here(target: &str) -> Result<Session, Never> {
     let Ok(mut systemctl) = Program::Systemctl.command();
@@ -137,14 +137,14 @@ pub fn here(target: &str) -> Result<Session, Never> {
 }
 
 pub fn run_each(what: &str, steps: &[Vec<String>]) -> Result<(), Never> {
-    let Ok(mut waiting) = console_wait_times::Waiting::on("session", what);
+    let Ok(mut waiting) = console_response_times::Waiting::on("session", what);
 
     for argv in steps {
         let Some((program, rest)) = argv.split_first() else { continue };
 
         let mut starting = Command::new(program);
         starting.args(rest);
-        let Ok(()) = console_wait_times::not_a_press(&mut starting);
+        let Ok(()) = console_response_times::not_a_press(&mut starting);
 
         match starting.status() {
             Ok(how) if how.success() => {
@@ -163,7 +163,7 @@ pub fn run_each(what: &str, steps: &[Vec<String>]) -> Result<(), Never> {
     }
 
     let Ok(()) = waiting.done();
-    let Ok(()) = console_wait_times::settled();
+    let Ok(()) = console_response_times::settled();
 
     Ok(())
 }

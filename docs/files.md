@@ -176,7 +176,7 @@ folder or one folder under it and nowhere deeper, so an archive that wraps its
 own contents in a folder, unpacked plainly, is a mod that is silently not
 loaded. That is the whole difference between the row working and the row
 appearing to work, and it is what
-`crates/console-feature-checks/src/files.rs` presses on the device rather than
+`crates/console-test-checks/src/files.rs` presses on the device rather than
 asserting here.
 
 `7z` is what runs, and it is the only program named for this: it reads zip, rar

@@ -29,8 +29,8 @@
 use std::path::Path;
 use std::path::PathBuf;
 
-use console_external_programs::Program;
-use console_never::Never;
+use console_core_external_programs::Program;
+use console_core_never::Never;
 
 pub fn at() -> Result<PathBuf, Never> {
     Ok(Path::new("/run/console").join("updating"))

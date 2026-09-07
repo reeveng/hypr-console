@@ -10,6 +10,26 @@ machine and there is usually somebody holding it.
 
 ## Needs the device
 
+- **Nothing has yet handed the device back.** `putting_back` is written, unit
+  tested and laptop-settled, and not one of its doings has been carried out on
+  the machine. Four of them are the ones to watch on the first run.
+  `brightness_to` writes the backlight through `tee` and a glob, where every
+  other write to that file goes through `console-brightness` and its range;
+  `volume_to` sets a percentage back through `pactl`, and a level that lands a
+  point off what was read would be reported as stuck rather than put back.
+  `close_window` ends a window by killing the pid `hyprctl clients` names for
+  it, which is the way it is done rather than a dispatcher call because nothing
+  in this tree has ever asked the compositor to close a window it does not have
+  in front -- if `hl.dsp.window.close` turns out to take an address, that is the
+  better call and this becomes one line. And `030` now opens its own window to
+  close, so it is the first check whose whole subject is a window nobody was
+  using.
+
+  `console-check --stage device --yes --dry` prints all of it. What settles the
+  line is a real run with something deliberately out of place first -- on
+  another workspace, at a brightness nobody would choose -- and the last line
+  saying it was put back.
+
 - **Two renames landed on the device by hand, and the tree has not been
   deployed since.** `console-notices.desktop` and `/usr/local/bin/console-timings`
   were removed over ssh, because `console apply` installs what the manifest
@@ -18,6 +38,38 @@ machine and there is usually somebody holding it.
   the next deploy the device has no Notifications entry in the application
   list and no program to read the waits with, and both come back the moment
   `just deploy` runs. Nothing else on the machine notices either.
+
+- **`swapped` asks the screen now and nothing has pressed it.** It and
+  `pointed_there` were what EXPLICIT022 had left, and both were waiting on a
+  repaint. They ask for one now, by colour, which `Device::until` can carry
+  since it carries the fault its question carries. 310 was pressed on the
+  device and is green, in about thirty seconds for the four home checks
+  together, so the reading-per-round costs nothing worth naming. 290 skipped,
+  and `swapped` is inside it.
+
+  What it skips on is its own precondition: it wants two applications on the
+  first row of the first pane, and this device has no arrangement at all --
+  `~/.local/state/console/home` does not exist, so the home screen is drawing
+  its default and nothing has ever been carried on it. Putting two applications
+  on that row by hand is the whole of what is needed, and then
+  `console-check --stage device --yes home`.
+
+  The failure worth watching for when it does run is a carried square that is
+  not drawn in `panel`: `lit` would find nothing on either side of the press,
+  the wait would run out its patience, and `swapped` would be as slow as the
+  0.8 it replaced without being wrong. A bad run here is a check that passes
+  slowly, not one that goes red.
+
+- **290 skips with the wrong sentence when the home screen has no
+  arrangement.** With no file, `placed` reads an empty `Home`, `holding()`
+  answers `Nothing`, and the check should say *the home screen has nothing on
+  it to move*. What it said on the run above was *the first row of the first
+  pane has not two applications on it*, which is the branch below it. One of
+  the two readings is not what it looks like -- `stage.user` runs through
+  `machinectl shell`, which writes two lines of its own about connecting, and
+  whether those reach the captured output is the first thing to rule out. It
+  costs nothing while the check is skipping either way, and it is a check
+  saying something untrue about the machine, which is the thing checks are for.
 
 - **Everything the timing learned to say is laptop-settled and none of it has
   been read on the device.** The suite is green, clippy is clean and the gate
@@ -30,7 +82,7 @@ machine and there is usually somebody holding it.
 
   `just deploy`, then use the device for an evening and read it:
 
-      console-wait-times --last 200
+      console-response-times --last 200
 
   What it should say. `keyboard showing` should exist at all, and if the guess
   behind it was right it is one of the slowest things on the list. `controller
@@ -531,6 +583,26 @@ machine and there is usually somebody holding it.
   which is the first time anybody has asked this machine who is reading the
   buttons.
 
+- **What else a row offers is a button beside it now, and no thumb has held
+  it.** It is settled as far as a laptop settles anything: the arithmetic is
+  `nudged`, the drawing is shot in the nested desktop, and
+  `right_off_a_row_stands_on_what_else_it_offers` presses it against the
+  viewer's Media page. What a laptop cannot answer is the two questions a hand
+  answers. Whether the button is the size a thumb wants at the device's own
+  scale, where the card is narrower than it is here and the row lost that much
+  of its width to make room. And whether right off a row reads as somewhere to
+  go: on the rows that carry a level right has always set the level, and the
+  mark at the end of the row is the whole of what says which of the two this
+  row is.
+
+  `just deploy`, then Files in the menu. Walk down to a file, press right --
+  the row should keep its ground and the **⋯** beside it should take the
+  highlight -- then A, and the list of what can be done with that file should
+  come up. Left, and B, should both put the highlight back on the row without
+  leaving the folder. Then Music, **Playing**: the button there is in the
+  corner of the card head, which is a finger's, and Y from the scrub or the
+  transport is the thumb's, because those rows spend right on their level.
+
 ## Open
 
 - **`console well` says a file has changed when nothing did, and it says it in
@@ -627,7 +699,7 @@ machine and there is usually somebody holding it.
   was to stop exec'ing a process per opening -- `exec` and the toolkit coming
   up were the two largest stretches on every surface, and everything a card
   does was a fraction of either. `console-panels` is that program:
-  `crates/console-panel-host`, one unit, holding the toolkit between openings
+  `crates/console-panels`, one unit, holding the toolkit between openings
   and drawing whichever panel is asked for over a socket in the runtime
   directory. Every panel binary keeps its name and its namespace and is a
   stand-in that takes the screen, asks, and draws the card itself when the host
@@ -636,7 +708,7 @@ machine and there is usually somebody holding it.
   All of it is laptop-settled and none of it has been near the machine. What to
   read after `just deploy`, an evening apart:
 
-      console-wait-times --last 200
+      console-response-times --last 200
 
   Every `panel opening` line should have lost its `gtk` mark entirely and kept
   a much smaller `exec`, because what is exec'd now links nothing. `press` is
@@ -708,7 +780,7 @@ machine and there is usually somebody holding it.
   calls can go wrong. It sat registered `Allow` for as long as there was no
   `Never` type here to point at, which meant its distance had never once been
   counted -- and the command the README gave for counting it did not work, so
-  nobody who tried found out. `console-never` is the type now, the rule is
+  nobody who tried found out. `console-core-never` is the type now, the rule is
   `Warn`, and what is left is printed on every `just explicit` rather than
   written down here. It is most of the functions in the tree: every crate has
   some, and the ones with the most are the ones with the most code in them --
@@ -728,14 +800,14 @@ machine and there is usually somebody holding it.
   and four crates that call it, so converting it converts them too, in the same
   commit, or it does not compile. What decides the order is fan-in and not
   size: a crate nothing depends on can be done alone, and the ones everything
-  calls -- `console-external-programs`, `console-number-conversion`,
+  calls -- `console-core-external-programs`, `console-core-number-conversion`,
   `console-panel` -- go last, each taking its callers with it. Of the leaves,
-  `console-virtual-touchscreen` and `console-virtual-pointer` have least in
+  `console-input-touchscreen` and `console-input-pointer` have least in
   them, and either is the one to learn the shape on.
 
 - **What this links against wants the same list the programs it runs now
   have.** Every external program is a variant of
-  `console_external_programs::Program` carrying where it comes from, and
+  `console_core_external_programs::Program` carrying where it comes from, and
   `desktop.conf`'s `[packages]` is held against it by a test. The system
   libraries have nothing of the kind: what a machine must have on it before
   this will build is a fact spread over a dozen `Cargo.toml` files and a
@@ -756,18 +828,18 @@ machine and there is usually somebody holding it.
       the serial     not captured at all; `capture` writes an empty `uniq`
       the place      `console_sky::here`, from `/etc/localtime` and `zone1970.tab`
 
-  So there is nothing left to scrub, and `console-publish` no longer rewrites
-  anything on the way out. What it does instead is ask this machine and the
-  device what they are called and refuse to build a copy that says any of it.
-  That check is only as good as what it can reach: without `CONSOLE_HOST` it
-  cannot ask the device, and it says so rather than passing quietly.
+So there is nothing left to scrub, and `console-manifest-publish` no longer
+rewrites anything on the way out. What it does instead is ask this machine and
+the device what they are called and refuse to build a copy that says any of it.
+That check is only as good as what it can reach: without `CONSOLE_HOST` it
+cannot ask the device, and it says so rather than passing quietly.
 
-  What would undo it, for anybody working here: a path written `/home/<a
-  name>/` instead of `/home/@user@/`; a re-run of `capture` whose `uniq` is
-  committed, which `the_captured_devices_name_nobodys_controller` refuses; a
-  coordinate, a hostname or an address put back as a constant "just for now".
-  Two tests stand exactly here — that one and the mark's round trip in
-  `install` — and `console-publish` is the last gate before anything is pushed.
+What would undo it, for anybody working here: a path written `/home/<a name>/`
+instead of `/home/@user@/`; a re-run of `capture` whose `uniq` is committed,
+which `the_captured_devices_name_nobodys_controller` refuses; a coordinate, a
+hostname or an address put back as a constant "just for now". Two tests stand
+exactly here — that one and the mark's round trip in `install` — and
+`console-manifest-publish` is the last gate before anything is pushed.
 
 - **A deploy is locked against another deploy, and not against another editor.**
   `console-deploy` takes `.git/console-deploy.lock` with `mkdir`, holds it for
@@ -833,7 +905,7 @@ machine and there is usually somebody holding it.
   custom property beside the named colour or a rule for `popover > contents`.
 
 - **The claim is in and nothing has pressed it.** Three entries here asked for
-  one crate and it is written: `console-input-claim`, a claim held while a
+  one crate and it is written: `console-input-focus`, a claim held while a
   surface is up with `EVIOCGRAB` underneath. Two layers -- `devices`, which is
   the only part that opens anything, and `said`, which names one event in one
   vocabulary whatever it arrived on, so a press is `South` whether it came off
@@ -848,7 +920,7 @@ machine and there is usually somebody holding it.
   every part of the daemon that was about a profile load being in flight: the
   spawn, the two tries, and the guess about which load had landed. The pad wears
   the router from login to shutdown, and `controller-profile` takes two words.
-  The `After=` on `console-keyboard.service` is gone as well, because the
+  The `After=` on `console-input-keyboard.service` is gone as well, because the
   keyboard opens nothing at start now -- it takes the devices when its surface
   goes up, so there is no race to order around.
 
@@ -986,7 +1058,7 @@ machine and there is usually somebody holding it.
   press is arriving at both consumers, so the second read undoes the first and
   the keyboard never comes down. That points at the pad rebuild rather than at
   the keyboard, and the ordering claim to check first is
-  `console-keyboard.service` being `After=` the controller.
+  `console-input-keyboard.service` being `After=` the controller.
 
   The third is separate and is about focus, not about the pad. The keys go to
   whoever holds the focus, so either the page never had it or the browser is
@@ -1246,7 +1318,7 @@ machine and there is usually somebody holding it.
   act on it, with the rest readable when somebody goes looking.
 
 - **The flows past the second are still prose.** `docs/flows.md` names the
-  long walks across crates, and `crates/console-flow-tests` runs two of them at the
+  long walks across crates, and `crates/console-test-flows` runs two of them at the
   fast stage in `just test`: making the buttons your own, and getting around
   without being lied to. Pictures then a film, the evening of music, the home
   screen's rearranging, and being interrupted are still only written down.
@@ -1443,16 +1515,60 @@ Neither `clippy --message-format=short` nor `cargo dylint` prints a lint's name
 in its short form, so a summary that greps for the name reports a clean
 workspace when nothing was clean. Grep the message text.
 
+- **A panel cannot carry out `Doing::Listen` at all, and the reason it has not
+  been given a way to is that nothing would ask.** Every card matches
+  `Doing::Listen(_) | Doing::Deafen(_) => {}` and no card has ever emitted one:
+  there is no glib loop translating either into a poll, which is what this
+  looked like from a distance. What is owed is real but it is second -- a
+  `Listening` held by the panel with its words pumped onto the main context --
+  and it is blocked behind a card that wants a topic. The music card wants
+  `Player` and the notifications card wants `Notices`, and neither has a source
+  yet, so building the panel side first would be a mechanism with no consumer.
+  The source comes first, the card that asks for it comes with it, and the
+  panel plumbing lands under both.
+
+- **The runtime is on the pool and no panel is, and `docs/programs.md` says
+  the rest.** `Wants::Words` reaches `console_events::listening` now,
+  `Doing::Deafen` takes a topic back, and the runtime's wait is one
+  `recv_timeout` on the pool's channel bounded by the next round -- so `due()`
+  and its EXPLICIT021 allow are gone. What is left of it: do it again where a
+  panel's glib loop lives, because every card still matches
+  `Doing::Listen(_) | Doing::Deafen(_) => {}`; make something actually hang up
+  when it stops being looked at, which nothing yet does; and write the sources
+  the other topics promise, one at a time, each watched in a nested desktop
+  before it is believed. None of it has been near the device: the pool is a
+  daemon and what a daemon does when it is restarted underneath a panel is not
+  readable from a laptop.
+
+- **The four compositor watchers are one now, and nothing has pressed it on a
+  screen.** `music-bar`, `bar-door`, `stick-scroll` and the status bar's
+  `watch` each opened Hyprland's socket; all four ask `console-events` through
+  `console_events::layers::watching`, and `console_onscreen::watching_layers`
+  is gone rather than left standing beside them. What they get back is the same
+  `Sender<()>` and the deciding of which lines are about a layer stayed in
+  `console_onscreen`, because the bar keeps different ones from the wallpaper.
+
+  What this buys is one subscription where there were four. What it costs is
+  that the bar's two door icons now depend on a second daemon, and `bar-door`
+  is the one with no tick underneath it: it draws when it is told and never
+  otherwise. `Heard::GotIn` is what stops a gap leaving it wrong -- the pool
+  says *you are in* on every reconnection as well as the first, and that word
+  means *ask again* to a watch whose words already mean that. It is asserted in
+  `the_deafening`, and it has never been watched happen: what is owed is
+  `console-events` stopped and started under a running bar, on the device, with
+  the launcher opened during the gap. There is no check for the door icons at
+  all yet, which is the other half of why this cannot be believed from here.
+
 - **Every crate that speaks writes the same accessor by hand.** `word`, `tag`,
   `name`, `written`, `said`, `asking` -- `console-onscreen/src/homeward.rs` and
-  all three in `console-keyboard/src/keymap.rs` are the identical shape, and
-  `console-manifest`, `console-gamepad` and `console-wallpaper` carry it too. This is the
+  all three in `console-input-keyboard/src/keymap.rs` are the identical shape, and
+  `console-manifest-engine`, `console-input-gamepad` and `console-wallpaper` carry it too. This is the
   one worth doing: not a generic function but a derive over the `words` enum,
   because it is boilerplate the crate layout guarantees will be written again
   every time a crate learns to say something.
 
 - **A few functions run past a hundred lines, and one past clippy's cognitive
-  threshold.** The clippy line above lists them; `console-keyboard/src/bin/keyboard.rs`
+  threshold.** The clippy line above lists them; `console-input-keyboard/src/bin/keyboard.rs`
   is the worst on both counts and is the only one that trips both. Nothing here
   is a bug, so this is a line about reading rather than about correctness.
 
@@ -1470,7 +1586,7 @@ workspace when nothing was clean. Grep the message text.
   The crate renames of 2026-09-04 gave this a second half and made it the next
   thing to do. Most crates here are named for what they are now, and the first
   line of the head is the sentence that has to agree with the name: somebody
-  reading `console-reconnect` should not be met with *Reaching again for
+  reading `console-core-reconnect` should not be met with *Reaching again for
   something that has gone*. Every head's opening line says what the thing is,
   plainly, to somebody who has never opened this repository -- the same test
   the names were held to -- and what is under it is either a decision worth
@@ -1525,7 +1641,7 @@ work and they have an order.
   `console-turn` and `console-said`, and they were changed on the way in for the
   reason the tree already keeps: a crate is named for what it does, and a name
   that has to be learned before it can be read is the wrong one for the crate
-  every other program depends on. The pool is `console-event-broker` for the
+  every other program depends on. The pool is `console-events` for the
   same reason.
 
   **Stages 3, 5 and 7 are in, and stage 4 is most of the way.** The thirteen
@@ -1552,7 +1668,7 @@ work and they have an order.
   the second. There is exactly one place a program reaches across to another:
   the music panel opens the files panel standing on the song, and it does that
   by starting it, which `Doing::Start` already says. `console-files` knows
-  nothing about the download panel, `console-bar-modules` knows nothing about
+  nothing about the download panel, `console-status-bar` knows nothing about
   the music page, and no program asks another for an answer. A registry written
   now would be a shape guessed from one example, and the one example does not
   need it.
@@ -1567,20 +1683,26 @@ work and they have an order.
   `voice-compare` is the one still owed something, and what it wants is how long
   a `Doing::Ask` took, which nothing can currently be told.
 
-  **Stage 2 is begun.** `console-event-broker` holds one subscription to the
-  compositor and hands the lines to whoever asked, replaying the last one to
-  whoever has just arrived, and `console-sky` is the first program to stop
-  holding its own. What is owed is the other six sources -- `pactl subscribe`,
-  `nmcli monitor`, mako's bus name, systemd's unit changes, the player, and a
-  watched path -- one at a time, each with the program that wanted it moved
-  over in the same commit. A source with no consumer is a subscription nobody
-  asked for, which is the thing this crate exists to stop.
+  **Stage 2 is begun.** `console-events` holds the compositor and the sound and
+  hands the lines to whoever asked, replaying the last one to whoever has just
+  arrived. `console-sky`, the four compositor watchers and the status bar's
+  sound reading have all stopped holding their own. What is owed is the other
+  five sources -- `nmcli monitor`, mako's bus name, systemd's unit changes, the
+  player, and a watched path -- one at a time, each with the program that
+  wanted it moved over in the same commit. A source with no consumer is a
+  subscription nobody asked for, which is the thing this crate exists to stop.
 
-  Each of them wants watching in a nested desktop first, and for the same
-  reason: what a program of somebody else's does when it is restarted
-  underneath is not readable from its manual. `pactl subscribe` is the one to
-  do next, because it is the one with sixty-five processes behind it in this
-  file already.
+  `nmcli monitor` and mako's bus name are the two with a consumer waiting:
+  `console_status_bar::watch` still opens both itself, and `Topic::Network` and
+  `Topic::Notices` are what they would become. The player is the music bar's,
+  and it is the one that wants watching hardest, because what a player does
+  when it is restarted underneath is the least predictable of the lot.
+
+  Each of them wants watching before it is believed, and the sound is the
+  shape of that: it was run under the unit's own confinement rather than in a
+  shell, killed underneath a listener, and the pool killed with `-9` to see
+  whether it left a `pactl subscribe` behind. What a program of somebody else's
+  does when it is restarted underneath is not readable from its manual.
 
   What was owed here -- one daemon and one panel on the runtime, with a
   transcript that fails when either changes its mind -- has been paid twice
@@ -1623,11 +1745,11 @@ work and they have an order.
   restarts is still a restart somebody watches, where a dead one-shot is a button
   pressed again.
 
-  **The state argument that was used to justify a host does not need one.**
-  `console-event-broker` is a daemon, not a drawing program: one subscription per source,
-  handed to whoever asks, replayed to whoever has just arrived. That is stage 2
-  of `docs/programs.md` and it removes the per-panel `pactl subscribe` without
-  merging a single panel into another.
+**The state argument that was used to justify a host does not need one.**
+`console-events` is a daemon, not a drawing program: one subscription per
+source, handed to whoever asks, replayed to whoever has just arrived. That is
+stage 2 of `docs/programs.md` and it removes the per-panel `pactl subscribe`
+without merging a single panel into another.
 
   **What is left is exec and toolkit start, and a warm spare answers both without
   shared fate.** A process that has already started and already brought GTK up,
@@ -1667,7 +1789,7 @@ work and they have an order.
   A spare per panel kind, or a panel that unmaps and keeps its surface, reaches
   `surface` as well. **Nobody has read this on the device yet, and the device is
   the machine the decision is about** -- one evening of ordinary use and then
-  `console-wait-times --last 200`.
+  `console-response-times --last 200`.
 
   This is the exception to *optimisation is last*, and the reason it is an
   exception is that a person does not experience a wait as slowness, they
@@ -1703,18 +1825,18 @@ work and they have an order.
   and an apply that dies partway is a generation that never confirmed rather than
   a machine in an unnamed state.
 
-  **The cheap half of that is in, and it was cheaper than anyone had checked.**
-  The device's root filesystem is btrfs with the `@` layout, snapper already
-  has a configuration for `/` and one for `/home`, `snap-pac` already brackets
-  every pacman transaction with a pair, and `limine-snapper-sync` already writes
-  a boot entry for each root snapshot -- all of it from the CachyOS base and
-  none of it ever named here. So `console apply` now takes a `pre` on both
-  configurations before it touches anything, before even the sweeps, and a
-  `post` when it reaches the end, both with `--cleanup-algorithm number` so the
-  cleanup timer that is already running prunes them like everything else. The
-  description is the commit. `crates/console-manifest/src/previous.rs` is the
-  whole of it and the argument is in its header; `snapper` is in `[packages]`
-  because the apply runs it.
+**The cheap half of that is in, and it was cheaper than anyone had checked.**
+The device's root filesystem is btrfs with the `@` layout, snapper already has a
+configuration for `/` and one for `/home`, `snap-pac` already brackets every
+pacman transaction with a pair, and `limine-snapper-sync` already writes a boot
+entry for each root snapshot -- all of it from the CachyOS base and none of it
+ever named here. So `console apply` now takes a `pre` on both configurations
+before it touches anything, before even the sweeps, and a `post` when it reaches
+the end, both with `--cleanup-algorithm number` so the cleanup timer that is
+already running prunes them like everything else. The description is the commit.
+`crates/console-manifest-engine/src/previous.rs` is the whole of it and the
+argument is in its header; `snapper` is in `[packages]` because the apply runs
+it.
 
   Two configurations rather than one, because the apply writes both subvolumes:
   a snapshot of `/` alone would put back a machine whose home is still holding
@@ -1857,13 +1979,13 @@ work and they have an order.
   the machine saying so, rather than arrived at by pressing A on a row and
   finding the rules have changed.
 
-  Two things fall out of it. The tier belongs beside the program in
-  `console-external-programs` and `[packages]`, where the rest of the truth about
-  a program lives, so *what happens when I open this* is a fact about it rather
-  than a thing a person discovers. And `offers()` -- stage 6, deliberately left
-  until two programs wanted it -- is what lets somebody else dress an application
-  without changing this repository, which is the only version of an ecosystem
-  that a device with one author can have.
+Two things fall out of it. The tier belongs beside the program in
+`console-core-external-programs` and `[packages]`, where the rest of the truth
+about a program lives, so *what happens when I open this* is a fact about it
+rather than a thing a person discovers. And `offers()` -- stage 6, deliberately
+left until two programs wanted it -- is what lets somebody else dress an
+application without changing this repository, which is the only version of an
+ecosystem that a device with one author can have.
 
 - **A program should reach nothing that belongs to a program a person can see,
   and on this machine every one of them reaches all of it.** This is the entry
@@ -1894,16 +2016,16 @@ work and they have an order.
   above asks for, *is* one program driving another's interface. An isolation
   rule that forbids those forbids the machine.
 
-  **So the rule is not that nothing crosses, it is that nothing crosses
-  ambiently.** Every crossing is declared, named, narrow and revocable, and
-  anything not declared is refused. That is not imported doctrine; it is the
-  fourth time this repository has reached for the same move. `[packages]` is
-  what may be installed. `console_external_programs::Program` is what may be run.
-  `means.rs` is what a button may do. And `files/etc/sudoers.d/console` is the
-  purest example already in the tree: two programs, each taking one thing it
-  understands, each refusing a name it does not know, each with the argument for
-  why written above it. The manifest is a capability list that has never been
-  called one.
+**So the rule is not that nothing crosses, it is that nothing crosses
+ambiently.** Every crossing is declared, named, narrow and revocable, and
+anything not declared is refused. That is not imported doctrine; it is the
+fourth time this repository has reached for the same move. `[packages]` is what
+may be installed. `console_core_external_programs::Program` is what may be run.
+`means.rs` is what a button may do. And `files/etc/sudoers.d/console` is the
+purest example already in the tree: two programs, each taking one thing it
+understands, each refusing a name it does not know, each with the argument for
+why written above it. The manifest is a capability list that has never been
+called one.
 
   **`console-program-contract` is what turns that from a hope into a boundary.**
   A program that says what it wants done rather than doing it is a program whose
@@ -2002,7 +2124,7 @@ work and they have an order.
   what was decided while they were away.
 
 - **Nothing here teaches, and a guide somebody has to go and open is a manual.**
-  `console-guide` is read out of the one table that decides the binds, which is
+  `console-button-guide` is read out of the one table that decides the binds, which is
   the hard half and it is done. What is missing is that it is a place rather than
   an answer. A person meeting a surface for the first time has a question about
   *this* surface -- what Y does here, whether B will lose what they typed -- and

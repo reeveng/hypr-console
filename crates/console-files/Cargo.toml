@@ -26,10 +26,10 @@ name = "console-screenshot"
 path = "src/bin/console-screenshot.rs"
 
 [dependencies]
-console-never.workspace = true
+console-core-never.workspace = true
 console-program-contract.workspace = true
-console-external-programs.workspace = true
-console-number-conversion.workspace = true
+console-core-external-programs.workspace = true
+console-core-number-conversion.workspace = true
 gtk4 = "0.11"
 console-panel.workspace = true
 

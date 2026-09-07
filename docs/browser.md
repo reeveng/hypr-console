@@ -134,9 +134,10 @@ else's form.
 The rows on the search card are the engines the browser has, with the one it
 uses first at the top. There is no list of engines in the add-on. The settings
 panel's **Web** tab writes a policy that tells the browser which engine to
-default to -- [`crates/console-defaults`](../crates/console-defaults) is that
--- and this reads back whatever that came to. A list here would be the same
-choice made twice, and wrong the first day somebody changed it.
+default to --
+[`crates/console-default-applications`](../crates/console-default-applications)
+is that -- and this reads back whatever that came to. A list here would be the
+same choice made twice, and wrong the first day somebody changed it.
 
 Under the engines are two more places to look: **on this site**, which is the
 same engine asked about this host alone, and **on this page**, which is the

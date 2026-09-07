@@ -6,12 +6,12 @@ that what is written here can be kept.
 A person holding this thing learns a few buttons once and then stops thinking
 about them. That only holds if the answer is the same in every program. What a
 button means used to be decided in four separate files; it is decided in one
-now. `crates/console-controller/src/means.rs` is a table of everything this
-desktop does, when each of them applies, and what it is bound to, and the
+now. `crates/console-input-controller/src/means.rs` is a table of everything
+this desktop does, when each of them applies, and what it is bound to, and the
 daemon carries it out, the setup screen writes to it and the guide reads it out
 loud. What is written below is what that table says, and
-`crates/console-controller/tests/what_reaches_the_desktop.rs` is where it is
-held to it rather than remembered.
+`crates/console-input-controller/tests/what_reaches_the_desktop.rs` is where it
+is held to it rather than remembered.
 
 | | |
 | --- | --- |
@@ -19,12 +19,12 @@ held to it rather than remembered.
 | **A** | Accepts. Whatever is highlighted, that one. On the desktop, where nothing is highlighted, accepting is clicking what the pointer is on. **The right stick pressed is the same button**, everywhere and with nothing of its own: that stick is the pointer and the scroll, so the thumb that moved to a thing is already on it, and having to leave for A to take the thing it is pointing at is a journey across the pad to say yes to where you already are |
 | **B** | Goes back. Cancels a chooser, closes what is open, and deletes in the keyboard |
 | **X** | Shows the keyboard, and puts it away again, wherever you are |
-| **Y** | Is not spoken for by the desktop, which makes it the one that can be lent. A panel lends it *what else can be done with this row*; a page lends it a label over everything on it that can be pressed. Nothing may quietly give it a job one of the others already owns |
+| **Y** | Is not spoken for by the desktop, which makes it the one that can be lent. A panel lends it *what else can be done with this row*, which right off the row also stands on; a page lends it a label over everything on it that can be pressed. Nothing may quietly give it a job one of the others already owns |
 
 X is the one of those that is not the daemon's on both ends, and the round trip
 is worth following once. With the keyboard away, X arrives as a key and the
 daemon raises the keyboard. The keyboard then takes the pad and the keyboard
-InputPlumber publishes beside it -- `console_input_claim`, with `EVIOCGRAB`
+InputPlumber publishes beside it -- `console_input_focus`, with `EVIOCGRAB`
 underneath -- so the daemon receives nothing at all, and the second press
 reaches the keyboard, which puts itself away and hands the devices back. One
 button, one promise, and two programs that never both act on it.
@@ -51,7 +51,7 @@ readable on a panel a finger could open, on a row a finger could only silence.
 | **A** | Tap the row |
 | **B** | The **×** at the end of the tab strip, and for the menu, the bar icon that opened it. It goes back the one step B goes back: out of a question first, out of the card after, and out of a picture opened over the whole screen before either -- where the strip is gone and the mark lies on the picture instead |
 | **X** | The keyboard icon on the bar |
-| **Y** | The **⋯** at the end of the row that offers something. It carries that row's own offer rather than the highlight's, because a finger arrives at a mark on a row it was never standing on |
+| **Y** | The **⋯** beside the row that offers something -- a button of its own, outside the card, rather than a mark on the end of it. It carries that row's own offer rather than the highlight's, because a finger arrives at a button on a row it was never standing on |
 | Left and right on a level | The **−** and **+** on the row that carries it, or a swipe across the row. One job, three inputs: the swipe is wired to the same closure the marks and the d-pad are, so a row that gains a level gains all three at once |
 | **L1** and **R1** | The **‹** and **›** either side of the tab strip, which appear when there are tabs it has no room for |
 | **Legion right**, **left paddle, top** | The bar's icons: the settings, each at its own tab, and the menu |
@@ -59,10 +59,10 @@ readable on a panel a finger could open, on a row a finger could only silence.
 | **Left paddle, bottom** | Dictation, in the menu, which starts and stops the same way the paddle does |
 | **View** | The browser, in the menu |
 
-`crates/console-manifest/tests/the_tree.rs` holds these to it: the bar has to
-carry a door for the menu and one for the keyboard, a panel has to draw a way
-out, a level has to draw its two ends, and a strip that hides a tab has to draw
-the way to it.
+`crates/console-manifest-engine/tests/the_tree.rs` holds these to it: the bar
+has to carry a door for the menu and one for the keyboard, a panel has to draw a
+way out, a level has to draw its two ends, and a strip that hides a tab has to
+draw the way to it.
 
 ## And the other way round
 
@@ -169,8 +169,8 @@ routed to a key of their own like every other button, they have no job on them,
 and the setup screen can move one onto them the moment somebody presses one and
 finds out what it is.
 
-`crates/console-gamepad/tests/the_button_contract.rs` keeps what is left of this
-that is genuinely about the files: every word the switcher takes names a
+`crates/console-input-gamepad/tests/the_button_contract.rs` keeps what is left
+of this that is genuinely about the files: every word the switcher takes names a
 profile that exists, and every profile publishes all three devices.
 
 The front of the machine keeps working with a chooser up. The settings button
@@ -239,9 +239,9 @@ pad came back free, against the real hardware as a control, which InputPlumber
 does grab. So the pad is read here the same way the desktop reads it, and Game
 Mode's profile stays the one that translates nothing.
 
-`crates/console-controller/tests/the_controller.rs` presses the button on both
-sides: the press that is Steam's, the hold that comes back, the chord that does
-not, and every other button reaching the pad as itself.
+`crates/console-input-controller/tests/the_controller.rs` presses the button on
+both sides: the press that is Steam's, the hold that comes back, the chord that
+does not, and every other button reaching the pad as itself.
 
 ## Only one thing acts on the pad
 
@@ -249,7 +249,7 @@ The on-screen keyboard reads the pad itself, and so does the controller daemon.
 Both acting on it, the right stick navigates and scrolls at once.
 
 Two answers, and they agree. The one that decides it is
-`console_input_claim`: a program that has to have the input to itself takes the
+`console_input_focus`: a program that has to have the input to itself takes the
 devices with `EVIOCGRAB` while its surface is up and hands them back when it
 comes down. A grabbed device delivers to the one that grabbed it and to nothing
 else, so the daemon is not asked to be polite -- it simply receives nothing.

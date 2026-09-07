@@ -1,6 +1,6 @@
 // The browser, told the things a stylesheet cannot tell it.
 //
-// The colours between the markers are written by tools/console-theme out of
+// The colours between the markers are written by tools/console-palette out of
 // theme/palette.toml. Most of the rest is the browser being asked to hold
 // still: this device does not animate, and a browser that fades and slides is
 // the one window on it that would. The last of them is the line that lets this
@@ -92,11 +92,11 @@ user_pref("toolkit.startup.max_resumed_crashes", -1);
 user_pref("browser.display.use_document_fonts", 1);
 user_pref("font.minimum-size.x-western", 14);
 
-// console-theme:begin
+// console-palette:begin
 user_pref("browser.display.background_color", "#110b12");
 user_pref("browser.display.background_color.dark", "#110b12");
 user_pref("browser.display.foreground_color", "#f7e7f3");
 user_pref("browser.anchor_color", "#a4dbff");
 user_pref("browser.visited_color", "#dfcbff");
 user_pref("browser.active_color", "#ffc2e7");
-// console-theme:end
+// console-palette:end

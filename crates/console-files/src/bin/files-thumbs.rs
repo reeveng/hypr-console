@@ -11,10 +11,10 @@
 
 use std::path::{Path, PathBuf};
 
-use console_external_programs::Program;
+use console_core_external_programs::Program;
 use console_files::listing::{Entry, Worth};
 use console_files::thumbs::{self, SIDE};
-use console_never::Never;
+use console_core_never::Never;
 use gtk4::gdk_pixbuf::Pixbuf;
 use gtk4::gio;
 use gtk4::glib;

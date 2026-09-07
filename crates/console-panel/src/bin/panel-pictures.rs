@@ -16,8 +16,8 @@
 //! `console_panel::pictures` is the file's shape, who reads it and why.
 
 
-use console_never::Never;
-use console_number_conversion::fitted;
+use console_core_never::Never;
+use console_core_number_conversion::fitted;
 use std::collections::BTreeMap;
 use std::process::ExitCode;
 

@@ -10,8 +10,8 @@
 //! came back under is kept and handed to `--replace-id`.
 
 
-use console_external_programs::Program;
-use console_never::Never;
+use console_core_external_programs::Program;
+use console_core_never::Never;
 use console_notifications::saying::{Kept, Notice, raise_kept};
 use console_settings::rocker::{self, Press};
 

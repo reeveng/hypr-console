@@ -9,7 +9,7 @@
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 
-use console_never::Never;
+use console_core_never::Never;
 
 use crate::listing::{self, Entry};
 

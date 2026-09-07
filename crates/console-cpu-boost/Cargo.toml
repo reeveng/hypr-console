@@ -8,8 +8,8 @@ license.workspace = true
 [dependencies]
 # Reading a file without turning a fault into an absence, and writing the note
 # whole. Both of those are one decision this workspace makes in one place.
-console-file-writing.workspace = true
-console-never.workspace = true
+console-core-atomic-writes.workspace = true
+console-core-never.workspace = true
 
 [lib]
 name = "console_cpu_boost"

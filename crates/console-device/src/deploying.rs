@@ -47,8 +47,8 @@
 
 use std::path::PathBuf;
 
-use console_external_programs::Program as Theirs;
-use console_never::Never;
+use console_core_external_programs::Program as Theirs;
+use console_core_never::Never;
 use console_program_contract::{
     Argv, Chose, Doing, Ending, Given, Opening, Program, Question, Runs, Turn, Went, Word,
 };

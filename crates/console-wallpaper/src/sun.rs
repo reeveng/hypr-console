@@ -16,8 +16,8 @@
 //! 2000, which is a great deal more than a wallpaper needs.
 
 
-use console_never::Never;
-use console_number_conversion::toward_zero_u32;
+use console_core_never::Never;
+use console_core_number_conversion::toward_zero_u32;
 
 #[derive(Debug, Clone, Copy, PartialEq, serde::Deserialize)]
 pub struct Where {

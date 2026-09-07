@@ -46,9 +46,9 @@
 //! `console_program_contract::Program`.
 
 
-use console_external_programs::Program;
-use console_never::Never;
-use console_number_conversion::{Float, fitted};
+use console_core_external_programs::Program;
+use console_core_never::Never;
+use console_core_number_conversion::{Float, fitted};
 use std::path::Path;
 use std::sync::Arc;
 

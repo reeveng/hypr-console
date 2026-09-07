@@ -51,11 +51,11 @@ use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 
 use console_applications::{counts, entry, found, narrow};
-use console_defaults::engines;
-use console_external_programs::Program;
+use console_default_applications::engines;
+use console_core_external_programs::Program;
 use console_home_screen::{Home, Spot};
 use console_home_screen::shape::Shape;
-use console_never::Never;
+use console_core_never::Never;
 use console_panel::actor::{self, Addr, Answer};
 use console_panel::card::{Card, Door};
 use console_panel::chooser::Again;

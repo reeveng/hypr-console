@@ -10,7 +10,7 @@ decides one.
 Almost nothing on the machine holds one either. A stylesheet, a Lua table, a
 TOML file, an ini file, a shell script and a browser cannot share a variable
 with each other, but most of them can import a file written in their own
-language. So `console-theme` writes one small palette file per language,
+language. So `console-palette` writes one small palette file per language,
 and everything else imports whichever speaks its own:
 
 | The palette, written | Imported by |
@@ -96,12 +96,12 @@ and it sits about a tenth of a point away from the same arithmetic done on the
 unrounded values: the difference between a palette that measures 7.02:1 and one
 that measures 6.92:1 to anybody who tests it.
 
-`crates/console-colour` is the arithmetic, in Oklch. It is the same arithmetic
-as `Codincod.Design.Oklch` in the Codincod repository, which was written first
-and for a different purpose, and the two were checked against each other:
-colours and ratios agree to four decimal places. Those cases are vectors in
-`crates/console-theme/tests/the_desktop.rs`, so this implementation cannot drift
-away from the other one without a test saying so.
+`crates/console-core-colour` is the arithmetic, in Oklch. It is the same
+arithmetic as `Codincod.Design.Oklch` in the Codincod repository, which was
+written first and for a different purpose, and the two were checked against each
+other: colours and ratios agree to four decimal places. Those cases are vectors
+in `crates/console-palette/tests/the_desktop.rs`, so this implementation cannot
+drift away from the other one without a test saying so.
 
 
 ## The wallpaper

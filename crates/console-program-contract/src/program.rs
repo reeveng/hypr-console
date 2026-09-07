@@ -2,7 +2,7 @@
 
 use std::fmt::Debug;
 
-use console_never::Never;
+use console_core_never::Never;
 
 use crate::argv::Argv;
 use crate::doing::Doing;

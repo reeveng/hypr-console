@@ -1,0 +1,23 @@
+[package]
+name = "console-palette"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "console-palette"
+path = "src/main.rs"
+
+[dependencies]
+console-repository.workspace = true
+console-core-colour.workspace = true
+console-core-never.workspace = true
+# `preserve_order` because the report lists the colours in the order the
+# palette declares them, and a sorted map would list them alphabetically.
+indexmap = { version = "2", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+toml = { version = "0.9", default-features = false, features = ["parse", "serde", "preserve_order"] }
+
+[lints]
+workspace = true

@@ -1,15 +1,15 @@
 //! Every colour as it was solved, read out of the report.
 //!
 //! Read rather than resolved, because the engine that solves it is
-//! `console-theme`. Resolving it a second time here would be a second place a
+//! `console-palette`. Resolving it a second time here would be a second place a
 //! colour could be decided, which is the thing this whole arrangement exists
 //! to prevent. `theme/report.md` is the palette written down, and a test in
-//! `console-theme` fails if it has fallen behind what `theme/palette.toml`
+//! `console-palette` fails if it has fallen behind what `theme/palette.toml`
 //! says.
 
 use std::collections::BTreeMap;
 
-use console_never::Never;
+use console_core_never::Never;
 
 fn row(line: &str) -> Result<Option<(String, String)>, Never> {
     let Some(row) = line.strip_prefix("| ") else { return Ok(None) };

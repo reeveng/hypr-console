@@ -1,0 +1,42 @@
+[package]
+name = "console-manifest-engine"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# `console`, because that is what somebody types on the device. The crate is
+# named for what it is; the program is named for what it does.
+[[bin]]
+name = "console"
+path = "src/main.rs"
+
+[dependencies]
+console-how-far.workspace = true
+console-program-lifetime.workspace = true
+console-core-external-programs.workspace = true
+console-manifest-migrations.workspace = true
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+console-input-controller.workspace = true
+# For the battery, which is the one reading that moves while an apply runs.
+console-default-applications.workspace = true
+# For the one file the engine and the bar share: how far along an apply is.
+console-notifications.workspace = true
+console-input-gamepad.workspace = true
+# The one place a file is written whole: beside, synced, renamed, dir synced.
+console-core-atomic-writes.workspace = true
+
+[dev-dependencies]
+# What the two ways of asking for the keyboard signal, which has to be the
+# program the manifest installs. Spelled as a path rather than
+# `workspace = true` because it is the one dependency here that wants the
+# keyboard without its runtime: `port` is a compositor client, and the question
+# a test asks of this is what a constant says.
+console-input-keyboard = { path = "../console-input-keyboard", default-features = false }
+serde_json = "1"
+serde_yaml_ng = "0.10"
+toml = { version = "0.9", default-features = false, features = ["parse", "serde"] }
+
+[lints]
+workspace = true

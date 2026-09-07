@@ -10,7 +10,7 @@
 
 use std::path::PathBuf;
 
-use console_never::Never;
+use console_core_never::Never;
 
 pub const DEVICE: &str = "/sys/class/backlight/amdgpu_bl1";
 

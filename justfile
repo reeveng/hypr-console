@@ -14,7 +14,7 @@ default:
 
 # write the palette into every file that spends it
 theme:
-    cargo run --quiet --release --bin console-theme
+    cargo run --quiet --release --bin console-palette
 
 # press the wallpapers the table names
 sky:
@@ -89,9 +89,11 @@ ready:
 # Deliberately not in `ready`, because what it counts is the warned tier:
 # production code is held to the denied rules by `just explicit-gate`, and this
 # is where a rule the code has not caught up with says how far there is left to
-# go. Nothing stands there now -- 002 was the last out -- so this counts what
-# the gate already enforces, and waits for whatever is written ahead of the
-# code next. tools/explicit-rust/README.md says what each rule is for.
+# go. Nothing stands there today -- 022 was the last, and it came out when the
+# home screen's checks stopped waiting out a number of seconds on the handheld
+# -- so this prints nothing until somebody writes a rule ahead of the code
+# again, which is what it is for. tools/explicit-rust/README.md says what each
+# rule is for.
 #
 # Capped to warnings so the run reaches every crate. Left uncapped it stops at
 # the first one that fails, which is the first one alphabetically and tells
@@ -145,13 +147,16 @@ explicit:
 # The ALLOW list this recipe once carried is gone for good: a rule's tier now
 # lives in its own crate, as the level in `declare_late_lint!`. Every rule the
 # workspace keeps is Deny and fails this gate, and today that is every rule
-# there is -- nothing stands in the warned tier, which is where a rule written
-# ahead of the code prints its remaining distance on every run without blocking
-# it. `just explicit` is where that distance is read, for whatever waits there
-# next. A rule moves from Warn to Deny in its own source when the last call site
-# that broke it is fixed, and it never moves back. The last out was 002, which
-# had waited longest because it had nowhere to point until `console-never` was
-# written; before it, 020 came out the way a rule should not have to: the
+# there is -- the warned tier, where a rule written ahead of the code prints its
+# remaining distance on every run without blocking it, is empty. `just explicit`
+# is where that distance is read when there is one. A rule moves from Warn to
+# Deny in its own source when the last call site that broke it is fixed, and it
+# never moves back. The last out was 022, and what let it out was not a check
+# but what a wait may carry: `Device::until` now carries the fault its question
+# carries, so a question that reads the screen -- which is what the home
+# screen's checks were waiting on -- can be handed to one. Before it, 002 had
+# waited longest because it had nowhere to point until `console-core-never` was
+# written; before that, 020 came out the way a rule should not have to: the
 # comments it forbids had been swept out of the tree once already, by hand, and
 # were back in most of the crates by the time anybody looked. A rule kept by
 # memory is a rule with a half-life.
@@ -173,16 +178,16 @@ explicit-gate:
 
 # the tier that makes real input devices, if it can
 live:
-    cargo test --quiet -p console-controller --test really_running -- --nocapture
+    cargo test --quiet -p console-input-controller --test really_running -- --nocapture
 
 # `--features` because the emulator reads the profiles, and reading one is
-# behind `console-gamepad/read` -- off by default so the handheld does not
+# behind `console-input-gamepad/read` -- off by default so the handheld does not
 # compile a YAML parser for a program it never runs. `console-emulate` says it
 # needs the feature rather than quietly not existing without it.
 
 # a Legion Go on this machine, to press
 emulate:
-    cargo run --quiet --features console-gamepad/read --bin console-emulate
+    cargo run --quiet --features console-input-gamepad/read --bin console-emulate
 
 # every feature, tried again, here
 checks:
@@ -208,7 +213,7 @@ desktop-checks:
 panel-checks name="":
     cargo build --quiet --workspace
     cargo test --quiet -p console-panel --test every_panel_answers_a_finger -- {{name}}
-    cargo test --quiet -p console-viewer --test a_finger -- {{name}}
+    cargo test --quiet -p console-media-viewer --test a_finger -- {{name}}
 
 # what those would do to the device
 device-checks:
@@ -234,8 +239,19 @@ shot:
 capture:
     ssh {{ HOST }} cargo run --release --locked --quiet \
       --manifest-path /etc/console/Cargo.toml --bin capture-devices \
-      > crates/console-gamepad/fixtures/devices.json
-    git diff --stat crates/console-gamepad/fixtures/devices.json
+      > crates/console-input-gamepad/fixtures/devices.json
+    git diff --stat crates/console-input-gamepad/fixtures/devices.json
+
+# What the device measured for itself in its last check run, carried back here
+# so a machine that has never been checked still gets a bar shaped like the run
+# rather than one that counts. The device has to have run the checks at least
+# once; `console-check --stage device --yes` is what writes the file.
+
+# take the check lengths off the device again
+lengths:
+    ssh {{ HOST }} "cat /home/*/.local/state/console/checked" \
+      | sort > crates/console-test-stages/fixtures/lengths
+    git diff --stat crates/console-test-stages/fixtures/lengths
 
 # what deploying would change, changing nothing
 check:

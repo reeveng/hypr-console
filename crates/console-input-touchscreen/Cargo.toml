@@ -1,0 +1,23 @@
+[package]
+name = "console-input-touchscreen"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "console-tap"
+path = "src/bin/tap.rs"
+
+[dependencies]
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+console-screen.workspace = true
+# The device this makes. `console-input-gamepad` builds the emulator's pad with it and
+# `console-input-controller` publishes its wheel with it, so it is already on the
+# handheld; this used to write the same ioctls by hand beside them. `tap.rs`
+# says why that stopped.
+evdev = "0.13"
+
+[lints]
+workspace = true

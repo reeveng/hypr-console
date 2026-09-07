@@ -1,0 +1,22 @@
+[package]
+name = "console-manifest-publish"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_manifest_publish"
+path = "src/lib.rs"
+
+[[bin]]
+name = "console-manifest-publish"
+path = "src/main.rs"
+
+[dependencies]
+console-core-external-programs.workspace = true
+console-core-never.workspace = true
+console-repository.workspace = true
+
+[lints]
+workspace = true

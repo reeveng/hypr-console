@@ -10,7 +10,7 @@
 //! step, and out of step here is a list cut through its last row.
 
 use crate::strip::{EDGE, MARGIN, PAD};
-use console_never::Never;
+use console_core_never::Never;
 
 pub fn palette() -> Result<String, Never> {
     let config = gtk4::glib::user_config_dir();

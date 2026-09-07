@@ -21,9 +21,9 @@
 //! different picture looks like.
 
 
-use console_never::Never;
-use console_number_conversion::{Float, whole_u8};
-use console_colour::{fit, oklch_to_rgb, to_oklch};
+use console_core_never::Never;
+use console_core_number_conversion::{Float, whole_u8};
+use console_core_colour::{fit, oklch_to_rgb, to_oklch};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Lab {

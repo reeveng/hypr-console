@@ -19,8 +19,8 @@ use std::sync::mpsc::{RecvTimeoutError, channel};
 use std::time::Duration;
 
 use console_music::player;
-use console_never::Never;
-use console_panel::door::{Up, is_open, watching_layers};
+use console_core_never::Never;
+use console_panel::door::{Up, is_open};
 
 const EVERY: Duration = Duration::from_secs(2);
 
@@ -52,6 +52,13 @@ fn main() -> ExitCode {
 
         match opening.recv_timeout(EVERY) {
             Ok(()) | Err(RecvTimeoutError::Timeout) => (),
+            #[cfg_attr(
+                dylint_lib = "explicit021_no_sleeping",
+                allow(
+                    explicit021_no_sleeping,
+                    reason = "nothing is left to say when the panel opens, so there is no longer a thing to wait for; the bar falls back to redrawing on a cadence rather than spinning on a dead channel"
+                )
+            )]
             Err(RecvTimeoutError::Disconnected) => std::thread::sleep(EVERY),
         }
     }
@@ -60,10 +67,7 @@ fn main() -> ExitCode {
 fn listening() -> Result<std::sync::mpsc::Receiver<()>, Never> {
     let (say, heard) = channel();
 
-    match watching_layers(say) {
-        Ok(()) => {},
-        Err(fault) => eprintln!("music-bar: nothing will say when the panel opens: {fault}"),
-    }
+    let Ok(()) = console_events::again::layers(say);
 
     Ok(heard)
 }

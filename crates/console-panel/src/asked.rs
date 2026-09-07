@@ -24,7 +24,7 @@
 
 use std::rc::Rc;
 
-use console_never::Never;
+use console_core_never::Never;
 use gtk4::glib;
 
 pub const STOPPING: [i32; 3] = [libc::SIGHUP, libc::SIGINT, libc::SIGTERM];

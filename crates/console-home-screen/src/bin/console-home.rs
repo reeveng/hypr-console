@@ -111,14 +111,14 @@ use std::rc::Rc;
 
 use console_applications::entry::Application;
 use console_applications::found;
-use console_external_programs::Program;
+use console_core_external_programs::Program;
 use console_home_screen::{
     Along, Bare, Home, Moved, On, Reached, Spot, Touch, Way, moved, nudged, on_a_bare_square,
     paned, touched,
 };
 use console_home_screen::shape::{self, Shape};
-use console_never::Never;
-use console_number_conversion::fitted;
+use console_core_never::Never;
+use console_core_number_conversion::fitted;
 use console_onscreen::{Awake, Over, Said, over_the_desktop};
 use console_panel::icons::Icon;
 use gtk4::{
@@ -1124,6 +1124,13 @@ fn following(screen: &Rc<Screen>) -> Result<(), Never> {
             let Ok(Ok(stream)) = opened else {
                 let Ok(()) = screen.settle();
 
+                #[cfg_attr(
+                    dylint_lib = "explicit021_no_sleeping",
+                    allow(
+                        explicit021_no_sleeping,
+                        reason = "the door is not open and nothing announces when it will be; this is the wait between two attempts at connecting, which is the same decision `console-core-reconnect` makes for a thread"
+                    )
+                )]
                 glib::timeout_future(std::time::Duration::from_secs(2)).await;
 
                 continue;

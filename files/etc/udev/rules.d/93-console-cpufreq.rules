@@ -4,7 +4,7 @@
 # moment's work: the whole of an opening is over before a processor watching
 # how busy it has been has noticed there was anything to do. So the daemon that
 # reads the pad raises the hint as it starts a panel and puts back what was
-# there a moment later. `console-wait-times` is what says whether it helped.
+# there a moment later. `console-response-times` is what says whether it helped.
 #
 # The hint is `energy_performance_preference`, one per processor. It belongs to
 # root and it has a second writer: power-profiles-daemon writes all of them

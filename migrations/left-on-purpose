@@ -1,6 +1,6 @@
 # What has left the manifest and needs nothing done about it.
 #
-# One entry a line, said the way `console_migrations::holds` says it -- a path
+# One entry a line, said the way `console_manifest_migrations::holds` says it -- a path
 # for a file, `enabled UNIT` or `masked UNIT` for a unit -- with the reason
 # beside it. A name in here is somebody's decision and can be argued with. A
 # name that is simply never mentioned is nothing at all, which is what this file

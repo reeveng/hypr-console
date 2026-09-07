@@ -29,8 +29,8 @@
 //! is more than picking at random would give them.
 
 
-use console_never::Never;
-use console_number_conversion::{fitted, toward_zero_u64};
+use console_core_never::Never;
+use console_core_number_conversion::{fitted, toward_zero_u64};
 use crate::moon::Moon;
 use crate::press::Stir;
 use crate::sun::{Season, Sky};

@@ -6,16 +6,16 @@
 
 use std::sync::Arc;
 
-use console_defaults::{battery, engines};
-use console_external_programs::Program;
+use console_default_applications::{battery, engines};
+use console_core_external_programs::Program;
 use console_home_screen::shape::Shape;
-use console_never::Never;
-use console_translation::say;
+use console_core_never::Never;
+use console_core_localization::say;
 
 use crate::words::Word;
 use console_notifications::reading::{QUIET, Quiet};
 use console_panel::page::{Does, Level, NOW, Row, Showing, YET};
-use console_dictation::languages;
+use console_input_dictation::languages;
 
 use crate::level::{CELLS, Muted, bar, volume};
 use crate::size::{EVERY, Size};

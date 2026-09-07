@@ -20,7 +20,7 @@
 use std::cell::RefCell;
 use std::path::Path;
 
-use console_never::Never;
+use console_core_never::Never;
 
 const NOBODY: &str = "console-panel";
 

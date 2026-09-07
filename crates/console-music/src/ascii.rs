@@ -5,8 +5,8 @@
 //! there is a change here.
 
 
-use console_never::Never;
-use console_number_conversion::{Float, fitted, toward_zero_u8, whole_usize};
+use console_core_never::Never;
+use console_core_number_conversion::{Float, fitted, toward_zero_u8, whole_usize};
 use std::path::Path;
 
 use gtk4::gdk_pixbuf::{InterpType, Pixbuf};

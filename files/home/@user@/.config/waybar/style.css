@@ -221,6 +221,21 @@ window#waybar {
    `every_step_the_bar_can_send_is_one_the_style_paints` holds the two lists
    against each other.
 
+   That list is as long as the number is fine, and no longer. A class is a name
+   written down in advance, so the stylesheet is the ceiling on how many places
+   the strip can be in -- and while it was one rule per five per cent, a strip
+   crossing a screen this wide moved in jumps of fifty pixels however smoothly
+   the number behind it changed. It is one rule per whole per cent now, which is
+   what the number itself carries; a finer stylesheet would be painting
+   precision the engine never had.
+
+   `transition` is what turns those steps back into movement. GTK interpolates
+   between two gradients when they are the same shape, and every rule below is
+   the same shape -- one stop, moved -- so each step is walked rather than
+   jumped, over about the time the next one takes to arrive. If a GTK ever stops
+   interpolating them the strip goes back to stepping, which is what it did
+   before, so nothing here depends on it.
+
    The right of the stop is `transparent` rather than the ground colour, so the
    unfilled part is the strip's own background and follows the bar if the theme
    ever moves it.
@@ -238,88 +253,410 @@ window#waybar {
   padding: 0;
   margin: 0;
   background-image: linear-gradient(to right, @fill 0%, transparent 0%);
+  transition: background-image 200ms linear;
 }
 
 #custom-updating.at-0 {
   background-image: linear-gradient(to right, @fill 0%, transparent 0%);
 }
 
+#custom-updating.at-1 {
+  background-image: linear-gradient(to right, @fill 1%, transparent 1%);
+}
+
+#custom-updating.at-2 {
+  background-image: linear-gradient(to right, @fill 2%, transparent 2%);
+}
+
+#custom-updating.at-3 {
+  background-image: linear-gradient(to right, @fill 3%, transparent 3%);
+}
+
+#custom-updating.at-4 {
+  background-image: linear-gradient(to right, @fill 4%, transparent 4%);
+}
+
 #custom-updating.at-5 {
   background-image: linear-gradient(to right, @fill 5%, transparent 5%);
+}
+
+#custom-updating.at-6 {
+  background-image: linear-gradient(to right, @fill 6%, transparent 6%);
+}
+
+#custom-updating.at-7 {
+  background-image: linear-gradient(to right, @fill 7%, transparent 7%);
+}
+
+#custom-updating.at-8 {
+  background-image: linear-gradient(to right, @fill 8%, transparent 8%);
+}
+
+#custom-updating.at-9 {
+  background-image: linear-gradient(to right, @fill 9%, transparent 9%);
 }
 
 #custom-updating.at-10 {
   background-image: linear-gradient(to right, @fill 10%, transparent 10%);
 }
 
+#custom-updating.at-11 {
+  background-image: linear-gradient(to right, @fill 11%, transparent 11%);
+}
+
+#custom-updating.at-12 {
+  background-image: linear-gradient(to right, @fill 12%, transparent 12%);
+}
+
+#custom-updating.at-13 {
+  background-image: linear-gradient(to right, @fill 13%, transparent 13%);
+}
+
+#custom-updating.at-14 {
+  background-image: linear-gradient(to right, @fill 14%, transparent 14%);
+}
+
 #custom-updating.at-15 {
   background-image: linear-gradient(to right, @fill 15%, transparent 15%);
+}
+
+#custom-updating.at-16 {
+  background-image: linear-gradient(to right, @fill 16%, transparent 16%);
+}
+
+#custom-updating.at-17 {
+  background-image: linear-gradient(to right, @fill 17%, transparent 17%);
+}
+
+#custom-updating.at-18 {
+  background-image: linear-gradient(to right, @fill 18%, transparent 18%);
+}
+
+#custom-updating.at-19 {
+  background-image: linear-gradient(to right, @fill 19%, transparent 19%);
 }
 
 #custom-updating.at-20 {
   background-image: linear-gradient(to right, @fill 20%, transparent 20%);
 }
 
+#custom-updating.at-21 {
+  background-image: linear-gradient(to right, @fill 21%, transparent 21%);
+}
+
+#custom-updating.at-22 {
+  background-image: linear-gradient(to right, @fill 22%, transparent 22%);
+}
+
+#custom-updating.at-23 {
+  background-image: linear-gradient(to right, @fill 23%, transparent 23%);
+}
+
+#custom-updating.at-24 {
+  background-image: linear-gradient(to right, @fill 24%, transparent 24%);
+}
+
 #custom-updating.at-25 {
   background-image: linear-gradient(to right, @fill 25%, transparent 25%);
+}
+
+#custom-updating.at-26 {
+  background-image: linear-gradient(to right, @fill 26%, transparent 26%);
+}
+
+#custom-updating.at-27 {
+  background-image: linear-gradient(to right, @fill 27%, transparent 27%);
+}
+
+#custom-updating.at-28 {
+  background-image: linear-gradient(to right, @fill 28%, transparent 28%);
+}
+
+#custom-updating.at-29 {
+  background-image: linear-gradient(to right, @fill 29%, transparent 29%);
 }
 
 #custom-updating.at-30 {
   background-image: linear-gradient(to right, @fill 30%, transparent 30%);
 }
 
+#custom-updating.at-31 {
+  background-image: linear-gradient(to right, @fill 31%, transparent 31%);
+}
+
+#custom-updating.at-32 {
+  background-image: linear-gradient(to right, @fill 32%, transparent 32%);
+}
+
+#custom-updating.at-33 {
+  background-image: linear-gradient(to right, @fill 33%, transparent 33%);
+}
+
+#custom-updating.at-34 {
+  background-image: linear-gradient(to right, @fill 34%, transparent 34%);
+}
+
 #custom-updating.at-35 {
   background-image: linear-gradient(to right, @fill 35%, transparent 35%);
+}
+
+#custom-updating.at-36 {
+  background-image: linear-gradient(to right, @fill 36%, transparent 36%);
+}
+
+#custom-updating.at-37 {
+  background-image: linear-gradient(to right, @fill 37%, transparent 37%);
+}
+
+#custom-updating.at-38 {
+  background-image: linear-gradient(to right, @fill 38%, transparent 38%);
+}
+
+#custom-updating.at-39 {
+  background-image: linear-gradient(to right, @fill 39%, transparent 39%);
 }
 
 #custom-updating.at-40 {
   background-image: linear-gradient(to right, @fill 40%, transparent 40%);
 }
 
+#custom-updating.at-41 {
+  background-image: linear-gradient(to right, @fill 41%, transparent 41%);
+}
+
+#custom-updating.at-42 {
+  background-image: linear-gradient(to right, @fill 42%, transparent 42%);
+}
+
+#custom-updating.at-43 {
+  background-image: linear-gradient(to right, @fill 43%, transparent 43%);
+}
+
+#custom-updating.at-44 {
+  background-image: linear-gradient(to right, @fill 44%, transparent 44%);
+}
+
 #custom-updating.at-45 {
   background-image: linear-gradient(to right, @fill 45%, transparent 45%);
+}
+
+#custom-updating.at-46 {
+  background-image: linear-gradient(to right, @fill 46%, transparent 46%);
+}
+
+#custom-updating.at-47 {
+  background-image: linear-gradient(to right, @fill 47%, transparent 47%);
+}
+
+#custom-updating.at-48 {
+  background-image: linear-gradient(to right, @fill 48%, transparent 48%);
+}
+
+#custom-updating.at-49 {
+  background-image: linear-gradient(to right, @fill 49%, transparent 49%);
 }
 
 #custom-updating.at-50 {
   background-image: linear-gradient(to right, @fill 50%, transparent 50%);
 }
 
+#custom-updating.at-51 {
+  background-image: linear-gradient(to right, @fill 51%, transparent 51%);
+}
+
+#custom-updating.at-52 {
+  background-image: linear-gradient(to right, @fill 52%, transparent 52%);
+}
+
+#custom-updating.at-53 {
+  background-image: linear-gradient(to right, @fill 53%, transparent 53%);
+}
+
+#custom-updating.at-54 {
+  background-image: linear-gradient(to right, @fill 54%, transparent 54%);
+}
+
 #custom-updating.at-55 {
   background-image: linear-gradient(to right, @fill 55%, transparent 55%);
+}
+
+#custom-updating.at-56 {
+  background-image: linear-gradient(to right, @fill 56%, transparent 56%);
+}
+
+#custom-updating.at-57 {
+  background-image: linear-gradient(to right, @fill 57%, transparent 57%);
+}
+
+#custom-updating.at-58 {
+  background-image: linear-gradient(to right, @fill 58%, transparent 58%);
+}
+
+#custom-updating.at-59 {
+  background-image: linear-gradient(to right, @fill 59%, transparent 59%);
 }
 
 #custom-updating.at-60 {
   background-image: linear-gradient(to right, @fill 60%, transparent 60%);
 }
 
+#custom-updating.at-61 {
+  background-image: linear-gradient(to right, @fill 61%, transparent 61%);
+}
+
+#custom-updating.at-62 {
+  background-image: linear-gradient(to right, @fill 62%, transparent 62%);
+}
+
+#custom-updating.at-63 {
+  background-image: linear-gradient(to right, @fill 63%, transparent 63%);
+}
+
+#custom-updating.at-64 {
+  background-image: linear-gradient(to right, @fill 64%, transparent 64%);
+}
+
 #custom-updating.at-65 {
   background-image: linear-gradient(to right, @fill 65%, transparent 65%);
+}
+
+#custom-updating.at-66 {
+  background-image: linear-gradient(to right, @fill 66%, transparent 66%);
+}
+
+#custom-updating.at-67 {
+  background-image: linear-gradient(to right, @fill 67%, transparent 67%);
+}
+
+#custom-updating.at-68 {
+  background-image: linear-gradient(to right, @fill 68%, transparent 68%);
+}
+
+#custom-updating.at-69 {
+  background-image: linear-gradient(to right, @fill 69%, transparent 69%);
 }
 
 #custom-updating.at-70 {
   background-image: linear-gradient(to right, @fill 70%, transparent 70%);
 }
 
+#custom-updating.at-71 {
+  background-image: linear-gradient(to right, @fill 71%, transparent 71%);
+}
+
+#custom-updating.at-72 {
+  background-image: linear-gradient(to right, @fill 72%, transparent 72%);
+}
+
+#custom-updating.at-73 {
+  background-image: linear-gradient(to right, @fill 73%, transparent 73%);
+}
+
+#custom-updating.at-74 {
+  background-image: linear-gradient(to right, @fill 74%, transparent 74%);
+}
+
 #custom-updating.at-75 {
   background-image: linear-gradient(to right, @fill 75%, transparent 75%);
+}
+
+#custom-updating.at-76 {
+  background-image: linear-gradient(to right, @fill 76%, transparent 76%);
+}
+
+#custom-updating.at-77 {
+  background-image: linear-gradient(to right, @fill 77%, transparent 77%);
+}
+
+#custom-updating.at-78 {
+  background-image: linear-gradient(to right, @fill 78%, transparent 78%);
+}
+
+#custom-updating.at-79 {
+  background-image: linear-gradient(to right, @fill 79%, transparent 79%);
 }
 
 #custom-updating.at-80 {
   background-image: linear-gradient(to right, @fill 80%, transparent 80%);
 }
 
+#custom-updating.at-81 {
+  background-image: linear-gradient(to right, @fill 81%, transparent 81%);
+}
+
+#custom-updating.at-82 {
+  background-image: linear-gradient(to right, @fill 82%, transparent 82%);
+}
+
+#custom-updating.at-83 {
+  background-image: linear-gradient(to right, @fill 83%, transparent 83%);
+}
+
+#custom-updating.at-84 {
+  background-image: linear-gradient(to right, @fill 84%, transparent 84%);
+}
+
 #custom-updating.at-85 {
   background-image: linear-gradient(to right, @fill 85%, transparent 85%);
+}
+
+#custom-updating.at-86 {
+  background-image: linear-gradient(to right, @fill 86%, transparent 86%);
+}
+
+#custom-updating.at-87 {
+  background-image: linear-gradient(to right, @fill 87%, transparent 87%);
+}
+
+#custom-updating.at-88 {
+  background-image: linear-gradient(to right, @fill 88%, transparent 88%);
+}
+
+#custom-updating.at-89 {
+  background-image: linear-gradient(to right, @fill 89%, transparent 89%);
 }
 
 #custom-updating.at-90 {
   background-image: linear-gradient(to right, @fill 90%, transparent 90%);
 }
 
+#custom-updating.at-91 {
+  background-image: linear-gradient(to right, @fill 91%, transparent 91%);
+}
+
+#custom-updating.at-92 {
+  background-image: linear-gradient(to right, @fill 92%, transparent 92%);
+}
+
+#custom-updating.at-93 {
+  background-image: linear-gradient(to right, @fill 93%, transparent 93%);
+}
+
+#custom-updating.at-94 {
+  background-image: linear-gradient(to right, @fill 94%, transparent 94%);
+}
+
 #custom-updating.at-95 {
   background-image: linear-gradient(to right, @fill 95%, transparent 95%);
+}
+
+#custom-updating.at-96 {
+  background-image: linear-gradient(to right, @fill 96%, transparent 96%);
+}
+
+#custom-updating.at-97 {
+  background-image: linear-gradient(to right, @fill 97%, transparent 97%);
+}
+
+#custom-updating.at-98 {
+  background-image: linear-gradient(to right, @fill 98%, transparent 98%);
+}
+
+#custom-updating.at-99 {
+  background-image: linear-gradient(to right, @fill 99%, transparent 99%);
 }
 
 #custom-updating.at-100 {
   background-image: linear-gradient(to right, @fill 100%, transparent 100%);
 }
+

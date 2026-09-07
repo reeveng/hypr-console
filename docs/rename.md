@@ -6,6 +6,10 @@ theme and the checks would run on any handheld with a pad and a compositor. The
 prefix is `console-*` now, as `console-music` set it, and the repository is
 `reeveng/hypr-console`.
 
+There have been two of them. Sections 1 to 4 are the first, from `legion-*` to
+`console-*`; section 5 is the second, which moved no prefix and gave the
+families inside it a word to share.
+
 The rename is done in this repository. It is not done on a device until
 `tools/console-migrate` has been run against it, which is what section 3 is
 about: a name in a file here is a string, and the same name on the machine is
@@ -24,7 +28,7 @@ far.
 | `ATTRS{name}=="*Legion Controller*Touchpad*"` in `91-console-touchpad.rules` | the kernel's name for the pad, matched |
 | `name = "--legion-controller--touchpad"` in `hyprland.lua` | the same device, under the name Hyprland derives from it |
 | `legion-left` and `legion-right` in the button vocabulary | the two buttons with the Legion mark on them, which is what a person calls them |
-| `LegionGo` in `console-gamepad` | the type is a model of that hardware, and of nothing else |
+| `LegionGo` in `console-input-gamepad` | the type is a model of that hardware, and of nothing else |
 | the sentences about the Legion Go's buttons, in `docs/` and in the profiles | true of that hardware, and the reason the button contract reads as it does |
 
 `@user@` is not a name and is not a prefix. It is the mark the manifest writes
@@ -54,7 +58,7 @@ In order, one commit each, every one of them with the whole suite green.
 1. **Crates.** Nineteen directories under `crates/`, their package names, their
    lib names, the workspace dependency table, and every `use` in the tree.
 2. **Developer binaries.** `console-check` `console-desktop` `console-emulate`
-   `console-garden` `console-publish` `console-theme`. None is installed, so
+   `console-garden` `console-manifest-publish` `console-palette`. None is installed, so
    only the `Makefile` and the docs followed them.
 3. **Docs, tools, prose, and the environment.** `console-deploy`,
    `console-pull`, and `CONSOLE_HOST` `CONSOLE_KEYS` `CONSOLE_PAD`
@@ -71,10 +75,10 @@ In order, one commit each, every one of them with the whole suite green.
    `~/.librewolf/console`, and the three paths under `XDG_RUNTIME_DIR`.
 7. **The theme's own files.** `console.webp`, `console-placeholder.svg`,
    `/usr/local/lib/console/palette.sh`, the pressed pictures under
-   `/usr/share/backgrounds/console`, and the `console-theme:begin` markers
+   `/usr/share/backgrounds/console`, and the `console-palette:begin` markers
    inside every generated file. The picture is unchanged: `console-garden`
    draws the same bytes, and only the stamp's hash of its own sources moved.
-8. **The checkout.** `/etc/console`: `ROOT` in `console-manifest`, `TREE` in
+8. **The checkout.** `/etc/console`: `ROOT` in `console-manifest-engine`, `TREE` in
    `console-sky`, the target's `Documentation=`, the `Makefile`, and both ssh
    tools. That also fixed the install line, which still copied
    `target/release/legion`, a name nothing had built since the engine became
@@ -107,7 +111,7 @@ The order it goes in, and why each step is where it is:
    still at the old one, cannot find a single file it installs — and `console
    apply` is how anything gets fixed.
 3. **The old units are disabled.** What systemd is running is the name it was
-   enabled under: installing `console-controller.service` beside an enabled
+   enabled under: installing `console-input-controller.service` beside an enabled
    `legion-controller.service` gives the machine two units for one daemon, both
    wanting the pad. `syncthing.service` keeps its own name but goes with them,
    because what pulled it in was the target being renamed.
@@ -156,11 +160,12 @@ clone the script was run from is done for you; the rest is
 Both of those last two were got wrong on the way here, which is why they are
 written down rather than left as taste.
 
-Two names were left alone on purpose. `console-controller` stays because the
-three devices it reads are all the controller's own. `console-nested-desktop`
-sounds strange and is right: a nested compositor is a compositor in another
-compositor's window, and the tree already said *nested desktop* everywhere
-before the crate was called it.
+Two names were left alone on purpose. The controller's crate stays one crate
+because the three devices it reads are all the controller's own. The nested
+desktop kept the word *nested* while it had it: a nested compositor is a
+compositor in another compositor's window, and the tree said that everywhere
+before the crate was called it. Section 5 is where both of those names moved
+again.
 
 `console-launcher` and `console-applications` are two crates for one feature
 and have to stay two. The launcher's binary reaches for the home screen's
@@ -170,3 +175,51 @@ the other's dependency table, which Cargo refuses.
 
 Still open, and small: whether this checkout's own directory moves from
 `~/Documents/projects/legion-go`.
+
+## 5. The families
+
+The prefix said which tree a crate belongs to and nothing else, so fifty names
+sorted into one flat list where the only thing `ls crates/` told you was the
+alphabet. The second rename gave the families that already existed a word to
+share:
+
+| Family | What it holds |
+| --- | --- |
+| `console-core-*` | what the rest imports and nothing outside the workspace ever names: the error of a function that cannot fail, the colour arithmetic, the one place a number changes width, the whole-file write, the language a person reads, the programs this desktop did not write, the retry |
+| `console-input-*` | everything a press comes through: the controller, the pad it is emulated on, the mapping, what has the input, the pointer and the touchscreen the checks press with, the on-screen keyboard, dictation |
+| `console-manifest-*` | what a deploy is: the engine, the sweeps, the public copy |
+| `console-program-*` | what a program on this device is: the contract, the loop that carries it out, how long a started one lives |
+| `console-test-*` | where a check runs: the checks themselves, the flows, the stages, the desktop nested here |
+
+Everything else is a thing somebody already has a word for -- `console-files`,
+`console-music`, `console-settings`, `console-panel` -- and stays one word past
+the prefix.
+
+The line `console-core-*` is drawn at: no machine, no feature, and no program
+somebody types. That is why `console-onscreen` and `console-screen` are not in
+it -- both ask the compositor -- and why `console-repository` is not either,
+though its library is as internal as any of them: it ships `console-pull`, and a
+crate that owns a command is a crate somebody has heard of.
+
+The rule the families are an instance of: **a name is as few words as say what
+is inside, and no fewer.** Both halves have teeth. `console-event-broker`,
+`console-panel-host`, `console-input-claim`, `console-bar-modules` and
+`console-child-processes` each spent a word on the mechanism, and lost it.
+`console-guide`, `console-defaults` and `console-viewer` each saved a word by
+making the reader supply it, and gained one: `console-button-guide`,
+`console-default-applications`, `console-media-viewer`. A shorter name that has
+to be looked up is not shorter.
+
+`console-theme` became `console-palette` because what it does is spend
+`theme/palette.toml`, and `console-translation` became
+`console-core-localization` because nothing in it translates -- it picks the
+language a person reads.
+
+Four installed names moved with their crates, which is the whole reason this
+rename needed a migration and the crates on their own would not have:
+`console-controller.service`, `console-keyboard.service`, and the two desktop
+entries named after the viewer and the downloads. A machine that applied the
+commit before it has both units enabled and would have run the old pair beside
+the new -- two daemons on one pad -- so the sweep disables before it moves
+anything. Every other installed name was already named for what somebody types
+rather than for the crate behind it, and did not move at all.

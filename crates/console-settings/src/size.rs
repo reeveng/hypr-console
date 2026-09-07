@@ -55,7 +55,7 @@
 //! on the internet gives comes back with a complaint nothing here would have
 //! seen, and the only symptom is a setting that does nothing.
 
-use console_never::Never;
+use console_core_never::Never;
 use console_screen::Screen;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -30,20 +30,26 @@
 //! box is a CSS gradient with a stop in it, and CSS is written down in
 //! advance, so the number has to arrive as one of a fixed set of names.
 //!
-//! Hence `at-0` to `at-100` in fives: twenty-one rules in the stylesheet, one
-//! per class this can send, and `every_step_the_bar_can_send_is_one_the_style_
-//! paints` holds the two ends together. Fives are finer than the number is --
-//! an apply passes through thirteen weighted stretches, not a hundred -- and
-//! a step is a fiftieth of the screen, which is under a millimetre on this
-//! panel.
+//! Hence `at-0` to `at-100`, one rule in the stylesheet per class this can
+//! send, and `every_step_the_bar_can_send_is_one_the_style_paints` holds the
+//! two ends together.
+//!
+//! The step is a whole per cent because that is what the number is. It was five
+//! when the number behind it only moved a handful of times in a run -- there
+//! was nothing finer to say, and a shorter list is a shorter stylesheet. Both
+//! ends of that changed: an apply now moves the number per crate, per file and
+//! per package, and a check run moves it on the clock, so the number is
+//! continuous and it was the stylesheet that made the strip jump. A step is a
+//! hundredth of the screen now, and going finer would mean painting precision
+//! nothing upstream has.
 
 use std::io::Write;
 use std::process::ExitCode;
 
-use console_never::Never;
+use console_core_never::Never;
 use console_notifications::updating::{Far, far};
 
-pub const STEP: u16 = 5;
+pub const STEP: u16 = 1;
 
 fn main() -> ExitCode {
     let Ok(far) = far();

@@ -1,4 +1,4 @@
-# Written by console-theme from theme/palette.toml.
+# Written by console-palette from theme/palette.toml.
 # Imported by alacritty.toml, which holds no colour of its own.
 
 [colors.primary]

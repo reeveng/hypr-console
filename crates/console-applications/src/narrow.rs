@@ -11,7 +11,7 @@
 //! is the usage order being right about everything except the thing just
 //! asked for.
 
-use console_never::Never;
+use console_core_never::Never;
 
 pub fn matching(names: &[String], word: &str) -> Result<Vec<String>, Never> {
     let wanted = word.trim().to_lowercase();

@@ -1,0 +1,26 @@
+[package]
+name = "console-default-applications"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_default_applications"
+path = "src/lib.rs"
+
+[[bin]]
+name = "console-engine"
+path = "src/bin/console-engine.rs"
+
+[[bin]]
+name = "console-browser"
+path = "src/bin/console-browser.rs"
+
+[dependencies]
+console-core-external-programs.workspace = true
+console-core-never.workspace = true
+serde_json = "1"
+
+[lints]
+workspace = true

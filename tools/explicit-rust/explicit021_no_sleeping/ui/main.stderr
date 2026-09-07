@@ -1,0 +1,19 @@
+error: `std::thread::sleep` waits on the clock: this thread stops until the clock says so, and nothing else can wake it
+  --> $DIR/main.rs:10:5
+   |
+LL |     std::thread::sleep(Duration::from_millis(50));
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: a duration here is an assumption about a machine, and it is checked on one machine and relied on by every other. Ask instead, and keep asking: `console_waiting::until` polls for the thing and says whether it arrived or the patience ran out. Where the elapsing is itself what is being asked for, allow this rule here and let the reason say so
+   = note: `#[deny(explicit021_no_sleeping)]` on by default
+
+error: `std::thread::sleep` waits on the clock: this thread stops until the clock says so, and nothing else can wake it
+  --> $DIR/main.rs:18:5
+   |
+LL |     sleep(Duration::from_millis(50));
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: a duration here is an assumption about a machine, and it is checked on one machine and relied on by every other. Ask instead, and keep asking: `console_waiting::until` polls for the thing and says whether it arrived or the patience ran out. Where the elapsing is itself what is being asked for, allow this rule here and let the reason say so
+
+error: aborting due to 2 previous errors
+

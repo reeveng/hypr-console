@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use console_browser_extension::{PALETTE, source, stamp};
-use console_never::Never;
+use console_core_never::Never;
 
 const NEW: &str = "console-new";
 

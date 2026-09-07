@@ -12,7 +12,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use console_never::Never;
+use console_core_never::Never;
 
 pub const THEMES: [&str; 5] = ["Papirus-Dark", "Papirus", "hicolor", "breeze-dark", "breeze"];
 

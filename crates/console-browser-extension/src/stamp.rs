@@ -9,7 +9,7 @@
 //! Neither of those is a thing to remember by hand. What was packed is written
 //! down beside what it was packed as, and the two together answer both.
 
-use console_never::Never;
+use console_core_never::Never;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Stamp {

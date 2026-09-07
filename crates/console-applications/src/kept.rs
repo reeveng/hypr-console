@@ -25,7 +25,7 @@
 
 use std::collections::BTreeMap;
 
-use console_never::Never;
+use console_core_never::Never;
 
 use crate::entry::Application;
 

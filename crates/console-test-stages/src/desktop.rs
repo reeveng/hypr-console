@@ -23,9 +23,9 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-use console_external_programs::Program;
-use console_never::Never;
-use console_number_conversion::{Float, fitted};
+use console_core_external_programs::Program;
+use console_core_never::Never;
+use console_core_number_conversion::{Float, fitted};
 
 use crate::picture::{Picture, where_};
 
@@ -46,7 +46,7 @@ fn pressing_hand() -> Result<(), String> {
     match beside {
         Some(at) if at.is_file() => Ok(()),
         Some(at) => Err(format!(
-            "{} is not there, so nothing would be pressed: cargo build -p console-virtual-pointer",
+            "{} is not there, so nothing would be pressed: cargo build -p console-input-pointer",
             at.display()
         )),
         None => Err("console-point is not beside console-desktop".to_string()),

@@ -8,7 +8,7 @@
 //! waiting for a line is waiting for the lock and waiting for a moment is a test
 //! that fails on a busy machine.
 
-use console_never::Never;
+use console_core_never::Never;
 use console_panel::chooser::{Again, Alone, alone, drawn, gone};
 
 const KEPT: std::time::Duration = std::time::Duration::from_secs(30);
@@ -32,6 +32,19 @@ fn took(name: &str) -> Result<(), Never> {
     Ok(())
 }
 
+fn posing(for_: std::time::Duration) -> Result<(), Never> {
+    #[cfg_attr(
+        dylint_lib = "explicit021_no_sleeping",
+        allow(
+            explicit021_no_sleeping,
+            reason = "this program is a clock and nothing else: it exists so a test has a second process that holds the screen for a known length of time, or draws late, or leaves late, and the waiting is the behaviour being posed rather than something being waited for"
+        )
+    )]
+    std::thread::sleep(for_);
+
+    Ok(())
+}
+
 fn main() {
     let asked: Vec<String> = std::env::args().skip(1).collect();
     let name = asked.get(1).cloned().unwrap_or_default();
@@ -42,17 +55,17 @@ fn main() {
             let Ok(()) = drawn();
 
             println!("held");
-            std::thread::sleep(KEPT);
+            let Ok(()) = posing(KEPT);
         }
         Some("coming") => {
             let Ok(()) = took(&name);
 
             println!("held");
-            std::thread::sleep(DRAWING);
+            let Ok(()) = posing(DRAWING);
 
             let Ok(()) = drawn();
 
-            std::thread::sleep(KEPT);
+            let Ok(()) = posing(KEPT);
         }
         Some("going") => {
             let Ok(()) = took(&name);
@@ -60,13 +73,13 @@ fn main() {
             let Ok(()) = gone();
 
             println!("held");
-            std::thread::sleep(GOING);
+            let Ok(()) = posing(GOING);
         }
         Some("stuck") => {
             let Ok(()) = took(&name);
 
             println!("held");
-            std::thread::sleep(KEPT);
+            let Ok(()) = posing(KEPT);
         }
         Some("twice") => {
             let Ok(one) = alone(&name, Again::Closes);

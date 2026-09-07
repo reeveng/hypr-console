@@ -10,11 +10,11 @@ name = "launcher"
 path = "src/bin/launcher.rs"
 
 [dependencies]
-console-defaults.workspace = true
-console-external-programs.workspace = true
+console-default-applications.workspace = true
+console-core-external-programs.workspace = true
 console-home-screen.workspace = true
 console-applications.workspace = true
-console-never.workspace = true
+console-core-never.workspace = true
 console-panel.workspace = true
 
 [lints]

@@ -33,7 +33,14 @@
 //! things in each, so it says what it needs to be able to see by which stage it
 //! is written for, and a stage nothing is written for skips it and says so
 //! rather than passing quietly.
+//!
+//! The last of them is somebody's machine and is lent rather than given, so a
+//! run there is bracketed by `putting_back`: what was true before anything was
+//! pressed is read once, and put back once the last check has had its turn.
+//! `stopping` is the same promise kept when a run is interrupted, which is the
+//! moment it matters most.
 
+pub mod baseline;
 pub mod checking;
 pub mod desktop;
 pub mod device;
@@ -43,6 +50,8 @@ pub mod palette;
 pub mod panels;
 pub mod picture;
 pub mod plug;
+pub mod putting_back;
+pub mod stopping;
 pub mod watching;
 
 pub fn screen() -> Result<console_screen::Screen, String> {
@@ -53,7 +62,7 @@ pub fn screen() -> Result<console_screen::Screen, String> {
     console_screen::Screen::read(&written)
 }
 
-pub fn root() -> Result<std::path::PathBuf, console_never::Never> {
+pub fn root() -> Result<std::path::PathBuf, console_core_never::Never> {
     let from = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
 
     Ok(match from.canonicalize() {

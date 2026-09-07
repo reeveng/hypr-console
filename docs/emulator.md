@@ -11,8 +11,8 @@ tried in a second instead of over SSH.
     console-emulate run scenarios/get-around.txt
 
 It builds the four devices InputPlumber publishes, from a real capture kept in
-`crates/console-gamepad/fixtures/devices.json`. `just capture` asks the device
-again, and a diff means something changed under it.
+`crates/console-input-gamepad/fixtures/devices.json`. `just capture` asks the
+device again, and a diff means something changed under it.
 
 A press goes through the same profile files the device reads, so this tests the
 profile as well as the daemon.

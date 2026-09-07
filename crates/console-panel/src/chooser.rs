@@ -39,8 +39,9 @@
 //! the lock being free is the screen being free.
 
 
-use console_never::Never;
-use console_number_conversion::fitted;
+use console_core_never::Never;
+use console_waiting::{Patience, Seen, Waited, until};
+use console_core_number_conversion::fitted;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::fd::AsRawFd;
@@ -51,9 +52,9 @@ use std::time::{Duration, Instant};
 
 pub const BREATH: Duration = Duration::from_millis(20);
 
-pub const PATIENCE: u128 = Duration::from_secs(10).as_millis() / BREATH.as_millis();
+pub const PATIENCE: Duration = Duration::from_secs(10);
 
-pub const COMING: usize = 100;
+pub const COMING: Duration = Duration::from_secs(2);
 
 static HELD: Mutex<Option<Holding>> = Mutex::new(None);
 
@@ -177,26 +178,34 @@ enum Meanwhile {
 }
 
 fn meanwhile(handle: &mut File) -> Result<Meanwhile, Never> {
-    for _ in 0..COMING {
-        std::thread::sleep(BREATH);
-
+    let Ok(patience) = Patience::asking_every(COMING, BREATH);
+    let mut answer = Meanwhile::Stuck;
+    let Ok(_settled) = until(patience, || {
         let Ok(took) = take(handle);
 
         match took == Took::It {
-            true => return Ok(Meanwhile::Free),
+            true => {
+                answer = Meanwhile::Free;
+
+                return Ok(Seen::Yes);
+            }
             false => {},
         }
 
         let Ok(said) = read(handle);
         let Ok((_pid, drawn)) = holder(&said);
 
-        match !drawn.is_empty() {
-            true => return Ok(Meanwhile::Drawn),
-            false => {},
-        }
-    }
+        Ok(match !drawn.is_empty() {
+            true => {
+                answer = Meanwhile::Drawn;
 
-    Ok(Meanwhile::Stuck)
+                Seen::Yes
+            }
+            false => Seen::NotYet,
+        })
+    });
+
+    Ok(answer)
 }
 
 fn read(handle: &mut File) -> Result<String, Never> {
@@ -328,20 +337,17 @@ pub fn alone(name: &str, again: Again) -> Result<Alone, Never> {
             // SAFETY: a signal to a pid, which is what the file said was there.
             unsafe { libc::kill(pid, libc::SIGTERM) };
 
-            let waited = (0..PATIENCE).any(|_| {
+            let Ok(patience) = Patience::asking_every(PATIENCE, BREATH);
+            let Ok(waited) = until(patience, || {
                 let Ok(got) = take(&handle);
 
-                match got == Took::Not {
-                    true => {
-                        std::thread::sleep(BREATH);
-                    }
-                    false => {},
-                }
-
-                got == Took::It
+                Ok(match got == Took::It {
+                    true => Seen::Yes,
+                    false => Seen::NotYet,
+                })
             });
 
-            match !waited {
+            match waited == Waited::RanOut {
                 true => {
                     eprintln!("{name}: {pid} has the screen and will not give it up");
 

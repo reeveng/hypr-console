@@ -1,6 +1,6 @@
 //! What the machine talks to over the short road.
 
-use console_never::Never;
+use console_core_never::Never;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Device {

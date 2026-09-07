@@ -20,10 +20,13 @@
 
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(test)]
+use std::time::Instant;
 
-use console_external_programs::Program;
-use console_never::Never;
+use console_core_external_programs::Program;
+use console_core_never::Never;
+use console_waiting::{Patience, Seen, Waited, until};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Urgency {
@@ -312,20 +315,24 @@ fn said_within(argv: &[String], waiting: Duration) -> Result<Option<String>, Nev
         return Ok(None);
     };
 
-    let by = Instant::now() + waiting;
+    let Ok(patience) = Patience::asking_every(waiting, LOOKING);
+    let Ok(ended) = until(patience, || {
+        Ok(match running.try_wait() {
+            Ok(Some(_)) => Seen::Yes,
+            Ok(None) => Seen::NotYet,
+            Err(_nothing_can_be_asked_about_it) => Seen::Yes,
+        })
+    });
 
-    while Instant::now() < by {
-        match running.try_wait() {
-            Ok(Some(_)) => {
-                let Ok(said) = running.wait_with_output() else {
-                    return Ok(None);
-                };
+    match ended {
+        Waited::Happened => {
+            let Ok(said) = running.wait_with_output() else {
+                return Ok(None);
+            };
 
-                return Ok(Some(String::from_utf8_lossy(&said.stdout).into_owned()));
-            }
-            Ok(None) => std::thread::sleep(LOOKING),
-            Err(_) => return Ok(None),
+            return Ok(Some(String::from_utf8_lossy(&said.stdout).into_owned()));
         }
+        Waited::RanOut => {},
     }
 
     let _ = running.kill();

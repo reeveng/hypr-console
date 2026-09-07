@@ -20,8 +20,8 @@
 //! what the compositor grants them, and they all get it from here.
 
 
-use console_never::Never;
-use console_number_conversion::whole_i32;
+use console_core_never::Never;
+use console_core_number_conversion::whole_i32;
 pub const PART: i32 = 93;
 
 pub fn part_of(room: i32) -> Result<i32, Never> {

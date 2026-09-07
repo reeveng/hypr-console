@@ -1,0 +1,35 @@
+[package]
+name = "console-panels"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_panels"
+path = "src/lib.rs"
+
+# The one program on the device that keeps a toolkit up. Every panel binary is
+# a stand-in that asks this one to draw, and falls back to drawing itself when
+# it cannot be reached.
+[[bin]]
+name = "console-panels"
+path = "src/bin/console-panels.rs"
+
+[dependencies]
+console-input-mapping.workspace = true
+console-downloads.workspace = true
+console-files.workspace = true
+console-launcher.workspace = true
+console-music.workspace = true
+console-core-never.workspace = true
+console-notifications.workspace = true
+console-panel.workspace = true
+console-settings.workspace = true
+console-media-viewer.workspace = true
+console-response-times.workspace = true
+gtk4 = "0.11"
+libc = "0.2"
+
+[lints]
+workspace = true

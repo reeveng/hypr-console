@@ -16,7 +16,7 @@
 //! than written down a second time, because a second copy of an answer is a
 //! copy that is wrong the first day somebody changes the other one.
 
-use console_never::Never;
+use console_core_never::Never;
 use std::path::{Path, PathBuf};
 
 pub mod pack;

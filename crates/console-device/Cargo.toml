@@ -18,9 +18,9 @@ name = "console-migrate"
 path = "src/bin/console-migrate.rs"
 
 [dependencies]
-console-external-programs.workspace = true
-console-file-writing.workspace = true
-console-never.workspace = true
+console-core-external-programs.workspace = true
+console-core-atomic-writes.workspace = true
+console-core-never.workspace = true
 console-program-contract.workspace = true
 console-program-runtime.workspace = true
 console-repository.workspace = true

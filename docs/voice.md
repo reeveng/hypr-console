@@ -5,8 +5,8 @@ would have. One press starts listening, the next writes it down. There is
 nothing to hold and nothing to aim at, which is what a button on the back of a
 device has to be.
 
-`crates/console-dictation` is the whole of it: a library that decides the shape of
-each call, and `dictate`, which makes them.
+`crates/console-input-dictation` is the whole of it: a library that decides the
+shape of each call, and `dictate`, which makes them.
 
 ## What it is made of
 
@@ -328,13 +328,13 @@ llama.cpp's issue tracker still has open reports about Qwen3-ASR transcribing
 incorrectly and about the shape of what it returns. It is worth trying when
 those close. It is not worth the paddle today.
 
-So the engine is right, and the honest answer about the model is that it has
-one loose end: turbo is the model that is weakest at Thai, and the reason turbo
-was chosen -- speed -- is a reason that mostly does not apply to what this
-button does. Turbo cuts the decoder, and on a two-second sentence this device
-spends all but a hundredth of a second in the encoder, which turbo does not
-touch. Measuring `ggml-large-v3.bin` against the one in use, on Thai, is the next
-thing to do here. `console_dictation::comparing` is that measurement, and
+So the engine is right, and the honest answer about the model is that it has one
+loose end: turbo is the model that is weakest at Thai, and the reason turbo was
+chosen -- speed -- is a reason that mostly does not apply to what this button
+does. Turbo cuts the decoder, and on a two-second sentence this device spends
+all but a hundredth of a second in the encoder, which turbo does not touch.
+Measuring `ggml-large-v3.bin` against the one in use, on Thai, is the next thing
+to do here. `console_input_dictation::comparing` is that measurement, and
 `voice-compare` is what runs it.
 
 The rest of what is wrong with dictation on this machine was never the model.

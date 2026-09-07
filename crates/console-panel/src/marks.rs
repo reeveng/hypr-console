@@ -32,6 +32,7 @@ pub mod named {
     pub const ELSE: &str = "else";
     pub const ICON: &str = "icon";
     pub const INTO: &str = "into";
+    pub const LINE: &str = "line";
     pub const MORE: &str = "more";
     pub const NOTE: &str = "note";
     pub const PANEL: &str = "panel";
@@ -48,9 +49,9 @@ pub mod named {
     pub const TAB: &str = "tab";
     pub const TOP: &str = "top";
 
-    pub const EVERY: [&str; 21] = [
-        ABOUT, ANSWER, ASIDE, ASKED, BAR, CARD, COVER, ELSE, ICON, INTO, MORE, NOTE, PANEL, SAID,
-        SHUT, SOUGHT, STEP, STRIP, SURE, TAB, TOP,
+    pub const EVERY: [&str; 22] = [
+        ABOUT, ANSWER, ASIDE, ASKED, BAR, CARD, COVER, ELSE, ICON, INTO, LINE, MORE, NOTE, PANEL,
+        SAID, SHUT, SOUGHT, STEP, STRIP, SURE, TAB, TOP,
     ];
 }
 

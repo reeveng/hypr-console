@@ -12,7 +12,7 @@
 
 use std::path::{Path, PathBuf};
 
-use console_never::Never;
+use console_core_never::Never;
 
 pub const CAME_WITH: &str = "/usr/share/backgrounds/console";
 

@@ -1,36 +1,31 @@
 //! What a battery running out puts on the screen, and how the machine stops.
-//!
-//! Where the three steps stand is `console_defaults::battery`, which is a
-//! setting. What each of them says, and what the last one does, is here,
-//! because it is about this machine rather than about a number.
-//!
-//! The last one is the only part that had to be asked of the hardware. "Save
-//! everything and stop" means hibernate: the session goes to disk and the
-//! machine goes off, and plugging in and pressing the button puts everything
-//! back where it was. This device cannot do that. Its only swap is zram, which
-//! is memory, and nothing on the kernel command line names a device to come
-//! back from -- `/sys/power/resume` reads `0:0` -- so logind answers `na` when
-//! it is asked whether it can hibernate, and it is right to.
-//!
-//! So the machine stops instead of saving, and the card says so rather than
-//! promising otherwise. That is the honest half of it. The other half is why
-//! stopping is still better than the two things it might have been. Sleeping
-//! keeps the session in the memory that the battery about to run out is what
-//! powers, so a suspend at five per cent is the session lost in an hour and a
-//! hard cut when the cell empties -- and `hypridle.conf` already refuses to
-//! sleep this machine unattended, for the separate reason that nothing here
-//! has ever proved it wakes. Doing nothing is the same loss with a dirty
-//! filesystem and a cell taken to nought, which is the one thing that damages
-//! a battery rather than merely emptying it.
-//!
-//! A device that can hibernate gets hibernation. Nothing here is written for
-//! this handheld's answer; it asks, and the card follows what it was told.
+//! Where the three steps stand is `console_default_applications::battery`,
+//! which is a setting. What each of them says, and what the last one does, is
+//! here, because it is about this machine rather than about a number.  The last
+//! one is the only part that had to be asked of the hardware. "Save everything
+//! and stop" means hibernate: the session goes to disk and the machine goes
+//! off, and plugging in and pressing the button puts everything back where it
+//! was. This device cannot do that. Its only swap is zram, which is memory, and
+//! nothing on the kernel command line names a device to come back from --
+//! `/sys/power/resume` reads `0:0` -- so logind answers `na` when it is asked
+//! whether it can hibernate, and it is right to.  So the machine stops instead
+//! of saving, and the card says so rather than promising otherwise. That is the
+//! honest half of it. The other half is why stopping is still better than the
+//! two things it might have been. Sleeping keeps the session in the memory that
+//! the battery about to run out is what powers, so a suspend at five per cent
+//! is the session lost in an hour and a hard cut when the cell empties -- and
+//! `hypridle.conf` already refuses to sleep this machine unattended, for the
+//! separate reason that nothing here has ever proved it wakes. Doing nothing is
+//! the same loss with a dirty filesystem and a cell taken to nought, which is
+//! the one thing that damages a battery rather than merely emptying it.  A
+//! device that can hibernate gets hibernation. Nothing here is written for this
+//! handheld's answer; it asks, and the card follows what it was told.
 
 use std::time::Duration;
 
-use console_defaults::battery::Step;
-use console_external_programs::Program;
-use console_never::Never;
+use console_default_applications::battery::Step;
+use console_core_external_programs::Program;
+use console_core_never::Never;
 use console_notifications::saying::Notice;
 
 pub const GRACE: Duration = Duration::from_secs(15);
@@ -187,7 +182,7 @@ mod tests {
 
     #[test]
     fn every_card_draws_what_is_left() {
-        for step in console_defaults::battery::EVERY {
+        for step in console_default_applications::battery::EVERY {
             let Ok(said) = card(step, 7, Stop::PowerOff);
 
             assert_eq!(said.value, Some(7));

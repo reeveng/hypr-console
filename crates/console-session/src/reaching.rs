@@ -17,8 +17,8 @@
 //! and a question whose no cannot be told from a machine that could not be
 //! reached is not a question.
 
-use console_external_programs::Program;
-use console_never::Never;
+use console_core_external_programs::Program;
+use console_core_never::Never;
 
 pub const OWNER: &str = "set -- $(ls -1 /home 2>/dev/null); \
                          if [ $# -eq 1 ]; then echo \"$1\"; else id -nu 1000; fi";

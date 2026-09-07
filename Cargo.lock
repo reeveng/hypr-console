@@ -94,101 +94,95 @@ checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
 name = "console-applications"
 version = "0.1.0"
 dependencies = [
- "console-external-programs",
- "console-never",
+ "console-core-external-programs",
+ "console-core-never",
  "console-panel",
-]
-
-[[package]]
-name = "console-bar-modules"
-version = "0.1.0"
-dependencies = [
- "console-child-processes",
- "console-defaults",
- "console-external-programs",
- "console-never",
- "console-notifications",
- "console-number-conversion",
- "console-panel",
- "console-reconnect",
- "serde_json",
 ]
 
 [[package]]
 name = "console-browser-extension"
 version = "0.1.0"
 dependencies = [
- "console-never",
- "console-number-conversion",
+ "console-core-never",
+ "console-core-number-conversion",
  "sha2",
 ]
 
 [[package]]
-name = "console-button-layout"
+name = "console-button-guide"
 version = "0.1.0"
 dependencies = [
- "console-controller",
- "console-external-programs",
- "console-gamepad",
- "console-input-claim",
- "console-never",
+ "console-core-external-programs",
+ "console-core-never",
+ "console-files",
+ "console-input-controller",
+ "console-input-focus",
+ "console-input-gamepad",
  "console-panel",
- "console-program-contract",
  "evdev",
- "gtk4",
- "gtk4-layer-shell",
 ]
 
 [[package]]
-name = "console-child-processes"
+name = "console-core-atomic-writes"
 version = "0.1.0"
 dependencies = [
- "console-external-programs",
- "console-never",
- "libc",
+ "console-core-never",
 ]
 
 [[package]]
-name = "console-colour"
+name = "console-core-colour"
 version = "0.1.0"
 dependencies = [
- "console-never",
- "console-number-conversion",
+ "console-core-never",
+ "console-core-number-conversion",
 ]
 
 [[package]]
-name = "console-controller"
+name = "console-core-external-programs"
 version = "0.1.0"
 dependencies = [
- "console-child-processes",
- "console-cpu-boost",
- "console-external-programs",
- "console-gamepad",
- "console-never",
- "console-number-conversion",
- "console-onscreen",
- "console-program-contract",
- "console-program-runtime",
- "console-wait-times",
- "evdev",
- "libc",
- "serde_json",
+ "console-core-never",
+]
+
+[[package]]
+name = "console-core-localization"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+]
+
+[[package]]
+name = "console-core-never"
+version = "0.1.0"
+
+[[package]]
+name = "console-core-number-conversion"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+]
+
+[[package]]
+name = "console-core-reconnect"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
 ]
 
 [[package]]
 name = "console-cpu-boost"
 version = "0.1.0"
 dependencies = [
- "console-file-writing",
- "console-never",
+ "console-core-atomic-writes",
+ "console-core-never",
 ]
 
 [[package]]
-name = "console-defaults"
+name = "console-default-applications"
 version = "0.1.0"
 dependencies = [
- "console-external-programs",
- "console-never",
+ "console-core-external-programs",
+ "console-core-never",
  "serde_json",
 ]
 
@@ -196,9 +190,9 @@ dependencies = [
 name = "console-device"
 version = "0.1.0"
 dependencies = [
- "console-external-programs",
- "console-file-writing",
- "console-never",
+ "console-core-atomic-writes",
+ "console-core-external-programs",
+ "console-core-never",
  "console-program-contract",
  "console-program-runtime",
  "console-repository",
@@ -206,27 +200,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "console-dictation"
+name = "console-downloads"
 version = "0.1.0"
 dependencies = [
- "console-child-processes",
- "console-defaults",
- "console-external-programs",
- "console-file-writing",
- "console-never",
- "console-program-contract",
- "console-program-runtime",
- "libc",
-]
-
-[[package]]
-name = "console-download"
-version = "0.1.0"
-dependencies = [
- "console-external-programs",
+ "console-core-external-programs",
+ "console-core-never",
+ "console-core-number-conversion",
  "console-music",
- "console-never",
- "console-number-conversion",
  "console-panel",
  "console-program-contract",
  "gtk4",
@@ -234,77 +214,104 @@ dependencies = [
 ]
 
 [[package]]
-name = "console-event-broker"
+name = "console-events"
 version = "0.1.0"
 dependencies = [
- "console-never",
+ "console-core-external-programs",
+ "console-core-never",
+ "console-core-reconnect",
  "console-onscreen",
  "console-program-contract",
- "console-reconnect",
-]
-
-[[package]]
-name = "console-external-programs"
-version = "0.1.0"
-dependencies = [
- "console-never",
-]
-
-[[package]]
-name = "console-feature-checks"
-version = "0.1.0"
-dependencies = [
- "console-external-programs",
- "console-gamepad",
- "console-home-screen",
- "console-never",
- "console-onscreen",
- "console-panel",
- "console-test-stages",
- "evdev",
- "serde",
- "toml 0.9.12+spec-1.1.0",
-]
-
-[[package]]
-name = "console-file-writing"
-version = "0.1.0"
-dependencies = [
- "console-never",
+ "console-program-lifetime",
 ]
 
 [[package]]
 name = "console-files"
 version = "0.1.0"
 dependencies = [
- "console-external-programs",
- "console-never",
- "console-number-conversion",
+ "console-core-external-programs",
+ "console-core-never",
+ "console-core-number-conversion",
  "console-panel",
  "console-program-contract",
  "gtk4",
 ]
 
 [[package]]
-name = "console-flow-tests"
+name = "console-home-screen"
 version = "0.1.0"
 dependencies = [
- "console-controller",
- "console-gamepad",
- "console-guide",
+ "console-applications",
+ "console-core-external-programs",
+ "console-core-never",
+ "console-core-number-conversion",
  "console-onscreen",
- "console-test-stages",
+ "console-panel",
+ "gtk4",
+ "gtk4-layer-shell",
+ "serde_json",
+]
+
+[[package]]
+name = "console-how-far"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "console-core-number-conversion",
+]
+
+[[package]]
+name = "console-input-controller"
+version = "0.1.0"
+dependencies = [
+ "console-core-external-programs",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-cpu-boost",
+ "console-events",
+ "console-input-gamepad",
+ "console-onscreen",
+ "console-program-contract",
+ "console-program-lifetime",
+ "console-program-runtime",
+ "console-response-times",
+ "evdev",
+ "libc",
+ "serde_json",
+]
+
+[[package]]
+name = "console-input-dictation"
+version = "0.1.0"
+dependencies = [
+ "console-core-atomic-writes",
+ "console-core-external-programs",
+ "console-core-never",
+ "console-default-applications",
+ "console-program-contract",
+ "console-program-lifetime",
+ "console-program-runtime",
+ "console-waiting",
+ "libc",
+]
+
+[[package]]
+name = "console-input-focus"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "console-input-gamepad",
  "evdev",
 ]
 
 [[package]]
-name = "console-gamepad"
+name = "console-input-gamepad"
 version = "0.1.0"
 dependencies = [
- "console-external-programs",
- "console-gamepad",
- "console-never",
- "console-number-conversion",
+ "console-core-external-programs",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-input-gamepad",
  "console-program-contract",
  "console-program-runtime",
  "console-repository",
@@ -317,58 +324,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "console-guide"
-version = "0.1.0"
-dependencies = [
- "console-controller",
- "console-external-programs",
- "console-files",
- "console-gamepad",
- "console-input-claim",
- "console-never",
- "console-panel",
- "evdev",
-]
-
-[[package]]
-name = "console-home-screen"
-version = "0.1.0"
-dependencies = [
- "console-applications",
- "console-external-programs",
- "console-never",
- "console-number-conversion",
- "console-onscreen",
- "console-panel",
- "gtk4",
- "gtk4-layer-shell",
- "serde_json",
-]
-
-[[package]]
-name = "console-input-claim"
-version = "0.1.0"
-dependencies = [
- "console-gamepad",
- "console-never",
- "evdev",
-]
-
-[[package]]
-name = "console-keyboard"
+name = "console-input-keyboard"
 version = "0.1.0"
 dependencies = [
  "cairo-rs",
- "console-colour",
- "console-controller",
- "console-external-programs",
- "console-gamepad",
- "console-input-claim",
- "console-never",
- "console-number-conversion",
+ "console-core-colour",
+ "console-core-external-programs",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-input-controller",
+ "console-input-focus",
+ "console-input-gamepad",
  "console-program-contract",
  "console-program-runtime",
- "console-wait-times",
+ "console-response-times",
  "evdev",
  "libc",
  "pango",
@@ -380,269 +349,102 @@ dependencies = [
 ]
 
 [[package]]
+name = "console-input-mapping"
+version = "0.1.0"
+dependencies = [
+ "console-core-external-programs",
+ "console-core-never",
+ "console-input-controller",
+ "console-input-focus",
+ "console-input-gamepad",
+ "console-panel",
+ "console-program-contract",
+ "evdev",
+ "gtk4",
+ "gtk4-layer-shell",
+]
+
+[[package]]
+name = "console-input-pointer"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-onscreen",
+ "console-screen",
+ "wayland-client",
+ "wayland-protocols",
+ "wayland-protocols-wlr",
+]
+
+[[package]]
+name = "console-input-touchscreen"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-screen",
+ "evdev",
+]
+
+[[package]]
 name = "console-launcher"
 version = "0.1.0"
 dependencies = [
  "console-applications",
- "console-defaults",
- "console-external-programs",
+ "console-core-external-programs",
+ "console-core-never",
+ "console-default-applications",
  "console-home-screen",
- "console-never",
  "console-panel",
 ]
 
 [[package]]
-name = "console-manifest"
+name = "console-manifest-engine"
 version = "0.1.0"
 dependencies = [
- "console-child-processes",
- "console-controller",
- "console-defaults",
- "console-external-programs",
- "console-file-writing",
- "console-gamepad",
- "console-keyboard",
- "console-migrations",
- "console-never",
+ "console-core-atomic-writes",
+ "console-core-external-programs",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-default-applications",
+ "console-how-far",
+ "console-input-controller",
+ "console-input-gamepad",
+ "console-input-keyboard",
+ "console-manifest-migrations",
  "console-notifications",
- "console-number-conversion",
+ "console-program-lifetime",
  "serde_json",
  "serde_yaml_ng",
  "toml 0.9.12+spec-1.1.0",
 ]
 
 [[package]]
-name = "console-migrations"
+name = "console-manifest-migrations"
 version = "0.1.0"
 dependencies = [
- "console-external-programs",
- "console-never",
+ "console-core-external-programs",
+ "console-core-never",
  "console-repository",
 ]
 
 [[package]]
-name = "console-music"
+name = "console-manifest-publish"
 version = "0.1.0"
 dependencies = [
- "console-external-programs",
- "console-never",
- "console-number-conversion",
- "console-panel",
- "console-program-contract",
- "gtk4",
- "serde_json",
-]
-
-[[package]]
-name = "console-nested-desktop"
-version = "0.1.0"
-dependencies = [
- "console-external-programs",
- "console-never",
- "console-number-conversion",
- "console-screen",
- "console-test-stages",
- "libc",
- "serde_json",
-]
-
-[[package]]
-name = "console-never"
-version = "0.1.0"
-
-[[package]]
-name = "console-notifications"
-version = "0.1.0"
-dependencies = [
- "console-external-programs",
- "console-never",
- "console-panel",
- "console-program-contract",
- "libc",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "console-number-conversion"
-version = "0.1.0"
-dependencies = [
- "console-never",
-]
-
-[[package]]
-name = "console-onscreen"
-version = "0.1.0"
-dependencies = [
- "console-external-programs",
- "console-never",
- "console-reconnect",
- "serde_json",
-]
-
-[[package]]
-name = "console-panel"
-version = "0.1.0"
-dependencies = [
- "console-child-processes",
- "console-external-programs",
- "console-never",
- "console-number-conversion",
- "console-onscreen",
- "console-test-stages",
- "console-wait-times",
- "gtk4",
- "gtk4-layer-shell",
- "libc",
- "serde_json",
-]
-
-[[package]]
-name = "console-panel-host"
-version = "0.1.0"
-dependencies = [
- "console-button-layout",
- "console-download",
- "console-files",
- "console-launcher",
- "console-music",
- "console-never",
- "console-notifications",
- "console-panel",
- "console-settings",
- "console-viewer",
- "console-wait-times",
- "gtk4",
- "libc",
-]
-
-[[package]]
-name = "console-program-contract"
-version = "0.1.0"
-dependencies = [
- "console-external-programs",
- "console-never",
-]
-
-[[package]]
-name = "console-program-runtime"
-version = "0.1.0"
-dependencies = [
- "console-child-processes",
- "console-external-programs",
- "console-never",
- "console-program-contract",
-]
-
-[[package]]
-name = "console-publish"
-version = "0.1.0"
-dependencies = [
- "console-external-programs",
- "console-never",
+ "console-core-external-programs",
+ "console-core-never",
  "console-repository",
 ]
 
 [[package]]
-name = "console-reconnect"
+name = "console-media-viewer"
 version = "0.1.0"
 dependencies = [
- "console-never",
-]
-
-[[package]]
-name = "console-repository"
-version = "0.1.0"
-dependencies = [
- "console-external-programs",
- "console-never",
- "console-program-contract",
- "console-program-runtime",
-]
-
-[[package]]
-name = "console-screen"
-version = "0.1.0"
-dependencies = [
- "console-never",
- "console-number-conversion",
-]
-
-[[package]]
-name = "console-session"
-version = "0.1.0"
-dependencies = [
- "console-external-programs",
- "console-never",
- "console-wait-times",
-]
-
-[[package]]
-name = "console-settings"
-version = "0.1.0"
-dependencies = [
- "console-defaults",
- "console-dictation",
- "console-external-programs",
- "console-home-screen",
- "console-never",
- "console-notifications",
- "console-number-conversion",
- "console-panel",
- "console-program-contract",
- "console-screen",
- "console-translation",
- "console-wallpaper",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "console-test-stages"
-version = "0.1.0"
-dependencies = [
- "cairo-rs",
- "console-colour",
- "console-controller",
- "console-external-programs",
- "console-gamepad",
- "console-never",
- "console-notifications",
- "console-number-conversion",
- "console-onscreen",
- "console-panel",
- "console-screen",
- "evdev",
- "libc",
- "serde_json",
-]
-
-[[package]]
-name = "console-theme"
-version = "0.1.0"
-dependencies = [
- "console-colour",
- "console-never",
- "console-repository",
- "indexmap",
- "serde",
- "toml 0.9.12+spec-1.1.0",
-]
-
-[[package]]
-name = "console-translation"
-version = "0.1.0"
-dependencies = [
- "console-never",
-]
-
-[[package]]
-name = "console-viewer"
-version = "0.1.0"
-dependencies = [
- "console-external-programs",
- "console-never",
- "console-number-conversion",
+ "console-core-external-programs",
+ "console-core-never",
+ "console-core-number-conversion",
  "console-panel",
  "console-program-contract",
  "console-settings",
@@ -652,48 +454,277 @@ dependencies = [
 ]
 
 [[package]]
-name = "console-virtual-pointer"
+name = "console-music"
 version = "0.1.0"
 dependencies = [
- "console-never",
- "console-number-conversion",
- "console-onscreen",
- "console-screen",
- "wayland-client",
- "wayland-protocols",
- "wayland-protocols-wlr",
+ "console-core-external-programs",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-events",
+ "console-panel",
+ "console-program-contract",
+ "console-waiting",
+ "gtk4",
+ "serde_json",
 ]
 
 [[package]]
-name = "console-virtual-touchscreen"
+name = "console-notifications"
 version = "0.1.0"
 dependencies = [
- "console-never",
- "console-number-conversion",
+ "console-core-external-programs",
+ "console-core-never",
+ "console-panel",
+ "console-program-contract",
+ "console-waiting",
+ "libc",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "console-onscreen"
+version = "0.1.0"
+dependencies = [
+ "console-core-external-programs",
+ "console-core-never",
+ "serde_json",
+]
+
+[[package]]
+name = "console-palette"
+version = "0.1.0"
+dependencies = [
+ "console-core-colour",
+ "console-core-never",
+ "console-repository",
+ "indexmap",
+ "serde",
+ "toml 0.9.12+spec-1.1.0",
+]
+
+[[package]]
+name = "console-panel"
+version = "0.1.0"
+dependencies = [
+ "console-core-external-programs",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-events",
+ "console-onscreen",
+ "console-program-lifetime",
+ "console-response-times",
+ "console-test-stages",
+ "console-waiting",
+ "gtk4",
+ "gtk4-layer-shell",
+ "libc",
+ "serde_json",
+]
+
+[[package]]
+name = "console-panels"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "console-downloads",
+ "console-files",
+ "console-input-mapping",
+ "console-launcher",
+ "console-media-viewer",
+ "console-music",
+ "console-notifications",
+ "console-panel",
+ "console-response-times",
+ "console-settings",
+ "gtk4",
+ "libc",
+]
+
+[[package]]
+name = "console-program-contract"
+version = "0.1.0"
+dependencies = [
+ "console-core-external-programs",
+ "console-core-never",
+]
+
+[[package]]
+name = "console-program-lifetime"
+version = "0.1.0"
+dependencies = [
+ "console-core-external-programs",
+ "console-core-never",
+ "libc",
+]
+
+[[package]]
+name = "console-program-runtime"
+version = "0.1.0"
+dependencies = [
+ "console-core-external-programs",
+ "console-core-never",
+ "console-events",
+ "console-program-contract",
+ "console-program-lifetime",
+]
+
+[[package]]
+name = "console-repository"
+version = "0.1.0"
+dependencies = [
+ "console-core-external-programs",
+ "console-core-never",
+ "console-program-contract",
+ "console-program-runtime",
+]
+
+[[package]]
+name = "console-response-times"
+version = "0.1.0"
+dependencies = [
+ "console-core-external-programs",
+ "console-core-never",
+ "console-core-number-conversion",
+ "libc",
+ "serde_json",
+]
+
+[[package]]
+name = "console-screen"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "console-core-number-conversion",
+]
+
+[[package]]
+name = "console-session"
+version = "0.1.0"
+dependencies = [
+ "console-core-external-programs",
+ "console-core-never",
+ "console-response-times",
+]
+
+[[package]]
+name = "console-settings"
+version = "0.1.0"
+dependencies = [
+ "console-core-external-programs",
+ "console-core-localization",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-default-applications",
+ "console-home-screen",
+ "console-input-dictation",
+ "console-notifications",
+ "console-panel",
+ "console-program-contract",
  "console-screen",
+ "console-waiting",
+ "console-wallpaper",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "console-status-bar"
+version = "0.1.0"
+dependencies = [
+ "console-core-external-programs",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-reconnect",
+ "console-default-applications",
+ "console-events",
+ "console-notifications",
+ "console-panel",
+ "console-program-contract",
+ "console-program-lifetime",
+ "serde_json",
+]
+
+[[package]]
+name = "console-test-checks"
+version = "0.1.0"
+dependencies = [
+ "console-core-external-programs",
+ "console-core-never",
+ "console-home-screen",
+ "console-input-gamepad",
+ "console-onscreen",
+ "console-panel",
+ "console-test-stages",
+ "evdev",
+ "serde",
+ "toml 0.9.12+spec-1.1.0",
+]
+
+[[package]]
+name = "console-test-desktop"
+version = "0.1.0"
+dependencies = [
+ "console-core-external-programs",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-screen",
+ "console-test-stages",
+ "console-waiting",
+ "libc",
+ "serde_json",
+]
+
+[[package]]
+name = "console-test-flows"
+version = "0.1.0"
+dependencies = [
+ "console-button-guide",
+ "console-input-controller",
+ "console-input-gamepad",
+ "console-onscreen",
+ "console-test-stages",
  "evdev",
 ]
 
 [[package]]
-name = "console-wait-times"
+name = "console-test-stages"
 version = "0.1.0"
 dependencies = [
- "console-external-programs",
- "console-never",
- "console-number-conversion",
+ "cairo-rs",
+ "console-core-colour",
+ "console-core-external-programs",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-how-far",
+ "console-input-controller",
+ "console-input-gamepad",
+ "console-notifications",
+ "console-onscreen",
+ "console-panel",
+ "console-screen",
+ "console-waiting",
+ "evdev",
  "libc",
  "serde_json",
+]
+
+[[package]]
+name = "console-waiting"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
 ]
 
 [[package]]
 name = "console-wallpaper"
 version = "0.1.0"
 dependencies = [
- "console-colour",
- "console-event-broker",
- "console-external-programs",
- "console-never",
- "console-number-conversion",
+ "console-core-colour",
+ "console-core-external-programs",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-events",
  "console-onscreen",
  "console-program-contract",
  "console-screen",

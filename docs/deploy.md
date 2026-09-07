@@ -41,8 +41,8 @@ quiet way, and `.gitignore` holds that file and `.direnv/` out of the history so
 the address cannot reach a copy of this repository by being forgotten about.
 
 A tool that cannot see it says so and stops. The one place that matters most is
-`console-publish`, which checks less when the host is unset rather than failing:
-see the last section.
+`console-manifest-publish`, which checks less when the host is unset rather than
+failing: see the last section.
 
 ## What must hold before anything is sent
 
@@ -92,6 +92,47 @@ an apply started on the device while a deploy is applying over ssh is refused
 rather than interleaved with it. `console check` and `console list` are never
 blocked.
 
+## What it looks like while it is running
+
+An apply is minutes, and most of them used to be silent. Pacman said nothing
+this end could read, `cargo build --release` says nothing at all until it is
+finished, and what somebody watching over ssh got was a cursor. The two
+questions they actually have are whether it is still going and whether it is
+about to break something, and neither had an answer.
+
+It is drawn the way pacman draws now, and the reason is not the hashes. Pacman
+is the long thing everybody on an Arch machine has already watched a hundred
+times without once wondering whether it had hung, and what earns that is not how
+it looks: it is that pacman never says anything it does not know. Its counters
+come out of a transaction that was settled before the first byte moved, so
+`(2/14)` is a fact rather than an estimate. It names the thing it is on, by
+name, so a slow one can be told from a stuck one. It ends every line it
+finishes, so what has already happened stays on the screen to be read back. And
+it never fills the bar and then sits there, because the bar reaching the end is
+the only thing it uses to say the end has come.
+
+Those four are the rules, `console-how-far` is where they are kept, and the
+shape follows from them -- pacman's own, off its own format strings: the
+counters padded to the width of their total so the line does not jitter as they
+climb, the name on the left, the bar on the right, redrawn over itself while it
+fills and ended with a newline when it is full. An apply is then a list of
+stretches that got done, with one line at the bottom still moving, and
+everything the apply has to say -- the crate being compiled, the file being
+staged, the service being restarted -- scrolls past above it.
+
+The line moves inside a stretch, not only between them. Cargo names each crate
+as it starts one, pacman names each package as it fetches and writes it, and the
+files and the services are lists whose length is known before the loop begins.
+The build is the one with no honest total to count towards -- how many crates a
+build compiles depends on what changed, and asking cargo in advance means
+running the resolver twice -- so that one moves a share of what is left per
+crate, which always moves forward and never arrives on its own. The stretch
+ending is what fills it.
+
+The same line is what a device run of the checks draws, out of the same crate,
+because they are the same question asked about two long things. `docs/checks.md`
+is that end of it.
+
 ## The programs that are carried rather than built
 
 The rule is that what we write is built on the machine that runs it, and what
@@ -118,9 +159,9 @@ and that row has nothing to offer.
 So a package and a file can name the same program on purpose. The package is
 there for what it brings; the file is there for what it answers.
 
-`crates/console-publish` keeps the list of which paths are forks, and it is the
-only place that list lives -- a program that stops being a fork leaves it in the
-same commit that makes it a crate, the way the on-screen keyboard did.
+`crates/console-manifest-publish` keeps the list of which paths are forks, and
+it is the only place that list lives -- a program that stops being a fork leaves
+it in the same commit that makes it a crate, the way the on-screen keyboard did.
 
 ## After
 
@@ -135,10 +176,17 @@ run that is about the machine rather than about the desktop.
 A release to the public copy is a separate errand, and it comes after a deploy
 and after looking at the device, in that order.
 
-    cargo run --bin console-publish -- <path to the public checkout>
+    cargo run --bin console-manifest-publish -- <path to the public checkout>
 
 It builds a scrubbed copy out of `git ls-files`, runs the whole suite inside the
 copy, and checks that nothing in it says a name it must not. It does not push.
+
+The path is written over rather than made from nothing. Everything already there
+goes, except `.git` -- the history the copy is committed into -- and `target`,
+which is cargo's and is ignored by both trees. That is what lets the suite run
+where the copy lands, and it has to: two of the tests read the history of
+`desktop.conf` to work out what has left the manifest, and in a directory that
+is not a checkout they can only say that they could not look.
 
 The forks are left out of it, both the built binaries and any source kept here
 for one. The binary because a binary published without its source is a licence

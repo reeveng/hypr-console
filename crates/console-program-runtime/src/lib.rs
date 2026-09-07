@@ -21,6 +21,24 @@
 //! round**, because a daemon decides on the wake-up: anything that arrived
 //! while it was asleep has to be in the state by the time it is asked.
 //!
+//! **What a program asked to be told is asked of the pool.** `Wants::Words` is
+//! a topic, `console-events` is the one subscription to it on the machine, and
+//! this is where the two meet: the loop holds one [`Listening`], `Doing::Listen`
+//! adds a topic to it and `Doing::Deafen` takes one away, and what the pool
+//! says arrives as [`Word::Changed`] the way a round arrives as
+//! [`Word::CameRound`]. A program with no pool hears nothing and keeps
+//! whatever `Wants::Round` it also asked for, which is the fallback the whole
+//! design leans on: slower, and never wrong.
+//!
+//! **So there is one wait rather than a sleep.** The loop blocks on the pool's
+//! channel until the next round falls due, which is the same wait for both
+//! reasons a program can be woken and is why nothing in this crate has to
+//! declare a sleep any more. A program that wants no topic still waits here:
+//! the channel is open and quiet, and a `recv_timeout` on it that times out is
+//! the round coming round. Getting into the pool is a word of its own there
+//! and the loop does nothing with it, because what a program wants after a gap
+//! is the replay that is already following it.
+//!
 //! **An answer arrives on a later turn.** [`Doing::Ask`] is run to completion
 //! here and its [`Word::Answered`] goes on the queue rather than back into the
 //! turn that asked for it, because a program that could see its own answer
@@ -32,14 +50,16 @@
 
 use std::collections::VecDeque;
 use std::process::{Command, ExitCode, Stdio};
+use std::sync::mpsc::RecvTimeoutError;
 use std::time::Instant;
 
-use console_child_processes::{LetGo, Still, let_go};
-use console_external_programs::Program as Theirs;
-use console_never::Never;
+use console_events::listening::{self, Heard, Listening, Wanting};
+use console_program_lifetime::{LetGo, Still, let_go};
+use console_core_external_programs::Program as Theirs;
+use console_core_never::Never;
 use console_program_contract::{
-    Answer, Argv, Chose, Doing, Ending, Named, Opening, Program, Question, Round, Runs, Saying,
-    Since, Turn, Wants, Went, Word, Writing,
+    Answer, Argv, Changed, Chose, Doing, Ending, Named, Opening, Program, Question, Round, Runs,
+    Saying, Since, Turn, Wants, Went, Word, Writing,
 };
 
 pub trait Carrying {
@@ -69,6 +89,12 @@ struct Waiting {
     due: Instant,
 }
 
+enum Woke {
+    Came(Round),
+    Told(Changed),
+    Nothing,
+}
+
 pub fn run<P, C>(called: &str, argv: &Argv, carrying: &mut C) -> Result<ExitCode, Never>
 where
     P: Program,
@@ -79,11 +105,12 @@ where
     let mut rounds: Vec<Waiting> = Vec::new();
     let mut queue: VecDeque<Word<P::Hears>> = VecDeque::new();
     let mut running: Vec<LetGo> = Vec::new();
+    let Ok(words) = listening::listen(&[]);
 
     let began = Instant::now();
 
     for want in &wants {
-        let Ok(()) = listen(called, &mut rounds, want, began);
+        let Ok(()) = listen(&mut rounds, &words, want, began);
     }
 
     queue.push_back(Word::Opened);
@@ -92,10 +119,10 @@ where
         let word = match queue.pop_front() {
             Some(word) => word,
             None => {
-                let Ok(round) = due(&mut rounds);
+                let Ok(woke) = woke(&mut rounds, &words);
 
-                match round {
-                    Some(round) => {
+                match woke {
+                    Woke::Came(round) => {
                         let since = began.elapsed();
 
                         let Ok(came) = carrying.came(&round, since);
@@ -105,7 +132,12 @@ where
 
                         continue;
                     }
-                    None => Word::Stopping,
+                    Woke::Told(changed) => {
+                        queue.push_back(Word::Changed(changed));
+
+                        continue;
+                    }
+                    Woke::Nothing => Word::Stopping,
                 }
             },
         };
@@ -138,10 +170,10 @@ where
                     running.extend(child);
                 }
                 Doing::Listen(want) => {
-                    let Ok(()) = listen(called, &mut rounds, want, Instant::now());
+                    let Ok(()) = listen(&mut rounds, &words, want, Instant::now());
                 }
                 Doing::Deafen(want) => {
-                    let Ok(()) = deafen(&mut rounds, want);
+                    let Ok(()) = deafen(&mut rounds, &words, want);
                 }
                 Doing::Write(writing) => {
                     let Ok(()) = wrote(called, writing);
@@ -171,29 +203,63 @@ where
     }
 }
 
-fn due(rounds: &mut [Waiting]) -> Result<Option<Round>, Never> {
-    let Some(soonest) = rounds.iter().map(|waiting| waiting.due).min() else { return Ok(None) };
+fn woke(rounds: &mut [Waiting], words: &Listening) -> Result<Woke, Never> {
+    loop {
+        let Ok(waited) = waited(rounds, words);
 
-    let now = Instant::now();
+        match waited {
+            Some(woke) => return Ok(woke),
+            None => {},
+        }
+    }
+}
 
-    std::thread::sleep(soonest.saturating_duration_since(now));
+fn waited(rounds: &mut [Waiting], words: &Listening) -> Result<Option<Woke>, Never> {
+    let soonest = rounds.iter().map(|waiting| waiting.due).min();
+    let Ok(heard) = words.heard();
+    let Ok(wanting) = words.wanting();
 
+    match (soonest, wanting) {
+        (None, Wanting::Nothing) => Ok(Some(Woke::Nothing)),
+        (None, Wanting::Something) => Ok(match heard.recv() {
+            Ok(Heard::Said(changed)) => Some(Woke::Told(changed)),
+            Ok(Heard::GotIn) => None,
+            Err(_) => Some(Woke::Nothing),
+        }),
+        (Some(soonest), Wanting::Something | Wanting::Nothing) => {
+            let waiting = soonest.saturating_duration_since(Instant::now());
+
+            match heard.recv_timeout(waiting) {
+                Ok(Heard::Said(changed)) => Ok(Some(Woke::Told(changed))),
+                Ok(Heard::GotIn) => Ok(None),
+                Err(RecvTimeoutError::Timeout) => {
+                    let Ok(came) = came(rounds);
+
+                    Ok(Some(came))
+                }
+                Err(RecvTimeoutError::Disconnected) => Ok(Some(Woke::Nothing)),
+            }
+        }
+    }
+}
+
+fn came(rounds: &mut [Waiting]) -> Result<Woke, Never> {
     let woken = Instant::now();
 
     let Some(waiting) = rounds.iter_mut().find(|waiting| waiting.due <= woken) else {
-        return Ok(None);
+        return Ok(Woke::Nothing);
     };
 
     let round = waiting.round;
 
     waiting.due = woken.checked_add(round.every).unwrap_or(woken);
 
-    Ok(Some(round))
+    Ok(Woke::Came(round))
 }
 
 fn listen(
-    called: &str,
     rounds: &mut Vec<Waiting>,
+    words: &Listening,
     want: &Wants,
     now: Instant,
 ) -> Result<(), Never> {
@@ -204,17 +270,19 @@ fn listen(
             rounds.push(Waiting { round: *round, due });
         }
         Wants::Words(topic) => {
-            eprintln!("{called}: nothing here can say when {topic:?} changes yet");
+            let Ok(()) = words.also(topic);
         }
     }
 
     Ok(())
 }
 
-fn deafen(rounds: &mut Vec<Waiting>, want: &Wants) -> Result<(), Never> {
+fn deafen(rounds: &mut Vec<Waiting>, words: &Listening, want: &Wants) -> Result<(), Never> {
     match want {
         Wants::Round(round) => rounds.retain(|waiting| waiting.round != *round),
-        Wants::Words(_) => {},
+        Wants::Words(topic) => {
+            let Ok(()) = words.not(topic);
+        }
     }
 
     Ok(())

@@ -13,7 +13,7 @@
 //! anything -- so the figure is said at the moment it changes, where somebody
 //! is already looking.
 
-use console_never::Never;
+use console_core_never::Never;
 
 use crate::level::Muted;
 

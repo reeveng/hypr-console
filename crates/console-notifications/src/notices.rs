@@ -10,8 +10,8 @@
 //! because mako answers the dismissal before it answers a fresh `list`, and a
 //! panel that stayed would be drawing a notice nobody can act on.
 
-use console_external_programs::Program as Theirs;
-use console_never::Never;
+use console_core_external_programs::Program as Theirs;
+use console_core_never::Never;
 use console_program_contract::{Argv, Doing, Opening, Program, Runs, Turn, Word};
 
 pub const UP: usize = 0;

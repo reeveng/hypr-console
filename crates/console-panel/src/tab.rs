@@ -11,7 +11,7 @@
 //! first tab rather than nothing at all.
 
 use crate::notes;
-use console_never::Never;
+use console_core_never::Never;
 
 const TAB: &str = "tab";
 

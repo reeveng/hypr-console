@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use console_never::Never;
+use console_core_never::Never;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Place {

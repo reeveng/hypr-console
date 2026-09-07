@@ -15,7 +15,7 @@
 //! Nothing here is worth failing an apply over: an apply that worked and could
 //! not say so is an apply that worked.
 
-use console_never::Never;
+use console_core_never::Never;
 use console_notifications::saying::{Kept, Notice, raise_kept};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

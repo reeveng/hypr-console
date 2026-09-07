@@ -26,9 +26,9 @@ use std::process::ExitCode;
 use std::sync::mpsc::{RecvTimeoutError, Sender, channel};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use console_event_broker::listening;
-use console_external_programs::Program;
-use console_never::Never;
+use console_events::listening;
+use console_core_external_programs::Program;
+use console_core_never::Never;
 use console_program_contract::{Argv, Doing, Program as _, Topic, Turn as Turn_, Word};
 use console_wallpaper::choose::{self, Outside, Set, Turn, Wanted};
 use console_wallpaper::keeping::{self, Chosen, Going, Heard, Its, Painted, Sky, Sun};
@@ -147,6 +147,13 @@ fn run(argv: &Argv) -> Result<(), String> {
                 let Ok(()) = told_the_weather(&mut sky, said);
             }
             Ok(Woke::Compositor) | Err(RecvTimeoutError::Timeout) => (),
+            #[cfg_attr(
+                dylint_lib = "explicit021_no_sleeping",
+                allow(
+                    explicit021_no_sleeping,
+                    reason = "nothing is left to wake this daemon, so there is no longer a thing to wait for; it falls back to looking again rather than spinning on a dead channel"
+                )
+            )]
             Err(RecvTimeoutError::Disconnected) => std::thread::sleep(keeping::LOOK_AGAIN),
         }
     }
@@ -221,6 +228,13 @@ fn ask_the_weather(say: Sender<Woke>) -> Result<(), Never> {
 
             let Ok(()) = say.send(Woke::Weather(said)) else { return };
 
+            #[cfg_attr(
+                dylint_lib = "explicit021_no_sleeping",
+                allow(
+                    explicit021_no_sleeping,
+                    reason = "the sky is asked rather than told: a forecast service has nothing to subscribe to, and how long a handheld waits before asking again is the whole of what this decides"
+                )
+            )]
             std::thread::sleep(again);
         }
     });
@@ -282,11 +296,20 @@ fn up(picture: &Path) -> Result<Painted, Never> {
 }
 
 fn listen(say: Sender<Woke>) -> Result<(), Never> {
-    let heard = listening::listen(&[Topic::Compositor])?;
+    let listening = listening::listen(&[Topic::Compositor])?;
 
     let _ = std::thread::spawn(move || {
-        for changed in heard {
-            let Ok(worth) = covered::worth_waking_for(&changed.said);
+        let Ok(heard) = listening.heard();
+
+        for heard in heard.iter() {
+            let worth = match &heard {
+                listening::Heard::GotIn => Worth::Waking,
+                listening::Heard::Said(changed) => {
+                    let Ok(worth) = covered::worth_waking_for(&changed.said);
+
+                    worth
+                }
+            };
 
             match worth {
                 Worth::Waking => {

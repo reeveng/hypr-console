@@ -36,7 +36,7 @@
 //! stand-in writes it, which is the same order it happened in when a panel was
 //! one process.
 //!
-//! Lines, and no version number, for `console_event_broker::wire`'s reasons:
+//! Lines, and no version number, for `console_events::wire`'s reasons:
 //! both ends are built by the same `console apply` from the same commit, and
 //! somebody holding `socat` against the socket should be able to read what
 //! went past. What is escaped here is not what is escaped there -- a topic is
@@ -50,7 +50,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::time::Duration;
 
-use console_never::Never;
+use console_core_never::Never;
 
 pub const SOCKET: &str = "panels.sock";
 
@@ -299,9 +299,9 @@ fn waited(who: &str, asking: UnixStream) -> Result<Drawn, Never> {
 }
 
 fn asking_for(who: &str, argv: &[String]) -> Result<Asked, Never> {
-    let Ok(pressed) = console_wait_times::press_said();
-    let Ok(from) = console_wait_times::from_said();
-    let Ok(exec) = console_wait_times::since_exec();
+    let Ok(pressed) = console_response_times::press_said();
+    let Ok(from) = console_response_times::from_said();
+    let Ok(exec) = console_response_times::since_exec();
 
     Ok(Asked {
         who: who.to_string(),

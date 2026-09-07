@@ -1,14 +1,11 @@
-//! Everything the settings panel puts on the screen.
-//!
-//! Named for what each one means, so the name stays right when the words
-//! change. `console_translation` is the mechanism and the house style; this is one
-//! crate's share of it.
-//!
-//! The Battery tab is done and the rest of this panel is not, which is why the
-//! old strings are still inline over in `rows`. The tabs come through here
-//! because a tab is the first word anybody reads.
+//! Everything the settings panel puts on the screen.  Named for what each one
+//! means, so the name stays right when the words change.
+//! `console_core_localization` is the mechanism and the house style; this is
+//! one crate's share of it.  The Battery tab is done and the rest of this panel
+//! is not, which is why the old strings are still inline over in `rows`. The
+//! tabs come through here because a tab is the first word anybody reads.
 
-use console_translation::Said;
+use console_core_localization::Said;
 
 pub enum Word {
     Sound,
@@ -93,7 +90,7 @@ impl Said for Word {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use console_translation::say;
+    use console_core_localization::say;
 
     #[test]
     fn every_word_fits_a_row_and_names_no_program() {

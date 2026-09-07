@@ -5,7 +5,7 @@
 //! are read from this crate at the moment it is compiled, which on this desktop
 //! is `console apply` on the machine itself.
 
-use console_never::Never;
+use console_core_never::Never;
 use sha2::{Digest, Sha256};
 
 pub const FILES: [(&str, &str); 7] = [

@@ -4,7 +4,7 @@
 //! quoting is the specification's own, which is the shell's: a word ends at a
 //! space unless the space is quoted.
 
-use console_never::Never;
+use console_core_never::Never;
 
 pub fn split(said: &str) -> Result<Option<Vec<String>>, Never> {
     let mut words = Vec::new();

@@ -9,18 +9,18 @@
 //! would make it a race instead.
 
 use evdev::EventType;
-use console_controller::doing::{Doing, Out};
-use console_controller::means::Table;
-use console_controller::mode::{Awake, Mode};
+use console_input_controller::doing::{Doing, Out};
+use console_input_controller::means::Table;
+use console_input_controller::mode::{Awake, Mode};
 
-pub use console_controller::mode::Acts;
-use console_controller::turning::Turning;
-use console_gamepad::capture::captured;
-use console_gamepad::devices::Devices;
-use console_gamepad::go::{Held, LegionGo};
-use console_gamepad::router::every_profile;
-use console_gamepad::world::World;
-use console_never::Never;
+pub use console_input_controller::mode::Acts;
+use console_input_controller::turning::Turning;
+use console_input_gamepad::capture::captured;
+use console_input_gamepad::devices::Devices;
+use console_input_gamepad::go::{Held, LegionGo};
+use console_input_gamepad::router::every_profile;
+use console_input_gamepad::world::World;
+use console_core_never::Never;
 
 use crate::device::Seen;
 use crate::plug::Plug;
@@ -49,7 +49,7 @@ impl Here {
         let Ok(root) = crate::root();
         let profiles = every_profile(&root)?;
         let go =
-            LegionGo::new(profiles, devices, Held::default(), console_gamepad::router::NAME)?;
+            LegionGo::new(profiles, devices, Held::default(), console_input_gamepad::router::NAME)?;
         Ok(Here {
             go,
             turning: Turning::default(),

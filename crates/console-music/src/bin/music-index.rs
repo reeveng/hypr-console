@@ -13,7 +13,7 @@
 
 use std::path::Path;
 
-use console_never::Never;
+use console_core_never::Never;
 use gtk4::glib;
 use console_music::library::{self, folder};
 use console_music::looking::{self, Song};

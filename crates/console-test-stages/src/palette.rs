@@ -7,11 +7,11 @@
 
 use std::collections::BTreeMap;
 
-pub use console_colour::spent::read;
+pub use console_core_colour::spent::read;
 
 pub const SPENT: &str = "files/usr/local/lib/console/palette.sh";
 
-pub fn palette() -> Result<BTreeMap<String, String>, console_never::Never> {
+pub fn palette() -> Result<BTreeMap<String, String>, console_core_never::Never> {
     let Ok(root) = crate::root();
     let at = root.join(SPENT);
 

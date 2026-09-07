@@ -14,9 +14,9 @@ use std::process::ExitCode;
 
 use console_device::deploying::{Alive, Deploy, Heard, Holder, Its};
 use console_device::naming::device;
-use console_external_programs::Program as Theirs;
-use console_file_writing::{self, Held};
-use console_never::Never;
+use console_core_external_programs::Program as Theirs;
+use console_core_atomic_writes::{self, Held};
+use console_core_never::Never;
 use console_program_contract::{Argv, Word};
 use console_program_runtime::Carrying;
 
@@ -88,7 +88,7 @@ fn said(at: &Path, called: &str) -> Result<String, Never> {
 }
 
 fn kept(at: &Path) -> Result<String, Never> {
-    let Ok(held) = console_file_writing::read(at);
+    let Ok(held) = console_core_atomic_writes::read(at);
 
     Ok(match held {
         Held::Said(said) => said.trim().to_string(),

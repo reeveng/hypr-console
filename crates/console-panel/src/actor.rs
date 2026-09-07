@@ -41,7 +41,7 @@ use std::sync::mpsc::Sender;
 use std::sync::mpsc::channel;
 use std::thread::JoinHandle;
 
-use console_never::Never;
+use console_core_never::Never;
 
 #[derive(Debug)]
 pub struct Gone;

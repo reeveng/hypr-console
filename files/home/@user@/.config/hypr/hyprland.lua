@@ -82,19 +82,19 @@ hl.env("QT_QPA_PLATFORMTHEME", "kde")
 
 ------------------------------------------------------------------ look
 
--- The palette, written by tools/console-theme out of theme/palette.toml. Every
+-- The palette, written by tools/console-palette out of theme/palette.toml. Every
 -- other surface on this machine imports the palette in its own language; the
 -- compositor is handed a copy instead, because a config file that fails to
 -- load here does not cost a window, it abandons every line after the failure
 -- and leaves a session with no bindings on a device whose only other way in is
 -- ssh.
--- console-theme:begin
+-- console-palette:begin
 local blossom = {
     active   = "rgba(ffc2e7ff)",
     inactive = "rgba(8a7d8eff)",
     behind   = "rgba(110b12ff)",
 }
--- console-theme:end
+-- console-palette:end
 
 -- No gaps and no rounding: on an 8.8 inch screen a window should have the
 -- whole of it. With a tiling layout one window is already full screen.

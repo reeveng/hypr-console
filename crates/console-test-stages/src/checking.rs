@@ -10,7 +10,7 @@
 //! fails: left works or right works, and a check that presses both and asserts
 //! once tells you neither which failed nor that only one did.
 
-use console_never::Never;
+use console_core_never::Never;
 
 use crate::desktop::Desktop;
 use crate::device::{Device, Seen, Waited};

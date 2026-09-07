@@ -35,15 +35,21 @@ which stable cannot do; `rust-toolchain.toml` pins the nightly and the
     EXPLICIT018  an `allow` carries its reason, in the attribute
     EXPLICIT019  no `if`; a decision is a `match` that names both outcomes
     EXPLICIT020  no comments; a `//!` head and a `// SAFETY:` are the two that stay
+    EXPLICIT021  no waiting on the clock; ask for the thing, and keep asking
+    EXPLICIT022  no settling on a number of seconds on the handheld; ask it
 
 All of them are written. Each is one crate with a `ui/` case beside it.
 
 The level in the lint's own source says which tier a rule is in, and every
-rule the workspace keeps is `Deny`: the gate fails on all twenty. Nothing
-stands in the `Warn` tier, which is where a rule written ahead of the code
-waits, printing its remaining distance on every run so it is never out of
-sight. A rule moves from `Warn` to `Deny` in its own crate when the last call
-site that broke it is fixed, and by the ratchet's one law it never moves back.
+rule the workspace keeps is `Deny`: the gate fails on every one of them. The
+`Warn` tier is where a rule written ahead of the code waits, printing its
+remaining distance on every run so it is never out of sight, and nothing stands
+there today. A rule moves from `Warn` to `Deny` in its own crate when the last
+call site that broke it is fixed, and by the ratchet's one law it never moves
+back. 022 was the last to come out, and what let it was a change to what a
+wait may carry rather than a change to any check: `until` now carries the fault
+its question carries, so a question that reads the screen is one a wait can be
+given.
 018 came out the quiet way: it was written after the
 policy it names was already kept everywhere, so its last call site was answered
 before the rule existed to count it. 017 came out the long way, which is the way the ratchet
@@ -102,8 +108,8 @@ nineteen described a workspace that already kept them by the time they were
 written. This one described one it was walking towards, and it waited longer
 than any of them for a reason none of the others had: it had nowhere to point.
 `Result<T, Never>` needs a `Never`, and there was no such type here at all.
-`console-never` is that type -- an enum with no variants, so the `Err` a caller
-does not write is a case the compiler agrees cannot arrive.
+`console-core-never` is that type -- an enum with no variants, so the `Err` a
+caller does not write is a case the compiler agrees cannot arrive.
 
 It was registered `Allow` for as long as that was true, which is not what the
 warned tier is for. `Allow` prints nothing, so the rule was real only in the
@@ -127,7 +133,7 @@ its callers one to meet, and 005 and 017 between them say how: `let answered =
 asked()?;`, one call to a statement, everything nested lifted out. So the rule
 was adopted a crate at a time, the way 019 was, rather than swept -- and the
 last crates to cross were the ones with the most arithmetic in them, because
-`console-number-conversion` reaches every screen this desktop draws.
+`console-core-number-conversion` reaches every screen this desktop draws.
 
 **002, 007 and 008 skip a method that implements a trait.** All three are about
 a choice: a signature that says `bool`, or says nothing at all, where it could
@@ -154,6 +160,86 @@ written in it; read as it is written, those were the one thing this rule cannot
 ask for -- a function that already says how it fails, told to say it again in a
 way that cannot.
 
+**021 is the newest, and it is the first rule about time.** Everything before it
+is about what a signature says; this one is about what a program does while it
+waits. `thread::sleep(SETTLE)` is a claim that the machine will be finished by
+then -- checked once, on the machine it was written on, and relied on by every
+other machine that ever runs it. What is being waited for almost always has a
+name and can be asked: a window that is drawn, a child that has exited, a lock
+that is free, a monitor that has taken its mode, a screen that has stopped
+changing. So the rule denies `thread::sleep` and its kin, and denies the glib
+timers with them, because a callback that runs because time passed is the same
+assumption wearing a main loop.
+
+It has somewhere to point, the way 002 needed `console-core-never`.
+`console-waiting` is the loop that asks: a patience, a question, and an answer
+that says which of the two ways it ended. Every wait in the tree that was a
+number became one of those, and the fixing found faults rather than only moving
+lines -- `make_the_screen` was three sleeps in a row, and each of them is now a
+question the compositor answers, so the nested desktop no longer spends 1.8
+seconds being sure and then coming up wrong on a busy machine anyway.
+
+What it does not catch is deliberate. `recv_timeout` is a wait on a real event
+with a bound on the patience, which is the shape the rule is pushing towards
+rather than away from. And a `sleep` inside a shell script this tree writes into
+a string is out of reach on purpose: 020 reads the text of a file because a
+comment is not in the syntax tree, but a rule that read string literals looking
+for another language's grammar would be a second mechanism with a second set of
+edge cases, and the same argument that keeps 020's rule in one place keeps this
+one in the other.
+
+The allows it left behind are the point of the rule rather than a hole in it. A
+click is a press and a release with a gap between them; a note is shown for a
+moment; a backoff is the waiting between two tries; the emulator is playing back
+how long somebody held a button. In each of those the elapsing *is* what is
+being asked for, and the reason at the site says so. The test the README already
+gives applies unchanged: the allow is right where the harm the rule names is
+absent, and "poll instead" is not a thing that can be said about a duration
+somebody wanted.
+
+One allow is worth naming here because it is the rule's own foundation.
+`console_waiting::between` is a `thread::sleep`, and it has to be: the gap
+between two questions about a thing nothing will announce is the one wait a poll
+cannot poll for. It is one site in the tree rather than fifty, which is what
+makes the rest of them answerable.
+
+`console_test_stages::device::settle` is the other one. It is the gap the
+device stage's own `until` is built from, so it is the same site as above --
+but it is also `pub`, and most checks once reached for it directly with a
+number in hand. The rule cannot see the difference between the two uses: from
+where 021 stands there is one sleep there and it is already excused. That is
+what 022 is for.
+
+**022 is 021 asked at the call instead of at the sleep.** An allow excuses a
+site, and a `pub fn` around an excused site turns one of them into as many as
+anybody cares to write. `console_waiting::between` is private, so it is still
+one site; `console_test_stages::device::Device::settle` is public, and every
+check that reached for it is another wait 021 cannot see, because each of them
+is a call to a function whose sleep already carries a reason -- a reason that
+is true of exactly one caller.
+
+So the rule is asked where the decision is: at the call. It resolves the method
+rather than reading its name, because `settle` is a word four other types in
+this workspace use for four other things -- laying files down, a turn of the
+emulated daemon, a boost that has expired, a screen that has redrawn -- and the
+checks call two of them in the same file. `Here::settle` takes turns of a
+daemon this process is running and is not a clock at all; the rule is silent on
+it, and on the flows, which is most of what a name-matching version would have
+shouted about.
+
+It does not exempt tests, which every other rule in the suite does. The checks
+that break it are written in test targets, and a rule that skipped those would
+be counting a tree nobody runs.
+
+`Device::until` carries the allow, and it is the same sentence as
+`console_waiting::between`'s: the gap between two questions is what a poll is
+built out of. The checks have all crossed and the rule is denied, so what
+`settle` is now is a word said deliberately, wherever it is said, with the
+reason beside it. It stays `pub` because all but the gap are written in another
+crate, which is a smaller thing than it was: the rule stands between a number
+and anybody who would name one without saying why. `docs/checks.md` argues for
+what a crossed check looks like.
+
 ## The six that came later
 
 014 through 019 arrived together, and each is one of the first thirteen said
@@ -171,10 +257,10 @@ profile: bare `+`, `-`, `*` and the shifts panic in debug and wrap in release,
 and `/` and `%` panic on zero in both. `checked_*`, `saturating_*` and
 `wrapping_*` each name a policy at the site. Const contexts are left alone --
 arithmetic the compiler evaluates fails the build, which is a failure with a
-name, at the right time -- and a negated literal with them, because `-1` is
-how a negative number is written rather than a subtraction anybody performs.
-`console-number-conversion`'s hand-rolled float decoder is what this rule looks like
-adopted early.
+name, at the right time -- and a negated literal with them, because `-1` is how
+a negative number is written rather than a subtraction anybody performs.
+`console-core-number-conversion`'s hand-rolled float decoder is what this rule
+looks like adopted early.
 
 Adopting it everywhere else said one thing worth writing down. Nearly every
 site wanted `saturating_*`, because nearly every number in this tree is a size,
@@ -259,6 +345,30 @@ Every allow in the tree is one of these, and each carries its reason:
     which changes how a running process is asked to go away and wants deciding
     on its own rather than inside a lint sweep.
 
+  - **The waits.** EXPLICIT021, and there are more of these than of anything
+    else, because the rule is the only one in the suite whose exception is a
+    whole category rather than an accident. Each is a site where a duration is
+    what was asked for: `console_waiting::between`, which is the gap a poll is
+    built out of; `console-core-reconnect` and the retries that share its
+    shape; the press, the tap and the hold, where a compositor is being told
+    how long a person's finger was down; the coalescing windows, where the
+    thing being waited for is a burst of events stopping; the cadences a
+    program falls back to when the channel that used to wake it is gone; and
+    `console-input-gamepad`'s `Clock`, which is playing a capture back at the
+    speed it was made. The rule's own README section says how to read one that
+    is not on this list.
+
+  - **`Device::until`, and the calls that keep a number on purpose.**
+    EXPLICIT022. The first is the gap between two questions to the handheld,
+    which is what a poll is built out of and is the same sentence as
+    `console_waiting::between`'s. The rest are the d-pad held down so the
+    highlight walks, where the duration is the press, and the checks whose
+    whole assertion is that nothing happened, where there is no question to ask
+    and the number is how long the desktop is given to do the wrong thing.
+    Every other caller of `settle` named a number and asked nothing, and each
+    of those has crossed; `settle` stays `pub` because all but the gap are
+    written outside the crate that holds it.
+
 The form is `#[cfg_attr(dylint_lib = "<name>", allow(<name>))]`, which is inert
 under an ordinary build. `dylint_lib` is an unexpected cfg there, so the crate
 declares it in its own `[lints.rust]`; that keeps the root manifest out of it.
@@ -275,15 +385,15 @@ of named checks -- `same`, `not_same`, `more_than`, `less_than`, `empty`,
 The lesson is that an allow's reason has to hold at every call site, not at the
 ones that come to mind.
 
-`console-number-conversion` came off the same way, and it is the better story because the
-reason was true. Float to whole number and count to float genuinely have no
-conversion in the standard library -- no `From` and no `TryFrom` in either
-direction, and the compiler says so if you ask it. What the allow's reason did
-not survive was the difference between "the standard library has no conversion"
-and "there is no way": `f64::to_bits` is safe and total, and once a float is in
-pieces the rest is integer arithmetic. So the crate now decodes the exponent
-and shifts the significand, and saturating is three cases in a type rather than
-something the arithmetic is trusted to arrive at.
+`console-core-number-conversion` came off the same way, and it is the better
+story because the reason was true. Float to whole number and count to float
+genuinely have no conversion in the standard library -- no `From` and no
+`TryFrom` in either direction, and the compiler says so if you ask it. What the
+allow's reason did not survive was the difference between "the standard library
+has no conversion" and "there is no way": `f64::to_bits` is safe and total, and
+once a float is in pieces the rest is integer arithmetic. So the crate now
+decodes the exponent and shifts the significand, and saturating is three cases
+in a type rather than something the arithmetic is trusted to arrive at.
 
 What made that safe to write by hand is the exemption below. A hand-rolled
 float decoder is exactly the kind of code whose bug is a slightly wrong number
@@ -342,10 +452,10 @@ So the rule does not ask for a `Result`. It asks that the failure be met, and a
     };
 
 That is the form to reach for where the default is deliberate, and it is how
-`console-controller` came to zero without making its callers fallible. Which of
-the two a site wants is a question about the site -- what should this program
-do on a machine where this is missing? -- and the shape of the call that is
-there now does not answer it. Every site gets read for that before it is
+`console-input-controller` came to zero without making its callers fallible.
+Which of the two a site wants is a question about the site -- what should this
+program do on a machine where this is missing? -- and the shape of the call that
+is there now does not answer it. Every site gets read for that before it is
 converted, because the conversion that is wrong is the one that lints.
 
 ### The sentence names the purpose, not the mechanism
@@ -375,10 +485,10 @@ It folds an unset variable and one that is not text into a single answer, and
 its comment says why: to that crate's callers neither is a thing they can do
 anything about beyond saying so.
 
-It does not belong in a shared crate, and `console-controller` is the reason.
-That crate reads the same `VarError` and pulls the two cases apart, because
-there they are not the same thing at all -- a device nobody pointed at is
-ordinary and is most of the time, while a name set to something that is not
+It does not belong in a shared crate, and `console-input-controller` is the
+reason. That crate reads the same `VarError` and pulls the two cases apart,
+because there they are not the same thing at all -- a device nobody pointed at
+is ordinary and is most of the time, while a name set to something that is not
 text is somebody trying to point at a device and missing, and it used to arrive
 as the same silence. Both crates are right about their own machine. A shared
 helper would have to pick one of them, and picking either makes the other one

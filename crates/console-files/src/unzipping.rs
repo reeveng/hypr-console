@@ -18,7 +18,7 @@
 //! read. A `.tar.gz` unpacked once is a `.tar`, and a row that answers a press
 //! with another archive is a row that lied about what it does.
 
-use console_never::Never;
+use console_core_never::Never;
 
 use crate::places::Is;
 

@@ -16,9 +16,10 @@
 //! the bus ever sees.
 
 
-use console_external_programs::Program;
-use console_never::Never;
-use console_number_conversion::{Float, toward_zero_i64};
+use console_core_external_programs::Program;
+use console_core_never::Never;
+use console_waiting::{Patience, Seen, Waited, until};
+use console_core_number_conversion::{Float, toward_zero_i64};
 use std::path::PathBuf;
 
 use console_panel::running::said;
@@ -307,20 +308,20 @@ pub fn onward_for(song: &std::path::Path) -> Result<Vec<String>, Never> {
 }
 
 fn waited_for() -> Result<About, Never> {
-    let by = std::time::Instant::now() + COMES_UP;
-
-    while std::time::Instant::now() < by {
+    let Ok(patience) = Patience::asking_every(COMES_UP, BREATH);
+    let Ok(came) = until(patience, || {
         let about = about()?;
 
-        match about {
-            About::Yes => return Ok(About::Yes),
-            About::No => {},
-        }
+        Ok(match about {
+            About::Yes => Seen::Yes,
+            About::No => Seen::NotYet,
+        })
+    });
 
-        std::thread::sleep(BREATH);
-    }
-
-    Ok(About::No)
+    Ok(match came {
+        Waited::Happened => About::Yes,
+        Waited::RanOut => About::No,
+    })
 }
 
 pub fn play_pause() -> Result<(), Never> {

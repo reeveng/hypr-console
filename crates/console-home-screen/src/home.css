@@ -1,6 +1,6 @@
 /* The home screen: applications on the wallpaper.
  *
- * The palette is the machine's own, written by `console-theme`, and imported
+ * The palette is the machine's own, written by `console-palette`, and imported
  * absolutely because a stylesheet loaded from a string has no directory for a
  * relative import to be relative to. */
 @import url("{palette}");

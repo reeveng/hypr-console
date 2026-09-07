@@ -32,8 +32,9 @@ name = "bar-updating"
 path = "src/bin/bar-updating.rs"
 
 [dependencies]
-console-external-programs.workspace = true
-console-never.workspace = true
+console-core-external-programs.workspace = true
+console-core-never.workspace = true
+console-waiting.workspace = true
 console-panel.workspace = true
 console-program-contract.workspace = true
 libc = "0.2"

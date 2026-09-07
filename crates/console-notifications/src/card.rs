@@ -18,7 +18,7 @@
 
 use std::sync::Arc;
 
-use console_external_programs::Program;
+use console_core_external_programs::Program;
 use crate::notices::{Closes, Heard, Its, Notices, Onto, closes};
 use crate::reading::{self, Notice};
 use crate::rows::{Chosen, earlier_rows, gone_rows, one_rows, tab, waiting_rows};
@@ -26,7 +26,7 @@ use console_panel::actor::{self, Addr, Answer};
 use console_panel::card::{Card, Door};
 use console_panel::page::{Does, Page, Row, Rows, Showing, Watch};
 use console_panel::running::said;
-use console_never::Never;
+use console_core_never::Never;
 use console_program_contract::{Argv, Doing, Named, Program as _, Turn, Word};
 
 fn makoctl(argv: &[&str]) -> Result<String, Never> {

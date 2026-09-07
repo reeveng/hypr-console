@@ -32,8 +32,8 @@
 
 use std::path::PathBuf;
 
-use console_external_programs::Program;
-use console_never::Never;
+use console_core_external_programs::Program;
+use console_core_never::Never;
 
 use crate::running;
 

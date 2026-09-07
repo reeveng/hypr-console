@@ -16,7 +16,7 @@
 //!
 //! What it is told is how long it has been up, and not what the clock says.
 //! Every program here that has ever compared two moments was comparing two
-//! readings of the same monotonic count -- `console_controller::clock` is
+//! readings of the same monotonic count -- `console_input_controller::clock` is
 //! `since_boot` for exactly that reason -- so a wall clock in this word would
 //! be a thing nobody wanted and a thing that goes backwards twice a year. A
 //! `Duration` also keeps `Word` comparable, which an `f64` would not: a

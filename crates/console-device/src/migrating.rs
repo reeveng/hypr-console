@@ -32,8 +32,8 @@
 //! The desktop is down between the disable and the enable, so a machine doing
 //! this from its own screen has no way of finishing the job.
 
-use console_external_programs::Program as Theirs;
-use console_never::Never;
+use console_core_external_programs::Program as Theirs;
+use console_core_never::Never;
 use console_program_contract::{
     Argv, Chose, Doing, Ending, Given, Opening, Program, Question, Runs, Turn, Went, Word,
 };
@@ -151,8 +151,8 @@ pub struct Migrate;
 
 impl Program for Migrate {
     type State = Migrating;
-    type Hears = console_never::Never;
-    type Does = console_never::Never;
+    type Hears = console_core_never::Never;
+    type Does = console_core_never::Never;
 
     fn opening(argv: &Argv) -> Opening<Migrating> {
         let Ok(first) = argv.first();
@@ -183,8 +183,8 @@ impl Program for Migrate {
 
     fn heard(
         state: &Migrating,
-        word: &Word<console_never::Never>,
-    ) -> Turn<Migrating, console_never::Never> {
+        word: &Word<console_core_never::Never>,
+    ) -> Turn<Migrating, console_core_never::Never> {
         let Ok(turn) = match (state, word) {
             (Migrating::Nowhere, Word::Opened) => Turn::doing(
                 state.clone(),
@@ -206,8 +206,8 @@ impl Program for Migrate {
 fn at(
     step: &Step,
     going: &Going,
-    word: &Word<console_never::Never>,
-) -> Result<Turn<Migrating, console_never::Never>, Never> {
+    word: &Word<console_core_never::Never>,
+) -> Result<Turn<Migrating, console_core_never::Never>, Never> {
     let Ok(at) = here(step, going);
 
     match (step, word) {
@@ -611,7 +611,7 @@ pub fn plan(going: &Going) -> Result<Vec<Piece>, Never> {
     Ok(every)
 }
 
-fn sending(left: &[Piece]) -> Result<Vec<Doing<console_never::Never>>, Never> {
+fn sending(left: &[Piece]) -> Result<Vec<Doing<console_core_never::Never>>, Never> {
     Ok(match left.first() {
         Some(piece) => piece
             .says
@@ -626,7 +626,7 @@ fn sending(left: &[Piece]) -> Result<Vec<Doing<console_never::Never>>, Never> {
     })
 }
 
-fn taking(going: &Going) -> Result<Turn<Migrating, console_never::Never>, Never> {
+fn taking(going: &Going) -> Result<Turn<Migrating, console_core_never::Never>, Never> {
     let Ok(said) = making_an_attic();
     let Ok(runs) = on(&going.host, &said);
     Turn::doing(
@@ -791,7 +791,7 @@ fn here(step: &Step, going: &Going) -> Result<Migrating, Never> {
     Ok(Migrating::At(step.clone(), going.clone()))
 }
 
-fn stopped(step: &Step, going: &Going, why: &str) -> Result<Turn<Migrating, console_never::Never>, Never> {
+fn stopped(step: &Step, going: &Going, why: &str) -> Result<Turn<Migrating, console_core_never::Never>, Never> {
     let Ok(at) = here(step, going);
 
     Turn::doing(at, vec![Doing::Stop(Ending::Badly(why.to_string()))])
@@ -821,7 +821,7 @@ mod tests {
         }
     }
 
-    fn well(said: &str) -> Word<console_never::Never> {
+    fn well(said: &str) -> Word<console_core_never::Never> {
         let Ok(runs) = on("root@handheld", "true");
         Word::Answered(Answer {
             ran: runs,
@@ -830,7 +830,7 @@ mod tests {
         })
     }
 
-    fn badly(code: i32) -> Word<console_never::Never> {
+    fn badly(code: i32) -> Word<console_core_never::Never> {
         let Ok(runs) = on("root@handheld", "true");
         Word::Answered(Answer {
             ran: runs,
@@ -849,7 +849,7 @@ mod tests {
         words(going).iter().position(|word| word.contains(like))
     }
 
-    fn looking(how: &[&str]) -> Vec<Word<console_never::Never>> {
+    fn looking(how: &[&str]) -> Vec<Word<console_core_never::Never>> {
         let _ = how;
 
         vec![

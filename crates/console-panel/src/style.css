@@ -12,7 +12,7 @@ window { background-color: transparent; }
    thing being looked at. */
 window.out { background-color: black; }
 #card.out { background-color: black; border: none; border-radius: 0; }
-#card.out row.showing { background-color: black; border-radius: 0; padding: 0; }
+#card.out row.showing #line { background-color: black; border-radius: 0; padding: 0; }
 * { font-family: "Noto Sans"; font-size: 18px; transition: none; }
 
 #top { margin: {margin}px {margin}px 0 {margin}px; }
@@ -63,25 +63,44 @@ row:selected #step { background-color: @night; }
 #step:hover { background-color: @pink; }
 #step:hover label { color: @night; }
 
-/* What else can be done with this row, for a hand with no Y under its thumb.
-   The other two marks a row wears are what the row already is -- the ends of a
-   level, the mark that says it opens onto another list -- and this one is the
-   only one that is a press of its own, so it is drawn as a button and dressed
-   like the ends of a level rather than like the words beside it. Quieter than
-   those, because a level is a thing being set and this is a thing being
-   offered. */
-#else { background-image: none; background-color: transparent; border: none;
+/* What else can be done with this row. It is not one of the row's marks: the
+   other two are what the row already is -- the ends of a level, the mark that
+   says it opens onto another list -- and are read as part of the words they
+   sit among. This one is a press of its own, and inside the row it was a press
+   of its own drawn on top of another one: a thumb aiming at the end of a row it
+   meant to take had a second, smaller thing to miss, and a finger that hit it
+   could not tell from looking which of the two it had asked for.
+   So it stands outside the card, beside it, its height, with the same ground
+   under it. Two shapes rather than one, and each of them means one thing. */
+#else { background-image: none; background-color: @night; border: none;
         box-shadow: none; font-weight: bold;
-        padding: 2px 14px; margin: 0 4px; border-radius: 8px; }
+        padding: 13px 22px; margin-left: 8px; border-radius: 10px; }
 #else label { color: @soft; }
 #else:hover { background-color: @pink; }
 #else:hover label { color: @night; }
+/* Stood on, which is what right off a row now is. It takes the highlight, and
+   the row it came off keeps the ground the scrub and the transport keep while
+   the press being made is somewhere inside them: still where you are, no longer
+   what A takes. Two pinks side by side is the panel asking a question it does
+   not mean, and the row and the thing beside it are exactly side by side. */
+#else.standing { background-color: @pink; }
+#else.standing label { color: @night; }
+row.beside:selected #line { background-color: @ground; }
+row.beside:selected label { color: @text; }
+row.beside:selected #aside, row.beside:selected #said,
+row.beside:selected #into { color: @soft; }
+row.beside:selected #icon { color: @text; }
 
 scrolledwindow, list { background-color: transparent; }
 /* A row is a card on the panel rather than a line in a list, because a thumb
    aims at a shape. Left unsaid it would take the widget theme's base colour,
-   which is a colour this palette never chose. */
-row { padding: 13px 18px; border-radius: 10px; background-color: @night; }
+   which is a colour this palette never chose.
+   The card is not the row, though: a row is the card and whatever stands
+   beside it, and the card is only the first of the two. So the row itself is
+   given nothing to be seen by, and every rule below that dresses a row dresses
+   the card on it. */
+row { padding: 0; background-color: transparent; }
+row #line { padding: 13px 18px; border-radius: 10px; background-color: @night; }
 row label { color: @text; }
 
 /* The setting that is in effect, which is not the same thing as the row your
@@ -90,7 +109,7 @@ row label { color: @text; }
    said in mint. */
 row.now label { color: @mint; }
 
-row:selected { background-color: @pink; }
+row:selected #line { background-color: @pink; }
 row:selected label { color: @night; font-weight: bold; }
 
 /* The name of what the rows under it are about, which is not one of them. It
@@ -98,7 +117,7 @@ row:selected label { color: @night; font-weight: bold; }
    a thumb aims at, so a question about a photograph read as though the
    photograph were one of the answers. It keeps no card, is written small and
    quiet, and the highlight walks past it. */
-row.naming { background-color: transparent; padding: 14px 18px 6px 18px; }
+row.naming #line { background-color: transparent; padding: 14px 18px 6px 18px; }
 row.naming label { color: @soft; font-size: 15px; font-weight: bold; }
 row.naming #aside { color: @soft; font-size: 15px; font-weight: normal; }
 
@@ -108,7 +127,7 @@ row.naming #aside { color: @soft; font-size: 15px; font-weight: normal; }
    where the names line up, and given room above and below, so that a tab with
    nothing on it reads as empty at a glance instead of as a tab holding one
    thing whose only answer to a press is nothing. */
-row.nothing { background-color: transparent; padding: 30px 18px; }
+row.nothing #line { background-color: transparent; padding: 30px 18px; }
 row.nothing label { color: @soft; font-size: 15px; }
 
 /* Nothing of the list's own, at the sides or above or below. The scroller it
@@ -149,8 +168,8 @@ entry text { caret-color: @pink; }
    and the row it sits in gives it no padding of its own: the field already has
    its own, and two paddings make a row half again as tall as the ones under
    it. */
-row.typing { padding: 0; background-color: transparent; }
-row.typing:selected { background-color: transparent; }
+row.typing #line { padding: 0; background-color: transparent; }
+row.typing:selected #line { background-color: transparent; }
 #sought { font-size: 20px; }
 #sought text { caret-color: @pink; }
 /* Stood on, which is when what is typed goes into it. The border is what says
@@ -179,7 +198,7 @@ row:selected #sought { border-color: @mint; }
    The height is said on all three nodes because a progress bar is a trough
    with a fill inside it, and either one left at the widget theme's own height
    is the one that decides. */
-row.scrub { background-color: transparent; padding: 4px 12px 2px 12px; }
+row.scrub #line { background-color: transparent; padding: 4px 12px 2px 12px; }
 #bar { min-height: 8px; }
 #bar trough { background-color: @ground; border: none; border-radius: 999px;
               min-height: 8px; }
@@ -191,7 +210,7 @@ row.scrub { background-color: transparent; padding: 4px 12px 2px 12px; }
    The ground rather than the pink every other row is highlighted with, because
    the bar is drawn in pink -- filled with it, the one thing on the row that
    says anything would be the one thing that could not be read. */
-row.scrub:selected { background-color: @ground; }
+row.scrub:selected #line { background-color: @ground; }
 row.scrub:selected #bar trough { background-color: @night; }
 row.scrub:selected #bar progress { background-color: @mint; }
 row.scrub:selected #aside { color: @mint; }
@@ -207,9 +226,9 @@ row.scrub:selected #aside { color: @mint; }
 /* A card about one thing, with its picture across the middle: what it is and
    whose it is under the picture rather than down the left edge, which is where
    a list is read and this is not a list. */
-row.middle { background-color: transparent; padding: 2px 18px; }
-row.middle:selected { background-color: transparent; }
-row.naming.middle { padding: 0 18px 2px 18px; }
+row.middle #line { background-color: transparent; padding: 2px 18px; }
+row.middle:selected #line { background-color: transparent; }
+row.naming.middle #line { padding: 0 18px 2px 18px; }
 row.naming.middle label { color: @text; font-size: 24px; font-weight: bold; }
 row.middle #aside { color: @soft; font-size: 17px; }
 
@@ -221,8 +240,8 @@ row.middle #aside { color: @soft; font-size: 17px; }
    The title is the one line here that is bigger than the rest, because it is
    what the card is about, and it is said in the ink of a thing being read
    rather than the quiet of a name over a list. */
-row.stacked { background-color: transparent; padding: 4px 18px 10px 18px; }
-row.stacked:selected { background-color: transparent; }
+row.stacked #line { background-color: transparent; padding: 4px 18px 10px 18px; }
+row.stacked:selected #line { background-color: transparent; }
 row.stacked label { color: @text; font-size: 26px; font-weight: bold; }
 row.stacked #aside { color: @soft; font-size: 17px; font-weight: normal; }
 
@@ -241,14 +260,14 @@ row.stacked #aside { color: @soft; font-size: 17px; font-weight: normal; }
    middle of the tray drawn round it -- small enough to read as a drawing that
    is slightly wrong rather than as a number somebody chose, which is the worst
    size for a fault to be. */
-row.transport { padding: 12px 0; background-color: transparent; }
+row.transport #line { padding: 12px 0; background-color: transparent; }
 /* Stood on. A tray under the buttons, the same ground the bar takes and for
    the same reason: the pink every other row is highlighted with is already
    spent here, on the filled play button, and a row that filled with it would
    be a row with play hidden in the middle of it. The row drew nothing at all
    before, which left a ring three points wide as the only thing on the card
    saying where the thumb was. */
-row.transport:selected { background-color: @ground; }
+row.transport:selected #line { background-color: @ground; }
 #press { background-image: none; background-color: transparent; border: none;
          box-shadow: none; color: @text; min-height: 0; min-width: 0;
          padding: 14px; margin: 0 14px; border-radius: 999px; }

@@ -1,8 +1,8 @@
 //! A folder, in the order it is read and the words it is read in.
 
 
-use console_never::Never;
-use console_number_conversion::{Float, whole_u64};
+use console_core_never::Never;
+use console_core_number_conversion::{Float, whole_u64};
 
 use crate::unzipping::{self, Packed};
 

@@ -18,15 +18,15 @@ name = "sky-press"
 path = "src/bin/sky-press.rs"
 
 [dependencies]
-console-never.workspace = true
-console-external-programs.workspace = true
-console-number-conversion.workspace = true
+console-core-never.workspace = true
+console-core-external-programs.workspace = true
+console-core-number-conversion.workspace = true
 # What the compositor is doing, asked of the one program that is subscribed to
 # it rather than of a socket this would otherwise hold open itself.
-console-event-broker.workspace = true
+console-events.workspace = true
 console-program-contract.workspace = true
 console-onscreen.workspace = true
-console-colour.workspace = true
+console-core-colour.workspace = true
 console-screen.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

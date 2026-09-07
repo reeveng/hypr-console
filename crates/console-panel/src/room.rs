@@ -16,7 +16,7 @@
 //! a panel that opens the way it did before there was one.
 
 use crate::notes;
-use console_never::Never;
+use console_core_never::Never;
 
 const ROOM: &str = "room";
 

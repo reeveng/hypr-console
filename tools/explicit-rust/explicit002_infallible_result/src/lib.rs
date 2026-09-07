@@ -20,7 +20,7 @@ dylint_linting::declare_late_lint! {
     /// It stood alone in the warned tier for as long as it did because it was
     /// written ahead of the code and had nowhere to point -- there was no
     /// `Never` type in the workspace at all -- and it stayed there, printing
-    /// its remaining distance on every run, while `console-never` was written
+    /// its remaining distance on every run, while `console-core-never` was written
     /// and then carried a crate at a time into every signature that could not
     /// say it succeeded. The last of them was given the words, so the rule
     /// moved, and by the ratchet's one law it never moves back.

@@ -10,8 +10,8 @@
 //! would have caught it is looking at the colour of the screen.
 
 
-use console_never::Never;
-use console_number_conversion::{fitted, toward_zero_i64, toward_zero_u32};
+use console_core_never::Never;
+use console_core_number_conversion::{fitted, toward_zero_i64, toward_zero_u32};
 use std::path::Path;
 
 use console_screen::Screen;

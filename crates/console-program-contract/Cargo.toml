@@ -10,8 +10,8 @@ name = "console_program_contract"
 path = "src/lib.rs"
 
 [dependencies]
-console-external-programs.workspace = true
-console-never.workspace = true
+console-core-external-programs.workspace = true
+console-core-never.workspace = true
 
 [lints]
 workspace = true

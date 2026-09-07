@@ -56,7 +56,7 @@
 //! notifications rather than a fault of its own, because the bell has to go
 //! quiet when the daemon dies rather than light up.
 
-use console_never::Never;
+use console_core_never::Never;
 use serde::Deserialize;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

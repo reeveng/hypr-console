@@ -51,7 +51,7 @@ default-timeout=5000
 on-touch=dismiss
 on-button-left=dismiss
 
-# console-theme:begin
+# console-palette:begin
 background-color=#372c3a
 text-color=#f7e7f3
 border-color=#8a7d8e
@@ -63,7 +63,7 @@ text-color=#e5cde0
 
 [urgency=critical]
 border-color=#ffc6c4
-# console-theme:end
+# console-palette:end
 
 # A fault waits until somebody has seen it. Everything console-say raises is
 # critical, and the whole point of it is that a thing which went wrong while

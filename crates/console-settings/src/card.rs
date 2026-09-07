@@ -8,9 +8,9 @@
 //! so the panel keeps answering the buttons while it happens.
 
 
-use console_external_programs::Program;
-use console_never::Never;
-use console_number_conversion::fitted;
+use console_core_external_programs::Program;
+use console_core_never::Never;
+use console_core_number_conversion::fitted;
 use std::sync::Arc;
 
 pub const WHO: &str = "settings-panel";
@@ -37,7 +37,7 @@ pub fn card(argv: &[String]) -> Result<Card, Never> {
     card.shutting(Box::new(move || looking.shutdown()))
 }
 
-use console_defaults::battery;
+use console_default_applications::battery;
 use console_panel::actor::{self, Addr, Answer};
 use console_panel::page::{Does, Level, Page, Rows, Showing};
 use console_panel::running::{said, say};
@@ -892,14 +892,14 @@ fn defaults_tab(looking: &Held) -> Result<Vec<console_panel::page::Row>, Never> 
         Onto::Search => {
             let Ok(back) = back_up(looking);
 
-            let Ok(chosen) = console_defaults::engines::chosen();
+            let Ok(chosen) = console_default_applications::engines::chosen();
 
             search_rows(&chosen, back)
         }
         Onto::Dictation => {
             let Ok(back) = back_up(looking);
 
-            let Ok(chosen) = console_dictation::languages::chosen();
+            let Ok(chosen) = console_input_dictation::languages::chosen();
 
             dictation_rows(&chosen, back)
         }
@@ -945,7 +945,7 @@ fn defaults_meanwhile(looking: &Held) -> Result<Vec<console_panel::page::Row>, N
 }
 
 fn search_row(looking: &Held) -> Result<console_panel::page::Row, Never> {
-    let Ok(engine) = console_defaults::engines::chosen();
+    let Ok(engine) = console_default_applications::engines::chosen();
     let Ok(says) = engine_says(&engine);
     let Ok(opens) = open(looking, Onto::Search);
     let Ok(row) = console_panel::page::Row::new("Search", &says, opens);
@@ -954,7 +954,7 @@ fn search_row(looking: &Held) -> Result<console_panel::page::Row, Never> {
 }
 
 fn dictation_row(looking: &Held) -> Result<console_panel::page::Row, Never> {
-    let Ok(language) = console_dictation::languages::chosen();
+    let Ok(language) = console_input_dictation::languages::chosen();
     let Ok(says) = dictation_says(&language);
     let Ok(opens) = open(looking, Onto::Dictation);
     let Ok(row) = console_panel::page::Row::new("Dictation", &says, opens);

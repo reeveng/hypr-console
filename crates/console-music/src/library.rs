@@ -1,6 +1,6 @@
 //! What is in the music folder.
 
-use console_never::Never;
+use console_core_never::Never;
 use std::path::{Path, PathBuf};
 
 pub const KINDS: [&str; 9] =

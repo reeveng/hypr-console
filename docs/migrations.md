@@ -1,11 +1,12 @@
 # What the manifest cannot say
 
 `desktop.conf` says what must be on this device. It has never said what must not
-be, and the engine has no state for it: `console_manifest::build::State` is `Ok`,
-`Differs`, `Missing` or `Unbuilt`, and every one of those is about a name the
-manifest *does* carry. There is no code path anywhere in the engine that unlinks
-anything. `console check` ending in *The machine matches the manifest* means
-every declared thing is there. It has never meant that nothing else is.
+be, and the engine has no state for it: `console_manifest_engine::build::State`
+is `Ok`, `Differs`, `Missing` or `Unbuilt`, and every one of those is about a
+name the manifest *does* carry. There is no code path anywhere in the engine
+that unlinks anything. `console check` ending in *The machine matches the
+manifest* means every declared thing is there. It has never meant that nothing
+else is.
 
 So a name that leaves the manifest stays on every machine that ever applied it,
 and stays there for good.
@@ -15,10 +16,10 @@ and stays there for good.
 Seven units left `[services]` in `55eab99` when everything was renamed from
 `legion-*` to `console-*`. Nothing disabled them. Had they been left, the device
 would have come up running two generations of every daemon --
-`legion-controller` and `console-controller` both reading the pad, which is the
-fault that reads to a person as "the buttons are flaky" and is very hard to see
-from the desktop. What stopped it was `tools/console-migrate`, a script written
-by hand for that one rename, run once, whose attic is still at
+`legion-controller` and `console-input-controller` both reading the pad, which
+is the fault that reads to a person as "the buttons are flaky" and is very hard
+to see from the desktop. What stopped it was `tools/console-migrate`, a script
+written by hand for that one rename, run once, whose attic is still at
 `/var/tmp/console-migration-20260829-234115` on the device. Its section 3.6 is
 where the rule was first written down: *the manifest installs a name and never
 sweeps one*.
@@ -74,8 +75,8 @@ left it:
       that it does not leave there now
         a migration must claim it, or somebody must have written down why not
 
-`cargo test -p console-migrations` is that question, and it fails `just ready`.
-Delete a line from `desktop.conf` and the gate says
+`cargo test -p console-manifest-migrations` is that question, and it fails `just
+ready`. Delete a line from `desktop.conf` and the gate says
 *`/usr/local/bin/music-panel` left `[build]` and nothing sweeps it*. The way to
 green is to write the migration in the same commit as the removal, which is the
 only moment anybody knows why the line went.
@@ -91,16 +92,16 @@ simply never mentioned is nothing at all.
 
 Not a line in `desktop.conf`. What the machine ends up holding.
 
-`console_migrations::holds` is the whole of it, and it earns its place twice
-over. `launcher` was a shell script in `[files]` and is a compiled program in
-`[build]`; the line moved between sections and `/usr/local/bin/launcher` never
-moved at all. And the manifest used to name the person whose desktop this is and
-now writes `@user@`, which is filled in at apply -- so
-`/home/ada/.config/waybar/style.css` and
-`/home/@user@/.config/waybar/style.css` are one file. The first version of this
-gate read the first change as five programs being abandoned and the second as
-twenty-eight files being abandoned in a home, and both times what was wrong was
-that it was comparing declarations rather than machines.
+`console_manifest_migrations::holds` is the whole of it, and it earns its place
+twice over. `launcher` was a shell script in `[files]` and is a compiled program
+in `[build]`; the line moved between sections and `/usr/local/bin/launcher`
+never moved at all. And the manifest used to name the person whose desktop this
+is and now writes `@user@`, which is filled in at apply -- so
+`/home/ada/.config/waybar/style.css` and `/home/@user@/.config/waybar/style.css`
+are one file. The first version of this gate read the first change as five
+programs being abandoned and the second as twenty-eight files being abandoned in
+a home, and both times what was wrong was that it was comparing declarations
+rather than machines.
 
 ### Why git's rename detection is not the answer
 
@@ -152,5 +153,5 @@ already wrong.
 stops asking for falls back to being held as a dependency or by nothing, and
 `pacman -Qdtq | pacman -Rns -` is the line that collects it. Sweeping a package
 here would be this tree deciding something pacman decides better, and
-`console_manifest::packages` already explains why the *reason* a package is held
-matters more than its presence.
+`console_manifest_engine::packages` already explains why the *reason* a package
+is held matters more than its presence.

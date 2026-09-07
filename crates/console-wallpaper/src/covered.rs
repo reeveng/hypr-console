@@ -41,8 +41,8 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use console_external_programs::Program;
-use console_never::Never;
+use console_core_external_programs::Program;
+use console_core_never::Never;
 use console_onscreen::{Over, over_the_desktop};
 
 static ANSWERING: AtomicBool = AtomicBool::new(true);

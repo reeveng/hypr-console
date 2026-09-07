@@ -16,7 +16,7 @@
 
 use std::collections::BTreeMap;
 
-use console_never::Never;
+use console_core_never::Never;
 use console_panel::page::{Does, NOW, Row, Showing, YET};
 
 use crate::rows::configuration;

@@ -21,7 +21,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 
-use console_never::Never;
+use console_core_never::Never;
 
 use serde_json::{Value, json};
 

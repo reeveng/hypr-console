@@ -10,7 +10,7 @@
 //! behind a menu that had just opened.
 
 
-use console_external_programs::Program;
+use console_core_external_programs::Program;
 use console_panel::chooser;
 
 fn main() {

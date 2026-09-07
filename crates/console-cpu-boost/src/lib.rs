@@ -1,26 +1,20 @@
-//! The processors, asked to hurry for as long as somebody is waiting.
-//!
-//! This is a handheld, and most of the time it is right for it to be slow. It
-//! sits in a bag at its lowest clock and the battery lasts the day. But a
-//! panel is a moment's work and then nothing at all, and a processor deciding
-//! how fast to run by watching how busy it has been is always deciding about
-//! the wrong moment: the whole of an opening is over before the load it made
-//! has been noticed.
-//!
-//! What that costs is in `console-wait-times`, which reads what every opening on
-//! this machine wrote down about itself, and it is not one slow stretch. It is
-//! every stretch: the loader, GTK coming up, the card being built, the rows
-//! going on it, the first frame. Nothing there is slow. All of it is being
-//! done at a fraction of the clock the machine can run at, because nothing
-//! asked it for more and by the time anything could have, the press was
-//! answered.
-//!
-//! So the daemon that reads the pad says so as it starts something: hurry, for
-//! about as long as an opening takes, and then let it be. Run
-//! `console-wait-times` before and after to see what it is worth on the machine
-//! in your hands. What it costs is a moment of ordinary clock speed per press,
-//! on a device that is otherwise asleep between them.
-//!
+//! The processors, asked to hurry for as long as somebody is waiting.  This is
+//! a handheld, and most of the time it is right for it to be slow. It sits in a
+//! bag at its lowest clock and the battery lasts the day. But a panel is a
+//! moment's work and then nothing at all, and a processor deciding how fast to
+//! run by watching how busy it has been is always deciding about the wrong
+//! moment: the whole of an opening is over before the load it made has been
+//! noticed.  What that costs is in `console-response-times`, which reads what
+//! every opening on this machine wrote down about itself, and it is not one
+//! slow stretch. It is every stretch: the loader, GTK coming up, the card being
+//! built, the rows going on it, the first frame. Nothing there is slow. All of
+//! it is being done at a fraction of the clock the machine can run at, because
+//! nothing asked it for more and by the time anything could have, the press was
+//! answered.  So the daemon that reads the pad says so as it starts something:
+//! hurry, for about as long as an opening takes, and then let it be. Run
+//! `console-response-times` before and after to see what it is worth on the
+//! machine in your hands. What it costs is a moment of ordinary clock speed per
+//! press, on a device that is otherwise asleep between them.
 //! ## The knob, and why this one
 //!
 //! `amd-pstate-epp` picks the frequency in hardware, from how busy a core has
@@ -79,8 +73,8 @@
 //! the desktop exactly as it was before any of this: slower, and working. It
 //! says so once and goes on.
 
-use console_file_writing::{Held, read};
-use console_never::Never;
+use console_core_atomic_writes::{Held, read};
+use console_core_never::Never;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -354,7 +348,7 @@ fn wrote_note(at: &Path, words: &[(PathBuf, String)]) -> Result<(), String> {
         .map(|(hint, was)| format!("{was}\t{}\n", hint.display()))
         .collect();
 
-    console_file_writing::whole(at, written.as_bytes())
+    console_core_atomic_writes::whole(at, written.as_bytes())
 }
 
 type Words = Vec<(PathBuf, String)>;

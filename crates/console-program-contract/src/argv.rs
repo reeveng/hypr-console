@@ -7,7 +7,7 @@
 //! `std::env::args` in the middle of the deciding, where no test can put a
 //! different answer.
 
-use console_never::Never;
+use console_core_never::Never;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Argv {

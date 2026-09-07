@@ -21,10 +21,10 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use console_external_programs::Program;
+use console_core_external_programs::Program;
 use console_files::places::Is;
 use console_files::unzipping::{self, Lift};
-use console_never::Never;
+use console_core_never::Never;
 use console_panel::running::say;
 
 const KIND: &str = "files-unzip";

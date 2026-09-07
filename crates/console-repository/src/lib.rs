@@ -13,7 +13,7 @@
 
 pub mod pulling;
 
-use console_never::Never;
+use console_core_never::Never;
 use std::path::{Path, PathBuf};
 
 pub const MARK: &str = "desktop.conf";

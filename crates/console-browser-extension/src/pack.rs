@@ -11,8 +11,8 @@
 //! there is to know.
 
 
-use console_never::Never;
-use console_number_conversion::fitted;
+use console_core_never::Never;
+use console_core_number_conversion::fitted;
 
 struct Entry {
     name: String,

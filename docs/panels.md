@@ -210,9 +210,9 @@ changed, which is worse than a thing that is missing.
 
 So: a tap on a row is A. Row nought is B. The **−** and **+** on a row are left
 and right. The **‹** and **›** either side of the strip are the shoulders. The
-**⋯** at the end of a row is Y. The **×** is the way out of the card.
-`crates/console-manifest` holds the bar to this, and the table in the button
-contract is the list.
+**⋯** beside a row is Y. The **×** is the way out of the card.
+`crates/console-manifest-engine` holds the bar to this, and the table in the
+button contract is the list.
 
 A row may ask to wear no marks at all, by naming two ends that are both empty.
 It is what a picture asks for: the whole width is the picture's, a hand steps it
@@ -224,9 +224,9 @@ it is written on. That is where the two viewers this was read against put it:
 Loupe behind a single button on its bar, the phone galleries behind a single
 overflow at the end of the actions.
 
-The **⋯** is drawn on every other row that has something behind Y, the way the ends
-of a level are drawn on every row that carries one, and it presses that row's
-own offer rather than whatever the highlight is on. That difference is the
+The **⋯** is drawn beside every other row that has something behind Y, the way
+the ends of a level are drawn on every row that carries one, and it presses that
+row's own offer rather than whatever the highlight is on. That difference is the
 whole of why it is not simply Y wired to a button: a thumb asks about the row
 it is standing on, and a finger asks about the row it has landed on, and those
 are the same question only while nobody is using the screen.
@@ -236,6 +236,57 @@ measure of the rule. Renaming a file, deleting one, picking one up, what a
 film's subtitles are, how fast it plays, opening it over the whole screen --
 every one of those lived behind Y and behind nothing else, so a machine put
 down on a table could look at all of them and change none of them.
+
+## What else there is stands beside the row, not inside it
+
+It was a mark at the end of the row, on the card the row is drawn on. Inside the
+card it is one press drawn on top of another: the whole row is the thing A
+takes, and the last inch of it is a different thing entirely, with nothing but a
+change of ink to say so. A hand coming at a row from its right-hand side is
+aiming at both of them at once, and what it gets is decided by an inch it was
+never told about.
+
+So the row is two shapes in a line now. The card is what the row says and what
+the highlight fills; the **⋯** is a button of its own outside it, beside it and
+its height, on the same ground. Each of them means one thing, and a hand aiming
+at either is not aiming near the other. `#line` is the card and the row itself
+is given nothing to be seen by, which is the whole of the change in the sheet:
+every rule that dressed a row dresses the card on it.
+
+Being its own thing rather than part of the row is also what lets the d-pad
+reach it. Right off a row moves the highlight onto what else there is, left
+comes back, A takes it and B comes back the way B always does. The row keeps the
+ground it wears whenever the press being made is somewhere inside it -- the same
+answer the scrub and the transport already give -- and the button takes the
+pink, because the row and the thing beside it are exactly side by side and two
+pinks touching is the panel asking a question it does not mean.
+
+Y is untouched and is still the short way: from anywhere on the row, whatever
+the highlight is standing on, without walking to it first.
+
+A press that only moves the highlight changes nothing else a check could see,
+so `console_panel::telling` says where the highlight is standing -- on the row,
+beside it, or nowhere -- and the panel says so again whenever it moves rather
+than only when it draws. `right_off_a_row_stands_on_what_else_it_offers` is that
+pressed against the viewer's Media page, which is the page every row of which
+offers something.
+
+**Right is whatever the far end of the row already was.** A row that carries a
+level has its **+** there and right sets it, which is what right has always
+meant on it; a row that does not has the **⋯** there and right stands on it. The
+marks a row wears are what right does to it, which is a thing a hand can see
+rather than a rule it has to be taught, and `nudged` is the whole of the
+decision -- no machine in it, so it can be asked twice and answered the same
+way.
+
+A row that carries both keeps left and right for the level and keeps Y and the
+button for the offer. The offer never loses its answer for a finger, which is
+the rule `every_offer_answered` holds every panel to; what it loses is the short
+way onto it, on the one kind of row where the short way is already spent.
+
+That is also what a card about one thing is left with. Its offer is drawn once,
+on the head, and a head is a title the highlight walks past -- so there the
+button is the finger's and Y is the thumb's, which is what it was before this.
 
 ## A swipe across a row is that row's level
 
@@ -425,7 +476,8 @@ loader, the wait for whatever chooser had the screen, GTK coming up, the card
 being built, the rows going on it, and the first frame. One line per opening,
 with the stretches as its fields, so a question about the menu is a question
 anybody can ask the file rather than a print somebody adds and takes out again.
-`console_wait_times` is the writing and `console-wait-times` is the reading.
+`console_response_times` is the writing and `console-response-times` is the
+reading.
 
 It is on always. Timings that have to be asked for are timings nobody has when
 they want them, because the opening worth reading about already happened.
@@ -501,9 +553,9 @@ against a program stuck in a loop rather than a retention policy: the question
 these lines exist to answer is whether the machine is getting slower, and a
 store that holds a week cannot be asked it. So nothing is thinned to make room
 -- the music panel's line per refresh stays where it is -- and the reading is
-what changed instead. `console-wait-times` walks the file a line at a time and
-holds a window of the last few thousand; `--all` is for whoever wants the year
-and has the memory for it.
+what changed instead. `console-response-times` walks the file a line at a time
+and holds a window of the last few thousand; `--all` is for whoever wants the
+year and has the memory for it.
 
 ## Most of what an opening cost was the machine being asleep
 
@@ -544,7 +596,7 @@ from nothing fifteen times an evening because a panel was a process.
 
 So the panels are held by one program. `console-panels` opens the display once,
 parses the stylesheet once, reads the icon theme once, and draws whichever
-panel it is asked for; `crates/console-panel-host` is that program and its head
+panel it is asked for; `crates/console-panels` is that program and its head
 is the argument. What each panel crate hands it is a `Card` — a closure that
 builds the pages, and the shutting-down its `main` used to do after the loop
 ended — and what decides whether one may open at all is a `Door`, which is a
@@ -566,7 +618,7 @@ under the same namespace.
 and nothing may be written as though it cannot: a socket that refuses is a
 panel that draws itself in its own process, the way every panel did, and says
 so on the journal rather than on the screen. It is the rule
-`console-event-broker` already keeps, for the same reason.
+`console-events` already keeps, for the same reason.
 
 **Nothing is kept between openings.** The window is destroyed and built again
 rather than hidden and shown, and the card is built by the same call the old
@@ -601,17 +653,17 @@ twice in the same place.
 
 ## What is kept honest, and what is not
 
-`crates/console-controller/tests/what_reaches_the_desktop.rs` presses buttons
-against the one table that decides what they do, on the desktop and with a
-chooser up. Change what A does and it fails. It reads the table the daemon
+`crates/console-input-controller/tests/what_reaches_the_desktop.rs` presses
+buttons against the one table that decides what they do, on the desktop and with
+a chooser up. Change what A does and it fails. It reads the table the daemon
 itself reads rather than a copy of it, which is why it does not go stale.
-`crates/console-gamepad/tests/the_button_contract.rs` keeps the part that is about
-the files: every profile the switcher names exists, and every one of them
-publishes all three devices.
+`crates/console-input-gamepad/tests/the_button_contract.rs` keeps the part that
+is about the files: every profile the switcher names exists, and every one of
+them publishes all three devices.
 
-`crates/console-feature-checks` opens each surface in a nested desktop and asks whether
-anything was drawn. That is what catches a panel that raises a window and then
-fails on its first screenful, which no unit test can see.
+`crates/console-test-checks` opens each surface in a nested desktop and asks
+whether anything was drawn. That is what catches a panel that raises a window
+and then fails on its first screenful, which no unit test can see.
 
 Everything else on this page is a decision somebody has to keep by hand. Row
 nought, the unwinding, what the shoulders are for and where a dangerous question

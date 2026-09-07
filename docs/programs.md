@@ -12,17 +12,17 @@ doings out, every time, forever** — and everything here is what that costs.
 Three things in this tree are already the shape this asks for, and the plan is
 mostly to make the rest of the machine look like them.
 
-`console-controller` is the whole idea, written down once already: *"Nothing in
-this library opens a device. What arrives is handed in and what to do about it is
-handed back, so every decision the daemon makes can be asked of it twice and
-answered the same way."* `Doing` is a decision said without being carried out,
-and every test in that crate is a transcript. It is the most reliable thing here
-and that is not a coincidence.
+`console-input-controller` is the whole idea, written down once already:
+*"Nothing in this library opens a device. What arrives is handed in and what to
+do about it is handed back, so every decision the daemon makes can be asked of
+it twice and answered the same way."* `Doing` is a decision said without being
+carried out, and every test in that crate is a transcript. It is the most
+reliable thing here and that is not a coincidence.
 
-`console-reconnect` is the retry, in one place, with the reason written down. Four
-watchers used to hold four copies of it. `console-repository` is the same move
-made once more: four programs each walked up the tree looking for the top of
-it, and each had its own idea of what marks it.
+`console-core-reconnect` is the retry, in one place, with the reason written
+down. Four watchers used to hold four copies of it. `console-repository` is the
+same move made once more: four programs each walked up the tree looking for the
+top of it, and each had its own idea of what marks it.
 
 systemd is the supervision tree, and a good one: `Restart=always`, `PartOf=`,
 and `console-fell` so a daemon dying quietly is not a thing that can happen. The
@@ -77,7 +77,7 @@ pub trait Program {
     type State: Clone + Debug + PartialEq;
 
     /// The words only this program can be told, and the effects only it can
-    /// ask for. `console_never::Never` where there are none, which is most.
+    /// ask for. `console_core_never::Never` where there are none, which is most.
     type Hears: Clone + Debug + PartialEq;
     type Does: Clone + Debug + PartialEq;
 
@@ -188,13 +188,13 @@ drawn, exactly as today. This is the one real hazard in the whole plan — held
 state that nothing refreshes is a reading that is confidently wrong — and this
 rule is what keeps it out.
 
-## One pool, `console-event-broker`
+## One pool, `console-events`
 
 A daemon that holds one subscription per source and hands the words to everyone:
 the compositor's socket, `pactl subscribe`, `nmcli monitor`, the bus name mako
 owns, systemd's unit changes, the player, and a path being watched. It speaks
-over a socket in the runtime directory, and `console-reconnect` is what reconnects
-to it.
+over a socket in the runtime directory, and `console-core-reconnect` is what
+reconnects to it.
 
 Two things it does that no program can do for itself. It **replays the last word
 on a topic to whoever has just subscribed**, so a panel opening knows the volume
@@ -208,11 +208,22 @@ that asks the machine directly and is merely slower — the same rule
 
 ### What is in
 
-`console-event-broker`, and `console-events` is the program. One source so far
-— the compositor — and one program on it: `console-sky` opened Hyprland's socket
-itself and asks the pool now. The other sources are topics that answer nothing
-and say so on the journal, which is what the one-at-a-time rule should look
-like: a topic that is quiet rather than a pool that is broken.
+`console-events`, and `console-events` is the program. Two sources — the
+compositor and the sound — and every program that watched either of them asks
+the pool. The other topics answer nothing and say so on the journal, which is
+what the one-at-a-time rule should look like: a topic that is quiet rather than
+a pool that is broken.
+
+The sound came second because it is the one with sixty-five processes behind it
+in the measurements, and it was watched before it was believed — under the
+unit's own confinement rather than in a shell, which is where the doubt was.
+`PrivateDevices=yes` and `RestrictAddressFamilies=AF_UNIX` do not stop `pactl`:
+it reaches the server over a socket in the runtime directory and never opens
+`/dev/snd`. Killed underneath, it is started again and whoever was listening
+goes on hearing without reconnecting, because the reaching-again is on the
+pool's side. A pool killed with `-9` leaves no `pactl subscribe` behind, which
+is `alongside` doing what it says and was checked rather than assumed —
+leaving one would have been this crate committing the fault it exists to end.
 
 Three things settled by writing it rather than by arguing about it.
 
@@ -228,6 +239,21 @@ worked it out. That is the same fault as the subscriptions, one layer down. The
 wallpaper's copy went with the subscription it was for, and the pool asks
 `console_onscreen`.
 
+**Four watches on that socket are one.** `music-bar`, `bar-door`,
+`stick-scroll` and the status bar's `watch` each opened it to learn the same
+thing, and all four ask the pool now through `console_events::layers`.
+`console_onscreen::watching_layers` is gone rather than left standing beside
+them, which is the rule this crate only earns by being kept: a source with two
+observers is a source nobody has moved off.
+
+Which lines are worth asking after stayed in `console_onscreen`, on the near
+side of the socket, because the bar keeps different ones from the wallpaper and
+a pool that decided would be deciding for both. And `Heard::GotIn` came out of
+it: what these watches carry is *ask again* rather than an answer, so a gap in
+one is an icon quietly wrong with nothing on the way to correct it. The pool
+says *you are in* on every reconnection, whoever does not need it ignores it,
+and `bar-door` — the one with no tick under it — is why it exists.
+
 **The orphan fix is a write that would not go through.** Nothing has to be
 tidied up by the program that left, and nothing has to notice that it left: a
 socket nobody is holding refuses a write, and that is the same moment.
@@ -239,11 +265,92 @@ as well as on the source. The answer is the one every unit here already gives
 words — and that answer is only good because both halves of it are true.
 
 Where a source is opened is handed in rather than reached for, the way
-`console_controller::turning` is handed a machine. So the test runs the real
-serving loop, the real wire and the real client over a real socket, with a
-source the test speaks through. Without that seam the only compositor is the
-one the test is running under, and *is a late program told the last word first*
+`console_input_controller::turning` is handed a machine. So the test runs the
+real serving loop, the real wire and the real client over a real socket, with a
+source the test speaks through. Without that seam the only compositor is the one
+the test is running under, and *is a late program told the last word first*
 could not be asked at all.
+
+### What the runtime does with the ask
+
+`Wants::Words(Topic::Sound)` is *tell me when this changes*, and for as long as
+the runtime answered it with a line on the journal both halves of this were
+green and the desktop still polled. The program said what it wanted, the pool
+could have told it, and nothing carried the question from one to the other.
+
+It does now. `console-program-runtime` holds one `Listening`, `Doing::Listen`
+adds a topic to it and `Doing::Deafen` takes one away, and a `Changed` from the
+pool reaches the program as `Word::Changed` the way a stretch of time reaches it
+as `Word::CameRound`. The decision that made this safe was already made above:
+the round stays as what a program falls back to when the pool is down, so a
+program with no pool is slower and never wrong.
+
+**It is one wait now rather than a sleep.** The loop blocks on the pool's
+channel until the next round falls due, which is the same wait for both reasons
+a program can be woken, and it is why nothing in that crate declares a sleep any
+more — `due()` was the one wait in the runtime EXPLICIT021 made say so, and it
+is gone. A program that wants no topic at all still waits there: the channel is
+open and quiet, and a `recv_timeout` that times out is the round coming round.
+
+**Deafening works, and a panel coming back is the reason it had to.** `listening`
+holds what is wanted rather than taking it once, so `also` and `not` write a
+`listen` or a `deafen` down the connection that is already open, and a
+reconnection asks for whatever is wanted at the moment it gets in. What makes
+that worth having is the replay: a program that asks again is told the last word
+on the topic straight away rather than waiting for the next change, so hanging up
+costs a panel nothing when it comes back. That is `the_deafening`, pressed
+through a real socket, because it is the half `pool`'s arithmetic cannot answer.
+
+The seam itself is pressed too. `console-program-runtime`'s `the_words` runs a
+real pool on a real socket and a real program on the real loop, and the only
+thing the test supplies is the source — because the only sound card is the one
+it is running on, and because without that test the two halves would go on being
+green separately.
+
+### What is not in, and it is the half that matters
+
+**Every panel card still matches `Doing::Listen(_) | Doing::Deafen(_) => {}`.**
+A panel drives this contract from glib, so what the runtime now learns a panel
+does not. That is the cost of the two loops this document argues for elsewhere,
+arriving where it was always going to arrive: a thing worth doing has to be done
+twice, once in the runtime and once where a panel's main loop lives. The second
+half is not written.
+
+It is worth saying what those arms are and are not, because from a distance it
+reads as a panel doing its own polling instead. It is not: no card has ever
+emitted a `Doing::Listen`, so there is nothing being translated into anything.
+The arms are a match staying exhaustive over a shared set. What is owed is a
+`Listening` held by the panel with its words pumped onto the main context — and
+it waits on a card that would ask, which waits on a source.
+
+**A topic with no source is what everything else waits behind.** One source at a
+time is the rule and it is the right rule. `Sound` is there now; `Player` is not,
+so the music bar and the music card — the two with the most to gain — still have
+nothing to ask for. Each new source is a program of somebody else's watched
+until it is known what it does when it is restarted underneath, which is the
+work, and it is why the number of sources goes up slowly and on purpose.
+
+The volume rocker is the one to stop expecting anything from. `console-volume`
+presses `pactl` and reads the level back in the same run; it holds no state
+between two presses and has nothing to subscribe to. What wanted `Sound` was the
+status bar's reading of it, and that is what moved.
+
+**Nothing has yet chosen to deafen.** The machinery is there and pressed; what
+is missing is a program that hangs up when it stops being looked at. A panel
+that is not on the screen wants nothing; a bar module behind a chooser wants
+nothing until it is uncovered. Today both would be woken for every word, which
+is the pool doing to a handheld's battery a gentler version of what the orphaned
+subscriptions did. Whether a listener should be connected is a question about
+the window's own state machine — shown, covered, in the background — and the
+panel already holds that answer, because that state is what it draws itself
+from. The subscription should follow it.
+
+What makes hanging up safe is already built: `listens` replays the last word on
+a topic to whoever has just subscribed. Without that, a panel coming back would
+be a panel drawn from whatever it remembered before it left, and deafening would
+be trading a warm battery for a wrong screen. With it, a panel that comes back
+asks and is told what is true now — so the expensive thing to be is *visible*,
+which is the only sensible answer for a machine somebody is holding.
 
 ## Threads, honestly
 
@@ -311,13 +418,13 @@ What this buys is not tidiness.
 **Modes stop being device surgery.** The pad is switched between profiles today
 to change what the buttons mean while a panel is up, and *a profile switch
 destroys the pad and builds a new one every time* --
-`console_controller::turning::Gone` says so and calls it the ordinary state of
-things. Everything downstream is built to survive that: reopening a turn or two
-later, throwing away a quarter second of backlog, settling for half a second
-after. All of it exists because the meaning of a button is stored in the device
-rather than in a program. When the reader holds the mode instead, the device is
-never rebuilt, and that whole machinery goes with it -- along with the race this
-document opened with.
+`console_input_controller::turning::Gone` says so and calls it the ordinary
+state of things. Everything downstream is built to survive that: reopening a
+turn or two later, throwing away a quarter second of backlog, settling for half
+a second after. All of it exists because the meaning of a button is stored in
+the device rather than in a program. When the reader holds the mode instead, the
+device is never rebuilt, and that whole machinery goes with it -- along with the
+race this document opened with.
 
 **A button's meaning becomes one table, tested on a laptop.** X shows or hides
 the keyboard because a line says so, and the guide, the button contract and the
@@ -357,19 +464,19 @@ between something that happens when you decide to leave and something that
 happens every time you open a menu.
 
 This replaces most of stage 4. The ordering fix already on the machine --
-`console-keyboard.service` waiting for the controller -- is a splint on the
-version of the world where two programs share a pad. When one program reads the
-pad, the ordering stops mattering and the line should come out, along with the
-check that watches for it.
+`console-input-keyboard.service` waiting for the controller -- is a splint on
+the version of the world where two programs share a pad. When one program reads
+the pad, the ordering stops mattering and the line should come out, along with
+the check that watches for it.
 
 ### What is in, and what the fork still holds
 
 The mode is read off the compositor now, and what a button means is one table.
-`console_controller::mode` is Desktop, Tabs or Keyboard, decided by what the
-compositor says is on its own screen; `console_controller::means` is the job
-each button does and who carries it out. Three ownerless variables went with
-them: the profile-before-the-keyboard file, the SIGSTOP that made the daemon
-stand down, and the SIGCONT in `controller-profile` that undid it.
+`console_input_controller::mode` is Desktop, Tabs or Keyboard, decided by what
+the compositor says is on its own screen; `console_input_controller::means` is
+the job each button does and who carries it out. Three ownerless variables went
+with them: the profile-before-the-keyboard file, the SIGSTOP that made the
+daemon stand down, and the SIGCONT in `controller-profile` that undid it.
 
 The daemon standing down by itself rather than being stopped is worth more than
 it sounds. Stopped is not deaf: the devices stayed open, the kernel went on
@@ -433,29 +540,29 @@ is up, where a shell is all there is, and the checks read it to know what colour
 a thing on the screen should have been.
 
 So it stays, and what changed instead is that there is one reader of it.
-`console_colour::spent::read` is that reader; `osk-start` and the checks each
-had a copy of the same six-line parser, which is the fault this desktop keeps
-having with colours, in miniature.
+`console_core_colour::spent::read` is that reader; `osk-start` and the checks
+each had a copy of the same six-line parser, which is the fault this desktop
+keeps having with colours, in miniature.
 
 What stays in another language stays for a reason, and it is worth being clear
 about each, because all but one of them are fine and that one was not.
 
 **The InputPlumber profiles** are YAML because InputPlumber reads YAML. It is
-their format, not ours. What we can do is what `console-gamepad` already does: hold
-the button contract as a Rust test over those files, so a profile that stops
-meaning what the guide says it means fails on a laptop.
+their format, not ours. What we can do is what `console-input-gamepad` already
+does: hold the button contract as a Rust test over those files, so a profile
+that stops meaning what the guide says it means fails on a laptop.
 
 **`hyprland.lua`** is Lua because Hyprland reads Lua. The same answer, and
-`console-guide` already reads the binds out of it.
+`console-button-guide` already reads the binds out of it.
 
 **`steamos-session-select`** is SteamOS's script, carried unchanged. Rewriting
 someone else's ninety lines to be ours is how a carried file quietly becomes a
 fork nobody remembers maintaining.
 
 **The migration sweeps** in `migrations/` are shell because a sweep is a handful
-of `mv`s against paths a manifest stopped naming, and `console-migrations` --
-which decides *what* is owed, and is Rust -- is the half that could be wrong.
-`docs/migrations.md` is the argument.
+of `mv`s against paths a manifest stopped naming, and
+`console-manifest-migrations` -- which decides *what* is owed, and is Rust -- is
+the half that could be wrong. `docs/migrations.md` is the argument.
 
 **`wvkbd-mobintl` was the one that was not fine, and it is now ours.** It was a
 compiled binary in `files/`, built from a C fork that lived on the laptop and
@@ -463,11 +570,11 @@ nowhere else: everything else on this device could be rebuilt from what is
 written down, and this could be rebuilt from nothing but that one directory,
 while holding the X button.
 
-It is a Rust program in `crates/console-keyboard`, in `[build]` like every other program
-here, and the device compiles it. Which is the third of the four ways out below
--- the one this section argued against, on a premise that was wrong. The four
-are left standing because the argument is worth having in front of you, and the
-correction is written where the mistake was made.
+It is a Rust program in `crates/console-input-keyboard`, in `[build]` like every
+other program here, and the device compiles it. Which is the third of the four
+ways out below -- the one this section argued against, on a premise that was
+wrong. The four are left standing because the argument is worth having in front
+of you, and the correction is written where the mistake was made.
 
 Bring the fork's source into this tree, so `console apply` builds it like every
 other program and the button contract is written down where it can be read.
@@ -480,8 +587,8 @@ to listen, which is bringing the fork into the tree with more work attached.
 
 Write our own keyboard, in Rust. Everything except the typing is already here
 and used by five other surfaces -- gtk4, gtk4-layer-shell and cairo for the
-drawing, `console-colour` for the palette `console-keyboard` currently launders
-into wvkbd's argv. **This is the one that was taken.**
+drawing, `console-core-colour` for the palette `console-input-keyboard`
+currently launders into wvkbd's argv. **This is the one that was taken.**
 
 Bring the source in and take `gamepad.c` out of it, leaving a small socket to
 be told on. This was the one preferred here, and the rest of this section is
@@ -489,10 +596,10 @@ why -- with the correction that undid it marked where it belongs.
 
 **Thai is the thing that decides it.** She writes Thai and the on-screen
 keyboard is the only keyboard this device has, which
-`crates/console-manifest/tests/the_keyboard.rs` says in its first line and
-guards in two checks. Thai is not latin with accents: every key carries a Thai
-letter and the shift level carries a second one rather than a capital, so it is
-a layer of its own.
+`crates/console-manifest-engine/tests/the_keyboard.rs` says in its first line
+and guards in two checks. Thai is not latin with accents: every key carries a
+Thai letter and the shift level carries a second one rather than a capital, so
+it is a layer of its own.
 
 A keyboard of ours would have to produce those letters, and the obvious way --
 a uinput device, using the `evdev` three crates already carry -- cannot. A
@@ -578,16 +685,16 @@ somewhere to go.
 **The licence decides the shape.** wvkbd is GPL-3.0 and this workspace was MIT
 when that was written; it is AGPL-3.0-or-later now, and the port is why -- a
 derivative of copyleft work carries the copyleft, so the field was never a
-choice. `crates/console-keyboard` says GPL-3.0-or-later on its own, because the
-AGPL is not a later version of the GPL and wvkbd's "or later" does not reach it.
-`console-publish` already knows: `tree.rs` holds `FORKS` and `is_fork`, and
-`lib.rs` says why the two compiled programs are not carried. But `is_fork`
-matches *paths under `files/`* -- it is written against binaries. C source
-brought in under `crates/` would be tracked like anything else, matched by
-nothing, and published. The fork is not to be published, so internalising it
-means teaching `console-publish` a source exclusion beside the binary one, and
-`the_forks_are_not_carried` has to cover it. That is real work, it belongs in
-the plan, and it must not be discovered at publish time.
+choice. `crates/console-input-keyboard` says GPL-3.0-or-later on its own,
+because the AGPL is not a later version of the GPL and wvkbd's "or later" does
+not reach it. `console-manifest-publish` already knows: `tree.rs` holds `FORKS`
+and `is_fork`, and `lib.rs` says why the two compiled programs are not carried.
+But `is_fork` matches *paths under `files/`* -- it is written against binaries.
+C source brought in under `crates/` would be tracked like anything else, matched
+by nothing, and published. The fork is not to be published, so internalising it
+means teaching `console-manifest-publish` a source exclusion beside the binary
+one, and `the_forks_are_not_carried` has to cover it. That is real work, it
+belongs in the plan, and it must not be discovered at publish time.
 
 Done, and it is `FORK_SOURCES` in `tree.rs`. It went in with the source rather
 than after it, which is the only reason it was never discovered at publish time.
@@ -607,17 +714,17 @@ it runs. Settled by not needing to: the keyboard is a crate, the C it was ported
 from has gone, and an apply has no C to compile.
 
 **`docs/forks.md` is not missing, and must not be written by hand.** It is
-generated at publish from `crates/console-publish/papers/forks.md`, so it
-exists in the public copy and nowhere else -- which is exactly the reader
+generated at publish from `crates/console-manifest-publish/papers/forks.md`, so
+it exists in the public copy and nowhere else -- which is exactly the reader
 `the_keyboard.rs` addresses in that skip message, since the public copy carries
-neither the keyboard nor the answer it would give. A hand-written one here
-would collide with the generated one. What was wrong with it was its contents:
-it told a reader to clone upstream and `make wvkbd-mobintl`, which builds a
-keyboard with neither the Thai layer nor the X binding, and said nothing about
-the seven patches not being published. That was a live fault in published
-documentation rather than a plan-dependent one. Fixed in `papers/forks.md`,
-which now says the keyboard is this repository's own and that the wvkbd source
-kept beside it has since gone.
+neither the keyboard nor the answer it would give. A hand-written one here would
+collide with the generated one. What was wrong with it was its contents: it told
+a reader to clone upstream and `make wvkbd-mobintl`, which builds a keyboard
+with neither the Thai layer nor the X binding, and said nothing about the seven
+patches not being published. That was a live fault in published documentation
+rather than a plan-dependent one. Fixed in `papers/forks.md`, which now says the
+keyboard is this repository's own and that the wvkbd source kept beside it has
+since gone.
 
 **Whoever draws owns the answer to "is it up".** `keyboard-toggle` is one line
 and stateless because the keyboard answers it, and the comment above it records
@@ -631,15 +738,15 @@ daemon reads it off the compositor, which is what `Mode::seen` is.
 
 Some of these programs run, decide, and exit: `console-buttons`, `put-away`,
 `one-format`, `download-find`, `download-get`, `files-thumbs`, `music-index`,
-`sky-press`, `dictate`, `cover-ascii`, `console-theme`, `console`,
+`sky-press`, `dictate`, `cover-ascii`, `console-palette`, `console`,
 `console-engine`, `console-battery`. They are already pure functions with a
 `main` around them. A state machine holding one state is ceremony, and
 ceremony is the thing this document is against.
 
-Five more are laptop-only — `capture-devices`, `console-check`, `console-desktop`,
-`console-emulate`, `console-publish` — and a tool that fails on a laptop fails in
-front of somebody. They are converted for tidiness, not for reliability, and they
-go last.
+Five more are laptop-only — `capture-devices`, `console-check`,
+`console-desktop`, `console-emulate`, `console-manifest-publish` — and a tool
+that fails on a laptop fails in front of somebody. They are converted for
+tidiness, not for reliability, and they go last.
 
 That leaves **seven daemons and seven panels**, which is the whole of the rework.
 
@@ -653,7 +760,7 @@ until the last one is off it.
 | --- | --- | --- |
 | **0** | ~~Find the restart fault~~ | done, and it is the argument below |
 | **1** | ~~`console-program-contract`: the contract, tested alone~~ | done, with the transcript harness and three programs on it |
-| **2** | `console-event-broker`: the pool, one source at a time | **begun: the compositor, and `console-sky` on it** |
+| **2** | `console-events`: the pool, one source at a time | **begun: the compositor, `console-sky` on it, and the runtime asking it** |
 | **3** | ~~The shell scripts, into Rust~~ | done: none of ours is left |
 | **4** | One input reader, then seven daemons | **begun: the mode and the table are in** |
 | **5** | Seven panels | ~1 day each |
@@ -666,7 +773,7 @@ and the one that starts it, and the keyboard's colours went one at a time.
 `osk-hook` was not converted, it was deleted, which was the right end for it;
 `osk` went the same way, into the keyboard that now answers the signal it sent.
 The two that were really a program taking the front of the machine came out with
-`console-input-claim`. What was left at the end was `keyboard-toggle`,
+`console-input-focus`. What was left at the end was `keyboard-toggle`,
 `keyboard-show` and `controller-profile`, and those three were written to the
 contract rather than merely written in Rust -- which is why the crate landed
 holding something up rather than beside it.
@@ -683,9 +790,9 @@ loop with a counter in it, up to a minute -- a decision that can only be
 observed by waiting for it. It asks for a stretch now and is told when one has
 gone by, so the cold login is pressed in no time at all and so is the minute
 that ends in nothing. Two things fell out of writing it down: the profile paths
-are built from `console_gamepad::router`'s own constants rather than spelled a
-second time, and somebody who asked which profile was on while the bus was down
-used to get a blank line and a success, which now says what happened.
+are built from `console_input_gamepad::router`'s own constants rather than
+spelled a second time, and somebody who asked which profile was on while the bus
+was down used to get a blank line and a success, which now says what happened.
 
 Three things the conversion turned up that no test could have asked for while
 they were scripts. `grim` is not in `[packages]` and never has been -- the
@@ -705,27 +812,27 @@ about.
 
 Nothing in this tree turns X into the keyboard. The profiles pass it through
 untouched -- `North` in and `North` out, which
-`console-gamepad/tests/the_button_contract.rs` asserts on purpose -- and no program
-here reads `BTN_NORTH`. The handler is inside `wvkbd-mobintl`, which is a
-compiled binary carried in `files/` whose source is a C fork on the laptop,
+`console-input-gamepad/tests/the_button_contract.rs` asserts on purpose -- and
+no program here reads `BTN_NORTH`. The handler is inside `wvkbd-mobintl`, which
+is a compiled binary carried in `files/` whose source is a C fork on the laptop,
 reachable from nothing here. `gamepad_read`, `GamepadToggle`, `gamepad_lost` and
 `gamepad_alive` are all in it. It finds the pad in `/dev/input` and opens it
 itself.
 
 *Written before the port, and left as the description of the fault it is about.*
-The keyboard is `crates/console-keyboard` now and `gamepad.rs` is where those four
-functions went, in Rust and testable without a pad in the room. The race below
-is unchanged: it is about two programs opening one device with nothing said
-about the order, and rewriting one of them in a language you can ask questions
-of does not settle who opens what first.
+The keyboard is `crates/console-input-keyboard` now and `gamepad.rs` is where
+those four functions went, in Rust and testable without a pad in the room. The
+race below is unchanged: it is about two programs opening one device with
+nothing said about the order, and rewriting one of them in a language you can
+ask questions of does not settle who opens what first.
 
 So the pad is a resource two programs use and neither owns, and they are started
 with nothing said about the order:
 
-- `console-keyboard.service` and `console-controller.service` are both only
+- `console-input-keyboard.service` and `console-input-controller.service` are both only
   `WantedBy=console.target`. Of the nine units here, `console-sky` is the only
   one that declares an ordering at all.
-- `console-controller.service` runs `controller-profile desktop` from
+- `console-input-controller.service` runs `controller-profile desktop` from
   `ExecStartPost`, and a profile switch destroys the pad and builds a new one.
   Its own unit file says so.
 - InputPlumber is not on the bus at login, which is why `controller-profile`
@@ -755,7 +862,7 @@ pad and the keyboard beside it when its surface goes up and hands them back when
 it comes down, so it finds whatever is there at the moment somebody wants to
 type, and a pad rebuilt under it is a claim taken again on the next turn. There
 is no order left to declare, which is why the `After=` is gone rather than kept
-as a belt. `console-input-claim` is where that lives, and the twenty-restart
+as a belt. `console-input-focus` is where that lives, and the twenty-restart
 check stayed: it is still the only thing that can see a fault that appears on
 one restart in three.
 

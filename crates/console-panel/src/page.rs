@@ -13,7 +13,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 use crate::icons::Icon;
-use console_never::Never;
+use console_core_never::Never;
 
 pub trait Showing {
     fn refresh(&self);

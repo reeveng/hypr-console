@@ -10,7 +10,7 @@
 //! the menu on the release and not on the press, which is the half of the
 //! button contract that was wrong for a year.
 
-use console_never::Never;
+use console_core_never::Never;
 
 use crate::argv::Argv;
 use crate::doing::Doing;

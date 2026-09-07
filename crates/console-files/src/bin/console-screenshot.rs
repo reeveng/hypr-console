@@ -19,9 +19,9 @@
 
 use std::path::PathBuf;
 
-use console_external_programs::Program;
+use console_core_external_programs::Program;
 use console_files::places::folder;
-use console_never::Never;
+use console_core_never::Never;
 
 pub fn named(when: &str) -> Result<String, Never> {
     Ok(format!("screenshot-{when}.png"))

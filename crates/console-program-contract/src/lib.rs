@@ -54,7 +54,7 @@
 //! So the shared sets stay about kinds of effect, and a program names its own
 //! in its own crate: [`Program::Hears`] for the words only it can be told, and
 //! [`Program::Does`] for the effects only it can ask for. Both are
-//! `console_never::Never` for a program that has neither, which is most of
+//! `console_core_never::Never` for a program that has neither, which is most of
 //! them. What this does not give up is the transcript -- a private doing is
 //! still a value that was decided rather than carried out, so it is still in
 //! the list a test asserts on. What it gives up is that shared code can carry

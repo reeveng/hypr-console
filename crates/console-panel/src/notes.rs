@@ -8,7 +8,7 @@
 //! None of it is required to work. A file that cannot be read or written is a
 //! panel that opens the way it did before there was one.
 
-use console_never::Never;
+use console_core_never::Never;
 use std::path::PathBuf;
 
 pub fn beside(program: &str, note: &str) -> Result<Option<PathBuf>, Never> {

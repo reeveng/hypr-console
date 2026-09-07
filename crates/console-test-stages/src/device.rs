@@ -5,19 +5,26 @@
 //! which is its own supported way of doing this and is what a chord on the
 //! device already uses. So there is no second pad for the daemons to find and
 //! nothing to clean up if a check stops halfway.
+//!
+//! What a press then does to the machine is another matter, and it is somebody
+//! else's machine. Two things here are the bookkeeping that lets a run give it
+//! back the way it found it: a window opened through `open` is remembered, so
+//! `close_window` can end the process the run started rather than something
+//! the person was using, and a level is read as a `Level` rather than as a
+//! number, so a reading nobody got is never mistaken for a screen at nought.
 
 
-use console_external_programs::Program;
-use console_number_conversion::{fitted, toward_zero_u32, whole_u32};
+use console_core_external_programs::Program;
+use console_core_number_conversion::{fitted, toward_zero_u32, whole_u32};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use console_controller::means::Press;
-use console_never::Never;
-use console_gamepad::profile::{Kind, Profile};
-use console_gamepad::router::every_profile;
-use console_gamepad::vocabulary;
+use console_input_controller::means::Press;
+use console_core_never::Never;
+use console_input_gamepad::profile::{Kind, Profile};
+use console_input_gamepad::router::every_profile;
+use console_input_gamepad::vocabulary;
 
 use crate::checking::{Done, cannot, failed};
 use crate::picture::{Picture, where_};
@@ -34,8 +41,8 @@ pub fn host() -> Result<String, String> {
 const MARK: &str = "@user@";
 
 const PIECES: [&str; 14] = [
-    "console-controller",
-    "console-keyboard",
+    "console-input-controller",
+    "console-input-keyboard",
     "console-bar",
     "console-notify",
     "console-panels",
@@ -75,12 +82,14 @@ pub const PATIENCE: f64 = 4.0;
 
 pub const OPENING: f64 = 12.0;
 
-pub const FURNITURE: [&str; console_controller::mode::FURNITURE.len() + 1] = {
-    let mut every = [""; console_controller::mode::FURNITURE.len() + 1];
+pub const LEAVING: f64 = 12.0;
+
+pub const FURNITURE: [&str; console_input_controller::mode::FURNITURE.len() + 1] = {
+    let mut every = [""; console_input_controller::mode::FURNITURE.len() + 1];
     let mut at = 0;
 
-    while at < console_controller::mode::FURNITURE.len() {
-        every[at] = console_controller::mode::FURNITURE[at];
+    while at < console_input_controller::mode::FURNITURE.len() {
+        every[at] = console_input_controller::mode::FURNITURE[at];
         at += 1;
     }
 
@@ -105,8 +114,10 @@ pub struct Device {
     profiles: BTreeMap<String, Profile>,
     taken: Option<Picture>,
     kept: Option<PathBuf>,
+    opened: Vec<String>,
     pushed: Pushed,
     screen: Option<console_screen::Screen>,
+    watching: Option<std::sync::Arc<std::sync::Mutex<crate::watching::Watching>>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -134,31 +145,51 @@ fn menus_up(seen: &mut Device) -> Result<Seen, Never> {
     })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Seen {
-    Yes,
-    NotYet,
-}
+pub use console_waiting::{Seen, Waited};
 
-impl Seen {
-    pub fn flipped(self) -> Result<Self, Never> {
-        Ok(match self {
-            Seen::Yes => Seen::NotYet,
-            Seen::NotYet => Seen::Yes,
-        })
-    }
-}
+pub const A_MOMENT: f64 = 2.0;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Waited {
-    Happened,
-    RanOut,
-}
+pub const A_PICTURE: f64 = 10.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Dry {
     Pretend,
     Really,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Level {
+    At(i64),
+    Unsaid,
+}
+
+impl Level {
+    pub fn told(self) -> Result<Option<i64>, Never> {
+        Ok(match self {
+            Level::At(level) => Some(level),
+            Level::Unsaid => None,
+        })
+    }
+}
+
+fn brightness_in(said: &str) -> Result<Level, Never> {
+    let Some(line) = said.lines().next() else { return Ok(Level::Unsaid) };
+
+    Ok(match line.trim().parse() {
+        Ok(brightness) => Level::At(brightness),
+        Err(_unreadable) => Level::Unsaid,
+    })
+}
+
+fn volume_in(said: &str) -> Result<Level, Never> {
+    let word = said.lines().next().and_then(|line| line.split_whitespace().nth(4));
+
+    let Some(word) = word else { return Ok(Level::Unsaid) };
+
+    Ok(match word.trim_end_matches('%').parse() {
+        Ok(volume) => Level::At(volume),
+        Err(_unreadable) => Level::Unsaid,
+    })
 }
 
 impl Device {
@@ -173,9 +204,11 @@ impl Device {
             profiles,
             taken: None,
             kept: None,
+            opened: Vec::new(),
             whom: None,
             pushed: Pushed::Nothing,
             screen: None,
+            watching: None,
         })
     }
 
@@ -213,6 +246,25 @@ impl Device {
         Ok(format!("/home/{whom}"))
     }
 
+    pub fn watching(
+        &mut self,
+        watching: std::sync::Arc<std::sync::Mutex<crate::watching::Watching>>,
+    ) -> Result<(), Never> {
+        self.watching = Some(watching);
+
+        Ok(())
+    }
+
+    fn along(&mut self) -> Result<String, Never> {
+        let Some(watching) = self.watching.as_ref() else {
+            return Ok(String::new());
+        };
+
+        let Ok(mut held) = crate::watching::held(watching);
+
+        held.tick()
+    }
+
     pub fn ssh(&mut self, command: &str) -> Result<String, Never> {
         self.done.push(command.to_string());
 
@@ -221,10 +273,12 @@ impl Device {
             false => {},
         }
 
+        let Ok(along) = self.along();
+        let asked = format!("{command}{along}");
         let Ok(mut asking) = Program::Ssh.command();
 
         let done = asking
-            .args(["-o", "BatchMode=yes", &self.host, command])
+            .args(["-o", "BatchMode=yes", &self.host, &asked])
             .output();
 
         Ok(match done {
@@ -540,67 +594,171 @@ impl Device {
         self.hypr(&format!("dispatch {quoted}"))
     }
 
-    pub fn open(&mut self, command: &str, seconds: f64) -> Result<Waited, Never> {
-        match self.dry {
-            true => {
-                let Ok(_) = self.exec_cmd(command);
-
-                return Ok(Waited::Happened);
-            }
-            false => {},
-        }
-
+    pub fn addresses(&mut self) -> Result<Vec<String>, Never> {
         let Ok(clients) = self.clients();
-        let was: Vec<String> = clients
+
+        Ok(clients
             .iter()
             .filter_map(|client| {
                 let Ok(address) = address(client);
 
                 address
             })
-            .collect();
-        let Ok(_) = self.exec_cmd(command);
-        let until = Instant::now() + Duration::from_secs_f64(seconds);
+            .collect())
+    }
 
-        while Instant::now() < until {
-            self.taken = None;
+    pub fn opened(&mut self) -> Result<Vec<String>, Never> {
+        let Ok(open) = self.addresses();
 
-            let Ok(now) = self.clients();
-            let new = now.iter().find(|client| {
-                let Ok(address) = address(client);
+        Ok(self.opened.iter().filter(|which| open.contains(which)).cloned().collect())
+    }
 
-                address.is_some_and(|found| !was.contains(&found))
-            });
+    pub fn window_gone(&mut self, which: &str, seconds: f64) -> Result<Waited, Never> {
+        let going = which.to_string();
 
-            match new {
-                Some(new) => {
-                    let workspace = new
-                        .get("workspace")
-                        .and_then(|workspace| workspace.get("name"))
-                        .and_then(|name| name.as_str())
-                        .unwrap_or_default()
-                        .to_string();
-                    let Ok(quoted) =
-                        quoted(&format!("hl.dsp.focus({{workspace = \"{workspace}\"}})"));
-                    let Ok(_) = self.hypr(&format!("dispatch {quoted}"));
+        self.until::<Never>(
+            |seen| {
+                let Ok(open) = seen.addresses();
 
-                    std::thread::sleep(Duration::from_secs_f64(0.6));
+                Ok(match open.contains(&going) {
+                    true => Seen::NotYet,
+                    false => Seen::Yes,
+                })
+            },
+            seconds,
+        )
+    }
 
-                    return Ok(Waited::Happened);
-                }
-                None => {},
-            }
+    fn pid_at(&mut self, which: &str) -> Result<Option<i64>, Never> {
+        let Ok(clients) = self.clients();
 
-            std::thread::sleep(Duration::from_secs_f64(0.4));
+        Ok(clients
+            .iter()
+            .find(|client| {
+                let Ok(found) = address(client);
+
+                found.as_deref() == Some(which)
+            })
+            .and_then(|client| client.get("pid"))
+            .and_then(serde_json::Value::as_i64))
+    }
+
+    pub fn close_window(&mut self, which: &str) -> Result<Waited, Never> {
+        let closing = which.to_string();
+
+        self.opened.retain(|address| *address != closing);
+
+        match self.dry {
+            true => return Ok(Waited::Happened),
+            false => {},
         }
 
-        Ok(Waited::RanOut)
+        let Ok(pid) = self.pid_at(&closing);
+
+        let Some(pid) = pid else { return Ok(Waited::Happened) };
+
+        let Ok(_) = self.user(&format!("kill {pid}"));
+
+        self.window_gone(&closing, LEAVING)
+    }
+
+    pub fn go_to(&mut self, workspace: &str) -> Result<Waited, Never> {
+        let wanted = workspace.to_string();
+        let Ok(quoted) = quoted(&format!("hl.dsp.focus({{workspace = \"{wanted}\"}})"));
+        let Ok(_) = self.hypr(&format!("dispatch {quoted}"));
+
+        self.until::<Never>(
+            |seen| {
+                let Ok(now) = seen.workspace();
+
+                Ok(match now == wanted {
+                    true => Seen::Yes,
+                    false => Seen::NotYet,
+                })
+            },
+            A_MOMENT,
+        )
+    }
+
+    pub fn open(&mut self, command: &str, seconds: f64) -> Result<Waited, Never> {
+        let Ok(which) = self.opening(command, seconds);
+
+        Ok(match which {
+            Some(_) => Waited::Happened,
+            None => Waited::RanOut,
+        })
+    }
+
+    pub fn opening(&mut self, command: &str, seconds: f64) -> Result<Option<String>, Never> {
+        match self.dry {
+            true => {
+                let Ok(_) = self.exec_cmd(command);
+
+                return Ok(Some(String::new()));
+            }
+            false => {},
+        }
+
+        let Ok(was) = self.addresses();
+        let Ok(_) = self.exec_cmd(command);
+        let mut where_ = String::new();
+        let mut which = String::new();
+        let Ok(came) = self.until::<Never>(
+            |seen| {
+                seen.taken = None;
+
+                let Ok(now) = seen.clients();
+                let new = now.iter().find(|client| {
+                    let Ok(address) = address(client);
+
+                    address.is_some_and(|found| !was.contains(&found))
+                });
+
+                let Some(new) = new else { return Ok(Seen::NotYet) };
+
+                let Ok(found) = address(new);
+
+                which = found.unwrap_or_default();
+                where_ = new
+                    .get("workspace")
+                    .and_then(|workspace| workspace.get("name"))
+                    .and_then(|name| name.as_str())
+                    .unwrap_or_default()
+                    .to_string();
+
+                Ok(Seen::Yes)
+            },
+            seconds,
+        );
+
+        match came {
+            Waited::Happened => {},
+            Waited::RanOut => return Ok(None),
+        }
+
+        self.opened.push(which.clone());
+
+        let Ok(there) = self.go_to(&where_);
+
+        Ok(match there {
+            Waited::Happened => Some(which),
+            Waited::RanOut => None,
+        })
     }
 
     pub fn settle(&mut self, seconds: f64) -> Result<(), Never> {
         match self.dry {
             true => {},
-            false => std::thread::sleep(Duration::from_secs_f64(seconds)),
+            false => {
+                #[cfg_attr(
+                    dylint_lib = "explicit021_no_sleeping",
+                    allow(
+                        explicit021_no_sleeping,
+                        reason = "this is the gap `until` asks between two questions to the handheld, and a check that calls it directly is waiting on a number rather than on the thing -- which is what EXPLICIT022 denies, at the call, where the decision is"
+                    )
+                )]
+                std::thread::sleep(Duration::from_secs_f64(seconds));
+            }
         }
 
         Ok(())
@@ -702,35 +860,30 @@ impl Device {
         Ok(said.split('"').rev().nth(1).unwrap_or_default().to_string())
     }
 
-    pub fn brightness(&mut self) -> Result<i64, Never> {
+    pub fn brightness(&mut self) -> Result<Level, Never> {
         let Ok(said) = self.ssh("cat /sys/class/backlight/*/brightness");
 
-        let Some(line) = said.lines().next() else { return Ok(0) };
-
-        Ok(match line.trim().parse() {
-            Ok(brightness) => brightness,
-            Err(fault) => {
-                eprintln!("console-test-stages: the backlight said {line:?}: {fault}");
-
-                0
-            }
-        })
+        brightness_in(&said)
     }
 
-    pub fn volume(&mut self) -> Result<i64, Never> {
+    pub fn brightness_to(&mut self, level: i64) -> Result<(), Never> {
+        let Ok(_) = self.ssh(&format!(
+            "printf '%s\\n' {level} | tee /sys/class/backlight/*/brightness >/dev/null"
+        ));
+
+        Ok(())
+    }
+
+    pub fn volume(&mut self) -> Result<Level, Never> {
         let Ok(said) = self.user("pactl get-sink-volume @DEFAULT_SINK@");
-        let word = said.lines().next().and_then(|line| line.split_whitespace().nth(4));
 
-        let Some(word) = word else { return Ok(0) };
+        volume_in(&said)
+    }
 
-        Ok(match word.trim_end_matches('%').parse() {
-            Ok(volume) => volume,
-            Err(fault) => {
-                eprintln!("console-test-stages: pactl said {word:?} where the level goes: {fault}");
+    pub fn volume_to(&mut self, level: i64) -> Result<(), Never> {
+        let Ok(_) = self.user(&format!("pactl set-sink-volume @DEFAULT_SINK@ {level}%"));
 
-                0
-            }
-        })
+        Ok(())
     }
 
     pub fn services(&mut self) -> Result<Vec<String>, Never> {
@@ -846,16 +999,31 @@ impl Device {
         Ok(named)
     }
 
-    pub fn until(
+    pub fn until<Why>(
         &mut self,
-        mut what: impl FnMut(&mut Self) -> Result<Seen, Never>,
+        mut what: impl FnMut(&mut Self) -> Result<Seen, Why>,
         seconds: f64,
-    ) -> Result<Waited, Never> {
+    ) -> Result<Waited, Why> {
         let Ok(rounds) = toward_zero_u32(seconds / 0.5);
 
         for _ in 0..rounds {
+            let Ok(stop) = crate::stopping::asked();
+
+            match stop {
+                crate::stopping::Stop::Asked => return Ok(Waited::RanOut),
+                crate::stopping::Stop::No => {},
+            }
+
+            #[cfg_attr(
+                dylint_lib = "explicit022_no_settling",
+                allow(
+                    explicit022_no_settling,
+                    reason = "this is the gap between two questions to the handheld, which is the one caller the sleep below it is for; the calls that still name a number say at their own sites why the elapsing was what was asked for"
+                )
+            )]
             let Ok(()) = self.settle(0.5);
-            let Ok(seen) = what(self);
+
+            let seen = what(self)?;
 
             match seen {
                 Seen::Yes => return Ok(Waited::Happened),
@@ -864,6 +1032,25 @@ impl Device {
         }
 
         Ok(Waited::RanOut)
+    }
+
+    pub fn changed<T: PartialEq, Why>(
+        &mut self,
+        mut reading: impl FnMut(&mut Self) -> Result<T, Why>,
+        from: &T,
+        seconds: f64,
+    ) -> Result<Waited, Why> {
+        self.until(
+            |seen| {
+                let now = reading(seen)?;
+
+                Ok(match now == *from {
+                    true => Seen::NotYet,
+                    false => Seen::Yes,
+                })
+            },
+            seconds,
+        )
     }
 
     pub fn drawn(&mut self, seconds: f64) -> Result<Waited, Never> {
@@ -915,8 +1102,27 @@ impl Device {
         match self.taken.is_none() {
             true => {
                 let Ok(_) = self.exec_cmd("grim /tmp/console-check.png");
+                let Ok(written) = self.until::<Never>(
+                    |seen| {
+                        let Ok(said) = seen.ssh(
+                            "test -s /tmp/console-check.png && echo written || echo not-yet",
+                        );
 
-                std::thread::sleep(Duration::from_secs_f64(1.5));
+                        Ok(match said.trim() == "written" {
+                            true => Seen::Yes,
+                            false => Seen::NotYet,
+                        })
+                    },
+                    A_PICTURE,
+                );
+
+                match written {
+                    Waited::Happened => {},
+                    Waited::RanOut => {
+                        return Err("the device never wrote a picture to /tmp".to_string());
+                    }
+                }
+
                 let here =
                     std::env::temp_dir().join(format!("console-shot-{}", std::process::id()));
                 std::fs::create_dir_all(&here).map_err(|fault| fault.to_string())?;
@@ -1013,6 +1219,12 @@ impl Device {
         Ok(average)
     }
 
+    pub fn again(&mut self) -> Result<(), Never> {
+        self.taken = None;
+
+        Ok(())
+    }
+
     pub fn fresh(&mut self) -> Result<(), Never> {
         self.taken = None;
         self.screen = None;
@@ -1041,8 +1253,7 @@ impl Device {
             }
 
             let Ok(()) = self.press("b");
-
-            std::thread::sleep(Duration::from_secs_f64(0.8));
+            let Ok(_closed) = self.gone(A_MOMENT);
         }
 
         let Ok(profile) = self.profile();
@@ -1050,9 +1261,25 @@ impl Device {
         match profile == "Router" {
             true => {},
             false => {
-                let Ok(()) = self.load_profile(console_gamepad::router::NAME);
+                let Ok(()) = self.load_profile(console_input_gamepad::router::NAME);
+                let Ok(loaded) = self.until::<Never>(
+                    |seen| {
+                        let Ok(now) = seen.profile();
 
-                std::thread::sleep(Duration::from_secs_f64(0.5));
+                        Ok(match now == "Router" {
+                            true => Seen::Yes,
+                            false => Seen::NotYet,
+                        })
+                    },
+                    A_MOMENT,
+                );
+
+                match loaded {
+                    Waited::Happened => {},
+                    Waited::RanOut => {
+                        eprintln!("console-test-stages: the router profile would not load");
+                    }
+                }
             }
         }
 
@@ -1202,6 +1429,19 @@ mod tests {
             capability_under(profiles.get("game"), "a"),
             Some("Gamepad:Button:South".to_string())
         );
+    }
+
+    #[test]
+    fn a_level_the_machine_would_not_say_is_not_a_level_of_nought() {
+        assert_eq!(brightness_in("24000\n"), Ok(Level::At(24000)));
+        assert_eq!(brightness_in(""), Ok(Level::Unsaid));
+        assert_eq!(brightness_in("no such file"), Ok(Level::Unsaid));
+
+        let said = "Volume: front-left: 26214 /  40% / -23.86 dB,   front-right: 26214 /  40%";
+
+        assert_eq!(volume_in(said), Ok(Level::At(40)));
+        assert_eq!(volume_in(""), Ok(Level::Unsaid));
+        assert_eq!(volume_in("Volume: unknown"), Ok(Level::Unsaid));
     }
 
     #[test]

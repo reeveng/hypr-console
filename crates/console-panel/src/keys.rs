@@ -12,7 +12,7 @@
 //! by pushing the one in front of them out of the way. So a swipe across a row
 //! *is* that row's level, and nothing else has to be taught to it.
 
-use console_never::Never;
+use console_core_never::Never;
 use gtk4::gdk::Key;
 
 const MORE: [Key; 2] = [Key::F18, Key::Launch9];

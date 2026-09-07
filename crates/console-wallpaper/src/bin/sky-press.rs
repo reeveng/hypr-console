@@ -16,8 +16,8 @@
 //! somewhere an update cannot replace them.
 
 
-use console_never::Never;
-use console_number_conversion::Float;
+use console_core_never::Never;
+use console_core_number_conversion::Float;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 

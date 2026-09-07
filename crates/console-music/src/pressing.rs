@@ -21,9 +21,9 @@ use std::path::{Path, PathBuf};
 
 use console_program_contract::{Argv, Doing, Opening, Program, Runs, Turn, Word};
 
-use console_external_programs::Program as Theirs;
+use console_core_external_programs::Program as Theirs;
 
-use console_never::Never;
+use console_core_never::Never;
 
 use crate::library::Kind;
 use crate::player::{self, Order, Over};
@@ -182,7 +182,7 @@ pub fn closes(state: &Standing) -> Result<Closes, Never> {
 
 fn along(press: usize, by: i32, of: usize) -> Result<usize, Never> {
     let last = of.saturating_sub(1);
-    let Ok(step) = console_number_conversion::fitted::<u32, usize>(by.unsigned_abs());
+    let Ok(step) = console_core_number_conversion::fitted::<u32, usize>(by.unsigned_abs());
 
     Ok(match by < 0 {
         true => press.saturating_sub(step),

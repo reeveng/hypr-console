@@ -19,7 +19,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::Command;
 
-use console_external_programs::Program;
+use console_core_external_programs::Program;
 
 const SAY: &str = env!("CARGO_BIN_EXE_console-say");
 const FELL: &str = env!("CARGO_BIN_EXE_console-fell");

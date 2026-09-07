@@ -3,7 +3,7 @@
 //! Only enough of each format to answer the one question Steam's cache asks:
 //! whether this file is square.
 
-use console_never::Never;
+use console_core_never::Never;
 
 pub fn size(head: &[u8]) -> Result<Option<(u32, u32)>, Never> {
     let drawn = png(head)?;

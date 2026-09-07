@@ -26,7 +26,7 @@
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use console_never::Never;
+use console_core_never::Never;
 
 use crate::sun::Where;
 

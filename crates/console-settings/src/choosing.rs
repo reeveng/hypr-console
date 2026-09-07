@@ -15,7 +15,7 @@
 //! something this may look up.
 
 use console_home_screen::shape::{self, Shape, Size};
-use console_never::Never;
+use console_core_never::Never;
 use console_program_contract::{Argv, Doing, Opening, Program, Turn, Word};
 
 pub const SEARCH: usize = 0;

@@ -7,13 +7,13 @@
 //! devices built from the same capture the emulator uses.
 
 use evdev::{AbsoluteAxisCode, InputEvent};
-use console_controller::finding::Says;
-use console_controller::reading::Ranges;
-use console_controller::turning::{Gone, Plugged, Took};
-use console_gamepad::capture::Descriptor;
-use console_gamepad::devices::Devices;
-use console_gamepad::world::World;
-use console_never::Never;
+use console_input_controller::finding::Says;
+use console_input_controller::reading::Ranges;
+use console_input_controller::turning::{Gone, Plugged, Took};
+use console_input_gamepad::capture::Descriptor;
+use console_input_gamepad::devices::Devices;
+use console_input_gamepad::world::World;
+use console_core_never::Never;
 
 pub struct Plug<'a> {
     pub devices: &'a mut Devices<World>,

@@ -40,7 +40,7 @@
 use std::os::unix::net::UnixDatagram;
 use std::path::PathBuf;
 
-use console_never::Never;
+use console_core_never::Never;
 
 use crate::asked;
 

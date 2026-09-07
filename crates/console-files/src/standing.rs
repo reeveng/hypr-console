@@ -22,7 +22,7 @@
 
 use std::path::PathBuf;
 
-use console_never::Never;
+use console_core_never::Never;
 use console_program_contract::{Argv, Doing, Opening, Program, Turn, Word};
 
 use crate::doing::Holding;

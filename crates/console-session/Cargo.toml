@@ -27,9 +27,9 @@ path = "src/bin/desktop-mode.rs"
 # runs; the two switches are usually killed halfway through by the session
 # going down, and `session-start` -- which runs in the session that is coming
 # up -- is the one that always lands.
-console-external-programs.workspace = true
-console-never.workspace = true
-console-wait-times.workspace = true
+console-core-external-programs.workspace = true
+console-core-never.workspace = true
+console-response-times.workspace = true
 
 [lints]
 workspace = true

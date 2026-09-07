@@ -1,8 +1,8 @@
 //! A level, drawn so it can be read across the room.
 
 
-use console_never::Never;
-use console_number_conversion::{Float, toward_zero_usize};
+use console_core_never::Never;
+use console_core_number_conversion::{Float, toward_zero_usize};
 pub const FULL: char = '█';
 pub const EMPTY: char = '░';
 pub const CELLS: usize = 8;

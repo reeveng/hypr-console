@@ -14,8 +14,8 @@
 
 use std::path::Path;
 
-use console_external_programs::Program;
-use console_never::Never;
+use console_core_external_programs::Program;
+use console_core_never::Never;
 use console_panel::running::said;
 use serde_json::Value;
 

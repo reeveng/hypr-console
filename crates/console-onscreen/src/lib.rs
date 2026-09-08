@@ -19,27 +19,20 @@
 
 use std::path::PathBuf;
 
-use console_core_external_programs::Program;
+use console_compositor::stirred::Stirred;
+use console_core_atomic_writes::Held;
 use console_core_never::Never;
 
 pub mod homeward;
 
-pub use homeward::{Awake, Said, homeward, telling, waking};
+pub use homeward::{Awake, Hand, Said, carrying, homeward, telling, waking};
 
 fn asked(name: &str) -> Result<String, String> {
     std::env::var(name).map_err(|fault| format!("{name}: {fault}"))
 }
 
 pub fn screens() -> Result<serde_json::Value, String> {
-    let Ok(mut hyprctl) = Program::Hyprctl.command();
-
-    let said = hyprctl
-        .args(["layers", "-j"])
-        .output()
-        .map_err(|fault| format!("asking hyprctl what is on the screen: {fault}"))?;
-
-    serde_json::from_slice(&said.stdout)
-        .map_err(|fault| format!("reading hyprctl's answer about what is on the screen: {fault}"))
+    console_compositor::asked(console_compositor::Asked::Layers)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,25 +53,34 @@ fn drawn<'a>(
     screens: &'a serde_json::Value,
     namespace: &'a str,
 ) -> Result<impl Iterator<Item = &'a serde_json::Value>, Never> {
-    Ok(screens
-        .as_object()
-        .into_iter()
-        .flatten()
-        .filter_map(|(_, screen)| {
-            let levels = screen.get("levels")?;
+    let Ok(surfaces) = console_compositor::surfaces(screens);
 
-            levels.as_object()
-        })
-        .flatten()
-        .filter_map(|(_, level)| level.as_array())
-        .flatten()
+    Ok(surfaces
         .filter(move |surface| {
-            surface
-                .get("namespace")
-                .and_then(serde_json::Value::as_str)
-                .is_some_and(|named| named.starts_with(namespace))
+            let Ok(named) = console_compositor::namespace(surface);
+
+            named.is_some_and(|named| named.starts_with(namespace))
         })
-        .filter(|surface| surface.get("h").and_then(serde_json::Value::as_i64).unwrap_or(1) > 0))
+        .filter(|surface| {
+            let Ok(seen) = seen(surface);
+
+            seen == Seen::Yes
+        }))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Seen {
+    Yes,
+    No,
+}
+
+fn seen(surface: &serde_json::Value) -> Result<Seen, Never> {
+    let Ok(tall) = console_compositor::tall(surface);
+
+    Ok(match tall.unwrap_or(1) > 0 {
+        true => Seen::Yes,
+        false => Seen::No,
+    })
 }
 
 pub fn up(screens: &serde_json::Value, namespace: &str) -> Result<Up, Never> {
@@ -90,30 +92,17 @@ pub fn up(screens: &serde_json::Value, namespace: &str) -> Result<Up, Never> {
     })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Standing {
-    pub across: i64,
-    pub down: i64,
-    pub wide: i64,
-    pub tall: i64,
-}
+pub use console_compositor::Corner as Standing;
 
 pub fn standing(screens: &serde_json::Value, namespace: &str) -> Result<Option<Standing>, Never> {
     let Ok(mut drawn) = drawn(screens, namespace);
 
-    let Some(surface) = drawn.next() else { return Ok(None) };
+    let surface = match drawn.next() {
+        Some(surface) => surface,
+        None => return Ok(None),
+    };
 
-    let said = |name: &str| surface.get(name).and_then(serde_json::Value::as_i64);
-
-    let Some(across) = said("x") else { return Ok(None) };
-
-    let Some(down) = said("y") else { return Ok(None) };
-
-    let Some(wide) = said("w") else { return Ok(None) };
-
-    let Some(tall) = said("h") else { return Ok(None) };
-
-    Ok(Some(Standing { across, down, wide, tall }))
+    console_compositor::corner(surface)
 }
 
 pub const FURNITURE: [&str; 7] = [
@@ -139,23 +128,18 @@ pub enum Over {
 }
 
 pub fn over_the_desktop(screens: &serde_json::Value) -> Result<Over, Never> {
-    let over = screens
-        .as_object()
-        .into_iter()
-        .flatten()
-        .filter_map(|(_, screen)| {
-            let levels = screen.get("levels")?;
+    let Ok(surfaces) = console_compositor::surfaces(screens);
 
-            levels.as_object()
+    let over = surfaces
+        .filter(|surface| {
+            let Ok(seen) = seen(surface);
+
+            seen == Seen::Yes
         })
-        .flatten()
-        .filter_map(|(_, level)| level.as_array())
-        .flatten()
-        .filter(|surface| surface.get("h").and_then(serde_json::Value::as_i64).unwrap_or(1) > 0)
         .filter_map(|surface| {
-            let namespace = surface.get("namespace")?;
+            let Ok(named) = console_compositor::namespace(surface);
 
-            namespace.as_str()
+            named
         })
         .any(|named| !FURNITURE.iter().any(|known| named.starts_with(known)));
 
@@ -172,9 +156,21 @@ pub enum Worth {
 }
 
 pub fn worth_asking_after(line: &str) -> Result<Worth, Never> {
-    Ok(match line.starts_with("openlayer>>") || line.starts_with("closelayer>>") {
-        true => Worth::Asking,
-        false => Worth::Ignoring,
+    let stirred = console_compositor::stirred::read(line)?;
+
+    Ok(match stirred {
+        Stirred::LayerOpened | Stirred::LayerClosed => Worth::Asking,
+        Stirred::WindowOpened(_)
+        | Stirred::WindowClosed(_)
+        | Stirred::WindowRenamed(_)
+        | Stirred::WindowMoved
+        | Stirred::WindowFloated
+        | Stirred::WindowPinned
+        | Stirred::WindowFilled
+        | Stirred::WorkspaceChanged
+        | Stirred::ScreenFocused
+        | Stirred::ConfigReloaded
+        | Stirred::Nothing => Worth::Ignoring,
     })
 }
 
@@ -216,10 +212,12 @@ pub fn forget() -> Result<(), String> {
 pub fn tab() -> Result<Option<String>, String> {
     let note = note()?;
 
-    match std::fs::read_to_string(&note) {
-        Ok(said) => Ok(Some(said.trim().to_string())),
-        Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(fault) => Err(format!("{}: reading it: {fault}", note.display())),
+    let Ok(held) = console_core_atomic_writes::read(&note);
+
+    match held {
+        Held::Said(said) => Ok(Some(said.trim().to_string())),
+        Held::Nothing => Ok(None),
+        Held::Unreadable(fault) => Err(format!("{}: reading it: {fault}", note.display())),
     }
 }
 

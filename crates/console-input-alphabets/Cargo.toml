@@ -1,0 +1,27 @@
+[package]
+name = "console-input-alphabets"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_input_alphabets"
+path = "src/lib.rs"
+
+[dependencies]
+# Where a thing somebody chose is kept, which is the same store the dictation
+# language and the home grid are kept in.
+console-default-applications.workspace = true
+# What each keyboard is wearing is one line per keyboard in somebody's own
+# state, written whole so a switch interrupted leaves the old answer rather
+# than half of the new one.
+console-core-atomic-writes.workspace = true
+console-core-never.workspace = true
+console-core-places.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

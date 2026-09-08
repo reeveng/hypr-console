@@ -40,18 +40,18 @@ Type=simple
 # nothing was listening to. A keyboard that dies takes its layer off the
 # screen, the compositor says so, and the daemon puts the pad where the screen
 # now says it belongs. See `console_controller::mode`.
-# Which alphabets this machine types, said here and nowhere else. The keyboard
-# has an arrangement for every script wvkbd ever carried; which of them a
-# person walks is a fact about the machine, not about the program, so it is on
-# the command line rather than compiled in. Adding Russian is `cyrillic` in
-# this list -- the keymap comes from the system's own xkb symbols, so nothing
-# else changes.
+
+# No `--landscape-layers`, and that is the change rather than an omission.
 #
-# `--landscape-layers` and not `-l`, because the keyboard is a strip across the
-# bottom of a screen wider than it is deep, and that is the list it reads. The
-# two latin arrangements are four rows of thirteen either way round, so moving
-# between them moves no key.
-ExecStart=/usr/local/bin/virtual-keyboard --landscape-layers landscape,thai,landscapespecial
+# It used to name the walk here -- `landscape,thai,landscapespecial` -- which
+# made which alphabets this machine types a fact about the device stated by
+# whoever built it, in a tree that names nobody. Somebody who reads Greek had
+# no way to say so. It is a setting now, kept where the dictation language and
+# the home grid are kept, and `console_input_alphabets` is the list both this
+# and the settings panel read. The flag is still taken and still wins, because
+# a keyboard started by hand to try an arrangement out should get the one it
+# was asked for.
+ExecStart=/usr/local/bin/virtual-keyboard
 ExecStopPost=-/usr/local/bin/console-fell %n
 Restart=always
 RestartSec=2

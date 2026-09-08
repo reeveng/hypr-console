@@ -90,13 +90,19 @@ pub fn line(says: &Says, open: Up) -> Result<String, Never> {
 }
 
 fn whole(percent: i32) -> Result<Option<u32>, Never> {
-    let Ok(whole) = u32::try_from(percent) else { return Ok(None) };
+    let whole = match u32::try_from(percent) {
+        Ok(whole) => whole,
+        Err(_fault) => return Ok(None),
+    };
 
     Ok(Some(whole))
 }
 
 fn number<T: std::str::FromStr>(said: &str) -> Result<Option<T>, Never> {
-    let Ok(number) = said.trim().parse::<T>() else { return Ok(None) };
+    let number = match said.trim().parse::<T>() {
+        Ok(number) => number,
+        Err(_fault) => return Ok(None),
+    };
 
     Ok(Some(number))
 }
@@ -110,11 +116,14 @@ pub fn battery(said: &str) -> Result<Says, Never> {
         told
     });
 
-    let Some(charge) = told else {
-        let Ok(blank) = wide("");
-        let Ok(nothing) = small(&blank);
+    let charge = match told {
+        Some(charge) => charge,
+        None => {
+            let Ok(blank) = wide("");
+            let Ok(nothing) = small(&blank);
 
-        return Says::new(format!("\u{f008e} {nothing}"), "");
+            return Says::new(format!("\u{f008e} {nothing}"), "");
+        }
     };
 
     let filling = reading.filling;
@@ -234,8 +243,9 @@ pub fn sound(said: &str) -> Result<Says, Never> {
         told
     });
 
-    let Some(volume) = told else {
-        return Says::new(SILENT, "");
+    let volume = match told {
+        Some(volume) => volume,
+        None => return Says::new(SILENT, ""),
     };
 
     match said.contains("[MUTED]") {
@@ -332,7 +342,10 @@ mod tests {
         for says in [saying("x", ""), saying("x", "muted"), saying("x", "wifi")] {
             for open in [Up::OnScreen, Up::NotThere] {
                 let said = line(&says, open);
-                let Some(list) = held(&said).get("class").cloned() else { continue };
+                let list = match held(&said).get("class").cloned() {
+                    Some(list) => list,
+                    None => continue,
+                };
                 assert!(list.is_array(), "{said} writes the classes as {list}");
                 for name in worn(&said) {
                     assert!(!name.contains(char::is_whitespace), "{said} wears {name:?}");

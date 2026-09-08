@@ -16,6 +16,7 @@ use evdev::{AbsoluteAxisCode, Device, InputEvent};
 pub enum Which {
     Pad,
     Keys,
+    Typing,
     Touch,
 }
 
@@ -24,22 +25,28 @@ impl Which {
         Ok(match self {
             Which::Pad => "gamepad",
             Which::Keys => "keyboard",
+            Which::Typing => "a keyboard somebody plugged in",
             Which::Touch => "touchpad",
         })
     }
 
-    fn among(self, said: &[Says]) -> Result<Option<&Says>, Never> {
-        match self {
-            Which::Pad => finding::gamepad(said),
-            Which::Keys => finding::keyboard(said),
-            Which::Touch => finding::touchpad(said),
-        }
+    fn among(self, said: &[Says]) -> Result<Vec<&Says>, Never> {
+        let one = match self {
+            Which::Pad => finding::gamepad(said)?,
+            Which::Keys => finding::keyboard(said)?,
+            Which::Typing => return finding::typing(said),
+            Which::Touch => finding::touchpad(said)?,
+        };
+
+        Ok(one.into_iter().collect())
     }
 }
 
 pub type Spans = Vec<(AbsoluteAxisCode, (i32, i32))>;
 
 pub const CONTROLLER: [Which; 2] = [Which::Pad, Which::Keys];
+
+pub const EVERYTHING_PRESSED: [Which; 3] = [Which::Pad, Which::Keys, Which::Typing];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Refused {
@@ -87,10 +94,10 @@ impl Claim {
             .collect();
         let found: Vec<(Which, String)> = wanted
             .iter()
-            .filter_map(|which| {
+            .flat_map(|which| {
                 let Ok(among) = which.among(&said);
 
-                among.map(|says| (*which, says.path.clone()))
+                among.into_iter().map(|says| (*which, says.path.clone())).collect::<Vec<_>>()
             })
             .collect();
 
@@ -104,7 +111,10 @@ impl Claim {
         for (path, device) in seen {
             let asked = found.iter().find(|(_, at)| *at == path).map(|(which, _)| *which);
 
-            let Some(which) = asked else { continue };
+            let which = match asked {
+                Some(which) => which,
+                None => continue,
+            };
 
             let taken = take(path, which, device)?;
 
@@ -145,15 +155,20 @@ impl Claim {
     pub fn arrived(&mut self) -> Result<Heard, Never> {
         let mut heard = Heard::default();
 
+        let mut lost: Vec<String> = Vec::new();
+
         for taken in &mut self.held {
             match taken.device.fetch_events() {
                 Ok(arrived) => heard.events.extend(arrived.map(|event| (taken.which, event))),
                 Err(fault) if fault.kind() == std::io::ErrorKind::WouldBlock => {}
-                Err(_) => heard.gone.push(taken.which),
+                Err(_) => {
+                    heard.gone.push(taken.which);
+                    lost.push(taken.path.clone());
+                }
             }
         }
 
-        self.held.retain(|taken| !heard.gone.contains(&taken.which));
+        self.held.retain(|taken| !lost.contains(&taken.path));
 
         Ok(heard)
     }
@@ -202,7 +217,7 @@ mod tests {
 
     #[test]
     fn every_device_says_what_it_is_in_words() {
-        for which in [Which::Pad, Which::Keys, Which::Touch] {
+        for which in [Which::Pad, Which::Keys, Which::Typing, Which::Touch] {
             let Ok(said) = which.said();
 
             assert!(!said.is_empty(), "{which:?} has no name to complain in");

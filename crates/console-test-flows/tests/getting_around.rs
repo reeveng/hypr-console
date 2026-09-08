@@ -26,7 +26,7 @@ use console_input_controller::means::{Job, Suits, Table, What, When, job};
 use console_input_controller::mode::Mode;
 use console_test_flows::screens;
 use console_button_guide::guide::{DOABLE, MENUS, Line, Section, said, sections};
-use console_input_gamepad::jobs::{ALONE, Played};
+use console_input_bindings::bound::{Input, Played};
 use console_test_stages::device::Seen;
 use console_test_stages::here::{Here, TURNS};
 use evdev::{EventType, KeyCode};
@@ -88,7 +88,7 @@ fn stage() -> Here {
 }
 
 fn guide(table: &Table) -> Vec<Section> {
-    let Ok(sections) = sections(table, "");
+    let Ok(sections) = sections(table);
 
     sections
 }
@@ -135,9 +135,11 @@ fn bare(table: &Table, mode: Mode) -> Vec<(&'static Job, String)> {
                 .filter(|one| {
                     let Ok(played) = one.played();
 
-                    played == Played::ByAButton && one.layer == ALONE
+                    played == Played::ByAPress
+                        && one.on == Input::Pad
+                        && one.held.is_empty()
                 })
-                .map(move |one| (job, one.button.clone()))
+                .map(move |one| (job, one.pressed.clone()))
                 .collect::<Vec<(&'static Job, String)>>()
         })
         .collect()
@@ -389,7 +391,9 @@ fn the_walk_is_about_the_buttons_it_names() {
         let Ok(bindings) = table.bindings(slug);
 
         assert!(
-            bindings.iter().any(|one| one.button == button && one.layer == ALONE),
+            bindings
+                .iter()
+                .any(|one| one.pressed == button && one.held.is_empty() && one.on == Input::Pad),
             "{slug} is not on {button} any more, and this flow is walking the old machine"
         );
     }

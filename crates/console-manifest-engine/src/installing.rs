@@ -40,38 +40,45 @@ pub fn said(line: &str) -> Result<Said, Never> {
     let Ok(plain) = how_far::plain(line);
     let said = plain.trim();
 
-    let Some(fetching) = said.strip_suffix("downloading...") else {
-        return counted(said);
+    let fetching = match said.strip_suffix("downloading...") {
+        Some(fetching) => fetching,
+        None => return counted(said),
     };
 
     Ok(Said::Fetching(fetching.trim().to_string()))
 }
 
 fn counted(said: &str) -> Result<Said, Never> {
-    let Some(rest) = said.strip_prefix('(') else {
-        return Ok(Said::Nothing);
+    let rest = match said.strip_prefix('(') {
+        Some(rest) => rest,
+        None => return Ok(Said::Nothing),
     };
 
-    let Some((count, doing)) = rest.split_once(')') else {
-        return Ok(Said::Nothing);
+    let (count, doing) = match rest.split_once(')') {
+        Some((count, doing)) => (count, doing),
+        None => return Ok(Said::Nothing),
     };
 
-    let Some((done, many)) = count.split_once('/') else {
-        return Ok(Said::Nothing);
+    let (done, many) = match count.split_once('/') {
+        Some((done, many)) => (done, many),
+        None => return Ok(Said::Nothing),
     };
 
-    let Ok(done) = done.trim().parse::<usize>() else {
-        return Ok(Said::Nothing);
+    let done = match done.trim().parse::<usize>() {
+        Ok(done) => done,
+        Err(_fault) => return Ok(Said::Nothing),
     };
 
-    let Ok(many) = many.trim().parse::<usize>() else {
-        return Ok(Said::Nothing);
+    let many = match many.trim().parse::<usize>() {
+        Ok(many) => many,
+        Err(_fault) => return Ok(Said::Nothing),
     };
 
     let doing = doing.trim();
 
-    let Some(verb) = VERBS.iter().find(|verb| doing.starts_with(*verb)) else {
-        return Ok(Said::Nothing);
+    let verb = match VERBS.iter().find(|verb| doing.starts_with(*verb)) {
+        Some(verb) => verb,
+        None => return Ok(Said::Nothing),
     };
 
     Ok(Said::Doing {

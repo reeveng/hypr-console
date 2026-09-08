@@ -93,7 +93,10 @@ pub struct Handed {
 }
 
 fn back_to(found: Level, now: Level) -> Result<Option<i64>, Never> {
-    let (Level::At(was), Level::At(is)) = (found, now) else { return Ok(None) };
+    let (was, is) = match (found, now) {
+        (Level::At(was), Level::At(is)) => (was, is),
+        (Level::Unsaid, _) | (_, Level::Unsaid) => return Ok(None),
+    };
 
     Ok(match was == is {
         true => None,

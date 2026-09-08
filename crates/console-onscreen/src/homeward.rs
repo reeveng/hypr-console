@@ -36,9 +36,27 @@
 //! where it was and takes A and Y with it. `waking` is how the daemon finds
 //! that out, because it is not something the compositor knows: the surface is
 //! on the screen either way.
+//!
+//! ## And what is in its hand
+//!
+//! `carrying` is the same note for the other thing nothing outside the home
+//! screen can see. A square picked up is not written down anywhere -- the
+//! arrangement is only kept when the square is put back down -- and it is not
+//! a window, a layer or a process, so a machine asked whether somebody is
+//! holding an application has had nothing to answer with.
+//!
+//! What made that worth a note is the moment after the card. `home-square`
+//! sends `carry` on its way out, so the card being gone is a moment before the
+//! square is in the hand, and anything that walks the d-pad in that gap moves
+//! the highlight and then lifts whatever it landed on. Read off the screen
+//! that gap is a colour; said out loud it is a file that is there or is not.
+//!
+//! `Hand` is here for the reason `Said` is: the home screen and whatever is
+//! asking both have to mean the same thing by it, and neither should carry the
+//! other to find out.
 
-use std::os::unix::net::UnixDatagram;
 use std::path::PathBuf;
+use std::os::unix::net::UnixDatagram;
 
 use console_core_never::Never;
 
@@ -122,21 +140,30 @@ pub enum Awake {
 
 impl Awake {
     pub fn asked() -> Result<Self, Never> {
-        Ok(match note().is_ok_and(|note| note.exists()) {
+        Ok(match note(AWAKE).is_ok_and(|note| note.exists()) {
             true => Awake::Yes,
             false => Awake::No,
         })
     }
 }
 
-fn note() -> Result<PathBuf, String> {
+const AWAKE: &str = "home-awake";
+
+const CARRYING: &str = "home-carrying";
+
+fn note(named: &str) -> Result<PathBuf, String> {
     let runtime = asked("XDG_RUNTIME_DIR")?;
 
-    Ok(std::path::Path::new(&runtime).join("console").join("home-awake"))
+    Ok(std::path::Path::new(&runtime).join("console").join(named))
 }
 
-pub fn waking(awake: Awake) -> Result<(), String> {
-    let note = note()?;
+enum Note<'a> {
+    Says(&'a str),
+    Gone,
+}
+
+fn noting(named: &str, said: Note) -> Result<(), String> {
+    let note = note(named)?;
 
     match note.parent() {
         Some(above) => std::fs::create_dir_all(above)
@@ -144,15 +171,50 @@ pub fn waking(awake: Awake) -> Result<(), String> {
         None => {}
     }
 
-    match awake {
-        Awake::Yes => std::fs::write(&note, "awake\n")
+    match said {
+        Note::Says(word) => std::fs::write(&note, word)
             .map_err(|fault| format!("{}: writing it: {fault}", note.display())),
-        Awake::No => match std::fs::remove_file(&note) {
+        Note::Gone => match std::fs::remove_file(&note) {
             Ok(()) => Ok(()),
             Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(fault) => Err(format!("{}: removing it: {fault}", note.display())),
         },
     }
+}
+
+pub fn waking(awake: Awake) -> Result<(), String> {
+    noting(
+        AWAKE,
+        match awake {
+            Awake::Yes => Note::Says("awake\n"),
+            Awake::No => Note::Gone,
+        },
+    )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Hand {
+    Carries,
+    Empty,
+}
+
+impl Hand {
+    pub fn asked() -> Result<Self, Never> {
+        Ok(match note(CARRYING).is_ok_and(|note| note.exists()) {
+            true => Hand::Carries,
+            false => Hand::Empty,
+        })
+    }
+}
+
+pub fn carrying(hand: Hand) -> Result<(), String> {
+    noting(
+        CARRYING,
+        match hand {
+            Hand::Carries => Note::Says("carrying\n"),
+            Hand::Empty => Note::Gone,
+        },
+    )
 }
 
 #[cfg(test)]

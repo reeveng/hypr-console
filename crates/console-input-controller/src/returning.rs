@@ -72,8 +72,9 @@ impl Returning {
     }
 
     pub fn turn(&mut self, now: f64) -> Result<Option<Doing>, Never> {
-        let Some(since) = self.since.filter(|_| !self.shared && !self.left) else {
-            return Ok(None);
+        let since = match self.since.filter(|_| !self.shared && !self.left) {
+            Some(since) => since,
+            None => return Ok(None),
         };
 
         match now - since < HELD_SECONDS {
@@ -178,7 +179,7 @@ fn way_out(doing: &Doing) -> Result<Vec<Wanted<Never>>, Never> {
             }
             Some(_) | None => Vec::new(),
         },
-        Doing::Frame(_) | Doing::Tell(_) => Vec::new(),
+        Doing::Frame(_) | Doing::Tell(_) | Doing::Using(_) => Vec::new(),
     })
 }
 

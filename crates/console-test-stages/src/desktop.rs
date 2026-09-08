@@ -15,14 +15,23 @@
 //! everything the pointer does -- hovering, clicking, the wheel -- can be
 //! pressed here, and a finger is still the device's tier.
 //!
+//! What it can answer besides the colour is which windows the nested compositor
+//! had at the moment the picture was taken. A screen says a window is somewhere;
+//! whether a session was put back is a question about which windows exist, and
+//! the device's stage has been able to ask that since it was written. This one
+//! could only look. So the same run writes what `hyprctl clients` said beside
+//! the picture and [`Desktop::windows`] reads it back -- one session answering
+//! both questions, rather than two sessions disagreeing about what was up.
+//!
 //! Which is not a small thing to have gained. Before it, the only pressing
 //! anywhere was on somebody's actual handheld: a check for what the pointer
 //! does could be written only for a machine that has to be plugged in, awake
 //! and reachable, so mostly it was not written at all.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use console_compositor::Window;
 use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_core_number_conversion::{Float, fitted};
@@ -66,9 +75,12 @@ fn nesting_program() -> Result<PathBuf, Never> {
     Ok(beside.filter(|at| at.exists()).unwrap_or_else(|| PathBuf::from("console-desktop")))
 }
 
+const SEEN: &str = "clients.json";
+
 pub struct Desktop {
     open_these: Vec<String>,
     press_these: Vec<String>,
+    not_before: Option<PathBuf>,
     here: PathBuf,
     taken: Option<Picture>,
 }
@@ -91,15 +103,35 @@ impl Desktop {
     pub fn new() -> Result<Self, Never> {
         let here = std::env::temp_dir().join(format!("console-desktop-{}", std::process::id()));
 
-        Ok(Desktop { open_these: Vec::new(), press_these: Vec::new(), here, taken: None })
+        Ok(Desktop {
+            open_these: Vec::new(),
+            press_these: Vec::new(),
+            not_before: None,
+            here,
+            taken: None,
+        })
     }
 
     pub fn fresh(&mut self) -> Result<(), Never> {
         self.open_these.clear();
         self.press_these.clear();
+        self.not_before = None;
         self.taken = None;
 
         Ok(())
+    }
+
+    pub fn not_before(&mut self, at: &Path) -> Result<(), String> {
+        match self.taken.is_some() {
+            true => {
+                Err("the picture has already been taken; say this before looking".to_string())
+            },
+            false => {
+                self.not_before = Some(at.to_path_buf());
+
+                Ok(())
+            },
+        }
     }
 
     pub fn open(&mut self, command: &str) -> Result<(), String> {
@@ -169,7 +201,10 @@ impl Desktop {
     }
 
     fn pressing(&self) -> Result<Option<(String, f64)>, Never> {
-        let Some((first, rest)) = self.press_these.split_first() else { return Ok(None) };
+        let (first, rest) = match self.press_these.split_first() {
+            Some((first, rest)) => (first, rest),
+            None => return Ok(None),
+        };
 
         let mut script = format!("sleep {DRAWN}; {first}");
 
@@ -189,10 +224,19 @@ impl Desktop {
         match self.taken.is_none() {
             true => {
                 std::fs::create_dir_all(&self.here).map_err(|fault| fault.to_string())?;
+                let _ = std::fs::remove_file(self.here.join(SEEN));
                 let shot = self.here.join("screen.png");
                 let Ok(program) = nesting_program();
                 let mut nesting = Command::new(program);
                 nesting.arg("shot").arg(&shot);
+                nesting.arg("--clients").arg(self.here.join(SEEN));
+
+                match &self.not_before {
+                    Some(at) => {
+                        nesting.arg("--until").arg(at);
+                    }
+                    None => {},
+                }
 
                 for command in &self.open_these {
                     nesting.args(["--open", command]);
@@ -266,6 +310,20 @@ impl Desktop {
         let Ok(commonest) = picture.commonest();
 
         Ok(commonest)
+    }
+
+    pub fn windows(&mut self) -> Result<Vec<Window>, String> {
+        self.picture()?;
+
+        let at = self.here.join(SEEN);
+
+        let said = std::fs::read_to_string(&at)
+            .map_err(|fault| format!("{}: the nested desktop said no windows: {fault}", at.display()))?;
+
+        let clients = console_compositor::read(&said)?;
+        let Ok(open) = console_compositor::windows_open(&clients);
+
+        Ok(open)
     }
 
     pub fn close(&mut self) -> Result<(), Never> {

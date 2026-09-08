@@ -43,7 +43,10 @@ const FILMS: [&str; 10] =
 const EITHER: [&str; 2] = ["ogg", "webm"];
 
 pub fn wants(name: &str) -> Result<Wants, Never> {
-    let Some((_, end)) = name.rsplit_once('.') else { return Ok(Wants::Leave) };
+    let (_taken, end) = match name.rsplit_once('.') {
+        Some((_taken, end)) => (_taken, end),
+        None => return Ok(Wants::Leave),
+    };
 
     let end = end.to_lowercase();
 

@@ -16,31 +16,38 @@ use std::process::Command;
 
 use console_input_controller::means::Table;
 use console_input_gamepad::front::{DEVICES, Front, asking};
-use console_input_gamepad::jobs::{Jobs, path_in};
+use console_input_bindings::moved::{Jobs, path_in};
+use console_core_atomic_writes::Held;
 use console_core_never::Never;
 
-pub fn at() -> Result<PathBuf, Never> {
-    let home = match std::env::var("HOME") {
-        Ok(home) => home,
-        Err(std::env::VarError::NotPresent) => String::new(),
+pub fn at() -> Result<Option<PathBuf>, Never> {
+    let Ok(home) = console_core_places::home();
 
-        Err(fault) => {
-            eprintln!("HOME, looking for the button table: {fault}");
-            String::new()
-        }
+    let home = match home {
+        Some(home) => home,
+        None => return Ok(None),
     };
 
-    path_in(&home)
+    let Ok(at) = path_in(&home);
+
+    Ok(Some(at))
 }
 
 pub fn read() -> Result<Jobs, Never> {
     let Ok(at) = at();
 
-    let said = match std::fs::read_to_string(&at) {
-        Ok(said) => said,
-        Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => return Ok(Jobs::default()),
+    let at = match at {
+        Some(at) => at,
+        None => return Ok(Jobs::default()),
+    };
 
-        Err(fault) => {
+    let Ok(held) = console_core_atomic_writes::read(&at);
+
+    let said = match held {
+        Held::Said(said) => said,
+        Held::Nothing => return Ok(Jobs::default()),
+
+        Held::Unreadable(fault) => {
             eprintln!("{}: reading the button table: {fault}", at.display());
             return Ok(Jobs::default());
         }
@@ -58,6 +65,11 @@ pub fn read() -> Result<Jobs, Never> {
 
 pub fn write(jobs: &Jobs) -> Result<(), String> {
     let Ok(at) = at();
+
+    let at = match at {
+        Some(at) => at,
+        None => return Err("this machine will not say whose buttons these are".to_string()),
+    };
 
     match at.parent() {
         Some(holding) => std::fs::create_dir_all(holding)
@@ -96,7 +108,10 @@ fn devices() -> Result<String, Never> {
 }
 
 pub fn said(argv: &[&str]) -> Result<String, Never> {
-    let Some((program, rest)) = argv.split_first() else { return Ok(String::new()) };
+    let (program, rest) = match argv.split_first() {
+        Some((program, rest)) => (program, rest),
+        None => return Ok(String::new()),
+    };
 
     Ok(match Command::new(program).args(rest).output() {
         Ok(done) => String::from_utf8_lossy(&done.stdout).trim().to_string(),

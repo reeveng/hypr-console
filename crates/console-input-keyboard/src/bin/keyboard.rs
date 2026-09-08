@@ -32,6 +32,7 @@ use std::process::ExitCode;
 use console_core_colour::spent::{beside, read};
 use console_input_focus::{self as claim, CONTROLLER, Claim, Heard, Spans};
 use evdev::{AbsoluteAxisCode, EventType};
+use console_input_alphabets::{self as alphabets, Held as Holding};
 use console_input_keyboard::config::{self, Config};
 use console_input_keyboard::drawing::Surface;
 use console_input_keyboard::gamepad::{self, Asked, Held, Repeats};
@@ -41,9 +42,6 @@ use console_input_keyboard::surface::{Gone, Missing, Poke, Screen, Showing};
 use std::time::Instant;
 use console_input_keyboard::typing::{After, Typist};
 use console_response_times::Waiting;
-
-const WALK: [&str; 3] = ["full", "thai", "special"];
-const LANDSCAPE_WALK: [&str; 3] = ["landscape", "thai", "landscapespecial"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Shape {
@@ -164,10 +162,11 @@ fn run(config: &Config, mut waiting: Waiting) -> Result<(), String> {
 
     let Ok(shape) = landscape(u32::MAX, config.height);
     let Ok((asked, height)) = orientation(config, shape);
+    let Ok(opening) = left_on(shape);
     let walk: Vec<Which> = asked
         .iter()
         .filter_map(|name| {
-            let Ok(named) = named(name);
+            let Ok(named) = named(name.as_str());
 
             named
         })
@@ -198,7 +197,8 @@ fn run(config: &Config, mut waiting: Waiting) -> Result<(), String> {
     let manager = typing.clone();
     let Ok(hand) = screen.hand();
     let Ok(seat) = screen.seat();
-    let Ok(mut typist) = Typist::new(&manager, seat, &hand, alphabets, walk);
+    let Ok(mut typist) = Typist::new(&manager, seat, &hand, alphabets, walk, opening);
+    let mut worn = typist.last_alphabet;
 
     let Ok(()) = waiting.mark("typist");
 
@@ -217,6 +217,15 @@ fn run(config: &Config, mut waiting: Waiting) -> Result<(), String> {
     while screen.closed() == Ok(Gone::No) {
         let Ok(showing_now) = screen.showing();
         let Ok(()) = keeping(showing_now, &mut reading, &mut complained);
+
+        match typist.last_alphabet == worn {
+            true => {},
+            false => {
+                worn = typist.last_alphabet;
+
+                let Ok(()) = keeps_its_own(worn);
+            }
+        }
 
         let Ok(size) = screen.size();
         let Ok(scale) = screen.scale();
@@ -246,13 +255,14 @@ fn run(config: &Config, mut waiting: Waiting) -> Result<(), String> {
                         let Ok(stride) = fitted(wide.saturating_mul(4));
                         let Ok(down) = fitted(tall);
 
-                        let Ok(Some(onto)) = Surface::new(
+                        let onto = match Surface::new(
                             pixels,
                             stride,
                             down,
                             f64::from(scale),
-                        ) else {
-                            return;
+                        ) {
+                            Ok(Some(onto)) => onto,
+                            Ok(None) | Err(_) => return,
                         };
 
                         let across = f64::from(wide) / f64::from(scale);
@@ -358,7 +368,10 @@ fn run(config: &Config, mut waiting: Waiting) -> Result<(), String> {
                 Showing::Yes => {},
             }
 
-            let Ok(Some((wide, tall))) = screen.size() else { continue };
+            let (wide, tall) = match screen.size() {
+                Ok(Some((wide, tall))) => (wide, tall),
+                Ok(None) | Err(_) => continue,
+            };
 
             let Ok(layout) = typist.layout();
             let Ok(keys) = placed(layout, f64::from(wide), f64::from(tall));
@@ -376,14 +389,20 @@ fn run(config: &Config, mut waiting: Waiting) -> Result<(), String> {
                     selected = onto;
                 },
                 Asked::Press => {
-                    let Some(at) = selected else {
-                        let Ok(onto) = toward(&keys, None, 0, 0);
+                    let at = match selected {
+                        Some(at) => at,
+                        None => {
+                            let Ok(onto) = toward(&keys, None, 0, 0);
 
-                        selected = onto;
-                        continue;
+                            selected = onto;
+                            continue;
+                        }
                     };
 
-                    let Some(key) = layout.keys.get(at) else { continue };
+                    let key = match layout.keys.get(at) {
+                        Some(key) => key,
+                        None => continue,
+                    };
 
                     let Ok(after) = typist.pressed(key.kind, key.force, key.reset);
 
@@ -412,9 +431,12 @@ fn run(config: &Config, mut waiting: Waiting) -> Result<(), String> {
             }
         }
 
-        let Ok(Some((wide, tall))) = screen.size() else {
-            let _ = screen.pokes();
-            continue;
+        let (wide, tall) = match screen.size() {
+            Ok(Some((wide, tall))) => (wide, tall),
+            Ok(None) | Err(_) => {
+                let _ = screen.pokes();
+                continue;
+            }
         };
 
         let Ok(pokes) = screen.pokes();
@@ -425,9 +447,15 @@ fn run(config: &Config, mut waiting: Waiting) -> Result<(), String> {
 
             match poke {
                 Poke::Down { x, y } => {
-                    let Ok(Some(hit)) = under(&keys, x, y) else { continue };
+                    let hit = match under(&keys, x, y) {
+                        Ok(Some(hit)) => hit,
+                        Ok(None) | Err(_) => continue,
+                    };
 
-                    let Some(key) = layout.keys.get(hit.at) else { continue };
+                    let key = match layout.keys.get(hit.at) {
+                        Some(key) => key,
+                        None => continue,
+                    };
 
                     down = Some(hit.at);
                     let kind = key.kind;
@@ -626,17 +654,68 @@ struct Drawn {
     scale: i32,
 }
 
-fn orientation(config: &Config, shape: Shape) -> Result<(Vec<&str>, u32), Never> {
-    let (given, fallback, height) = match shape {
+fn left_on(shape: Shape) -> Result<Option<Which>, Never> {
+    let Ok(home) = console_core_places::home();
+
+    let home = match home {
+        Some(home) => home,
+        None => return Ok(None),
+    };
+
+    let Ok(alphabet) = alphabets::wearing::read(&home, alphabets::wearing::SCREEN);
+
+    let arrangement = match shape {
+        Shape::Landscape => alphabet.across,
+        Shape::Portrait => alphabet.upright,
+    };
+
+    named(arrangement)
+}
+
+fn keeps_its_own(showing: Which) -> Result<(), Never> {
+    let Ok(home) = console_core_places::home();
+
+    let home = match home {
+        Some(home) => home,
+        None => return Ok(()),
+    };
+
+    let Ok(of) = of(showing);
+    let named = alphabets::EVERY.iter().find(|alphabet| {
+        alphabet.across == of.name || alphabet.upright == of.name
+    });
+
+    let alphabet = match named {
+        Some(alphabet) => alphabet,
+        None => return Ok(()),
+    };
+
+    match alphabets::wearing::remember(&home, alphabets::wearing::SCREEN, alphabet) {
+        Ok(()) => {},
+        Err(fault) => eprintln!("virtual-keyboard: {fault}"),
+    }
+
+    Ok(())
+}
+
+fn orientation(config: &Config, shape: Shape) -> Result<(Vec<String>, u32), Never> {
+    let (given, holding, height) = match shape {
         Shape::Landscape => {
-            (&config.landscape_layers, LANDSCAPE_WALK, config.landscape_height)
+            (&config.landscape_layers, Holding::Across, config.landscape_height)
         },
-        Shape::Portrait => (&config.layers, WALK, config.height),
+        Shape::Portrait => (&config.layers, Holding::Upright, config.height),
     };
-    let asked: Vec<&str> = match given.is_empty() {
-        true => fallback.to_vec(),
-        false => given.iter().map(String::as_str).collect(),
+
+    let asked = match given.is_empty() {
+        true => {
+            let Ok(chosen) = alphabets::chosen();
+            let Ok(walk) = alphabets::walk(&chosen, holding);
+
+            walk
+        },
+        false => given.clone(),
     };
+
     Ok((asked, height))
 }
 

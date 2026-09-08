@@ -67,7 +67,10 @@ fn no_two_backgrounds_are_the_same_colour() {
     let palette = palette();
     let mut seen: BTreeMap<&str, &str> = BTreeMap::new();
     for option in BACKGROUNDS {
-        let Some(colour) = palette.get(role(option).expect(option)) else { continue };
+        let colour = match palette.get(role(option).expect(option)) {
+            Some(colour) => colour,
+            None => continue,
+        };
         if let Some(other) = seen.get(colour.as_str()) {
             panic!(
                 "--{option} and --{other} are both #{colour}, so one of them is invisible \
@@ -132,7 +135,10 @@ fn a_pressed_key_is_not_the_key_under_the_stick() {
 fn nothing_is_written_in_the_colour_it_is_written_on() {
     let palette = palette();
     for (background, ink) in INK {
-        let Some(ink) = ink else { continue };
+        let ink = match ink {
+            Some(ink) => ink,
+            None => continue,
+        };
         let (under, over) = (role(background).expect(background), role(ink).expect(ink));
         assert_ne!(
             palette.get(under),

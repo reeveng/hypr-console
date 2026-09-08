@@ -15,8 +15,8 @@
 //! a surface goes up and given back a moment after it comes down, and this is
 //! what covers those two moments.
 
-use console_input_gamepad::jobs::Layer;
 use console_core_never::Never;
+use console_input_bindings::bound::Input;
 
 use crate::doing::Doing;
 use crate::means::{Job, Press, Table};
@@ -25,13 +25,13 @@ use crate::mode::{Acts, Mode};
 pub fn job_for(
     table: &Table,
     mode: Mode,
-    button: &str,
-    layer: Layer,
+    held: &[&str],
+    pressed: &str,
 ) -> Result<Option<&'static Job>, Never> {
     let Ok(acts) = mode.acts();
 
     match acts {
-        Acts::OnPresses => table.what(button, layer, mode),
+        Acts::OnPresses => table.what(Input::Pad, held, pressed, mode),
         Acts::NotReading => Ok(None),
     }
 }
@@ -44,7 +44,6 @@ pub fn acted(job: &Job, down: Press) -> Result<Option<Doing>, Never> {
 mod tests {
     use super::*;
     use crate::means::What;
-    use console_input_gamepad::jobs::ALONE;
 
     fn table() -> Table {
         let Ok(ours) = Table::ours();
@@ -53,7 +52,7 @@ mod tests {
     }
 
     fn what(mode: Mode, button: &str) -> Option<What> {
-        let Ok(found) = job_for(&table(), mode, button, ALONE);
+        let Ok(found) = job_for(&table(), mode, &[], button);
 
         found.map(|job| job.what)
     }

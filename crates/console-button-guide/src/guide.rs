@@ -5,29 +5,37 @@
 //! starts lying.
 //!
 //! What a button does is read off the one table that decides it, grouped by
-//! what is held with the button: a section for a press on its own, and one for
-//! each trigger held. Nothing here is written by hand about a button, which is
+//! what is held with it: a section for a press on its own, and one for each
+//! set of things held. Nothing here is written by hand about a button, which is
 //! the whole point -- a job somebody has moved is a job this guide names on the
-//! button they moved it to, and a layer nobody has put anything on is a heading
+//! button they moved it to, and a chord nobody has put anything on is a heading
 //! that never appears.
+//!
+//! The keyboard is a section of the same table rather than a reading of
+//! somebody else's file. It used to be `binds`, which found `hl.bind` lines in
+//! `hyprland.lua` and guessed at what each one meant from the dispatcher it
+//! called -- a parser for a language this desktop does not own, kept honest by
+//! nothing. Those binds are rows in the table now, so the section is built the
+//! way every other section is, and the parser is gone.
+//!
+//! Every section is here whichever hand is on the machine, and which one is
+//! open first is the whole of what the input decides -- [`opens_on`], read
+//! against the last press. Filtering was the other way to do it and is wrong:
+//! somebody at a keyboard asking what the pad does is the commonest reason to
+//! open this at all, and a guide that had hidden the answer would be a guide
+//! that knew it and would not say.
 
 use console_input_controller::doing::Doing;
 use console_input_controller::means::{Job, Press, Table, What, When};
 use console_files::doing::{self, Deed};
-use console_input_gamepad::jobs::{ALONE, Binding, Held, Layer, Played};
+use console_input_bindings::bound::{Binding, Input, Played};
 use console_core_never::Never;
-
-use crate::binds::binds;
 
 pub const DOABLE: &str = "Anywhere";
 
 pub const MENUS: &str = "Menus";
 
-const HELD: [(Result<Layer, Never>, &str); 3] = [
-    (Layer::of(Held::Down, Held::Up), "L2"),
-    (Layer::of(Held::Up, Held::Down), "R2"),
-    (Layer::of(Held::Down, Held::Down), "L2 + R2"),
-];
+pub const TYPED: &str = "Keyboard shortcuts";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Line {
@@ -67,29 +75,34 @@ pub fn said(button: &str) -> Result<String, Never> {
     })
 }
 
-fn lines(table: &Table, layer: Layer, wanted: impl Fn(&Job) -> bool) -> Result<Vec<Line>, Never> {
+fn lines(
+    table: &Table,
+    on: Input,
+    held: &[String],
+    wanted: impl Fn(&Job) -> bool,
+) -> Result<Vec<Line>, Never> {
     let Ok(every) = table.every();
 
     Ok(every
         .filter(|(job, _)| wanted(job))
         .filter_map(|(job, bound)| {
-            let Ok(line) = line(job, bound, layer);
+            let Ok(line) = line(job, bound, on, held);
 
             line
         })
         .collect())
 }
 
-fn line(job: &Job, bound: &[Binding], layer: Layer) -> Result<Option<Line>, Never> {
-    let on: Vec<String> = bound
+fn line(job: &Job, bound: &[Binding], on: Input, held: &[String]) -> Result<Option<Line>, Never> {
+    let pressed: Vec<String> = bound
         .iter()
         .filter(|one| {
             let Ok(played) = one.played();
 
-            played == Played::ByAButton && one.layer == layer
+            played == Played::ByAPress && one.on == on && one.held == held
         })
         .map(|one| {
-            let Ok(said) = said(&one.button);
+            let Ok(said) = said(&one.pressed);
 
             said
         })
@@ -98,20 +111,84 @@ fn line(job: &Job, bound: &[Binding], layer: Layer) -> Result<Option<Line>, Neve
     let Ok(runs) = runs_for(job.what);
     let Ok(says) = job.what.says();
 
-    Ok(match on.is_empty() {
+    Ok(match pressed.is_empty() {
         true => None,
-        false => Some(Line { button: on.join(" / "), does: says.to_string(), runs }),
+        false => Some(Line { button: pressed.join(" / "), does: says.to_string(), runs }),
     })
+}
+
+fn chords(table: &Table, on: Input) -> Result<Vec<Vec<String>>, Never> {
+    let Ok(every) = table.every();
+    let mut found: Vec<Vec<String>> = Vec::new();
+
+    for (_, bound) in every {
+        for one in bound.iter().filter(|one| one.on == on) {
+            let Ok(played) = one.played();
+
+            match played {
+                Played::ByNothing => continue,
+                Played::ByAPress => {},
+            }
+
+            match one.held.is_empty() || found.contains(&one.held) {
+                true => continue,
+                false => found.push(one.held.clone()),
+            }
+        }
+    }
+
+    found.sort_by_key(|held| (held.len(), held.join(" + ")));
+
+    Ok(found)
+}
+
+fn titled(held: &[String]) -> Result<String, Never> {
+    let mut words: Vec<String> = Vec::new();
+
+    for word in held {
+        let Ok(said) = said(word);
+
+        words.push(said);
+    }
+
+    Ok(words.join(" + "))
+}
+
+fn typed(table: &Table) -> Result<Vec<Line>, Never> {
+    let Ok(chords) = chords(table, Input::Keyboard);
+    let mut every: Vec<Line> = Vec::new();
+
+    for held in std::iter::once(Vec::new()).chain(chords) {
+        let Ok(mut lines) = lines(table, Input::Keyboard, &held, |_| true);
+
+        match held.is_empty() {
+            true => {},
+            false => {
+                let Ok(said) = titled(&held);
+
+                for line in &mut lines {
+                    line.button = format!("{said} + {}", line.button);
+                }
+            }
+        }
+
+        every.extend(lines);
+    }
+
+    Ok(every)
 }
 
 pub fn runs_for(what: What) -> Result<Option<Vec<String>>, Never> {
     let Ok(does) = what.does(Press::Down);
 
-    let Some(doing) = does else { return Ok(None) };
+    let doing = match does {
+        Some(doing) => doing,
+        None => return Ok(None),
+    };
 
     Ok(match doing {
         Doing::Run(argv) => Some(argv),
-        Doing::Frame(_) | Doing::Tell(_) => None,
+        Doing::Frame(_) | Doing::Tell(_) | Doing::Using(_) => None,
     })
 }
 
@@ -127,8 +204,15 @@ fn what_can_be_done() -> Result<String, Never> {
     Ok(said.join(", "))
 }
 
-pub fn sections(table: &Table, lua: &str) -> Result<Vec<Section>, Never> {
-    let Ok(mut around) = lines(table, ALONE, |job| {
+pub fn opens_on(on: Input) -> Result<&'static str, Never> {
+    Ok(match on {
+        Input::Pad => DOABLE,
+        Input::Keyboard => TYPED,
+    })
+}
+
+pub fn sections(table: &Table) -> Result<Vec<Section>, Never> {
+    let Ok(mut around) = lines(table, Input::Pad, &[], |job| {
         !matches!(
             job.when,
             When::WithAChooserUp | When::OnTheHomeScreen | When::StandingOnASquare
@@ -145,7 +229,7 @@ pub fn sections(table: &Table, lua: &str) -> Result<Vec<Section>, Never> {
 
     around.extend(rest);
 
-    let Ok(mut menus) = lines(table, ALONE, |job| job.when == When::WithAChooserUp);
+    let Ok(mut menus) = lines(table, Input::Pad, &[], |job| job.when == When::WithAChooserUp);
     let Ok(rest) = written(&[
         ("D-pad", "move the highlight"),
         ("Y, in the menu", "put an app on the home screen, or take it off"),
@@ -165,7 +249,7 @@ pub fn sections(table: &Table, lua: &str) -> Result<Vec<Section>, Never> {
 
     menus.extend(rest);
 
-    let Ok(mut home) = lines(table, ALONE, |job| {
+    let Ok(mut home) = lines(table, Input::Pad, &[], |job| {
         matches!(job.when, When::OnTheHomeScreen | When::StandingOnASquare)
     });
     let Ok(rest) = written(&[
@@ -226,19 +310,17 @@ pub fn sections(table: &Table, lua: &str) -> Result<Vec<Section>, Never> {
         ("Legion left, held", "back to this desktop"),
         ("Everything else", "the pad, untouched, the way a game expects it"),
     ]);
-    let Ok(binds) = binds(lua);
-    let shortcuts: Vec<Line> = binds
-        .into_iter()
-        .map(|bind| Line { button: bind.keys, does: bind.does, runs: Some(bind.runs) })
-        .collect();
+    let Ok(shortcuts) = typed(table);
 
     let Ok(anywhere) = Section::of(DOABLE, around);
     let mut every = vec![anywhere];
 
-    for (held, title) in HELD {
-        let Ok(layer) = held;
-        let Ok(under) = lines(table, layer, |_| true);
-        let Ok(section) = Section::of(title, under);
+    let Ok(chords) = chords(table, Input::Pad);
+
+    for held in chords {
+        let Ok(under) = lines(table, Input::Pad, &held, |_| true);
+        let Ok(title) = titled(&held);
+        let Ok(section) = Section::of(&title, under);
 
         every.push(section);
     }
@@ -251,7 +333,7 @@ pub fn sections(table: &Table, lua: &str) -> Result<Vec<Section>, Never> {
         ("Music", music),
         ("Browser", browser),
         ("Steam", steam),
-        ("Shortcuts", shortcuts),
+        (TYPED, shortcuts),
     ] {
         let Ok(section) = Section::of(title, lines);
 
@@ -275,7 +357,7 @@ fn written(said: &[(&str, &str)]) -> Result<Vec<Line>, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use console_input_gamepad::jobs::Jobs;
+    use console_input_bindings::moved::Jobs;
 
     fn ours() -> Table {
         let Ok(table) = Table::ours();
@@ -289,8 +371,8 @@ mod tests {
         table
     }
 
-    fn sections(table: &Table, lua: &str) -> Vec<Section> {
-        let Ok(sections) = super::sections(table, lua);
+    fn sections(table: &Table) -> Vec<Section> {
+        let Ok(sections) = super::sections(table);
 
         sections
     }
@@ -305,23 +387,40 @@ mod tests {
 
     #[test]
     fn what_a_trigger_held_makes_of_a_button_comes_from_the_table() {
-        let every = sections(&ours(), "");
+        let every = sections(&ours());
         let held = section(&every, "L2");
         assert_eq!(line(held, "D-pad up").does, "louder");
         assert_eq!(line(held, "Right paddle bottom").does, "a screenshot");
     }
 
     #[test]
-    fn a_layer_with_nothing_on_it_has_nothing_under_it() {
-        let every = sections(&ours(), "");
-        assert!(section(&every, "R2").lines.is_empty());
-        assert!(section(&every, "L2 + R2").lines.is_empty());
+    fn the_guide_opens_on_the_hand_that_was_last_used_and_hides_neither() {
+        let every = sections(&ours());
+
+        assert_eq!(opens_on(Input::Pad), Ok(DOABLE));
+        assert_eq!(opens_on(Input::Keyboard), Ok(TYPED));
+
+        for title in [DOABLE, TYPED] {
+            assert!(
+                every.iter().any(|section| section.title == title && !section.lines.is_empty()),
+                "{title} is where the guide can open, so it has to be a page with something on it"
+            );
+        }
+    }
+
+    #[test]
+    fn a_chord_nobody_has_put_anything_on_is_not_a_heading() {
+        let every = sections(&ours());
+
+        assert!(!every.iter().any(|section| section.title == "R2"));
+        assert!(!every.iter().any(|section| section.title == "L2 + R2"));
     }
 
     #[test]
     fn a_job_somebody_moved_is_named_where_they_moved_it() {
         let said = Jobs::read("[jobs]\nscreenshot = \"r2 + a\"\n").expect("a table");
-        let every = sections(&moved(&said), "");
+        let every = sections(&moved(&said));
+
         assert_eq!(line(section(&every, "R2"), "A").does, "a screenshot");
         assert!(
             !section(&every, "L2").lines.iter().any(|line| line.does == "a screenshot"),
@@ -330,15 +429,24 @@ mod tests {
     }
 
     #[test]
+    fn a_chord_of_two_buttons_is_a_heading_of_its_own() {
+        let said = Jobs::read("[jobs]\nmenu = \"left-paddle-bottom + right-paddle-top\"\n")
+            .expect("a table");
+        let every = sections(&moved(&said));
+
+        assert_eq!(line(section(&every, "Left paddle bottom"), "Right paddle top").does, "the menu");
+    }
+
+    #[test]
     fn a_job_with_no_button_is_not_something_to_press() {
         let said = Jobs::read("[jobs]\nmenu = \"\"\n").expect("a table");
-        let every = sections(&moved(&said), "");
+        let every = sections(&moved(&said));
         assert!(!section(&every, DOABLE).lines.iter().any(|line| line.does == "the menu"));
     }
 
     #[test]
     fn two_buttons_that_do_one_thing_are_one_line() {
-        let every = sections(&ours(), "");
+        let every = sections(&ours());
         assert_eq!(line(section(&every, DOABLE), "X / Keyboard").does, "show or hide the keyboard");
     }
 
@@ -359,27 +467,32 @@ mod tests {
 
     #[test]
     fn the_guide_holds_together_with_nothing_read_off_the_machine() {
-        let sections = sections(&ours(), "");
+        let sections = sections(&ours());
 
-        assert_eq!(sections[0].title, DOABLE);
-        assert!(!sections[0].lines.is_empty(), "the parts nothing has to be read for");
-        assert!(sections.last().expect("a section").lines.is_empty(), "no keyboard, no binds");
+        assert_eq!(sections.first().map(|section| section.title.as_str()), Some(DOABLE));
+        assert!(
+            sections.first().is_some_and(|section| !section.lines.is_empty()),
+            "the parts nothing has to be read for"
+        );
     }
 
     #[test]
-    fn every_typed_bind_carries_a_way_of_asking_for_it() {
-        let lua = "
-hl.bind(mod .. \"R\", hl.dsp.exec_cmd(\"/usr/local/bin/launcher\"))
-hl.bind(mod .. \"W\", hl.dsp.window.close())
-";
-        let typed = &sections(&ours(), lua).last().expect("a section").lines.clone();
-        assert_eq!(typed[0].runs, Some(vec!["/usr/local/bin/launcher".to_string()]));
-        assert!(typed.iter().all(|line| line.runs.is_some()), "a key nobody can press and nothing can ask for");
+    fn what_a_keyboard_reaches_is_a_section_read_off_the_same_table() {
+        let every = sections(&ours());
+        let typed = section(&every, TYPED);
+
+        assert_eq!(line(typed, "Super + I").does, "the settings");
+        assert_eq!(line(typed, "Super + Shift + F").does, "fill the screen with this window");
+        assert_eq!(line(typed, "Print").does, "a screenshot");
+        assert!(
+            typed.lines.iter().all(|line| line.runs.is_some()),
+            "a key nobody can press and nothing can ask for"
+        );
     }
 
     #[test]
     fn nothing_is_answered_twice_in_one_section() {
-        for section in sections(&ours(), "") {
+        for section in sections(&ours()) {
             let mut said: Vec<&str> = section.lines.iter().map(|line| line.button.as_str()).collect();
             said.sort_unstable();
             let mut once = said.clone();
@@ -390,7 +503,7 @@ hl.bind(mod .. \"W\", hl.dsp.window.close())
 
     #[test]
     fn the_guide_names_every_deed_the_files_offer() {
-        let sections = sections(&ours(), "");
+        let sections = sections(&ours());
         let files = section(&sections, "Files");
         let said = &line(files, "Y").does;
         for deed in doing::EVERY {
@@ -402,7 +515,7 @@ hl.bind(mod .. \"W\", hl.dsp.window.close())
 
     #[test]
     fn every_section_is_named() {
-        for section in sections(&ours(), "") {
+        for section in sections(&ours()) {
             assert!(!section.title.is_empty());
         }
     }

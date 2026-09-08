@@ -16,13 +16,16 @@ console-how-far.workspace = true
 console-program-lifetime.workspace = true
 console-core-external-programs.workspace = true
 console-manifest-migrations.workspace = true
+console-core-ini-files.workspace = true
 console-core-never.workspace = true
+console-core-places.workspace = true
 console-core-number-conversion.workspace = true
 console-input-controller.workspace = true
 # For the battery, which is the one reading that moves while an apply runs.
 console-default-applications.workspace = true
 # For the one file the engine and the bar share: how far along an apply is.
 console-notifications.workspace = true
+console-input-bindings.workspace = true
 console-input-gamepad.workspace = true
 # The one place a file is written whole: beside, synced, renamed, dir synced.
 console-core-atomic-writes.workspace = true

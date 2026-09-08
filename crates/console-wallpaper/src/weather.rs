@@ -97,11 +97,20 @@ pub fn read(answer: &str) -> Result<Option<Weather>, Never> {
         }
     };
 
-    let Some(current) = parsed.get("current") else { return Ok(None) };
+    let current = match parsed.get("current") {
+        Some(current) => current,
+        None => return Ok(None),
+    };
 
-    let Some(said) = current.get("weather_code") else { return Ok(None) };
+    let said = match current.get("weather_code") {
+        Some(said) => said,
+        None => return Ok(None),
+    };
 
-    let Some(code) = said.as_u64() else { return Ok(None) };
+    let code = match said.as_u64() {
+        Some(code) => code,
+        None => return Ok(None),
+    };
 
     let Ok(code) = fitted(code);
 

@@ -140,7 +140,10 @@ pub fn run_each(what: &str, steps: &[Vec<String>]) -> Result<(), Never> {
     let Ok(mut waiting) = console_response_times::Waiting::on("session", what);
 
     for argv in steps {
-        let Some((program, rest)) = argv.split_first() else { continue };
+        let (program, rest) = match argv.split_first() {
+            Some((program, rest)) => (program, rest),
+            None => continue,
+        };
 
         let mut starting = Command::new(program);
         starting.args(rest);

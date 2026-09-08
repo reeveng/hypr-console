@@ -124,13 +124,25 @@ pub fn read(line: &str) -> Result<Option<Asked>, Never> {
         Some(_) | None => return Ok(None),
     }
 
-    let Some(who) = words.next() else { return Ok(None) };
+    let who = match words.next() {
+        Some(who) => who,
+        None => return Ok(None),
+    };
 
-    let Some(from) = words.next() else { return Ok(None) };
+    let from = match words.next() {
+        Some(from) => from,
+        None => return Ok(None),
+    };
 
-    let Some(pressed) = words.next() else { return Ok(None) };
+    let pressed = match words.next() {
+        Some(pressed) => pressed,
+        None => return Ok(None),
+    };
 
-    let Some(exec) = words.next() else { return Ok(None) };
+    let exec = match words.next() {
+        Some(exec) => exec,
+        None => return Ok(None),
+    };
 
     let Ok(exec) = took(exec);
     let Ok(who) = plain(who);
@@ -217,10 +229,13 @@ static TELLING: AtomicI32 = AtomicI32::new(-1);
 pub fn stood_in(who: &str, argv: &[String]) -> Result<Drawn, Never> {
     let Ok(where_) = where_();
 
-    let Some(at) = where_ else {
-        eprintln!("{who}: XDG_RUNTIME_DIR names nothing, so there is no host to ask");
+    let at = match where_ {
+        Some(at) => at,
+        None => {
+            eprintln!("{who}: XDG_RUNTIME_DIR names nothing, so there is no host to ask");
 
-        return Ok(Drawn::Here);
+            return Ok(Drawn::Here);
+        }
     };
 
     stood_in_at(&at, who, argv)
@@ -271,7 +286,10 @@ fn waited(who: &str, asking: UnixStream) -> Result<Drawn, Never> {
     let mut drawn = Drawn::Here;
 
     for line in reading.lines() {
-        let Ok(line) = line else { break };
+        let line = match line {
+            Ok(line) => line,
+            Err(_fault) => break,
+        };
 
         match line.trim() {
             DRAWN => {

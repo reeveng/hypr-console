@@ -79,8 +79,9 @@ fn settle<'a>(
     }
 
     let done = ready.into_iter().try_fold(done, |done, name| {
-        let Some(colour) = declared.get(name) else {
-            return Err(Short(format!("no colour called {name} is declared")));
+        let colour = match declared.get(name) {
+            Some(colour) => colour,
+            None => return Err(Short(format!("no colour called {name} is declared"))),
         };
 
         let code = solve(colour, &done)?;
@@ -103,10 +104,13 @@ fn waits_on(spec: &Colour) -> Result<impl Iterator<Item = &str>, Never> {
 fn solve(spec: &Colour, known: &Palette) -> Result<String, Short> {
     let (hue, chroma) = (spec.hue, spec.chroma);
 
-    let Some(least) = &spec.least else {
-        let Ok(code) = col::hexcode(spec.lightness, chroma, hue);
+    let least = match &spec.least {
+        Some(least) => least,
+        None => {
+            let Ok(code) = col::hexcode(spec.lightness, chroma, hue);
 
-        return Ok(code);
+            return Ok(code);
+        }
     };
 
     let grounds: Vec<String> = least

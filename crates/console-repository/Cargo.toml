@@ -13,6 +13,12 @@ path = "src/lib.rs"
 name = "console-pull"
 path = "src/bin/console-pull.rs"
 
+# A dev-machine tool like console-deploy, and deliberately not in [build]:
+# renaming is something somebody does to this repository, never to the device.
+[[bin]]
+name = "console-rename"
+path = "src/bin/console-rename.rs"
+
 [dependencies]
 console-core-external-programs.workspace = true
 console-core-never.workspace = true

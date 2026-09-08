@@ -83,7 +83,10 @@ pub fn argv(palette: &BTreeMap<String, String>, rest: &[String]) -> Result<Vec<S
     ];
 
     for (option, role) in COLOURS {
-        let Some(colour) = palette.get(role) else { continue };
+        let colour = match palette.get(role) {
+            Some(colour) => colour,
+            None => continue,
+        };
 
         argv.push(format!("--{option}"));
         argv.push(colour.clone());
@@ -170,7 +173,10 @@ mod tests {
     fn nothing_is_written_in_the_colour_it_is_written_on() {
         let palette = palette();
         for (background, ink) in INK {
-            let Some(ink) = ink else { continue };
+            let ink = match ink {
+                Some(ink) => ink,
+                None => continue,
+            };
             let (under, over) = (role(background).expect(background), role(ink).expect(ink));
             assert_ne!(
                 palette.get(under),

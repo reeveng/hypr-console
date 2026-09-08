@@ -243,12 +243,14 @@ impl Kept {
     }
 
     pub fn read(&self) -> Result<Option<u32>, Never> {
-        let Ok(said) = std::fs::read_to_string(&self.0) else {
-            return Ok(None);
+        let said = match std::fs::read_to_string(&self.0) {
+            Ok(said) => said,
+            Err(_fault) => return Ok(None),
         };
 
-        let Ok(number) = said.trim().parse::<u32>() else {
-            return Ok(None);
+        let number = match said.trim().parse::<u32>() {
+            Ok(number) => number,
+            Err(_fault) => return Ok(None),
         };
 
         Ok(Some(number))
@@ -290,29 +292,33 @@ pub fn raise(notice: &Notice) -> Result<Option<u32>, Never> {
     let Ok(argv) = notice.argv();
     let Ok(said) = said_within(&argv, WAITING);
 
-    let Some(said) = said else {
-        return Ok(None);
+    let said = match said {
+        Some(said) => said,
+        None => return Ok(None),
     };
 
-    let Ok(number) = said.trim().parse::<u32>() else {
-        return Ok(None);
+    let number = match said.trim().parse::<u32>() {
+        Ok(number) => number,
+        Err(_fault) => return Ok(None),
     };
 
     Ok(Some(number))
 }
 
 fn said_within(argv: &[String], waiting: Duration) -> Result<Option<String>, Never> {
-    let Some((program, rest)) = argv.split_first() else {
-        return Ok(None);
+    let (program, rest) = match argv.split_first() {
+        Some((program, rest)) => (program, rest),
+        None => return Ok(None),
     };
 
-    let Ok(mut running) = Command::new(program)
+    let mut running = match Command::new(program)
         .args(rest)
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-    else {
-        return Ok(None);
+    {
+        Ok(running) => running,
+        Err(_fault) => return Ok(None),
     };
 
     let Ok(patience) = Patience::asking_every(waiting, LOOKING);
@@ -326,8 +332,9 @@ fn said_within(argv: &[String], waiting: Duration) -> Result<Option<String>, Nev
 
     match ended {
         Waited::Happened => {
-            let Ok(said) = running.wait_with_output() else {
-                return Ok(None);
+            let said = match running.wait_with_output() {
+                Ok(said) => said,
+                Err(_fault) => return Ok(None),
             };
 
             return Ok(Some(String::from_utf8_lossy(&said.stdout).into_owned()));
@@ -379,8 +386,9 @@ pub fn closing(number: u32) -> Result<Vec<String>, Never> {
 pub fn withdraw(kept: &Kept) -> Result<(), Never> {
     let Ok(read) = kept.read();
 
-    let Some(number) = read else {
-        return Ok(());
+    let number = match read {
+        Some(number) => number,
+        None => return Ok(()),
     };
 
     let Ok(closing) = closing(number);

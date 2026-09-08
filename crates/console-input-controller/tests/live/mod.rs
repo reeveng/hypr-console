@@ -164,7 +164,10 @@ impl Running {
     }
 
     pub fn events(&mut self, seconds: f64) -> Vec<InputEvent> {
-        let Some(out) = self.out.as_mut() else { return Vec::new() };
+        let out = match self.out.as_mut() {
+            Some(out) => out,
+            None => return Vec::new(),
+        };
         let by = Instant::now() + Duration::from_secs_f64(seconds);
         let mut every = Vec::new();
         let _ = out.set_nonblocking(true);

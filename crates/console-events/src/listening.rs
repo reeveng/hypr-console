@@ -119,7 +119,10 @@ impl Listening {
 
         drop(wanted);
 
-        let Some(at) = &self.at else { return Ok(()) };
+        let at = match &self.at {
+            Some(at) => at,
+            None => return Ok(()),
+        };
 
         keeping(at.clone(), Arc::clone(&self.wanted), self.said.clone())
     }
@@ -182,8 +185,9 @@ fn round(
     wanted: &Arc<Mutex<Wanted>>,
     say: &Sender<Heard>,
 ) -> Result<Round, Never> {
-    let Ok(stream) = UnixStream::connect(socket) else {
-        return Ok(Round::Another);
+    let stream = match UnixStream::connect(socket) {
+        Ok(stream) => stream,
+        Err(_fault) => return Ok(Round::Another),
     };
 
     let reading = match stream.try_clone() {

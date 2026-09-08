@@ -1,9 +1,8 @@
 //! Every file the desktop reads, in one place, pointing at each other.
 
 
-use console_core_external_programs::Program;
 use console_core_never::Never;
-use console_core_number_conversion::toward_zero_u32;
+use console_core_number_conversion::{Float, toward_zero_u32};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
@@ -25,7 +24,10 @@ pub fn mode_of(live: &str, head: &[u8]) -> Result<u32, Never> {
 pub fn walk(at: &Path) -> Result<Vec<PathBuf>, Never> {
     let mut found = Vec::new();
 
-    let Ok(entries) = std::fs::read_dir(at) else { return Ok(found) };
+    let entries = match std::fs::read_dir(at) {
+        Ok(entries) => entries,
+        Err(_fault) => return Ok(found),
+    };
 
     for path in entries.flatten().map(|entry| entry.path()) {
         match path.is_dir() && !path.is_symlink() {
@@ -77,7 +79,10 @@ pub fn built() -> Result<Vec<(String, PathBuf)>, Never> {
         }
     };
 
-    let Some(beside) = beside else { return Ok(Vec::new()) };
+    let beside = match beside {
+        Some(beside) => beside,
+        None => return Ok(Vec::new()),
+    };
 
     let Ok(root) = root();
 
@@ -110,7 +115,11 @@ fn section(held: &str, wanted: &str) -> Result<Vec<String>, Never> {
                 Some(name) => (out, name.to_string()),
                 None => {
                     match at == wanted {
-                        true => out.push(line.to_string()),
+                        true => {
+                            let name = line.split_whitespace().next().unwrap_or_default();
+
+                            out.push(name.to_string());
+                        }
                         false => {},
                     }
 
@@ -129,38 +138,32 @@ fn rewritten(said: &str, here: &str) -> Result<String, Never> {
 }
 
 pub fn room_here(go: &console_screen::Screen) -> Result<(u32, u32), Never> {
-    let Ok(mut asking) = Program::Hyprctl.command();
+    let said = match console_compositor::asked(console_compositor::Asked::Monitors) {
+        Ok(said) => said,
+        Err(_no_compositor_here) => {
+            let Ok(pixels) = go.pixels();
 
-    let said = match asking.args(["monitors", "-j"]).output() {
-        Ok(done) => String::from_utf8_lossy(&done.stdout).into_owned(),
-        Err(_no_compositor_here) => String::new(),
+            return Ok(pixels);
+        }
     };
 
-    let Ok(monitors) = serde_json::from_str::<serde_json::Value>(&said) else {
-        let Ok(pixels) = go.pixels();
+    let Ok(monitors) = console_compositor::monitors(&said);
 
-        return Ok(pixels);
+    let logical = |monitor: &console_compositor::Monitor| {
+        let (wide, tall) = monitor.size?;
+        let scale = monitor.scale?;
+        let Ok(wide) = wide.float();
+        let Ok(tall) = tall.float();
+
+        Some((wide / scale, tall / scale))
     };
 
-    let largest = |what: &str| {
-        let every = monitors.as_array()?;
+    let largest = monitors.iter().filter_map(logical).fold((f64::NAN, f64::NAN), |held, room| {
+        (f64::max(held.0, room.0), f64::max(held.1, room.1))
+    });
 
-        every
-            .iter()
-            .filter_map(|monitor| {
-                let asked = monitor.get(what)?;
-                let size = asked.as_f64()?;
-                let said = monitor.get("scale")?;
-                let scale = said.as_f64()?;
-
-                Some(size / scale)
-            })
-            .fold(f64::NAN, f64::max)
-            .into()
-    };
-
-    Ok(match (largest("width"), largest("height")) {
-        (Some(wide), Some(tall)) if wide.is_finite() && tall.is_finite() => {
+    Ok(match largest {
+        (wide, tall) if wide.is_finite() && tall.is_finite() => {
             let Ok(wide) = toward_zero_u32(wide * ROOM);
             let Ok(tall) = toward_zero_u32(tall * ROOM);
 
@@ -207,7 +210,10 @@ pub fn staged(told: Told, headless: Screen, wallpaper: Wallpaper) -> Result<Path
             false => {},
         }
 
-        let Ok(was) = std::fs::read_to_string(&path) else { continue };
+        let was = match std::fs::read_to_string(&path) {
+            Ok(was) => was,
+            Err(_fault) => continue,
+        };
 
         let Ok(now) = rewritten(&was, &said_here);
 
@@ -247,8 +253,12 @@ pub fn staged(told: Told, headless: Screen, wallpaper: Wallpaper) -> Result<Path
             false => {},
         }
 
-        let head: Vec<u8> = std::fs::read(&path).unwrap_or_default().into_iter().take(4).collect();
-        let live = path.strip_prefix(&here).unwrap_or(&path).display().to_string();
+        let held = std::fs::read(&path).map_err(fault("a staged file"))?;
+        let head: Vec<u8> = held.into_iter().take(4).collect();
+        let live = match path.strip_prefix(&here) {
+            Ok(under) => under.display().to_string(),
+            Err(_outside_the_stage) => path.display().to_string(),
+        };
         let Ok(mode) = mode_of(&format!("/{live}"), &head);
         let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode));
     }
@@ -283,7 +293,9 @@ pub fn staged(told: Told, headless: Screen, wallpaper: Wallpaper) -> Result<Path
             said
         }
     };
-    let bar = here.join("home/.config/console/bar.css");
+    let Ok(ours) = console_core_places::Base::Config.ours_under(&here.join("home"));
+
+    let bar = ours.join("bar.css");
 
     match bar.parent() {
         Some(holding) => {
@@ -342,7 +354,8 @@ mod tests {
     fn the_stage_starts_the_keyboard_the_unit_starts_and_from_inside_the_stage() {
         let root = root().expect("the tree");
         let held = std::fs::read_to_string(root.join(nested::UNIT)).expect("the keyboard's unit");
-        let keyboard = nested::started_by(&held).expect("a unit").expect("an ExecStart");
+        let started = nested::started_by(&held).expect("a unit").expect("an ExecStart");
+        let keyboard = started.split(' ').next().expect("a word").to_string();
         let start =
             nested::session_start(&keyboard, Wallpaper::Started).expect("the session's start");
         let said = rewritten(&start, "/s").expect("the rewriting");
@@ -350,9 +363,13 @@ mod tests {
             said.contains(r#"keyboard="/s/usr/local/bin/virtual-keyboard"#),
             "the staged session starts a keyboard the staged toggle cannot signal: {said}"
         );
+
+        let Ok(wanted) = rewritten(&keyboard, "/s");
+
         assert!(
-            said.contains("--landscape-layers"),
-            "the staged keyboard is not given the alphabets the device's is: {said}"
+            said.contains(&format!("keyboard=\"{wanted}\"")),
+            "the staged session starts a command line the unit does not, so what this stage \
+             types with is written down twice and only one of the two is the device's: {said}"
         );
         assert!(
             said.contains("/s/usr/local/lib/console/palette.sh"),

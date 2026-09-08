@@ -13,9 +13,22 @@ path = "src/lib.rs"
 name = "settings-panel"
 path = "src/bin/settings-panel.rs"
 
+# What /etc says about who this machine belongs to and where it is: the
+# language, the hour and the name. Root's three files, run through the one
+# rule in /etc/sudoers.d/console that lets the panel reach them.
+[[bin]]
+name = "console-machine"
+path = "src/bin/console-machine.rs"
+
 [[bin]]
 name = "console-battery"
 path = "src/bin/console-battery.rs"
+
+# Meeting a device: pair, trust and connect, which is one press on a row and
+# three words to bluez.
+[[bin]]
+name = "console-bluetooth"
+path = "src/bin/console-bluetooth.rs"
 
 [[bin]]
 name = "console-brightness"
@@ -34,8 +47,12 @@ name = "console-scale"
 path = "src/bin/console-scale.rs"
 
 [dependencies]
+console-applications.workspace = true
+console-core-places.workspace = true
+console-compositor.workspace = true
 console-core-external-programs.workspace = true
 console-core-never.workspace = true
+console-core-atomic-writes.workspace = true
 console-waiting.workspace = true
 console-core-number-conversion.workspace = true
 console-default-applications.workspace = true
@@ -45,6 +62,11 @@ console-notifications.workspace = true
 console-panel.workspace = true
 console-screen.workspace = true
 console-wallpaper.workspace = true
+console-input-alphabets.workspace = true
+# The program that steps a keyboard on to the next alphabet, for its name and
+# the word that means settle rather than step. Changing what this machine types
+# has to reach a keyboard somebody plugged in as well as the one on the screen.
+console-input-language.workspace = true
 console-input-dictation.workspace = true
 console-core-localization.workspace = true
 serde = { version = "1", features = ["derive"] }

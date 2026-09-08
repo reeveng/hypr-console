@@ -57,6 +57,8 @@ path = "src/bin/show.rs"
 [features]
 default = ["port"]
 port = [
+    "dep:console-core-places",
+    "dep:console-input-alphabets",
     "dep:console-input-gamepad",
     "dep:console-input-focus",
     "dep:console-response-times",
@@ -107,6 +109,14 @@ console-input-focus = { workspace = true, optional = true }
 # GTK, so `console_panel::opening` -- which times every other surface without
 # anybody remembering to -- does not reach it and it says so itself.
 console-response-times = { workspace = true, optional = true }
+# Which alphabets this machine types. A crate of its own rather than a list in
+# `layout`, because the settings panel writes it and the panel cannot depend on
+# this crate: that is the licence line `src/lib.rs` argues for, and a list two
+# programs have to agree on cannot live on either side of it.
+console-input-alphabets = { workspace = true, optional = true }
+# Where a person's own state is, once. What the keyboard was last switched to
+# lives there beside what every other keyboard on this machine was.
+console-core-places = { workspace = true, optional = true }
 # The axis and event types the claim hands back. The devices themselves are
 # opened by the claim; this is the vocabulary for reading what comes out.
 evdev = { version = "0.13", optional = true }

@@ -11,6 +11,20 @@
 //! BTN_NORTH and the one labelled Y is BTN_WEST, which is not what either name
 //! suggests and not what most pads do. It is written down here rather than
 //! remembered.
+//!
+//! Keys are here for one reason and it is worth knowing before somebody widens
+//! it. InputPlumber holds a keyboard of its own, and a chord sent to it is a
+//! key event from a real device -- which is the only way anything here can
+//! press a key the compositor's binds will answer, because a Wayland client
+//! typing at the compositor is not a keyboard and Hyprland does not match a
+//! bind against one. `wtype` was tried and it fires nothing, by keysym or by
+//! code, with a delay or without.
+//!
+//! The modifiers are written down because their names are the binding table's
+//! and their capabilities are InputPlumber's, and neither is derivable from the
+//! other. A single letter or digit is derivable -- InputPlumber spells it
+//! uppercase after `Keyboard:Key` -- so it is spelled rather than tabulated,
+//! and anything that is neither is answered with nothing rather than a guess.
 
 use std::str::FromStr;
 
@@ -20,6 +34,7 @@ use evdev::{AbsoluteAxisCode, KeyCode};
 pub const BUTTON: &str = "Gamepad:Button:";
 pub const AXIS: &str = "Gamepad:Axis:";
 pub const TRIGGER: &str = "Gamepad:Trigger:";
+pub const KEY: &str = "Keyboard:Key";
 
 pub fn button_of(capability: &str) -> Result<Option<&str>, Never> {
     Ok(capability.strip_prefix(BUTTON))
@@ -56,6 +71,34 @@ pub const BUTTONS: [(&str, &str); 23] = [
 ];
 
 pub const AXES: [(&str, &str); 2] = [("left-stick", "LeftStick"), ("right-stick", "RightStick")];
+
+pub const MODIFIERS: [(&str, &str); 4] = [
+    ("super", "LeftMeta"),
+    ("shift", "LeftShift"),
+    ("ctrl", "LeftCtrl"),
+    ("alt", "LeftAlt"),
+];
+
+pub fn key_capability(name: &str) -> Result<Option<String>, Never> {
+    let Ok(held) = found(&MODIFIERS, name);
+
+    match held {
+        Some(named) => return Ok(Some(format!("{KEY}{named}"))),
+        None => {},
+    }
+
+    let mut letters = name.chars();
+
+    let one = match (letters.next(), letters.next()) {
+        (Some(one), None) => one,
+        (Some(_), Some(_)) | (None, _) => return Ok(None),
+    };
+
+    Ok(match one.is_ascii_alphanumeric() {
+        true => Some(format!("{KEY}{}", one.to_ascii_uppercase())),
+        false => None,
+    })
+}
 
 pub const TRIGGERS: [(&str, &str); 2] = [("l2", "LeftTrigger"), ("r2", "RightTrigger")];
 

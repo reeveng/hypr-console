@@ -20,7 +20,10 @@ pub struct Stamp {
 pub const FIRST: &str = "1.0.0";
 
 pub fn read(said: &str) -> Result<Option<Stamp>, Never> {
-    let Some((hash, version)) = said.trim().split_once(' ') else { return Ok(None) };
+    let (hash, version) = match said.trim().split_once(' ') {
+        Some((hash, version)) => (hash, version),
+        None => return Ok(None),
+    };
 
     Ok(match hash.is_empty() || version.is_empty() {
         true => None,
@@ -33,9 +36,15 @@ pub fn written(stamp: &Stamp) -> Result<String, Never> {
 }
 
 pub fn next(was: Option<&str>) -> Result<String, Never> {
-    let Some(was) = was else { return Ok(FIRST.to_string()) };
+    let was = match was {
+        Some(was) => was,
+        None => return Ok(FIRST.to_string()),
+    };
 
-    let Some((front, last)) = was.rsplit_once('.') else { return Ok(FIRST.to_string()) };
+    let (front, last) = match was.rsplit_once('.') {
+        Some((front, last)) => (front, last),
+        None => return Ok(FIRST.to_string()),
+    };
 
     Ok(match last.parse::<u32>() {
         Ok(number) => match number.checked_add(1) {
@@ -49,18 +58,31 @@ pub fn next(was: Option<&str>) -> Result<String, Never> {
 pub fn packed(bytes: &[u8]) -> Result<Option<String>, Never> {
     let mark = b"\"version\": \"";
 
-    let Some(found) = bytes.windows(mark.len()).position(|window| window == mark) else { return Ok(None) };
+    let found = match bytes.windows(mark.len()).position(|window| window == mark) {
+        Some(found) => found,
+        None => return Ok(None),
+    };
 
     let at = found.saturating_add(mark.len());
 
-    let Some(rest) = bytes.get(at..) else { return Ok(None) };
+    let rest = match bytes.get(at..) {
+        Some(rest) => rest,
+        None => return Ok(None),
+    };
 
-    let Some(end) = rest.iter().position(|byte| *byte == b'"') else { return Ok(None) };
+    let end = match rest.iter().position(|byte| *byte == b'"') {
+        Some(end) => end,
+        None => return Ok(None),
+    };
 
-    let Some(inside) = rest.get(..end) else { return Ok(None) };
+    let inside = match rest.get(..end) {
+        Some(inside) => inside,
+        None => return Ok(None),
+    };
 
-    let Ok(said) = String::from_utf8(inside.to_vec()) else {
-        return Ok(None);
+    let said = match String::from_utf8(inside.to_vec()) {
+        Ok(said) => said,
+        Err(_fault) => return Ok(None),
     };
 
     Ok(match said.is_empty() {

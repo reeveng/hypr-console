@@ -12,17 +12,29 @@ use std::collections::BTreeMap;
 use console_core_never::Never;
 
 fn row(line: &str) -> Result<Option<(String, String)>, Never> {
-    let Some(row) = line.strip_prefix("| ") else { return Ok(None) };
+    let row = match line.strip_prefix("| ") {
+        Some(row) => row,
+        None => return Ok(None),
+    };
 
     let mut fields = row.split(" | ");
 
-    let Some(said) = fields.next() else { return Ok(None) };
+    let said = match fields.next() {
+        Some(said) => said,
+        None => return Ok(None),
+    };
 
     let name = said.trim_matches('`');
 
-    let Some(written) = fields.next() else { return Ok(None) };
+    let written = match fields.next() {
+        Some(written) => written,
+        None => return Ok(None),
+    };
 
-    let Some(code) = written.trim_matches('`').strip_prefix('#') else { return Ok(None) };
+    let code = match written.trim_matches('`').strip_prefix('#') {
+        Some(code) => code,
+        None => return Ok(None),
+    };
 
     let sound = |text: &str, of: &dyn Fn(char) -> bool| !text.is_empty() && text.chars().all(of);
     let named = sound(name, &|letter| {

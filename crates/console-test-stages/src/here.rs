@@ -36,6 +36,7 @@ pub struct Here {
     pub commands: Vec<Vec<String>>,
     pub written: Vec<Out>,
     pub told: Vec<console_onscreen::Said>,
+    pub using: Option<console_input_bindings::bound::Input>,
     layers: Option<serde_json::Value>,
     awake: Awake,
 }
@@ -57,6 +58,7 @@ impl Here {
             commands: Vec::new(),
             written: Vec::new(),
             told: Vec::new(),
+            using: None,
             layers: None,
             awake: Awake::No,
         })
@@ -113,7 +115,10 @@ impl Here {
     }
 
     fn reckons(&mut self) -> Result<(), Never> {
-        let Some(layers) = self.layers.clone() else { return Ok(()) };
+        let layers = match self.layers.clone() {
+            Some(layers) => layers,
+            None => return Ok(()),
+        };
 
         let Ok(seen) = Mode::seen(&layers, self.awake);
 
@@ -132,6 +137,7 @@ impl Here {
                 Doing::Run(argv) => self.commands.push(argv),
                 Doing::Frame(frame) => self.written.extend(frame),
                 Doing::Tell(said) => self.told.push(said),
+                Doing::Using(on) => self.using = Some(on),
             }
         }
 
@@ -174,6 +180,7 @@ impl Here {
                         };
                         let Ok(()) = self.reckons();
                     }
+                    Doing::Using(on) => self.using = Some(on),
                 }
             }
 

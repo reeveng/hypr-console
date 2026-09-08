@@ -25,21 +25,10 @@ pub enum Got {
     Changed { wanted: String, found: String },
 }
 
-pub fn kept() -> Result<PathBuf, Never> {
-    let said = crate::place::said("XDG_CACHE_HOME")?;
+pub fn kept() -> Result<Option<PathBuf>, Never> {
+    let ours = console_core_places::Base::Cache.ours()?;
 
-    let cache = match said {
-        Some(cache) => PathBuf::from(cache),
-        None => {
-            let said = crate::place::said("HOME")?;
-
-            let home = said.unwrap_or_else(|| "/tmp".to_string());
-
-            Path::new(&home).join(".cache")
-        }
-    };
-
-    Ok(cache.join("console/sky"))
+    Ok(ours.map(|at| at.join("sky")))
 }
 
 pub fn checksum(at: &Path) -> Result<String, String> {

@@ -696,18 +696,29 @@ means teaching `console-manifest-publish` a source exclusion beside the binary
 one, and `the_forks_are_not_carried` has to cover it. That is real work, it
 belongs in the plan, and it must not be discovered at publish time.
 
-Done, and it is `FORK_SOURCES` in `tree.rs`. It went in with the source rather
-than after it, which is the only reason it was never discovered at publish time.
-`FORKS` lost the keyboard binary in the same commit and kept `hyprsession`: a
-program the device builds from this workspace is this repository's to publish.
+Done, and it was `FORK_SOURCES` in `tree.rs`, and then it was not. It went in
+with the source rather than after it, which is the only reason it was never
+discovered at publish time. `FORKS` lost the keyboard binary in the same commit,
+and lost `hyprsession` when the session keeper's source arrived and `[build]`
+began making it.
 
-Written into that exclusion, plainly: it is enforcing a decision, not a law.
-GPL-3.0 does not forbid publishing this source, it forbids relicensing it, and
-GPL C beside a repository under other terms is fine as long as that subtree
-keeps its own licence and says so. What is being enforced is that the fork is
-not published, which is a choice somebody made. Put the other way round -- as
-though the machinery were a compliance gate -- the next person to read it will
-be afraid to touch it, and will not change it when the choice changes.
+Then the exclusion itself went, and the note written into it is why it could.
+That note said, plainly, that it was enforcing a decision and not a law: GPL-3.0
+does not forbid publishing this source, it forbids relicensing it, and GPL source
+beside a repository under other terms is fine as long as that subtree keeps its
+own licence and says so. What was being enforced was a choice somebody made. Put
+the other way round -- as though the machinery were a compliance gate -- the next
+person to read it would have been afraid to touch it, and would not have changed
+it when the choice changed.
+
+The choice changed, because a crate is not a path. Holding a *binary* back leaves
+a manifest line to put back; holding a *crate* back leaves `members =
+["crates/*"]` and a `Cargo.lock` naming a member the copy does not carry, which
+is a public copy that will not resolve, let alone build -- and nothing would have
+said so, because nothing published between the session keeper's source landing
+and this. So `crates/console-resume` is carried like any other crate. What stayed
+is `VENDORED`, which asks the question that is actually somebody else's to ask:
+whether the licence it came with travels with it.
 
 **`console apply` would have to build C.** It runs cargo today and that is all
 it runs. Settled by not needing to: the keyboard is a crate, the C it was ported

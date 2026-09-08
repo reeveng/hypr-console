@@ -278,8 +278,9 @@ impl Dispatch<wl_registry::WlRegistry, ()> for Found {
         _: &Connection,
         handle: &QueueHandle<Self>,
     ) {
-        let wl_registry::Event::Global { name, interface, version } = event else {
-            return;
+        let (name, interface, version) = match event {
+            wl_registry::Event::Global { name, interface, version } => (name, interface, version),
+            _the_registry_said_something_else => return,
         };
 
         match interface.as_str() {
@@ -307,8 +308,9 @@ impl Dispatch<ZxdgOutputV1, ()> for Found {
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
-        let zxdg_output_v1::Event::LogicalSize { width, height } = event else {
-            return;
+        let (width, height) = match event {
+            zxdg_output_v1::Event::LogicalSize { width, height } => (width, height),
+            _the_output_said_something_else => return,
         };
 
         let Ok(wide) = fitted(width);

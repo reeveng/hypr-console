@@ -18,13 +18,16 @@ name = "sky-press"
 path = "src/bin/sky-press.rs"
 
 [dependencies]
+console-core-atomic-writes.workspace = true
 console-core-never.workspace = true
+console-core-places.workspace = true
 console-core-external-programs.workspace = true
 console-core-number-conversion.workspace = true
 # What the compositor is doing, asked of the one program that is subscribed to
 # it rather than of a socket this would otherwise hold open itself.
 console-events.workspace = true
 console-program-contract.workspace = true
+console-compositor.workspace = true
 console-onscreen.workspace = true
 console-core-colour.workspace = true
 console-screen.workspace = true

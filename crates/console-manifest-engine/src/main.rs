@@ -3,6 +3,7 @@
 //!     console list      what the desktop is made of
 //!     console check     where the machine has drifted from it
 //!     console apply     bring the machine back to it
+//!     console room      whether there is room on the disk for the next apply
 //!     console save      take a file edited in place back into the source
 //!
 //! The manifest is the source of truth and this is only the engine that reads
@@ -23,6 +24,7 @@ mod manifest;
 mod migrating;
 mod packages;
 mod previous;
+mod room;
 mod settled;
 mod staying;
 mod units;
@@ -58,7 +60,7 @@ fn main() -> ExitCode {
         .map_or(("check", nothing), |(one, rest)| (one.as_str(), rest));
 
     let (root, rest) = match (command, rest.split_first()) {
-        ("list" | "check" | "migrate", Some((flag, [at, more @ ..]))) if flag == "--root" => {
+        ("list" | "check" | "migrate" | "room", Some((flag, [at, more @ ..]))) if flag == "--root" => {
             (PathBuf::from(at), more)
         }
         _ => (PathBuf::from(ROOT), rest),
@@ -83,6 +85,11 @@ fn main() -> ExitCode {
         }
         "apply" => {
             let Ok(said) = report(apply(&root, &manifest));
+
+            return said;
+        }
+        "room" => {
+            let Ok(said) = room(&root);
 
             return said;
         }
@@ -119,6 +126,7 @@ const HELP: &str = "\
 console list      what the desktop is made of
 console check     where the machine has drifted from it
 console apply     bring the machine back to it
+console room      whether there is room on the disk for the next apply
 console buttons   write the profiles again, with this device's buttons in them
 console save      take a file edited in place back into the source
 console migrate   run what this machine has not run; --pending only says what";
@@ -161,7 +169,16 @@ fn list(manifest: &Manifest) -> Result<(), Never> {
         let Ok(name) = section.name();
 
         println!("{YELLOW}[{name}]{OFF}");
-        entries.iter().for_each(|entry| println!("  {entry}"));
+
+        for entry in entries {
+            let Ok(whose) = manifest.whose(entry);
+
+            match whose {
+                manifest::Whose::Theirs => println!("  {entry} {}", manifest::THEIRS),
+                manifest::Whose::Ours => println!("  {entry}"),
+            }
+        }
+
         println!();
     }
 
@@ -213,7 +230,8 @@ fn check(root: &Path, manifest: &Manifest) -> Result<ExitCode, Never> {
         }),
         went::to("files", || {
             let Ok(drift) = under("files", files, |path| {
-                let Ok(state) = install::state(&source, path, whoever);
+                let Ok(whose) = manifest.whose(path);
+                let Ok(state) = install::state(&source, path, whoever, whose);
                 let Ok(settled) = state.settled();
                 let Ok(said) = state.name();
 
@@ -379,16 +397,36 @@ fn the_battery() -> Result<console_default_applications::battery::Charge, Never>
     console_default_applications::battery::Charge::of(&said)
 }
 
+fn the_room(at: &Path) -> Result<room::Left, Never> {
+    let Ok(said) = machine::disk_free(at);
+
+    room::free_in(&said.out)
+}
+
+fn where_it_went() -> Result<Vec<room::Place>, Never> {
+    let Ok(whoever) = machine::whoever();
+    let home = Path::new("/home").join(whoever);
+    let Ok(share) = console_core_places::Base::Share.under(&home);
+
+    let roots = vec![home.display().to_string(), share.display().to_string()];
+    let asked: Vec<&str> = roots.iter().map(String::as_str).collect();
+    let Ok(said) = machine::sizes_under(&asked);
+
+    room::places_in(&said.out, &roots)
+}
+
 fn the_levels() -> Result<console_default_applications::battery::Levels, Never> {
     use console_default_applications::battery::Levels;
 
     let Ok(whoever) = machine::whoever();
-    let at = Path::new("/home").join(whoever).join(".config/console/defaults");
+    let Ok(at) = console_default_applications::under(&Path::new("/home").join(whoever));
 
-    match std::fs::read_to_string(&at) {
-        Ok(said) => Levels::read(&said),
-        Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => Ok(Levels::default()),
-        Err(fault) => {
+    let Ok(held) = console_core_atomic_writes::read(&at);
+
+    match held {
+        console_core_atomic_writes::Held::Said(said) => Levels::read(&said),
+        console_core_atomic_writes::Held::Nothing => Ok(Levels::default()),
+        console_core_atomic_writes::Held::Unreadable(fault) => {
             println!(
                 "{YELLOW}{} will not be read ({fault}), so the battery levels this apply is \
                  judged against are the ones nobody chose{OFF}",
@@ -444,7 +482,8 @@ fn standing(root: &Path, manifest: &Manifest) -> Result<well::Standing, Never> {
     }
 
     for live in files {
-        let Ok(state) = install::state(&source, live, user);
+        let Ok(whose) = manifest.whose(live);
+        let Ok(state) = install::state(&source, live, user, whose);
         let Ok(settled) = state.settled();
 
         match state != install::State::Unreadable && settled == Settled::No {
@@ -503,7 +542,71 @@ fn standing(root: &Path, manifest: &Manifest) -> Result<well::Standing, Never> {
         }
     }
 
+    let Ok(left) = the_room(root);
+
+    match left {
+        room::Left::Said(free) => {
+            let Ok(went) = match free < room::A_BUILD {
+                true => where_it_went(),
+                false => Ok(Vec::new()),
+            };
+            let Ok(asking) = room::on_a_machine_standing(free, &went);
+
+            match asking {
+                room::Room::No(said) => standing.cramped = Some(said),
+                room::Room::Enough => {},
+            }
+        }
+        room::Left::Unknown(said) => {
+            eprintln!("console well: the disk would not say how much room is left ({said})");
+        }
+    }
+
     Ok(standing)
+}
+
+fn room(root: &Path) -> Result<ExitCode, Never> {
+    let Ok(left) = the_room(root);
+
+    let free = match left {
+        room::Left::Said(free) => free,
+        room::Left::Unknown(said) => {
+            eprintln!("{RED}the disk would not say how much room is left ({said}){OFF}");
+
+            return Ok(ExitCode::FAILURE);
+        }
+    };
+    let Ok(went) = match free < room::STANDING {
+        true => where_it_went(),
+        false => Ok(Vec::new()),
+    };
+    let Ok(asking) = room::before_an_apply(free, &went);
+
+    match asking {
+        room::Room::No(said) => {
+            eprintln!("{RED}room{OFF} {said}");
+
+            return Ok(ExitCode::FAILURE);
+        }
+        room::Room::Enough => {},
+    }
+
+    let Ok(standing) = room::on_a_machine_standing(free, &went);
+    let Ok(size) = room::words(free);
+    let Ok(wanted) = room::words(room::A_BUILD);
+
+    Ok(match standing {
+        room::Room::Enough => {
+            println!("{GREEN}room{OFF} {size} left, and an apply wants {wanted} of it");
+
+            ExitCode::SUCCESS
+        }
+        room::Room::No(said) => {
+            println!("{YELLOW}room{OFF} {said}");
+
+            ExitCode::SUCCESS
+        }
+    })
 }
 
 fn well(root: &Path, manifest: &Manifest) -> Result<ExitCode, Never> {
@@ -514,14 +617,17 @@ fn well(root: &Path, manifest: &Manifest) -> Result<ExitCode, Never> {
 
     let Ok(said) = standing.said();
 
-    let Some((summary, body)) = said else {
-        let Ok(()) = console_notifications::saying::withdraw(&card);
-        let Ok(counting) = console_notifications::saying::Kept::counting(kind);
-        let Ok(()) = counting.forget();
+    let (summary, body) = match said {
+        Some((summary, body)) => (summary, body),
+        None => {
+            let Ok(()) = console_notifications::saying::withdraw(&card);
+            let Ok(counting) = console_notifications::saying::Kept::counting(kind);
+            let Ok(()) = counting.forget();
 
-        println!("{GREEN}well{OFF} this machine is what the manifest says, and every piece of it is up");
+            println!("{GREEN}well{OFF} this machine is what the manifest says, and every piece of it is up");
 
-        return Ok(ExitCode::SUCCESS);
+            return Ok(ExitCode::SUCCESS);
+        }
     };
 
     println!("{RED}{summary}{OFF}\n{body}");
@@ -587,6 +693,31 @@ fn apply(root: &Path, manifest: &Manifest) -> Result<(), String> {
     match enough {
         enough::Enough::No(said) => return Err(said),
         enough::Enough::Yes => {},
+    }
+
+    let Ok(left) = the_room(root);
+    let Ok(room) = match left {
+        room::Left::Said(free) => {
+            let Ok(went) = match free < room::A_BUILD {
+                true => where_it_went(),
+                false => Ok(Vec::new()),
+            };
+
+            room::before_an_apply(free, &went)
+        }
+        room::Left::Unknown(said) => {
+            println!(
+                "{YELLOW}the disk would not say how much room is left ({said}), so this apply is \
+                 going ahead without knowing whether what it writes will fit{OFF}"
+            );
+
+            Ok(room::Room::Enough)
+        }
+    };
+
+    match room {
+        room::Room::No(said) => return Err(said),
+        room::Room::Enough => {},
     }
 
     let Ok(asked) = staying::taking("installing the desktop");
@@ -1101,8 +1232,9 @@ fn cargo(
 ) -> Result<std::process::ExitStatus, String> {
     use std::io::{BufRead, BufReader, IsTerminal};
 
-    let Some((program, rest)) = argv.split_first() else {
-        return Err("cargo was asked for with no program to run".to_string());
+    let (program, rest) = match argv.split_first() {
+        Some((program, rest)) => (program, rest),
+        None => return Err("cargo was asked for with no program to run".to_string()),
     };
 
     let mut starting = std::process::Command::new(program);
@@ -1181,10 +1313,11 @@ fn write(
     for (done, path) in files.iter().enumerate() {
         let Ok(()) = moving.at(done, many, path);
 
-        let Ok(state) = install::state(source, path, whoever);
+        let Ok(whose) = manifest.whose(path);
+        let Ok(state) = install::state(source, path, whoever, whose);
 
         match state {
-            install::State::Ok => {}
+            install::State::Ok | install::State::Theirs => {}
             install::State::Unsourced => {
                 let Ok(()) = moving.say(&format!("{RED}no source for{OFF} {path}"));
             }
@@ -1233,7 +1366,8 @@ fn save(root: &Path, manifest: &Manifest, asked: &[String]) -> Result<(), String
         [] => files
             .iter()
             .filter(|path| {
-                let Ok(state) = install::state(&source, path, whoever);
+                let Ok(whose) = manifest.whose(path);
+                let Ok(state) = install::state(&source, path, whoever, whose);
 
                 state == install::State::Differs
             })

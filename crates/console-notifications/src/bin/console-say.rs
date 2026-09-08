@@ -16,9 +16,12 @@ use console_notifications::saying::{Kept, fault, for_the_journal, journal, raise
 fn main() -> std::process::ExitCode {
     let said: Vec<String> = std::env::args().skip(1).collect();
 
-    let [kind, summary, rest @ ..] = said.as_slice() else {
-        eprintln!("usage: console-say KIND SUMMARY [BODY]");
-        return std::process::ExitCode::from(2);
+    let (kind, summary, rest) = match said.as_slice() {
+        [kind, summary, rest @ ..] => (kind, summary, rest),
+        _not_enough_words => {
+            eprintln!("usage: console-say KIND SUMMARY [BODY]");
+            return std::process::ExitCode::from(2);
+        }
     };
 
     match kind.is_empty() || summary.is_empty() {

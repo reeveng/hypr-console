@@ -32,16 +32,22 @@ const KIND: &str = "files-unzip";
 const FULL: &str = "There is nowhere left to unzip this: the folders beside it are all taken.";
 
 fn main() -> ExitCode {
-    let Some(said) = std::env::args().nth(1) else {
-        eprintln!("usage: files-unzip ARCHIVE");
-        return ExitCode::from(2);
+    let said = match std::env::args().nth(1) {
+        Some(said) => said,
+        None => {
+            eprintln!("usage: files-unzip ARCHIVE");
+            return ExitCode::from(2);
+        }
     };
 
     let archive = PathBuf::from(said);
 
-    let Some(holding) = archive.parent().map(Path::to_path_buf) else {
-        eprintln!("files-unzip: {}: nothing holds this", archive.display());
-        return ExitCode::FAILURE;
+    let holding = match archive.parent().map(Path::to_path_buf) {
+        Some(holding) => holding,
+        None => {
+            eprintln!("files-unzip: {}: nothing holds this", archive.display());
+            return ExitCode::FAILURE;
+        }
     };
 
     let named = archive
@@ -53,10 +59,13 @@ fn main() -> ExitCode {
 
     let Ok(free) = unzipping::beside(&into, |tried| holding.join(tried).exists());
 
-    let Some(into) = free else {
-        let Ok(()) = say(KIND, &named, FULL);
+    let into = match free {
+        Some(into) => into,
+        None => {
+            let Ok(()) = say(KIND, &named, FULL);
 
-        return ExitCode::FAILURE;
+            return ExitCode::FAILURE;
+        }
     };
 
     let Ok(while_) = unzipping::while_unpacking(&named);
@@ -153,7 +162,10 @@ fn ran(archive: &Path, unpacking: &Path) -> Result<Ran, Never> {
 }
 
 fn inside(unpacking: &Path) -> Result<Vec<(String, Is)>, Never> {
-    let Ok(reading) = std::fs::read_dir(unpacking) else { return Ok(Vec::new()) };
+    let reading = match std::fs::read_dir(unpacking) {
+        Ok(reading) => reading,
+        Err(_fault) => return Ok(Vec::new()),
+    };
 
     Ok(reading
         .flatten()

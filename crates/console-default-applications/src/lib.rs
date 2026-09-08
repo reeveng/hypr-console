@@ -11,32 +11,37 @@
 
 pub mod battery;
 pub mod browsers;
+pub mod clock;
 pub mod engines;
 pub mod policies;
 
 use std::path::PathBuf;
 
+use console_core_atomic_writes::Held;
 use console_core_never::Never;
 
-fn home() -> Result<PathBuf, Never> {
-    Ok(PathBuf::from(match std::env::var("HOME") {
-        Ok(h) => h,
-        Err(_) => "/root".to_string(),
-    }))
-}
-
 fn held(at: &std::path::Path) -> Result<String, String> {
-    match std::fs::read_to_string(at) {
-        Ok(said) => Ok(said),
-        Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
-        Err(fault) => Err(format!("{}: {fault}", at.display())),
+    let Ok(held) = console_core_atomic_writes::read(at);
+
+    match held {
+        Held::Said(said) => Ok(said),
+        Held::Nothing => Ok(String::new()),
+        Held::Unreadable(fault) => Err(format!("{}: {fault}", at.display())),
     }
 }
 
-pub fn where_() -> Result<PathBuf, Never> {
-    let home = home()?;
+pub const NAMED: &str = "defaults";
 
-    Ok(home.join(".config/console/defaults"))
+pub fn where_() -> Result<Option<PathBuf>, Never> {
+    let ours = console_core_places::Base::Config.ours()?;
+
+    Ok(ours.map(|ours| ours.join(NAMED)))
+}
+
+pub fn under(home: &std::path::Path) -> Result<PathBuf, Never> {
+    let Ok(ours) = console_core_places::Base::Config.ours_under(home);
+
+    Ok(ours.join(NAMED))
 }
 
 pub fn read(said: &str) -> Result<Vec<(String, String)>, Never> {
@@ -66,9 +71,10 @@ pub fn written(said: &str, key: &str, value: &str) -> Result<String, Never> {
 pub fn setting(key: &str) -> Result<Option<String>, Never> {
     let at = where_()?;
 
-    let said = match std::fs::read_to_string(&at) {
-        Ok(s) => s,
-        Err(_) => return Ok(None),
+    let said = match at.as_ref().map(std::fs::read_to_string) {
+        Some(Ok(said)) => said,
+        Some(Err(_the_settings_are_unreadable)) => return Ok(None),
+        None => return Ok(None),
     };
 
     let settings = read(&said)?;
@@ -77,7 +83,16 @@ pub fn setting(key: &str) -> Result<Option<String>, Never> {
 }
 
 pub fn set(key: &str, value: &str) -> Result<(), Never> {
-    let at = where_()?;
+    let keeping = where_()?;
+
+    let at = match keeping {
+        Some(at) => at,
+        None => {
+            eprintln!("console-default-applications: no home to keep {key} in; leaving it as it is");
+
+            return Ok(());
+        }
+    };
 
     match at.parent() {
         Some(parent) => {

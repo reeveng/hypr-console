@@ -3,7 +3,7 @@
 Everything here used to be called `legion-*`, after the machine it was first
 written for. Nothing in it is about that machine: the panels, the manifest, the
 theme and the checks would run on any handheld with a pad and a compositor. The
-prefix is `console-*` now, as `console-music` set it, and the repository is
+prefix is `console-*` now, as the music panel set it, and the repository is
 `reeveng/hypr-console`.
 
 There have been two of them. Sections 1 to 4 are the first, from `legion-*` to
@@ -37,15 +37,20 @@ It stands in the path `files/home/@user@/`, and since the tree stopped naming
 anybody it also stands in the bodies of `/etc/sudoers.d/console` and
 `91-console-touchpad.rules`.
 
-`/usr/local/bin/hyprsession` is a fork of somebody else's GPL program, carried
-here as a built binary, and it keeps the name its project gave it. What is ours
-is the unit that runs it.
+`kew` was a fork of somebody else's GPL program, carried as a built binary at
+`/usr/local/bin/kew`, and it kept the name its project gave it: the panel
+started it by that name, and what was in front on the path was what answered.
+It is a crate now, `console-music-player`, and the binary is `music-player` --
+named for what somebody types rather than for whose program it once was.
 
-`/usr/local/bin/kew` is the same case. It is the fork of the music player, and
-it keeps the name too: the panel starts it by that name, and what is in front
-on the path is what answers. What is ours is the panel that drives it.
+`hyprsession` went the same way and kept its name for the same reason, until the
+source came into the tree. A crate the device builds is named for what it does
+like every other crate here, so it is `console-resume`, and the name upstream
+gave it is recorded in `papers/forks.md` rather than in a path. Which is the
+rule this rename set: a name says what the thing is, and whose it was is a
+question the papers answer.
 
-`/usr/local/bin/virtual-keyboard` was the other one and is not a fork any more.
+`/usr/local/bin/virtual-keyboard` was a third and is not a fork any more.
 It is a Rust crate the device compiles, and the name is the one this rename gave
 it: named for what it is rather than for whose it was, which turned out to be
 the right name a release before it was the true one. The wvkbd source it was
@@ -147,7 +152,7 @@ clone the script was run from is done for you; the rest is
    rather than invented by the browser, so it can be renamed as long as the
    directory moves underneath it in the same step. That is step 4 of the
    migration, and it refuses to run while LibreWolf is open.
-4. **The prefix is `console-*`**, as `console-music` set it.
+4. **The prefix is `console-*`**, as the music panel set it.
 5. **The hardware keeps its name.** Section 1 is the whole of it.
 6. **A name has to be guessable by somebody who has never been here.** That is
    the test every crate was held to, and why `again`, `door`, `haste`, `sky`,
@@ -188,12 +193,20 @@ share:
 | `console-core-*` | what the rest imports and nothing outside the workspace ever names: the error of a function that cannot fail, the colour arithmetic, the one place a number changes width, the whole-file write, the language a person reads, the programs this desktop did not write, the retry |
 | `console-input-*` | everything a press comes through: the controller, the pad it is emulated on, the mapping, what has the input, the pointer and the touchscreen the checks press with, the on-screen keyboard, dictation |
 | `console-manifest-*` | what a deploy is: the engine, the sweeps, the public copy |
+| `console-music-*` | the music: the panel that draws it, and the player that makes the sound |
 | `console-program-*` | what a program on this device is: the contract, the loop that carries it out, how long a started one lives |
 | `console-test-*` | where a check runs: the checks themselves, the flows, the stages, the desktop nested here |
 
 Everything else is a thing somebody already has a word for -- `console-files`,
-`console-music`, `console-settings`, `console-panel` -- and stays one word past
-the prefix.
+`console-settings`, `console-panel` -- and stays one word past the prefix.
+
+`console-music-*` is the newest of the families and is the clearest case of how
+one arrives. There was a crate called `console-music` and it was the panel;
+what played the sound was kew, which was nobody's here. When the player was
+written the panel's name stopped being available to it -- two crates cannot both
+be *the music* -- so the panel became `console-music-panel`, the player is
+`console-music-player`, and the word they share is the heading. A family is not
+designed and then filled: it is what a second crate makes true.
 
 The line `console-core-*` is drawn at: no machine, no feature, and no program
 somebody types. That is why `console-onscreen` and `console-screen` are not in

@@ -147,7 +147,10 @@ fn parse_args(config: &mut Config, argv: &[String]) -> Result<(), Error> {
     let mut i = 1;
 
     while i < argv.len() {
-        let Some(flag) = argv.get(i).cloned() else { break };
+        let flag = match argv.get(i).cloned() {
+            Some(flag) => flag,
+            None => break,
+        };
 
         i = i.saturating_add(1);
 
@@ -175,8 +178,9 @@ fn take_value(argv: &[String], i: &mut usize, flag: &str) -> Result<String, Erro
         false => {},
     }
 
-    let Some(value) = argv.get(*i).cloned() else {
-        return Err(Error::MissingValue(flag.to_string()));
+    let value = match argv.get(*i).cloned() {
+        Some(value) => value,
+        None => return Err(Error::MissingValue(flag.to_string())),
     };
 
     *i = i.saturating_add(1);

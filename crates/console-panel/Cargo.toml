@@ -38,8 +38,10 @@ path = "src/bin/panel-pictures.rs"
 console-program-lifetime.workspace = true
 console-core-external-programs.workspace = true
 console-core-never.workspace = true
+console-core-places.workspace = true
 console-waiting.workspace = true
 console-core-number-conversion.workspace = true
+console-compositor.workspace = true
 console-onscreen.workspace = true
 # The one subscription per source on this machine. What used to be this
 # program's own connection to the compositor is a line down the pool's socket.

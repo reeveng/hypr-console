@@ -21,6 +21,17 @@
 //! and is handed to every migration rather than being one, and the first version
 //! of this took every `.sh` it found and offered to run the helpers as a
 //! migration of their own. A name that is not a moment is not a migration.
+//!
+//! There is one more thing a claim does not carry, and it is the reason.
+//! `console-rename` works out which installed paths a rename moved and writes
+//! the `# sweeps:` lines for them; what it cannot write is why -- what reads
+//! the old name, what a person sees with two of them, what a machine that
+//! misses this is left holding. So the stub it writes leaves
+//! `console_repository::renaming::UNSAID` where the argument goes, and
+//! `every_removal_is_swept` refuses a migration still carrying it. The marker
+//! belongs to the tool that writes it rather than to this crate, because this
+//! crate cannot import that one -- the dependency runs the other way, since a
+//! migration has to be found before it can be read.
 
 use console_core_never::Never;
 use std::collections::BTreeSet;

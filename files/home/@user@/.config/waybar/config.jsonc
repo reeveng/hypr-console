@@ -16,7 +16,7 @@
   "spacing": 0,
 
   "modules-left": ["custom/apps", "custom/keyboard", "hyprland/workspaces"],
-  "modules-center": ["clock"],
+  "modules-center": ["custom/clock"],
   "modules-right": [
     "custom/music",
     "custom/sound",
@@ -74,8 +74,17 @@
   // One reading, always the same one. A handheld is picked up cold and put
   // down again; a clock that changes what it says when a thumb brushes it is
   // a clock that has to be read twice.
-  "clock": {
-    "format": "{:%a %d %b  %H:%M}",
+  //
+  // Ours rather than waybar's own, for the reason the four readings on the
+  // right are ours: whether the hour is written 14:30 or 2:30 pm is a thing
+  // somebody chooses on the Language tab, and waybar's clock takes its format
+  // from this file -- which `console apply` rewrites, so a choice written here
+  // would be a choice put back. `bar-clock` reads the choice instead, and
+  // watches /etc/localtime as well, so changing the zone moves the bar while
+  // somebody is still looking at it.
+  "custom/clock": {
+    "format": "{}",
+    "exec": "bar-clock",
     "tooltip": false
   },
 

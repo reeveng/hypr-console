@@ -11,6 +11,9 @@ path = "src/lib.rs"
 
 [dependencies]
 console-core-external-programs.workspace = true
+console-core-ini-files.workspace = true
+console-core-places.workspace = true
+console-core-atomic-writes.workspace = true
 console-core-never.workspace = true
 console-panel.workspace = true
 

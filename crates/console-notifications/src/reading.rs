@@ -130,8 +130,9 @@ struct Said {
 }
 
 pub fn read(said: &str) -> Result<Vec<Notice>, Never> {
-    let Ok(held) = serde_json::from_str::<Vec<Said>>(said) else {
-        return printed(said);
+    let held = match serde_json::from_str::<Vec<Said>>(said) {
+        Ok(held) => held,
+        Err(_fault) => return printed(said),
     };
 
     let mut every: Vec<Notice> = Vec::new();
@@ -166,7 +167,10 @@ fn printed(said: &str) -> Result<Vec<Notice>, Never> {
             None => {}
         }
 
-        let Some(notice) = held.last_mut() else { continue };
+        let notice = match held.last_mut() {
+            Some(notice) => notice,
+            None => continue,
+        };
 
         match line.strip_prefix("  App name: ") {
             Some(app) => notice.app = app.trim().to_string(),
@@ -187,16 +191,19 @@ fn printed(said: &str) -> Result<Vec<Notice>, Never> {
 }
 
 fn heads_one(line: &str) -> Result<Option<(u32, &str)>, Never> {
-    let Some(after) = line.strip_prefix("Notification ") else {
-        return Ok(None);
+    let after = match line.strip_prefix("Notification ") {
+        Some(after) => after,
+        None => return Ok(None),
     };
 
-    let Some((id, summary)) = after.split_once(':') else {
-        return Ok(None);
+    let (id, summary) = match after.split_once(':') {
+        Some((id, summary)) => (id, summary),
+        None => return Ok(None),
     };
 
-    let Ok(id) = id.parse::<u32>() else {
-        return Ok(None);
+    let id = match id.parse::<u32>() {
+        Ok(id) => id,
+        Err(_fault) => return Ok(None),
     };
 
     Ok(Some((id, summary)))

@@ -1,0 +1,34 @@
+[package]
+name = "console-resume"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license = "GPL-3.0"
+authors = ["Josh Andrews"]
+
+[lib]
+name = "console_resume"
+path = "src/lib.rs"
+
+[[bin]]
+name = "console-resume"
+path = "src/main.rs"
+
+[dependencies]
+console-compositor.workspace = true
+console-core-never.workspace = true
+console-applications.workspace = true
+console-core-number-conversion.workspace = true
+console-events.workspace = true
+console-program-contract.workspace = true
+console-core-places.workspace = true
+console-waiting.workspace = true
+console-core-atomic-writes.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

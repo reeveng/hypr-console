@@ -119,7 +119,15 @@ impl Program for Downloads {
 }
 
 fn turning(state: &Standing, word: &Word<Heard>) -> Result<Turn<Standing, Its>, Never> {
-    let Word::Its(heard) = word else { return Turn::nothing(state.clone()) };
+    let heard = match word {
+        Word::Its(heard) => heard,
+        Word::Opened
+        | Word::Changed(_)
+        | Word::CameRound(_, _)
+        | Word::Answered(_)
+        | Word::Chose(_)
+        | Word::Stopping => return Turn::nothing(state.clone()),
+    };
 
     match heard {
             Heard::Typed { tab, word } => {

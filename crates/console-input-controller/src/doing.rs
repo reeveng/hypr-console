@@ -3,6 +3,12 @@
 //! Everything in this crate that thinks is a function from what arrived to one
 //! of these. Nothing that thinks touches a device, which is why the arithmetic
 //! can be held still and asked the same question twice.
+//!
+//! [`Doing::Using`] is the odd one and is here rather than anywhere else for
+//! the same reason as the rest: which input somebody is using is decided by
+//! what arrived, so it is decided where everything else is, and carrying it
+//! out -- saying so to `console-events` and writing the word down for the next
+//! session -- is the binary's, like starting a program is.
 
 use console_core_never::Never;
 use evdev::EventType;
@@ -29,6 +35,7 @@ pub enum Doing {
     Run(Vec<String>),
     Frame(Vec<Out>),
     Tell(console_onscreen::Said),
+    Using(console_input_bindings::bound::Input),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,17 +49,20 @@ impl Doing {
         Ok(Doing::Run(argv.iter().map(|word| (*word).to_string()).collect()))
     }
 
+    pub fn dispatch(lua: &str) -> Result<Self, Never> {
+        let Ok(hyprctl) = console_core_external_programs::Program::Hyprctl.name();
+        let Ok(dispatch) = console_compositor::Told::Dispatch.word();
+
+        Ok(Doing::Run(vec![hyprctl.to_string(), dispatch.to_string(), lua.to_string()]))
+    }
+
     pub fn workspace(where_: &str, carrying: Carry) -> Result<Self, Never> {
         let verb = match carrying {
             Carry::Window => "hl.dsp.window.move",
             Carry::Nothing => "hl.dsp.focus",
         };
 
-        Ok(Doing::Run(vec![
-            "hyprctl".to_string(),
-            "dispatch".to_string(),
-            format!("{verb}({{workspace = \"{where_}\"}})"),
-        ]))
+        Doing::dispatch(&format!("{verb}({{workspace = \"{where_}\"}})"))
     }
 }
 

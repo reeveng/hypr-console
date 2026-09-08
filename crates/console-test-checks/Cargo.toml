@@ -17,7 +17,28 @@ path = "src/bin/console-check.rs"
 console-input-gamepad.workspace = true
 console-home-screen.workspace = true
 console-core-external-programs.workspace = true
+console-core-ini-files.workspace = true
 console-core-never.workspace = true
+console-compositor.workspace = true
+# The table's keyboard half, rendered the same way the daemon renders it, so
+# what the compositor is asked for is what the table says rather than a second
+# list written here.
+console-input-bindings.workspace = true
+console-input-controller.workspace = true
+# The bus name, the object and the interface are the player's own words. This
+# check spelled kew's for as long after the swap as it took somebody to run it,
+# and busctl answers a name nobody holds with "not activatable" rather than
+# with the name it was asked for.
+console-music-player.workspace = true
+serde_json = "1"
+
+console-program-lifetime.workspace = true
+console-resume.workspace = true
+# The two pages the zone is chosen through are built out of `hours`, and the
+# walk this presses is worked out from the same arithmetic rather than counted
+# into the check.
+console-settings.workspace = true
+console-waiting.workspace = true
 console-onscreen.workspace = true
 console-panel.workspace = true
 console-test-stages.workspace = true

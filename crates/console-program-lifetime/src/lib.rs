@@ -196,7 +196,10 @@ mod tests {
     #[test]
     fn dropping_it_ends_the_child() {
         let mut command = holding();
-        let Ok(running) = alongside(&mut command) else { return };
+        let running = match alongside(&mut command) {
+            Ok(running) => running,
+            Err(_fault) => return,
+        };
 
         let Ok(id) = running.id();
 
@@ -210,7 +213,10 @@ mod tests {
     #[test]
     fn a_child_let_go_is_still_running_after_the_drop() {
         let mut command = holding();
-        let Ok(running) = let_go(&mut command) else { return };
+        let running = match let_go(&mut command) {
+            Ok(running) => running,
+            Err(_fault) => return,
+        };
 
         let Ok(id) = running.id();
 
@@ -234,8 +240,14 @@ mod tests {
 
         command.args(["-c", "printf 'one\\ntwo\\n'"]).stdout(Stdio::piped());
 
-        let Ok(mut running) = alongside(&mut command) else { return };
-        let Ok(Some(out)) = running.reading() else { panic!("no pipe from a piped command") };
+        let mut running = match alongside(&mut command) {
+            Ok(running) => running,
+            Err(_fault) => return,
+        };
+        let out = match running.reading() {
+            Ok(Some(out)) => out,
+            Ok(None) | Err(_) => panic!("no pipe from a piped command"),
+        };
 
         let said = std::io::read_to_string(out).unwrap_or_default();
         let Ok(again) = running.reading();
@@ -250,7 +262,10 @@ mod tests {
 
         command.stdout(Stdio::null());
 
-        let Ok(mut done) = alongside(&mut command) else { return };
+        let mut done = match alongside(&mut command) {
+            Ok(done) => done,
+            Err(_fault) => return,
+        };
         let _ = done.waiting();
 
         let Ok(ended) = done.still();
@@ -258,7 +273,10 @@ mod tests {
         assert_eq!(ended, Still::Ended);
 
         let mut command = holding();
-        let Ok(mut going) = alongside(&mut command) else { return };
+        let mut going = match alongside(&mut command) {
+            Ok(going) => going,
+            Err(_fault) => return,
+        };
 
         let Ok(running) = going.still();
 
@@ -268,7 +286,10 @@ mod tests {
     #[test]
     fn a_parent_killed_outright_takes_the_child_with_it() {
         let ours = std::env::current_exe().unwrap_or_default();
-        let Some(exe) = ours.to_str() else { return };
+        let exe = match ours.to_str() {
+            Some(exe) => exe,
+            None => return,
+        };
 
         let Ok(mut command) = Program::Sh.command();
 
@@ -278,9 +299,15 @@ mod tests {
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
 
-        let Ok(mut parent) = let_go(&mut command) else { return };
+        let mut parent = match let_go(&mut command) {
+            Ok(parent) => parent,
+            Err(_fault) => return,
+        };
 
-        let Some(out) = parent.child.stdout.take() else { return };
+        let out = match parent.child.stdout.take() {
+            Some(out) => out,
+            None => return,
+        };
 
         let mut heard = Vec::new();
         let by = Instant::now() + Duration::from_secs(20);
@@ -300,8 +327,9 @@ mod tests {
             }
         }
 
-        let Some(id) = found else {
-            panic!("the parent never said what it started: {heard:?}")
+        let id = match found {
+            Some(id) => id,
+            None => panic!("the parent never said what it started: {heard:?}"),
         };
 
         let Ok(whose) = parent.id();
@@ -328,7 +356,10 @@ mod tests {
         }
 
         let mut command = holding();
-        let Ok(running) = alongside(&mut command) else { return };
+        let running = match alongside(&mut command) {
+            Ok(running) => running,
+            Err(_fault) => return,
+        };
 
         let Ok(id) = running.id();
 

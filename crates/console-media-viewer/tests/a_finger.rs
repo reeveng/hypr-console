@@ -145,7 +145,10 @@ fn a_picture_opened_over_the_whole_screen_can_still_be_left() {
 #[test]
 fn every_row_of_the_media_page_offers_what_else_there_is_to_do_with_it() {
     let at = a_picture();
-    let Some(folder) = at.parent() else { panic!("the picture was made in no folder") };
+    let folder = match at.parent() {
+        Some(folder) => folder,
+        None => panic!("the picture was made in no folder"),
+    };
     let Ok(mut panel) = Panel::opening("viewer-panel", &[&folder.to_string_lossy()]);
 
     if let Err(why) = panel.key("Page_Down") {
@@ -190,7 +193,10 @@ fn every_row_of_the_media_page_offers_what_else_there_is_to_do_with_it() {
 #[test]
 fn right_off_a_row_stands_on_what_else_it_offers() {
     let at = a_picture();
-    let Some(folder) = at.parent() else { panic!("the picture was made in no folder") };
+    let folder = match at.parent() {
+        Some(folder) => folder,
+        None => panic!("the picture was made in no folder"),
+    };
     let Ok(mut panel) = Panel::opening("viewer-panel", &[&folder.to_string_lossy()]);
 
     for key in ["Page_Down", "Down", "Right"] {

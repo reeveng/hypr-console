@@ -33,18 +33,24 @@ const NOTHING: &str = "was not fetched";
 fn main() {
     let words: Vec<String> = std::env::args().skip(1).collect();
 
-    let Some(kind) = words.first().and_then(|word| {
+    let kind = match words.first().and_then(|word| {
         let Ok(kind) = Kind::read(word);
 
         kind
-    }) else {
-        eprintln!("which kind: --audio or --video");
-        return;
+    }) {
+        Some(kind) => kind,
+        None => {
+            eprintln!("which kind: --audio or --video");
+            return;
+        }
     };
 
-    let Some(url) = words.get(1) else {
-        eprintln!("which link");
-        return;
+    let url = match words.get(1) {
+        Some(url) => url,
+        None => {
+            eprintln!("which link");
+            return;
+        }
     };
 
     let called = words.get(2).cloned();
@@ -75,14 +81,20 @@ fn main() {
     let Ok(argv) = getting::argv(kind, url, &into);
     let Ok(nothing) = named(&called, NOTHING);
 
-    let Some((program, rest)) = argv.split_first() else {
-        let Ok(()) = say(KIND, &nothing, NO_YT_DLP);
-        return;
+    let (program, rest) = match argv.split_first() {
+        Some((program, rest)) => (program, rest),
+        None => {
+            let Ok(()) = say(KIND, &nothing, NO_YT_DLP);
+            return;
+        }
     };
 
-    let Ok(done) = Command::new(program).args(rest).output() else {
-        let Ok(()) = say(KIND, &nothing, NO_YT_DLP);
-        return;
+    let done = match Command::new(program).args(rest).output() {
+        Ok(done) => done,
+        Err(_fault) => {
+            let Ok(()) = say(KIND, &nothing, NO_YT_DLP);
+            return;
+        }
     };
 
     match done.status.success() {
@@ -110,7 +122,10 @@ fn named(called: &Option<String>, said: &str) -> Result<String, Never> {
 }
 
 fn already(into: &Path, url: &str) -> Result<Option<String>, Never> {
-    let Ok(Some(id)) = getting::id_in(url) else { return Ok(None) };
+    let id = match getting::id_in(url) {
+        Ok(Some(id)) => id,
+        Ok(None) | Err(_) => return Ok(None),
+    };
 
     let reading = match std::fs::read_dir(into) {
         Ok(reading) => reading,
@@ -126,9 +141,12 @@ fn already(into: &Path, url: &str) -> Result<Option<String>, Never> {
         (litter == getting::Litter::No && name.contains(&format!("[{id}]"))).then_some(name)
     });
 
-    let Some(holding) = holding else { return Ok(None) };
+    let holding = match holding {
+        Some(holding) => holding,
+        None => return Ok(None),
+    };
 
-    let named = console_music::library::named(&holding)?;
+    let named = console_music_panel::library::named(&holding)?;
 
     Ok(Some(named))
 }
@@ -143,17 +161,23 @@ fn arrived(said: &str) -> Result<String, Never> {
 
     Ok(match name.is_empty() {
         true => "It".to_string(),
-        false => console_music::library::named(&name)?,
+        false => console_music_panel::library::named(&name)?,
     })
 }
 
 fn swept(into: &Path, began: SystemTime) -> Result<(), Never> {
-    let Ok(reading) = std::fs::read_dir(into) else { return Ok(()) };
+    let reading = match std::fs::read_dir(into) {
+        Ok(reading) => reading,
+        Err(_fault) => return Ok(()),
+    };
 
     for entry in reading.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
 
-        let Ok(made) = entry.metadata().and_then(|about| about.modified()) else { continue };
+        let made = match entry.metadata().and_then(|about| about.modified()) {
+            Ok(made) => made,
+            Err(_fault) => continue,
+        };
 
         let Ok(litter) = getting::leftover(&name);
 

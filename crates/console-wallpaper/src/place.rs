@@ -13,19 +13,9 @@
 use std::path::{Path, PathBuf};
 
 use console_core_never::Never;
+use console_core_places::Base;
 
 pub const CAME_WITH: &str = "/usr/share/backgrounds/console";
-
-pub(crate) fn said(name: &str) -> Result<Option<String>, Never> {
-    Ok(match std::env::var(name) {
-        Ok(said) => Some(said),
-        Err(std::env::VarError::NotPresent) => None,
-        Err(fault) => {
-            eprintln!("console-sky: {name}: {fault}");
-            None
-        }
-    })
-}
 
 pub const TREE: &str = "/etc/console";
 
@@ -53,42 +43,35 @@ pub fn table() -> Result<PathBuf, Never> {
     Ok(tree.join("theme/sky.toml"))
 }
 
-fn home() -> Result<Option<PathBuf>, Never> {
-    let home = said("HOME")?;
-
-    Ok(home.map(PathBuf::from))
-}
-
 pub fn hers() -> Result<Option<PathBuf>, Never> {
-    let home = home()?;
+    let ours = Base::Share.ours()?;
 
-    Ok(home.map(|at| at.join(".local/share/console/sky")))
+    Ok(ours.map(|at| at.join("sky")))
 }
 
 pub fn dropped() -> Result<Option<PathBuf>, Never> {
-    let home = home()?;
+    let home = console_core_places::home()?;
 
     Ok(home.map(|at| at.join("Pictures/Wallpapers")))
 }
 
 pub fn asked() -> Result<Option<PathBuf>, Never> {
-    let home = home()?;
+    let ours = Base::Config.ours()?;
 
-    Ok(home.map(|at| at.join(".config/console/sky.toml")))
+    Ok(ours.map(|at| at.join("sky.toml")))
 }
 
 fn kept() -> Result<Option<PathBuf>, Never> {
-    let cache = said("XDG_CACHE_HOME")?;
-    let home = home()?;
+    let cache = Base::Cache.hers()?;
 
-    Ok(cache
-        .map(PathBuf::from)
-        .or_else(|| home.map(|at| at.join(".cache")))
-        .map(|at| at.join("awww")))
+    Ok(cache.map(|at| at.join("awww")))
 }
 
 fn kept_as(picture: &Path) -> Result<Option<String>, Never> {
-    let Some(said) = picture.to_str() else { return Ok(None) };
+    let said = match picture.to_str() {
+        Some(said) => said,
+        None => return Ok(None),
+    };
 
     Ok(Some(format!("{}__", said.replace('/', "_"))))
 }
@@ -103,13 +86,22 @@ pub fn freshen(picture: &Path) -> Result<(), Never> {
 }
 
 fn freshen_in(kept: &Path, picture: &Path) -> Result<(), Never> {
-    let Ok(full) = picture.canonicalize() else {
-        return Ok(());
+    let full = match picture.canonicalize() {
+        Ok(full) => full,
+        Err(_fault) => return Ok(()),
     };
 
-    let Some(name) = kept_as(&full)? else { return Ok(()) };
+    let name = kept_as(&full)?;
 
-    let Ok(pressed) = written(&full) else { return Ok(()) };
+    let name = match name {
+        Some(name) => name,
+        None => return Ok(()),
+    };
+
+    let pressed = match written(&full) {
+        Ok(pressed) => pressed,
+        Err(_fault) => return Ok(()),
+    };
 
     let versions = listed(kept)?;
 
@@ -197,9 +189,15 @@ pub fn every() -> Result<Vec<String>, Never> {
                 false => continue,
             }
 
-            let Some(name) = path.file_name().and_then(|name| name.to_str()) else { continue };
+            let name = match path.file_name().and_then(|name| name.to_str()) {
+                Some(name) => name,
+                None => continue,
+            };
 
-            let Some(name) = name.strip_suffix(".webp") else { continue };
+            let name = match name.strip_suffix(".webp") {
+                Some(name) => name,
+                None => continue,
+            };
 
             match name.ends_with(".still") {
                 true => {},

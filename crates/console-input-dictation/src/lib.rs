@@ -40,18 +40,10 @@ fn runtime() -> Result<PathBuf, Never> {
     Ok(Path::new(&at).join("console").join("voice"))
 }
 
-pub fn kept() -> Result<PathBuf, Never> {
-    let home = match std::env::var("HOME") {
-        Ok(home) => home,
-        Err(_) => "/tmp".to_string(),
-    };
+pub fn kept() -> Result<Option<PathBuf>, Never> {
+    let ours = console_core_places::Base::Share.ours()?;
 
-    let share = match std::env::var("XDG_DATA_HOME") {
-        Ok(said) if !said.is_empty() => said,
-        Ok(_) | Err(_) => format!("{home}/.local/share"),
-    };
-
-    Ok(Path::new(&share).join("console").join("voice"))
+    Ok(ours.map(|ours| ours.join("voice")))
 }
 
 pub fn said(press: u32) -> Result<PathBuf, Never> {
@@ -73,36 +65,45 @@ pub fn taken(recorder: u32, press: u32) -> Result<String, Never> {
 pub fn told_by(note: &str) -> Result<Option<(i32, u32)>, Never> {
     let mut words = note.split_whitespace();
 
-    let Some(first) = words.next() else { return Ok(None) };
-
-    let Ok(recorder) = first.parse() else {
-        return Ok(None);
+    let first = match words.next() {
+        Some(first) => first,
+        None => return Ok(None),
     };
 
-    let Some(second) = words.next() else { return Ok(None) };
+    let recorder = match first.parse() {
+        Ok(recorder) => recorder,
+        Err(_fault) => return Ok(None),
+    };
 
-    let Ok(press) = second.parse() else {
-        return Ok(None);
+    let second = match words.next() {
+        Some(second) => second,
+        None => return Ok(None),
+    };
+
+    let press = match second.parse() {
+        Ok(press) => press,
+        Err(_fault) => return Ok(None),
     };
 
     Ok(Some((recorder, press)))
 }
 
-pub fn model() -> Result<PathBuf, Never> {
-    let Ok(kept) = kept();
+pub fn model() -> Result<Option<PathBuf>, Never> {
+    let kept = kept()?;
 
-    Ok(kept.join(MODEL))
+    Ok(kept.map(|kept| kept.join(MODEL)))
 }
 
 pub const WHISPER_FROM: &str = "https://github.com/ggml-org/whisper.cpp";
 
 pub const WHISPER_AT: &str = "v1.9.1";
 
-pub fn whisper() -> Result<PathBuf, Never> {
-    let Ok(kept) = kept();
+pub fn whisper() -> Result<Option<PathBuf>, Never> {
+    let kept = kept()?;
+
     let Ok(whisper_cli) = Program::WhisperCli.name();
 
-    Ok(kept.join(whisper_cli))
+    Ok(kept.map(|kept| kept.join(whisper_cli)))
 }
 
 pub fn making() -> Result<PathBuf, Never> {
@@ -243,7 +244,10 @@ pub struct Level {
 pub fn level(wav: &[u8]) -> Result<Level, Never> {
     let Ok(data) = data(wav);
 
-    let Some(sound) = data else { return Ok(Level::default()) };
+    let sound = match data {
+        Some(sound) => sound,
+        None => return Ok(Level::default()),
+    };
 
     let mut frames: Vec<f32> = sound
         .chunks_exact(2)
@@ -281,17 +285,20 @@ fn data(wav: &[u8]) -> Result<Option<&[u8]>, Never> {
     let mut at: usize = 12;
 
     while at.saturating_add(8) <= wav.len() {
-        let Some(kind) = wav.get(at..at.saturating_add(4)) else { return Ok(None) };
-
-        let Some([first, second, third, fourth]) = wav.get(at.saturating_add(4)..at.saturating_add(8))
-        else {
-            return Ok(None);
+        let kind = match wav.get(at..at.saturating_add(4)) {
+            Some(kind) => kind,
+            None => return Ok(None),
         };
 
-        let Ok(long) =
-            usize::try_from(u32::from_le_bytes([*first, *second, *third, *fourth]))
-        else {
-            return Ok(None);
+        let (first, second, third, fourth) =
+            match wav.get(at.saturating_add(4)..at.saturating_add(8)) {
+                Some([first, second, third, fourth]) => (first, second, third, fourth),
+                Some(_) | None => return Ok(None),
+            };
+
+        let long = match usize::try_from(u32::from_le_bytes([*first, *second, *third, *fourth])) {
+            Ok(long) => long,
+            Err(_fault) => return Ok(None),
         };
 
         let from = at.saturating_add(8);
@@ -528,13 +535,13 @@ mod tests {
     fn whisper() -> PathBuf {
         let Ok(whisper) = super::whisper();
 
-        whisper
+        whisper.unwrap_or_default()
     }
 
     fn model() -> PathBuf {
         let Ok(model) = super::model();
 
-        model
+        model.unwrap_or_default()
     }
 
     fn said(press: u32) -> PathBuf {
@@ -708,13 +715,21 @@ mod tests {
     }
 
     fn a_room(level: i16) -> Vec<i16> {
-        (0..16000).map(|at| if at % 2 == 0 { level } else { -level }).collect()
+        (0..16000)
+            .map(|at| match at % 2 == 0 {
+                true => level,
+                false => -level,
+            })
+            .collect()
     }
 
     fn a_sentence(room: i16, voice: i16) -> Vec<i16> {
         let mut said = a_room(room);
         for (at, one) in said[4000..9000].iter_mut().enumerate() {
-            *one = if at % 2 == 0 { voice } else { -voice };
+            *one = match at % 2 == 0 {
+                true => voice,
+                false => -voice,
+            };
         }
         said
     }

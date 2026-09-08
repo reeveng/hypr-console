@@ -79,10 +79,13 @@ fn main() -> std::process::ExitCode {
     let word = std::env::args().nth(1).unwrap_or_default();
     let Ok(named) = Step::named(&word);
 
-    let Some(step) = named else {
-        eprintln!("usage: console-updating start|done|failed");
+    let step = match named {
+        Some(step) => step,
+        None => {
+            eprintln!("usage: console-updating start|done|failed");
 
-        return std::process::ExitCode::from(2);
+            return std::process::ExitCode::from(2);
+        }
     };
 
     let Ok(kept) = Kept::named("updating");

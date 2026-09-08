@@ -5,6 +5,8 @@ use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
+use console_compositor::{Asked, Told};
+use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_screen::Screen;
 use console_waiting::{Patience, Seen, until};
@@ -73,7 +75,8 @@ impl Inside {
     }
 
     pub fn hyprctl(&self, arguments: &[&str]) -> Result<String, Never> {
-        let Ok(mut asking) = self.command("hyprctl");
+        let Ok(name) = Program::Hyprctl.name();
+        let Ok(mut asking) = self.command(name);
 
         Ok(match asking.args(arguments).output() {
             Ok(done) => String::from_utf8_lossy(&done.stdout).trim().to_string(),
@@ -83,6 +86,27 @@ impl Inside {
                 String::new()
             }
         })
+    }
+
+    fn asking(&self, question: Asked) -> Result<Option<serde_json::Value>, Never> {
+        let Ok(name) = Program::Hyprctl.name();
+        let Ok(asking) = self.command(name);
+
+        Ok(match console_compositor::answered(asking, question) {
+            Ok(said) => Some(said),
+            Err(why) => {
+                eprintln!("console-desktop: {why}");
+
+                None
+            }
+        })
+    }
+
+    fn told(&self, what: Told, lua: &str) -> Result<console_compositor::Done, Never> {
+        let Ok(name) = Program::Hyprctl.name();
+        let Ok(telling) = self.command(name);
+
+        console_compositor::doing(telling, what, lua)
     }
 
     pub fn wait_for_screen(&self, name: &str) -> Result<Waited, Never> {
@@ -99,28 +123,28 @@ impl Inside {
         })
     }
 
-    fn monitors(&self) -> Result<BTreeSet<String>, Never> {
-        let Ok(said) = self.hyprctl(&["monitors", "all", "-j"]);
+    fn monitors(&self) -> Result<Vec<console_compositor::Monitor>, Never> {
+        let Ok(said) = self.asking(Asked::EveryMonitor);
 
-        let Ok(monitors) = serde_json::from_str::<serde_json::Value>(&said) else {
-            return Ok(BTreeSet::new());
+        let said = match said {
+            Some(said) => said,
+            None => return Ok(Vec::new()),
         };
 
-        Ok(monitors
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|monitor| {
-                monitor.get("name").and_then(|name| name.as_str()).map(str::to_string)
-            })
-            .collect())
+        console_compositor::monitors(&said)
+    }
+
+    fn named(&self) -> Result<BTreeSet<String>, Never> {
+        let Ok(monitors) = self.monitors();
+
+        Ok(monitors.into_iter().map(|monitor| monitor.named).collect())
     }
 
     fn wait_for_monitors(&self, named: &str, want: Seen) -> Result<Waited, Never> {
         let Ok(patience) = Patience::asking_every(A_MONITOR, Duration::from_millis(50));
 
         until(patience, || {
-            let Ok(monitors) = self.monitors();
+            let Ok(monitors) = self.named();
 
             Ok(match monitors.contains(named) == (want == Seen::Yes) {
                 true => Seen::Yes,
@@ -139,7 +163,7 @@ impl Inside {
         }
 
         let Ok(made) = nested::made_headless(screen);
-        let Ok(_said) = self.hyprctl(&["eval", &made]);
+        let Ok(_said) = self.told(Told::Eval, &made);
         let Ok(sized) = self.wait_for_mode(screen);
 
         match sized {
@@ -149,10 +173,8 @@ impl Inside {
             }
         }
 
-        let Ok(_disabled) = self.hyprctl(&[
-            "eval",
-            r#"hl.monitor({ output = "WAYLAND-1", disabled = true })"#,
-        ]);
+        let Ok(_disabled) =
+            self.told(Told::Eval, r#"hl.monitor({ output = "WAYLAND-1", disabled = true })"#);
         let Ok(alone) = self.wait_for_monitors(WINDOWED, Seen::NotYet);
 
         match alone {
@@ -168,20 +190,11 @@ impl Inside {
         let Ok(patience) = Patience::asking_every(A_MONITOR, Duration::from_millis(50));
 
         until(patience, || {
-            let Ok(said) = self.hyprctl(&["monitors", "all", "-j"]);
+            let Ok(monitors) = self.monitors();
 
-            let Ok(monitors) = serde_json::from_str::<serde_json::Value>(&said) else {
-                return Ok(Seen::NotYet);
-            };
-
-            let took = monitors.as_array().into_iter().flatten().any(|monitor| {
-                let named = monitor.get("name").and_then(|name| name.as_str());
-                let across = monitor.get("width").and_then(|width| width.as_i64());
-                let down = monitor.get("height").and_then(|height| height.as_i64());
-
-                named == Some(HEADLESS)
-                    && across == Some(i64::from(wide))
-                    && down == Some(i64::from(tall))
+            let took = monitors.iter().any(|monitor| {
+                monitor.named == HEADLESS
+                    && monitor.size == Some((i64::from(wide), i64::from(tall)))
             });
 
             Ok(match took {
@@ -209,7 +222,10 @@ impl Inside {
         until(patience, || {
             let Ok(now) = self.shot();
 
-            let Some(now) = now else { return Ok(Seen::NotYet) };
+            let now = match now {
+                Some(now) => now,
+                None => return Ok(Seen::NotYet),
+            };
 
             let same = before.as_ref() == Some(&now);
 
@@ -225,38 +241,30 @@ impl Inside {
     pub fn surfaces(&self) -> Result<BTreeSet<String>, Never> {
         let mut on = BTreeSet::new();
         let address = |what: &serde_json::Value| {
-            what.get("address")
-                .and_then(|at| at.as_str())
-                .map(str::to_string)
+            let Ok(at) = console_compositor::address(what);
+
+            at.map(str::to_string)
         };
+        let Ok(windows) = self.asking(Asked::Clients);
 
-        let Ok(said_clients) = self.hyprctl(&["clients", "-j"]);
+        match windows {
+            Some(windows) => {
+                let Ok(clients) = console_compositor::clients(&windows);
 
-        match serde_json::from_str::<serde_json::Value>(&said_clients) {
-            Ok(clients) => {
-                on.extend(clients.as_array().into_iter().flatten().filter_map(address));
+                on.extend(clients.filter_map(address));
             }
-            Err(_the_compositor_said_nothing) => {},
+            None => {},
         }
 
-        let Ok(said_layers) = self.hyprctl(&["layers", "-j"]);
+        let Ok(screens) = self.asking(Asked::Layers);
 
-        match serde_json::from_str::<serde_json::Value>(&said_layers) {
-            Ok(layers) => {
-                for screen in layers
-                    .as_object()
-                    .into_iter()
-                    .flatten()
-                    .map(|(_, screen)| screen)
-                {
-                    let levels = screen.get("levels").and_then(|at| at.as_object());
+        match screens {
+            Some(screens) => {
+                let Ok(surfaces) = console_compositor::surfaces(&screens);
 
-                    for level in levels.into_iter().flatten().map(|(_, level)| level) {
-                        on.extend(level.as_array().into_iter().flatten().filter_map(address));
-                    }
-                }
+                on.extend(surfaces.filter_map(address));
             }
-            Err(_the_compositor_said_nothing) => {},
+            None => {},
         }
 
         Ok(on)
@@ -280,34 +288,39 @@ impl Inside {
     }
 
     pub fn show_a_window(&self) -> Result<(), Never> {
-        let Ok(said) = self.hyprctl(&["clients", "-j"]);
-
-        let Ok(clients) = serde_json::from_str::<serde_json::Value>(&said) else {
-            return Ok(());
+        let said = match self.asking(Asked::Clients) {
+            Ok(Some(said)) => said,
+            Ok(None) => return Ok(()),
         };
 
-        let where_ = clients
-            .as_array()
-            .and_then(|every| every.first())
-            .and_then(|client| client.get("workspace"))
-            .and_then(|workspace| workspace.get("name"))
-            .and_then(|name| name.as_str());
+        let Ok(mut clients) = console_compositor::clients(&said);
 
-        let Some(where_) = where_ else { return Ok(()) };
+        let where_ = match clients.next() {
+            Some(client) => {
+                let Ok(where_) = console_compositor::workspace_of(client);
 
-        let Ok(_focused) = self.hyprctl(&[
-            "dispatch",
-            &format!(r#"hl.dsp.focus({{workspace = "{where_}"}})"#),
-        ]);
+                where_
+            }
+            None => None,
+        };
+
+        let where_ = match where_ {
+            Some(where_) => where_,
+            None => return Ok(()),
+        };
+
+        let Ok(_focused) =
+            self.told(Told::Dispatch, &format!(r#"hl.dsp.focus({{workspace = "{where_}"}})"#));
         let Ok(patience) = Patience::asking_every(A_GOODBYE, Duration::from_millis(50));
         let Ok(there) = until(patience, || {
-            let Ok(said) = self.hyprctl(&["activeworkspace", "-j"]);
+            let Ok(now) = self.asking(Asked::ActiveWorkspace);
 
-            let Ok(now) = serde_json::from_str::<serde_json::Value>(&said) else {
-                return Ok(Seen::NotYet);
+            let now = match now {
+                Some(now) => now,
+                None => return Ok(Seen::NotYet),
             };
 
-            let named = now.get("name").and_then(|name| name.as_str());
+            let Ok(named) = console_compositor::workspace(&now);
 
             Ok(match named == Some(where_) {
                 true => Seen::Yes,
@@ -392,18 +405,20 @@ impl Inside {
     }
 
     fn talking_to(&self, program: &str) -> Result<Vec<i32>, Never> {
-        let Some(socket) = self
+        let socket = match self
             .environment
             .iter()
             .find(|(name, _)| name == "WAYLAND_DISPLAY")
-        else {
-            return Ok(Vec::new());
+        {
+            Some(socket) => socket,
+            None => return Ok(Vec::new()),
         };
 
         let wanted = format!("WAYLAND_DISPLAY={}", socket.1);
 
-        let Ok(all) = std::fs::read_dir("/proc") else {
-            return Ok(Vec::new());
+        let all = match std::fs::read_dir("/proc") {
+            Ok(all) => all,
+            Err(_fault) => return Ok(Vec::new()),
         };
 
         Ok(all
@@ -414,9 +429,15 @@ impl Inside {
                 let called = at.file_name()?;
                 let said = called.to_str()?;
 
-                let Ok(pid) = said.parse::<i32>() else { return None };
+                let pid = match said.parse::<i32>() {
+                    Ok(pid) => pid,
+                    Err(_fault) => return None,
+                };
 
-                let Ok(named) = std::fs::read_to_string(at.join("comm")) else { return None };
+                let named = match std::fs::read_to_string(at.join("comm")) {
+                    Ok(named) => named,
+                    Err(_fault) => return None,
+                };
 
 
                 match named.trim() == program {
@@ -424,7 +445,10 @@ impl Inside {
                     false => return None,
                 }
 
-                let Ok(held) = std::fs::read(at.join("environ")) else { return None };
+                let held = match std::fs::read(at.join("environ")) {
+                    Ok(held) => held,
+                    Err(_fault) => return None,
+                };
 
                 held.split(|byte| *byte == 0)
                     .any(|said| said == wanted.as_bytes())

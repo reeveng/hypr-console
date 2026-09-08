@@ -1,7 +1,7 @@
-//! Watching the battery, which is the one reading nothing announces.  The sound
-//! is told by pipewire and the network by NetworkManager. The battery has
-//! nobody to tell it, so `watch::tick` takes a reading every thirty seconds for
-//! the icon this bar draws -- and that reading is the only one on the machine.
+//! Watching the battery, which is the one reading that moves while nobody is
+//! pressing anything.  udev says when a supply changed and `watch::tick` sits
+//! under that as the net; the reading either of them wakes is taken here, for
+//! the icon this bar draws, and it is the only reading on the machine.
 //! Anything else wanting to know how full the battery is would be a second
 //! program on a second clock, and two clocks reading one battery is two
 //! machines' worth of opinions about when it crossed something.  So the
@@ -32,7 +32,10 @@ impl Watching {
         let Ok(()) = self.reap();
         let reading = Charge::of(said)?;
 
-        let Some(charge) = reading.percent else { return Ok(()) };
+        let charge = match reading.percent {
+            Some(charge) => charge,
+            None => return Ok(()),
+        };
 
         let Ok(kept) = Kept::named(SAID);
         let Ok(read) = kept.read();
@@ -68,7 +71,10 @@ impl Watching {
     }
 
     fn reap(&mut self) -> Result<(), Never> {
-        let Some(doing) = &mut self.doing else { return Ok(()) };
+        let doing = match &mut self.doing {
+            Some(doing) => doing,
+            None => return Ok(()),
+        };
 
         let Ok(still) = doing.still();
 

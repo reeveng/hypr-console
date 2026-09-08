@@ -7,10 +7,27 @@
 //! whatever they had queued. So the machine listening to something is the one
 //! machine this is not asked of, which costs a skipped line and a sentence
 //! saying why.
+//!
+//! What it asks for is the player's own vocabulary, imported rather than
+//! spelled. The bus name moved when the player stopped being kew and this did
+//! not, and a name nobody holds is answered by busctl with "not activatable"
+//! -- which is a sentence about the bus and not about the music, so the check
+//! went red naming the wrong thing twice: once when it asked whether anything
+//! was already playing, and again when it asked the player it had just started
+//! to say so.
+//!
+//! What it stands down for is a song being played and not a player being up.
+//! The panel starts the player and leaves it standing when the song ends, so a
+//! process is on every machine somebody has opened the Music panel on, and a
+//! guard that asked for one would have stood every run of this down and gone
+//! quiet rather than red -- which is the worse of the two. `PlaybackStatus` is
+//! the question the sentence above promises: a stopped player is not somebody's
+//! afternoon and this may take it.
 
 use std::collections::BTreeSet;
 
 use console_core_never::Never;
+use console_music_player::answers::{NAME, OBJECT, PLAYER, Status};
 use console_test_stages::checking::{Body, Check, Done, Why, cannot, failed};
 use console_test_stages::device::{Device, PATIENCE, Seen};
 
@@ -22,11 +39,23 @@ pub const LIBRARY: Check = Check {
     bodies: &[Body::Device(there)],
 };
 
+pub const QUIET: Check = Check {
+    name: "281-music-paused-lets-the-sound-go",
+    about: "Paused, the player lets the sink go, so a machine holding a paused song is at rest.",
+    feature: "music",
+    since: "2026-09-08",
+    bodies: &[Body::Device(quiet)],
+};
+
 const WALK: usize = 6;
 
 const SWITCH: f64 = 1.5;
 
+const SETTLING: f64 = 12.0;
+
 const KINDS: &str = "flac mp3 opus m4a ogg wav";
+
+const PROGRAM: &str = "music-player";
 
 fn answering(seen: &mut Device) -> Result<Seen, Never> {
     let Ok(said) = shuffle(seen);
@@ -49,10 +78,6 @@ fn shuffling(seen: &mut Device) -> Result<Seen, Never> {
 fn shuffle(seen: &mut Device) -> Result<String, Never> {
     seen.user(&format!("busctl --user get-property {NAME} {OBJECT} {PLAYER} Shuffle"))
 }
-
-const NAME: &str = "org.mpris.MediaPlayer2.kew";
-const OBJECT: &str = "/org/mpris/MediaPlayer2";
-const PLAYER: &str = "org.mpris.MediaPlayer2.Player";
 
 fn there(stage: &mut Device) -> Done {
     let Ok(playing) = playing(stage);
@@ -124,12 +149,92 @@ fn there(stage: &mut Device) -> Done {
     Ok(())
 }
 
-fn playing(stage: &mut Device) -> Result<Seen, Never> {
-    let Ok(said) = stage.user("pgrep -x kew || true");
+fn quiet(stage: &mut Device) -> Done {
+    let Ok(playing) = playing(stage);
 
-    Ok(match said.trim().is_empty() {
-        true => Seen::NotYet,
-        false => Seen::Yes,
+    match playing {
+        Seen::Yes => {
+            return cannot(
+                "this machine is already playing something, and the check would have to stop it",
+            );
+        }
+        Seen::NotYet => {},
+    }
+
+    let Ok(rested) = at_rest(stage);
+
+    match rested {
+        Seen::Yes => {},
+        Seen::NotYet => {
+            return cannot("something else on this machine is already holding the sound open");
+        }
+    }
+
+    let Ok(songs) = library(stage);
+
+    match songs.is_empty() {
+        true => return cannot("this machine has no music on it to play"),
+        false => {}
+    }
+
+    let first = songs.first().ok_or(Why::Cannot("no songs".to_string()))?;
+
+    playing_the_library(stage, first)?;
+
+    let Ok(_) = stage.until(sounding, PATIENCE);
+    let Ok(heard) = sounding(stage);
+
+    match heard {
+        Seen::Yes => {}
+        Seen::NotYet => {
+            let Ok(()) = ended(stage);
+
+            return cannot("nothing came out of this machine while a song was playing");
+        }
+    }
+
+    let Ok(_) = stage.user(&format!("busctl --user call {NAME} {OBJECT} {PLAYER} Pause"));
+    let Ok(_) = stage.until(at_rest, SETTLING);
+    let Ok(rested) = at_rest(stage);
+
+    let Ok(()) = ended(stage);
+
+    match rested {
+        Seen::Yes => Ok(()),
+        Seen::NotYet => failed(format!(
+            "the song was paused and a sink was still running {SETTLING} seconds later, \
+             so the machine goes on driving the speakers with nothing to play"
+        )),
+    }
+}
+
+fn sounding(stage: &mut Device) -> Result<Seen, Never> {
+    let Ok(said) = stage.user("pactl list short sinks");
+
+    Ok(match said.contains("RUNNING") {
+        true => Seen::Yes,
+        false => Seen::NotYet,
+    })
+}
+
+fn at_rest(stage: &mut Device) -> Result<Seen, Never> {
+    let Ok(heard) = sounding(stage);
+
+    Ok(match heard {
+        Seen::Yes => Seen::NotYet,
+        Seen::NotYet => Seen::Yes,
+    })
+}
+
+fn playing(stage: &mut Device) -> Result<Seen, Never> {
+    let Ok(word) = Status::Playing.said();
+    let Ok(said) = stage.user(&format!(
+        "busctl --user get-property {NAME} {OBJECT} {PLAYER} PlaybackStatus 2>&1"
+    ));
+
+    Ok(match said.trim() == format!("s \"{word}\"") {
+        true => Seen::Yes,
+        false => Seen::NotYet,
     })
 }
 
@@ -144,13 +249,12 @@ fn library(stage: &mut Device) -> Result<Vec<String>, Never> {
 
 fn playing_the_library(stage: &mut Device, song: &str) -> Done {
     let Ok(quoted) = single_quoted(song);
-    let Ok(stem) = stem(song);
-    let Ok(name) = single_quoted(stem);
 
     let Ok(()) = ended(stage);
 
-    let Ok(_) = stage
-        .user(&format!("systemd-run --user --collect --unit={UNIT} --quiet kew --noui {name}"));
+    let Ok(_) = stage.user(&format!(
+        "systemd-run --user --collect --unit={UNIT} --quiet {PROGRAM} \"$HOME/Music\""
+    ));
     let Ok(_) = stage.until(answering, PATIENCE);
     let Ok(answered) = shuffle(stage);
 
@@ -168,11 +272,13 @@ fn playing_the_library(stage: &mut Device, song: &str) -> Done {
     Ok(())
 }
 
-const UNIT: &str = "console-check-kew";
+const UNIT: &str = "console-check-music-player";
 
 fn ended(stage: &mut Device) -> Result<(), Never> {
     let Ok(_) =
-        stage.user(&format!("systemctl --user stop {UNIT}.service 2>/dev/null; pkill -x kew"));
+        stage.user(&format!(
+            "systemctl --user stop {UNIT}.service 2>/dev/null; pkill -x {PROGRAM}"
+        ));
 
     Ok(())
 }
@@ -196,25 +302,19 @@ fn song_playing(stage: &mut Device) -> Result<String, Never> {
     let Ok(said) =
         stage.user(&format!("busctl --user get-property {NAME} {OBJECT} {PLAYER} Metadata"));
 
-    url_in(&said)
+    title_in(&said)
 }
 
-fn url_in(said: &str) -> Result<String, Never> {
-    let Some(after) = said.split_once("\"xesam:url\"") else { return Ok(String::new()) };
+fn title_in(said: &str) -> Result<String, Never> {
+    let after = match said.split_once("\"xesam:title\"") {
+        Some(after) => after,
+        None => return Ok(String::new()),
+    };
 
     let mut quoted = after.1.split('"');
     quoted.next();
 
     Ok(quoted.next().unwrap_or_default().to_string())
-}
-
-fn stem(path: &str) -> Result<&str, Never> {
-    let name = path.rsplit('/').next().unwrap_or(path);
-
-    Ok(match name.rsplit_once('.') {
-        Some((before, _)) => before,
-        None => name,
-    })
 }
 
 fn single_quoted(word: &str) -> Result<String, Never> {
@@ -227,21 +327,14 @@ mod tests {
 
     #[test]
     fn the_file_playing_is_read_out_of_what_the_bus_said() {
-        let said = r#"a{sv} 3 "xesam:title" s "A Song" "xesam:url" s "file:///home/a/b.flac" "mpris:length" x 1"#;
-        assert_eq!(url_in(said), Ok("file:///home/a/b.flac".to_string()));
+        let said = r#"a{sv} 2 "xesam:title" s "A Song" "mpris:length" x 1"#;
+        assert_eq!(title_in(said), Ok("A Song".to_string()));
     }
 
     #[test]
     fn a_player_that_will_not_say_the_file_says_nothing() {
-        assert_eq!(url_in(r#"a{sv} 1 "xesam:title" s "A Song""#), Ok(String::new()));
-        assert_eq!(url_in(""), Ok(String::new()));
-    }
-
-    #[test]
-    fn the_name_a_player_is_given_is_the_song_without_its_extension() {
-        assert_eq!(stem("/home/a/Music/Album/1 - song.flac"), Ok("1 - song"));
-        assert_eq!(stem("no-extension"), Ok("no-extension"));
-        assert_eq!(stem("/a/b.c/song"), Ok("song"));
+        assert_eq!(title_in(r#"a{sv} 1 "mpris:length" x 1"#), Ok(String::new()));
+        assert_eq!(title_in(""), Ok(String::new()));
     }
 
     #[test]

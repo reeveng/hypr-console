@@ -222,11 +222,13 @@ mod tests {
         let mod_ = of_kind(file("WickedWhims.zip"), "application/zip");
         let ways = open_to(&mod_);
 
-        let Some(unzip) = ways.iter().position(|deed| *deed == Deed::Unzip) else {
-            panic!("an archive offers no way out of itself")
+        let unzip = match ways.iter().position(|deed| *deed == Deed::Unzip) {
+            Some(unzip) => unzip,
+            None => panic!("an archive offers no way out of itself"),
         };
-        let Some(rename) = ways.iter().position(|deed| *deed == Deed::Rename) else {
-            panic!("an archive cannot be renamed")
+        let rename = match ways.iter().position(|deed| *deed == Deed::Rename) {
+            Some(rename) => rename,
+            None => panic!("an archive cannot be renamed"),
         };
 
         assert!(unzip < rename);

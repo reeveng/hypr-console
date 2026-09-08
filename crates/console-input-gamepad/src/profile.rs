@@ -292,9 +292,15 @@ struct RawGamepadTarget {
 
 #[cfg(feature = "read")]
 fn read_mapping(raw: &RawMapping) -> Result<Option<Mapping>, Never> {
-    let Some(source_event) = raw.source_event.as_ref() else { return Ok(None) };
+    let source_event = match raw.source_event.as_ref() {
+        Some(source_event) => source_event,
+        None => return Ok(None),
+    };
 
-    let Some(gamepad) = source_event.gamepad.as_ref() else { return Ok(None) };
+    let gamepad = match source_event.gamepad.as_ref() {
+        Some(gamepad) => gamepad,
+        None => return Ok(None),
+    };
 
     let source = match (&gamepad.button, &gamepad.axis, &gamepad.trigger) {
         (Some(button), _, _) => Source::Button(button.clone()),

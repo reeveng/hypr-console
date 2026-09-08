@@ -38,7 +38,10 @@ impl Pool {
     pub fn listens(&mut self, who: Who, topic: Topic) -> Result<Option<Changed>, Never> {
         let said = self.last.get(&topic).cloned();
 
-        let Some(topics) = self.listening.get_mut(&who) else { return Ok(None) };
+        let topics = match self.listening.get_mut(&who) {
+            Some(topics) => topics,
+            None => return Ok(None),
+        };
 
         let _ = topics.insert(topic.clone());
 

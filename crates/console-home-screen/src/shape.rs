@@ -84,50 +84,32 @@ impl Shape {
         Ok(format!("columns {}\nrows {}\nsize {word}\n", self.columns, self.rows))
     }
 
-    pub fn read(said: &str) -> Result<Shape, Never> {
-        let mut shape = Shape::USUAL;
+    fn told(self, word: &str, value: &str) -> Result<Shape, Never> {
+        match word {
+            "columns" => match value.parse() {
+                Ok(columns) => self.across(columns),
+                Err(_not_a_number) => Ok(self),
+            },
+            "rows" => match value.parse() {
+                Ok(rows) => self.down(rows),
+                Err(_not_a_number) => Ok(self),
+            },
+            "size" => {
+                let read = Size::read(value)?;
 
-        for line in said.lines() {
-            let Some((word, value)) = line.trim().split_once(char::is_whitespace) else {
-                continue;
-            };
-
-            let value = value.trim();
-
-            match word {
-                "columns" => match value.parse() {
-                    Ok(columns) => {
-                        let across = shape.across(columns)?;
-
-                        shape = across;
-                    }
-                    Err(_not_a_number) => {},
-                },
-                "rows" => match value.parse() {
-                    Ok(rows) => {
-                        let down = shape.down(rows)?;
-
-                        shape = down;
-                    }
-                    Err(_not_a_number) => {},
-                },
-                "size" => {
-                    let read = Size::read(value)?;
-
-                    match read {
-                        Some(size) => {
-                            let sized = shape.sized(size)?;
-
-                            shape = sized;
-                        }
-                        None => {},
-                    }
+                match read {
+                    Some(size) => self.sized(size),
+                    None => Ok(self),
                 }
-                _ => {},
             }
+            _ => Ok(self),
         }
+    }
 
-        Ok(shape)
+    pub fn read(said: &str) -> Result<Shape, Never> {
+        said.lines()
+            .filter_map(|line| line.trim().split_once(char::is_whitespace))
+            .try_fold(Shape::USUAL, |shape, (word, value)| shape.told(word, value.trim()))
     }
 }
 
@@ -135,8 +117,12 @@ fn clamped(asked: usize, range: std::ops::RangeInclusive<usize>) -> Result<usize
     Ok(asked.clamp(*range.start(), *range.end()))
 }
 
+pub const NAMED: &str = "home-screen";
+
 pub fn at(home: &std::path::Path) -> Result<std::path::PathBuf, Never> {
-    Ok(home.join(".config/console/home-screen"))
+    let Ok(ours) = console_core_places::Base::Config.ours_under(home);
+
+    Ok(ours.join(NAMED))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

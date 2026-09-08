@@ -24,21 +24,26 @@ use console_panel::running::scope_around;
 
 #[test]
 fn a_launched_program_is_in_a_scope_of_its_own() {
-    let Some(argv) = wrap("sleep", &[HELD]) else {
-        return;
+    let argv = match wrap("sleep", &[HELD]) {
+        Some(argv) => argv,
+        None => return,
     };
-    let Some(mut child) = run(&argv) else {
-        return;
+    let mut child = match run(&argv) {
+        Some(child) => child,
+        None => return,
     };
     let pid = child.id();
     let cgroup = settled(pid);
     let _ = child.kill();
     let _ = child.wait();
-    let Some(cgroup) = cgroup else {
-        panic!(
-            "/proc/{pid}/cgroup could not be read, though the program was given {HELD} seconds \
-             to be there. Something ended it early, and this test has asked nothing."
-        )
+    let cgroup = match cgroup {
+        Some(cgroup) => cgroup,
+        None => {
+            panic!(
+                "/proc/{pid}/cgroup could not be read, though the program was given {HELD} seconds \
+                 to be there. Something ended it early, and this test has asked nothing."
+            )
+        }
     };
     assert!(
         moved(&cgroup),

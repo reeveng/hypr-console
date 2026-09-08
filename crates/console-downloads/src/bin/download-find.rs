@@ -25,13 +25,16 @@ use gtk4::glib;
 fn main() {
     let words: Vec<String> = std::env::args().skip(1).collect();
 
-    let Some(kind) = words.first().and_then(|word| {
+    let kind = match words.first().and_then(|word| {
         let Ok(kind) = Kind::read(word);
 
         kind
-    }) else {
-        eprintln!("which kind: --audio or --video");
-        return;
+    }) {
+        Some(kind) => kind,
+        None => {
+            eprintln!("which kind: --audio or --video");
+            return;
+        }
     };
 
     let asked = words.get(1..).unwrap_or_default().join(" ").trim().to_string();
@@ -60,12 +63,14 @@ fn look(asked: &str) -> Result<Looked, Never> {
     let Ok(argv) = looking::search(asked);
     let asked = asked.to_string();
 
-    let Some((program, rest)) = argv.split_first() else {
-        return Ok(Looked { asked, fault: NO_YT_DLP.to_string(), found: Vec::new() });
+    let (program, rest) = match argv.split_first() {
+        Some((program, rest)) => (program, rest),
+        None => return Ok(Looked { asked, fault: NO_YT_DLP.to_string(), found: Vec::new() }),
     };
 
-    let Ok(done) = Command::new(program).args(rest).output() else {
-        return Ok(Looked { asked, fault: NO_YT_DLP.to_string(), found: Vec::new() });
+    let done = match Command::new(program).args(rest).output() {
+        Ok(done) => done,
+        Err(_fault) => return Ok(Looked { asked, fault: NO_YT_DLP.to_string(), found: Vec::new() }),
     };
 
     let said = String::from_utf8_lossy(&done.stdout);
@@ -85,7 +90,10 @@ fn look(asked: &str) -> Result<Looked, Never> {
 }
 
 fn picture(cache: &Path, found: &Found) -> Result<(), Never> {
-    let Ok(Some(at)) = store::picture_of(cache, &found.id) else { return Ok(()) };
+    let at = match store::picture_of(cache, &found.id) {
+        Ok(Some(at)) => at,
+        Ok(None) | Err(_) => return Ok(()),
+    };
 
     match at.exists() || found.picture.is_empty() {
         true => return Ok(()),

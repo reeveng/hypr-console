@@ -64,7 +64,7 @@ pub const PANELS: &[Panel] = &[
     Panel { who: console_launcher::WHO, card: console_launcher::card },
     Panel { who: console_settings::WHO, card: console_settings::card },
     Panel { who: console_files::WHO, card: console_files::card },
-    Panel { who: console_music::WHO, card: console_music::card },
+    Panel { who: console_music_panel::WHO, card: console_music_panel::card },
     Panel { who: console_media_viewer::WHO, card: console_media_viewer::card },
     Panel { who: console_downloads::WHO, card: console_downloads::card },
     Panel { who: console_notifications::WHO, card: console_notifications::card },
@@ -89,10 +89,13 @@ struct Holding {
 pub fn serve() -> Result<(), Never> {
     let Ok(where_) = held::where_();
 
-    let Some(at) = where_ else {
-        eprintln!("console-panels: XDG_RUNTIME_DIR names nothing, so there is nowhere to listen");
+    let at = match where_ {
+        Some(at) => at,
+        None => {
+            eprintln!("console-panels: XDG_RUNTIME_DIR names nothing, so there is nowhere to listen");
 
-        return Ok(());
+            return Ok(());
+        }
     };
 
     let Ok(free) = nobody_is_there(&at);
@@ -213,10 +216,13 @@ fn asked_of(holding: &Rc<Holding>, asking: UnixStream) -> Result<(), Never> {
 
     let Ok(asked) = held::read(line.trim_end());
 
-    let Some(asked) = asked else {
-        eprintln!("console-panels: {:?} is not a request", line.trim_end());
+    let asked = match asked {
+        Some(asked) => asked,
+        None => {
+            eprintln!("console-panels: {:?} is not a request", line.trim_end());
 
-        return Ok(());
+            return Ok(());
+        }
     };
 
     put_up(holding, asked, asking, reading)
@@ -230,12 +236,15 @@ fn put_up(
 ) -> Result<(), Never> {
     let Ok(known) = one(&asked.who);
 
-    let Some(known) = known else {
-        eprintln!("console-panels: nothing here draws {:?}", asked.who);
+    let known = match known {
+        Some(known) => known,
+        None => {
+            eprintln!("console-panels: nothing here draws {:?}", asked.who);
 
-        let Ok(()) = say(&telling, GONE);
+            let Ok(()) = say(&telling, GONE);
 
-        return Ok(());
+            return Ok(());
+        }
     };
 
     let Ok(()) = nothing_is_up(holding);
@@ -312,7 +321,10 @@ fn a_word(listening: &RefCell<BufReader<UnixStream>>) -> Result<Word, Never> {
 fn gone(holding: &Rc<Holding>) -> Result<(), Never> {
     let up = holding.up.borrow_mut().take();
 
-    let Some(up) = up else { return Ok(()) };
+    let up = match up {
+        Some(up) => up,
+        None => return Ok(()),
+    };
 
     let Ok(()) = let_go(up);
 
@@ -322,7 +334,10 @@ fn gone(holding: &Rc<Holding>) -> Result<(), Never> {
 fn nothing_is_up(holding: &Rc<Holding>) -> Result<(), Never> {
     let up = holding.up.borrow_mut().take();
 
-    let Some(up) = up else { return Ok(()) };
+    let up = match up {
+        Some(up) => up,
+        None => return Ok(()),
+    };
 
     let Ok(()) = up.panel.shut();
     let Ok(()) = let_go(up);
@@ -368,10 +383,13 @@ fn say(telling: &UnixStream, word: &str) -> Result<(), Never> {
 fn drawn_by_hand(who: &str, argv: &[String]) -> Result<(), Never> {
     let Ok(known) = one(who);
 
-    let Some(known) = known else {
-        eprintln!("console-panels: nothing here draws {who:?}");
+    let known = match known {
+        Some(known) => known,
+        None => {
+            eprintln!("console-panels: nothing here draws {who:?}");
 
-        return Ok(());
+            return Ok(());
+        }
     };
 
     let Ok(card) = (known.card)(argv);

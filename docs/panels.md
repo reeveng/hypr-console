@@ -462,6 +462,63 @@ not work out again, and this is the machine's own answer to a question anybody
 can ask it again. Clearing it costs one opening, drawn the way every opening was
 drawn before any of this.
 
+## A tab that has to be looked for looks while it is the tab in front
+
+A watch is a program a tab keeps open so it is told when its own answer changed
+rather than asking on a clock: `pactl subscribe` under Sound, `busctl monitor`
+under the bell. Every one of them redraws the tab it belongs to and is ignored
+while any other tab is up, so a watch running behind a tab nobody is looking at
+was a process spending a battery to be thrown away. They start when their tab
+comes to the front and stop when it leaves, and the one that made that worth
+doing is Bluetooth.
+
+Looking for a device is not a reading. It is the radio doing something, it costs
+power for as long as it lasts, and bluez holds what it finds only while it is
+still looking: stop, and everything not already paired is dropped within
+seconds. The tab used to offer a press that scanned for eight seconds, and then
+drew the list *after* the scan had ended -- the leavings of a scan, which is a
+column of nameless addresses that have not aged out yet and, most of the time,
+nothing at all of the mouse somebody was holding down a button on. It asked for
+the answer at the one moment it was guaranteed to be gone.
+
+So the looking is the tab: `bluetoothctl scan on` is the tab's watch, and it
+runs for exactly as long as somebody is standing on that tab. What comes out of
+it is three things at once. The row where the press used to be says **Looking
+for devices** while the radio says `Discovering: yes`, which is a tab that
+answers a press instead of appearing to swallow it. Every line the scan prints
+redraws the list, so a device arrives when it arrives and its name arrives when
+the advertisement carrying it does, rather than both landing eight seconds later
+if they land at all. And nothing is dropped underneath somebody halfway through
+reading it, because the discovery is still on while they read.
+
+A number does survive: `--timeout`, because bluetoothctl will not stay without
+one. It is a ceiling and not a wait -- the scan is killed the moment the tab
+stops being in front -- and ten minutes is longer than anybody stands on this
+tab and short enough that a panel left open on it overnight is not a radio left
+looking overnight.
+
+## What a stranger says about itself is what puts it in order
+
+A scan in a room is mostly watches, earbuds and phones, and bluez names a device
+that has told it nothing after its own address. So the list was a column of hex
+in whatever order bluez keeps its cache, with the one thing somebody wanted
+somewhere in it.
+
+Both of the answers to that come off the reading already being taken. **What
+said a name goes above what did not**, because a device that has told the
+machine what it is is a device somebody might be looking for, and an address
+written out with dashes is bluez saying it has nothing to offer. And **what is
+loud goes above what is faint**: `bluetoothctl info` carries an `RSSI` for
+anything heard during
+discovery, so the same reading that says paired and connected says how far away
+it is, drawn as the bar the Wi-Fi tab already draws a signal with. A mouse in
+the hand is the loudest thing in the room, and the room's own noise sits at the
+bottom under a strength bar that says why.
+
+The strength is only there while the radio is looking, which is the other half
+of why the looking is the tab. A device with nothing heard from it draws the
+same `…` it drew before, and is still a row that can be pressed.
+
 ## What an opening costs is written down as it happens
 
 Every one of the decisions above was made about a wait nobody had measured. The

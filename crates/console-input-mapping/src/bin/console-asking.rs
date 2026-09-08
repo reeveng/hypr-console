@@ -1,6 +1,7 @@
 //! The card that asks which button that was.
 //!
-//!     console-asking screenshot
+//!     console-asking screenshot pad
+//!     console-asking screenshot keyboard
 //!
 //! Raised by the setup screen over the row being moved. While it is up the
 //! front of the machine does nothing at all, which is the only state in which
@@ -28,22 +29,32 @@
 //! drew it, and the controller daemon reads `console-asking` being on the
 //! screen as `Mode::Asking` and stands down. The claim is what makes that true
 //! rather than agreed.
+//!
+//! ## Which input it is asking about
+//!
+//! The word after the job. A keyboard is claimed the same way and read
+//! differently: what arrives is a key rather than a button, so what is held is
+//! the modifiers and the press is whatever is not one. The claim matters more
+//! here than it does on the pad -- Super and I with no claim would open the
+//! settings while somebody was trying to say where the settings should be.
 
 use std::cell::RefCell;
 use std::process::ExitCode;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use evdev::{AbsoluteAxisCode, EventType};
+use evdev::{AbsoluteAxisCode, EventType, KeyCode};
 use gtk4::prelude::*;
 use gtk4::{Align, Application, ApplicationWindow, Box as GtkBox, Label, Orientation, glib};
 use gtk4_layer_shell::{Layer as Shelf, LayerShell};
 
 use console_input_controller::mode::ASKING;
-use console_input_controller::reading::CARRY_HELD;
-use console_input_mapping::rows::{Part, WAITING, aloud, every, lowered, parts, question};
+use console_input_controller::reading::{CARRY_HELD, Trigger};
+use console_input_mapping::rows::{Part, aloud, every, lowered, parts, question};
 use console_input_mapping::table;
-use console_input_gamepad::jobs::{ALONE, Binding, Held, Layer, Moved};
+use console_input_bindings::bound::{Binding, Input};
+use console_input_bindings::keys;
+use console_input_bindings::moved::Moved;
 use console_input_gamepad::vocabulary::{button_name, spoken_for};
 use console_input_focus::{self as claim, CONTROLLER, Claim, Said, Went, Which};
 use console_core_never::Never;
@@ -58,6 +69,8 @@ const UNSAID: (i32, i32) = (0, 1);
 
 const NO_WORD: &str = "this desktop has no word for that button";
 
+const TYPING: [Which; 1] = [Which::Typing];
+
 enum Doing {
     Settling,
     Asking(Box<Reading>),
@@ -67,12 +80,18 @@ enum Doing {
 struct Reading {
     claim: Claim,
     span: (i32, i32),
-    layer: Layer,
+    on: Input,
+    held: Vec<String>,
 }
 
 impl Reading {
-    fn open(complained: &mut Quiet) -> Result<Option<Self>, Never> {
-        let claim = match Claim::of(&CONTROLLER) {
+    fn open(on: Input, complained: &mut Quiet) -> Result<Option<Self>, Never> {
+        let wanted: &[Which] = match on {
+            Input::Pad => &CONTROLLER,
+            Input::Keyboard => &TYPING,
+        };
+
+        let claim = match Claim::of(wanted) {
             Ok(claim) => claim,
             Err(refused) => {
                 match *complained {
@@ -102,26 +121,31 @@ impl Reading {
             .find(|(axis, _)| *axis == AbsoluteAxisCode::ABS_Z)
             .map_or(UNSAID, |(_, span)| span);
 
-        Ok(Some(Reading { claim, span, layer: ALONE }))
+        Ok(Some(Reading { claim, span, on, held: Vec::new() }))
     }
 
-    fn pressed(&mut self) -> Result<Option<(String, Layer)>, Never> {
+    fn pressed(&mut self) -> Result<Option<Binding>, Never> {
         let Ok(heard) = self.claim.arrived();
 
-        let mut down = None;
+        let mut down: Option<String> = None;
 
         for (which, event) in heard.events {
             let Ok(said) = claim::said(which, event.event_type(), event.code(), event.value());
 
             match said {
-                Said::Pressed { button, went: Went::Down } => {
-                    down = down.or_else(|| {
-                        let Ok(spoken) = spoken_for(button);
+                Said::Pressed { button, went } => {
+                    let Ok(spoken) = spoken_for(button);
 
-                        Some(spoken.to_string())
-                    });
+                    match went {
+                        Went::Down => down = down.or_else(|| Some(spoken.to_string())),
+                        Went::Up => self.held.retain(|held| held != spoken),
+                    }
                 }
-                Said::Pressed { button: _, went: Went::Up } => {}
+                Said::Typed { code, went } => {
+                    let Ok(typed) = self.typed(code, went);
+
+                    down = down.or(typed);
+                }
                 Said::Trigger { trigger: _, went: _ } | Said::Unnamed { code: _, went: _ } => {}
                 Said::Nothing => {
                     let Ok(()) = self.watched(event.event_type(), event.code(), event.value());
@@ -129,7 +153,38 @@ impl Reading {
             }
         }
 
-        Ok(down.map(|button| (button, self.layer)))
+        let pressed = match down {
+            Some(pressed) => pressed,
+            None => return Ok(None),
+        };
+        let held: Vec<&str> = self.held.iter().map(String::as_str).collect();
+        let Ok(binding) = Binding::holding(self.on, &held, &pressed);
+
+        self.held.push(pressed);
+
+        Ok(Some(binding))
+    }
+
+    fn typed(&mut self, code: u16, went: Went) -> Result<Option<String>, Never> {
+        let Ok(modifier) = keys::modifier_of(KeyCode(code));
+
+        match (modifier, went) {
+            (Some(word), Went::Down) => {
+                match self.held.iter().any(|held| held == word) {
+                    true => {},
+                    false => self.held.push(word.to_string()),
+                }
+
+                Ok(None)
+            }
+            (Some(word), Went::Up) => {
+                self.held.retain(|held| held != word);
+
+                Ok(None)
+            }
+            (None, Went::Down) => keys::spoken(KeyCode(code)),
+            (None, Went::Up) => Ok(None),
+        }
     }
 
     fn watched(&mut self, kind: EventType, code: u16, value: i32) -> Result<(), Never> {
@@ -139,25 +194,35 @@ impl Reading {
         }
 
         let Ok(pulled) = pulled(value, self.span);
+        let held = pulled == Trigger::Held;
 
-        let held = pulled == Held::Down;
+        let trigger = match code {
+            _ if code == AbsoluteAxisCode::ABS_Z.0 => Some("l2"),
+            _ if code == AbsoluteAxisCode::ABS_RZ.0 => Some("r2"),
+            _ => None,
+        };
 
-        match code {
-            _ if code == AbsoluteAxisCode::ABS_Z.0 => self.layer.l2 = held,
-            _ if code == AbsoluteAxisCode::ABS_RZ.0 => self.layer.r2 = held,
-            _ => {}
+        match (trigger, held) {
+            (Some(word), true) => {
+                match self.held.iter().any(|down| down == word) {
+                    true => {},
+                    false => self.held.push(word.to_string()),
+                }
+            }
+            (Some(word), false) => self.held.retain(|down| down != word),
+            (None, _) => {}
         }
 
         Ok(())
     }
 }
 
-fn pulled(value: i32, (low, high): (i32, i32)) -> Result<Held, Never> {
+fn pulled(value: i32, (low, high): (i32, i32)) -> Result<Trigger, Never> {
     let span = f64::from(high.saturating_sub(low).max(1));
 
     Ok(match f64::from(value.saturating_sub(low)) / span > CARRY_HELD {
-        true => Held::Down,
-        false => Held::Up,
+        true => Trigger::Held,
+        false => Trigger::Loose,
     })
 }
 
@@ -193,11 +258,13 @@ impl Card {
             }
             Doing::Said(_, _) => return Ok(glib::ControlFlow::Continue),
             Doing::Settling => {
-                let Ok(opened) = Reading::open(&mut self.complained);
+                let Ok(opened) = Reading::open(self.part.on, &mut self.complained);
 
                 match opened {
                     Some(reading) => {
-                        self.hint.set_text(WAITING);
+                        let Ok(waiting) = self.part.waiting();
+
+                        self.hint.set_text(waiting);
                         self.doing = Doing::Asking(Box::new(reading));
                     }
                     None => {}
@@ -212,17 +279,19 @@ impl Card {
             }
         };
 
-        let Some((button, layer)) = heard else { return Ok(glib::ControlFlow::Continue) };
+        let binding = match heard {
+            Some(binding) => binding,
+            None => return Ok(glib::ControlFlow::Continue),
+        };
 
-        let Ok(named) = named(&button);
+        let Ok(known) = known(&binding);
 
-        match named {
-            Some(button) => {
-                let Ok(held) = Binding::held(layer, button);
-                let Ok((saying, under)) = self.moving(&held);
+        match known {
+            Known::Yes => {
+                let Ok((saying, under)) = self.moving(&binding);
                 let Ok(()) = self.said(&saying, &under);
             }
-            None => {
+            Known::No => {
                 let Ok(()) = self.said(NO_WORD, "");
             }
         }
@@ -232,7 +301,8 @@ impl Card {
 
     fn moving(&self, onto: &Binding) -> Result<(String, String), Never> {
         let Ok(mut jobs) = table::read();
-        let Ok(every) = every(&self.parts);
+        let Ok(table) = table::table();
+        let Ok(every) = every(&table);
         let Ok(said) = aloud(onto);
 
         let Ok(moved) = jobs.moving(&every, &self.part.slug, onto);
@@ -252,13 +322,43 @@ impl Card {
             Moved::TookFrom(taken) => {
                 let Ok(does) = self.does_of(&taken);
                 let Ok(lowered) = lowered(&does);
+                let Ok(word) = self.part.on.word();
 
-                format!("{lowered} has no button now")
+                format!("{lowered} has no {word} of its own now")
             }
-            Moved::Onto => String::new(),
+            Moved::Onto => {
+                let Ok(over) = self.over(onto);
+
+                over
+            }
             Moved::Already => String::new(),
         };
+
         Ok((on, under))
+    }
+
+    fn over(&self, onto: &Binding) -> Result<String, Never> {
+        let still: Vec<String> = self
+            .parts
+            .iter()
+            .filter(|part| part.slug != self.part.slug)
+            .filter(|part| {
+                part.plays.iter().any(|one| {
+                    one.binding.held.is_empty()
+                        && onto.held.contains(&one.binding.pressed)
+                })
+            })
+            .map(|part| {
+                let Ok(lowered) = lowered(&part.does);
+
+                lowered
+            })
+            .collect();
+
+        Ok(match still.first() {
+            Some(first) => format!("{first} still happens on the way in"),
+            None => String::new(),
+        })
     }
 
     fn does_of(&self, slug: &str) -> Result<String, Never> {
@@ -271,46 +371,84 @@ impl Card {
     fn said(&mut self, saying: &str, under: &str) -> Result<(), Never> {
         self.saying.set_text(saying);
         self.hint.set_text(under);
+
         let over = match under.is_empty() {
             true => READ_IT,
             false => READ_BOTH,
         };
+
         self.doing = Doing::Said(Instant::now(), over);
 
         Ok(())
     }
 }
 
-fn named(button: &str) -> Result<Option<String>, Never> {
-    Ok(match button_name(button) {
-        Ok(_) => Some(button.to_string()),
-        Err(_) => None,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Known {
+    Yes,
+    No,
+}
+
+fn known(binding: &Binding) -> Result<Known, Never> {
+    let said = match binding.on {
+        Input::Pad => match button_name(&binding.pressed) {
+            Ok(_named) => true,
+            Err(_unnamed) => false,
+        },
+        Input::Keyboard => {
+            let Ok(code) = keys::code(&binding.pressed);
+
+            code.is_some()
+        }
+    };
+
+    Ok(match said {
+        true => Known::Yes,
+        false => Known::No,
     })
 }
 
 fn main() -> ExitCode {
-    let Some(slug) = std::env::args().nth(1) else {
-        eprintln!("usage: console-asking JOB");
-        return ExitCode::from(2);
+    let mut asked = std::env::args().skip(1);
+
+    let slug = match asked.next() {
+        Some(slug) => slug,
+        None => {
+            eprintln!("usage: console-asking JOB [pad|keyboard]");
+            return ExitCode::from(2);
+        }
+    };
+
+    let on = match asked.next().as_deref() {
+        Some("keyboard") => Input::Keyboard,
+        Some(_) | None => Input::Pad,
     };
 
     let Ok(table) = table::table();
     let Ok(front) = table::front();
-    let Ok(all) = parts(&table, &front);
+    let Ok(all) = parts(&table, &front, on);
 
-    let Some(part) = all.iter().find(|part| part.slug == slug).cloned() else {
-        eprintln!("console-asking: this desktop does nothing called {slug}");
-        return ExitCode::FAILURE;
+    let part = match all.iter().find(|part| part.slug == slug).cloned() {
+        Some(part) => part,
+        None => {
+            eprintln!("console-asking: this desktop does nothing called {slug}");
+            return ExitCode::FAILURE;
+        }
     };
 
     let app = Application::builder().application_id("console.asking").build();
     let held = Rc::new(RefCell::new(Some((part, all))));
+
     app.connect_activate(move |app| {
-        let Some((part, all)) = held.borrow_mut().take() else { return };
+        let (part, all) = match held.borrow_mut().take() {
+            Some((part, all)) => (part, all),
+            None => return,
+        };
 
         let Ok(()) = raised(app, part, all);
     });
     app.run_with_args::<&str>(&[]);
+
     ExitCode::SUCCESS
 }
 
@@ -370,7 +508,10 @@ fn raised(app: &Application, part: Part, parts: Vec<Part>) -> Result<(), Never> 
 }
 
 fn dressed() -> Result<(), Never> {
-    let Some(display) = gtk4::gdk::Display::default() else { return Ok(()) };
+    let display = match gtk4::gdk::Display::default() {
+        Some(display) => display,
+        None => return Ok(()),
+    };
 
     let sheet = gtk4::CssProvider::new();
     let Ok(style) = console_panel::style::sheet();

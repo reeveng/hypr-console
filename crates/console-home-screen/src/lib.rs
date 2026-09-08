@@ -28,8 +28,12 @@ pub mod shape;
 
 pub use shape::{Shape, Square, square};
 
+pub const NAMED: &str = "home";
+
 pub fn file(home: &std::path::Path) -> Result<std::path::PathBuf, Never> {
-    Ok(home.join(".local/state/console/home"))
+    let Ok(ours) = console_core_places::Base::State.ours_under(home);
+
+    Ok(ours.join(NAMED))
 }
 
 pub const OURS: [&str; 5] = ["Files", "Music", "Download", "Notifications", "Buttons"];
@@ -62,17 +66,19 @@ impl Spot {
     pub fn read(said: &str) -> Result<Option<Spot>, Never> {
         let mut fields = said.trim().split('.');
 
-        let (Some(pane), Some(row), Some(column), None) =
-            (fields.next(), fields.next(), fields.next(), fields.next())
-        else {
-            return Ok(None);
-        };
+        let (pane, row, column) =
+            match (fields.next(), fields.next(), fields.next(), fields.next()) {
+                (Some(pane), Some(row), Some(column), None) => (pane, row, column),
+                (None, _, _, _) | (_, None, _, _) | (_, _, None, _) | (_, _, _, Some(_)) => {
+                    return Ok(None);
+                }
+            };
 
-        let (Ok(pane), Ok(row), Ok(column)) =
-            (pane.parse::<usize>(), row.parse::<usize>(), column.parse::<usize>())
-        else {
-            return Ok(None);
-        };
+        let (pane, row, column) =
+            match (pane.parse::<usize>(), row.parse::<usize>(), column.parse::<usize>()) {
+                (Ok(pane), Ok(row), Ok(column)) => (pane, row, column),
+                (Err(_), _, _) | (_, Err(_), _) | (_, _, Err(_)) => return Ok(None),
+            };
 
         let spot = Spot::new(pane, row, column)?;
 
@@ -195,18 +201,21 @@ impl Home {
         for line in said.lines() {
             let mut fields = line.split('\t');
 
-            let (Some(pane), Some(row), Some(column), Some(name)) =
-                (fields.next(), fields.next(), fields.next(), fields.next())
-            else {
-                continue;
-            };
+            let (pane, row, column, name) =
+                match (fields.next(), fields.next(), fields.next(), fields.next()) {
+                    (Some(pane), Some(row), Some(column), Some(name)) => (pane, row, column, name),
+                    (None, _, _, _) | (_, None, _, _) | (_, _, None, _) | (_, _, _, None) => {
+                        continue;
+                    }
+                };
 
-            let (Ok(pane), Ok(row), Ok(column)) = (
+            let (pane, row, column) = match (
                 pane.trim().parse::<usize>(),
                 row.trim().parse::<usize>(),
                 column.trim().parse::<usize>(),
-            ) else {
-                continue;
+            ) {
+                (Ok(pane), Ok(row), Ok(column)) => (pane, row, column),
+                (Err(_), _, _) | (_, Err(_), _) | (_, _, Err(_)) => continue,
             };
 
             let spot = Spot::new(pane, row, column)?;

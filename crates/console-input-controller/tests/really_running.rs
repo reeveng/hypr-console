@@ -16,7 +16,10 @@ use live::{READS, or_skip};
 
 #[test]
 fn the_daemon_finds_all_three_devices() {
-    let Some(running) = or_skip() else { return };
+    let running = match or_skip() {
+        Some(running) => running,
+        None => return,
+    };
     let said = running.said();
     for wanted in READS {
         assert!(said.contains(wanted), "it did not say it had found the {wanted}: {said}");
@@ -25,7 +28,10 @@ fn the_daemon_finds_all_three_devices() {
 
 #[test]
 fn the_right_stick_really_turns_a_wheel() {
-    let Some(mut running) = or_skip() else { return };
+    let mut running = match or_skip() {
+        Some(running) => running,
+        None => return,
+    };
     running.go.stick("right-stick", 0.0, -1.0).expect("a stick");
     let turned = running.total(EventType::RELATIVE, RelativeAxisCode::REL_WHEEL.0, 1.0);
     running.go.centre("right-stick").expect("a stick");
@@ -34,7 +40,10 @@ fn the_right_stick_really_turns_a_wheel() {
 
 #[test]
 fn a_finger_on_the_pad_really_moves_a_pointer() {
-    let Some(mut running) = or_skip() else { return };
+    let mut running = match or_skip() {
+        Some(running) => running,
+        None => return,
+    };
     running.go.drag((200, 300), (500, 300), 6, 0.12);
     let moved: Vec<(u16, i32)> = running
         .events(0.4)
@@ -55,7 +64,10 @@ fn a_finger_on_the_pad_really_moves_a_pointer() {
 
 #[test]
 fn a_tap_is_really_a_click() {
-    let Some(mut running) = or_skip() else { return };
+    let mut running = match or_skip() {
+        Some(running) => running,
+        None => return,
+    };
     running.go.tap(500, 500);
     let clicked: Vec<(u16, i32)> = running
         .events(0.4)
@@ -68,7 +80,10 @@ fn a_tap_is_really_a_click() {
 
 #[test]
 fn a_shoulder_really_reaches_the_compositor() {
-    let Some(mut running) = or_skip() else { return };
+    let mut running = match or_skip() {
+        Some(running) => running,
+        None => return,
+    };
     running.go.press("r1").expect("a shoulder");
     running.settle();
 
@@ -82,7 +97,10 @@ fn a_shoulder_really_reaches_the_compositor() {
 
 #[test]
 fn a_paddle_really_opens_the_menu() {
-    let Some(mut running) = or_skip() else { return };
+    let mut running = match or_skip() {
+        Some(running) => running,
+        None => return,
+    };
     running.go.press("left-paddle-top").expect("a paddle");
     running.settle();
     assert_eq!(running.names(), ["launcher"]);
@@ -90,7 +108,10 @@ fn a_paddle_really_opens_the_menu() {
 
 #[test]
 fn the_emulator_publishes_what_the_capture_says() {
-    let Some(running) = or_skip() else { return };
+    let running = match or_skip() {
+        Some(running) => running,
+        None => return,
+    };
     let pad = evdev::enumerate()
         .map(|(_, device)| device)
         .find(|device| device.name() == Some("Microsoft X-Box One Elite 2 pad"))

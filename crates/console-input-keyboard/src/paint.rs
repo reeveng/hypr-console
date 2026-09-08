@@ -43,11 +43,17 @@ pub fn keyboard(onto: &Surface, look: &Look) -> Result<(), Never> {
     }
 
     for placed in keys {
-        let Some(key) = layout.keys.get(placed.at) else { continue };
+        let key = match layout.keys.get(placed.at) {
+            Some(key) => key,
+            None => continue,
+        };
 
         let wanted = usize::from(key.scheme).min(config.schemes.len().saturating_sub(1));
 
-        let Some(scheme) = config.schemes.get(wanted) else { continue };
+        let scheme = match config.schemes.get(wanted) {
+            Some(scheme) => scheme,
+            None => continue,
+        };
 
         let down = pressed == Some(placed.at);
         let Ok(rounding) = fitted(config.rounding);

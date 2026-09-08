@@ -35,7 +35,10 @@ pub fn pending(
 }
 
 pub fn already(at: &Path) -> Result<BTreeSet<String>, Never> {
-    let Ok(entries) = std::fs::read_dir(at) else { return Ok(BTreeSet::new()) };
+    let entries = match std::fs::read_dir(at) {
+        Ok(entries) => entries,
+        Err(_fault) => return Ok(BTreeSet::new()),
+    };
 
     Ok(entries
         .flatten()

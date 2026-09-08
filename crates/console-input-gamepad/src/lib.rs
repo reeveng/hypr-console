@@ -6,7 +6,6 @@ pub mod devices;
 pub mod finding;
 pub mod front;
 pub mod go;
-pub mod jobs;
 
 pub mod profile;
 pub mod router;

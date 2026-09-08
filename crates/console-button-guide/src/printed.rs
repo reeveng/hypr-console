@@ -61,7 +61,7 @@ mod tests {
     use super::*;
     use console_input_controller::means::Table;
 
-    use crate::guide::{Line, sections};
+    use crate::guide::{Line, TYPED, sections};
 
     fn ours() -> Table {
         let Ok(table) = Table::ours();
@@ -70,7 +70,7 @@ mod tests {
     }
 
     fn said() -> String {
-        let Ok(sections) = sections(&ours(), "");
+        let Ok(sections) = sections(&ours());
         let Ok(said) = guide(&sections, PLAIN);
 
         said
@@ -88,18 +88,24 @@ mod tests {
 
     #[test]
     fn a_section_with_nothing_in_it_is_not_printed() {
-        assert!(!said().contains("Shortcuts"));
+        let Ok(mut every) = sections(&ours());
+
+        every.push(Section { title: "Nothing at all".to_string(), lines: Vec::new() });
+
+        let Ok(said) = guide(&every, PLAIN);
+
+        assert!(!said.contains("Nothing at all"));
     }
 
     #[test]
     fn a_section_with_something_in_it_is() {
-        let Ok(mut every) = sections(&ours(), "");
+        let Ok(mut every) = sections(&ours());
         let Ok(line) = Line::new("Super Q", "close");
 
         every.last_mut().expect("a section").lines.push(line);
 
         let Ok(said) = guide(&every, PLAIN);
 
-        assert!(said.contains("Shortcuts"));
+        assert!(said.contains(TYPED));
     }
 }

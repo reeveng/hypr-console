@@ -63,8 +63,9 @@ fn main() -> ExitCode {
 }
 
 pub fn said(far: Option<&Far>) -> Result<String, Never> {
-    let Some(far) = far else {
-        return Ok(r#"{"text":""}"#.to_string());
+    let far = match far {
+        Some(far) => far,
+        None => return Ok(r#"{"text":""}"#.to_string()),
     };
 
     let Ok(step) = step(far.percent);

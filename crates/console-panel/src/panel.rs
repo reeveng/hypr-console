@@ -30,7 +30,8 @@ use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use crate::keys::{Driving, Meaning, meaning, swept};
 use crate::marks::{self, named};
 use crate::page::{
-    Act, Answer, Does, Heading, InEffect, Page, Picture, Row, Same, Set, Showing, Stirred, Taken,
+    About, Act, Answer, Does, Heading, InEffect, Page, Picture, Row, Same, Set, Showing, Stirred,
+    Taken,
 };
 use crate::strip::{ANSWER, EDGE, GAP, MARGIN, PICTURE, PRESSED, SLEEVE};
 
@@ -75,7 +76,7 @@ struct State {
     placed: Vec<Row>,
     under: i32,
     tabs: Vec<Button>,
-    watchers: Vec<Alongside>,
+    watching: Option<Alongside>,
     reshaping: bool,
     due: bool,
 }
@@ -115,6 +116,7 @@ pub struct Panel {
     scroller: ScrolledWindow,
     rows: ListBox,
 
+    telling: RefCell<Option<glib::SignalHandlerId>>,
     state: RefCell<State>,
 }
 
@@ -302,6 +304,7 @@ impl Panel {
             away,
             scroller,
             rows,
+            telling: RefCell::new(None),
             state: RefCell::new(State {
                 pages,
                 here,
@@ -324,14 +327,14 @@ impl Panel {
                 placed: Vec::new(),
                 under: 2,
                 tabs,
-                watchers: Vec::new(),
+                watching: None,
                 reshaping: false,
                 due: false,
             }),
         });
         let Ok(()) = panel.answers();
         let Ok(()) = panel.seeks();
-        let Ok(()) = panel.watch_everything();
+        let Ok(()) = panel.watch_here();
         let Ok(wide) = panel.across();
 
         panel.state.borrow_mut().wide = wide;
@@ -416,7 +419,10 @@ impl Panel {
 
         let panel = Rc::clone(self);
         self.window.connect_realize(move |window| {
-            let Some(surface) = window.surface() else { return };
+            let surface = match window.surface() {
+                Some(surface) => surface,
+                None => return,
+            };
 
             let panel = Rc::clone(&panel);
             surface.connect_layout(move |_, _, _| {
@@ -559,7 +565,10 @@ impl Panel {
         let before = self.state.borrow().pointed;
         self.state.borrow_mut().pointed = Some(still);
 
-        let Some(before) = before else { return Ok(()) };
+        let before = match before {
+            Some(before) => before,
+            None => return Ok(()),
+        };
 
         match (still - before).abs() < A_HAIR {
             true => return Ok(()),
@@ -568,7 +577,10 @@ impl Panel {
 
         let Ok(down) = toward_zero_i32(y);
 
-        let Some(row) = self.rows.row_at_y(down) else { return Ok(()) };
+        let row = match self.rows.row_at_y(down) {
+            Some(row) => row,
+            None => return Ok(()),
+        };
 
         match self.rows.selected_row().as_ref() != Some(&row) {
             true => {
@@ -599,7 +611,10 @@ impl Panel {
         let Ok(()) = self.came_back();
         let Ok(()) = self.stand(Beside::No);
 
-        let Ok(index) = usize::try_from(index) else { return Ok(()) };
+        let index = match usize::try_from(index) {
+            Ok(index) => index,
+            Err(_fault) => return Ok(()),
+        };
 
         let does = self.state.borrow().placed.get(index).and_then(|row| row.does.clone());
 
@@ -627,9 +642,15 @@ impl Panel {
     }
 
     fn offered(self: &Rc<Self>) -> Result<(), Never> {
-        let Some(row) = self.rows.selected_row() else { return Ok(()) };
+        let row = match self.rows.selected_row() {
+            Some(row) => row,
+            None => return Ok(()),
+        };
 
-        let Ok(index) = usize::try_from(row.index()) else { return Ok(()) };
+        let index = match usize::try_from(row.index()) {
+            Ok(index) => index,
+            Err(_fault) => return Ok(()),
+        };
 
         let more = self.state.borrow().placed.get(index).and_then(|row| row.more.clone());
 
@@ -671,7 +692,42 @@ impl Panel {
     }
 
     fn tells(self: &Rc<Self>) -> Result<(), Never> {
-        let Ok(Some(where_to)) = telling::where_to() else { return Ok(()) };
+        let _taken = match telling::where_to() {
+            Ok(Some(_taken)) => _taken,
+            Ok(None) | Err(_) => return Ok(()),
+        };
+
+        match self.telling.borrow().is_some() {
+            true => return Ok(()),
+            false => {},
+        }
+
+        let clock = match self.window.frame_clock() {
+            Some(clock) => clock,
+            None => return self.told(),
+        };
+
+        let panel = Rc::clone(self);
+        let waiting = clock.connect_after_paint(move |clock| {
+            match panel.telling.borrow_mut().take() {
+                Some(waiting) => clock.disconnect(waiting),
+                None => {},
+            }
+
+            let Ok(()) = panel.told();
+        });
+
+        *self.telling.borrow_mut() = Some(waiting);
+        self.window.queue_draw();
+
+        Ok(())
+    }
+
+    fn told(&self) -> Result<(), Never> {
+        let where_to = match telling::where_to() {
+            Ok(Some(where_to)) => where_to,
+            Ok(None) | Err(_) => return Ok(()),
+        };
 
         let mut card: Vec<telling::Spot> = Vec::new();
         let Ok(()) = self.spots_on(self.top.upcast_ref(), telling::Scrolls::No, &mut card);
@@ -902,7 +958,10 @@ impl Panel {
         let now = self.rows.selected_row().map_or(0, |row| row.index());
         let Ok(at) = walked(&self.state.borrow().placed, now, step);
 
-        let Some(going) = self.rows.row_at_index(at) else { return Ok(()) };
+        let going = match self.rows.row_at_index(at) {
+            Some(going) => going,
+            None => return Ok(()),
+        };
 
         self.rows.select_row(Some(&going));
 
@@ -912,14 +971,23 @@ impl Panel {
     }
 
     fn nudge(self: &Rc<Self>, step: i32) -> Result<(), Never> {
-        let Some(row) = self.rows.selected_row() else { return Ok(()) };
+        let row = match self.rows.selected_row() {
+            Some(row) => row,
+            None => return Ok(()),
+        };
 
-        let Ok(index) = usize::try_from(row.index()) else { return Ok(()) };
+        let index = match usize::try_from(row.index()) {
+            Ok(index) => index,
+            Err(_fault) => return Ok(()),
+        };
 
         let held = {
             let state = self.state.borrow();
 
-            let Some(row) = state.placed.get(index) else { return Ok(()) };
+            let row = match state.placed.get(index) {
+                Some(row) => row,
+                None => return Ok(()),
+            };
 
             let Ok(wears) = wears(row);
             let Ok(holds) = holds(row);
@@ -1097,6 +1165,8 @@ impl Panel {
 
         self.scroller.vadjustment().set_value(0.0);
 
+        let Ok(()) = self.watch_here();
+
         let title = self.state.borrow().pages.get(index).map(|page| page.title.clone());
 
         match title {
@@ -1244,7 +1314,10 @@ impl Panel {
             (state.reading, state.here, rows, tab.unwrap_or_default())
         };
 
-        let Some(rows) = rows else { return Ok(()) };
+        let rows = match rows {
+            Some(rows) => rows,
+            None => return Ok(()),
+        };
 
         let Ok(whose) = namespace();
         let Ok(mut waiting) = console_response_times::Waiting::here(&whose, "list");
@@ -1903,7 +1976,10 @@ impl Panel {
         swipe.connect_swipe(move |_, across, down| {
             let Ok(swept) = swept(across, down);
 
-            let Ok(Some(step)) = swept.step() else { return };
+            let step = match swept.step() {
+                Ok(Some(step)) => step,
+                Ok(None) | Err(_) => return,
+            };
 
             let Ok(()) = panel.came_back();
 
@@ -2029,7 +2105,10 @@ impl Panel {
     fn leaning(&self) -> Result<(), Never> {
         let state = self.state.borrow();
 
-        let Some(sure) = &state.sure else { return Ok(()) };
+        let sure = match &state.sure {
+            Some(sure) => sure,
+            None => return Ok(()),
+        };
 
         for (at, answer) in sure.answers.iter().enumerate() {
             match at == sure.at {
@@ -2045,7 +2124,10 @@ impl Panel {
         {
             let mut state = self.state.borrow_mut();
 
-            let Some(sure) = &mut state.sure else { return Ok(()) };
+            let sure = match &mut state.sure {
+                Some(sure) => sure,
+                None => return Ok(()),
+            };
 
             let last = sure.answers.len().saturating_sub(1);
             let Ok(at) = fitted::<usize, i32>(sure.at);
@@ -2073,7 +2155,10 @@ impl Panel {
     }
 
     fn took(self: &Rc<Self>, at: usize) -> Result<(), Never> {
-        let Some(sure) = self.state.borrow_mut().sure.take() else { return Ok(()) };
+        let sure = match self.state.borrow_mut().sure.take() {
+            Some(sure) => sure,
+            None => return Ok(()),
+        };
 
         match at.checked_sub(1) {
             None => {
@@ -2157,7 +2242,10 @@ impl Panel {
     }
 
     fn typing_at(&self, at: impl TryInto<usize>) -> Result<Typing, Never> {
-        let Ok(at) = at.try_into() else { return Ok(Typing::No) };
+        let at = match at.try_into() {
+            Ok(at) => at,
+            Err(_fault) => return Ok(Typing::No),
+        };
 
         Ok(match self.state.borrow().placed.get(at).is_some_and(|row| row.typing) {
             true => Typing::Yes,
@@ -2336,12 +2424,16 @@ impl Panel {
     }
 
     fn monitor(&self) -> Result<(i32, i32), Never> {
-        let Some(display) = gtk4::gdk::Display::default() else { return Ok((0, 0)) };
+        let display = match gtk4::gdk::Display::default() {
+            Some(display) => display,
+            None => return Ok((0, 0)),
+        };
 
         let monitors = display.monitors();
 
-        let Some(first) = monitors.item(0).and_downcast::<gtk4::gdk::Monitor>() else {
-            return Ok((0, 0));
+        let first = match monitors.item(0).and_downcast::<gtk4::gdk::Monitor>() {
+            Some(first) => first,
+            None => return Ok((0, 0)),
         };
 
         let screen = first.geometry();
@@ -2405,7 +2497,10 @@ impl Panel {
     }
 
     fn keep_the_highlight_in_view(&self) -> Result<(), Never> {
-        let Some(row) = self.rows.selected_row() else { return Ok(()) };
+        let row = match self.rows.selected_row() {
+            Some(row) => row,
+            None => return Ok(()),
+        };
 
         let at = row.allocation();
         let (top, tall) = (f64::from(at.y()), f64::from(at.height()));
@@ -2421,35 +2516,43 @@ impl Panel {
         Ok(())
     }
 
-    fn watch_everything(self: &Rc<Self>) -> Result<(), Never> {
-        let watching: Vec<(usize, crate::page::Watch)> = self
-            .state
-            .borrow()
-            .pages
-            .iter()
-            .enumerate()
-            .filter_map(|(index, page)| page.watch.clone().map(|watch| (index, watch)))
-            .collect();
+    fn watch_here(self: &Rc<Self>) -> Result<(), Never> {
+        let Ok(()) = self.stop_watching();
 
-        for (index, watch) in watching {
-            let Ok(()) = self.watch(index, &watch);
+        let watching = {
+            let state = self.state.borrow();
+            let here = state.here;
+
+            state.pages.get(here).and_then(|page| page.watch.clone()).map(|watch| (here, watch))
+        };
+
+        match watching {
+            Some((index, watch)) => self.watch(index, &watch),
+            None => Ok(()),
         }
-
-        Ok(())
     }
 
     fn watch(self: &Rc<Self>, index: usize, watch: &crate::page::Watch) -> Result<(), Never> {
-        let Some((program, rest)) = watch.argv.split_first() else { return Ok(()) };
+        let (program, rest) = match watch.argv.split_first() {
+            Some((program, rest)) => (program, rest),
+            None => return Ok(()),
+        };
 
         let mut watching = Command::new(program);
         watching.args(rest).stdout(Stdio::piped()).stderr(Stdio::null());
         let Ok(()) = console_response_times::not_a_press(&mut watching);
 
-        let Ok(mut running) = alongside(&mut watching) else { return Ok(()) };
+        let mut running = match alongside(&mut watching) {
+            Ok(running) => running,
+            Err(_fault) => return Ok(()),
+        };
 
-        let Ok(Some(reading)) = running.reading() else { return Ok(()) };
+        let reading = match running.reading() {
+            Ok(Some(reading)) => reading,
+            Ok(None) | Err(_) => return Ok(()),
+        };
 
-        self.state.borrow_mut().watchers.push(running);
+        self.state.borrow_mut().watching = Some(running);
 
         let panel = Rc::clone(self);
         let about = watch.about.clone();
@@ -2460,15 +2563,19 @@ impl Panel {
                 let read = gtk4::gio::spawn_blocking(move || {
                     let mut said = String::new();
 
-                    let Ok(got) = lines.read_line(&mut said) else {
-                        return (lines, said, 0);
+                    let got = match lines.read_line(&mut said) {
+                        Ok(got) => got,
+                        Err(_fault) => return (lines, said, 0),
                     };
 
                     (lines, said, got)
                 })
                 .await;
 
-                let Ok((back, said, got)) = read else { break };
+                let (back, said, got) = match read {
+                    Ok((back, said, got)) => (back, said, got),
+                    Err(_fault) => break,
+                };
 
                 match got == 0 {
                     true => break,
@@ -2477,11 +2584,16 @@ impl Panel {
 
                 lines = back;
 
-                match said.contains(&about) {
-                    true => {
+                match &about {
+                    About::Anything => {
                         let Ok(()) = panel.heard(index);
                     }
-                    false => {},
+                    About::Saying(word) => match said.contains(word) {
+                        true => {
+                            let Ok(()) = panel.heard(index);
+                        }
+                        false => {},
+                    },
                 }
             }
         });
@@ -2562,7 +2674,7 @@ impl Panel {
     }
 
     fn stop_watching(&self) -> Result<(), Never> {
-        self.state.borrow_mut().watchers.clear();
+        self.state.borrow_mut().watching = None;
 
         Ok(())
     }
@@ -2599,7 +2711,10 @@ impl Panel {
         let panel = Rc::clone(self);
         glib::spawn_future_local(async move {
             let _ = gtk4::gio::spawn_blocking(move || {
-                let Some((program, rest)) = argv.split_first() else { return };
+                let (program, rest) = match argv.split_first() {
+                    Some((program, rest)) => (program, rest),
+                    None => return,
+                };
 
                 let mut doing = Command::new(program);
                 doing.args(rest).stdout(Stdio::null()).stderr(Stdio::null());
@@ -2821,9 +2936,15 @@ fn bare(row: &Row) -> Result<Bare, Never> {
 }
 
 fn offer_of(held: &ListBoxRow) -> Result<Option<Button>, Never> {
-    let Some(line) = held.child() else { return Ok(None) };
+    let line = match held.child() {
+        Some(line) => line,
+        None => return Ok(None),
+    };
 
-    let Some(last) = line.last_child() else { return Ok(None) };
+    let last = match line.last_child() {
+        Some(last) => last,
+        None => return Ok(None),
+    };
 
     Ok(match last.widget_name() == named::ELSE {
         true => last.downcast_ref::<Button>().cloned(),
@@ -2904,7 +3025,10 @@ fn under(rows: &[Row]) -> Result<i32, Never> {
 }
 
 fn keep_films_going(rows: &[Row]) -> Result<(), Never> {
-    let Some(films) = FILMS.with_borrow(|films| films.clone()) else { return Ok(()) };
+    let films = match FILMS.with_borrow(|films| films.clone()) {
+        Some(films) => films,
+        None => return Ok(()),
+    };
 
     for row in rows {
         match &row.picture {
@@ -3348,7 +3472,10 @@ fn dressed() -> Result<(), Never> {
         Dressed::Not => {},
     }
 
-    let Some(display) = gtk4::gdk::Display::default() else { return Ok(()) };
+    let display = match gtk4::gdk::Display::default() {
+        Some(display) => display,
+        None => return Ok(()),
+    };
 
     let Ok(written) = style::sheet();
 

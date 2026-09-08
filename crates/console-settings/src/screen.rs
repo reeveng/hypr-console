@@ -64,7 +64,12 @@ pub fn at() -> Result<PathBuf, Never> {
 pub const DIMMED: i64 = FLOOR;
 
 pub fn remembered() -> Result<Option<PathBuf>, Never> {
-    let Ok(run) = std::env::var("XDG_RUNTIME_DIR") else { return Ok(None) };
+    let run = match std::env::var("XDG_RUNTIME_DIR") {
+        Ok(run) => run,
+        Err(std::env::VarError::NotPresent | std::env::VarError::NotUnicode(_)) => {
+            return Ok(None);
+        }
+    };
 
     Ok(Some(PathBuf::from(run).join("console-dim")))
 }
@@ -79,9 +84,15 @@ pub fn undimming(now: i64, was: i64) -> Result<Option<i64>, Never> {
 pub fn now() -> Result<Option<i64>, Never> {
     let at = at()?;
 
-    let Ok(said) = std::fs::read_to_string(at) else { return Ok(None) };
+    let said = match std::fs::read_to_string(at) {
+        Ok(said) => said,
+        Err(_) => return Ok(None),
+    };
 
-    let Ok(now) = said.trim().parse::<i64>() else { return Ok(None) };
+    let now = match said.trim().parse::<i64>() {
+        Ok(now) => now,
+        Err(_) => return Ok(None),
+    };
 
     Ok(Some(now))
 }

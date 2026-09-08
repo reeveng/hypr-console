@@ -37,6 +37,15 @@
 //! clear, and waiting for the lock rather than for the process is what puts the
 //! two in order: the one going holds it until the kernel closes its files, so
 //! the lock being free is the screen being free.
+//!
+//! And one that will not go is taken off the screen. A panel whose compositor
+//! has gone spins on a socket that is hung up and answers nothing, which is the
+//! whole of `asked`'s argument, and it holds the lock while it spins: every
+//! panel asked for after it is turned away, and the button that opens one looks
+//! broken to the hand that keeps pressing it. Being asked is the politeness
+//! there is, and it is bounded. After that the screen is taken, because the
+//! kernel drops the lock as the process ends and stopping is the one thing a
+//! wedged chooser can still be made to do.
 
 
 use console_core_never::Never;
@@ -162,7 +171,10 @@ pub fn take(handle: &File) -> Result<Took, Never> {
 pub fn holder(said: &str) -> Result<(i32, &str), Never> {
     let (pid, name) = said.trim().split_once(' ').unwrap_or((said.trim(), ""));
 
-    let Ok(pid) = pid.parse::<i32>() else { return Ok((0, name)) };
+    let pid = match pid.parse::<i32>() {
+        Ok(pid) => pid,
+        Err(_fault) => return Ok((0, name)),
+    };
 
     Ok((pid, name))
 }
@@ -234,8 +246,9 @@ pub enum Again {
 pub fn put_away() -> Result<Away, Never> {
     let Ok(where_) = where_();
 
-    let Ok(mut handle) = OpenOptions::new().read(true).write(true).open(where_) else {
-        return Ok(Away::Nothing);
+    let mut handle = match OpenOptions::new().read(true).write(true).open(where_) {
+        Ok(handle) => handle,
+        Err(_fault) => return Ok(Away::Nothing),
     };
 
     let Ok(took) = take(&handle);
@@ -296,7 +309,10 @@ pub fn alone(name: &str, again: Again) -> Result<Alone, Never> {
         .transpose()
         .and_then(|_| OpenOptions::new().read(true).write(true).create(true).truncate(false).open(&path));
 
-    let Ok(mut handle) = opened else { return Ok(Alone::Yes) };
+    let mut handle = match opened {
+        Ok(handle) => handle,
+        Err(_fault) => return Ok(Alone::Yes),
+    };
 
     let Ok(took) = take(&handle);
 
@@ -337,23 +353,27 @@ pub fn alone(name: &str, again: Again) -> Result<Alone, Never> {
             // SAFETY: a signal to a pid, which is what the file said was there.
             unsafe { libc::kill(pid, libc::SIGTERM) };
 
-            let Ok(patience) = Patience::asking_every(PATIENCE, BREATH);
-            let Ok(waited) = until(patience, || {
-                let Ok(got) = take(&handle);
+            let Ok(asked) = given_up(&handle, PATIENCE);
 
-                Ok(match got == Took::It {
-                    true => Seen::Yes,
-                    false => Seen::NotYet,
-                })
-            });
+            match asked {
+                Waited::Happened => {},
+                Waited::RanOut => {
+                    eprintln!("{name}: {pid} would not give the screen up, and is taken off it");
 
-            match waited == Waited::RanOut {
-                true => {
-                    eprintln!("{name}: {pid} has the screen and will not give it up");
+                    // SAFETY: the same pid the file named, asked once already.
+                    unsafe { libc::kill(pid, libc::SIGKILL) };
 
-                    return Ok(Alone::No);
+                    let Ok(taken) = given_up(&handle, COMING);
+
+                    match taken {
+                        Waited::Happened => {},
+                        Waited::RanOut => {
+                            eprintln!("{name}: {pid} was taken off the screen and it is not free");
+
+                            return Ok(Alone::No);
+                        }
+                    }
                 }
-                false => {},
             }
 
             match holding == name {
@@ -367,6 +387,19 @@ pub fn alone(name: &str, again: Again) -> Result<Alone, Never> {
     kept(&mut held, handle, name)
 }
 
+fn given_up(handle: &File, patience: Duration) -> Result<Waited, Never> {
+    let Ok(patience) = Patience::asking_every(patience, BREATH);
+
+    until(patience, || {
+        let Ok(got) = take(handle);
+
+        Ok(match got == Took::It {
+            true => Seen::Yes,
+            false => Seen::NotYet,
+        })
+    })
+}
+
 fn kept(held: &mut Option<Holding>, mut handle: File, name: &str) -> Result<Alone, Never> {
     let Ok(()) = written(&mut handle, "");
 
@@ -378,7 +411,10 @@ fn kept(held: &mut Option<Holding>, mut handle: File, name: &str) -> Result<Alon
 pub fn drawn() -> Result<(), Never> {
     let Ok(mut held) = holding();
 
-    let Some(holding) = held.as_mut() else { return Ok(()) };
+    let holding = match held.as_mut() {
+        Some(holding) => holding,
+        None => return Ok(()),
+    };
 
     let name = holding.name.clone();
     let Ok(()) = written(&mut holding.handle, &name);
@@ -389,7 +425,10 @@ pub fn drawn() -> Result<(), Never> {
 pub fn gone() -> Result<(), Never> {
     let Ok(mut held) = holding();
 
-    let Some(holding) = held.as_mut() else { return Ok(()) };
+    let holding = match held.as_mut() {
+        Some(holding) => holding,
+        None => return Ok(()),
+    };
 
     let Ok(()) = written(&mut holding.handle, "");
 

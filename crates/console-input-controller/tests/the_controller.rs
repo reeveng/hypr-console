@@ -427,14 +427,20 @@ fn nothing_signals_the_daemon_or_remembers_a_profile_for_it() {
     let mut remembers = Vec::new();
     let mut walk = vec![files.clone()];
     while let Some(at) = walk.pop() {
-        let Ok(reading) = std::fs::read_dir(&at) else { continue };
+        let reading = match std::fs::read_dir(&at) {
+            Ok(reading) => reading,
+            Err(_fault) => continue,
+        };
         for child in reading.filter_map(Result::ok) {
             let path = child.path();
             if path.is_dir() {
                 walk.push(path);
                 continue;
             }
-            let Ok(held) = std::fs::read_to_string(&path) else { continue };
+            let held = match std::fs::read_to_string(&path) {
+                Ok(held) => held,
+                Err(_fault) => continue,
+            };
             let here = path.strip_prefix(&files).unwrap_or(&path).display().to_string();
             for line in held.lines().filter(|line| !line.trim_start().starts_with('#')) {
                 if line.contains("systemctl") && line.contains("kill") {
@@ -459,7 +465,10 @@ fn no_program_here_stops_a_unit_with_a_signal() {
     let mut signals = Vec::new();
     let mut walk = vec![crates.clone()];
     while let Some(at) = walk.pop() {
-        let Ok(reading) = std::fs::read_dir(&at) else { continue };
+        let reading = match std::fs::read_dir(&at) {
+            Ok(reading) => reading,
+            Err(_fault) => continue,
+        };
         for child in reading.filter_map(Result::ok) {
             let path = child.path();
             if path.is_dir() {
@@ -475,7 +484,10 @@ fn no_program_here_stops_a_unit_with_a_signal() {
             if !path.components().any(|part| part.as_os_str() == "src") {
                 continue;
             }
-            let Ok(held) = std::fs::read_to_string(&path) else { continue };
+            let held = match std::fs::read_to_string(&path) {
+                Ok(held) => held,
+                Err(_fault) => continue,
+            };
             let here = path.strip_prefix(&crates).unwrap_or(&path).display().to_string();
             for line in held.lines().filter(|line| !line.trim_start().starts_with("//")) {
                 if line.contains("\"STOP\"") || line.contains("signal=STOP") {

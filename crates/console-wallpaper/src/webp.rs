@@ -49,12 +49,14 @@ pub fn image_of(single: &[u8]) -> Result<&[u8], String> {
     let mut at: usize = 12;
 
     while at.saturating_add(8) <= single.len() {
-        let Some(tag) = single.get(at..at.saturating_add(4)) else {
-            return Err("that WebP is cut short".to_string());
+        let tag = match single.get(at..at.saturating_add(4)) {
+            Some(tag) => tag,
+            None => return Err("that WebP is cut short".to_string()),
         };
 
-        let Some(said) = single.get(at.saturating_add(4)..at.saturating_add(8)) else {
-            return Err("that WebP is cut short".to_string());
+        let said = match single.get(at.saturating_add(4)..at.saturating_add(8)) {
+            Some(said) => said,
+            None => return Err("that WebP is cut short".to_string()),
         };
 
         let four: [u8; 4] =

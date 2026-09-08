@@ -1,0 +1,53 @@
+[package]
+name = "console-music-panel"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_music_panel"
+path = "src/lib.rs"
+
+[[bin]]
+name = "music-panel"
+path = "src/bin/music-panel.rs"
+
+[[bin]]
+name = "music-bar"
+path = "src/bin/music-bar.rs"
+
+# Reading the whole library is minutes of ffprobe, so it is a program of its
+# own: the panel starts it and goes on drawing.
+[[bin]]
+name = "music-index"
+path = "src/bin/music-index.rs"
+
+[[bin]]
+name = "music-onward"
+path = "src/bin/music-onward.rs"
+
+# Draws a cover as characters into a terminal, which is how the port of kew's
+# renderer is checked against kew itself.
+[[bin]]
+name = "cover-ascii"
+path = "src/bin/cover-ascii.rs"
+
+[dependencies]
+console-core-atomic-writes.workspace = true
+console-core-never.workspace = true
+console-core-places.workspace = true
+console-waiting.workspace = true
+console-program-contract.workspace = true
+console-core-external-programs.workspace = true
+console-core-number-conversion.workspace = true
+gtk4 = "0.11"
+console-panel.workspace = true
+console-music-player.workspace = true
+# The one subscription per source on this machine. What used to be this
+# program's own connection to the compositor is a line down the pool's socket.
+console-events.workspace = true
+serde_json = "1"
+
+[lints]
+workspace = true

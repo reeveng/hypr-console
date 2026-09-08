@@ -14,8 +14,10 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use console_core_atomic_writes::Held;
 use console_core_external_programs::Program;
 use console_core_never::Never;
+use console_core_places::Base;
 
 use crate::entry::{Application, Installed};
 use crate::icons::{FALLBACKS, steam_appid};
@@ -42,45 +44,47 @@ pub fn said(name: &str) -> Result<Option<String>, Never> {
     }
 }
 
-pub fn home() -> Result<PathBuf, Never> {
-    let said = said("HOME")?;
+pub fn counts_at() -> Result<Option<PathBuf>, Never> {
+    let ours = Base::State.ours()?;
 
-    Ok(PathBuf::from(said.unwrap_or_else(|| "/root".to_string())))
+    Ok(ours.map(|ours| ours.join("menu-counts")))
 }
 
-pub fn counts_at() -> Result<PathBuf, Never> {
-    let home = home()?;
+fn index_at() -> Result<Option<PathBuf>, Never> {
+    let ours = Base::Cache.ours()?;
 
-    Ok(home.join(".local/state/console/menu-counts"))
+    Ok(ours.map(|ours| ours.join("icon-index")))
 }
 
-fn index_at() -> Result<PathBuf, Never> {
-    let home = home()?;
+fn kept_at() -> Result<Option<PathBuf>, Never> {
+    let ours = Base::Cache.ours()?;
 
-    Ok(home.join(".cache/console/icon-index"))
-}
-
-fn kept_at() -> Result<PathBuf, Never> {
-    let home = home()?;
-
-    Ok(home.join(".cache/console/menu-apps"))
+    Ok(ours.map(|ours| ours.join("menu-apps")))
 }
 
 fn icon_roots() -> Result<Vec<PathBuf>, Never> {
-    let home = home()?;
+    let home = console_core_places::home()?;
 
-    Ok(vec![
-        PathBuf::from("/usr/share/icons"),
-        PathBuf::from("/usr/share/pixmaps"),
-        home.join(".local/share/icons"),
-        home.join(".icons"),
-    ])
+    let share = Base::Share.hers()?;
+
+    let mut roots = vec![PathBuf::from("/usr/share/icons"), PathBuf::from("/usr/share/pixmaps")];
+
+    roots.extend(share.into_iter().map(|share| share.join("icons")));
+    roots.extend(home.into_iter().map(|home| home.join(".icons")));
+
+    Ok(roots)
 }
 
 fn steam_roots() -> Result<Vec<PathBuf>, Never> {
-    let home = home()?;
+    let home = console_core_places::home()?;
 
-    Ok(vec![home.join(".local/share/Steam"), home.join(".steam/steam")])
+    let share = Base::Share.hers()?;
+
+    Ok(share
+        .into_iter()
+        .map(|share| share.join("Steam"))
+        .chain(home.into_iter().map(|home| home.join(".steam/steam")))
+        .collect())
 }
 
 fn icons_changed_at() -> Result<std::time::SystemTime, Never> {
@@ -89,14 +93,20 @@ fn icons_changed_at() -> Result<std::time::SystemTime, Never> {
     let roots = icon_roots()?;
 
     for root in roots {
-        let Ok(about) = root.metadata() else { continue };
+        let about = match root.metadata() {
+            Ok(about) => about,
+            Err(_fault) => continue,
+        };
 
         newest = newest.max(match about.modified() {
             Ok(when) => when,
             Err(_no_modified_time) => std::time::UNIX_EPOCH,
         });
 
-        let Ok(reading) = std::fs::read_dir(&root) else { continue };
+        let reading = match std::fs::read_dir(&root) {
+            Ok(reading) => reading,
+            Err(_fault) => continue,
+        };
 
         for child in reading.filter_map(Result::ok) {
             match child.metadata() {
@@ -119,19 +129,22 @@ fn index() -> Result<BTreeMap<String, String>, Never> {
 
     let changed = icons_changed_at()?;
 
-    let kept = at
-        .metadata()
-        .and_then(|about| about.modified())
-        .is_ok_and(|written| written >= changed);
+    let kept = match at.as_ref() {
+        Some(at) => {
+            at.metadata().and_then(|about| about.modified()).is_ok_and(|written| written >= changed)
+        }
+        None => false,
+    };
 
     match kept {
-        true => match std::fs::read_to_string(&at) {
-            Ok(said) => {
+        true => match at.as_ref().map(std::fs::read_to_string) {
+            Some(Ok(said)) => {
                 let held = icons::read(&said)?;
 
                 return Ok(held);
             }
-            Err(_the_index_is_unreadable) => {},
+            Some(Err(_the_index_is_unreadable)) => {},
+            None => {},
         },
         false => {},
     }
@@ -140,16 +153,21 @@ fn index() -> Result<BTreeMap<String, String>, Never> {
 
     let built = icons::built(&roots)?;
 
-    match at.parent() {
-        Some(parent) => {
-            let _ = std::fs::create_dir_all(parent);
+    match at {
+        Some(at) => {
+            match at.parent() {
+                Some(parent) => {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                None => {},
+            }
+
+            let said = icons::written(&built)?;
+
+            let _ = std::fs::write(&at, said);
         }
         None => {},
     }
-
-    let said = icons::written(&built)?;
-
-    let _ = std::fs::write(&at, said);
 
     Ok(built)
 }
@@ -162,7 +180,10 @@ fn steam_icon(appid: &str) -> Result<Option<String>, Never> {
     for root in roots {
         let cache = root.join("appcache/librarycache").join(appid);
 
-        let Ok(reading) = std::fs::read_dir(&cache) else { continue };
+        let reading = match std::fs::read_dir(&cache) {
+            Ok(reading) => reading,
+            Err(_fault) => continue,
+        };
 
         let mut paths: Vec<PathBuf> =
             reading.filter_map(Result::ok).map(|entry| entry.path()).collect();
@@ -176,9 +197,17 @@ fn steam_icon(appid: &str) -> Result<Option<String>, Never> {
                 false => continue,
             }
 
-            let Ok(head) = read_head(&path) else { continue };
+            let head = match read_head(&path) {
+                Ok(head) => head,
+                Err(_fault) => continue,
+            };
 
-            let Some((width, height)) = image::size(&head)? else { continue };
+            let size = image::size(&head)?;
+
+            let (width, height) = match size {
+                Some((width, height)) => (width, height),
+                None => continue,
+            };
 
             match width == height {
                 true => return Ok(Some(path.to_string_lossy().to_string())),
@@ -218,7 +247,12 @@ fn icon_at(name: &str, index: &BTreeMap<String, String>) -> Result<Option<String
         None => {},
     }
 
-    let Some(appid) = steam_appid(name)? else { return Ok(None) };
+    let appid = steam_appid(name)?;
+
+    let appid = match appid {
+        Some(appid) => appid,
+        None => return Ok(None),
+    };
 
     steam_icon(appid)
 }
@@ -247,20 +281,25 @@ pub struct Found {
 pub fn machine() -> Result<Found, Never> {
     let index = index()?;
 
-    let said_dirs = said("XDG_DATA_DIRS")?;
-
-    let data_dirs = said_dirs.unwrap_or_else(|| entry::DATA_DIRS.to_string());
     let mut apps: BTreeMap<String, Application> = BTreeMap::new();
     let mut icon: BTreeMap<String, String> = BTreeMap::new();
 
-    let home = home()?;
+    let roots = console_core_places::applications()?;
 
-    let files = entry::files(&home, &data_dirs)?;
+    let files = entry::files(&roots)?;
 
     for path in files {
-        let Ok(said) = std::fs::read_to_string(&path) else { continue };
+        let said = match std::fs::read_to_string(&path) {
+            Ok(said) => said,
+            Err(_fault) => continue,
+        };
 
-        let Some(app) = entry::read(&said, here)? else { continue };
+        let app = entry::read(&said, here)?;
+
+        let app = match app {
+            Some(app) => app,
+            None => continue,
+        };
 
         match apps.contains_key(&app.name) {
             true => continue,
@@ -285,19 +324,24 @@ pub fn machine() -> Result<Found, Never> {
 }
 
 pub fn quickly() -> Result<Found, Never> {
-    let said_dirs = said("XDG_DATA_DIRS")?;
-
-    let data_dirs = said_dirs.unwrap_or_else(|| entry::DATA_DIRS.to_string());
     let mut apps: BTreeMap<String, Application> = BTreeMap::new();
 
-    let home = home()?;
+    let roots = console_core_places::applications()?;
 
-    let files = entry::files(&home, &data_dirs)?;
+    let files = entry::files(&roots)?;
 
     for path in files {
-        let Ok(said) = std::fs::read_to_string(&path) else { continue };
+        let said = match std::fs::read_to_string(&path) {
+            Ok(said) => said,
+            Err(_fault) => continue,
+        };
 
-        let Some(app) = entry::read(&said, here)? else { continue };
+        let app = entry::read(&said, here)?;
+
+        let app = match app {
+            Some(app) => app,
+            None => continue,
+        };
 
         apps.entry(app.name.clone()).or_insert(app);
     }
@@ -311,13 +355,13 @@ pub fn remembered() -> Result<Found, Never> {
 
     let at = kept_at()?;
 
-    let remembered = match std::fs::read_to_string(&at) {
-        Ok(held) => held,
-        Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(fault) => {
+    let remembered = match at.as_ref().map(|at| console_core_atomic_writes::read(at)) {
+        Some(Ok(Held::Said(held))) => held,
+        Some(Ok(Held::Nothing)) | None => String::new(),
+        Some(Ok(Held::Unreadable(fault))) => {
             let who = whoami()?;
 
-            eprintln!("{who}: {}: {fault}", at.display());
+            eprintln!("{who}: {}: {fault}", at.as_ref().map(|at| at.display().to_string()).unwrap_or_default());
 
             String::new()
         }
@@ -343,7 +387,12 @@ fn keep(
     apps: &BTreeMap<String, Application>,
     icon: &BTreeMap<String, String>,
 ) -> Result<(), Never> {
-    let at = kept_at()?;
+    let held = kept_at()?;
+
+    let at = match held {
+        Some(at) => at,
+        None => return Ok(()),
+    };
 
     let said = kept::written(apps, icon)?;
 
@@ -367,13 +416,13 @@ fn keep(
 pub fn counted() -> Result<BTreeMap<String, u64>, Never> {
     let at = counts_at()?;
 
-    let said = match std::fs::read_to_string(&at) {
-        Ok(said) => said,
-        Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(fault) => {
+    let said = match at.as_ref().map(|at| console_core_atomic_writes::read(at)) {
+        Some(Ok(Held::Said(said))) => said,
+        Some(Ok(Held::Nothing)) | None => String::new(),
+        Some(Ok(Held::Unreadable(fault))) => {
             let who = whoami()?;
 
-            eprintln!("{who}: {}: {fault}", at.display());
+            eprintln!("{who}: {}: {fault}", at.as_ref().map(|at| at.display().to_string()).unwrap_or_default());
 
             String::new()
         }
@@ -387,10 +436,13 @@ pub fn run(app: &Application) -> Result<(), Never> {
 
     let words = words::split(&app.command)?;
 
-    let Some(mut argv) = words else {
-        eprintln!("{}: {:?} is not a command", app.name, app.command);
+    let mut argv = match words {
+        Some(argv) => argv,
+        None => {
+            eprintln!("{}: {:?} is not a command", app.name, app.command);
 
-        return Ok(());
+            return Ok(());
+        }
     };
 
     match app.terminal {
@@ -412,7 +464,12 @@ pub fn run(app: &Application) -> Result<(), Never> {
 }
 
 pub fn bump(name: &str) -> Result<(), Never> {
-    let at = counts_at()?;
+    let held = counts_at()?;
+
+    let at = match held {
+        Some(at) => at,
+        None => return Ok(()),
+    };
 
     match at.parent() {
         Some(parent) => {

@@ -56,6 +56,7 @@ pub fn everywhere(
     terminal: &Terminal,
 ) -> Result<Vec<Written>, Short> {
     let home = files.join("home/@user@");
+    let Ok(ours) = console_core_places::Base::Config.ours_under(&home);
     let chrome = home.join(".librewolf/console/chrome");
     let whole = |path: PathBuf, body: String| Written {
         path,
@@ -80,8 +81,8 @@ pub fn everywhere(
     let Ok(colours) = alacritty::spend(terminal);
 
     Ok(vec![
-        whole(home.join(".config/console/palette.css"), css),
-        whole(home.join(".config/console/palette.toml"), colours),
+        whole(ours.join("palette.css"), css),
+        whole(ours.join("palette.toml"), colours),
         whole(chrome.join("palette.css"), stylesheet),
         whole(files.join("usr/local/lib/console/palette.sh"), sh),
         region(home.join(".config/kdeglobals"), kdeglobals),
@@ -162,14 +163,16 @@ pub mod tests {
             .iter()
             .map(|w| w.path.display().to_string())
             .collect();
+        let Ok(ours) = console_core_places::Base::Config.ours_under(std::path::Path::new(""));
+
         for wanted in [
-            ".config/console/palette.css",
-            ".config/console/palette.toml",
-            "chrome/palette.css",
-            "usr/local/lib/console/palette.sh",
+            ours.join("palette.css").display().to_string(),
+            ours.join("palette.toml").display().to_string(),
+            "chrome/palette.css".to_string(),
+            "usr/local/lib/console/palette.sh".to_string(),
         ] {
             assert!(
-                paths.iter().any(|p| p.contains(wanted)),
+                paths.iter().any(|p| p.contains(&wanted)),
                 "{wanted} is not written"
             );
         }

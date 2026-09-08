@@ -280,9 +280,15 @@ fn loading(file: &str) -> Result<Runs, Never> {
 }
 
 pub fn named(said: &str) -> Result<Option<String>, Never> {
-    let Some((_, after)) = said.split_once('"') else { return Ok(None) };
+    let (_taken, after) = match said.split_once('"') {
+        Some((_taken, after)) => (_taken, after),
+        None => return Ok(None),
+    };
 
-    let Some((name, _)) = after.split_once('"') else { return Ok(None) };
+    let (name, _taken_1) = match after.split_once('"') {
+        Some((name, _taken_1)) => (name, _taken_1),
+        None => return Ok(None),
+    };
 
     Ok(Some(name.to_string()))
 }

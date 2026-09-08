@@ -69,7 +69,10 @@ pub fn read(said: &str) -> Result<Vec<Kept>, Never> {
         .filter_map(|line| {
             let fields: Vec<&str> = line.split('\t').collect();
 
-            let [name, command, terminal, picture] = fields.as_slice() else { return None };
+            let (name, command, terminal, picture) = match fields.as_slice() {
+                [name, command, terminal, picture] => (name, command, terminal, picture),
+                _not_four_fields => return None,
+            };
 
             match name.is_empty() || command.is_empty() {
                 true => return None,

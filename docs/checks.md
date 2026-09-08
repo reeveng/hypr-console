@@ -15,10 +15,12 @@ rather than adding a second one.
 A check is written for the stages that can answer it. `Body::Here` is what needs
 no machine, `Body::Device` is what only the Legion Go can answer, and
 `Body::Desktop` is what wants a screen to look at: `--stage desktop` runs the
-device's desktop nested on this machine and can say what colour it is. A stage
-nothing is written for skips and says so. So does a stage that is handed
-something it cannot do, which is how `120` and `130` say the device cannot see a
-page scroll or send a touch.
+device's desktop nested on this machine and can say what colour it is and which
+windows the nested compositor had when it looked -- the second because whether a
+session came back is a question about which windows exist and not about any
+colour. A stage nothing is written for skips and says so. So does a stage that
+is handed something it cannot do, which is how `120` and `130` say the device
+cannot see a page scroll or send a touch.
 
 Every check that runs without a machine also runs in `cargo test`, so a check
 nobody has run since the feature changed cannot survive to fail on the device
@@ -273,9 +275,13 @@ A tier below the three above, and the one a change to a panel is tried in while
 it is being written. It opens one panel in the nested desktop, with no bar and
 no desktop around it, and asks it what it put on the screen.
 
-A panel says so when `CONSOLE_PANEL_TELLS` names a file: one line per draw, and
-in the line every part of itself a hand is offered and the rectangle it occupies
-in the room the compositor granted. `console_panel::telling` reads it back and
+A panel says so when `CONSOLE_PANEL_TELLS` names a file: one line per painted
+frame, and in the line every part of itself a hand is offered and the rectangle
+it occupies in the room the compositor granted. Per painted frame rather than
+per redraw asked for, because a card measured between the two is a card where
+nothing has been given any room yet, and every mark in it comes back at its
+smallest size against the left edge of the window -- a red check for a reason
+that is not the panel, arriving only on a machine busy enough to lose the race. `console_panel::telling` reads it back and
 `console_test_stages::panels` holds it against what the rows were built to
 offer. What that can answer is the question none of the other tiers could: not
 whether the panel is drawn, but whether a hand could use what is drawn.

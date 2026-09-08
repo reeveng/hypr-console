@@ -116,7 +116,10 @@ fn a_site(said: &str) -> Result<Typed, Never> {
 fn a_host(said: &str) -> Result<Typed, Never> {
     let labels: Vec<&str> = said.split('.').collect();
 
-    let Some(last) = labels.last() else { return Ok(Typed::AQuestion) };
+    let last = match labels.last() {
+        Some(last) => last,
+        None => return Ok(Typed::AQuestion),
+    };
 
     let named = labels.len() > 1
         && labels.iter().all(|label| !label.is_empty())

@@ -23,7 +23,10 @@ impl Plug<'_> {
     fn descriptor(&self, path: &str) -> Result<Option<&Descriptor>, Never> {
         let Ok(role) = self.devices.sink.role_at(path);
 
-        let Some(role) = role else { return Ok(None) };
+        let role = match role {
+            Some(role) => role,
+            None => return Ok(None),
+        };
 
         Ok(self.devices.descriptors.get(role))
     }
@@ -62,7 +65,10 @@ impl Plugged for Plug<'_> {
     fn ranges(&self, path: &str) -> Ranges {
         let Ok(found) = self.descriptor(path);
 
-        let Some(told) = found else { return Ranges::default() };
+        let told = match found {
+            Some(told) => told,
+            None => return Ranges::default(),
+        };
 
         let Ok(stick) = told.axis(AbsoluteAxisCode::ABS_RX.0);
         let Ok(trigger) = told.axis(AbsoluteAxisCode::ABS_Z.0);
@@ -80,8 +86,9 @@ impl Plugged for Plug<'_> {
     fn drain(&mut self, path: &str) -> Result<Vec<InputEvent>, Gone> {
         let Ok(at) = self.devices.sink.role_at(path);
 
-        let Some(role) = at.map(str::to_string) else {
-            return Err(Gone);
+        let role = match at.map(str::to_string) {
+            Some(role) => role,
+            None => return Err(Gone),
         };
 
         let arrived = self.devices.sink.devices.get_mut(&role).map(|device| {

@@ -1,0 +1,29 @@
+[package]
+name = "console-music-player"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_music_player"
+path = "src/lib.rs"
+
+# The player itself, which the panel starts and then only ever asks.
+[[bin]]
+name = "music-player"
+path = "src/bin/music-player.rs"
+
+[dependencies]
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+console-core-external-programs.workspace = true
+console-core-places.workspace = true
+console-program-lifetime.workspace = true
+console-response-times.workspace = true
+gio = "0.22"
+glib = "0.22"
+serde_json = "1"
+
+[lints]
+workspace = true

@@ -1,12 +1,34 @@
-//! Where the Configuration tab is standing, and how the home grid steps.
+//! Where the panel is standing, and how the home grid steps.
 //!
-//! Eight of the nine tabs here hold nothing between one drawing and the next:
-//! they ask the machine what the sound, the radios and the battery are doing
-//! and draw the answer. The ninth goes deeper -- into which browser search,
-//! which language dictation, and what opens each kind of file -- and the rule
-//! worth writing down is where B lands. Backing out of a choice puts the thumb
-//! on the row that opened it rather than at the top, because the row that
-//! opened it is what somebody was looking at.
+//! Most of these tabs hold nothing between one drawing and the next: they ask
+//! the machine what the sound, the radios and the battery are doing and draw
+//! the answer. Three of them go deeper -- Language into which words the machine
+//! is in, which alphabets the keyboard types and which one the paddle listens
+//! for, Setup into which browser search, where the hour is kept and what opens
+//! each kind of file, and Bluetooth into one device at a time -- and the rule
+//! worth writing down is where B lands.
+//!
+//! One state for the whole card, and three pages reading it. `under` is what
+//! keeps that honest: a page asked to draw while the standing place belongs to
+//! another tab draws its own top rows rather than somebody else\'s list. The
+//! alternative was a state per page, which is three things to keep in step
+//! where the panel only ever stands in one place at a time.
+//! Backing out of a page puts the thumb on the row that opened it rather than
+//! at the top, because the row that opened it is what somebody was looking at.
+//!
+//! A device is carried here by address rather than by the row it was on. The
+//! Bluetooth list is the one list on this panel that changes underneath the
+//! thumb: a scan adds strangers and bluez drops the ones it stops hearing, so
+//! the fourth row is not the same device it was a second ago and a page opened
+//! by number would be a page about whoever moved into that place. The row is
+//! carried too, but only to stand on when the page closes, which is a guess
+//! that costs nothing when it is wrong.
+//!
+//! A device can also leave while its own page is up -- forgotten from that
+//! page, or dropped by bluez when a scan ends -- and the tab draws the list
+//! again when the address it is standing on names nothing. Forgetting says so
+//! here as it goes; the other way leaves the page standing on a device that is
+//! gone, which costs the one B press that puts it right.
 //!
 //! The home grid is here for a different reason. Stepping it is arithmetic on
 //! somebody's screen -- one column fewer, one size up the ladder -- and it was
@@ -20,21 +42,52 @@ use console_program_contract::{Argv, Doing, Opening, Program, Turn, Word};
 
 pub const SEARCH: usize = 0;
 
-pub const DICTATION: usize = 1;
+pub const WHERE: usize = 1;
 
-pub const FIRST_KIND: usize = 4;
+pub const CLOCK: usize = 2;
+
+pub const CALLED: usize = 3;
+
+pub const FIRST_KIND: usize = 6;
+
+pub const SAYS: usize = 0;
+
+pub const TYPES: usize = 1;
+
+pub const DICTATION: usize = 2;
 
 pub const DEEPER: usize = 2;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub const MEETING: usize = 1;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Meeting {
+    pub address: String,
+    pub at: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Deeper {
+    pub name: String,
+    pub at: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Onto {
     Settings,
     Search,
     Dictation,
     Kind(usize),
+    Meeting(Meeting),
+    Tongues,
+    Tongue(Deeper),
+    Alphabets,
+    Zones,
+    Zone(Deeper),
+    Clock,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Heard {
     Opened(Onto),
     Back,
@@ -47,6 +100,12 @@ pub enum Heard {
 pub enum Its {
     Replace(usize),
     Home(Shape),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Under {
+    Language,
+    Configuration,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,17 +128,30 @@ impl Program for Settings {
     }
 
     fn heard(state: &Onto, word: &Word<Heard>) -> Turn<Onto, Its> {
-        let Word::Its(heard) = word else {
-            let Ok(nothing) = Turn::nothing(*state);
+        let heard = match word {
+            Word::Its(heard) => heard,
 
-            return nothing;
+            Word::Opened
+            | Word::Changed(_)
+            | Word::CameRound(_, _)
+            | Word::Answered(_)
+            | Word::Chose(_)
+            | Word::Stopping => {
+                let Ok(nothing) = Turn::nothing(state.clone());
+
+                return nothing;
+            }
         };
 
         let Ok(turn) = match heard {
-            Heard::Opened(onto) => Turn::doing(*onto, vec![Doing::Its(Its::Replace(DEEPER))]),
+            Heard::Opened(onto) => {
+                let Ok(at) = standing_on(onto);
+
+                Turn::doing(onto.clone(), vec![Doing::Its(Its::Replace(at))])
+            }
 
             Heard::Back => {
-                let Ok(row) = row_of(*state);
+                let Ok(row) = row_of(state);
 
                 Turn::doing(Onto::Settings, vec![Doing::Its(Its::Replace(row))])
             }
@@ -89,7 +161,7 @@ impl Program for Settings {
 
                 let Ok(across) = shape.across(columns);
 
-                grid(*state, across)
+                grid(state.clone(), across)
             }
 
             Heard::Down { shape, step } => {
@@ -97,7 +169,7 @@ impl Program for Settings {
 
                 let Ok(down) = shape.down(rows);
 
-                grid(*state, down)
+                grid(state.clone(), down)
             }
 
             Heard::Sized { shape, step } => {
@@ -105,7 +177,7 @@ impl Program for Settings {
 
                 let Ok(sized) = shape.sized(size);
 
-                grid(*state, sized)
+                grid(state.clone(), sized)
             }
         };
 
@@ -117,18 +189,64 @@ fn grid(state: Onto, shape: Shape) -> Result<Turn<Onto, Its>, Never> {
     Turn::doing(state, vec![Doing::Its(Its::Home(shape))])
 }
 
-pub fn row_of(onto: Onto) -> Result<usize, Never> {
+pub fn row_of(onto: &Onto) -> Result<usize, Never> {
     match onto {
         Onto::Dictation => Ok(DICTATION),
-        Onto::Kind(at) => Ok(FIRST_KIND.saturating_add(at)),
+        Onto::Kind(at) => Ok(FIRST_KIND.saturating_add(*at)),
+        Onto::Meeting(meeting) => Ok(meeting.at),
+        Onto::Tongues => Ok(SAYS),
+        Onto::Alphabets => Ok(TYPES),
+        Onto::Zones => Ok(WHERE),
+        Onto::Clock => Ok(CLOCK),
+        Onto::Tongue(deeper) | Onto::Zone(deeper) => Ok(deeper.at),
         Onto::Settings | Onto::Search => Ok(SEARCH),
     }
 }
 
-pub fn closes(onto: Onto) -> Result<Closes, Never> {
+fn standing_on(onto: &Onto) -> Result<usize, Never> {
+    match onto {
+        Onto::Meeting(_) => Ok(MEETING),
+        Onto::Settings
+        | Onto::Search
+        | Onto::Dictation
+        | Onto::Kind(_)
+        | Onto::Tongues
+        | Onto::Tongue(_)
+        | Onto::Alphabets
+        | Onto::Zones
+        | Onto::Zone(_)
+        | Onto::Clock => Ok(DEEPER),
+    }
+}
+
+pub fn closes(onto: &Onto) -> Result<Closes, Never> {
     match onto {
         Onto::Settings => Ok(Closes::Yes),
-        Onto::Search | Onto::Dictation | Onto::Kind(_) => Ok(Closes::No),
+        Onto::Search
+        | Onto::Dictation
+        | Onto::Kind(_)
+        | Onto::Meeting(_)
+        | Onto::Tongues
+        | Onto::Tongue(_)
+        | Onto::Alphabets
+        | Onto::Zones
+        | Onto::Zone(_)
+        | Onto::Clock => Ok(Closes::No),
+    }
+}
+
+pub fn under(onto: &Onto) -> Result<Under, Never> {
+    match onto {
+        Onto::Tongues | Onto::Tongue(_) | Onto::Alphabets | Onto::Dictation => {
+            Ok(Under::Language)
+        }
+        Onto::Settings
+        | Onto::Search
+        | Onto::Kind(_)
+        | Onto::Meeting(_)
+        | Onto::Zones
+        | Onto::Zone(_)
+        | Onto::Clock => Ok(Under::Configuration),
     }
 }
 
@@ -157,7 +275,7 @@ mod tests {
     use super::*;
 
     fn said(heard: &[Heard]) -> Said<Onto, Heard, Its> {
-        let words: Vec<Word<Heard>> = heard.iter().copied().map(Word::Its).collect();
+        let words: Vec<Word<Heard>> = heard.iter().cloned().map(Word::Its).collect();
 
         let Ok(told) = told::<Settings>(&Argv::default(), &words);
 
@@ -191,9 +309,30 @@ mod tests {
 
     #[test]
     fn b_leaves_the_panel_only_from_the_top() {
-        assert_eq!(closes(Onto::Settings), Ok(Closes::Yes));
-        assert_eq!(closes(Onto::Search), Ok(Closes::No));
-        assert_eq!(closes(Onto::Kind(0)), Ok(Closes::No));
+        assert_eq!(closes(&Onto::Settings), Ok(Closes::Yes));
+        assert_eq!(closes(&Onto::Search), Ok(Closes::No));
+        assert_eq!(closes(&Onto::Kind(0)), Ok(Closes::No));
+        assert_eq!(closes(&Onto::Meeting(meeting(4))), Ok(Closes::No));
+    }
+
+    fn meeting(at: usize) -> Meeting {
+        Meeting { address: "AA:BB:CC:DD:EE:FF".to_string(), at }
+    }
+
+    #[test]
+    fn a_device_is_still_the_same_device_when_the_list_has_moved_under_it() {
+        let out = said(&[Heard::Opened(Onto::Meeting(meeting(4)))]);
+
+        assert_eq!(out.now, Onto::Meeting(meeting(4)));
+        assert_eq!(doings(&out), vec![Doing::Its(Its::Replace(MEETING))]);
+    }
+
+    #[test]
+    fn closing_a_device_stands_the_thumb_back_on_its_row() {
+        let out = said(&[Heard::Opened(Onto::Meeting(meeting(4))), Heard::Back]);
+
+        assert_eq!(out.now, Onto::Settings);
+        assert_eq!(doings(&out).last(), Some(&Doing::Its(Its::Replace(4))));
     }
 
     #[test]

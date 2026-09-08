@@ -6,10 +6,11 @@
 
 use evdev::{AbsoluteAxisCode, EventType, KeyCode};
 
-use console_input_gamepad::jobs::Layer;
 use console_core_never::Never;
 use console_input_gamepad::routing::{self, Hat};
 use console_input_gamepad::vocabulary::spoken_for;
+
+use console_input_bindings::bound::Input;
 
 use crate::buttons;
 use crate::doing::Doing;
@@ -35,6 +36,37 @@ pub enum From {
     Pad,
     Keys,
     Touch,
+    Typing,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Wants {
+    One,
+    Every,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Meant {
+    Something,
+    Nothing,
+}
+
+impl From {
+    pub fn said(self) -> Result<&'static str, Never> {
+        Ok(match self {
+            From::Pad => "pad",
+            From::Keys => "keyboard",
+            From::Touch => "touchpad",
+            From::Typing => "keyboard somebody plugged in",
+        })
+    }
+
+    pub fn wants(self) -> Result<Wants, Never> {
+        Ok(match self {
+            From::Pad | From::Keys | From::Touch => Wants::One,
+            From::Typing => Wants::Every,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,6 +79,30 @@ pub struct Ranges {
 pub enum Trigger {
     Held,
     Loose,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Pulled {
+    pub l2: bool,
+    pub r2: bool,
+}
+
+impl Pulled {
+    pub fn said(self) -> Result<Vec<&'static str>, Never> {
+        let mut said = Vec::new();
+
+        match self.l2 {
+            true => said.push("l2"),
+            false => {},
+        }
+
+        match self.r2 {
+            true => said.push("r2"),
+            false => {},
+        }
+
+        Ok(said)
+    }
 }
 
 impl Default for Ranges {
@@ -66,12 +122,14 @@ struct Stepping {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Controller {
     pub mode: Mode,
-    pub layer: Layer,
+    pub pulled: Pulled,
     pub wheel: Wheel,
     pub finger: Finger,
     pub ranges: Ranges,
     pub table: Table,
+    using: Option<Input>,
     holding: Vec<(&'static str, &'static Job)>,
+    down: Vec<&'static str>,
     stepping: Option<Stepping>,
     hat: (i32, i32),
     stick: (f64, f64),
@@ -100,7 +158,8 @@ impl Controller {
     pub fn pad_went(&mut self) -> Result<Vec<Doing>, Never> {
         self.stick = (0.0, 0.0);
         self.hat = (0, 0);
-        self.layer = Layer::default();
+        self.pulled = Pulled::default();
+        self.down.clear();
 
         self.let_go()
     }
@@ -117,11 +176,43 @@ impl Controller {
             From::Pad => self.on_pad(kind, code, value),
             From::Keys => self.on_keys(kind, code, value),
             From::Touch => self.on_touch(kind, code, value, now),
+            From::Typing => self.on_typing(kind, value),
         }
     }
 
+    pub fn using(&mut self, on: Input) -> Result<(), Never> {
+        self.using = Some(on);
+
+        Ok(())
+    }
+
+    fn on_typing(&mut self, kind: EventType, value: i32) -> Result<Vec<Doing>, Never> {
+        match (kind, value) {
+            (EventType::KEY, 1) => self.now_using(Input::Keyboard),
+            (_, _) => Ok(Vec::new()),
+        }
+    }
+
+    fn now_using(&mut self, on: Input) -> Result<Vec<Doing>, Never> {
+        match self.using {
+            Some(was) if was == on => return Ok(Vec::new()),
+            Some(_) | None => {},
+        }
+
+        self.using = Some(on);
+
+        Ok(vec![Doing::Using(on)])
+    }
+
     fn on_pad(&mut self, kind: EventType, code: u16, value: i32) -> Result<Vec<Doing>, Never> {
-        match kind {
+        let Ok(meant) = self.meant(kind, code, value);
+
+        let Ok(mut done) = match meant {
+            Meant::Something => self.now_using(Input::Pad),
+            Meant::Nothing => Ok(Vec::new()),
+        };
+
+        let Ok(rest) = match kind {
             EventType::ABSOLUTE => self.on_axis(code, value),
             EventType::KEY => {
                 let Ok(pad) = routing::button_of_pad(code);
@@ -132,13 +223,67 @@ impl Controller {
                 }
             },
             _ => Ok(Vec::new()),
+        };
+
+        done.extend(rest);
+
+        Ok(done)
+    }
+
+    fn meant(&self, kind: EventType, code: u16, value: i32) -> Result<Meant, Never> {
+        Ok(match kind {
+            EventType::KEY => match value {
+                1 => Meant::Something,
+                _ => Meant::Nothing,
+            },
+            EventType::ABSOLUTE => {
+                let Ok(moved) = self.moved(code, value);
+
+                moved
+            }
+            _ => Meant::Nothing,
+        })
+    }
+
+    fn moved(&self, code: u16, value: i32) -> Result<Meant, Never> {
+        let Ok(hat) = routing::is_hat(code);
+
+        match hat {
+            Hat::Axis => {
+                return Ok(match value {
+                    0 => Meant::Nothing,
+                    _ => Meant::Something,
+                });
+            }
+            Hat::NotAnAxis => {},
         }
+
+        let trigger = code == AbsoluteAxisCode::ABS_Z.0 || code == AbsoluteAxisCode::ABS_RZ.0;
+
+        match trigger {
+            true => {
+                let Ok(pulled) = self.pulled(value);
+
+                return Ok(match pulled {
+                    Trigger::Held => Meant::Something,
+                    Trigger::Loose => Meant::Nothing,
+                });
+            }
+            false => {},
+        }
+
+        let Ok(pushed) = pushed(value, self.ranges.stick);
+
+        Ok(match pushed.abs() > 0.0 {
+            true => Meant::Something,
+            false => Meant::Nothing,
+        })
     }
 
     fn on_trigger_button(&mut self, code: u16, value: i32) -> Result<Vec<Doing>, Never> {
         match (code == KeyCode::BTN_TL2.0, code == KeyCode::BTN_TR2.0) {
-            (true, _) => self.layer.l2 = value == 1,
-            (false, true) => self.layer.r2 = value == 1,
+            (true, _) => self.pulled.l2 = value == 1,
+            (false, true) => self.pulled.r2 = value == 1,
             (false, false) => {},
         }
 
@@ -152,8 +297,8 @@ impl Controller {
                 let held = pulled == Trigger::Held;
 
                 match code == AbsoluteAxisCode::ABS_Z.0 {
-                    true => self.layer.l2 = held,
-                    false => self.layer.r2 = held,
+                    true => self.pulled.l2 = held,
+                    false => self.pulled.r2 = held,
                 }
 
                 return Ok(Vec::new());
@@ -251,10 +396,14 @@ impl Controller {
                     false => {},
                 }
 
-                let Ok(found) = buttons::job_for(&self.table, self.mode, button, self.layer);
+                let Ok(held) = self.held();
+                let Ok(found) = buttons::job_for(&self.table, self.mode, &held, button);
 
-                let Some(job) = found else {
-                    return Ok(Vec::new());
+                self.down.push(button);
+
+                let job = match found {
+                    Some(job) => job,
+                    None => return Ok(Vec::new()),
                 };
 
                 match self.holding.len() < AT_ONCE {
@@ -283,8 +432,11 @@ impl Controller {
                 Ok(acted.into_iter().collect())
             }
             0 => {
-                let Some(at) = self.holding.iter().position(|(down, _)| *down == button) else {
-                    return Ok(Vec::new());
+                self.down.retain(|held| *held != button);
+
+                let at = match self.holding.iter().position(|(down, _)| *down == button) {
+                    Some(at) => at,
+                    None => return Ok(Vec::new()),
                 };
 
                 let (_, job) = self.holding.remove(at);
@@ -300,6 +452,14 @@ impl Controller {
             }
             _ => Ok(Vec::new()),
         }
+    }
+
+    fn held(&self) -> Result<Vec<&'static str>, Never> {
+        let Ok(mut held) = self.pulled.said();
+
+        held.extend(self.down.iter().copied());
+
+        Ok(held)
     }
 
     fn let_go(&mut self) -> Result<Vec<Doing>, Never> {
@@ -363,7 +523,10 @@ impl Controller {
     }
 
     fn stepped(&mut self, seconds: f64) -> Result<Vec<Doing>, Never> {
-        let Some(held) = &mut self.stepping else { return Ok(Vec::new()) };
+        let held = match &mut self.stepping {
+            Some(held) => held,
+            None => return Ok(Vec::new()),
+        };
 
         held.until -= seconds;
 
@@ -409,6 +572,13 @@ mod tests {
     }
 
     fn controller() -> Controller {
+        let mut held = Controller::default();
+        ok(held.reading(ranges()));
+        ok(held.using(Input::Pad));
+        held
+    }
+
+    fn fresh() -> Controller {
         let mut held = Controller::default();
         ok(held.reading(ranges()));
         held
@@ -569,7 +739,7 @@ mod tests {
         let mut held = controller();
         assert_eq!(pressed(&mut held, From::Pad, KeyCode::BTN_TR), [ok(Doing::workspace("+1", Carry::Nothing))]);
         ok(held.saw(From::Pad, EventType::KEY, KeyCode::BTN_TL2.0, 1, 1000.0));
-        assert!(held.layer.l2);
+        assert!(held.pulled.l2);
         assert_eq!(pressed(&mut held, From::Pad, KeyCode::BTN_TR), [ok(Doing::workspace("+1", Carry::Window))]);
     }
 
@@ -577,11 +747,11 @@ mod tests {
     fn pulling_l2_past_halfway_is_holding_it() {
         let mut held = controller();
         ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_Z.0, 400, 1000.0));
-        assert!(!held.layer.l2, "not far enough");
+        assert!(!held.pulled.l2, "not far enough");
         ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_Z.0, 900, 1000.0));
-        assert!(held.layer.l2);
+        assert!(held.pulled.l2);
         ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_RZ.0, 900, 1000.0));
-        assert!(held.layer.r2);
+        assert!(held.pulled.r2);
     }
 
     #[test]
@@ -622,12 +792,77 @@ mod tests {
     }
 
     #[test]
+    fn a_key_on_a_keyboard_somebody_plugged_in_says_which_input_is_being_used() {
+        let mut held = controller();
+        let typed = ok(held.saw(From::Typing, EventType::KEY, KeyCode::KEY_I.0, 1, 1000.0));
+
+        assert_eq!(typed, vec![Doing::Using(Input::Keyboard)]);
+
+        let again = ok(held.saw(From::Typing, EventType::KEY, KeyCode::KEY_J.0, 1, 1000.0));
+
+        assert!(again.is_empty(), "the input it was already on is not said twice");
+
+        let back = pressed(&mut held, From::Pad, KeyCode::BTN_SOUTH);
+
+        assert_eq!(back.first(), Some(&Doing::Using(Input::Pad)), "the last press wins");
+    }
+
+    #[test]
+    fn a_key_on_a_keyboard_somebody_plugged_in_does_nothing_else_at_all() {
+        let mut held = controller();
+        let typed = ok(held.saw(From::Typing, EventType::KEY, KeyCode::KEY_I.0, 1, 1000.0));
+
+        assert!(
+            !typed.iter().any(|what| matches!(what, Doing::Run(_) | Doing::Frame(_))),
+            "the compositor carries a key, and the daemon acting on one too is it happening twice"
+        );
+
+        let up = ok(held.saw(From::Typing, EventType::KEY, KeyCode::KEY_I.0, 0, 1000.0));
+
+        assert!(up.is_empty(), "a key let go says nothing");
+    }
+
+    #[test]
+    fn a_pad_that_is_merely_being_held_has_not_said_anything() {
+        let mut held = fresh();
+        ok(held.using(Input::Keyboard));
+
+        let drift = ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_RX.0, 12, 1000.0));
+
+        assert!(drift.is_empty(), "a stick resting on its centre is nobody using anything");
+
+        let resting = ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_Z.0, 3, 1000.0));
+
+        assert!(resting.is_empty(), "a trigger a few units off zero is a finger lying on it");
+
+        let moved =
+            ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_RX.0, 32767, 1000.0));
+
+        assert_eq!(moved.first(), Some(&Doing::Using(Input::Pad)), "a stick pushed is meant");
+    }
+
+    #[test]
+    fn nothing_has_been_pressed_yet_is_not_the_same_as_the_pad() {
+        let mut held = fresh();
+        let typed = ok(held.saw(From::Typing, EventType::KEY, KeyCode::KEY_I.0, 1, 1000.0));
+
+        assert_eq!(
+            typed,
+            vec![Doing::Using(Input::Keyboard)],
+            "a daemon that was told nothing says what the first press was"
+        );
+    }
+
+    #[test]
     fn what_comes_out_is_movement_on_one_device() {
         let mut held = controller();
         ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_RX.0, 32767, 1000.0));
         let turned = ok(held.tick(1.0));
-        let Some(Doing::Frame(notches)) = turned.first() else {
-            panic!("a frame of notches");
+        let notches = match turned.first() {
+            Some(Doing::Frame(notches)) => notches,
+            Some(Doing::Run(_) | Doing::Tell(_) | Doing::Using(_)) | None => {
+                panic!("a frame of notches")
+            }
         };
         assert!(notches.contains(&ok(Out::rel(RelativeAxisCode::REL_HWHEEL.0, 1))));
     }

@@ -41,8 +41,9 @@ impl Argv {
     }
 
     pub fn after(&self, word: &str) -> Result<Option<&str>, Never> {
-        let Some(at) = self.words.iter().position(|given| given == word) else {
-            return Ok(None);
+        let at = match self.words.iter().position(|given| given == word) {
+            Some(at) => at,
+            None => return Ok(None),
         };
 
         let next = self.words.iter().skip(at).nth(1);

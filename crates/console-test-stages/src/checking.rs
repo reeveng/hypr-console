@@ -230,8 +230,11 @@ fn ended(done: Done) -> Result<How, Never> {
 pub fn here(check: &Check, stage: &mut Here) -> Result<How, Never> {
     let Ok(found) = check.body(Stage::Here);
 
-    let Some(Body::Here(body)) = found else {
-        return Ok(How::Skipped("nothing written for here".to_string()));
+    let body = match found {
+        Some(Body::Here(body)) => body,
+        Some(Body::Device(_)) | Some(Body::Desktop(_)) | None => {
+            return Ok(How::Skipped("nothing written for here".to_string()));
+        }
     };
 
     let Ok(()) = stage.fresh();
@@ -242,8 +245,11 @@ pub fn here(check: &Check, stage: &mut Here) -> Result<How, Never> {
 pub fn device(check: &Check, stage: &mut Device) -> Result<How, Never> {
     let Ok(found) = check.body(Stage::Device);
 
-    let Some(Body::Device(body)) = found else {
-        return Ok(How::Skipped("nothing written for device".to_string()));
+    let body = match found {
+        Some(Body::Device(body)) => body,
+        Some(Body::Here(_)) | Some(Body::Desktop(_)) | None => {
+            return Ok(How::Skipped("nothing written for device".to_string()));
+        }
     };
 
     let Ok(()) = stage.fresh();
@@ -258,8 +264,11 @@ pub fn device(check: &Check, stage: &mut Device) -> Result<How, Never> {
 pub fn desktop(check: &Check, stage: &mut Desktop) -> Result<How, Never> {
     let Ok(found) = check.body(Stage::Desktop);
 
-    let Some(Body::Desktop(body)) = found else {
-        return Ok(How::Skipped("nothing written for desktop".to_string()));
+    let body = match found {
+        Some(Body::Desktop(body)) => body,
+        Some(Body::Here(_)) | Some(Body::Device(_)) | None => {
+            return Ok(How::Skipped("nothing written for desktop".to_string()));
+        }
     };
 
     let Ok(()) = stage.fresh();

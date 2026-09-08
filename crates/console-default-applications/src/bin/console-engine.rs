@@ -26,6 +26,7 @@ use std::path::{Path, PathBuf};
 
 use console_default_applications::engines;
 use console_default_applications::policies::{self, CHROMIUM, FIREFOX, LIBREWOLF, Where};
+use console_core_atomic_writes::Held;
 use console_core_never::Never;
 
 fn main() -> std::process::ExitCode {
@@ -33,9 +34,12 @@ fn main() -> std::process::ExitCode {
     let key = std::env::args().nth(1).unwrap_or(chosen);
     let Ok(known) = engines::one(&key);
 
-    let Some(engine) = known else {
-        eprintln!("{key}: not an engine this machine knows");
-        return std::process::ExitCode::from(1);
+    let engine = match known {
+        Some(engine) => engine,
+        None => {
+            eprintln!("{key}: not an engine this machine knows");
+            return std::process::ExitCode::from(1);
+        }
     };
 
     for place in [&CHROMIUM, &FIREFOX, &LIBREWOLF] {
@@ -65,13 +69,17 @@ fn main() -> std::process::ExitCode {
 fn shipped(place: &Where) -> Result<String, Never> {
     Ok(match place.beneath.is_empty() {
         true => String::new(),
-        false => match std::fs::read_to_string(place.beneath) {
-            Ok(said) => said,
-            Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => String::new(),
-            Err(fault) => {
-                eprintln!("console-engine: {}: {fault}", place.beneath);
+        false => {
+            let Ok(held) = console_core_atomic_writes::read(std::path::Path::new(place.beneath));
 
-                String::new()
+            match held {
+                Held::Said(said) => said,
+                Held::Nothing => String::new(),
+                Held::Unreadable(fault) => {
+                    eprintln!("console-engine: {}: {fault}", place.beneath);
+
+                    String::new()
+                }
             }
         },
     })

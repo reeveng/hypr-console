@@ -1,16 +1,19 @@
 [elsewhere]
-# Two programs this desktop is made of, which this repository does not carry.
+# One program this desktop is made of, which this repository does not carry.
 #
-# Both are forks of somebody else's work, kept on the machine as built
-# programs, and publishing a binary means publishing the source that made it.
-# For both of these that source is upstream's rather than ours, so the binary
-# is left out rather than published without it.
+# It is a fork of somebody else's work, kept on the machine as a built program,
+# and publishing a binary means publishing the source that made it. That source
+# is upstream's rather than ours, so the binary is left out rather than
+# published without it.
 #
-# docs/forks.md says what each one is, what the fork changes, and how to build
-# it. Build it, put it at the path named here, move that line up into [files],
-# and apply will carry it.
+# papers/forks.md says what it is, what the fork changes, and how to build it.
+# Build it, put it at the path named here, move that line up into [files], and
+# apply will carry it.
 #
 # Listed rather than left out, so that a unit starting a program nothing
 # installs stays the failure it should be everywhere else.
-/usr/local/bin/hyprsession
+#
+# There were two. The session keeper was the other, and it stopped being a
+# binary: its source is `crates/console-resume` and the copy carries it like any
+# other crate, which is what a fork ported into this workspace ought to be.
 /usr/local/bin/kew

@@ -47,8 +47,9 @@ use crate::watching::{
 use gstreamer::prelude::*;
 
 fn kind_of(path: &Path) -> Result<String, Never> {
-    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
-        return Ok(String::new());
+    let name = match path.file_name().and_then(|name| name.to_str()) {
+        Some(name) => name,
+        None => return Ok(String::new()),
     };
 
     let (kind, _) = gtk4::gio::functions::content_type_guess(Some(name), None::<&[u8]>);
@@ -65,10 +66,13 @@ fn listing(folder: &Path) -> Result<Vec<(String, String)>, Never> {
         .flatten()
         .filter(|entry| !entry.path().is_dir())
         .filter_map(|entry| {
-            let Ok(name) = entry.file_name().into_string() else {
-                eprintln!("viewer-panel: {:?}: this name is not text", entry.file_name());
+            let name = match entry.file_name().into_string() {
+                Ok(name) => name,
+                Err(_fault) => {
+                    eprintln!("viewer-panel: {:?}: this name is not text", entry.file_name());
 
-                return None;
+                    return None;
+                }
             };
 
             match name.starts_with('.') {
@@ -106,8 +110,9 @@ impl Looking {
         let Ok(said) = listing(&folder);
         let Ok(found) = Reel::of(&said, &opened);
 
-        let Some(reel) = found else {
-            return Ok(None);
+        let reel = match found {
+            Some(reel) => reel,
+            None => return Ok(None),
         };
 
         let Ok(watching) = Watching::of(reel, Since::ZERO);
@@ -285,9 +290,15 @@ impl Drop for Reeling {
 }
 
 fn words_beside(at: &Path) -> Result<Option<PathBuf>, Never> {
-    let Some(name) = at.file_name().and_then(|name| name.to_str()) else { return Ok(None) };
+    let name = match at.file_name().and_then(|name| name.to_str()) {
+        Some(name) => name,
+        None => return Ok(None),
+    };
 
-    let Some(folder) = at.parent() else { return Ok(None) };
+    let folder = match at.parent() {
+        Some(folder) => folder,
+        None => return Ok(None),
+    };
 
     let Ok(beside) = playing::beside(name);
 
@@ -390,7 +401,10 @@ fn reeling(held: &Held, at: &Path) -> Result<Option<gtk4::gdk::Paintable>, Never
 
         let open = reel.as_mut()?;
 
-        let Ok(mut looking) = held.lock() else { return Some(open.surface.clone()) };
+        let mut looking = match held.lock() {
+            Ok(looking) => looking,
+            Err(_fault) => return Some(open.surface.clone()),
+        };
 
         match looking.watching.sought.take() {
             Some(to) => {
@@ -498,7 +512,10 @@ fn reeling(held: &Held, at: &Path) -> Result<Option<gtk4::gdk::Paintable>, Never
 
 
 fn rows(held: &Held) -> Result<Vec<Row>, Never> {
-    let Ok(mut looking) = held.lock() else { return Ok(Vec::new()) };
+    let mut looking = match held.lock() {
+        Ok(looking) => looking,
+        Err(_fault) => return Ok(Vec::new()),
+    };
 
     let Ok(standing) = looking.at();
 
@@ -831,7 +848,10 @@ fn walk(held: &Held, by: isize) -> Result<(), Never> {
 const CARD: usize = 0;
 
 fn folder_rows(held: &Held) -> Result<Vec<Row>, Never> {
-    let Ok(looking) = held.lock() else { return Ok(Vec::new()) };
+    let looking = match held.lock() {
+        Ok(looking) => looking,
+        Err(_fault) => return Ok(Vec::new()),
+    };
 
     let here = looking.watching.reel.which();
 
@@ -870,7 +890,10 @@ fn folder_rows(held: &Held) -> Result<Vec<Row>, Never> {
 }
 
 fn stir(held: &Held) -> Result<Stirred, Never> {
-    let Ok(mut looking) = held.lock() else { return Ok(Stirred::Awake) };
+    let mut looking = match held.lock() {
+        Ok(looking) => looking,
+        Err(_fault) => return Ok(Stirred::Awake),
+    };
 
     let Ok(at) = looking.now();
     let Ok(was) = stirred(&looking.watching, at);
@@ -937,7 +960,10 @@ pub fn door(_argv: &[String]) -> Result<Door, Never> {
 pub fn worth_opening(argv: &[String]) -> Result<Worth, Never> {
     let Ok(asked) = asked_for(argv);
 
-    let Some(asked) = asked else { return Ok(Worth::Nothing) };
+    let asked = match asked {
+        Some(asked) => asked,
+        None => return Ok(Worth::Nothing),
+    };
 
     let Ok(found) = Looking::of(&asked);
 
@@ -959,10 +985,13 @@ fn asked_for(argv: &[String]) -> Result<Option<PathBuf>, Never> {
         None => {
             let Ok(folder) = by_default();
 
-            let Some(folder) = folder else {
-                eprintln!("usage: viewer-panel FILE-OR-FOLDER");
+            let folder = match folder {
+                Some(folder) => folder,
+                None => {
+                    eprintln!("usage: viewer-panel FILE-OR-FOLDER");
 
-                return Ok(None);
+                    return Ok(None);
+                }
             };
 
             Ok(Some(folder))
@@ -973,11 +1002,17 @@ fn asked_for(argv: &[String]) -> Result<Option<PathBuf>, Never> {
 pub fn card(argv: &[String]) -> Result<Card, Never> {
     let Ok(asked) = asked_for(argv);
 
-    let Some(asked) = asked else { return Card::new(Arc::new(Vec::new)) };
+    let asked = match asked {
+        Some(asked) => asked,
+        None => return Card::new(Arc::new(Vec::new)),
+    };
 
     let Ok(found) = Looking::of(&asked);
 
-    let Some(looking) = found else { return Card::new(Arc::new(Vec::new)) };
+    let looking = match found {
+        Some(looking) => looking,
+        None => return Card::new(Arc::new(Vec::new)),
+    };
 
     match gstreamer::init() {
         Ok(()) => {},

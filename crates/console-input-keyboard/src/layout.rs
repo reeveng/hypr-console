@@ -257,11 +257,15 @@ fn gap(low: f64, high: f64, point: f64) -> Result<f64, Never> {
 }
 
 pub fn toward(keys: &[Placed], from: Option<usize>, dx: i32, dy: i32) -> Result<Option<usize>, Never> {
-    let Some(here) = from.and_then(|at| keys.iter().position(|k| k.at == at)) else {
-        return Ok(keys.first().map(|k| k.at));
+    let here = match from.and_then(|at| keys.iter().position(|k| k.at == at)) {
+        Some(here) => here,
+        None => return Ok(keys.first().map(|k| k.at)),
     };
 
-    let Some(sel) = keys.get(here).copied() else { return Ok(keys.first().map(|k| k.at)) };
+    let sel = match keys.get(here).copied() {
+        Some(sel) => sel,
+        None => return Ok(keys.first().map(|k| k.at)),
+    };
 
     let middle = (sel.x + sel.wide / 2.0, sel.y + sel.tall / 2.0);
 
@@ -501,8 +505,9 @@ mod tests {
     fn the_language_key_always_has_the_numbers_beside_it() {
         for which in Which::ALL {
             let layout = of(which);
-            let Some(at) = layout.keys.iter().position(|key| key.kind == Kind::Language) else {
-                continue;
+            let at = match layout.keys.iter().position(|key| key.kind == Kind::Language) {
+                Some(at) => at,
+                None => continue,
             };
 
             let row = rows(layout)

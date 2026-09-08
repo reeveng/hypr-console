@@ -84,7 +84,8 @@ can be tried on a laptop in a second rather than over ssh.
 - [`console-manifest-migrations`](crates/console-manifest-migrations) -- what a machine has to be told, because the manifest cannot say it
 - [`console-manifest-publish`](crates/console-manifest-publish) -- builds this copy
 - [`console-media-viewer`](crates/console-media-viewer) -- a photograph and a film, on the machine that holds them
-- [`console-music`](crates/console-music) -- the music player: what it draws, what it lists, what it presses
+- [`console-music-panel`](crates/console-music-panel) -- the music: what it draws, what it lists, what it presses
+- [`console-music-player`](crates/console-music-player) -- and what makes the sound: ffmpeg into pw-cat, answering on MPRIS
 - [`console-notifications`](crates/console-notifications) -- what the desktop has said, kept where somebody can look
 - [`console-onscreen`](crates/console-onscreen) -- whether something is on the screen, asked of the compositor
 - [`console-palette`](crates/console-palette) -- spends the palette into every file that holds a colour
@@ -113,7 +114,7 @@ can be tried on a laptop in a second rather than over ssh.
 - `cargo run --bin allow-uinput` -- let this machine make input devices without being root
 - [`voice-compare`](tools/voice-compare) -- which hearing this device should use, measured on it
 - [`explicit-rust`](tools/explicit-rust) -- the dylint suite this workspace is written to, a workspace of its own
-  - [`explicit001_fallible_result`](tools/explicit-rust/explicit001_fallible_result) -- fallible fns return `Result<T, E>`
+  - [`explicit001_fallible_result`](tools/explicit-rust/explicit001_fallible_result) -- a failure met is a failure said
   - [`explicit002_infallible_result`](tools/explicit-rust/explicit002_infallible_result) -- infallible fns return `Result<T, Never>`
   - [`explicit003_no_never_error`](tools/explicit-rust/explicit003_no_never_error) -- `Result<T, !>` is forbidden; the name is `Never`
   - [`explicit004_no_panic`](tools/explicit-rust/explicit004_no_panic) -- no `unwrap`, `expect`, `panic`, `todo`, `unreachable`

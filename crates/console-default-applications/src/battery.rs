@@ -19,6 +19,7 @@
 //! come to, `console-battery` is what does it, and `bar-say battery` is the
 //! one thing on the machine reading the battery at all.
 
+use console_core_atomic_writes::Held;
 use console_core_never::Never;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -160,7 +161,10 @@ impl Levels {
             let key = step.key()?;
             let found = settings.iter().find(|(named, _)| named == key);
 
-            let Some((_key, value)) = found else { continue };
+            let (_key, value) = match found {
+                Some((_key, value)) => (_key, value),
+                None => continue,
+            };
 
             let level = match value.parse() {
                 Ok(level) => level,
@@ -184,11 +188,14 @@ impl Levels {
     pub fn here() -> Result<Self, Never> {
         let at = crate::where_()?;
 
-        let said = match std::fs::read_to_string(&at) {
-            Ok(said) => said,
-            Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => String::new(),
-            Err(fault) => {
-                eprintln!("console-default-applications: {}: {fault}", at.display());
+        let said = match at.as_ref().map(|at| console_core_atomic_writes::read(at)) {
+            Some(Ok(Held::Said(said))) => said,
+            Some(Ok(Held::Nothing)) | None => String::new(),
+            Some(Ok(Held::Unreadable(fault))) => {
+                eprintln!(
+                    "console-default-applications: {}: {fault}",
+                    at.as_ref().map(|at| at.display().to_string()).unwrap_or_default()
+                );
 
                 String::new()
             }
@@ -222,8 +229,9 @@ impl Levels {
 }
 
 pub fn charge() -> Result<String, Never> {
-    let Ok(supplies) = std::fs::read_dir("/sys/class/power_supply") else {
-        return Ok(String::new());
+    let supplies = match std::fs::read_dir("/sys/class/power_supply") {
+        Ok(supplies) => supplies,
+        Err(_fault) => return Ok(String::new()),
     };
 
     Ok(supplies
@@ -233,11 +241,12 @@ pub fn charge() -> Result<String, Never> {
             at.file_name().is_some_and(|name| name.to_string_lossy().starts_with("BAT"))
         })
         .filter_map(|at| {
-            let (Ok(capacity), Ok(status)) = (
+            let (capacity, status) = match (
                 std::fs::read_to_string(at.join("capacity")),
                 std::fs::read_to_string(at.join("status")),
-            ) else {
-                return None;
+            ) {
+                (Ok(capacity), Ok(status)) => (capacity, status),
+                (Err(_), _) | (_, Err(_)) => return None,
             };
 
             Some(format!("{} {}", capacity.trim(), status.trim()))

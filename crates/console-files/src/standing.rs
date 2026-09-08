@@ -113,10 +113,18 @@ impl Program for Files {
     }
 
     fn heard(state: &Standing, word: &Word<Heard>) -> Turn<Standing, Its> {
-        let Word::Its(heard) = word else {
-            let Ok(nothing) = Turn::nothing(state.clone());
+        let heard = match word {
+            Word::Its(heard) => heard,
+            Word::Opened
+            | Word::Changed(_)
+            | Word::CameRound(_, _)
+            | Word::Answered(_)
+            | Word::Chose(_)
+            | Word::Stopping => {
+                let Ok(nothing) = Turn::nothing(state.clone());
 
-            return nothing;
+                return nothing;
+            }
         };
 
         let Ok(turn) = match heard {
@@ -229,8 +237,9 @@ fn back(state: &Standing, tab: usize) -> Result<Turn<Standing, Its>, Never> {
 fn went_up(state: &Standing, tab: usize) -> Result<Turn<Standing, Its>, Never> {
     let mut walks = state.walks.clone();
 
-    let Some(walk) = walks.get_mut(tab) else {
-        return Turn::nothing(state.clone());
+    let walk = match walks.get_mut(tab) {
+        Some(walk) => walk,
+        None => return Turn::nothing(state.clone()),
     };
 
     let back_to = walk.up()?;
@@ -270,8 +279,9 @@ fn walked(
 ) -> Result<Standing, Never> {
     let mut walks = state.walks.clone();
 
-    let Some(walk) = walks.get_mut(tab) else {
-        return Ok(state.clone());
+    let walk = match walks.get_mut(tab) {
+        Some(walk) => walk,
+        None => return Ok(state.clone()),
     };
 
     for step in steps {
@@ -310,7 +320,10 @@ fn with_onto(state: &Standing, tab: usize, onto: Onto) -> Result<Standing, Never
 }
 
 pub fn here(state: &Standing, tab: usize) -> Result<PathBuf, Never> {
-    let Some(walk) = state.walks.get(tab) else { return Ok(PathBuf::new()) };
+    let walk = match state.walks.get(tab) {
+        Some(walk) => walk,
+        None => return Ok(PathBuf::new()),
+    };
 
     let here = walk.here()?;
 
@@ -326,16 +339,18 @@ pub fn typed(state: &Standing, tab: usize) -> Result<String, Never> {
 }
 
 pub fn called(state: &Standing, tab: usize) -> Result<String, Never> {
-    let (Some(walk), Some(place)) = (state.walks.get(tab), state.places.get(tab)) else {
-        return Ok(String::new());
+    let (walk, place) = match (state.walks.get(tab), state.places.get(tab)) {
+        (Some(walk), Some(place)) => (walk, place),
+        (None, _) | (_, None) => return Ok(String::new()),
     };
 
     walk.called(&place.title)
 }
 
 pub fn above(state: &Standing, tab: usize) -> Result<Option<String>, Never> {
-    let (Some(walk), Some(place)) = (state.walks.get(tab), state.places.get(tab)) else {
-        return Ok(None);
+    let (walk, place) = match (state.walks.get(tab), state.places.get(tab)) {
+        (Some(walk), Some(place)) => (walk, place),
+        (None, _) | (_, None) => return Ok(None),
     };
 
     walk.above(&place.title)
@@ -352,7 +367,10 @@ pub enum Top {
 }
 
 pub fn at_top(state: &Standing, tab: usize) -> Result<Top, Never> {
-    let Some(walk) = state.walks.get(tab) else { return Ok(Top::Yes) };
+    let walk = match state.walks.get(tab) {
+        Some(walk) => walk,
+        None => return Ok(Top::Yes),
+    };
 
     let at_top = walk.at_top()?;
 

@@ -98,7 +98,10 @@ impl Front {
     }
 
     pub fn can_send(&self, button: &str) -> Result<Has, Never> {
-        let Some(has) = &self.capabilities else { return Ok(Has::Yes) };
+        let has = match &self.capabilities {
+            Some(has) => has,
+            None => return Ok(Has::Yes),
+        };
 
         let capability = crate::vocabulary::capability_of(button)?;
 
@@ -129,7 +132,10 @@ impl Front {
     }
 
     pub fn spare(&self, bound: &[&str]) -> Result<Vec<String>, Never> {
-        let Some(has) = &self.capabilities else { return Ok(Vec::new()) };
+        let has = match &self.capabilities {
+            Some(has) => has,
+            None => return Ok(Vec::new()),
+        };
 
         let mut taken: BTreeSet<String> = BTreeSet::new();
 
@@ -196,7 +202,10 @@ enum Properties {
 }
 
 fn properties(line: &str) -> Result<Properties, Never> {
-    let Some(hex) = line.strip_prefix("B: PROP=") else { return Ok(Properties::Elsewhere) };
+    let hex = match line.strip_prefix("B: PROP=") {
+        Some(hex) => hex,
+        None => return Ok(Properties::Elsewhere),
+    };
 
     Ok(match u64::from_str_radix(hex.trim(), 16) {
         Ok(bits) => Properties::Bits(bits),

@@ -15,6 +15,17 @@
 //! commit it was on is compared as well: a branch that moved is a set of
 //! commits `just ready` never saw.
 //!
+//! ## What is asked before anything is spent
+//!
+//! The apply this ends in builds the whole desktop on the device's disk, which
+//! is the disk the games are on, so the first question is whether there is room
+//! for it -- asked before `just ready` spends its minutes here, because a
+//! refusal that arrives after the push is a device holding a checkout nothing
+//! has applied. `console room` is the engine's own arithmetic and the answer is
+//! the device's own sentence, watched rather than captured, so there is one
+//! policy in one place. An engine older than the question is not a device
+//! without room: it says so with its own code and the deploy carries on.
+//!
 //! ## The lock
 //!
 //! Several sessions share this working tree and none of them can see what the
@@ -66,6 +77,10 @@ pub const NO_CARD: i32 = 97;
 
 pub const SAID_NO: i32 = 1;
 
+pub const NO_ROOM: i32 = 1;
+
+pub const NOT_ASKED: i32 = 2;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Deploying {
     Nowhere,
@@ -102,6 +117,7 @@ pub enum Step {
     Retaking,
     Still,
     Marking,
+    Room,
     Ready,
     Fetching,
     Behind,
@@ -273,15 +289,49 @@ fn at(step: Step, going: &Going, word: &Word<Heard>) -> Result<Turn<Deploying, I
 
         (Step::Marking, Word::Answered(answer)) => {
             let going = Going { was: answer.said.trim().to_string(), ..going.clone() };
-            let Ok(ready) = Runs::theirs(Theirs::Just, &["ready"]);
+            let Ok(runs) = on(&going.host, "console room");
 
             Turn::doing(
-                Deploying::At(Step::Ready, going),
+                Deploying::At(Step::Room, going),
                 vec![
-                    Doing::Print("== everything that must hold, before anything is sent".to_string()),
-                    Doing::Watch(ready),
+                    Doing::Print("== whether the device has room for what this builds".to_string()),
+                    Doing::Watch(runs),
                 ],
             )
+        }
+
+        (Step::Room, Word::Answered(answer)) => {
+            let Ok(ready) = Runs::theirs(Theirs::Just, &["ready"]);
+            let onward = |going: &Going, first: Vec<Doing<Its>>| {
+                let mut doings = first;
+
+                doings.push(Doing::Print(
+                    "\n== everything that must hold, before anything is sent".to_string(),
+                ));
+                doings.push(Doing::Watch(ready.clone()));
+
+                Turn::doing(Deploying::At(Step::Ready, going.clone()), doings)
+            };
+
+            match answer.went {
+                Went::Well => onward(going, Vec::new()),
+                Went::Badly(Some(NOT_ASKED)) => onward(
+                    going,
+                    vec![Doing::Print(
+                        "  the engine on the device is older than this checkout and does not know \
+                         how to be asked yet; it will once this deploy has landed"
+                            .to_string(),
+                    )],
+                ),
+                Went::Badly(Some(NO_ROOM)) => stopped_at(
+                    step,
+                    going,
+                    "there is not room on the device for what this deploy would build",
+                ),
+                Went::Badly(_) => {
+                    stopped_at(step, going, "the device would not say how much room it has")
+                }
+            }
         }
 
         (Step::Ready, Word::Answered(answer)) => match answer.went {
@@ -782,6 +832,7 @@ mod tests {
             well(""),
             well(""),
             well(""),
+            well(""),
             well("f00d one thing, and a second thing"),
             well(" one | 2 +-"),
         ];
@@ -949,17 +1000,91 @@ mod tests {
     }
 
     #[test]
-    fn what_must_hold_is_asked_before_the_device_is_reached_at_all() {
+    fn the_only_thing_asked_of_the_device_before_what_must_hold_is_how_much_room_it_has() {
         let said = as_far_as(&["--yes"], &[]);
         let asked = asks(&said);
         let ready = asked.iter().position(|runs| runs.program == Named::Theirs(Theirs::Just));
-        let first = asked.iter().position(|runs| runs.program == Named::Theirs(Theirs::Ssh));
         let Ok(told) = fetching("root@handheld");
         let fetch = asked.iter().position(|runs| *runs == told);
+        let ready = match ready {
+            Some(ready) => ready,
+            None => panic!("`just ready` was never run"),
+        };
+        let before: Vec<&Runs> = asked
+            .iter()
+            .take(ready)
+            .filter(|runs| runs.program == Named::Theirs(Theirs::Ssh))
+            .collect();
 
-        assert!(ready.is_some(), "`just ready` was never run");
-        assert!(first.is_none_or(|first| ready.is_some_and(|ready| ready < first)));
-        assert!(fetch.is_some_and(|fetch| ready.is_some_and(|ready| ready < fetch)));
+        assert!(
+            before.iter().all(|runs| runs.argv.last().map(String::as_str) == Some("console room")),
+            "the device was reached for something other than room before anything had to hold: \
+             {before:?}"
+        );
+        assert_eq!(before.len(), 1, "the device was asked about room more than once");
+        assert!(fetch.is_some_and(|fetch| ready < fetch));
+        assert_eq!(pushes(&said), 0);
+    }
+
+    #[test]
+    fn a_device_with_no_room_is_told_so_before_a_minute_is_spent_here() {
+        let said = heard(
+            &["root@handheld", "--yes"],
+            &[
+                Word::Opened,
+                well(".git"),
+                Word::Its(Heard::Took),
+                well(""),
+                well("abc123"),
+                badly(NO_ROOM),
+            ],
+        );
+
+        assert_eq!(pushes(&said), 0);
+        assert!(badly_at(&said).is_some_and(|why| why.contains("room on the device")));
+        assert!(
+            !asks(&said).iter().any(|runs| runs.program == Named::Theirs(Theirs::Just)),
+            "the device had no room and this machine went on to spend minutes proving itself"
+        );
+    }
+
+    #[test]
+    fn a_device_whose_engine_cannot_be_asked_yet_is_not_a_device_with_no_room() {
+        let said = heard(
+            &["root@handheld", "--yes"],
+            &[
+                Word::Opened,
+                well(".git"),
+                Word::Its(Heard::Took),
+                well(""),
+                well("abc123"),
+                badly(NOT_ASKED),
+            ],
+        );
+
+        assert!(badly_at(&said).is_none(), "an old engine stopped a deploy that would have worked");
+        assert!(
+            asks(&said).iter().any(|runs| runs.program == Named::Theirs(Theirs::Just)),
+            "`just ready` was never reached"
+        );
+    }
+
+    #[test]
+    fn a_device_that_will_not_say_how_much_room_it_has_stops_the_deploy() {
+        let said = heard(
+            &["root@handheld", "--yes"],
+            &[
+                Word::Opened,
+                well(".git"),
+                Word::Its(Heard::Took),
+                well(""),
+                well("abc123"),
+                badly(255),
+            ],
+        );
+
+        assert_eq!(pushes(&said), 0);
+        assert!(badly_at(&said).is_some_and(|why| why.contains("would not say")));
     }
 
     #[test]
@@ -972,6 +1097,7 @@ mod tests {
                 Word::Its(Heard::Took),
                 well(""),
                 well("abc123"),
+                well(""),
                 badly(1),
             ],
         );
@@ -990,6 +1116,7 @@ mod tests {
                 Word::Its(Heard::Took),
                 well(""),
                 well("abc123"),
+                well(""),
                 well(""),
                 well(""),
                 well("cfeddd3 panels: saved on the device\n"),

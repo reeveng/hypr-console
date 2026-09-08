@@ -4,9 +4,33 @@
 //! engine that reads it. Anything installed or enabled outside it is invisible,
 //! which is the point: a desktop assembled by hand is one nobody can put back
 //! together.
+//!
+//! # Who owns what is inside a file
+//!
+//! A path in `[files]` says the file must be there. It has always been read as
+//! saying more than that -- that what is in it is what the tree ships, so
+//! anything else is drift -- and for most of them that is exactly right. Two
+//! kinds of file it is wrong about, and both were being reported as changed on
+//! every boot of a machine where nothing had changed: `bar.css`, which
+//! `console-scale apply` writes at every login with the width the screen is
+//! really standing at, and `zz-steamos-autologin.conf`, which
+//! `steamos-session-select` rewrites on the way into Game Mode and back. Both
+//! are ours to put there and neither is ours afterwards.
+//!
+//! A card that names two files that are always named teaches the person to read
+//! past it, and that cost a morning once: an inputplumber upgrade laid its own
+//! `50-legion_go.yaml` back over ours, the touchpad went dead, and the card said
+//! so in the same sentence and the same colour as the two that mean nothing.
+//!
+//! So a path may carry one word after it. `theirs` says the manifest ships what
+//! the file starts as and no more: it is installed when it is not there, it is
+//! never compared, `console save` with nothing named does not sweep it back into
+//! the tree, and a difference in it is not news. It is only accepted in
+//! `[files]`, because a package or a unit has no inside for anybody to own.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
+use console_core_ini_files::heading;
 use console_core_never::Never;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -52,8 +76,19 @@ impl Section {
     }
 }
 
+pub const THEIRS: &str = "theirs";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Whose {
+    Ours,
+    Theirs,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Manifest(BTreeMap<Section, Vec<String>>);
+pub struct Manifest {
+    sections: BTreeMap<Section, Vec<String>>,
+    theirs: BTreeSet<String>,
+}
 
 impl Manifest {
     pub fn read(text: &str) -> Result<Self, String> {
@@ -80,7 +115,8 @@ impl Manifest {
                         }
                         None => match current {
                             Some(section) => {
-                                let Ok(holding) = held.holding(section, line);
+                                let (name, whose) = said(section, line)?;
+                                let Ok(holding) = held.holding(section, &name, whose);
 
                                 Ok((holding, current))
                             }
@@ -93,13 +129,20 @@ impl Manifest {
     }
 
     pub fn of(&self, section: Section) -> Result<&[String], Never> {
-        Ok(self.0.get(&section).map_or(&[], Vec::as_slice))
+        Ok(self.sections.get(&section).map_or(&[], Vec::as_slice))
+    }
+
+    pub fn whose(&self, path: &str) -> Result<Whose, Never> {
+        Ok(match self.theirs.contains(path) {
+            true => Whose::Theirs,
+            false => Whose::Ours,
+        })
     }
 
     pub fn sections(&self) -> Result<impl Iterator<Item = (Section, &[String])>, Never> {
         Ok(Section::EVERY
             .into_iter()
-            .filter(|section| self.0.contains_key(section))
+            .filter(|section| self.sections.contains_key(section))
             .map(|section| {
                 let Ok(of) = self.of(section);
 
@@ -108,20 +151,53 @@ impl Manifest {
     }
 
     fn opening(mut self, section: Section) -> Result<Self, Never> {
-        self.0.entry(section).or_default();
+        self.sections.entry(section).or_default();
 
         Ok(self)
     }
 
-    fn holding(mut self, section: Section, entry: &str) -> Result<Self, Never> {
-        self.0.entry(section).or_default().push(entry.to_owned());
+    fn holding(mut self, section: Section, name: &str, whose: Whose) -> Result<Self, Never> {
+        self.sections.entry(section).or_default().push(name.to_owned());
+
+        match whose {
+            Whose::Theirs => {
+                let _ = self.theirs.insert(name.to_owned());
+            }
+            Whose::Ours => {},
+        }
 
         Ok(self)
     }
 }
 
-fn heading(line: &str) -> Result<Option<&str>, Never> {
-    Ok(line.strip_prefix('[').and_then(|rest| rest.strip_suffix(']')))
+fn said(section: Section, entry: &str) -> Result<(String, Whose), String> {
+    let mut words = entry.split_whitespace();
+    let name = words.next().unwrap_or("").to_string();
+    let rest: Vec<&str> = words.collect();
+    let Ok(under) = section.name();
+
+    Ok(match rest.as_slice() {
+        [] => (name, Whose::Ours),
+        [THEIRS] => match section {
+            Section::Files => (name, Whose::Theirs),
+            Section::Packages
+            | Section::Build
+            | Section::Services
+            | Section::Masked
+            | Section::Elsewhere => {
+                return Err(format!(
+                    "desktop.conf says {entry:?} under [{under}], and {THEIRS} is a word only a \
+                     file takes: a package or a unit has no inside for anybody to own"
+                ));
+            }
+        },
+        _ => {
+            return Err(format!(
+                "desktop.conf says {entry:?} under [{under}], and the only word an entry takes \
+                 after it is {THEIRS}"
+            ));
+        }
+    })
 }
 
 #[cfg(test)]
@@ -171,11 +247,63 @@ mod tests {
     #[test]
     fn the_public_copy_names_what_it_does_not_carry_and_the_engine_opens_it() {
         let read = Manifest::read(
-            "[files]\n/usr/local/bin/launcher\n\n[elsewhere]\n/usr/local/bin/hyprsession\n",
+            "[files]\n/usr/local/bin/launcher\n\n[elsewhere]\n/usr/local/bin/kew\n",
         )
         .expect("a published manifest opens");
-        assert_eq!(of(&read, Section::Elsewhere), ["/usr/local/bin/hyprsession"]);
+        assert_eq!(of(&read, Section::Elsewhere), ["/usr/local/bin/kew"]);
         assert!(!sections(&read).iter().any(|(section, _)| *section == Section::Elsewhere));
+    }
+
+    #[test]
+    fn a_file_something_else_writes_is_a_path_with_a_word_after_it() {
+        let read = Manifest::read("[files]\n/etc/a\n/home/@user@/.config/console/bar.css theirs\n")
+            .expect("it reads");
+        assert_eq!(of(&read, Section::Files), ["/etc/a", "/home/@user@/.config/console/bar.css"]);
+
+        let Ok(ours) = read.whose("/etc/a");
+        let Ok(theirs) = read.whose("/home/@user@/.config/console/bar.css");
+
+        assert_eq!(ours, Whose::Ours);
+        assert_eq!(theirs, Whose::Theirs);
+    }
+
+    #[test]
+    fn a_path_nobody_marked_is_ours_and_so_is_a_path_the_manifest_never_named() {
+        let read = Manifest::read("[files]\n/etc/a\n").expect("it reads");
+        let Ok(named) = read.whose("/etc/a");
+        let Ok(never) = read.whose("/etc/somewhere-else");
+
+        assert_eq!(named, Whose::Ours);
+        assert_eq!(never, Whose::Ours);
+    }
+
+    #[test]
+    fn a_word_after_a_path_that_nobody_reads_is_refused_rather_than_taken_as_part_of_it() {
+        let fault = Manifest::read("[files]\n/etc/a mine\n").expect_err("no such word");
+        assert!(fault.contains("theirs"), "{fault}");
+        assert!(fault.contains("/etc/a mine"), "{fault}");
+    }
+
+    #[test]
+    fn only_a_file_has_an_inside_for_anybody_to_own() {
+        let fault = Manifest::read("[packages]\nhyprland theirs\n").expect_err("not a file");
+        assert!(fault.contains("packages"), "{fault}");
+
+        let fault = Manifest::read("[services]\nconsole.target theirs\n").expect_err("not a file");
+        assert!(fault.contains("services"), "{fault}");
+    }
+
+    #[test]
+    fn the_manifest_this_desktop_wears_marks_the_files_something_else_on_it_writes() {
+        let held = include_str!("../../../desktop.conf");
+        let read = Manifest::read(held).expect("desktop.conf reads");
+        let Ok(bar) = read.whose("/home/@user@/.config/console/bar.css");
+        let Ok(session) = read.whose("/etc/plasmalogin.conf.d/zz-steamos-autologin.conf");
+        let Ok(hyprland) = read.whose("/home/@user@/.config/hypr/hyprland.lua");
+
+        assert_eq!(bar, Whose::Theirs, "console-scale apply writes this at every login");
+        assert_eq!(session, Whose::Theirs, "steamos-session-select rewrites this on the way out");
+        assert_eq!(hyprland, Whose::Ours);
     }
 
     #[test]

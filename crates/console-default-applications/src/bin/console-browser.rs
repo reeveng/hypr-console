@@ -8,7 +8,7 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-use console_default_applications::browsers::{applications, asking};
+use console_default_applications::browsers::asking;
 use console_core_external_programs::Program;
 use console_core_never::Never;
 
@@ -26,10 +26,14 @@ pub fn found(desktop: &str, among: &[PathBuf]) -> Result<Option<PathBuf>, Never>
 fn chosen() -> Result<String, Never> {
     let asked = asking()?;
 
-    let Some((program, rest)) = asked.split_first() else { return Ok(String::new()) };
+    let (program, rest) = match asked.split_first() {
+        Some((program, rest)) => (program, rest),
+        None => return Ok(String::new()),
+    };
 
-    let Ok(said) = Command::new(program).args(rest).output() else {
-        return Ok(String::new());
+    let said = match Command::new(program).args(rest).output() {
+        Ok(said) => said,
+        Err(_fault) => return Ok(String::new()),
     };
 
     Ok(String::from_utf8_lossy(&said.stdout).trim().to_string())
@@ -37,7 +41,7 @@ fn chosen() -> Result<String, Never> {
 
 fn main() {
     let Ok(chosen) = chosen();
-    let Ok(among) = applications();
+    let Ok(among) = console_core_places::applications();
     let Ok(found) = found(&chosen, &among);
 
     let Ok(argv) = match found {

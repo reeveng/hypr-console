@@ -934,7 +934,10 @@ pub fn hearing(
     clip: usize,
     model: usize,
 ) -> Result<Option<Vec<String>>, Never> {
-    let Some(model) = MODELS.get(model) else { return Ok(None) };
+    let model = match MODELS.get(model) {
+        Some(model) => model,
+        None => return Ok(None),
+    };
 
     let Ok(file) = state.at.model(model.file);
     let Ok(name) = name(clip);

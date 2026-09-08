@@ -56,12 +56,10 @@ pub fn ground() -> Result<String, String> {
 
     let at = root.join("files/etc/systemd/user/console-paper.service");
     let said = std::fs::read_to_string(&at).map_err(|fault| fault.to_string())?;
-    said.lines()
-        .find_map(|line| {
-            let after = line.strip_prefix("ExecStartPost=")?;
+    let Ok(after) = console_core_ini_files::field(&said, "Service", "ExecStartPost");
 
-            after.rsplit_once("awww clear ")
-        })
+    after
+        .and_then(|after| after.rsplit_once("awww clear "))
         .map(|(_, colour)| colour.trim().to_string())
         .ok_or_else(|| format!("{} sets no ground colour", at.display()))
 }
@@ -141,8 +139,9 @@ pub fn how_long(seconds: i64) -> Result<String, Never> {
 }
 
 pub fn or_the_cache(screen: &mut impl Screenful, picture: &str) -> Result<String, Never> {
-    let Ok((Some(frames), Some(drawn))) = screen.frames(picture) else {
-        return Ok(String::new());
+    let (frames, drawn) = match screen.frames(picture) {
+        Ok((Some(frames), Some(drawn))) => (frames, drawn),
+        Ok((None, _)) | Ok((_, None)) | Err(_) => return Ok(String::new()),
     };
 
     Ok(match frames < drawn {

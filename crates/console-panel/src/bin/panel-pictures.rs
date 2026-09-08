@@ -65,9 +65,20 @@ fn main() -> ExitCode {
 fn kept() -> Result<BTreeMap<String, Picture>, Never> {
     let Ok(store) = pictures::store();
 
-    let Ok(bytes) = std::fs::read(store) else { return Ok(BTreeMap::new()) };
+    let store = match store {
+        Some(store) => store,
+        None => return Ok(BTreeMap::new()),
+    };
 
-    let Ok(Some(index)) = pictures::read(&bytes) else { return Ok(BTreeMap::new()) };
+    let bytes = match std::fs::read(store) {
+        Ok(bytes) => bytes,
+        Err(_fault) => return Ok(BTreeMap::new()),
+    };
+
+    let index = match pictures::read(&bytes) {
+        Ok(Some(index)) => index,
+        Ok(None) | Err(_) => return Ok(BTreeMap::new()),
+    };
 
     Ok(index
         .into_iter()
@@ -84,17 +95,17 @@ fn kept() -> Result<BTreeMap<String, Picture>, Never> {
 }
 
 fn drawn(of: &str) -> Result<Option<Picture>, Never> {
-    let Ok(held) = Pixbuf::from_file_at_scale(of, PICTURE, PICTURE, true) else {
-        return Ok(None);
+    let held = match Pixbuf::from_file_at_scale(of, PICTURE, PICTURE, true) {
+        Ok(held) => held,
+        Err(_fault) => return Ok(None),
     };
 
     let held = match held.has_alpha() {
         true => held,
 
-        false => {
-            let Ok(held) = held.add_alpha(false, 0, 0, 0) else { return Ok(None) };
-
-            held
+        false => match held.add_alpha(false, 0, 0, 0) {
+            Ok(held) => held,
+            Err(_fault) => return Ok(None),
         },
     };
 
@@ -128,7 +139,15 @@ enum Written {
 fn written(pictures: &[Picture]) -> Result<Written, Never> {
     let Ok(at) = pictures::store();
 
-    let Some(above) = at.parent() else { return Ok(Written::No) };
+    let at = match at {
+        Some(at) => at,
+        None => return Ok(Written::No),
+    };
+
+    let above = match at.parent() {
+        Some(above) => above,
+        None => return Ok(Written::No),
+    };
 
     match std::fs::create_dir_all(above) {
         Ok(_) => {},

@@ -60,12 +60,18 @@ fn decimal_triple(said: &str) -> bool {
             false => return false,
         }
 
-        let Some(after) = left.get(run..) else { return false };
+        let after = match left.get(run..) {
+            Some(after) => after,
+            None => return false,
+        };
 
         left = match band {
             2 => after,
             _ => {
-                let Some(past) = after.strip_prefix(',') else { return false };
+                let past = match after.strip_prefix(',') {
+                    Some(past) => past,
+                    None => return false,
+                };
 
                 match past.chars().next() {
                     Some(space) if space.is_whitespace() => {
@@ -129,7 +135,10 @@ fn colours_in(text: &str) -> Vec<String> {
     let mut at: usize = 0;
 
     while at < text.len() {
-        let Some(rest) = text.get(at..) else { break };
+        let rest = match text.get(at..) {
+            Some(rest) => rest,
+            None => break,
+        };
         let opens = at == 0 || text.get(..at).is_some_and(|before| before.ends_with('\n'));
         let line = match opens {
             true => rest.split('\n').next(),
@@ -234,7 +243,10 @@ fn asked_at(after: &str) -> Option<(String, char, usize)> {
 
 fn carrying(files: &Path) -> Vec<(PathBuf, String)> {
     fn walk(at: &Path, into: &mut Vec<PathBuf>) {
-        let Ok(entries) = std::fs::read_dir(at) else { return };
+        let entries = match std::fs::read_dir(at) {
+            Ok(entries) => entries,
+            Err(_fault) => return,
+        };
         let mut found: Vec<PathBuf> = entries.flatten().map(|entry| entry.path()).collect();
         found.sort();
         for path in found {

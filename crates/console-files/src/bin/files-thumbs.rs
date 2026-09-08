@@ -23,12 +23,18 @@ use gtk4::prelude::*;
 const INTO_IT: &str = "3";
 
 fn main() {
-    let Some(folder) = std::env::args().nth(1) else {
-        eprintln!("which folder");
-        return;
+    let folder = match std::env::args().nth(1) {
+        Some(folder) => folder,
+        None => {
+            eprintln!("which folder");
+            return;
+        }
     };
 
-    let Some(cache) = glib::user_cache_dir().into() else { return };
+    let cache = match glib::user_cache_dir().into() {
+        Some(cache) => cache,
+        None => return,
+    };
 
     let Ok(store) = thumbs::store(&cache);
 
@@ -58,7 +64,10 @@ fn wanting(folder: &Path, store: &Path) -> Result<Vec<(PathBuf, String)>, Never>
         gio::Cancellable::NONE,
     );
 
-    let Ok(children) = asked else { return Ok(Vec::new()) };
+    let children = match asked {
+        Ok(children) => children,
+        Err(_fault) => return Ok(Vec::new()),
+    };
 
     let mut wanting: Vec<(PathBuf, String)> = Vec::new();
 
@@ -86,9 +95,19 @@ fn wanting(folder: &Path, store: &Path) -> Result<Vec<(PathBuf, String)>, Never>
 }
 
 fn made(thing: &Path, kind: &str, store: &Path) -> Result<(), Never> {
-    let Some(address) = thumbs::address(thing)? else { return Ok(()) };
+    let address = thumbs::address(thing)?;
 
-    let Some(kept) = thumbs::of(store, &address)? else { return Ok(()) };
+    let address = match address {
+        Some(address) => address,
+        None => return Ok(()),
+    };
+
+    let kept = thumbs::of(store, &address)?;
+
+    let kept = match kept {
+        Some(kept) => kept,
+        None => return Ok(()),
+    };
 
     let part = kept.with_extension("part.png");
 
@@ -110,8 +129,9 @@ fn made(thing: &Path, kind: &str, store: &Path) -> Result<(), Never> {
 }
 
 fn from_a_photograph(thing: &Path, part: &Path, address: &str) -> Result<Made, Never> {
-    let Ok(picture) = Pixbuf::from_file_at_scale(thing, SIDE, SIDE, true) else {
-        return Ok(Made::Nothing);
+    let picture = match Pixbuf::from_file_at_scale(thing, SIDE, SIDE, true) {
+        Ok(picture) => picture,
+        Err(_fault) => return Ok(Made::Nothing),
     };
 
     let changed = changed_at(thing)?;
@@ -130,11 +150,20 @@ fn from_a_photograph(thing: &Path, part: &Path, address: &str) -> Result<Made, N
 }
 
 fn changed_at(thing: &Path) -> Result<String, Never> {
-    let Ok(about) = thing.metadata() else { return Ok(String::new()) };
+    let about = match thing.metadata() {
+        Ok(about) => about,
+        Err(_fault) => return Ok(String::new()),
+    };
 
-    let Ok(when) = about.modified() else { return Ok(String::new()) };
+    let when = match about.modified() {
+        Ok(when) => when,
+        Err(_fault) => return Ok(String::new()),
+    };
 
-    let Ok(since) = when.duration_since(std::time::UNIX_EPOCH) else { return Ok(String::new()) };
+    let since = match when.duration_since(std::time::UNIX_EPOCH) {
+        Ok(since) => since,
+        Err(_fault) => return Ok(String::new()),
+    };
 
     Ok(since.as_secs().to_string())
 }

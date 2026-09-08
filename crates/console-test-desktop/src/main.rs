@@ -7,6 +7,7 @@
 //!                            changing, or --settle N seconds after
 //! console-desktop shot FILE --bare   the same, without a ground to paint
 //! console-desktop shot FILE --until AT   and not before AT has a line in it
+//! console-desktop shot FILE --clients AT what windows it had, written to AT
 //! console-desktop probe      what the nested compositor thinks
 //! console-desktop stage      the staged copy, and nothing else
 //! console-desktop clean      forget what nobody is using
@@ -33,6 +34,7 @@ struct Asked {
     seconds: Option<f64>,
     settle: Option<f64>,
     until: Option<PathBuf>,
+    clients: Option<PathBuf>,
     open: Vec<String>,
     sample: Vec<String>,
     window: bool,
@@ -83,6 +85,7 @@ fn asked(words: Vec<String>) -> Result<Asked, Never> {
             }
         }),
         until: every("--until").first().map(PathBuf::from),
+        clients: every("--clients").first().map(PathBuf::from),
         open: every("--open"),
         sample: every("--sample"),
         window: words.iter().any(|word| word == "--window"),
@@ -128,14 +131,10 @@ fn out_of_the_way() -> Result<(), Never> {
         false => {},
     }
 
-    let Ok(mut asking) = Program::Hyprctl.command();
-
-    let _ = asking
-        .arg("eval")
-        .arg(
-            r#"hl.window_rule({ name = "the nested desktop stays out of the way", match = { class = "aquamarine" }, workspace = "special:console-desktop silent" })"#,
-        )
-        .output();
+    let Ok(_said) = console_compositor::told(
+        console_compositor::Told::Eval,
+        r#"hl.window_rule({ name = "the nested desktop stays out of the way", match = { class = "aquamarine" }, workspace = "special:console-desktop silent" })"#,
+    );
 
     Ok(())
 }
@@ -228,9 +227,12 @@ fn run(asked: &Asked, shot: Option<PathBuf>, probe: Doing) -> Result<u8, String>
         (started, socket, signature)
     };
 
-    let (Some(socket), Some(signature)) = (compositor.1.clone(), compositor.2.clone()) else {
-        let _ = compositor.0.kill();
-        return Err("the nested compositor never came up".to_string());
+    let (socket, signature) = match (compositor.1.clone(), compositor.2.clone()) {
+        (Some(socket), Some(signature)) => (socket, signature),
+        (None, _) | (_, None) => {
+            let _ = compositor.0.kill();
+            return Err("the nested compositor never came up".to_string());
+        }
     };
 
     eprintln!("the desktop is on {socket}");
@@ -367,6 +369,18 @@ fn run(asked: &Asked, shot: Option<PathBuf>, probe: Doing) -> Result<u8, String>
         },
     }
 
+    match &asked.clients {
+        Some(at) => {
+            let Ok(said) = inside.hyprctl(&["clients", "-j"]);
+
+            match std::fs::write(at, said) {
+                Ok(()) => {},
+                Err(fault) => eprintln!("console-desktop: {}: {fault}", at.display()),
+            }
+        }
+        None => {},
+    }
+
     match &shot {
         Some(file) => {
             let Ok(mut asking) = inside.command("grim");
@@ -491,8 +505,9 @@ fn stop(compositor: &mut Child, signature: &str, inside: &Inside) -> Result<(), 
 
 fn say_what_died(opened: &mut [(String, Child)]) -> Result<(), Never> {
     for (command, process) in opened {
-        let Ok(Some(ended)) = process.try_wait() else {
-            continue;
+        let ended = match process.try_wait() {
+            Ok(Some(ended)) => ended,
+            Ok(None) | Err(_) => continue,
         };
 
         let mut said = String::new();
@@ -528,8 +543,9 @@ fn say_the_colours(
         false => {},
     }
 
-    let Ok(picture) = Picture::read(shot) else {
-        return Ok(());
+    let picture = match Picture::read(shot) {
+        Ok(picture) => picture,
+        Err(_fault) => return Ok(()),
     };
 
     for place in sample {
@@ -543,13 +559,14 @@ fn say_the_colours(
             false => {},
         }
 
-        let Some((across, down)) = place.split_once(',') else {
-            continue;
+        let (across, down) = match place.split_once(',') {
+            Some((across, down)) => (across, down),
+            None => continue,
         };
 
-        let (Ok(across), Ok(down)) = (across.trim().parse::<f64>(), down.trim().parse::<f64>())
-        else {
-            continue;
+        let (across, down) = match (across.trim().parse::<f64>(), down.trim().parse::<f64>()) {
+            (Ok(across), Ok(down)) => (across, down),
+            (Err(_), _) | (_, Err(_)) => continue,
         };
 
         match where_(&picture, across, down, go) {

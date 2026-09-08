@@ -236,7 +236,10 @@ impl Screen {
     }
 
     pub fn hide(&mut self) -> Result<(), Never> {
-        let Some(up) = self.board.up.take() else { return Ok(()) };
+        let up = match self.board.up.take() {
+            Some(up) => up,
+            None => return Ok(()),
+        };
 
         up.layer.destroy();
         up.surface.destroy();
@@ -286,9 +289,15 @@ impl Screen {
     }
 
     pub fn draw(&mut self, paint: impl FnOnce(&mut [u8], u32, u32, i32)) -> Result<(), Missing> {
-        let Some((wide, tall)) = self.board.size else { return Ok(()) };
+        let (wide, tall) = match self.board.size {
+            Some((wide, tall)) => (wide, tall),
+            None => return Ok(()),
+        };
 
-        let Some(up) = self.board.up.as_ref() else { return Ok(()) };
+        let up = match self.board.up.as_ref() {
+            Some(up) => up,
+            None => return Ok(()),
+        };
 
         let hand = self.queue.handle();
         let scale = self.board.scale;
@@ -308,7 +317,10 @@ impl Screen {
             false => {},
         }
 
-        let Some(frame) = self.board.frame.as_mut() else { return Ok(()) };
+        let frame = match self.board.frame.as_mut() {
+            Some(frame) => frame,
+            None => return Ok(()),
+        };
 
         let Ok(pixels) = frame.pixels.pixels();
 
@@ -335,9 +347,12 @@ impl Screen {
         self.queue.dispatch_pending(&mut self.board).map_err(Missing::Gone)?;
         let _ = self.connection.flush();
 
-        let Some(guard) = self.connection.prepare_read() else {
-            self.queue.dispatch_pending(&mut self.board).map_err(Missing::Gone)?;
-            return Ok(0);
+        let guard = match self.connection.prepare_read() {
+            Some(guard) => guard,
+            None => {
+                self.queue.dispatch_pending(&mut self.board).map_err(Missing::Gone)?;
+                return Ok(0);
+            }
         };
 
         let socket = self.connection.as_fd().as_raw_fd();
@@ -347,7 +362,11 @@ impl Screen {
         );
         let wait = match until {
             None => -1,
-            Some(d) => i32::try_from(d.as_millis()).unwrap_or(i32::MAX).max(1),
+            Some(d) => {
+                let Ok(many) = fitted::<u128, i32>(d.as_millis());
+
+                many.max(1)
+            }
         };
         let Ok(many) = fitted(watch.len());
 
@@ -362,9 +381,12 @@ impl Screen {
             false => {},
         }
 
-        let Some(answer) = watch.first() else {
-            drop(guard);
-            return Ok(0);
+        let answer = match watch.first() {
+            Some(answer) => answer,
+            None => {
+                drop(guard);
+                return Ok(0);
+            }
         };
 
         match answer.revents & libc::POLLIN != 0 {

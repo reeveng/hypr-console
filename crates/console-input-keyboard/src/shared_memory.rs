@@ -32,14 +32,16 @@ pub fn keymap_file(text: &str) -> io::Result<(OwnedFd, usize)> {
         let mut mapped = Mapped::of(&held, long)?;
         let Ok(into) = mapped.pixels();
 
-        let Some(words) = into.get_mut(..text.len()) else {
-            return Err(io::Error::other("the keymap file came back too short to write"));
+        let words = match into.get_mut(..text.len()) {
+            Some(words) => words,
+            None => return Err(io::Error::other("the keymap file came back too short to write")),
         };
 
         words.copy_from_slice(text.as_bytes());
 
-        let Some(terminator) = into.get_mut(text.len()) else {
-            return Err(io::Error::other("the keymap file has no room for its terminator"));
+        let terminator = match into.get_mut(text.len()) {
+            Some(terminator) => terminator,
+            None => return Err(io::Error::other("the keymap file has no room for its terminator")),
         };
 
         *terminator = 0;

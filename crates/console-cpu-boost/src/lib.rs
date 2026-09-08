@@ -252,7 +252,10 @@ impl Hurrying {
     }
 
     pub fn settle(&mut self, now: Instant) -> Result<(), Never> {
-        let Some(until) = self.until else { return Ok(()) };
+        let until = match self.until {
+            Some(until) => until,
+            None => return Ok(()),
+        };
 
         match now < until {
             true => return Ok(()),
@@ -276,7 +279,10 @@ impl Hurrying {
     }
 
     fn hints(&self) -> Result<Vec<PathBuf>, Never> {
-        let Ok(reading) = std::fs::read_dir(&self.cpus) else { return Ok(Vec::new()) };
+        let reading = match std::fs::read_dir(&self.cpus) {
+            Ok(reading) => reading,
+            Err(_fault) => return Ok(Vec::new()),
+        };
 
         let mut hints: Vec<PathBuf> = reading
             .filter_map(Result::ok)

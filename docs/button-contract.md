@@ -9,7 +9,8 @@ button means used to be decided in four separate files; it is decided in one
 now. `crates/console-input-controller/src/means.rs` is a table of everything
 this desktop does, when each of them applies, and what it is bound to, and the
 daemon carries it out, the setup screen writes to it and the guide reads it out
-loud. What is written below is what that table says, and
+loud. A key is in the same table as a button, on the argument in [The other
+input](#the-other-input). What is written below is what that table says, and
 `crates/console-input-controller/tests/what_reaches_the_desktop.rs` is where it
 is held to it rather than remembered.
 
@@ -100,8 +101,9 @@ now.
 The d-pad carries both levels, in the shape the hand already expects: across
 for the one you look at, up and down for the one you hear. The rocker on the
 top edge is still the volume and nothing here takes it away -- it is a keyboard
-of its own and never comes through a profile, which is why it is not in the
-daemon's table and cannot be. So this is not two buttons doing one job, which
+of its own and never comes through a profile, so it reaches the table the way
+any other keyboard does, as the three volume keys it sends rather than as a
+button somebody could move. So this is not two buttons doing one job, which
 the table below forbids. It is one job reachable without moving the hand that
 is holding the machine up, which is the whole difference between a level you
 can set and a level you can set while you are doing something else.
@@ -414,13 +416,172 @@ A device with more buttons than there are spare keys to lend them is a device
 where the last few cannot be asked about. There are twenty-five keys and this
 machine has twenty-three buttons a thumb can press.
 
+## The other input
+
+A keyboard is the second way in and never the first. Nothing on this machine
+needs one and most days there is not one attached, so what a key does is not a
+second desktop laid over the pad's: it is the doings the pad already names,
+reached by somebody whose hands are on keys rather than on buttons. A key and a
+button that open the same card are one thing with two handles.
+
+That was written in `hyprland.lua`, over thirty binds, for as long as the table
+was a table of buttons. It was the table's own argument, in a file the table
+could not see: nothing could ask what opens the settings and get both answers,
+the guide could not read the keys out, and the setup screen could not move one.
+So a job's `bound` is a list of bindings and every binding says which input it
+is on. Super and I and the settings button are two lines of one job.
+
+### Which program carries it out
+
+Worked out from the input, and never written down. The daemon matches what
+arrives off the pad. A keyboard binding is rendered into `hyprctl keyword bind`
+and handed to the compositor -- at startup, and again every time
+`buttons.toml` changes, so a key moved on the setup screen is moved before the
+thumb is off the row.
+
+It has to be that way round in both directions. A pad chord matched by the
+compositor is the fault at the top of [Where a change
+goes](#where-a-change-goes): the modifier and the key arrive in one frame and
+the key gets acted on alone. A keyboard chord watched by the daemon is the
+mirror of it -- the daemon can see the keys and cannot stop them, so the job
+would happen *and* the letters would land in whatever somebody was typing in.
+Swallowing a chord is a thing only whoever owns modifier state can do.
+
+Three things follow, and all three were already true of the binds this
+replaces. A job reached from a keyboard has to be one that runs something:
+`Doing::Run` becomes `exec`, and a job that sends a key or tells the home
+screen has no keyboard binding, because a keyboard already has those keys. A
+keyboard binding is not held to `when`, because the compositor does not know
+what is on the screen. And a bind is `exec` and never a dispatch even where a
+dispatch would do, which costs a process on the workspace keys -- they run
+`hyprctl` back at the compositor that just called them -- and buys one
+vocabulary instead of two.
+
+What it costs beyond that is one thing, said here because it is not visible
+from anywhere else: a `hyprctl reload`, or a compositor that restarted while
+the daemon did not, throws the pushed binds away. Restarting
+`console-controller` puts them back.
+
+### Switching language, on either keyboard
+
+There are two keyboards on this machine and switching language has to mean the
+same thing on both, so it is one word for both: an *alphabet*, in
+`console-input-alphabets`, which the settings panel writes and both keyboards
+read. An alphabet carries an arrangement for the one drawn on the screen and an
+xkb layout for a keyboard on a desk. Those used to be two lists that had no way
+to disagree because only one of them existed.
+
+**Per keyboard, from its first switch.** Two boards on one desk are two
+people's habits as often as one person's, so what each is wearing is kept under
+its own name -- the compositor's for one somebody plugged in, `screen` for the
+one this desktop draws. A board nobody has met takes the machine's chosen
+alphabets and starts on the first, which is Latin; from the first time somebody
+switches it, it keeps its own. `console_input_alphabets::wearing` is the chain
+and the argument for each step.
+
+**The layout list is pushed, never written.** `kb_layout` in the compositor's
+file is one word and stays `us`, which is what is right before anything of ours
+has run. What a keyboard is offered comes from the alphabets setting, set on
+every switch, so somebody who adds Greek in the settings has added it to the
+board on their desk as well as to the one on the screen. A list written in the
+compositor's file would be a second place saying what this machine types, and
+it would be wrong for everybody who changed the setting -- which is the whole
+reason the setting exists.
+
+**Every keyboard steps, not the one in front.** The compositor has no notion of
+which board somebody's hands are on. A person with two who pressed the key on
+one would be as surprised by the other staying behind as by it coming along,
+and only one of those two can be undone by pressing the key again. Each is
+stepped from wherever it was, so two boards a step apart stay a step apart.
+
+`switch-language` is the program, the daemon runs it with `--settle` when the
+session comes up, and `switch-language` is a row in the table like anything
+else -- on Super, Shift and Space, and on no button, because the keyboard drawn
+on the screen has a language key of its own and a thumb reaches that instead.
+
+### The way back
+
+The power key turns the panel on, and it is the row in the table with the most
+riding on it.
+
+A screen that is off and will not come back is this device at its worst. The
+machine is running, every button works, none of them can be seen to, and there
+is nothing to tell it from a dead one by looking -- and the way out, before
+that key was bound, was an ssh session, which is not a thing the person holding
+it has. It is a real state and not a worry: hypridle blanks the panel on its
+five-minute rule and resumes only a rule it idled on, so a lost resume -- Steam
+sends a screensaver inhibit every couple of minutes, and one arriving while
+that rule is idle is enough -- leaves the panel off with nothing left that
+intends to put it back.
+
+It runs `console-brightness undim` rather than dispatching dpms, because that
+program is where putting the screen back already lives and this gets the
+backlight and the panel together. It answers with the screen locked: it only
+ever turns things on, nothing here blanks the panel, and a button somebody
+reaches for in the dark must not be able to cause what they are reaching out
+of. The key gets as far as the compositor because logind is told to ignore it
+-- `HandlePowerKey`, in a drop-in this desktop does not own -- and because no
+claim can swallow it: `console_input_focus` takes the pad and the keyboard
+InputPlumber makes, and the power button is the ACPI PNP0C0C device with one
+key on it.
+
+There is nothing under it. `HandlePowerKey` and `HandlePowerKeyLongPress` are
+both `ignore` on this machine, so logind does not answer that key at all --
+not a shutdown, not a hard one after four seconds. What is under the binding
+is the firmware holding the rail down, which is a cut and not a shutdown. So
+the row is not a graceful action with a rough one behind it, and losing it is
+not a power key that stops being polite: it is a panel that stays dark with a
+machine running behind it, and a hard cut as the only way out of a state that
+looks identical to a dead device. That is the argument for everything below.
+
+It was the first line of `hyprland.lua`, and being first was half of what it
+was for: a config that fails to load abandons every line after the failure, so
+a way out registered before anything that could break is a way out that
+survives the break. Being a row in a table is a different bargain and it is
+worth naming rather than discovering. It no longer depends on a file parsing;
+it depends on the daemon coming up, which is a unit systemd restarts and which
+says so in the journal when it does not, where a Lua parse error is silent
+until somebody looks.
+
+It also depends on the push having happened, and that is where this was wrong
+for as long as it was written down. `hyprctl keyword` does not work against a
+lua config: it answers *keyword can't work with non-legacy parsers*, exits
+zero, and never says the word error, so every bind this desktop rendered was
+refused by a compositor that reported taking them. The key was never bound.
+Nothing in the tree could have caught it, because everything in the tree was
+asking what had been sent rather than what was held -- which is why
+`400-the-keys-the-compositor-was-handed` asks the compositor, and why it is
+the check that found this. A bind is `hl.bind` through `hyprctl eval` now.
+
+What is left of the original hole is the one it was: a reload keeps only what a
+file holds, and none of these are in one. The daemon does not wait to be
+restarted for that any more. It listens for `configreloaded` on the
+compositor's own socket -- and counts getting onto that socket as one, since a
+connection just made is a stretch nobody was watching, which is what a
+compositor restarting under a daemon that did not looks like from here. What
+follows is not a blind re-push: the compositor is asked what it is holding,
+by the description each bind carries, and only what is missing is sent. So an
+event that meant nothing costs a question, and the same code path serves a
+reload, a reconnect and somebody moving a key on the setup screen.
+
+A cadence was the other way to do it and it is worth saying why it is not
+here. A number of seconds is an assumption about how long this is allowed to
+be broken, and nobody has measured that; asking at the moment the compositor
+says the thing that breaks it is both cheaper and tighter than any interval
+would have been. What it costs is a dependency on that event arriving. If it
+ever does not, the fault is the one above -- a dark panel, and a hard cut --
+so the daemon says in the journal how many of the keys it was handed the
+compositor still had, every time it looks.
+
 ## Where a change goes
 
-In the daemon's table, never in a compositor binding. Binding buttons to key
+In the table, never in a file the table cannot see. Binding pad buttons to key
 combinations and letting Hyprland match them was tried and does not work here:
 InputPlumber emits the modifier and the key in one frame, so the key is often
 acted on alone and lands in whatever window has focus. That is how pressing X
-typed a k into a terminal.
+typed a k into a terminal. The keys are the other half of the same rule and
+came to it later: the compositor does match those, and it matches the ones the
+table hands it.
 
 Each job is named in the table in the words a person would use for it -- "a
 screenshot", "put away whatever is up" -- and the guide, the setup screen and
@@ -431,7 +592,9 @@ shown, which is what a table read by three programs buys.
 What is left written by hand is what no table mentions: the volume rocker, the
 touchpad, the screen and the bar, which are not buttons at all; the keys inside
 the on-screen keyboard, which are wvkbd's; and what a button does inside a
-page, which is the browser add-on's. Nothing keeps those honest. Change what
+page, which is the browser add-on's. `hyprland.lua` was on that list until the
+keys went into the table and is not any more -- it binds nothing now, and the
+section at its foot says so rather than leaving a gap. Nothing keeps those honest. Change what
 the add-on does with Y and the guide will still say it labels the page.
 
 There is no check for it, and the reason is worth knowing before somebody

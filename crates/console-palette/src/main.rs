@@ -110,10 +110,10 @@ fn run() -> Result<ExitCode, String> {
     let Ok(()) = say(&spec, &rows);
 
     let named = |path: &Path| {
-        path.strip_prefix(&root)
-            .unwrap_or(path)
-            .display()
-            .to_string()
+        match path.strip_prefix(&root) {
+            Ok(under) => under.display().to_string(),
+            Err(_outside_the_tree) => path.display().to_string(),
+        }
     };
 
     match (doing, changed.as_slice()) {
@@ -204,10 +204,13 @@ fn say(spec: &spec::Spec, rows: &[Row]) -> Result<(), Never> {
         one.total_cmp(&other)
     });
 
-    let Some(worst) = closest else {
-        println!("nothing to measure: this palette declares no pairing");
+    let worst = match closest {
+        Some(worst) => worst,
+        None => {
+            println!("nothing to measure: this palette declares no pairing");
 
-        return Ok(());
+            return Ok(());
+        }
     };
 
     println!(

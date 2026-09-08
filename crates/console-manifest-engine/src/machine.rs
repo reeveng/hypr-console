@@ -10,6 +10,7 @@ use std::sync::OnceLock;
 
 use console_core_external_programs::Program;
 use console_core_never::Never;
+use console_core_places::Base;
 
 use crate::install::{self, USER};
 use crate::laying::{self, Back, Laid};
@@ -19,8 +20,9 @@ pub struct Said {
 }
 
 pub fn run(argv: &[&str]) -> Result<Said, Never> {
-    let Some((program, rest)) = argv.split_first() else {
-        return Ok(Said { out: String::new() });
+    let (program, rest) = match argv.split_first() {
+        Some((program, rest)) => (program, rest),
+        None => return Ok(Said { out: String::new() }),
     };
 
     Ok(match Command::new(program).args(rest).output() {
@@ -42,8 +44,9 @@ pub struct Answered {
 }
 
 pub fn answered(argv: &[&str]) -> Result<Answered, Never> {
-    let Some((program, rest)) = argv.split_first() else {
-        return Ok(Answered { out: String::new(), said: String::new(), ran: Ran::Badly });
+    let (program, rest) = match argv.split_first() {
+        Some((program, rest)) => (program, rest),
+        None => return Ok(Answered { out: String::new(), said: String::new(), ran: Ran::Badly }),
     };
 
     Ok(match Command::new(program).args(rest).output() {
@@ -64,8 +67,9 @@ pub fn answered(argv: &[&str]) -> Result<Answered, Never> {
 }
 
 pub fn run_seen(argv: &[&str]) -> Result<Ran, Never> {
-    let Some((program, rest)) = argv.split_first() else {
-        return Ok(Ran::Badly);
+    let (program, rest) = match argv.split_first() {
+        Some((program, rest)) => (program, rest),
+        None => return Ok(Ran::Badly),
     };
 
     let done = match Command::new(program).args(rest).status() {
@@ -82,8 +86,9 @@ pub fn run_seen(argv: &[&str]) -> Result<Ran, Never> {
 pub fn run_watched(argv: &[&str], heard: &mut dyn FnMut(&str)) -> Result<Ran, Never> {
     use std::io::{BufRead, BufReader};
 
-    let Some((program, rest)) = argv.split_first() else {
-        return Ok(Ran::Badly);
+    let (program, rest) = match argv.split_first() {
+        Some((program, rest)) => (program, rest),
+        None => return Ok(Ran::Badly),
     };
 
     let mut starting = Command::new(program);
@@ -121,8 +126,6 @@ pub fn run_watched(argv: &[&str], heard: &mut dyn FnMut(&str)) -> Result<Ran, Ne
     })
 }
 
-const OURS: &str = ".config/console";
-
 pub fn whoever() -> Result<&'static str, Never> {
     static KNOWN: OnceLock<String> = OnceLock::new();
 
@@ -136,7 +139,10 @@ pub fn whoever() -> Result<&'static str, Never> {
 }
 
 fn homes() -> Result<Vec<String>, Never> {
-    let Ok(reading) = std::fs::read_dir("/home") else { return Ok(Vec::new()) };
+    let reading = match std::fs::read_dir("/home") {
+        Ok(reading) => reading,
+        Err(_fault) => return Ok(Vec::new()),
+    };
 
     Ok(reading
         .flatten()
@@ -170,7 +176,11 @@ fn the_home_it_is_already_in() -> Result<Option<String>, Never> {
     let Ok(homes) = homes();
     let mut theirs: Vec<String> = homes
         .into_iter()
-        .filter(|name| Path::new("/home").join(name).join(OURS).is_dir())
+        .filter(|name| {
+            let Ok(ours) = Base::Config.ours_under(&Path::new("/home").join(name));
+
+            ours.is_dir()
+        })
         .collect();
 
     Ok(match theirs.len() {
@@ -223,7 +233,10 @@ pub fn in_the_session(command: &str) -> Result<(), Never> {
     let Ok(owner) = whoever();
     let Ok(who) = who(owner);
 
-    let Some((uid, _)) = who else { return Ok(()) };
+    let (uid, _taken_1) = match who {
+        Some((uid, _taken_1)) => (uid, _taken_1),
+        None => return Ok(()),
+    };
 
     let line = format!(
         "env XDG_RUNTIME_DIR=/run/user/{uid} \
@@ -240,6 +253,24 @@ pub fn unit_state(unit: &str) -> Result<(String, String), Never> {
     let Ok(active) = user_systemctl(&["is-active", unit]);
 
     Ok((enabled.out, active.out))
+}
+
+pub fn disk_free(at: &Path) -> Result<Said, Never> {
+    let Ok(df) = Program::Df.name();
+    let where_it_is = at.display().to_string();
+
+    run(&[df, "--block-size=1", "--output=avail", &where_it_is])
+}
+
+pub fn sizes_under(roots: &[&str]) -> Result<Said, Never> {
+    let Ok(du) = Program::Du.name();
+
+    let argv: Vec<&str> = [du, "--block-size=1", "--one-file-system", "--max-depth=1"]
+        .into_iter()
+        .chain(roots.iter().copied())
+        .collect();
+
+    run(&argv)
 }
 
 pub fn installed_packages() -> Result<Vec<String>, Never> {
@@ -378,14 +409,23 @@ fn who(user: &str) -> Result<Option<(u32, u32)>, Never> {
         let Ok(id) = Program::Id.name();
         let Ok(said) = run(&[id, flag, user]);
 
-        let Ok(number) = said.out.parse::<u32>() else { return None };
+        let number = match said.out.parse::<u32>() {
+            Ok(number) => number,
+            Err(_fault) => return None,
+        };
 
         Some(number)
     };
 
-    let Some(uid) = number("-u") else { return Ok(None) };
+    let uid = match number("-u") {
+        Some(uid) => uid,
+        None => return Ok(None),
+    };
 
-    let Some(gid) = number("-g") else { return Ok(None) };
+    let gid = match number("-g") {
+        Some(gid) => gid,
+        None => return Ok(None),
+    };
 
     Ok(Some((uid, gid)))
 }
@@ -531,7 +571,9 @@ mod tests {
     fn the_directory_that_marks_a_home_is_one_the_manifest_puts_there() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let held = std::fs::read_to_string(root.join("desktop.conf")).expect("the manifest");
-        let under = format!("/home/{USER}/{OURS}/");
+        let Ok(ours) = Base::Config.ours_under(&Path::new("/home").join(USER));
+
+        let under = format!("{}/", ours.display());
         assert!(
             held.lines().any(|line| line.trim().starts_with(&under)),
             "nothing the manifest lays down is under {under}, so no home can be told by it"

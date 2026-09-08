@@ -11,6 +11,15 @@
 //! make the front of the machine inert while the question is on screen is the
 //! card's own layer being there.
 //!
+//! A tab per input, and it opens on the one last pressed. Both are always
+//! here -- a keyboard's page is drawn on a machine with no keyboard attached,
+//! because a job with nothing on it there is exactly what somebody about to
+//! plug one in wants to see -- so the last press decides only which is in
+//! front. It is read from the file the daemon writes rather than heard live,
+//! and `console_input_bindings::active` is the argument: a page that moved
+//! under somebody halfway through moving a job would be answering a question
+//! nobody asked.
+//!
 //! What is here is the machine: where the table is, what this device can send,
 //! and a surface. `crate::rows` is the screen and
 //! `crate::pressing` is what a press decides, and neither has
@@ -19,11 +28,12 @@
 use std::sync::Arc;
 
 use crate::pressing::{FIRST, Heard, Its, Setting, Setup, TABLE, WRITTEN};
-use crate::rows::{PUT_BACK_SURE, PUT_BACK_YES, Part, TABS, parts, rows};
+use crate::rows::{PUT_BACK_SURE, PUT_BACK_YES, Part, parts, rows};
 use crate::table;
 use console_core_never::Never;
 use console_panel::page::{Does, Page, Row, Rows, Showing};
 use console_panel::card::{Card, Door};
+use console_input_bindings::bound::{EVERY, Input};
 use console_program_contract::{Argv, Doing, Named, Program, Turn, Word, Writing};
 
 const DOOR: &str = "buttons";
@@ -46,7 +56,12 @@ fn carry(doing: &Doing<Its>, showing: &dyn Showing) -> Result<(), Never> {
             let Ok(putting) = putting_back();
 
             showing.sure(PUT_BACK_SURE, "", &[PUT_BACK_YES], Arc::new(move |showing, _| {
-                let Ok(()) = press(&putting, Heard::Sure, showing);
+                match &putting {
+                    Some(putting) => {
+                        let Ok(()) = press(putting, Heard::Sure, showing);
+                    },
+                    None => {},
+                }
             }));
         }
 
@@ -106,10 +121,10 @@ fn wrote(writing: &Writing) -> Result<(), String> {
         .map_err(|fault| format!("{}: {fault}", writing.at.display()))
 }
 
-fn putting_back() -> Result<Setting, Never> {
+fn putting_back() -> Result<Option<Setting>, Never> {
     let Ok(at) = table::at();
 
-    Ok(Setting::Set { at })
+    Ok(at.map(|at| Setting::Set { at }))
 }
 
 fn asks_for(part: &Part) -> Result<Does, Never> {
@@ -117,21 +132,33 @@ fn asks_for(part: &Part) -> Result<Does, Never> {
 
     Does::and_stay(move |showing| {
         let Ok(putting) = putting_back();
-        let Ok(()) = press(&putting, Heard::Asked(part.clone()), showing);
+
+        match putting {
+            Some(putting) => {
+                let Ok(()) = press(&putting, Heard::Asked(part.clone()), showing);
+            },
+            None => {},
+        }
     })
 }
 
 fn puts_it_all_back() -> Result<Does, Never> {
     Does::and_stay(|showing| {
         let Ok(putting) = putting_back();
-        let Ok(()) = press(&putting, Heard::PutBack, showing);
+
+        match putting {
+            Some(putting) => {
+                let Ok(()) = press(&putting, Heard::PutBack, showing);
+            },
+            None => {},
+        }
     })
 }
 
-fn buttons_tab() -> Result<Vec<Row>, Never> {
+fn one_input(on: Input) -> Result<Vec<Row>, Never> {
     let Ok(table) = table::table();
     let Ok(front) = table::front();
-    let Ok(parts) = parts(&table, &front);
+    let Ok(parts) = parts(&table, &front, on);
     let Ok(back) = puts_it_all_back();
 
     rows(
@@ -146,27 +173,37 @@ fn buttons_tab() -> Result<Vec<Row>, Never> {
 }
 
 fn pages() -> Result<Vec<Page>, Never> {
-    let Ok(asked) = Rows::asked(|| {
-        let Ok(rows) = buttons_tab();
+    let mut pages = Vec::new();
 
-        rows
-    });
+    for on in EVERY {
+        let Ok(asked) = Rows::asked(move || {
+            let Ok(rows) = one_input(on);
 
-    let Ok(page) = Page::new(TABS.first().copied().unwrap_or(""), asked);
+            rows
+        });
+        let Ok(says) = on.says();
+        let Ok(page) = Page::new(says, asked);
 
-    Ok(vec![page])
+        pages.push(page);
+    }
+
+    Ok(pages)
 }
 
 fn opening() -> Result<Argv, Never> {
     let Ok(at) = table::at();
-    let mut words: Vec<String> = vec![TABLE.to_string(), at.display().to_string()];
+
+    let mut words: Vec<String> = match &at {
+        Some(at) => vec![TABLE.to_string(), at.display().to_string()],
+        None => Vec::new(),
+    };
 
     match std::env::args().any(|word| word == FIRST) {
         true => words.push(FIRST.to_string()),
         false => {},
     }
 
-    match at.exists() {
+    match at.is_some_and(|at| at.exists()) {
         true => words.push(WRITTEN.to_string()),
         false => {},
     }
@@ -200,9 +237,25 @@ pub fn card(_argv: &[String]) -> Result<Card, Never> {
         }
     }
 
-    Card::new(Arc::new(|| {
+    let Ok(card) = Card::new(Arc::new(|| {
         let Ok(pages) = pages();
 
         pages
-    }))
+    }));
+    let Ok(first) = opens_on();
+
+    card.opening_at(Some(&first))
+}
+
+fn opens_on() -> Result<String, Never> {
+    let Ok(home) = console_core_places::home();
+
+    let Ok(on) = match home {
+        Some(home) => console_input_bindings::active::read(&home),
+        None => Ok(console_input_bindings::active::FIRST),
+    };
+
+    let Ok(says) = on.says();
+
+    Ok(says.to_string())
 }

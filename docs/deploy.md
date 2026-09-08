@@ -53,12 +53,33 @@ lockfile and a lockfile that is behind would fail there instead -- halfway
 through an apply, on a handheld -- the emulated checks, and the EXPLICIT rules
 the workspace already keeps.
 
+Before those minutes are spent, the device is asked one thing: whether it has
+room. The apply at the far end builds the whole desktop on the device's own
+disk, beside the games and the videos and whatever the download panel last
+fetched, and a disk that fills partway through a build stops somewhere nobody
+chose and reads as something else entirely. So `console room` is asked over ssh
+first, and a device with nowhere to put what this would build says so while
+there is still nothing to undo. The arithmetic is the engine's rather than this
+end's, so the deploy and the apply ask one question instead of two that agree
+today; a device whose engine is older than the question answers that it does not
+know it, which is not the same as answering no, and the deploy goes on.
+
 Then the device is asked what it has that this does not. Anything committed on
 the machine by `console save` shows up here as itself rather than arriving days
 later as a push refused for not fast-forwarding, and `just pull` is the answer
 to it. The tree is asked once more at the last moment too: `just ready` and the
 fetch are minutes, and a file written in this checkout while they ran is exactly
 the fault that check exists for.
+
+A deploy is held against another deploy as well. `console-deploy` takes
+`.git/console-deploy.lock` with `mkdir` and keeps it for the whole run,
+`--check` included, so a second one is refused and told who is holding it and
+since when; a lock left behind by a killed deploy is taken over, but only where
+the pid it names is one this machine could have been running. What a lock cannot
+do is hold a checkout still. Several sessions share this one and a session
+editing a file is not running `console-deploy`, so the refusal is not what keeps
+a deploy honest -- the tree being asked again immediately before the push is,
+and that is why it is asked twice rather than once.
 
 ## What `console apply` does with each kind of thing
 
@@ -83,6 +104,27 @@ are worked out from the path and the content, so nothing is kept in step by
 hand. `@user@` is not a name: it is the mark that stands for whoever the desktop
 belongs to, filled in at the moment a file is written, which is why this source
 names nobody and still installs itself correctly.
+
+A path in `[files]` may carry the word `theirs` after it, and that says who owns
+what is inside the file rather than where it goes. The manifest ships what the
+file starts as; something on this machine writes it afterwards and is supposed
+to. Such a file is installed when it is not there, is never compared, and
+`console save` with nothing named does not sweep it back into the tree -- only
+the person naming it does. Two files carry it. `bar.css` is written by
+`console-scale apply` at every login with the width the screen is really
+standing at, and `zz-steamos-autologin.conf` is rewritten by
+`steamos-session-select` on the way into Game Mode and on the way back.
+
+Before that word existed both were reported as changed on every boot of a
+machine where nothing had changed, and what it cost was a morning: an
+inputplumber upgrade laid its own `50-legion_go.yaml` back over ours, the
+touchpad went to `blocked: true` again, and the card said so in the same
+sentence and the same colour as the two that always mean nothing. A card nobody
+reads is worse than no card. So the two that are not news say `theirs` in the
+manifest and are green in `console check`, and `50-legion_go.yaml` is not
+marked, because a package taking a file back is exactly the thing to be told
+about -- what to do about that one is its own entry in `todos.md`, and it is not
+this.
 
 **`[services]`** and **`[masked]`** last, enabled for the desktop user and
 pulled in together by `console.target`.
@@ -136,27 +178,30 @@ is that end of it.
 ## The programs that are carried rather than built
 
 The rule is that what we write is built on the machine that runs it, and what
-somebody else wrote and we only forked is carried here as a built binary. Both
-of the carried ones are GPL programs kept under their own names, and both are
-ordinary `[files]` entries: `apply` lays them down like any other file, and the
-bin directory in the path is what makes them executable.
+somebody else wrote and we only forked is carried here as a built binary. One is
+left: a GPL program kept under its own name, an ordinary `[files]` entry that
+`apply` lays down like any other file, with the bin directory in the path making
+it executable.
 
-`/usr/local/bin/hyprsession` is what `console-session` starts. A machine put
-back together from this manifest alone has to end up with this fork and not
-whatever is published under the name, which is the whole reason it travels
-built. What is ours is the unit around it.
+There were two. `/usr/local/bin/hyprsession` was what `console-session` started,
+and it is now `crates/console-resume`, built by `[build]` like everything else.
+A program that closes other people's windows is one somebody has to be able to
+read before they trust it, and carried as a binary it was the only thing on the
+device that nobody here could. It is still not published --
+`console-manifest-publish` holds the crate back the way it held back the binary,
+and `docs/programs.md` argues for that -- but the machine it runs on now builds
+it from source that is here.
 
-`/usr/local/bin/kew` is the music player under the Music panel, and it is the
-more interesting of the two because the package is listed as well. The `kew`
-package brings the libraries this links and puts its own program at
-`/usr/bin/kew`; the fork sits in front of it on the path, and the panel starts
-it by name, so what answers is the fork. What the fork adds is what the panel
-needs and the package does not offer: `OpenUri`, so a song chosen is the library
-it came from rather than a playlist of one, and `xesam:url`, so the song playing
-now can be opened where it lives. Without it a chosen song restarts the player
-and that row has nothing to offer.
+`/usr/local/bin/kew` was the music player under the Music panel and was the more
+interesting of the two, because the package was listed as well: the `kew`
+package brought the libraries the fork linked and put its own program at
+`/usr/bin/kew`, and the fork sat in front of it on the path. It is gone. What
+plays music is `music-player`, built here, and the package left `[packages]` in
+the same commit -- so the arrangement this paragraph was written to explain no
+longer has an example in the manifest.
 
-So a package and a file can name the same program on purpose. The package is
+It is kept because the arrangement is still legal and still a thing to watch
+for. A package and a file can name the same program on purpose. The package is
 there for what it brings; the file is there for what it answers.
 
 `crates/console-manifest-publish` keeps the list of which paths are forks, and
@@ -215,3 +260,20 @@ unset, or the device off, the copy is checked for less** -- it says so out loud
 rather than passing quietly, and that sentence is the one to read before
 pushing. Export the host and have the device reachable when publishing, or take
 the warning seriously.
+
+What this tree used to say and no longer does was replaced by asking rather than
+by storing, which is why there is nothing left to scrub and why the copy is
+built rather than rewritten on the way out. The person is `@user@` in the
+manifest, filled in by `machine::whoever` for whoever the desktop belongs to.
+The device is `CONSOLE_HOST`, required, with no default underneath it. The
+controller's serial is not captured at all -- `capture` writes an empty `uniq`.
+And the place the wallpaper works its sun and its weather out from is
+`console_wallpaper::here`, read off `/etc/localtime` and the `zone1970.tab`
+beside it, rather than a coordinate anybody wrote down.
+
+What would undo that is small and looks harmless while it is being typed: a path
+spelled `/home/<a name>/` instead of `/home/@user@/`, a re-run of `capture`
+whose `uniq` is committed, or a coordinate, a hostname or an address put back as
+a constant just for now. The tests standing exactly there are
+`the_captured_devices_name_nobodys_controller` and the mark's round trip in
+`install`, and publishing is the last gate before any of it is pushed.

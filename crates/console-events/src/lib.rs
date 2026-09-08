@@ -34,6 +34,7 @@
 //! `pool` is arithmetic over who wants what.
 
 pub mod again;
+pub mod bus;
 pub mod listening;
 pub mod place;
 pub mod pool;

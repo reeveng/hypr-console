@@ -13,6 +13,7 @@ path = "src/lib.rs"
 console-input-controller.workspace = true
 console-onscreen.workspace = true
 console-button-guide.workspace = true
+console-input-bindings.workspace = true
 console-input-gamepad.workspace = true
 console-test-stages.workspace = true
 evdev = "0.13"

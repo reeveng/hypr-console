@@ -18,7 +18,10 @@ const TAB: &str = "tab";
 pub fn last(program: &str) -> Result<Option<String>, Never> {
     let Ok(said) = notes::read(program, TAB);
 
-    let Some(said) = said else { return Ok(None) };
+    let said = match said {
+        Some(said) => said,
+        None => return Ok(None),
+    };
 
     read(&said)
 }

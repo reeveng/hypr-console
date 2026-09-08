@@ -74,7 +74,10 @@ fn main() {
 }
 
 fn wanting(folder: &Path) -> Result<Vec<PathBuf>, Never> {
-    let Ok(reading) = std::fs::read_dir(folder) else { return Ok(Vec::new()) };
+    let reading = match std::fs::read_dir(folder) {
+        Ok(reading) => reading,
+        Err(_fault) => return Ok(Vec::new()),
+    };
 
     let mut found: Vec<PathBuf> = reading
         .flatten()
@@ -111,7 +114,10 @@ fn what(path: &Path) -> Result<Option<Kind>, Never> {
 }
 
 fn made_one(path: &Path) -> Result<Made, Never> {
-    let Ok(Some(kind)) = what(path) else { return Ok(Made::Nothing) };
+    let kind = match what(path) {
+        Ok(Some(kind)) => kind,
+        Ok(None) | Err(_) => return Ok(Made::Nothing),
+    };
 
     let Ok(to) = same::beside(path, kind);
 
@@ -218,7 +224,10 @@ fn cover(path: &Path) -> Result<Option<String>, Never> {
 }
 
 fn ran(argv: &[String]) -> Result<Ran, Never> {
-    let Some((program, rest)) = argv.split_first() else { return Ok(Ran::Badly) };
+    let (program, rest) = match argv.split_first() {
+        Some((program, rest)) => (program, rest),
+        None => return Ok(Ran::Badly),
+    };
 
     let worked =
         Command::new(program).args(rest).output().is_ok_and(|done| done.status.success());
@@ -230,9 +239,15 @@ fn ran(argv: &[String]) -> Result<Ran, Never> {
 }
 
 fn said(argv: &[String]) -> Result<String, Never> {
-    let Some((program, rest)) = argv.split_first() else { return Ok(String::new()) };
+    let (program, rest) = match argv.split_first() {
+        Some((program, rest)) => (program, rest),
+        None => return Ok(String::new()),
+    };
 
-    let Ok(done) = Command::new(program).args(rest).output() else { return Ok(String::new()) };
+    let done = match Command::new(program).args(rest).output() {
+        Ok(done) => done,
+        Err(_fault) => return Ok(String::new()),
+    };
 
     Ok(String::from_utf8_lossy(&done.stdout).to_string())
 }

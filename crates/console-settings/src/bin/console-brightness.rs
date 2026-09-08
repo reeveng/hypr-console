@@ -27,7 +27,6 @@
 //! nobody pressed them, and a machine that woke you to tell you it had dimmed
 //! itself would be worse than one that did it quietly.
 
-use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_notifications::saying::{Kept, Notice, raise_kept};
 use console_settings::screen::{
@@ -39,9 +38,13 @@ fn main() -> std::process::ExitCode {
 
     let Ok(reading) = now();
 
-    let Some(now) = reading else {
-        eprintln!("console-brightness: no backlight at {}", screen::DEVICE);
-        return std::process::ExitCode::FAILURE;
+    let now = match reading {
+        Some(now) => now,
+        None => {
+            eprintln!("console-brightness: no backlight at {}", screen::DEVICE);
+
+            return std::process::ExitCode::FAILURE;
+        }
     };
 
     match word == "get" {
@@ -68,9 +71,13 @@ fn main() -> std::process::ExitCode {
 
     let Ok(named) = Way::named(&word);
 
-    let Some(way) = named else {
-        eprintln!("usage: console-brightness [up|down|get|dim|undim]");
-        return std::process::ExitCode::from(2);
+    let way = match named {
+        Some(way) => way,
+        None => {
+            eprintln!("usage: console-brightness [up|down|get|dim|undim]");
+
+            return std::process::ExitCode::from(2);
+        }
     };
 
     let Ok(going) = stepped(now, way);
@@ -103,9 +110,15 @@ fn said(going: i64) -> Result<(), Never> {
 }
 
 fn dim(now: i64) -> Result<std::process::ExitCode, Never> {
-    let Some(kept) = remembered()? else {
-        eprintln!("console-brightness: no XDG_RUNTIME_DIR, so nothing could be remembered");
-        return Ok(std::process::ExitCode::FAILURE);
+    let remembered = remembered()?;
+
+    let kept = match remembered {
+        Some(kept) => kept,
+        None => {
+            eprintln!("console-brightness: no XDG_RUNTIME_DIR, so nothing could be remembered");
+
+            return Ok(std::process::ExitCode::FAILURE);
+        }
     };
 
     match kept.exists() {
@@ -131,24 +144,30 @@ fn dim(now: i64) -> Result<std::process::ExitCode, Never> {
 }
 
 fn kept_at(kept: &std::path::Path) -> Result<Option<i64>, Never> {
-    let Ok(held) = std::fs::read_to_string(kept) else { return Ok(None) };
+    let held = match std::fs::read_to_string(kept) {
+        Ok(held) => held,
+        Err(_) => return Ok(None),
+    };
 
-    let Ok(was) = held.trim().parse::<i64>() else { return Ok(None) };
+    let was = match held.trim().parse::<i64>() {
+        Ok(was) => was,
+        Err(_) => return Ok(None),
+    };
 
     Ok(Some(was))
 }
 
 fn panel_on() -> Result<(), Never> {
-    let mut asking = Program::Hyprctl.command()?;
-    let done = asking.args(["dispatch", r#"hl.dsp.dpms({ action = "enable" })"#]).output();
+    let done = console_compositor::told(
+        console_compositor::Told::Dispatch,
+        r#"hl.dsp.dpms({ action = "enable" })"#,
+    )?;
 
     match done {
-        Ok(said) if said.status.success() => (),
-        Ok(said) => eprintln!(
-            "console-brightness: the panel would not come on: {}",
-            String::from_utf8_lossy(&said.stderr).trim()
-        ),
-        Err(fault) => eprintln!("console-brightness: no hyprctl to put the panel on: {fault}"),
+        console_compositor::Done::Taken => {},
+        console_compositor::Done::Refused(why) => {
+            eprintln!("console-brightness: the panel would not come on: {why}");
+        }
     }
 
     Ok(())
@@ -157,7 +176,12 @@ fn panel_on() -> Result<(), Never> {
 fn undim(now: i64) -> Result<std::process::ExitCode, Never> {
     panel_on()?;
 
-    let Some(kept) = remembered()? else { return Ok(std::process::ExitCode::SUCCESS) };
+    let remembered = remembered()?;
+
+    let kept = match remembered {
+        Some(kept) => kept,
+        None => return Ok(std::process::ExitCode::SUCCESS),
+    };
 
     let was = kept_at(&kept)?;
     let _ = std::fs::remove_file(&kept);

@@ -47,18 +47,21 @@ pub fn written(far: &Far) -> Result<String, Never> {
 }
 
 pub fn reading(held: &str) -> Result<Option<Far>, Never> {
-    let Some(first) = held.lines().next() else {
-        return Ok(None);
+    let first = match held.lines().next() {
+        Some(first) => first,
+        None => return Ok(None),
     };
 
     let line = first.trim();
 
-    let Some((percent, doing)) = line.split_once(' ') else {
-        return Ok(None);
+    let (percent, doing) = match line.split_once(' ') {
+        Some((percent, doing)) => (percent, doing),
+        None => return Ok(None),
     };
 
-    let Ok(percent) = percent.parse::<u16>() else {
-        return Ok(None);
+    let percent = match percent.parse::<u16>() {
+        Ok(percent) => percent,
+        Err(_fault) => return Ok(None),
     };
 
     Ok(match percent <= 100 && !doing.trim().is_empty() {
@@ -70,8 +73,9 @@ pub fn reading(held: &str) -> Result<Option<Far>, Never> {
 pub fn wrote(far: &Far) -> Result<(), Never> {
     let Ok(at) = at();
 
-    let Some(holding) = at.parent() else {
-        return Ok(());
+    let holding = match at.parent() {
+        Some(holding) => holding,
+        None => return Ok(()),
     };
 
     match std::fs::create_dir_all(holding) {
@@ -127,8 +131,9 @@ pub fn wake() -> Result<(), Never> {
 pub fn far() -> Result<Option<Far>, Never> {
     let Ok(at) = at();
 
-    let Ok(said) = std::fs::read_to_string(at) else {
-        return Ok(None);
+    let said = match std::fs::read_to_string(at) {
+        Ok(said) => said,
+        Err(_fault) => return Ok(None),
     };
 
     reading(&said)

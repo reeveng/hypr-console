@@ -6,13 +6,14 @@
 //! console-battery protect  say the machine is stopping, wait, and stop it
 //! ```
 //!  Run by `bar-say battery`, which is the one thing on this desktop reading
-//! the battery: it takes a reading every thirty seconds for the icon it draws,
-//! and a second program asking the same two files on its own timer would be two
-//! opinions about one battery. What it does with a reading is
-//! `console_default_applications::battery`, and what any of it comes to on a
-//! screen is `console_settings::stopping`. This is the part that needs a
-//! machine.  It can be run by hand, which is the only way to find out what the
-//! last one looks like without emptying a battery to five per cent first.
+//! the battery: it reads when udev says a supply changed, and every thirty
+//! seconds under that, for the icon it draws -- and a second program asking the
+//! same two files on its own timer would be two opinions about one battery.
+//! What it does with a reading is `console_default_applications::battery`, and
+//! what any of it comes to on a screen is `console_settings::stopping`. This is
+//! the part that needs a machine.  It can be run by hand, which is the only way
+//! to find out what the last one looks like without emptying a battery to five
+//! per cent first.
 
 use std::process::{Command, ExitCode};
 
@@ -27,17 +28,25 @@ const USAGE: &str = "usage: console-battery [low|lower|protect]";
 fn main() -> ExitCode {
     let Ok(named) = std::env::args().nth(1).as_deref().map(Step::named).transpose();
 
-    let Some(step) = named.flatten() else {
-        eprintln!("{USAGE}");
-        return ExitCode::from(2);
+    let step = match named.flatten() {
+        Some(step) => step,
+        None => {
+            eprintln!("{USAGE}");
+
+            return ExitCode::from(2);
+        }
     };
 
     let Ok(said) = charge();
     let Ok(now) = Charge::of(&said);
 
-    let Some(percent) = now.percent else {
-        eprintln!("no battery on this machine to say anything about");
-        return ExitCode::FAILURE;
+    let percent = match now.percent {
+        Some(percent) => percent,
+        None => {
+            eprintln!("no battery on this machine to say anything about");
+
+            return ExitCode::FAILURE;
+        }
     };
 
     let Ok(stop) = stop();
@@ -85,9 +94,13 @@ fn stopping(percent: i32, stop: Stop) -> Result<ExitCode, Never> {
     for doing in [Some(stop), instead].into_iter().flatten() {
         let Ok(argv) = doing.argv();
 
-        let Some((program, rest)) = argv.split_first() else {
-            eprintln!("nothing to run: the way to stop the machine named no program");
-            continue;
+        let (program, rest) = match argv.split_first() {
+            Some((program, rest)) => (program, rest),
+            None => {
+                eprintln!("nothing to run: the way to stop the machine named no program");
+
+                continue;
+            }
         };
 
         match Command::new(program).args(rest).status() {

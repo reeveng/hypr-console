@@ -4,8 +4,10 @@ PartOf=console.target
 
 [Service]
 Type=simple
-# Mode is positional. Passed as an option it saves somewhere nothing reads.
-ExecStart=/usr/local/bin/hyprsession
+# No mode at all. The modes are positional, and the one that puts windows back
+# closes every window first -- which under Restart=always is a crash that sweeps
+# the desktop. No mode puts back once for each compositor and watches after that.
+ExecStart=/usr/local/bin/console-resume
 ExecStopPost=-/usr/local/bin/console-fell %n
 Restart=always
 RestartSec=5

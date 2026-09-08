@@ -17,7 +17,7 @@
 use std::path::{Path, PathBuf};
 
 use console_core_external_programs::Program;
-use console_manifest_publish::tree::{FORKS, FORK_SOURCES, Fork, carried, is_fork, manifest};
+use console_manifest_publish::tree::{FORKS, Fork, VENDORED, carried, is_fork, manifest};
 
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -35,7 +35,10 @@ fn everything_under(holding: &Path) -> Vec<PathBuf> {
     let mut found = Vec::new();
     let mut asking = vec![holding.to_path_buf()];
     while let Some(here) = asking.pop() {
-        let Ok(inside) = std::fs::read_dir(&here) else { continue };
+        let inside = match std::fs::read_dir(&here) {
+            Ok(inside) => inside,
+            Err(_fault) => continue,
+        };
         for entry in inside.flatten() {
             let path = entry.path();
             match path.is_dir() {
@@ -112,28 +115,21 @@ fn every_fork_the_list_names_is_a_file_that_is_there() {
 }
 
 #[test]
-fn every_fork_source_the_list_names_is_a_directory_with_something_in_it() {
-    for source in FORK_SOURCES {
+fn every_vendored_crate_the_list_names_is_a_directory_with_something_in_it() {
+    for source in VENDORED {
         let at = root().join(source);
-        match the_published_copy() {
-            true => assert!(!at.exists(), "the copy carries the source tree {source}"),
-            false => {
-                assert!(at.is_dir(), "FORK_SOURCES names {source}, which is not a directory here");
-                assert!(
-                    !everything_under(&at).is_empty(),
-                    "{source} is named as a fork's source and holds nothing"
-                );
-            },
-        }
+
+        assert!(at.is_dir(), "VENDORED names {source}, which is not a directory here");
+        assert!(
+            !everything_under(&at).is_empty(),
+            "{source} is named as somebody else's work and holds nothing"
+        );
     }
 }
 
 #[test]
 fn a_vendored_fork_keeps_the_licence_it_came_with() {
-    if the_published_copy() {
-        return;
-    }
-    for source in FORK_SOURCES {
+    for source in VENDORED {
         let held = everything_under(&root().join(source));
         let licences: Vec<&PathBuf> = held
             .iter()
@@ -195,7 +191,10 @@ fn nothing_a_fork_owns_survives_being_carried() {
     let listed = git
         .args(["-C", &root().to_string_lossy(), "ls-files"])
         .output();
-    let Ok(listed) = listed else { return };
+    let listed = match listed {
+        Ok(listed) => listed,
+        Err(_fault) => return,
+    };
     if !listed.status.success() {
         return;
     }
@@ -207,7 +206,11 @@ fn nothing_a_fork_owns_survives_being_carried() {
     assert!(!tracked.is_empty(), "git listed nothing, so this test asked nothing");
 
     let Ok(kept) = carried(tracked.clone());
-    assert!(kept.len() < tracked.len(), "the filter took nothing out of a tree that has forks in it");
+    assert_eq!(
+        kept.len(),
+        tracked.len() - FORKS.len(),
+        "the filter took out a number of files the list does not account for"
+    );
 
     for name in &kept {
         for fork in FORKS {
@@ -217,12 +220,6 @@ fn nothing_a_fork_owns_survives_being_carried() {
                 "a fork binary survived being carried"
             );
             assert!(!name.ends_with(fork), "{name} survived being carried");
-        }
-        for source in FORK_SOURCES {
-            assert!(
-                !name.starts_with(&format!("{source}/")) && name != source,
-                "{name} is under the fork source {source} and survived being carried"
-            );
         }
     }
 }

@@ -18,10 +18,13 @@ name = "console-asking"
 path = "src/bin/console-asking.rs"
 
 [dependencies]
+console-core-atomic-writes.workspace = true
 console-core-never.workspace = true
+console-core-places.workspace = true
 console-program-contract.workspace = true
 console-input-controller.workspace = true
 console-core-external-programs.workspace = true
+console-input-bindings.workspace = true
 console-input-gamepad.workspace = true
 # The controller, taken while the card is up. What used to be a profile load.
 console-input-focus.workspace = true

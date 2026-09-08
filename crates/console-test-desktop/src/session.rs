@@ -1,7 +1,19 @@
 //! Which compositor is which, and waiting for one to arrive.
 //!
 //! A nested Hyprland picks its own signature and its own socket and says
-//! neither, so both are learned by watching for one appearing.
+//! neither, so both are learned by watching for one appearing. `Starting` is
+//! what makes that sound: one session comes up at a time, so the one new name
+//! in the runtime directory is this one's.
+//!
+//! What is not sound is taking every name that begins with `wayland-` for a
+//! display. A session started a moment ago goes on filling that directory after
+//! the lock is let go -- the wallpaper daemon opens `wayland-2-awww-daemon.sock`
+//! beside the display it draws on -- so the new name arriving while this one
+//! waits can belong to the session before it. Then everything after it is asked
+//! of somebody else's compositor: the screen it makes is not the screen it looks
+//! at, and what it says is that the screen never appeared. A display socket is
+//! `wayland-` and a number and nothing else, which is what `named` holds a name
+//! to.
 
 use std::collections::BTreeSet;
 use std::fs::File;
@@ -25,7 +37,10 @@ pub fn instances() -> Result<BTreeSet<String>, Never> {
     let mut found = BTreeSet::new();
     let Ok(runtime) = runtime();
 
-    let Ok(entries) = std::fs::read_dir(runtime.join("hypr")) else { return Ok(found) };
+    let entries = match std::fs::read_dir(runtime.join("hypr")) {
+        Ok(entries) => entries,
+        Err(_fault) => return Ok(found),
+    };
 
     for path in entries.flatten().map(|entry| entry.path()) {
         match path.is_dir() {
@@ -42,22 +57,43 @@ pub fn instances() -> Result<BTreeSet<String>, Never> {
     Ok(found)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Names {
+    ADisplay,
+    SomethingElse,
+}
+
+pub fn named(name: &str) -> Result<Names, Never> {
+    let rest = match name.strip_prefix("wayland-") {
+        Some(rest) => rest,
+        None => return Ok(Names::SomethingElse),
+    };
+
+    Ok(match !rest.is_empty() && rest.chars().all(|said| said.is_ascii_digit()) {
+        true => Names::ADisplay,
+        false => Names::SomethingElse,
+    })
+}
+
 pub fn sockets() -> Result<BTreeSet<String>, Never> {
     let mut found = BTreeSet::new();
     let Ok(runtime) = runtime();
 
-    let Ok(entries) = std::fs::read_dir(runtime) else { return Ok(found) };
+    let entries = match std::fs::read_dir(runtime) {
+        Ok(entries) => entries,
+        Err(_fault) => return Ok(found),
+    };
 
     for path in entries.flatten().map(|entry| entry.path()) {
         let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
 
-        match name.starts_with("wayland-") && !name.ends_with(".lock") {
-            true => {
+        let Ok(names) = named(&name);
+
+        match names {
+            Names::ADisplay => {
                 found.insert(name);
             }
-            false => {
-                {};
-            }
+            Names::SomethingElse => {},
         }
     }
 
@@ -103,7 +139,10 @@ pub enum Wrote {
 
 pub fn wait_for_written(at: &Path, patience: Duration) -> Result<Wrote, Never> {
     let Ok(found) = until(patience, || {
-        let Ok(read) = std::fs::read(at) else { return None };
+        let read = match std::fs::read(at) {
+            Ok(read) => read,
+            Err(_fault) => return None,
+        };
 
         match read.contains(&b'\n') {
             true => Some(()),
@@ -127,7 +166,10 @@ pub fn left_behind(signature: &str) -> Result<(), Never> {
 pub fn abandoned() -> Result<Vec<PathBuf>, Never> {
     let Ok(stages) = stages();
 
-    let Ok(entries) = std::fs::read_dir(stages) else { return Ok(Vec::new()) };
+    let entries = match std::fs::read_dir(stages) {
+        Ok(entries) => entries,
+        Err(_fault) => return Ok(Vec::new()),
+    };
 
     let mut found: Vec<PathBuf> = entries
         .flatten()
@@ -135,7 +177,10 @@ pub fn abandoned() -> Result<Vec<PathBuf>, Never> {
         .filter(|path| {
             let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
 
-            let Some(pid) = name.strip_prefix("session-") else { return false };
+            let pid = match name.strip_prefix("session-") {
+                Some(pid) => pid,
+                None => return false,
+            };
 
             pid.chars().all(|digit| digit.is_ascii_digit())
                 && !PathBuf::from("/proc").join(pid).exists()
@@ -221,6 +266,24 @@ mod tests {
         }
         let dead = dead_instances().expect("the dead");
         assert!(!dead.iter().any(|path| path.ends_with(&ours)));
+    }
+
+    #[test]
+    fn a_socket_named_after_a_display_is_not_the_display() {
+        let named = |name: &str| named(name).expect("a name is read");
+
+        assert_eq!(named("wayland-1"), Names::ADisplay);
+        assert_eq!(named("wayland-12"), Names::ADisplay);
+        assert_eq!(named("wayland-1.lock"), Names::SomethingElse);
+        assert_eq!(
+            named("wayland-2-awww-daemon.sock"),
+            Names::SomethingElse,
+            "the wallpaper daemon opens this beside the display it draws on, and a session \
+             waiting for one would take it for the compositor it just started"
+        );
+        assert_eq!(named("wayland-"), Names::SomethingElse);
+        assert_eq!(named("waylandish"), Names::SomethingElse);
+        assert_eq!(named("pipewire-0"), Names::SomethingElse);
     }
 
     #[test]

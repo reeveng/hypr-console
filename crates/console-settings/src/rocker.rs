@@ -60,8 +60,9 @@ pub fn said(level: Option<&str>, muted: Muted) -> Result<String, Never> {
 }
 
 pub fn level(said: &str) -> Result<Option<&str>, Never> {
-    let Some(first) = said.lines().next() else {
-        return Ok(None);
+    let first = match said.lines().next() {
+        Some(first) => first,
+        None => return Ok(None),
     };
 
     Ok(first.split_whitespace().nth(4))
@@ -75,11 +76,15 @@ pub fn muted(said: &str) -> Result<Muted, Never> {
 }
 
 pub fn value(level: Option<&str>) -> Result<Option<i64>, Never> {
-    let Some(said) = level else {
-        return Ok(None);
+    let said = match level {
+        Some(said) => said,
+        None => return Ok(None),
     };
 
-    let Ok(value) = said.trim_end_matches('%').parse::<i64>() else { return Ok(None) };
+    let value = match said.trim_end_matches('%').parse::<i64>() {
+        Ok(value) => value,
+        Err(_) => return Ok(None),
+    };
 
     Ok(Some(value))
 }

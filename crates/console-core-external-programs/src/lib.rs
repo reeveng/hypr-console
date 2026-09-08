@@ -69,6 +69,8 @@ programs! {
     Cp, "cp", Origin::Arch;
     Curl, "curl", Origin::Package("curl");
     Date, "date", Origin::Arch;
+    Df, "df", Origin::Arch;
+    Du, "du", Origin::Arch;
     Echo, "echo", Origin::Arch;
     Env, "env", Origin::Arch;
     Ffmpeg, "ffmpeg", Origin::Package("ffmpeg");
@@ -77,10 +79,14 @@ programs! {
     Git, "git", Origin::Package("git");
     Grim, "grim", Origin::Package("grim");
     Hostname, "hostname", Origin::Developing;
+    Hostnamectl, "hostnamectl", Origin::Arch;
     Hyprctl, "hyprctl", Origin::Package("hyprland");
     Hyprland, "Hyprland", Origin::Developing;
     Id, "id", Origin::Arch;
     Just, "just", Origin::Developing;
+    Locale, "locale", Origin::Arch;
+    LocaleGen, "locale-gen", Origin::Arch;
+    Localectl, "localectl", Origin::Arch;
     Logger, "logger", Origin::Arch;
     Ls, "ls", Origin::Arch;
     Makoctl, "makoctl", Origin::Package("mako");
@@ -93,6 +99,7 @@ programs! {
     Pactl, "pactl", Origin::Package("libpulse");
     Pkill, "pkill", Origin::Arch;
     Powerprofilesctl, "powerprofilesctl", Origin::Package("power-profiles-daemon");
+    PwCat, "pw-cat", Origin::Package("pipewire-audio");
     PwRecord, "pw-record", Origin::Package("pipewire-audio");
     Rm, "rm", Origin::Arch;
     Runuser, "runuser", Origin::Arch;
@@ -107,6 +114,7 @@ programs! {
     Systemctl, "systemctl", Origin::Arch;
     SystemdInhibit, "systemd-inhibit", Origin::Arch;
     SystemdRun, "systemd-run", Origin::Arch;
+    Timedatectl, "timedatectl", Origin::Arch;
     True, "true", Origin::Arch;
     Udevadm, "udevadm", Origin::Arch;
     Usermod, "usermod", Origin::Arch;

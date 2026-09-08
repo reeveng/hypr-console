@@ -1,9 +1,19 @@
 //! Putting one file where the manifest says it goes.
+//!
+//! What the manifest says about a file is usually the whole of it: this content,
+//! at this path, and anything else there is drift. `Whose::Theirs` is the other
+//! answer, and `manifest` argues for it -- the tree ships what the file starts
+//! as, and something on the machine writes it afterwards and is supposed to. So
+//! the file is asked whether it is there rather than what is in it, and
+//! `State::Theirs` is that answer said out loud: `console check` prints the word
+//! beside the path, which is the difference between a file nobody compares and a
+//! file that happens to match today.
 
 use std::path::{Path, PathBuf};
 
 use console_core_never::Never;
 
+use crate::manifest::Whose;
 use crate::settled::Settled;
 
 
@@ -36,6 +46,7 @@ pub fn as_declared(live: &str, user: &str) -> Result<String, Never> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum State {
     Ok,
+    Theirs,
     Differs,
     Missing,
     Unreadable,
@@ -46,6 +57,7 @@ impl State {
     pub fn name(self) -> Result<&'static str, Never> {
         Ok(match self {
             State::Ok => "ok",
+            State::Theirs => "theirs",
             State::Differs => "differs",
             State::Missing => "missing",
             State::Unreadable => "cannot read",
@@ -54,9 +66,9 @@ impl State {
     }
 
     pub fn settled(self) -> Result<Settled, Never> {
-        Ok(match self == State::Ok {
-            true => Settled::Yes,
-            false => Settled::No,
+        Ok(match self {
+            State::Ok | State::Theirs => Settled::Yes,
+            State::Differs | State::Missing | State::Unreadable | State::Unsourced => Settled::No,
         })
     }
 }
@@ -66,7 +78,10 @@ pub fn source_of(source: &Path, live: &str) -> Result<PathBuf, Never> {
 }
 
 pub fn content_on_machine(held: &[u8], user: &str, _live: &str) -> Result<Vec<u8>, Never> {
-    let Ok(text) = std::str::from_utf8(held) else { return Ok(held.to_vec()) };
+    let text = match std::str::from_utf8(held) {
+        Ok(text) => text,
+        Err(_fault) => return Ok(held.to_vec()),
+    };
 
     Ok(match text.contains(USER) {
         true => text.replace(USER, user).into_bytes(),
@@ -81,7 +96,7 @@ pub fn content_as_declared(held: &[u8], user: &str) -> Result<Vec<u8>, Never> {
     })
 }
 
-pub fn state(source: &Path, live: &str, user: &str) -> Result<State, Never> {
+pub fn state(source: &Path, live: &str, user: &str, whose: Whose) -> Result<State, Never> {
     let Ok(on) = on_machine(live, user);
     let Ok(from) = source_of(source, live);
     let to = Path::new(&on);
@@ -89,17 +104,23 @@ pub fn state(source: &Path, live: &str, user: &str) -> Result<State, Never> {
     Ok(match (std::fs::read(&from), std::fs::read(to)) {
         (Err(_), _) => State::Unsourced,
         (Ok(_), Err(fault)) if fault.kind() == std::io::ErrorKind::PermissionDenied => {
-            State::Unreadable
-        }
-        (Ok(_), Err(_)) => State::Missing,
-        (Ok(held), Ok(there)) => {
-            let Ok(content) = content_on_machine(&held, user, live);
-
-            match content == there {
-                true => State::Ok,
-                false => State::Differs,
+            match whose {
+                Whose::Theirs => State::Theirs,
+                Whose::Ours => State::Unreadable,
             }
         }
+        (Ok(_), Err(_)) => State::Missing,
+        (Ok(held), Ok(there)) => match whose {
+            Whose::Theirs => State::Theirs,
+            Whose::Ours => {
+                let Ok(content) = content_on_machine(&held, user, live);
+
+                match content == there {
+                    true => State::Ok,
+                    false => State::Differs,
+                }
+            }
+        },
     })
 }
 
@@ -147,8 +168,8 @@ mod tests {
         at
     }
 
-    fn state(source: &Path, live: &str, user: &str) -> State {
-        let Ok(state) = super::state(source, live, user);
+    fn state(source: &Path, live: &str, user: &str, whose: Whose) -> State {
+        let Ok(state) = super::state(source, live, user, whose);
 
         state
     }
@@ -220,13 +241,13 @@ mod tests {
         std::fs::create_dir_all(here.join("live")).expect("somewhere live");
         std::fs::write(&live, b"what it should be\n").expect("the live file");
 
-        let said = state(&source, &live.to_string_lossy(), SOMEBODY);
+        let said = state(&source, &live.to_string_lossy(), SOMEBODY, Whose::Ours);
         assert_eq!(said, State::Ok, "the same file, while it can be read");
 
         std::fs::set_permissions(here.join("live"), std::fs::Permissions::from_mode(0o000))
             .expect("shut");
         let shut = std::fs::read(&live).is_err();
-        let said = state(&source, &live.to_string_lossy(), SOMEBODY);
+        let said = state(&source, &live.to_string_lossy(), SOMEBODY, Whose::Ours);
         std::fs::set_permissions(here.join("live"), std::fs::Permissions::from_mode(0o755)).ok();
         std::fs::remove_dir_all(&here).ok();
 
@@ -237,6 +258,45 @@ mod tests {
 
         assert_eq!(said, State::Unreadable, "a file that cannot be read is not a file that is gone");
         assert_ne!(said, State::Missing);
+    }
+
+    #[test]
+    fn a_file_whose_inside_is_not_ours_is_installed_when_it_is_gone_and_never_compared() {
+        let here = std::env::temp_dir().join(format!("console-theirs-{}", std::process::id()));
+        let live = here.join("live/bar.css");
+        let source = here.join("files");
+        let at = live.to_string_lossy().to_string();
+        std::fs::create_dir_all(source_of(&source, &at).parent().expect("a parent"))
+            .expect("the source");
+        std::fs::write(source_of(&source, &at), b"what it starts as\n").expect("the source");
+        std::fs::create_dir_all(here.join("live")).expect("somewhere live");
+        std::fs::write(&live, b"what the login wrote instead\n").expect("the live file");
+
+        assert_eq!(state(&source, &at, SOMEBODY, Whose::Ours), State::Differs);
+        assert_eq!(
+            state(&source, &at, SOMEBODY, Whose::Theirs),
+            State::Theirs,
+            "a file something else on the machine writes was read as drift"
+        );
+
+        std::fs::remove_file(&live).expect("the live file goes");
+
+        assert_eq!(
+            state(&source, &at, SOMEBODY, Whose::Theirs),
+            State::Missing,
+            "nothing would have put it back"
+        );
+
+        std::fs::remove_dir_all(&here).ok();
+    }
+
+    #[test]
+    fn a_file_nobody_compares_is_a_file_nothing_has_to_be_done_about() {
+        let Ok(settled) = State::Theirs.settled();
+        let Ok(name) = State::Theirs.name();
+
+        assert_eq!(settled, Settled::Yes);
+        assert_eq!(name, "theirs");
     }
 
     #[test]

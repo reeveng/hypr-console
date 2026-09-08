@@ -15,7 +15,7 @@ which stable cannot do; `rust-toolchain.toml` pins the nightly and the
 
 ## The rules
 
-    EXPLICIT001  fallible fns return Result<T, E>
+    EXPLICIT001  a failure met is a failure said
     EXPLICIT002  infallible fns return Result<T, Never>
     EXPLICIT003  Result<T, !> is forbidden; the name is Never
     EXPLICIT004  unwrap / expect / panic / todo / unimplemented / unreachable
@@ -37,19 +37,22 @@ which stable cannot do; `rust-toolchain.toml` pins the nightly and the
     EXPLICIT020  no comments; a `//!` head and a `// SAFETY:` are the two that stay
     EXPLICIT021  no waiting on the clock; ask for the thing, and keep asking
     EXPLICIT022  no settling on a number of seconds on the handheld; ask it
+    EXPLICIT023  no `let … else`; the `match` goes in the initializer
 
 All of them are written. Each is one crate with a `ui/` case beside it.
 
-The level in the lint's own source says which tier a rule is in, and every
-rule the workspace keeps is `Deny`: the gate fails on every one of them. The
-`Warn` tier is where a rule written ahead of the code waits, printing its
-remaining distance on every run so it is never out of sight, and nothing stands
-there today. A rule moves from `Warn` to `Deny` in its own crate when the last
-call site that broke it is fixed, and by the ratchet's one law it never moves
-back. 022 was the last to come out, and what let it was a change to what a
-wait may carry rather than a change to any check: `until` now carries the fault
-its question carries, so a question that reads the screen is one a wait can be
-given.
+The level in the lint's own source says which tier a rule is in, and every rule
+here is `Deny`: the gate fails on every one of them and the warned tier is
+empty. It is not abolished -- it is where a rule written ahead of the code
+waits, printing its remaining distance on every run so it is never out of
+sight -- but nothing stands there, and a rule that arrives with call sites
+still breaking it is the only thing that will put anything there again. A rule
+moves from `Warn` to `Deny` in its own crate when the last call site that broke
+it is fixed, and by the ratchet's one law it never moves back. 023 was the last
+out and went the way 019 did, by sweep; before it, 022 came out on a change to
+what a wait may carry rather than a change to any check: `until` now carries
+the fault its question carries, so a question that reads the screen is one a
+wait can be given.
 018 came out the quiet way: it was written after the
 policy it names was already kept everywhere, so its last call site was answered
 before the rule existed to count it. 017 came out the long way, which is the way the ratchet
@@ -59,6 +62,27 @@ forbids had been swept out of the tree once already, by hand, and was back in
 most of the crates by the time anybody looked. 019 came out the longest
 way of all, because it was the rule the whole tree broke: every guard clause, every `if let`, every `else if`
 chain rewritten as a `match` that names what the other path was.
+
+**023 is the part of 019 that was let through.** When the guard clauses were
+rewritten they were rewritten into `let … else`, and 019's own head said that
+was fine: both outcomes written, one of them required to leave. Only one of them
+is written. `let Some(held) = asked else` never says `None`, which is the exact
+complaint 019 makes about `if let`, and the sweep that was supposed to name
+every path left the largest family of them spelled `else`. So it is a rule of
+its own, and the tree broke it in the same way and on the same scale. It stood
+warned while that was walked back into a `match` on the right of the `let`:
+
+    let said = match std::fs::read_to_string(&at) {
+        Ok(said) => said,
+        Err(fault) => return Err(fault.to_string()),
+    };
+
+That is not the nesting the guard clause was avoiding. A `match` in an
+initializer is an expression, so the binding stays where it was and nothing
+after it moves right -- which is also why EXPLICIT013 does not ask it for a
+blank line. What an irrefutable `let` does is a different thing and is not
+touched: `let Ok(at) = at(&home);` has no `else` because `Result<T, Never>` has
+no `Err`, and that is 002 being kept rather than a case being hidden.
 
 Three of the first twelve cannot read their own rule off a signature, so they
 read it off the code instead, and it is worth knowing which way:
@@ -457,6 +481,23 @@ Which of the two a site wants is a question about the site -- what should this
 program do on a machine where this is missing? -- and the shape of the call that
 is there now does not answer it. Every site gets read for that before it is
 converted, because the conversion that is wrong is the one that lints.
+
+### Returning `Result` used to be a pass, and is not one now
+
+001 began by asking only whether the *enclosing* function returned `Result`: if
+it did, it had already told its caller it could fail, so swallowing inside it
+was a choice it was entitled to make. That reasoning holds for the caller and
+not for the failure. Saying somewhere in a signature that you can fail is not
+saying that you did, and what the exemption sheltered was every shape that
+reads as a decision and is not one -- a `strip_prefix` handing back the whole
+path, a clock reading becoming zero, a file that could not be read becoming an
+empty one -- sitting inside functions whose `Result` was about something else
+entirely.
+
+Closing it cost five sites, which is what the exemption had been worth in the
+whole workspace by the time anybody counted. Each of them was already doing the
+right thing; none of them said so. The rule now asks the same question
+everywhere, and the answer is the `match` above.
 
 ### The sentence names the purpose, not the mechanism
 

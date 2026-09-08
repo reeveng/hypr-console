@@ -1,4 +1,4 @@
-# What the desktop user may do as root, which is two programs.
+# What the desktop user may do as root, which is three programs.
 #
 # The Web tab writes the chosen search engine into every browser on the
 # machine, and all three of them read their policy out of /etc. The panel runs
@@ -22,3 +22,18 @@
 # write anything else. `console apply` is not this line and cannot be reached
 # through it -- sudo matches the words as well as the program.
 @user@ ALL=(root) NOPASSWD: /usr/local/bin/console buttons
+
+# The third is the Language tab's and the Setup tab's. Which language this
+# machine is in, where it keeps the hour and what it answers to are four files
+# under /etc -- locale.gen, locale.conf, localtime and hostname -- and the
+# panel is not root either. `console-machine` is the one door to them, and
+# every word it takes is checked against a list the machine itself holds: a
+# language has to be a line in /usr/share/i18n/SUPPORTED, an hour has to be a
+# zone timedatectl names, and a name has to be one a network could look up. A
+# word it does not know is refused rather than passed on.
+#
+# It could have gone through polkit instead -- timedatectl and hostnamectl both
+# ask it -- and that is a password box on a machine whose only keyboard is
+# drawn by the session that would be asking. The same argument as the first
+# rule, for the same reason.
+@user@ ALL=(root) NOPASSWD: /usr/local/bin/console-machine

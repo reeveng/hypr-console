@@ -17,8 +17,6 @@
 //! home directory actually says, which is the same answer the files panel's
 //! Pictures tab arrives at.
 
-use std::path::PathBuf;
-
 use console_core_external_programs::Program;
 use console_files::places::folder;
 use console_core_never::Never;
@@ -41,12 +39,15 @@ fn when() -> Result<String, Never> {
 }
 
 fn main() -> std::process::ExitCode {
-    let home = match std::env::var("HOME") {
-        Ok(home) => PathBuf::from(home),
+    let Ok(said) = console_core_places::home();
 
-        Err(fault) => {
-            eprintln!("console-screenshot: HOME: {fault}; the picture goes under /root");
-            PathBuf::from("/root")
+    let home = match said {
+        Some(home) => home,
+
+        None => {
+            eprintln!("console-screenshot: no HOME, so there is nobody to take a picture for");
+
+            return std::process::ExitCode::FAILURE;
         }
     };
 

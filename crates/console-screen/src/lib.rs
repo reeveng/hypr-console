@@ -141,28 +141,33 @@ fn between(
     open: char,
     close: char,
 ) -> Result<Option<String>, Never> {
-    let Some(found) = text.find(name) else {
-        return Ok(None);
+    let found = match text.find(name) {
+        Some(found) => found,
+        None => return Ok(None),
     };
 
     let at = found.saturating_add(name.len());
 
-    let Some(after_name) = text.get(at..) else {
-        return Ok(None);
+    let after_name = match text.get(at..) {
+        Some(after_name) => after_name,
+        None => return Ok(None),
     };
 
-    let Some(opened) = after_name.find(open) else {
-        return Ok(None);
+    let opened = match after_name.find(open) {
+        Some(opened) => opened,
+        None => return Ok(None),
     };
 
     let start = at.saturating_add(opened).saturating_add(open.len_utf8());
 
-    let Some(inside) = text.get(start..) else {
-        return Ok(None);
+    let inside = match text.get(start..) {
+        Some(inside) => inside,
+        None => return Ok(None),
     };
 
-    let Some(closed) = inside.find(close) else {
-        return Ok(None);
+    let closed = match inside.find(close) {
+        Some(closed) => closed,
+        None => return Ok(None),
     };
 
     let end = start.saturating_add(closed);
@@ -171,20 +176,23 @@ fn between(
 }
 
 fn after(block: &str, name: &str) -> Result<Option<String>, Never> {
-    let Some(found) = block.find(name) else {
-        return Ok(None);
+    let found = match block.find(name) {
+        Some(found) => found,
+        None => return Ok(None),
     };
 
     let at = found.saturating_add(name.len());
 
-    let Some(after_name) = block.get(at..) else {
-        return Ok(None);
+    let after_name = match block.get(at..) {
+        Some(after_name) => after_name,
+        None => return Ok(None),
     };
 
     let rest = after_name.trim_start();
 
-    let Some(valued) = rest.strip_prefix('=') else {
-        return Ok(None);
+    let valued = match rest.strip_prefix('=') {
+        Some(valued) => valued,
+        None => return Ok(None),
     };
 
     let rest = valued.trim_start();

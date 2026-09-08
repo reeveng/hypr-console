@@ -16,10 +16,11 @@
 //! packing the same files again under a new number every apply would be the
 //! browser taking a new add-on every time the machine was told to catch up.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::ExitCode;
 
 use console_browser_extension::{PALETTE, source, stamp};
+use console_core_atomic_writes::Held;
 use console_core_never::Never;
 
 const NEW: &str = "console-new";
@@ -27,23 +28,35 @@ const NEW: &str = "console-new";
 fn main() -> ExitCode {
     let always = std::env::args().any(|word| word == "--always");
 
-    let home = match std::env::var("HOME") {
-        Ok(said) => PathBuf::from(said),
-        Err(_) => PathBuf::from("/root"),
+    let Ok(said) = console_core_places::home();
+
+    let home = match said {
+        Some(home) => home,
+        None => {
+            eprintln!("no HOME, so there is nobody whose add-on this would be");
+
+            return ExitCode::from(1);
+        }
     };
 
     let at = home.join(PALETTE);
 
-    let Ok(palette) = std::fs::read_to_string(&at) else {
-        eprintln!("{}: no palette to dress the add-on in", at.display());
-        return ExitCode::from(1);
+    let palette = match std::fs::read_to_string(&at) {
+        Ok(palette) => palette,
+        Err(_fault) => {
+            eprintln!("{}: no palette to dress the add-on in", at.display());
+            return ExitCode::from(1);
+        }
     };
 
     let Ok(dressed) = source::hosted(&palette);
 
-    let Some(palette) = dressed else {
-        eprintln!("{}: not a palette this can read", at.display());
-        return ExitCode::from(1);
+    let palette = match dressed {
+        Some(palette) => palette,
+        None => {
+            eprintln!("{}: not a palette this can read", at.display());
+            return ExitCode::from(1);
+        }
     };
 
     let Ok(xpi) = console_browser_extension::xpi(&home);
@@ -96,15 +109,17 @@ fn main() -> ExitCode {
 }
 
 fn note_beside(at: &Path) -> Result<Option<stamp::Stamp>, Never> {
-    Ok(match std::fs::read_to_string(at) {
-        Ok(said) => {
+    let Ok(said) = console_core_atomic_writes::read(at);
+
+    Ok(match said {
+        Held::Said(said) => {
             let Ok(held) = stamp::read(&said);
 
             held
         },
-        Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => None,
+        Held::Nothing => None,
 
-        Err(fault) => {
+        Held::Unreadable(fault) => {
             eprintln!("{}: reading the note beside the add-on: {fault}", at.display());
             None
         }

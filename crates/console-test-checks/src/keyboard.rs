@@ -196,12 +196,15 @@ fn in_a_page(stage: &mut Device) -> Done {
     let Ok(_) = stage.user(&format!("mkdir -p {home}/.cache && printf %s '{PAGE}' > {at}"));
     let Ok(ours) = stage.opening(&format!("librewolf --new-window file://{at}"), OPENS);
 
-    let Some(ours) = ours else {
-        let Ok(_) = stage.user(&format!("rm -f {at}"));
+    let ours = match ours {
+        Some(ours) => ours,
+        None => {
+            let Ok(_) = stage.user(&format!("rm -f {at}"));
 
-        return failed(
-            "the browser never came up, so nothing here has been asked yet".to_string(),
-        );
+            return failed(
+                "the browser never came up, so nothing here has been asked yet".to_string(),
+            );
+        }
     };
 
     let Ok(page) = stage.until(|stage| titled(stage, "keyboard-check"), OPENS);

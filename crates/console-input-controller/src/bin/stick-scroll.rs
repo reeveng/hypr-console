@@ -17,6 +17,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use evdev::uinput::VirtualDevice;
@@ -29,8 +30,11 @@ use console_input_controller::clock::since_boot;
 use console_input_controller::doing::Doing;
 use console_input_controller::finding::{Says, says};
 use console_input_controller::means::{self, Table};
-use console_input_gamepad::jobs::Rebound;
+use console_input_bindings::moved::Rebound;
+use console_input_controller::binds::{self, Bind};
+use console_core_atomic_writes::Held;
 use console_core_never::Never;
+use console_program_contract::Topic;
 use console_input_controller::mode::{Awake, Mode};
 use console_input_controller::reading::{From, Ranges};
 use console_input_controller::turning::{Gone, Plugged, READ, Took, Turning};
@@ -48,27 +52,29 @@ fn main() -> std::process::ExitCode {
     let Ok(told) = told();
     let Ok(mut turning) = Turning::pointed_at(told);
 
-    let home = match std::env::var("HOME") {
-        Ok(home) => home,
-        Err(std::env::VarError::NotPresent) => String::new(),
-        Err(fault) => {
-            eprintln!("stick-scroll: HOME: {fault}; running on the table this was built with");
+    let Ok(home) = console_core_places::home();
+    let Ok(mut bound) = Bound::of(home.as_deref());
+    let Ok(saying) = Saying::of(home.as_deref());
 
-            String::new()
-        }
+    let Ok(was) = match home.as_deref() {
+        Some(home) => console_input_bindings::active::read(home),
+        None => Ok(console_input_bindings::active::FIRST),
     };
 
-    let Ok(mut bound) = Bound::of(&home);
+    let Ok(()) = turning.held.using(was);
+    let Ok(()) = saying.using(was);
+    let Ok(()) = settled();
 
     match bound.look(&mut turning) {
         Ok(()) => {},
         Err(fault) => eprintln!("stick-scroll: {fault}"),
     }
 
-    let mut holding: BTreeMap<From, String> = BTreeMap::new();
+    let mut holding: Vec<(From, String)> = Vec::new();
     let mut running: Vec<LetGo> = Vec::new();
 
     let Ok(changed) = watching();
+    let Ok(reloaded) = reloading();
 
     match look(&mut turning) {
         Ok(_) => {}
@@ -107,7 +113,7 @@ fn main() -> std::process::ExitCode {
                 match look(&mut turning) {
                     Ok(letting_go) => {
                         for what in &letting_go {
-                            let Ok(started) = done(what, &mut out);
+                            let Ok(started) = done(what, &mut out, &saying);
 
                             running.extend(started);
                         }
@@ -121,6 +127,21 @@ fn main() -> std::process::ExitCode {
         match bound.look(&mut turning) {
             Ok(()) => {},
             Err(fault) => eprintln!("stick-scroll: {fault}"),
+        }
+
+        let read = match reloaded.try_recv() {
+            Ok(()) => Word::Came,
+            Err(TryRecvError::Empty) => Word::Nothing,
+            Err(TryRecvError::Disconnected) => Word::Gone,
+        };
+
+        match read {
+            Word::Came => {
+                while let Ok(()) = reloaded.try_recv() {}
+
+                let Ok(()) = bound.again();
+            }
+            Word::Nothing | Word::Gone => {},
         }
 
         let Ok(mut waiting) = console_response_times::Waiting::here("controller", "press");
@@ -145,7 +166,7 @@ fn main() -> std::process::ExitCode {
 
                     what_for = Decided::ToStart;
                 }
-                Doing::Frame(_) | Doing::Tell(_) => {
+                Doing::Frame(_) | Doing::Tell(_) | Doing::Using(_) => {
                     what_for = match what_for {
                         Decided::Nothing => Decided::Something,
                         Decided::Something | Decided::ToStart => what_for,
@@ -153,7 +174,7 @@ fn main() -> std::process::ExitCode {
                 }
             }
 
-            let Ok(started) = done(&what, &mut out);
+            let Ok(started) = done(&what, &mut out, &saying);
 
             running.extend(started);
         }
@@ -203,20 +224,95 @@ enum Word {
 }
 
 struct Bound {
-    at: PathBuf,
+    at: Option<PathBuf>,
     written: Option<std::time::SystemTime>,
     read: bool,
+    handed: Vec<Bind>,
 }
 
 impl Bound {
-    fn of(home: &str) -> Result<Self, Never> {
-        let Ok(at) = console_input_gamepad::jobs::path_in(home);
+    fn of(home: Option<&Path>) -> Result<Self, Never> {
+        let at = match home {
+            Some(home) => {
+                let Ok(at) = console_input_bindings::moved::path_in(home);
 
-        Ok(Self { at, written: None, read: false })
+                Some(at)
+            },
+            None => None,
+        };
+
+        Ok(Self { at, written: None, read: false, handed: Vec::new() })
+    }
+
+    fn hand_over(&mut self, table: &Table) -> Result<(), Never> {
+        let Ok(wanted) = binds::wanted(table);
+
+        self.give(wanted)
+    }
+
+    fn again(&mut self) -> Result<(), Never> {
+        let wanted = self.handed.clone();
+
+        self.give(wanted)
+    }
+
+    fn give(&mut self, wanted: Vec<Bind>) -> Result<(), Never> {
+        let Ok(holding) = binds::holding();
+
+        let before = match holding {
+            binds::Holding::These(held) => {
+                let Ok(still) = binds::kept(&self.handed, &held);
+
+                match still.len() == self.handed.len() {
+                    true => {},
+                    false => eprintln!(
+                        "stick-scroll: the compositor is holding {} of the {} keys it was handed; \
+                         putting the rest back",
+                        still.len(),
+                        self.handed.len()
+                    ),
+                }
+
+                still
+            }
+            binds::Holding::Unanswered(fault) => {
+                eprintln!("stick-scroll: what keys it is holding: {fault}");
+
+                self.handed.clone()
+            }
+        };
+
+        let Ok(went) = binds::told(&wanted, &before);
+
+        match went {
+            binds::Went::Through => {},
+            binds::Went::Nowhere => {
+                eprintln!("stick-scroll: some of the keys were refused, and those do nothing");
+            }
+        }
+
+        self.handed = wanted;
+
+        Ok(())
     }
 
     fn look(&mut self, turning: &mut Turning) -> Result<(), String> {
-        let at = self.at.clone();
+        let at = match &self.at {
+            Some(at) => at.clone(),
+            None => {
+                match self.read {
+                    true => return Ok(()),
+                    false => {},
+                }
+
+                self.read = true;
+
+                let Ok(ours) = Table::ours();
+                let Ok(()) = self.hand_over(&ours);
+
+                return Ok(());
+            }
+        };
 
         let written = match std::fs::metadata(&at).and_then(|held| held.modified()) {
             Ok(when) => Some(when),
@@ -237,13 +333,17 @@ impl Bound {
         self.written = written;
         self.read = true;
 
-        let said = match std::fs::read_to_string(&at) {
-            Ok(said) => said,
-            Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => String::new(),
-            Err(fault) => return Err(format!("{}: reading it: {fault}", at.display())),
+        let Ok(held) = console_core_atomic_writes::read(&at);
+
+        let said = match held {
+            Held::Said(said) => said,
+            Held::Nothing => String::new(),
+            Held::Unreadable(fault) => {
+                return Err(format!("{}: reading it: {fault}", at.display()));
+            }
         };
 
-        match console_input_gamepad::jobs::Jobs::read(&said) {
+        match console_input_bindings::moved::Jobs::read(&said) {
             Ok(jobs) => {
                 let Ok(moved) = jobs.moved();
 
@@ -259,6 +359,7 @@ impl Bound {
                 }
 
                 let Ok(table) = Table::of(&jobs);
+                let Ok(()) = self.hand_over(&table);
                 let Ok(()) = turning.bound_by(table);
             }
             Err(fault) => eprintln!("stick-scroll: {}: {fault}", at.display()),
@@ -271,6 +372,38 @@ impl Bound {
 fn watching() -> Result<Receiver<()>, Never> {
     let (say, heard) = channel();
     let Ok(()) = console_events::again::layers(say);
+
+    Ok(heard)
+}
+
+fn reloading() -> Result<Receiver<()>, Never> {
+    let (say, heard) = channel();
+    let Ok(listening) = console_events::listening::listen(&[Topic::Compositor]);
+
+    let _ = std::thread::spawn(move || {
+        let Ok(heard) = listening.heard();
+
+        for heard in heard.iter() {
+            let worth = match &heard {
+                console_events::listening::Heard::GotIn => binds::Worth::Asking,
+                console_events::listening::Heard::Said(changed) => {
+                    let Ok(worth) = binds::worth_asking_after(&changed.said);
+
+                    worth
+                }
+            };
+
+            match worth {
+                binds::Worth::Asking => {
+                    match say.send(()) {
+                        Ok(()) => {},
+                        Err(_nobody_is_listening) => return,
+                    }
+                }
+                binds::Worth::Ignoring => {},
+            }
+        }
+    });
 
     Ok(heard)
 }
@@ -325,7 +458,10 @@ impl Plugged for Machine {
     }
 
     fn ranges(&self, path: &str) -> Ranges {
-        let Some(device) = self.open.get(path) else { return Ranges::default() };
+        let device = match self.open.get(path) {
+            Some(device) => device,
+            None => return Ranges::default(),
+        };
 
         let mut told: BTreeMap<u16, (i32, i32)> = BTreeMap::new();
 
@@ -351,7 +487,10 @@ impl Plugged for Machine {
     }
 
     fn drain(&mut self, path: &str) -> Result<Vec<InputEvent>, Gone> {
-        let Some(device) = self.open.get_mut(path) else { return Err(Gone) };
+        let device = match self.open.get_mut(path) {
+            Some(device) => device,
+            None => return Err(Gone),
+        };
 
         let arrived = match device.fetch_events() {
             Ok(arrived) => Ok(arrived.collect()),
@@ -359,13 +498,11 @@ impl Plugged for Machine {
             Err(_) => Err(Gone),
         };
 
-        match arrived.is_err() {
-            true => {
+        match &arrived {
+            Err(Gone) => {
                 self.open.remove(path);
             }
-            false => {
-                {};
-            }
+            Ok(_still_reading) => {},
         }
 
         arrived
@@ -377,6 +514,7 @@ fn told() -> Result<BTreeMap<From, String>, Never> {
         From::Pad => "CONSOLE_PAD",
         From::Keys => "CONSOLE_KEYS",
         From::Touch => "CONSOLE_TOUCHPAD",
+        From::Typing => "CONSOLE_TYPING",
     };
     let mut out = BTreeMap::new();
 
@@ -404,25 +542,34 @@ fn told() -> Result<BTreeMap<From, String>, Never> {
 }
 
 fn say_what_changed(
-    holding: &mut BTreeMap<From, String>,
+    holding: &mut Vec<(From, String)>,
     turning: &Turning,
 ) -> Result<(), Never> {
     let Ok(now) = turning.holding();
-    let name = |which| match which {
-        From::Pad => "pad",
-        From::Keys => "keyboard",
-        From::Touch => "touchpad",
-    };
 
-    for which in READ {
-        match (holding.get(&which), now.get(&which)) {
-            (None, Some(path)) => eprintln!("stick-scroll: reading the {} at {path}", name(which)),
-            (Some(_), None) => eprintln!("stick-scroll: the {} has gone", name(which)),
-            _ => (),
+    for (which, path) in now {
+        match holding.iter().any(|(_, at)| at == path) {
+            true => {},
+            false => {
+                let Ok(name) = which.said();
+
+                eprintln!("stick-scroll: reading the {name} at {path}");
+            }
         }
     }
 
-    *holding = now.clone();
+    for (which, path) in holding.iter() {
+        match now.iter().any(|(_, at)| at == path) {
+            true => {},
+            false => {
+                let Ok(name) = which.said();
+
+                eprintln!("stick-scroll: the {name} at {path} has gone");
+            }
+        }
+    }
+
+    *holding = now.to_vec();
 
     Ok(())
 }
@@ -460,7 +607,7 @@ fn published() -> Result<VirtualDevice, String> {
     wheeled.build().map_err(|fault| format!("the device would not build: {fault}"))
 }
 
-fn done(what: &Doing, out: &mut VirtualDevice) -> Result<Option<LetGo>, Never> {
+fn done(what: &Doing, out: &mut VirtualDevice, saying: &Saying) -> Result<Option<LetGo>, Never> {
     match what {
         Doing::Frame(frame) => {
             let events: Vec<InputEvent> = frame
@@ -488,7 +635,50 @@ fn done(what: &Doing, out: &mut VirtualDevice) -> Result<Option<LetGo>, Never> {
 
             Ok(None)
         }
+        Doing::Using(on) => {
+            let Ok(()) = saying.using(*on);
+
+            Ok(None)
+        }
     }
+}
+
+struct Saying {
+    home: Option<PathBuf>,
+}
+
+impl Saying {
+    fn of(home: Option<&Path>) -> Result<Self, Never> {
+        Ok(Saying { home: home.map(Path::to_path_buf) })
+    }
+
+    fn using(&self, on: console_input_bindings::bound::Input) -> Result<(), Never> {
+        let home = match &self.home {
+            Some(home) => home,
+            None => return Ok(()),
+        };
+
+        match console_input_bindings::active::remember(home, on) {
+            Ok(()) => {},
+            Err(fault) => eprintln!("stick-scroll: {fault}"),
+        }
+
+        Ok(())
+    }
+}
+
+fn settled() -> Result<(), Never> {
+    let named = console_input_language::NAMED;
+    let mut starting = Command::new(named);
+
+    starting.arg(console_input_language::SETTLE).stdout(Stdio::null()).stderr(Stdio::inherit());
+
+    match let_go(&mut starting) {
+        Ok(_child) => {},
+        Err(fault) => eprintln!("stick-scroll: cannot run {named}: {fault}"),
+    }
+
+    Ok(())
 }
 
 fn reaped(running: Vec<LetGo>) -> Result<Vec<LetGo>, Never> {
@@ -506,8 +696,9 @@ fn reaped(running: Vec<LetGo>) -> Result<Vec<LetGo>, Never> {
 }
 
 fn run(argv: &[String]) -> Result<Option<LetGo>, Never> {
-    let Some((program, rest)) = argv.split_first() else {
-        return Ok(None);
+    let (program, rest) = match argv.split_first() {
+        Some((program, rest)) => (program, rest),
+        None => return Ok(None),
     };
 
     let mut starting = Command::new(program);

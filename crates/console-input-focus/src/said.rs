@@ -30,6 +30,7 @@ pub enum Went {
 pub enum Said {
     Pressed { button: &'static str, went: Went },
     Trigger { trigger: &'static str, went: Went },
+    Typed { code: u16, went: Went },
     Unnamed { code: u16, went: Went },
     Nothing,
 }
@@ -37,6 +38,14 @@ pub enum Said {
 pub fn said(which: Which, kind: EventType, code: u16, value: i32) -> Result<Said, Never> {
     Ok(match which {
         Which::Touch => Said::Nothing,
+        Which::Typing => match kind {
+            EventType::KEY => {
+                let Ok(typed) = typed(code, value);
+
+                typed
+            }
+            _ => Said::Nothing,
+        },
         Which::Pad | Which::Keys => match kind {
             EventType::KEY => {
                 let Ok(key) = key(which, code, value);
@@ -53,6 +62,14 @@ pub fn said(which: Which, kind: EventType, code: u16, value: i32) -> Result<Said
     })
 }
 
+fn typed(code: u16, value: i32) -> Result<Said, Never> {
+    Ok(match value {
+        1 => Said::Typed { code, went: Went::Down },
+        0 => Said::Typed { code, went: Went::Up },
+        _ => Said::Nothing,
+    })
+}
+
 fn key(which: Which, code: u16, value: i32) -> Result<Said, Never> {
     let went = match value {
         1 => Went::Down,
@@ -63,7 +80,7 @@ fn key(which: Which, code: u16, value: i32) -> Result<Said, Never> {
     let Ok(named) = match which {
         Which::Pad => routing::button_of_pad(code),
         Which::Keys => routing::button_of_key(code),
-        Which::Touch => Ok(None),
+        Which::Typing | Which::Touch => Ok(None),
     };
 
     Ok(match named {
@@ -172,6 +189,19 @@ mod tests {
             ok(Which::Pad, EventType::KEY, KeyCode::BTN_TL2.0, 1),
             Said::Trigger { trigger: "LeftTrigger", went: Went::Down },
             "a layer held is not a button with no name"
+        );
+    }
+
+    #[test]
+    fn a_key_off_a_keyboard_somebody_plugged_in_is_a_key_and_not_a_button() {
+        assert_eq!(
+            ok(Which::Typing, EventType::KEY, KeyCode::KEY_I.0, 1),
+            Said::Typed { code: KeyCode::KEY_I.0, went: Went::Down }
+        );
+        assert_eq!(
+            ok(Which::Typing, EventType::KEY, KeyCode::KEY_F22.0, 1),
+            Said::Typed { code: KeyCode::KEY_F22.0, went: Went::Down },
+            "a paddle's key is a paddle only on the device the paddles arrive on"
         );
     }
 

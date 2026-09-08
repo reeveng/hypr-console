@@ -246,8 +246,9 @@ fn waited(rounds: &mut [Waiting], words: &Listening) -> Result<Option<Woke>, Nev
 fn came(rounds: &mut [Waiting]) -> Result<Woke, Never> {
     let woken = Instant::now();
 
-    let Some(waiting) = rounds.iter_mut().find(|waiting| waiting.due <= woken) else {
-        return Ok(Woke::Nothing);
+    let waiting = match rounds.iter_mut().find(|waiting| waiting.due <= woken) {
+        Some(waiting) => waiting,
+        None => return Ok(Woke::Nothing),
     };
 
     let round = waiting.round;

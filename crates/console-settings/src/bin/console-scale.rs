@@ -18,8 +18,11 @@
 //! gives comes back with a complaint and the only symptom is a setting that
 //! does nothing.
 
+use std::path::Path;
 use std::process::ExitCode;
 
+use console_core_atomic_writes::Held;
+use console_compositor::Done;
 use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_settings::size::{self, Size};
@@ -31,18 +34,26 @@ const HOME: &str = "console-home.service";
 fn main() -> ExitCode {
     let word = std::env::args().nth(1).unwrap_or_default();
 
-    let Ok(home) = std::env::var("HOME") else {
-        eprintln!("console-scale: no HOME, so there is nobody to remember for");
-        return ExitCode::FAILURE;
+    let Ok(said) = console_core_places::home();
+
+    let home = match said {
+        Some(home) => home,
+        None => {
+            eprintln!("console-scale: no HOME, so there is nobody to remember for");
+
+            return ExitCode::FAILURE;
+        }
     };
 
     let Ok(at) = size::at(&home);
-    let written = match std::fs::read_to_string(&at) {
-        Ok(said) => said,
+    let Ok(held) = console_core_atomic_writes::read(&at);
 
-        Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => String::new(),
+    let written = match held {
+        Held::Said(said) => said,
 
-        Err(fault) => {
+        Held::Nothing => String::new(),
+
+        Held::Unreadable(fault) => {
             eprintln!("console-scale: {}: {fault}", at.display());
             String::new()
         }
@@ -61,9 +72,15 @@ fn main() -> ExitCode {
 
     let wanted = match word.as_str() {
         "" => {
-            let Ok(said) = asked();
-            let Ok(standing) = size::standing(&said);
-            let Ok(scale) = size::scale_of(&said);
+            let Ok(monitors) = asked();
+
+            let monitors = match monitors {
+                Some(monitors) => monitors,
+                None => return ExitCode::FAILURE,
+            };
+
+            let Ok(standing) = size::standing(&monitors);
+            let Ok(scale) = size::scale_of(&monitors);
 
             match (standing, scale) {
                 (Some(size), _) => {
@@ -93,9 +110,13 @@ fn main() -> ExitCode {
         }
     };
 
-    let Ok(screen) = console_screen::declared() else {
-        eprintln!("console-scale: this build carries no readable screen to change");
-        return ExitCode::FAILURE;
+    let screen = match console_screen::declared() {
+        Ok(screen) => screen,
+        Err(_) => {
+            eprintln!("console-scale: this build carries no readable screen to change");
+
+            return ExitCode::FAILURE;
+        }
     };
 
     match at.parent() {
@@ -142,10 +163,14 @@ fn main() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn applied(home: &str, written: Option<Size>) -> Result<ExitCode, Never> {
-    let Ok(screen) = console_screen::declared() else {
-        eprintln!("console-scale: this build carries no readable screen to put back on");
-        return Ok(ExitCode::SUCCESS);
+fn applied(home: &Path, written: Option<Size>) -> Result<ExitCode, Never> {
+    let screen = match console_screen::declared() {
+        Ok(screen) => screen,
+        Err(_) => {
+            eprintln!("console-scale: this build carries no readable screen to put back on");
+
+            return Ok(ExitCode::SUCCESS);
+        }
     };
 
     let Ok(()) = write_the_bar(home, &screen, written.unwrap_or(Size::Normal));
@@ -168,31 +193,23 @@ fn applied(home: &str, written: Option<Size>) -> Result<ExitCode, Never> {
 }
 
 fn refused(screen: &console_screen::Screen, size: Size) -> Result<Option<String>, Never> {
-    let Ok(mut asking) = Program::Hyprctl.command();
     let Ok(scale) = size.scale();
     let Ok(lua) = size::lua(screen, scale);
+    let Ok(done) = console_compositor::told(console_compositor::Told::Eval, &lua);
 
-    Ok(match asking.args(["eval", &lua]).output() {
-        Ok(said) => {
-            let printed = String::from_utf8_lossy(&said.stdout);
-
-            match said.status.success() && !printed.to_lowercase().contains("error") {
-                true => None,
-                false => Some(format!(
-                    "the compositor would not take it: {}{}",
-                    printed.trim(),
-                    String::from_utf8_lossy(&said.stderr).trim()
-                )),
-            }
-        }
-        Err(why) => Some(format!("no hyprctl to run: {why}")),
+    Ok(match done {
+        Done::Taken => None,
+        Done::Refused(why) => Some(format!("the compositor would not take it: {why}")),
     })
 }
 
-fn write_the_bar(home: &str, screen: &console_screen::Screen, size: Size) -> Result<(), Never> {
+fn write_the_bar(home: &Path, screen: &console_screen::Screen, size: Size) -> Result<(), Never> {
     let Ok(at) = size::bar_at(home);
 
-    let Some(holding) = at.parent() else { return Ok(()) };
+    let holding = match at.parent() {
+        Some(holding) => holding,
+        None => return Ok(()),
+    };
 
     match std::fs::create_dir_all(holding) {
         Ok(()) => {},
@@ -214,15 +231,13 @@ fn write_the_bar(home: &str, screen: &console_screen::Screen, size: Size) -> Res
     Ok(())
 }
 
-fn asked() -> Result<String, Never> {
-    let Ok(mut asking) = Program::Hyprctl.command();
+fn asked() -> Result<Option<serde_json::Value>, Never> {
+    Ok(match console_compositor::asked(console_compositor::Asked::Monitors) {
+        Ok(monitors) => Some(monitors),
+        Err(why) => {
+            eprintln!("console-scale: {why}");
 
-    Ok(match asking.args(["monitors", "-j"]).output() {
-        Ok(said) => String::from_utf8_lossy(&said.stdout).to_string(),
-
-        Err(fault) => {
-            eprintln!("console-scale: hyprctl: asking what the screens are: {fault}");
-            String::new()
+            None
         }
     })
 }

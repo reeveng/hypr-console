@@ -126,10 +126,18 @@ impl Program for Watch {
     }
 
     fn heard(state: &Watching, word: &Word<Heard>) -> Turn<Watching, Its> {
-        let Word::Its(heard) = word else {
-            let Ok(nothing) = Turn::nothing(state.clone());
+        let heard = match word {
+            Word::Its(heard) => heard,
+            Word::Opened
+            | Word::Changed(_)
+            | Word::CameRound(_, _)
+            | Word::Answered(_)
+            | Word::Chose(_)
+            | Word::Stopping => {
+                let Ok(nothing) = Turn::nothing(state.clone());
 
-            return nothing;
+                return nothing;
+            }
         };
 
         let Ok(turn) = match heard {
@@ -232,8 +240,9 @@ fn relisted(
     let name = showing.name.clone();
     let Ok(found) = Reel::of(listing, &name);
 
-    let Some(mut reel) = found else {
-        return Turn::nothing(state.clone());
+    let mut reel = match found {
+        Some(reel) => reel,
+        None => return Turn::nothing(state.clone()),
     };
 
     let Ok(stood) = reel.stand_on(&name);

@@ -49,12 +49,22 @@
 //! the config out of the first. `console-warm curve` prints it, which is how
 //! the copy in `files/` is made; a test holds the two together so the file on
 //! the machine cannot drift from the curve this says.
+//!
+//! `standing` is the reading of that answer, and it is here rather than at each
+//! caller because there are two of them and they were not reading it the same
+//! way. A file nobody has written yet means following the clock, which is what
+//! a machine that was never asked should do. A file that is there and will not
+//! be read means nothing of the sort, and a reader that turns it into
+//! `Following` reports a setting the person may have turned off. So the two are
+//! separate answers, and it is the caller that decides how loudly to say the
+//! second.
 
 
+use console_core_atomic_writes::Held;
 use console_core_never::Never;
 use console_core_number_conversion::whole_u32;
 use std::fmt::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub const DAYLIGHT: u32 = 6500;
 
@@ -68,7 +78,7 @@ pub const DAY: u32 = 7 * 60;
 
 pub const DAWN: u32 = 30;
 
-pub const UNDER: &str = ".config/console/warm";
+pub const NAMED: &str = "warm";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Says {
@@ -205,8 +215,31 @@ impl Warmth {
     }
 }
 
-pub fn at(home: &str) -> Result<PathBuf, Never> {
-    Ok(PathBuf::from(home).join(UNDER))
+pub fn at(home: &Path) -> Result<PathBuf, Never> {
+    let Ok(ours) = console_core_places::Base::Config.ours_under(home);
+
+    Ok(ours.join(NAMED))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Standing {
+    Saying(Warmth),
+    Unreadable(String),
+}
+
+pub fn standing(home: &Path) -> Result<Standing, Never> {
+    let Ok(at) = at(home);
+    let Ok(held) = console_core_atomic_writes::read(&at);
+
+    Ok(match held {
+        Held::Said(said) => {
+            let Ok(warmth) = Warmth::read(&said);
+
+            Standing::Saying(warmth)
+        }
+        Held::Nothing => Standing::Saying(Warmth::Following),
+        Held::Unreadable(fault) => Standing::Unreadable(fault),
+    })
 }
 
 #[cfg(test)]
@@ -352,9 +385,58 @@ mod tests {
 
     #[test]
     fn the_answer_is_kept_under_the_home_it_belongs_to() {
-        let Ok(at) = at("/home/somebody");
+        let Ok(at) = at(Path::new("/home/somebody"));
 
         assert_eq!(at, PathBuf::from("/home/somebody/.config/console/warm"));
+    }
+
+    #[test]
+    fn a_home_with_nothing_written_in_it_follows_the_clock() {
+        let at = std::env::temp_dir().join("console-warm-never-asked");
+
+        let _ = std::fs::remove_dir_all(&at);
+
+        let Ok(standing) = super::standing(&at);
+
+        assert_eq!(standing, Standing::Saying(Warmth::Following));
+    }
+
+    #[test]
+    fn an_answer_that_will_not_be_read_is_not_an_answer() {
+        let home = std::env::temp_dir().join("console-warm-unreadable");
+        let Ok(at) = at(&home);
+
+        let _ = std::fs::remove_dir_all(&home);
+
+        std::fs::create_dir_all(&at).expect("somewhere to work");
+
+        let Ok(standing) = super::standing(&home);
+
+        match standing {
+            Standing::Unreadable(_) => {}
+            Standing::Saying(warmth) => {
+                panic!("a setting that would not be read came back as {warmth:?}")
+            }
+        }
+
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn a_refusal_that_was_written_down_is_read_back() {
+        let home = std::env::temp_dir().join("console-warm-ordinary");
+        let Ok(at) = at(&home);
+
+        let _ = std::fs::remove_dir_all(&home);
+
+        std::fs::create_dir_all(at.parent().expect("a place to put it")).expect("somewhere to work");
+        std::fs::write(&at, "ordinary\n").expect("something to read back");
+
+        let Ok(standing) = super::standing(&home);
+
+        assert_eq!(standing, Standing::Saying(Warmth::Ordinary));
+
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     fn warmths(steps: &[Step], from: u32, to: u32) -> Vec<u32> {

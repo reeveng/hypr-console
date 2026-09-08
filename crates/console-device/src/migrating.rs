@@ -34,6 +34,7 @@
 
 use console_core_external_programs::Program as Theirs;
 use console_core_never::Never;
+use console_core_places::{Base, OURS};
 use console_program_contract::{
     Argv, Chose, Doing, Ending, Given, Opening, Program, Question, Runs, Turn, Went, Word,
 };
@@ -47,13 +48,22 @@ pub const WAS: &str = "/etc/legion";
 pub const UNITS: [&str; 7] =
     ["bar", "controller", "keyboard", "paper", "polkit", "session", "sky"];
 
-pub const HOMES: [(&str, &str); 5] = [
-    (".config/legion", ".config/console"),
-    (".local/state/legion", ".local/state/console"),
-    (".local/share/legion", ".local/share/console"),
-    (".cache/legion", ".cache/console"),
-    (".librewolf/legion", ".librewolf/console"),
-];
+pub const THEN: &str = "legion";
+
+pub const BESIDE: &str = ".librewolf";
+
+pub fn homes() -> Result<Vec<(String, String)>, Never> {
+    let under = Base::EVERY.into_iter().map(|base| {
+        let Ok(usual) = base.usual();
+
+        usual.to_string()
+    });
+
+    Ok(under
+        .chain([BESIDE.to_string()])
+        .map(|under| (format!("{under}/{THEN}"), format!("{under}/{OURS}")))
+        .collect())
+}
 
 pub const SWEPT: [(&str, &str); 5] = [
     ("bin", "/usr/local/bin/legion /usr/local/bin/legion-*"),
@@ -555,8 +565,10 @@ pub fn plan(going: &Going) -> Result<Vec<Piece>, Never> {
         Tree::Now | Tree::Nowhere => {},
     }
 
-    for (was, now) in HOMES {
-        let Ok(said) = moving_a_home(was, now);
+    let Ok(homes) = homes();
+
+    for (was, now) in homes {
+        let Ok(said) = moving_a_home(&was, &now);
         let Ok(as_them) = reaching::as_them(&going.whom, &said);
         let Ok(runs) = on(&going.host, &as_them);
         let Ok(next) = letting(runs);
@@ -684,7 +696,9 @@ fn listed(what: &[String]) -> Result<String, Never> {
 }
 
 fn looking_in_a_home() -> Result<String, Never> {
-    let every: Vec<String> = HOMES.iter().map(|(was, _)| format!("~/{was}")).collect();
+    let Ok(homes) = homes();
+
+    let every: Vec<String> = homes.iter().map(|(was, _)| format!("~/{was}")).collect();
 
     Ok(format!("ls -d {} 2>/dev/null", every.join(" ")))
 }
@@ -802,6 +816,31 @@ mod tests {
     use console_program_contract::{Answer, Said, told};
 
     use super::*;
+
+    #[test]
+    fn the_old_name_is_moved_out_of_the_bases_it_was_ever_under() {
+        let Ok(homes) = homes();
+
+        let was: Vec<&str> = homes.iter().map(|(was, _)| was.as_str()).collect();
+
+        assert_eq!(
+            was,
+            vec![
+                ".config/legion",
+                ".local/state/legion",
+                ".local/share/legion",
+                ".cache/legion",
+                ".librewolf/legion",
+            ],
+            "a machine applied to under the old name has these and no others, so a base that \
+             arrives after the rename must not turn up here: nothing of the old name was ever \
+             under it"
+        );
+
+        for (was, now) in homes {
+            assert_eq!(now, was.replace(THEN, OURS), "a move that renames more than the name");
+        }
+    }
 
     fn doings(said: &Said<Migrating, Never, Never>) -> Vec<Doing<Never>> {
         let Ok(doings) = said.doings();

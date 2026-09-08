@@ -41,12 +41,14 @@ pub const PACE: f64 = 20.0;
 pub fn names_a_crate(line: &str) -> Result<Names, Never> {
     let Ok(plain) = how_far::plain(line);
 
-    let Some(rest) = plain.trim_start().strip_prefix("Compiling ") else {
-        return Ok(Names::SomethingElse);
+    let rest = match plain.trim_start().strip_prefix("Compiling ") {
+        Some(rest) => rest,
+        None => return Ok(Names::SomethingElse),
     };
 
-    let Some(name) = rest.split_whitespace().next() else {
-        return Ok(Names::SomethingElse);
+    let name = match rest.split_whitespace().next() {
+        Some(name) => name,
+        None => return Ok(Names::SomethingElse),
     };
 
     Ok(Names::ACrate(name.to_string()))

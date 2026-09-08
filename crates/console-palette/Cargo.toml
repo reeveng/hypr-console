@@ -13,6 +13,7 @@ path = "src/main.rs"
 console-repository.workspace = true
 console-core-colour.workspace = true
 console-core-never.workspace = true
+console-core-places.workspace = true
 # `preserve_order` because the report lists the colours in the order the
 # palette declares them, and a sorted map would list them alphabetically.
 indexmap = { version = "2", features = ["serde"] }

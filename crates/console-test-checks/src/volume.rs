@@ -46,8 +46,9 @@ fn louder_there(stage: &mut Device) -> Done {
 
     let Ok(now) = stage.volume();
 
-    let (Ok(Some(was)), Ok(Some(now))) = (was.told(), now.told()) else {
-        return failed(UNSAID.to_string());
+    let (was, now) = match (was.told(), now.told()) {
+        (Ok(Some(was)), Ok(Some(now))) => (was, now),
+        (Ok(None) | Err(_), _) | (_, Ok(None) | Err(_)) => return failed(UNSAID.to_string()),
     };
 
     more_than(now, was, || format!("it was {was} and is {now}"))
@@ -77,8 +78,9 @@ fn quieter_there(stage: &mut Device) -> Done {
 
     let Ok(now) = stage.volume();
 
-    let (Ok(Some(was)), Ok(Some(now))) = (was.told(), now.told()) else {
-        return failed(UNSAID.to_string());
+    let (was, now) = match (was.told(), now.told()) {
+        (Ok(Some(was)), Ok(Some(now))) => (was, now),
+        (Ok(None) | Err(_), _) | (_, Ok(None) | Err(_)) => return failed(UNSAID.to_string()),
     };
 
     less_than(now, was, || format!("it was {was} and is {now}"))

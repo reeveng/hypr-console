@@ -56,7 +56,7 @@ fn main() -> ExitCode {
             },
             "--all" => window = None,
             "--file" => match words.next() {
-                Some(path) => at = path.into(),
+                Some(path) => at = Some(path.into()),
                 None => {
                     eprintln!("{USAGE}");
                     return ExitCode::FAILURE;
@@ -70,9 +70,21 @@ fn main() -> ExitCode {
         }
     }
 
-    let Ok(store) = File::open(&at) else {
-        println!("nothing waited for yet: {}", at.display());
-        return ExitCode::SUCCESS;
+    let at = match at {
+        Some(at) => at,
+        None => {
+            eprintln!("console-response-times: nothing says where a wait would be written");
+
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let store = match File::open(&at) {
+        Ok(store) => store,
+        Err(_fault) => {
+            println!("nothing waited for yet: {}", at.display());
+            return ExitCode::SUCCESS;
+        }
     };
 
     let Ok((kept, whole)) = held(store, window);
@@ -126,7 +138,10 @@ fn held(store: File, window: Option<usize>) -> Result<(VecDeque<String>, usize),
     let mut whole: usize = 0;
 
     for said in BufReader::new(store).lines() {
-        let Ok(said) = said else { continue };
+        let said = match said {
+            Ok(said) => said,
+            Err(_fault) => continue,
+        };
 
         whole = whole.saturating_add(1);
         kept.push_back(said);

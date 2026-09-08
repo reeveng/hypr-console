@@ -54,6 +54,24 @@ pub mod putting_back;
 pub mod stopping;
 pub mod watching;
 
+pub fn beside(program: &str) -> Result<std::path::PathBuf, console_core_never::Never> {
+    let running = match std::env::current_exe() {
+        Ok(running) => running,
+        Err(_nothing_says_where_this_is) => return Ok(std::path::PathBuf::from(program)),
+    };
+
+    let beside_it = running.parent().map(std::path::Path::to_path_buf);
+    let above_that = running.parent().and_then(std::path::Path::parent).map(std::path::Path::to_path_buf);
+
+    let built = [beside_it, above_that]
+        .into_iter()
+        .flatten()
+        .map(|at| at.join(program))
+        .find(|at| at.is_file());
+
+    Ok(built.unwrap_or_else(|| std::path::PathBuf::from(program)))
+}
+
 pub fn screen() -> Result<console_screen::Screen, String> {
     let Ok(root) = root();
     let written = std::fs::read_to_string(root.join(console_screen::CONFIG))

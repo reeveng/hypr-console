@@ -29,6 +29,7 @@
 //! is more than picking at random would give them.
 
 
+use console_core_atomic_writes::Held;
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, toward_zero_u64};
 use crate::moon::Moon;
@@ -172,8 +173,9 @@ fn standing<'a>(pictures: &'a [Picture], outside: &Outside) -> Result<Vec<&'a Pi
         }
     }
 
-    let Some(best) = answering.iter().map(|(_, particular)| *particular).max() else {
-        return Ok(Vec::new());
+    let best = match answering.iter().map(|(_, particular)| *particular).max() {
+        Some(best) => best,
+        None => return Ok(Vec::new()),
     };
 
     Ok(answering
@@ -233,12 +235,19 @@ impl Wanted {
     }
 
     pub fn asked() -> Result<Self, Never> {
-        let Some(at) = crate::place::asked()? else { return Ok(Wanted::default()) };
+        let at = crate::place::asked()?;
 
-        match std::fs::read_to_string(&at) {
-            Ok(held) => Wanted::read(&held),
-            Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => Ok(Wanted::default()),
-            Err(fault) => {
+        let at = match at {
+            Some(at) => at,
+            None => return Ok(Wanted::default()),
+        };
+
+        let Ok(said) = console_core_atomic_writes::read(&at);
+
+        match said {
+            Held::Said(held) => Wanted::read(&held),
+            Held::Nothing => Ok(Wanted::default()),
+            Held::Unreadable(fault) => {
                 eprintln!("console-sky: {}: {fault}", at.display());
 
                 Ok(Wanted::default())

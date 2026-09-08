@@ -1,0 +1,52 @@
+//! A picture, as characters, in the terminal.
+//!
+//! ```text
+//! cover-ascii FILE [ROWS]
+//! ```
+
+use std::path::PathBuf;
+
+use console_music_panel::ascii;
+
+const ROWS: usize = 40;
+
+fn main() {
+    let said: Vec<String> = std::env::args().skip(1).collect();
+
+    let path = match said.first().map(PathBuf::from) {
+        Some(path) => path,
+        None => {
+            eprintln!("cover-ascii FILE [ROWS]");
+            std::process::exit(2);
+        }
+    };
+
+    let rows = match said.get(1).map(|said| said.parse::<usize>()) {
+        None => ROWS,
+        Some(Ok(rows)) => rows,
+
+        Some(Err(fault)) => {
+            eprintln!("cover-ascii: not a number of rows: {fault}; drawing {ROWS}");
+            ROWS
+        }
+    };
+
+    let Ok(read) = ascii::read(&path, rows);
+
+    let cover = match read {
+        Some(cover) => cover,
+        None => {
+            eprintln!("no picture in {}", path.display());
+            std::process::exit(1);
+        }
+    };
+
+    for line in cover.cells.chunks(cover.cols) {
+        for cell in line {
+            let (r, g, b) = cell.rgb;
+            print!("\x1b[1;38;2;{r};{g};{b}m{}", cell.ch);
+        }
+
+        println!("\x1b[0m");
+    }
+}

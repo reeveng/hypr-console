@@ -80,7 +80,7 @@ fn here(_stage: &mut Here) -> Done {
         Ran::Fine => {},
     }
 
-    let Ok(unzipping) = beside(UNZIPS_WITH);
+    let Ok(unzipping) = console_test_stages::beside(UNZIPS_WITH);
 
     let ran = Command::new(&unzipping).arg(at.join(format!("{WRAPPED}.zip"))).status();
 
@@ -187,28 +187,16 @@ fn zipped(holding: &Path, into: &Path) -> Result<Ran, Never> {
 }
 
 fn landed(folder: &Path) -> Result<Vec<String>, Never> {
-    let Ok(reading) = std::fs::read_dir(folder) else { return Ok(Vec::new()) };
+    let reading = match std::fs::read_dir(folder) {
+        Ok(reading) => reading,
+        Err(_fault) => return Ok(Vec::new()),
+    };
 
     let mut names: Vec<String> =
         reading.flatten().map(|entry| entry.file_name().to_string_lossy().to_string()).collect();
     names.sort();
 
     Ok(names)
-}
-
-fn beside(program: &str) -> Result<PathBuf, Never> {
-    let Ok(running) = std::env::current_exe() else { return Ok(PathBuf::from(program)) };
-
-    let beside_it = running.parent().map(Path::to_path_buf);
-    let above_that = running.parent().and_then(Path::parent).map(Path::to_path_buf);
-
-    let built = [beside_it, above_that]
-        .into_iter()
-        .flatten()
-        .map(|at| at.join(program))
-        .find(|at| at.is_file());
-
-    Ok(built.unwrap_or_else(|| PathBuf::from(program)))
 }
 
 fn away(stage: &mut Device) -> Result<(), Never> {

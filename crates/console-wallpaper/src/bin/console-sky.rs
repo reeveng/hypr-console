@@ -89,10 +89,17 @@ fn run(argv: &Argv) -> Result<(), String> {
     }
 
     loop {
-        let seconds = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs_f64();
+        let seconds = match SystemTime::now().duration_since(UNIX_EPOCH) {
+            Ok(since) => since.as_secs_f64(),
+            Err(before) => {
+                eprintln!(
+                    "console-sky: this machine says the time is before 1970 ({before}), so the \
+                     sky is drawn for the epoch until the clock is set"
+                );
+
+                0.0
+            }
+        };
         let Ok(at) = here::here();
 
         let Ok(moon) = moon::moon(seconds);
@@ -140,7 +147,10 @@ fn run(argv: &Argv) -> Result<(), String> {
             }
         }
 
-        let Some(waiting) = waiting else { return Ok(()) };
+        let waiting = match waiting {
+            Some(waiting) => waiting,
+            None => return Ok(()),
+        };
 
         match woken.recv_timeout(waiting) {
             Ok(Woke::Weather(said)) => {
@@ -226,7 +236,10 @@ fn ask_the_weather(say: Sender<Woke>) -> Result<(), Never> {
                 false => ASK_SOONER,
             };
 
-            let Ok(()) = say.send(Woke::Weather(said)) else { return };
+            match say.send(Woke::Weather(said)) {
+                Ok(()) => {},
+                Err(_nobody_is_listening) => return,
+            }
 
             #[cfg_attr(
                 dylint_lib = "explicit021_no_sleeping",
@@ -279,14 +292,16 @@ fn paint(picture: &Path) -> Result<Painted, Never> {
 }
 
 fn up(picture: &Path) -> Result<Painted, Never> {
-    let Some(name) = picture.to_str() else {
-        return Ok(Painted::No);
+    let name = match picture.to_str() {
+        Some(name) => name,
+        None => return Ok(Painted::No),
     };
 
     let Ok(mut asking) = Program::Awww.command();
 
-    let Ok(said) = asking.arg("query").output() else {
-        return Ok(Painted::No);
+    let said = match asking.arg("query").output() {
+        Ok(said) => said,
+        Err(_fault) => return Ok(Painted::No),
     };
 
     Ok(match String::from_utf8_lossy(&said.stdout).contains(name) {
@@ -313,7 +328,10 @@ fn listen(say: Sender<Woke>) -> Result<(), Never> {
 
             match worth {
                 Worth::Waking => {
-                    let Ok(()) = say.send(Woke::Compositor) else { return };
+                    match say.send(Woke::Compositor) {
+                        Ok(()) => {},
+                        Err(_nobody_is_listening) => return,
+                    }
                 }
                 Worth::Ignoring => {},
             }

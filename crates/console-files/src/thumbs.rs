@@ -27,14 +27,18 @@ pub fn address(path: &Path) -> Result<Option<String>, Never> {
         Err(_) => path.to_path_buf(),
     };
 
-    let Ok(uri) = glib::filename_to_uri(real, None) else { return Ok(None) };
+    let uri = match glib::filename_to_uri(real, None) {
+        Ok(uri) => uri,
+        Err(_fault) => return Ok(None),
+    };
 
     Ok(Some(uri.to_string()))
 }
 
 pub fn of(store: &Path, address: &str) -> Result<Option<PathBuf>, Never> {
-    let Some(digest) = glib::compute_checksum_for_string(glib::ChecksumType::Md5, address) else {
-        return Ok(None);
+    let digest = match glib::compute_checksum_for_string(glib::ChecksumType::Md5, address) {
+        Some(digest) => digest,
+        None => return Ok(None),
     };
 
     Ok(Some(store.join(format!("{digest}.png"))))
@@ -54,13 +58,29 @@ pub enum Fresh {
 }
 
 pub fn found(store: &Path, path: &Path) -> Result<Option<PathBuf>, Never> {
-    let Some(address) = address(path)? else { return Ok(None) };
+    let address = address(path)?;
 
-    let Some(picture) = of(store, &address)? else { return Ok(None) };
+    let address = match address {
+        Some(address) => address,
+        None => return Ok(None),
+    };
 
-    let Ok(made) = picture.metadata().and_then(|held| held.modified()) else { return Ok(None) };
+    let picture = of(store, &address)?;
 
-    let Ok(changed) = path.metadata().and_then(|held| held.modified()) else { return Ok(None) };
+    let picture = match picture {
+        Some(picture) => picture,
+        None => return Ok(None),
+    };
+
+    let made = match picture.metadata().and_then(|held| held.modified()) {
+        Ok(made) => made,
+        Err(_fault) => return Ok(None),
+    };
+
+    let changed = match path.metadata().and_then(|held| held.modified()) {
+        Ok(changed) => changed,
+        Err(_fault) => return Ok(None),
+    };
 
     let fresh = fresh(made, changed)?;
 

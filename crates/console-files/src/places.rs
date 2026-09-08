@@ -2,6 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
+use console_core_atomic_writes::Held;
 use console_core_never::Never;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -48,7 +49,10 @@ pub fn leading_to(places: &[Place], path: &Path, folder: Is) -> Result<Option<Le
     let (into, stand_on) = match folder {
         Is::AFolder => (path.to_path_buf(), None),
         Is::AFile => {
-            let Some(holding) = path.parent() else { return Ok(None) };
+            let holding = match path.parent() {
+                Some(holding) => holding,
+                None => return Ok(None),
+            };
 
             (
                 holding.to_path_buf(),
@@ -61,7 +65,10 @@ pub fn leading_to(places: &[Place], path: &Path, folder: Is) -> Result<Option<Le
         .iter()
         .enumerate()
         .filter_map(|(at, place)| {
-            let Ok(within) = into.strip_prefix(&place.path) else { return None };
+            let within = match into.strip_prefix(&place.path) {
+                Ok(within) => within,
+                Err(_fault) => return None,
+            };
 
             Some((at, within))
         })
@@ -69,7 +76,10 @@ pub fn leading_to(places: &[Place], path: &Path, folder: Is) -> Result<Option<Le
             places.get(*at).map_or(0, |place| place.path.components().count())
         });
 
-    let Some((place, within)) = under else { return Ok(None) };
+    let (place, within) = match under {
+        Some((place, within)) => (place, within),
+        None => return Ok(None),
+    };
 
     Ok(Some(Leading {
         place,
@@ -94,7 +104,10 @@ pub fn said_at(held: &str, name: &str, home: &Path) -> Result<Option<PathBuf>, N
         .filter(|line| !line.starts_with('#'))
         .find_map(|line| line.strip_prefix(&wanted));
 
-    let Some(found) = found else { return Ok(None) };
+    let found = match found {
+        Some(found) => found,
+        None => return Ok(None),
+    };
 
     let said = found.trim().trim_matches('"');
 
@@ -107,19 +120,25 @@ pub fn said_at(held: &str, name: &str, home: &Path) -> Result<Option<PathBuf>, N
     })
 }
 
+pub const USER_DIRS: &str = "user-dirs.dirs";
+
 pub fn user_dirs(home: &Path) -> Result<PathBuf, Never> {
-    Ok(home.join(".config/user-dirs.dirs"))
+    let Ok(config) = console_core_places::Base::Config.under(home);
+
+    Ok(config.join(USER_DIRS))
 }
 
 pub fn folder(home: &Path, name: &str, plain: &str) -> Result<PathBuf, Never> {
     let at = user_dirs(home)?;
 
-    let held = match std::fs::read_to_string(&at) {
-        Ok(held) => held,
+    let Ok(said) = console_core_atomic_writes::read(&at);
 
-        Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => String::new(),
+    let held = match said {
+        Held::Said(held) => held,
 
-        Err(fault) => {
+        Held::Nothing => String::new(),
+
+        Held::Unreadable(fault) => {
             eprintln!("console: {}: reading where this account keeps its folders: {fault}", at.display());
             String::new()
         }

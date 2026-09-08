@@ -29,6 +29,7 @@ use std::process::Command;
 
 use console_core_external_programs::Program;
 use console_manifest_migrations::sweeping::{self, ON_PURPOSE};
+use console_repository::renaming::UNSAID;
 use console_manifest_migrations::{Outlives, holds, outlives, unswept};
 
 fn carried(said: &str) -> BTreeMap<String, String> {
@@ -205,4 +206,35 @@ mod tests {
 
         assert_eq!(built, carried);
     }
+}
+
+#[test]
+fn no_migration_still_says_its_reason_is_unwritten() {
+    let root = match console_repository::root() {
+        Ok(root) => root,
+        Err(why) => panic!("the top of the tree: {why}"),
+    };
+
+    let at = root.join(sweeping::UNDER);
+    let mut unsaid: Vec<String> = Vec::new();
+
+    for found in std::fs::read_dir(&at).expect("migrations").flatten() {
+        let path = found.path();
+
+        let said = match std::fs::read_to_string(&path) {
+            Ok(said) => said,
+            Err(_it_is_a_directory_or_worse) => continue,
+        };
+
+        if said.contains(UNSAID) {
+            unsaid.push(path.display().to_string());
+        }
+    }
+
+    assert!(
+        unsaid.is_empty(),
+        "console-rename wrote these and nobody said why they matter: {unsaid:?}\n\
+         a migration argues for itself -- what reads the old name, what a person \
+         sees with two of them, what a machine that misses this is left holding",
+    );
 }

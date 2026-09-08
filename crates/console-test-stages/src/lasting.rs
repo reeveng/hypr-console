@@ -130,10 +130,12 @@ use console_core_never::Never;
 use crate::checking::Check;
 use crate::device::{Device, quoted};
 
-pub const KEPT: &str = ".local/state/console/checked";
+pub const NAMED: &str = "checked";
 
 pub fn at(home: &str) -> Result<String, Never> {
-    Ok(format!("{home}/{KEPT}"))
+    let Ok(ours) = console_core_places::Base::State.ours_under(std::path::Path::new(home));
+
+    Ok(ours.join(NAMED).display().to_string())
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

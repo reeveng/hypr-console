@@ -3,7 +3,10 @@
 //! `console_core_localization` is the mechanism and the house style; this is
 //! one crate's share of it.  The Battery tab is done and the rest of this panel
 //! is not, which is why the old strings are still inline over in `rows`. The
-//! tabs come through here because a tab is the first word anybody reads.
+//! tabs come through here because a tab is the first word anybody reads, and
+//! the Language tab is done because a tab about what language a machine is in
+//! that could only ever be read in English would be the joke this mechanism
+//! exists to stop.
 
 use console_core_localization::Said;
 
@@ -16,6 +19,7 @@ pub enum Word {
     Notifications,
     Wallpaper,
     Configuration,
+    Language,
     System,
 
     ScreenBrightness,
@@ -38,6 +42,16 @@ pub enum Word {
     SpeedSaving,
     SpeedNormal,
     SpeedFast,
+    WhatThisMachineSays,
+    WhatTheKeyboardTypes,
+    WhatItListensFor,
+    WhereItIsSpoken,
+    WhereYouAre,
+    TheClock,
+    WhatThisMachineIsCalled,
+    MakingTheLanguage,
+    TheDesktopStaysInEnglish,
+
     WhenTheBatteryGetsLow,
     WarnMe,
     WarnMeAgain,
@@ -56,6 +70,7 @@ impl Said for Word {
             Word::Notifications => "Messages",
             Word::Wallpaper => "Background",
             Word::Configuration => "Setup",
+            Word::Language => "Language",
             Word::System => "Power",
 
             Word::ScreenBrightness => "Screen brightness",
@@ -77,6 +92,16 @@ impl Said for Word {
             Word::SpeedSaving => "Save battery",
             Word::SpeedNormal => "Normal",
             Word::SpeedFast => "Fast",
+            Word::WhatThisMachineSays => "What this machine says",
+            Word::WhatTheKeyboardTypes => "What the keyboard types",
+            Word::WhatItListensFor => "What it listens for",
+            Word::WhereItIsSpoken => "Where it is spoken",
+            Word::WhereYouAre => "Where you are",
+            Word::TheClock => "The clock",
+            Word::WhatThisMachineIsCalled => "What this machine is called",
+            Word::MakingTheLanguage => "Making it, this takes a moment",
+            Word::TheDesktopStaysInEnglish => "These rows stay in English",
+
             Word::WhenTheBatteryGetsLow => "When the battery gets low",
             Word::WarnMe => "Tell me at",
             Word::WarnMeAgain => "Tell me again at",
@@ -123,6 +148,7 @@ mod tests {
             Word::Notifications,
             Word::Wallpaper,
             Word::Configuration,
+            Word::Language,
             Word::System,
             Word::ScreenBrightness,
             Word::NightColoursOff,
@@ -143,6 +169,15 @@ mod tests {
             Word::SpeedSaving,
             Word::SpeedNormal,
             Word::SpeedFast,
+            Word::WhatThisMachineSays,
+            Word::WhatTheKeyboardTypes,
+            Word::WhatItListensFor,
+            Word::WhereItIsSpoken,
+            Word::WhereYouAre,
+            Word::TheClock,
+            Word::WhatThisMachineIsCalled,
+            Word::MakingTheLanguage,
+            Word::TheDesktopStaysInEnglish,
             Word::WhenTheBatteryGetsLow,
             Word::WarnMe,
             Word::WarnMeAgain,

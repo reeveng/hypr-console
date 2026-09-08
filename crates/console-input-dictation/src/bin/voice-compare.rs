@@ -106,7 +106,10 @@ fn found(at: &std::path::Path) -> Result<Found, Never> {
 }
 
 fn starting(argv: &[String]) -> Result<Option<Command>, Never> {
-    let Some(first) = argv.first() else { return Ok(None) };
+    let first = match argv.first() {
+        Some(first) => first,
+        None => return Ok(None),
+    };
 
     let mut starting = Command::new(first);
 
@@ -185,6 +188,16 @@ fn stamped() -> Result<String, Never> {
 
 fn main() -> ExitCode {
     let Ok(kept) = console_input_dictation::kept();
+
+    let kept = match kept {
+        Some(kept) => kept,
+        None => {
+            eprintln!("voice-compare: nothing says where the recordings are kept");
+
+            return ExitCode::FAILURE;
+        }
+    };
+
     let Ok(here) = here();
     let Ok(stamped) = stamped();
     let mut words = vec![kept.to_string_lossy().to_string(), here, stamped];

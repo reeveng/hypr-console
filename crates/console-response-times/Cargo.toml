@@ -17,6 +17,7 @@ path = "src/bin/console-response-times.rs"
 console-core-external-programs.workspace = true
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true
+console-core-places.workspace = true
 libc = "0.2"
 serde_json = "1"
 

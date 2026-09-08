@@ -112,11 +112,21 @@ pub enum Hat {
 }
 
 pub fn mapping(profile_name: &str) -> Result<Option<String>, Never> {
-    let Some(how) = arrives(profile_name)? else { return Ok(None) };
+    let how = arrives(profile_name)?;
+
+    let how = match how {
+        Some(how) => how,
+        None => return Ok(None),
+    };
 
     let (said, target) = match how {
         Arrives::Keys(key) => {
-            let Some(named) = key_named(key)? else { return Ok(None) };
+            let named = key_named(key)?;
+
+            let named = match named {
+                Some(named) => named,
+                None => return Ok(None),
+            };
 
             (format!("as {named}"), format!("      - keyboard: {named}\n"))
         }
@@ -140,11 +150,17 @@ pub fn mapping(profile_name: &str) -> Result<Option<String>, Never> {
 fn key_named(key: KeyCode) -> Result<Option<String>, Never> {
     let said = format!("{key:?}");
 
-    let Some(tail) = said.strip_prefix("KEY_") else { return Ok(None) };
+    let tail = match said.strip_prefix("KEY_") {
+        Some(tail) => tail,
+        None => return Ok(None),
+    };
 
     let mut letters = tail.chars();
 
-    let Some(first) = letters.next() else { return Ok(None) };
+    let first = match letters.next() {
+        Some(first) => first,
+        None => return Ok(None),
+    };
 
     Ok(Some(format!("Key{}{}", first, letters.as_str().to_lowercase())))
 }
@@ -195,7 +211,10 @@ mod tests {
     #[test]
     fn every_key_is_named_in_a_way_both_ends_know() {
         for (_, how) in ROUTE {
-            let Arrives::Keys(key) = how else { continue };
+            let key = match how {
+                Arrives::Keys(key) => key,
+                Arrives::Pad(_) | Arrives::Hat(_, _) => continue,
+            };
             let said = ok(key_named(key)).expect("a name");
             assert_eq!(key_code(&said), Ok(key), "{said}");
         }

@@ -52,11 +52,12 @@ pub fn fell(
 fn described(unit: &str) -> Result<String, Never> {
     let Ok(mut asking) = Program::Systemctl.command();
 
-    let Ok(said) = asking
+    let said = match asking
         .args(["--user", "show", "-p", "Description", "--value", unit])
         .output()
-    else {
-        return Ok(String::new());
+    {
+        Ok(said) => said,
+        Err(_fault) => return Ok(String::new()),
     };
 
     Ok(String::from_utf8_lossy(&said.stdout).trim().to_string())
@@ -65,13 +66,17 @@ fn described(unit: &str) -> Result<String, Never> {
 fn main() {
     let unit = std::env::args().nth(1).unwrap_or_else(|| "a piece of the desktop".to_string());
 
-    let Ok(result) = std::env::var("SERVICE_RESULT") else { return };
+    let result = match std::env::var("SERVICE_RESULT") {
+        Ok(result) => result,
+        Err(_fault) => return,
+    };
 
     let Ok(described) = described(&unit);
     let Ok(fell) = fell(&unit, &described, Some(&result));
 
-    let Some((kind, summary, body)) = fell else {
-        return;
+    let (kind, summary, body) = match fell {
+        Some((kind, summary, body)) => (kind, summary, body),
+        None => return,
     };
 
     let Ok(said) = for_the_journal(&kind, &summary, &format!("{body} ({result})"));

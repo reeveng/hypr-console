@@ -13,6 +13,7 @@
 //! to do about it is handed back, so every decision the daemon makes can be
 //! asked of it twice and answered the same way.
 
+pub mod binds;
 pub mod buttons;
 pub mod clock;
 pub mod doing;

@@ -61,7 +61,10 @@ impl Walk {
     }
 
     pub fn up(&mut self) -> Result<Option<usize>, Never> {
-        let Some(back_to) = self.marks.pop() else { return Ok(None) };
+        let back_to = match self.marks.pop() {
+            Some(back_to) => back_to,
+            None => return Ok(None),
+        };
 
         match self.at.parent().map(Path::to_path_buf) {
             Some(above) => self.at = above,

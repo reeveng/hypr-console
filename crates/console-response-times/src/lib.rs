@@ -112,21 +112,10 @@ fn asked(name: &str) -> Result<Option<String>, Never> {
     }
 }
 
-pub fn where_() -> Result<PathBuf, Never> {
-    let Ok(said) = asked("XDG_STATE_HOME");
+pub fn where_() -> Result<Option<PathBuf>, Never> {
+    let ours = console_core_places::Base::State.ours()?;
 
-    let state = match said.filter(|said| !said.is_empty()) {
-        Some(state) => PathBuf::from(state),
-        None => {
-            let Ok(home) = asked("HOME");
-
-            let home = home.unwrap_or_else(|| "/root".to_string());
-
-            PathBuf::from(home).join(".local/state")
-        },
-    };
-
-    Ok(state.join("console").join("waited.jsonl"))
+    Ok(ours.map(|ours| ours.join("waited.jsonl")))
 }
 
 pub struct Waiting {
@@ -340,7 +329,10 @@ pub fn uptime() -> Result<Option<Duration>, Never> {
         Err(_) => return Ok(None),
     };
 
-    let Some(first) = said.split_whitespace().next() else { return Ok(None) };
+    let first = match said.split_whitespace().next() {
+        Some(first) => first,
+        None => return Ok(None),
+    };
 
     let seconds: f64 = match first.parse() {
         Ok(v) => v,
@@ -354,8 +346,9 @@ pub fn load() -> Result<f64, String> {
     let said = std::fs::read_to_string("/proc/loadavg")
         .map_err(|fault| format!("/proc/loadavg: {fault}"))?;
 
-    let Some(first) = said.split_whitespace().next() else {
-        return Err("/proc/loadavg: it said nothing at all".to_string());
+    let first = match said.split_whitespace().next() {
+        Some(first) => first,
+        None => return Err("/proc/loadavg: it said nothing at all".to_string()),
     };
 
     first.parse().map_err(|fault| format!("/proc/loadavg: {first:?}: {fault}"))
@@ -369,7 +362,10 @@ pub fn since_exec() -> Result<Option<Duration>, Never> {
 
     let Ok(began_at) = started_at(&said);
 
-    let Some(started) = began_at else { return Ok(None) };
+    let started = match began_at {
+        Some(started) => started,
+        None => return Ok(None),
+    };
 
     // SAFETY: one call into libc that reads a constant and touches nothing.
     let ticks = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
@@ -392,7 +388,10 @@ pub fn since_exec() -> Result<Option<Duration>, Never> {
 
     let Ok(boot) = since_boot();
 
-    let Some(up) = boot else { return Ok(None) };
+    let up = match boot {
+        Some(up) => up,
+        None => return Ok(None),
+    };
 
     Ok(up.checked_sub(began))
 }
@@ -407,21 +406,28 @@ fn since_boot() -> Result<Option<Duration>, Never> {
         false => return Ok(None),
     }
 
-    let (Ok(seconds), Ok(nanoseconds)) =
-        (u64::try_from(when.tv_sec), u32::try_from(when.tv_nsec))
-    else {
-        eprintln!("console-response-times: the boot clock said {}s {}ns", when.tv_sec, when.tv_nsec);
+    let (seconds, nanoseconds) = match (u64::try_from(when.tv_sec), u32::try_from(when.tv_nsec)) {
+        (Ok(seconds), Ok(nanoseconds)) => (seconds, nanoseconds),
+        (Err(_), _) | (_, Err(_)) => {
+            eprintln!("console-response-times: the boot clock said {}s {}ns", when.tv_sec, when.tv_nsec);
 
-        return Ok(None);
+            return Ok(None);
+        }
     };
 
     Ok(Some(Duration::new(seconds, nanoseconds)))
 }
 
 pub fn started_at(stat: &str) -> Result<Option<f64>, Never> {
-    let Some((_, after)) = stat.rsplit_once(')') else { return Ok(None) };
+    let (_taken, after) = match stat.rsplit_once(')') {
+        Some((_taken, after)) => (_taken, after),
+        None => return Ok(None),
+    };
 
-    let Some(field) = after.split_whitespace().nth(19) else { return Ok(None) };
+    let field = match after.split_whitespace().nth(19) {
+        Some(field) => field,
+        None => return Ok(None),
+    };
 
     match field.parse() {
         Ok(started) => Ok(Some(started)),
@@ -462,9 +468,15 @@ pub fn waited_since(raw: &str) -> Result<Option<Duration>, Never> {
 
     let Ok(clock) = monotonic_now();
 
-    let Some(now) = clock else { return Ok(None) };
+    let now = match clock {
+        Some(now) => now,
+        None => return Ok(None),
+    };
 
-    let Some(waited) = now.checked_sub(Duration::from_nanos(stamped)) else { return Ok(None) };
+    let waited = match now.checked_sub(Duration::from_nanos(stamped)) {
+        Some(waited) => waited,
+        None => return Ok(None),
+    };
 
     fresh(waited)
 }
@@ -492,12 +504,13 @@ pub fn monotonic_now() -> Result<Option<Duration>, Never> {
         false => return Ok(None),
     }
 
-    let (Ok(seconds), Ok(nanoseconds)) =
-        (u64::try_from(when.tv_sec), u32::try_from(when.tv_nsec))
-    else {
-        eprintln!("console-response-times: the monotonic clock said {}s {}ns", when.tv_sec, when.tv_nsec);
+    let (seconds, nanoseconds) = match (u64::try_from(when.tv_sec), u32::try_from(when.tv_nsec)) {
+        (Ok(seconds), Ok(nanoseconds)) => (seconds, nanoseconds),
+        (Err(_), _) | (_, Err(_)) => {
+            eprintln!("console-response-times: the monotonic clock said {}s {}ns", when.tv_sec, when.tv_nsec);
 
-        return Ok(None);
+            return Ok(None);
+        }
     };
 
     Ok(Some(Duration::new(seconds, nanoseconds)))
@@ -506,17 +519,26 @@ pub fn monotonic_now() -> Result<Option<Duration>, Never> {
 pub fn press_stamp() -> Result<Option<(&'static str, String)>, Never> {
     let Ok(clock) = monotonic_now();
 
-    let Some(now) = clock else { return Ok(None) };
+    let now = match clock {
+        Some(now) => now,
+        None => return Ok(None),
+    };
 
     Ok(Some((PRESSED, now.as_nanos().to_string())))
 }
 
 pub fn this_program() -> Result<Option<String>, Never> {
-    let Some(argv0) = std::env::args().next() else { return Ok(None) };
+    let argv0 = match std::env::args().next() {
+        Some(argv0) => argv0,
+        None => return Ok(None),
+    };
 
     let at = PathBuf::from(argv0);
 
-    let Some(name) = at.file_name() else { return Ok(None) };
+    let name = match at.file_name() {
+        Some(name) => name,
+        None => return Ok(None),
+    };
 
     Ok(Some(name.to_string_lossy().to_string()))
 }
@@ -712,6 +734,7 @@ mod tests {
     #[test]
     fn a_waiting_that_is_dropped_writes_nothing() {
         let Ok(store) = where_();
+        let store = store.expect("a home to keep the times under");
 
         let before = store.metadata().map(|about| about.len()).unwrap_or(0);
 

@@ -6,7 +6,7 @@
 //! is chosen. A copy kept alongside it would be a second answer, and the two
 //! would part company the day either of them moved.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use console_core_external_programs::Program;
 use console_core_never::Never;
@@ -22,24 +22,6 @@ pub const EVERY: [Browser; 3] = [
     Browser { key: "firefox", says: "Firefox", desktop: "firefox.desktop" },
     Browser { key: "librewolf", says: "LibreWolf", desktop: "librewolf.desktop" },
 ];
-
-pub fn applications() -> Result<Vec<PathBuf>, Never> {
-    let home = PathBuf::from(match std::env::var("HOME") {
-        Ok(h) => h,
-        Err(_) => "/root".to_string(),
-    });
-    let dirs = match std::env::var("XDG_DATA_DIRS") {
-        Ok(d) => d,
-        Err(_) => "/usr/local/share:/usr/share".to_string(),
-    };
-    let mut every = vec![home.join(".local/share/applications")];
-
-    every.extend(
-        dirs.split(':').filter(|at| !at.is_empty()).map(|at| Path::new(at).join("applications")),
-    );
-
-    Ok(every)
-}
 
 pub fn here(among: &[PathBuf]) -> Result<Vec<&'static Browser>, Never> {
     Ok(EVERY

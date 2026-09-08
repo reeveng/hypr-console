@@ -166,16 +166,26 @@ enum For {
     Placing(Spot),
 }
 
-fn file() -> Result<PathBuf, Never> {
-    let home = found::home()?;
+fn file() -> Result<Option<PathBuf>, Never> {
+    let hers = console_core_places::home()?;
 
-    console_home_screen::file(&home)
+    match hers {
+        Some(hers) => {
+            let at = console_home_screen::file(&hers)?;
+
+            Ok(Some(at))
+        }
+        None => Ok(None),
+    }
 }
 
 fn shape() -> Result<Shape, Never> {
-    let home = found::home()?;
+    let hers = console_core_places::home()?;
 
-    let at = console_home_screen::shape::at(&home)?;
+    let at = match hers {
+        Some(hers) => console_home_screen::shape::at(&hers)?,
+        None => return Ok(Shape::USUAL),
+    };
 
     match std::fs::read_to_string(at) {
         Ok(said) => Shape::read(&said),
@@ -184,12 +194,19 @@ fn shape() -> Result<Shape, Never> {
 }
 
 fn home() -> Result<Home, Never> {
-    let Ok(at) = file();
+    let Ok(kept) = file();
 
-    match std::fs::read_to_string(&at) {
-        Ok(said) => Home::read(&said),
-        Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => Ok(Home::default()),
-        Err(fault) => {
+    let at = match kept {
+        Some(at) => at,
+        None => return Ok(Home::default()),
+    };
+
+    let Ok(held) = console_core_atomic_writes::read(&at);
+
+    match held {
+        console_core_atomic_writes::Held::Said(said) => Home::read(&said),
+        console_core_atomic_writes::Held::Nothing => Ok(Home::default()),
+        console_core_atomic_writes::Held::Unreadable(fault) => {
             eprintln!("launcher: {}: {fault}", at.display());
 
             Ok(Home::default())
@@ -198,7 +215,16 @@ fn home() -> Result<Home, Never> {
 }
 
 fn keep(home: &Home) -> Result<(), Never> {
-    let Ok(at) = file();
+    let Ok(kept) = file();
+
+    let at = match kept {
+        Some(at) => at,
+        None => {
+            eprintln!("launcher: no home to keep the home screen in; leaving it as it is");
+
+            return Ok(());
+        }
+    };
 
     match at.parent() {
         Some(above) => {
@@ -429,8 +455,9 @@ fn pages(typed: &Typed, kept: &Kept, going: For) -> Result<Vec<Page>, Never> {
 
 
 fn asked_for(asked: &[String]) -> Result<For, Never> {
-    let Some(at) = asked.iter().position(|word| word == "--place") else {
-        return Ok(For::Opening);
+    let at = match asked.iter().position(|word| word == "--place") {
+        Some(at) => at,
+        None => return Ok(For::Opening),
     };
 
     let said = asked.get(at.saturating_add(1)).map(String::as_str).unwrap_or_default();
@@ -462,11 +489,17 @@ fn looked_up(said: &str) -> Result<(), Never> {
     let chosen = engines::chosen()?;
     let known = engines::one(&chosen)?;
 
-    let Some(engine) = known else { return Ok(()) };
+    let engine = match known {
+        Some(engine) => engine,
+        None => return Ok(()),
+    };
 
     let asked = engines::address(said, engine)?;
 
-    let Some(address) = asked else { return Ok(()) };
+    let address = match asked {
+        Some(address) => address,
+        None => return Ok(()),
+    };
 
     eprintln!("the menu was asked {said:?}: {address}");
     let Ok(opening) = opening(&address);

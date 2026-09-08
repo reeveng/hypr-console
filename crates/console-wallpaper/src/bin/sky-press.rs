@@ -288,6 +288,16 @@ fn press_named(
 ) -> Result<press::Pressed, String> {
     let Ok(kept) = source::kept();
 
+    let kept = match kept {
+        Some(kept) => kept,
+        None => {
+            return Err(
+                "nothing says where a cache is, so there is nowhere to keep what is fetched"
+                    .to_string(),
+            );
+        }
+    };
+
     let held = kept.join(&picture.name);
 
     let got = source::get(&picture.from, &picture.sha256, &held)?;
@@ -324,9 +334,12 @@ fn press_hers(paths: &[PathBuf], into: Option<PathBuf>) -> Result<(), String> {
     let mut pressed: usize = 0;
 
     for path in paths {
-        let Some(name) = path.file_stem().and_then(|name| name.to_str()) else {
-            left.push(format!("  {}: that is not a name", path.display()));
-            continue;
+        let name = match path.file_stem().and_then(|name| name.to_str()) {
+            Some(name) => name,
+            None => {
+                left.push(format!("  {}: that is not a name", path.display()));
+                continue;
+            }
         };
 
         match write_one(path, &grade, &stir, size, &into.join(name)) {
@@ -364,9 +377,14 @@ fn press_one(source: &Path, grade: &Grade, into: &Path) -> Result<(), String> {
 }
 
 fn forget_the_cache() -> Result<(), Never> {
-    let Ok(home) = std::env::var("HOME") else { return Ok(()) };
+    let Ok(said) = console_core_places::home();
 
-    let _ = std::fs::remove_dir_all(Path::new(&home).join(".cache/awww"));
+    let home = match said {
+        Some(home) => home,
+        None => return Ok(()),
+    };
+
+    let _ = std::fs::remove_dir_all(home.join(".cache/awww"));
 
     Ok(())
 }

@@ -15,22 +15,38 @@ pub fn size(head: &[u8]) -> Result<Option<(u32, u32)>, Never> {
 }
 
 fn png(head: &[u8]) -> Result<Option<(u32, u32)>, Never> {
-    let Some(magic) = head.get(..8) else { return Ok(None) };
+    let magic = match head.get(..8) {
+        Some(magic) => magic,
+        None => return Ok(None),
+    };
 
     match magic == b"\x89PNG\r\n\x1a\n" {
         true => {},
         false => return Ok(None),
     }
 
-    let Some(width) = four(head, 16)? else { return Ok(None) };
+    let width = four(head, 16)?;
 
-    let Some(height) = four(head, 20)? else { return Ok(None) };
+    let width = match width {
+        Some(width) => width,
+        None => return Ok(None),
+    };
+
+    let height = four(head, 20)?;
+
+    let height = match height {
+        Some(height) => height,
+        None => return Ok(None),
+    };
 
     Ok(Some((width, height)))
 }
 
 fn jpeg(head: &[u8]) -> Result<Option<(u32, u32)>, Never> {
-    let Some(magic) = head.get(..2) else { return Ok(None) };
+    let magic = match head.get(..2) {
+        Some(magic) => magic,
+        None => return Ok(None),
+    };
 
     match magic == b"\xff\xd8" {
         true => {},
@@ -43,25 +59,44 @@ fn jpeg(head: &[u8]) -> Result<Option<(u32, u32)>, Never> {
         let here = head.get(at).copied();
         let next = head.get(at.saturating_add(1)).copied();
 
-        let (Some(0xFF), Some(marker)) = (here, next) else {
-            at = at.saturating_add(1);
-            continue;
+        let marker = match (here, next) {
+            (Some(0xFF), Some(marker)) => marker,
+            (Some(_), Some(_)) | (Some(_), None) | (None, _) => {
+                at = at.saturating_add(1);
+                continue;
+            }
         };
 
         match marker {
             0xC0..=0xC3 => {
-                let Some(height) = two(head, at.saturating_add(5))? else { return Ok(None) };
+                let height = two(head, at.saturating_add(5))?;
 
-                let Some(width) = two(head, at.saturating_add(7))? else { return Ok(None) };
+                let height = match height {
+                    Some(height) => height,
+                    None => return Ok(None),
+                };
+
+                let width = two(head, at.saturating_add(7))?;
+
+                let width = match width {
+                    Some(width) => width,
+                    None => return Ok(None),
+                };
 
                 return Ok(Some((width, height)));
             }
             0xD0..=0xD9 => at = at.saturating_add(2),
             _ => {
-                let Some(said) = two(head, at.saturating_add(2))? else { return Ok(None) };
+                let said = two(head, at.saturating_add(2))?;
 
-                let Ok(length) = usize::try_from(said) else {
-                    return Ok(None);
+                let said = match said {
+                    Some(said) => said,
+                    None => return Ok(None),
+                };
+
+                let length = match usize::try_from(said) {
+                    Ok(length) => length,
+                    Err(_fault) => return Ok(None),
                 };
 
                 at = at.saturating_add(length.saturating_add(2));
@@ -73,17 +108,29 @@ fn jpeg(head: &[u8]) -> Result<Option<(u32, u32)>, Never> {
 }
 
 fn two(head: &[u8], at: usize) -> Result<Option<u32>, Never> {
-    let Some(bytes) = head.get(at..at.saturating_add(2)) else { return Ok(None) };
+    let bytes = match head.get(at..at.saturating_add(2)) {
+        Some(bytes) => bytes,
+        None => return Ok(None),
+    };
 
-    let Ok(pair) = bytes.try_into() else { return Ok(None) };
+    let pair = match bytes.try_into() {
+        Ok(pair) => pair,
+        Err(_fault) => return Ok(None),
+    };
 
     Ok(Some(u32::from(u16::from_be_bytes(pair))))
 }
 
 fn four(head: &[u8], at: usize) -> Result<Option<u32>, Never> {
-    let Some(bytes) = head.get(at..at.saturating_add(4)) else { return Ok(None) };
+    let bytes = match head.get(at..at.saturating_add(4)) {
+        Some(bytes) => bytes,
+        None => return Ok(None),
+    };
 
-    let Ok(quad) = bytes.try_into() else { return Ok(None) };
+    let quad = match bytes.try_into() {
+        Ok(quad) => quad,
+        Err(_fault) => return Ok(None),
+    };
 
     Ok(Some(u32::from_be_bytes(quad)))
 }

@@ -23,7 +23,7 @@
 use std::process::ExitCode;
 
 use console_core_external_programs::Program;
-use console_settings::warm::{Wanted, Warmth, at, config};
+use console_settings::warm::{self, Standing, Wanted, Warmth, at, config};
 
 const UNIT: &str = "console-warm.service";
 
@@ -40,24 +40,29 @@ fn main() -> ExitCode {
         false => {},
     }
 
-    let Ok(home) = std::env::var("HOME") else {
-        eprintln!("console-warm: no HOME, so there is nobody to remember for");
-        return ExitCode::FAILURE;
-    };
+    let Ok(said) = console_core_places::home();
 
-    let Ok(at) = at(&home);
-    let said = match std::fs::read_to_string(&at) {
-        Ok(said) => said,
+    let home = match said {
+        Some(home) => home,
+        None => {
+            eprintln!("console-warm: no HOME, so there is nobody to remember for");
 
-        Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => String::new(),
-
-        Err(fault) => {
-            eprintln!("console-warm: {}: {fault}", at.display());
-            String::new()
+            return ExitCode::FAILURE;
         }
     };
 
-    let Ok(standing) = Warmth::read(&said);
+    let Ok(at) = at(&home);
+    let Ok(held) = warm::standing(&home);
+
+    let standing = match held {
+        Standing::Saying(warmth) => warmth,
+
+        Standing::Unreadable(fault) => {
+            eprintln!("console-warm: {}: {fault}", at.display());
+
+            Warmth::Following
+        }
+    };
 
     let wanted = match word.as_str() {
         "get" => {

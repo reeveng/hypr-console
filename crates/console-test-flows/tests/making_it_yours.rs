@@ -22,7 +22,8 @@ use console_input_controller::means::Table;
 use console_input_controller::mode::Mode;
 use console_onscreen::Said;
 use console_test_flows::screens;
-use console_input_gamepad::jobs::{Binding, Jobs, Moved, Played};
+use console_input_bindings::bound::{Binding, Input, Played};
+use console_input_bindings::moved::{Jobs, Moved};
 use console_test_stages::device::Seen;
 use console_test_stages::here::{Here, TURNS};
 
@@ -314,7 +315,7 @@ fn the_file_says_several_buttons_a_chord_or_nothing_at_all() {
     here.fresh();
 
     let fault = Jobs::read("[jobs]\nmenu = \"a\"\nscreenshot = \"nose + a\"\n")
-        .expect_err("nose is not a trigger");
+        .expect_err("nothing on this machine is called nose");
     assert!(fault.starts_with("screenshot: "), "the fault names the line: {fault}");
     here.press("left-paddle-top").expect("a paddle");
     here.settle(TURNS);
@@ -334,10 +335,16 @@ fn one_press_still_does_one_thing() {
 
     let read = Jobs::read(&written(&said)).expect("what the setup screen wrote reads back");
     let table = of(&read);
-    assert_eq!(bindings(&table, "menu").len(), 1);
-    let Some(one) = bindings(&table, "menu").first() else { panic!("the menu is bound to something") };
+    let left = bindings(&table, "menu");
 
-    assert_eq!(one.played(), Ok(Played::ByNothing));
+    assert!(
+        !left.iter().any(|one| one.on == Input::Pad),
+        "the menu has no button on the pad now"
+    );
+    assert!(
+        left.iter().any(|one| one.on == Input::Keyboard && one.played() == Ok(Played::ByAPress)),
+        "and taking its paddle away did not take the key somebody else reaches it by"
+    );
     bound_by(&mut here, table);
 
     here.press("left-paddle-top").expect("a paddle");

@@ -102,7 +102,9 @@ pub fn wanted(said: Said, axis: Option<(AbsoluteAxisCode, i32)>, spans: &Spans) 
     match said {
         Said::Pressed { button, went } => pressed(button, went),
         Said::Nothing => moved(axis, spans),
-        Said::Trigger { trigger: _, went: _ } | Said::Unnamed { code: _, went: _ } => Ok(None),
+        Said::Trigger { trigger: _, went: _ }
+        | Said::Typed { code: _, went: _ }
+        | Said::Unnamed { code: _, went: _ } => Ok(None),
     }
 }
 
@@ -118,9 +120,15 @@ fn pressed(button: &str, went: Went) -> Result<Option<Asked>, Never> {
 }
 
 fn moved(axis: Option<(AbsoluteAxisCode, i32)>, spans: &Spans) -> Result<Option<Asked>, Never> {
-    let Some((axis, value)) = axis else { return Ok(None) };
+    let (axis, value) = match axis {
+        Some((axis, value)) => (axis, value),
+        None => return Ok(None),
+    };
 
-    let Some((_, range)) = spans.iter().find(|(named, _)| *named == axis) else { return Ok(None) };
+    let (_taken, range) = match spans.iter().find(|(named, _)| *named == axis) {
+        Some((_taken, range)) => (_taken, range),
+        None => return Ok(None),
+    };
 
     from_stick(axis, value, *range)
 }
@@ -180,7 +188,10 @@ impl Held {
     }
 
     pub fn due(&mut self, now: Instant) -> Result<Option<Asked>, Never> {
-        let Some(due) = self.due else { return Ok(None) };
+        let due = match self.due {
+            Some(due) => due,
+            None => return Ok(None),
+        };
 
         match now < due {
             true => return Ok(None),

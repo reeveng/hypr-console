@@ -34,19 +34,17 @@ use std::path::PathBuf;
 
 use console_core_external_programs::Program;
 use console_core_never::Never;
+use console_core_places::Base;
 
 use crate::running;
 
 fn beside(note: &str) -> Result<Option<PathBuf>, Never> {
-    let cache = match (std::env::var("XDG_CACHE_HOME"), std::env::var("HOME")) {
-        (Ok(cache), _) => PathBuf::from(cache),
-        (Err(_), Ok(home)) => PathBuf::from(home).join(".cache"),
-        (Err(_), Err(_)) => return Ok(None),
-    };
+    let ours = Base::Cache.ours()?;
+
     let Ok(whose) = whose();
     let Ok(filed) = filed(note);
 
-    Ok(Some(cache.join("console/asked").join(format!("{whose}.{filed}"))))
+    Ok(ours.map(|ours| ours.join("asked").join(format!("{whose}.{filed}"))))
 }
 
 fn whose() -> Result<String, Never> {
@@ -77,9 +75,15 @@ fn filed(note: &str) -> Result<String, Never> {
 pub fn last(note: &str) -> Result<String, Never> {
     let Ok(beside) = beside(note);
 
-    let Some(path) = beside else { return Ok(String::new()) };
+    let path = match beside {
+        Some(path) => path,
+        None => return Ok(String::new()),
+    };
 
-    let Ok(said) = std::fs::read_to_string(path) else { return Ok(String::new()) };
+    let said = match std::fs::read_to_string(path) {
+        Ok(said) => said,
+        Err(_fault) => return Ok(String::new()),
+    };
 
     Ok(said)
 }
@@ -101,9 +105,15 @@ fn keep(note: &str, said: &str) -> Result<(), Never> {
 
     let Ok(beside) = beside(note);
 
-    let Some(path) = beside else { return Ok(()) };
+    let path = match beside {
+        Some(path) => path,
+        None => return Ok(()),
+    };
 
-    let Some(holding) = path.parent() else { return Ok(()) };
+    let holding = match path.parent() {
+        Some(holding) => holding,
+        None => return Ok(()),
+    };
 
     match std::fs::create_dir_all(holding) {
         Ok(()) => {},

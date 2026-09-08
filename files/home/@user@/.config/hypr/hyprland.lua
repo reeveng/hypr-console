@@ -3,52 +3,14 @@
 -- The controller is read below the compositor, so every button means the same
 -- thing in every program. /etc/inputplumber/profiles/router.yaml sends each
 -- button somewhere it can be told from the others, and the controller daemon
--- decides what any of it means; nothing about the pad is bound in this file.
+-- decides what any of it means. Nothing is bound in this file at all -- not the
+-- pad and not the keys either, since the same table now says what both of them
+-- do; the last section is the argument for that.
 --
--- Reload after an edit with:  hyprctl reload
-
---------------------------------------------------------------- the way back
-
--- The power button turns the panel on. It is the first thing in this file, and
--- being first is half of what it is for.
---
--- A screen that is off and will not come back is this device at its worst. The
--- machine is running, every button works, and none of them can be seen to, so
--- there is nothing to tell it from a dead one by looking -- and the way out,
--- until this line existed, was an ssh session, which is not a thing the person
--- holding it has.
---
--- It is a real state and not a worry. hypridle blanks the panel on its
--- five-minute rule and resumes only a rule it idled on, so a lost resume --
--- Steam sends a screensaver inhibit every couple of minutes, and one arriving
--- while that rule is idle is enough -- leaves the panel off with nothing left
--- that intends to put it back. `console-brightness undim` now does for every
--- case where something is still running to run it. This is the answer for the
--- case where nothing is.
---
--- First, because a config that fails to load here abandons every line after the
--- failure and leaves a session with no bindings -- the reason spelled out over
--- the palette below. A way out registered before anything that could break is a
--- way out that survives the break.
---
--- It runs `console-brightness undim` rather than dispatching the dpms itself,
--- for two reasons. That program is where putting the screen back already lives,
--- so this gets the backlight and the panel together and there is one place that
--- decides what coming back means. And `exec_cmd` is the form five binds below
--- this already use, where a dispatch of dpms from a bind is a shape nothing on
--- this machine has ever run -- which is not what the first line of this file
--- should be, because a line that fails here takes every line after it.
---
--- `locked` so it answers whatever is up. It only ever turns things on: nothing
--- here blanks the panel, the idle daemon does that on a timer, and a button
--- somebody reaches for in the dark must not be able to cause what they are
--- reaching out of.
---
--- The key gets this far because logind is told to ignore it -- `HandlePowerKey`,
--- in a drop-in this desktop does not own -- and because no claim can swallow it:
--- `console_input_claim` takes the pad and the keyboard InputPlumber makes, and
--- the power button is the ACPI PNP0C0C device with one key on it.
-hl.bind("XF86PowerOff", hl.dsp.exec_cmd("/usr/local/bin/console-brightness undim"), { locked = true })
+-- Reload after an edit with:  hyprctl reload. The binds come back on their
+-- own: the daemon hears configreloaded and asks the compositor what it is
+-- still holding, because a reload keeps only what a file holds and none of
+-- them are in one.
 
 ------------------------------------------------------------------ the screen
 
@@ -281,31 +243,51 @@ hl.on("hyprland.start", function()
     hl.exec_cmd("/usr/local/bin/session-start")
 end)
 
------------------------------------------------------------------- controller
+------------------------------------------------------------------ the binds
 
--- Nothing from the controller is bound here. InputPlumber emits a modifier and
--- a key in one frame, so the key was often acted on alone and landed in
--- whatever window had focus, which is how X typed a k into a terminal. What a
--- button does is decided in one table in the controller daemon, which is the
--- only thing that acts on the pad; the binds below are for a real keyboard,
--- and for fixing things over ssh.
-
------------------------------------------------------------------- keyboard
-
-local mod = "SUPER"
-hl.bind(mod .. " + Q",     hl.dsp.exec_cmd("alacritty"))
-hl.bind(mod .. " + R",     hl.dsp.exec_cmd("/usr/local/bin/launcher"))
-hl.bind(mod .. " + W",     hl.dsp.window.close())
-hl.bind(mod .. " + F",     hl.dsp.window.fullscreen())
-hl.bind(mod .. " + K",     hl.dsp.exec_cmd("/usr/local/bin/keyboard-toggle"))
-hl.bind("XF86Calculator",  hl.dsp.exec_cmd("/usr/local/bin/keyboard-toggle"))
-hl.bind(mod .. " + Tab",   hl.dsp.window.cycle_next())
-hl.bind(mod .. " + S",     hl.dsp.exec_cmd("/usr/local/bin/console-screenshot"))
-hl.bind(mod .. " + left",  hl.dsp.focus({ direction = "left" }))
-hl.bind(mod .. " + right", hl.dsp.focus({ direction = "right" }))
-hl.bind(mod .. " + up",    hl.dsp.focus({ direction = "up" }))
-hl.bind(mod .. " + down",  hl.dsp.focus({ direction = "down" }))
-
-hl.bind("XF86AudioRaiseVolume", hl.dsp.exec_cmd("console-volume up"),   { locked = true, repeating = true })
-hl.bind("XF86AudioLowerVolume", hl.dsp.exec_cmd("console-volume down"), { locked = true, repeating = true })
-hl.bind("XF86AudioMute",        hl.dsp.exec_cmd("console-volume mute"), { locked = true, repeating = true })
+-- There are none, and this section is here so that the gap is read as a
+-- decision rather than filled by the next person to want a shortcut.
+--
+-- What a button does is decided in one table in the controller daemon --
+-- crates/console-input-controller/src/means.rs -- and a keyboard is in that
+-- table now beside the pad. A job carries a list of what it is bound to and
+-- each of those says which input it is on, so Super and I and the settings
+-- button are two lines of one job rather than a line here and a row over there
+-- that have to be remembered to agree. This file used to carry thirty binds
+-- under a comment saying they were the doings the pad already names, reached by
+-- somebody whose hands are on keys, which was that table's own argument written
+-- where the table could not see it.
+--
+-- The pad is the daemon's to act on and the keys are not. InputPlumber emits a
+-- modifier and a key in one frame, so a pad chord matched by the compositor was
+-- often acted on alone and landed in whatever window had focus -- that is how X
+-- typed a k into a terminal. A keyboard chord has the opposite need and it is
+-- the compositor's: a key the daemon merely watched would arrive in the window
+-- as well as doing its job, and swallowing one is a thing only whoever owns
+-- modifier state can do. So the daemon renders the keyboard half of the table
+-- into hyprctl keyword bind and hands it over -- at startup, and again every
+-- time ~/.config/console/buttons.toml changes, which is what makes a key moved
+-- on the setup screen a key moved before the thumb is off the row.
+--
+-- Which of the two carries a press out is worked out from the input the binding
+-- is on, and nobody writes it down anywhere. That is the whole of why this file
+-- has no binds: one written here would be a second place saying what a key
+-- means, and the two would agree right up until the day they did not.
+--
+-- What it costs, said out loud. A hyprctl reload throws the pushed binds away,
+-- and so does a compositor that restarted while the daemon did not. The daemon
+-- puts them back itself now -- it hears configreloaded on the compositor's own
+-- socket, asks what is still held, and sends only what is missing -- which is
+-- the whole of why the power key can be a row here rather than a line above.
+--
+-- This file being lua is what a bind has to be written for, and it took a
+-- while to find out. hyprctl keyword is refused by a lua config, in a sentence
+-- that exits zero and does not say error, so the binds were rendered right and
+-- taken by nobody for as long as this file has existed. They go through
+-- hyprctl eval and hl.bind now, and the check asks the compositor what it
+-- holds rather than trusting what was sent.
+--
+-- And a bind is exec_cmd and never a dispatch, so the workspace keys run a
+-- hyprctl back at the compositor that just called them -- which buys a
+-- keyboard and a pad reading their answer out of the same row, and there is no
+-- second vocabulary to keep agreeing with the first.

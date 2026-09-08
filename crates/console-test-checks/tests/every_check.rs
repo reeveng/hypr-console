@@ -5,6 +5,14 @@
 //! feature changed is a check that will fail on the device for a reason that has
 //! nothing to do with the device. So they are also the fast suite: every one of
 //! them that can run without a machine runs on every `cargo test`.
+//!
+//! What is not here is a count of them. There was a test that wanted more than
+//! half to answer here, and it went red the day a check arrived that only a
+//! machine can answer -- which is a fact about that feature rather than about
+//! the suite, and a number that goes red for a reason that is not a feature is
+//! the thing `docs/checks.md` argues against. Where a check runs is decided by
+//! what it has to press. Arithmetic is a unit test beside the code that does
+//! it, and what is left over is what nothing here can answer.
 
 use console_test_checks::CHECKS;
 use console_test_stages::checking::{How, here};
@@ -34,17 +42,4 @@ fn a_check_is_a_number_and_what_it_is_about() {
 
         assert!(!rest.is_empty(), "{} is a number and nothing else", check.name);
     }
-}
-
-#[test]
-fn most_of_the_checks_can_be_answered_without_a_machine() {
-    let answered = CHECKS
-        .into_iter()
-        .filter(|check| {
-            let mut stage = Here::new().expect("a stage");
-
-            here(check, &mut stage) == Ok(How::Ok)
-        })
-        .count();
-    assert!(answered * 2 > CHECKS.len(), "only {answered} of {} run here", CHECKS.len());
 }

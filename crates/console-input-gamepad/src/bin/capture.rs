@@ -81,7 +81,10 @@ fn main() -> ExitCode {
     for (_, device) in evdev::enumerate() {
         let name = device.name().unwrap_or_default().to_string();
 
-        let Some(at) = ROLES.iter().position(|(wanted, _)| *wanted == name) else { continue };
+        let at = match ROLES.iter().position(|(wanted, _)| *wanted == name) {
+            Some(at) => at,
+            None => continue,
+        };
 
         match found.iter().any(|(already, _)| *already == at) {
             true => continue,

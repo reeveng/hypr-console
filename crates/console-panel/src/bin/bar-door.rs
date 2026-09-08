@@ -41,14 +41,20 @@ const USAGE: &str = "usage: bar-door [launcher|keyboard] ICON";
 fn main() -> ExitCode {
     let words: Vec<String> = std::env::args().skip(1).collect();
 
-    let [door, icon] = words.as_slice() else {
-        eprintln!("{USAGE}");
-        return ExitCode::FAILURE;
+    let (door, icon) = match words.as_slice() {
+        [door, icon] => (door, icon),
+        _not_two_words => {
+            eprintln!("{USAGE}");
+            return ExitCode::FAILURE;
+        }
     };
 
-    let Some((_, namespace)) = DOORS.iter().find(|(named, _)| named == door) else {
-        eprintln!("{USAGE}");
-        return ExitCode::FAILURE;
+    let (_taken, namespace) = match DOORS.iter().find(|(named, _)| named == door) {
+        Some((_taken, namespace)) => (_taken, namespace),
+        None => {
+            eprintln!("{USAGE}");
+            return ExitCode::FAILURE;
+        }
     };
 
     let Ok(mut open) = shown(icon, namespace, None);
@@ -117,7 +123,10 @@ mod tests {
     #[test]
     fn a_shut_door_carries_no_class_and_an_open_one_does() {
         let line = |open| {
-            let class = if open { r#","class":"open""# } else { "" };
+            let class = match open {
+                true => r#","class":"open""#,
+                false => "",
+            };
             format!(r#"{{"text":"X"{class}}}"#)
         };
         let shut: serde_json::Value = serde_json::from_str(&line(false)).expect("json");

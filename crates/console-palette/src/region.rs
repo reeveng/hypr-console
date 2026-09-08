@@ -26,14 +26,16 @@ pub fn spliced(held: &str, body: &str) -> Result<Option<String>, Never> {
         _ => None,
     };
 
-    let (Some(begin), Some(end)) = (only(BEGIN), only(END)) else {
-        return Ok(None);
+    let (begin, end) = match (only(BEGIN), only(END)) {
+        (Some(begin), Some(end)) => (begin, end),
+        (None, _) | (_, None) => return Ok(None),
     };
 
     match begin < end {
         true => {
-            let (Some(head), Some(tail)) = (lines.get(..=begin), lines.get(end..)) else {
-                return Ok(None);
+            let (head, tail) = match (lines.get(..=begin), lines.get(end..)) {
+                (Some(head), Some(tail)) => (head, tail),
+                (None, _) | (_, None) => return Ok(None),
             };
 
             Ok(Some(format!(

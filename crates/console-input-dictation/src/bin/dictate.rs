@@ -19,6 +19,7 @@ use console_input_dictation::{
     model, recording, said, taken, taking, tidy, told_by, typing, whisper,
 };
 use console_core_external_programs::Program;
+use console_core_atomic_writes::Held;
 use console_core_never::Never;
 use console_waiting::{Patience, Seen, until};
 use std::path::PathBuf;
@@ -85,18 +86,23 @@ fn listening() -> Result<Taken, Never> {
 fn holder() -> Result<Option<(i32, u32)>, Never> {
     let Ok(at) = taking();
 
-    let note = match std::fs::read_to_string(&at) {
-        Ok(note) => note,
-        Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+    let Ok(held) = console_core_atomic_writes::read(&at);
 
-        Err(fault) => {
+    let note = match held {
+        Held::Said(note) => note,
+        Held::Nothing => return Ok(None),
+
+        Held::Unreadable(fault) => {
             eprintln!("{}: reading who is holding the microphone: {fault}", at.display());
             return Ok(None);
         }
     };
     let Ok(told) = told_by(&note);
 
-    let Some((pid, press)) = told else { return Ok(None) };
+    let (pid, press) = match told {
+        Some((pid, press)) => (pid, press),
+        None => return Ok(None),
+    };
 
     Ok(Path::new(&format!("/proc/{pid}")).exists().then_some((pid, press)))
 }
@@ -114,10 +120,13 @@ fn listen() -> Result<(), Never> {
 
     let Ok(argv) = recording(&into);
 
-    let Some((program, rest)) = argv.split_first() else {
-        let Ok(()) = fell("microphone", "Couldn't record", "there is no program to record with");
+    let (program, rest) = match argv.split_first() {
+        Some((program, rest)) => (program, rest),
+        None => {
+            let Ok(()) = fell("microphone", "Couldn't record", "there is no program to record with");
 
-        return Ok(());
+            return Ok(());
+        }
     };
 
     let mut starting = Command::new(program);
@@ -144,7 +153,10 @@ fn listen() -> Result<(), Never> {
 fn wrote_down() -> Result<(), Never> {
     let Ok(holder) = holder();
 
-    let Some((pid, press)) = holder else { return Ok(()) };
+    let (pid, press) = match holder {
+        Some((pid, press)) => (pid, press),
+        None => return Ok(()),
+    };
 
     // SAFETY: a signal to a pid this desktop started and has not reaped.
     unsafe { libc::kill(pid, libc::SIGINT) };
@@ -214,11 +226,18 @@ fn heard(recorded: &Path) -> Result<String, String> {
 
     let Ok(engine) = engine();
     let Ok(model) = model();
+
+    let model = match model {
+        Some(model) => model,
+        None => return Err("nothing says where the model is kept".to_string()),
+    };
+
     let Ok(language) = languages::chosen();
     let Ok(argv) = hearing(&engine, &model, recorded, &language);
 
-    let Some((program, rest)) = argv.split_first() else {
-        return Err("there is no program to hear with".to_string());
+    let (program, rest) = match argv.split_first() {
+        Some((program, rest)) => (program, rest),
+        None => return Err("there is no program to hear with".to_string()),
     };
 
     let answered = Command::new(program)
@@ -240,10 +259,13 @@ fn heard(recorded: &Path) -> Result<String, String> {
 fn write(words: &str) -> Result<(), Never> {
     let Ok(argv) = typing(words);
 
-    let Some((program, rest)) = argv.split_first() else {
-        let Ok(()) = fell("typing", "Couldn't type the words", "there is no program to type with");
+    let (program, rest) = match argv.split_first() {
+        Some((program, rest)) => (program, rest),
+        None => {
+            let Ok(()) = fell("typing", "Couldn't type the words", "there is no program to type with");
 
-        return Ok(());
+            return Ok(());
+        }
     };
 
     match Command::new(program).args(rest).status() {
@@ -262,9 +284,12 @@ fn write(words: &str) -> Result<(), Never> {
 fn engine() -> Result<PathBuf, Never> {
     let Ok(ours) = whisper();
 
-    match ours.exists() {
-        true => return Ok(ours),
-        false => {},
+    match ours {
+        Some(ours) => match ours.exists() {
+            true => return Ok(ours),
+            false => {},
+        },
+        None => {},
     }
 
     let mut building = Command::new("dictate");
@@ -280,12 +305,20 @@ fn engine() -> Result<PathBuf, Never> {
 fn built() -> Result<(), String> {
     let Ok(ours) = whisper();
 
+    let ours = match ours {
+        Some(ours) => ours,
+        None => return Err("nothing says where whisper is kept".to_string()),
+    };
+
     match ours.exists() {
         true => return Ok(()),
         false => {},
     }
 
-    let Some(parent) = ours.parent() else { return Err("nowhere to keep it".to_string()) };
+    let parent = match ours.parent() {
+        Some(parent) => parent,
+        None => return Err("nowhere to keep it".to_string()),
+    };
 
     std::fs::create_dir_all(parent).map_err(|why| why.to_string())?;
 
@@ -321,8 +354,9 @@ fn build(ours: &Path) -> Result<(), String> {
     let Ok(compiling) = compiling(&at);
 
     for argv in [cloning, configuring, compiling] {
-        let Some((program, rest)) = argv.split_first() else {
-            return Err("a step of the build named no program to run".to_string());
+        let (program, rest) = match argv.split_first() {
+            Some((program, rest)) => (program, rest),
+            None => return Err("a step of the build named no program to run".to_string()),
         };
 
         let answered = Command::new(program)
@@ -356,12 +390,20 @@ fn build(ours: &Path) -> Result<(), String> {
 fn fetched() -> Result<(), String> {
     let Ok(model) = model();
 
+    let model = match model {
+        Some(model) => model,
+        None => return Err("nothing says where the model is kept".to_string()),
+    };
+
     match model.exists() {
         true => return Ok(()),
         false => {},
     }
 
-    let Some(parent) = model.parent() else { return Err("nowhere to keep it".to_string()) };
+    let parent = match model.parent() {
+        Some(parent) => parent,
+        None => return Err("nowhere to keep it".to_string()),
+    };
 
     std::fs::create_dir_all(parent).map_err(|why| why.to_string())?;
 
@@ -369,8 +411,9 @@ fn fetched() -> Result<(), String> {
     let coming = parent.join("coming.bin");
     let Ok(argv) = fetching(&coming);
 
-    let Some((program, rest)) = argv.split_first() else {
-        return Err("there is no program to fetch the words with".to_string());
+    let (program, rest) = match argv.split_first() {
+        Some((program, rest)) => (program, rest),
+        None => return Err("there is no program to fetch the words with".to_string()),
     };
 
     let answered = Command::new(program).args(rest).status().map_err(|why| why.to_string())?;

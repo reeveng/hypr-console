@@ -10,7 +10,6 @@
 //! behind a menu that had just opened.
 
 
-use console_core_external_programs::Program;
 use console_panel::chooser;
 
 fn main() {
@@ -21,7 +20,8 @@ fn main() {
         false => {},
     }
 
-    let Ok(mut closing) = Program::Hyprctl.command();
-
-    let _ = closing.args(["dispatch", "hl.dsp.window.close()"]).status();
+    let Ok(_done) = console_compositor::told(
+        console_compositor::Told::Dispatch,
+        "hl.dsp.window.close()",
+    );
 }

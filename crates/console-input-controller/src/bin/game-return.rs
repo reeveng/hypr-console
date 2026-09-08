@@ -85,8 +85,9 @@ impl Pad {
     }
 
     fn drained(&mut self, since: Since) -> Result<Vec<Word<Heard>>, Never> {
-        let Some((path, device)) = self.held.as_mut() else {
-            return Ok(Vec::new());
+        let (path, device) = match self.held.as_mut() {
+            Some((path, device)) => (path, device),
+            None => return Ok(Vec::new()),
         };
 
         Ok(match drain(device) {
@@ -126,8 +127,9 @@ fn found() -> Result<Option<(String, Device)>, Never> {
                 .collect();
             let Ok(gamepad) = finding::gamepad(&every);
 
-            let Some(found) = gamepad else {
-                return Ok(None);
+            let found = match gamepad {
+                Some(found) => found,
+                None => return Ok(None),
             };
 
             found.path.clone()

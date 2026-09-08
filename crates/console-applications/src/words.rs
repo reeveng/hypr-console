@@ -25,13 +25,19 @@ pub fn split(said: &str) -> Result<Option<Vec<String>>, Never> {
                 started = true;
             }
             (None, '\\') => {
-                let Some(escaped) = letters.next() else { return Ok(None) };
+                let escaped = match letters.next() {
+                    Some(escaped) => escaped,
+                    None => return Ok(None),
+                };
 
                 word.push(escaped);
                 started = true;
             }
             (Some('"'), '\\') => {
-                let Some(escaped) = letters.next() else { return Ok(None) };
+                let escaped = match letters.next() {
+                    Some(escaped) => escaped,
+                    None => return Ok(None),
+                };
 
                 word.push(escaped);
             }

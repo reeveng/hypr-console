@@ -22,7 +22,11 @@ pub const SMALLEST: i64 = 24;
 
 pub const PLACEHOLDER: &str = "/usr/share/icons/console-placeholder.svg";
 
-pub fn rank(theme: &str, size: &str, suffix: &str) -> Result<Option<(usize, u8, i64)>, Never> {
+type Score = (usize, u8, i64);
+
+type Best = (Score, String);
+
+pub fn rank(theme: &str, size: &str, suffix: &str) -> Result<Option<Score>, Never> {
     let theme = THEMES.iter().position(|known| *known == theme).unwrap_or(THEMES.len());
 
     let said = digits(size)?;
@@ -46,7 +50,10 @@ pub fn rank(theme: &str, size: &str, suffix: &str) -> Result<Option<(usize, u8, 
 fn digits(said: &str) -> Result<Option<i64>, Never> {
     let front: String = said.chars().take_while(char::is_ascii_digit).collect();
 
-    let Ok(number) = front.parse() else { return Ok(None) };
+    let number = match front.parse() {
+        Ok(number) => number,
+        Err(_fault) => return Ok(None),
+    };
 
     Ok(Some(number))
 }
@@ -73,41 +80,60 @@ pub fn read(said: &str) -> Result<BTreeMap<String, String>, Never> {
         .collect())
 }
 
+fn indexed(root: &Path, path: &Path) -> Result<Option<(String, Best)>, Never> {
+    let inside = match path.parent().unwrap_or(root).strip_prefix(root) {
+        Ok(inside) => inside,
+        Err(_fault) => return Ok(None),
+    };
+
+    let parts: Vec<String> =
+        inside.components().map(|part| part.as_os_str().to_string_lossy().to_string()).collect();
+    let theme = parts.first().cloned().unwrap_or_default();
+
+    let suffix = match path.extension().map(|kind| kind.to_string_lossy().to_string()) {
+        Some(suffix) => suffix,
+        None => return Ok(None),
+    };
+
+    match ["png", "svg", "xpm"].contains(&suffix.as_str()) {
+        true => {},
+        false => return Ok(None),
+    }
+
+    let size = said_size(&parts)?;
+
+    let score = rank(&theme, &size, &suffix)?;
+
+    let score = match score {
+        Some(score) => score,
+        None => return Ok(None),
+    };
+
+    let stem = match path.file_stem().map(|stem| stem.to_string_lossy().to_string()) {
+        Some(stem) => stem,
+        None => return Ok(None),
+    };
+
+    Ok(Some((stem, (score, path.to_string_lossy().to_string()))))
+}
+
 pub fn built(roots: &[PathBuf]) -> Result<BTreeMap<String, String>, Never> {
-    let mut best: BTreeMap<String, ((usize, u8, i64), String)> = BTreeMap::new();
+    let mut best: BTreeMap<String, Best> = BTreeMap::new();
 
     for root in roots {
         let under = under(root)?;
 
-        for path in under {
-            let Ok(inside) = path.parent().unwrap_or(root).strip_prefix(root) else { continue };
+        let found = under.into_iter().filter_map(|path| {
+            let Ok(indexed) = indexed(root, &path);
 
-            let parts: Vec<String> =
-                inside.components().map(|part| part.as_os_str().to_string_lossy().to_string()).collect();
-            let theme = parts.first().cloned().unwrap_or_default();
-            let suffix = path.extension().map(|kind| kind.to_string_lossy().to_string());
+            indexed
+        });
 
-            let Some(suffix) = suffix else { continue };
-
-            match ["png", "svg", "xpm"].contains(&suffix.as_str()) {
-                true => {},
-                false => continue,
-            }
-
-            let size = said_size(&parts)?;
-
-            let Some(score) = rank(&theme, &size, &suffix)? else { continue };
-
-            let Some(stem) = path.file_stem().map(|stem| stem.to_string_lossy().to_string()) else {
-                continue;
-            };
-
-            let found = (score, path.to_string_lossy().to_string());
-
+        for (stem, (score, at)) in found {
             match best.get(&stem) {
-                Some((already, _)) if *already <= score => (),
+                Some((already, _)) if *already <= score => {},
                 Some(_) | None => {
-                    best.insert(stem, found);
+                    best.insert(stem, (score, at));
                 }
             }
         }
@@ -117,7 +143,10 @@ pub fn built(roots: &[PathBuf]) -> Result<BTreeMap<String, String>, Never> {
 }
 
 fn under(root: &Path) -> Result<Vec<PathBuf>, Never> {
-    let Ok(reading) = std::fs::read_dir(root) else { return Ok(Vec::new()) };
+    let reading = match std::fs::read_dir(root) {
+        Ok(reading) => reading,
+        Err(_fault) => return Ok(Vec::new()),
+    };
 
     let mut found = Vec::new();
 
@@ -138,7 +167,10 @@ fn under(root: &Path) -> Result<Vec<PathBuf>, Never> {
 }
 
 pub fn steam_appid(name: &str) -> Result<Option<&str>, Never> {
-    let Some(rest) = name.strip_prefix("steam_icon_") else { return Ok(None) };
+    let rest = match name.strip_prefix("steam_icon_") {
+        Some(rest) => rest,
+        None => return Ok(None),
+    };
 
     Ok((!rest.is_empty() && rest.chars().all(|letter| letter.is_ascii_digit())).then_some(rest))
 }

@@ -32,8 +32,9 @@ fn here(stage: &mut Here) -> Done {
 fn there(stage: &mut Device) -> Done {
     let Ok(ours) = stage.opening("alacritty", OPENING);
 
-    let Some(ours) = ours else {
-        return failed("nothing would open on the device to be closed".to_string());
+    let ours = match ours {
+        Some(ours) => ours,
+        None => return failed("nothing would open on the device to be closed".to_string()),
     };
 
     let Ok(()) = stage.press("right-paddle-top");

@@ -57,8 +57,9 @@ fn main() {
 fn tapped() -> Result<(), String> {
     let said: Vec<String> = std::env::args().skip(1).collect();
 
-    let [across, down] = said.as_slice() else {
-        return Err("say where: console-tap ACROSS DOWN".to_string());
+    let (across, down) = match said.as_slice() {
+        [across, down] => (across, down),
+        _not_two_words => return Err("say where: console-tap ACROSS DOWN".to_string()),
     };
 
     let across = number(across)?;

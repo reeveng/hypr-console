@@ -27,6 +27,14 @@ RestartSec=5
 # paths anybody would watch are in it; nothing here writes there, and the day
 # something does, this line is where the argument goes.
 #
+# The three that came after it were watched the same way and pass for the same
+# reason. `nmcli monitor` asks NetworkManager over the system bus and prints
+# what it hears; `busctl --user monitor` reaches the session bus. Both are a
+# socket on this machine and neither wants a device. The one thing worth
+# writing down about busctl is that its `Monitoring bus message stream.` goes
+# to standard error, which a source sends nowhere, so getting in is not
+# mistaken for something having happened.
+#
 # `AF_UNIX` alone. Every source it holds is a socket on this machine or a
 # program that reaches one, and the one thing that would ever take it off the
 # machine is a mistake.

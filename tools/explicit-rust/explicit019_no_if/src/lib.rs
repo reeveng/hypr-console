@@ -16,8 +16,10 @@ dylint_linting::declare_late_lint! {
     /// `match value { … }` for the cases an `if let` hides -- where
     /// EXPLICIT016 then asks that the variants be named too.
     ///
-    /// `let … else` is not an `if` and is left alone: both of its outcomes are
-    /// already written, and one of them is required to leave.
+    /// `let … else` was exempted here once, on the argument that both of its
+    /// outcomes are written. Only one of them is: the other is spelled `else`
+    /// and names nothing. EXPLICIT023 is that rule, in its own crate because
+    /// the tree is still walking towards it.
     pub EXPLICIT019_NO_IF,
     Deny,
     "`if` is forbidden; write a `match` that names both outcomes"

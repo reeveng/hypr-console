@@ -57,7 +57,10 @@ impl Router {
         let mut router = Router::default();
 
         for capability in capabilities {
-            let Some(button) = capability.strip_prefix(BUTTON) else { continue };
+            let button = match capability.strip_prefix(BUTTON) {
+                Some(button) => button,
+                None => continue,
+            };
 
             match button.ends_with("Trigger") || button.ends_with("StickTouch") {
                 true => continue,

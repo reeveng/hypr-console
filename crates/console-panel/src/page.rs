@@ -416,16 +416,29 @@ impl Rows {
 }
 
 #[derive(Clone)]
+pub enum About {
+    Anything,
+    Saying(String),
+}
+
+#[derive(Clone)]
 pub struct Watch {
     pub argv: Vec<String>,
-    pub about: String,
+    pub about: About,
 }
 
 impl Watch {
     pub fn on(argv: &[&str], about: &str) -> Result<Self, Never> {
         Ok(Watch {
             argv: argv.iter().map(|word| (*word).to_string()).collect(),
-            about: about.to_string(),
+            about: About::Saying(about.to_string()),
+        })
+    }
+
+    pub fn anything(argv: &[&str]) -> Result<Self, Never> {
+        Ok(Watch {
+            argv: argv.iter().map(|word| (*word).to_string()).collect(),
+            about: About::Anything,
         })
     }
 }
@@ -542,7 +555,10 @@ impl Page {
 }
 
 pub fn find(pages: &[Page], name: Option<&str>) -> Result<usize, Never> {
-    let Some(wanted) = name.map(|name| name.trim().to_lowercase()) else { return Ok(0) };
+    let wanted = match name.map(|name| name.trim().to_lowercase()) {
+        Some(wanted) => wanted,
+        None => return Ok(0),
+    };
 
     Ok(pages.iter().position(|page| page.title.to_lowercase() == wanted).unwrap_or(0))
 }
@@ -639,7 +655,10 @@ mod tests {
             .collect();
         let row = pressing(presses, 2);
 
-        let Some(Does::Call(act)) = row.does else { panic!("a strip with nothing to press") };
+        let act = match row.does {
+            Some(Does::Call(act)) => act,
+            Some(Does::Run(_)) | None => panic!("a strip with nothing to press"),
+        };
 
         act(&Nowhere);
 

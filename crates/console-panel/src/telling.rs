@@ -30,6 +30,20 @@
 //! times and looks once, so what a check reads is the whole run in order rather
 //! than the last frame of it.
 //!
+//! A line per *painted* frame, and this is the part that had to be learnt. A
+//! panel that has just rebuilt its card knows where nothing is: the widgets are
+//! in the tree and the frame that lays them out has not run, so every mark
+//! measured in that moment comes back at its smallest size, centred on the left
+//! edge of the window, because nothing has been given any room yet. Written
+//! down, that is a line saying the way out of a full-screen picture is half off
+//! the glass on a machine where it is not, and the check it fails is red for a
+//! reason that is not the panel -- which is worse than no check at all. It came
+//! and went with how busy the machine was, which is how a line written from an
+//! idle callback fails: the idle is now and the frame is at the next vertical
+//! blank. So the line is written from the frame clock's own after-paint, where
+//! what it reads is what was put on the glass a moment ago, and a second ask
+//! while one is already waiting joins it rather than adding a line of its own.
+//!
 //! Off unless asked for. `CONSOLE_PANEL_TELLS` names the file, nothing else
 //! turns it on, and a panel on the device writes nothing.
 
@@ -251,9 +265,15 @@ pub fn said(told: &Told) -> Result<String, Never> {
 }
 
 fn number(held: Option<&serde_json::Value>) -> Result<Option<i32>, Never> {
-    let Some(held) = held else { return Ok(None) };
+    let held = match held {
+        Some(held) => held,
+        None => return Ok(None),
+    };
 
-    let Some(whole) = held.as_i64() else { return Ok(None) };
+    let whole = match held.as_i64() {
+        Some(whole) => whole,
+        None => return Ok(None),
+    };
 
     let Ok(whole) = fitted::<i64, i32>(whole);
 
@@ -261,25 +281,49 @@ fn number(held: Option<&serde_json::Value>) -> Result<Option<i32>, Never> {
 }
 
 fn pair(held: &serde_json::Value, called: &str) -> Result<Option<(i32, i32)>, Never> {
-    let Some(named) = held.get(called) else { return Ok(None) };
+    let named = match held.get(called) {
+        Some(named) => named,
+        None => return Ok(None),
+    };
 
-    let Some(every) = named.as_array() else { return Ok(None) };
+    let every = match named.as_array() {
+        Some(every) => every,
+        None => return Ok(None),
+    };
 
-    let Ok(Some(across)) = number(every.first()) else { return Ok(None) };
+    let across = match number(every.first()) {
+        Ok(Some(across)) => across,
+        Ok(None) | Err(_) => return Ok(None),
+    };
 
-    let Ok(Some(down)) = number(every.get(1)) else { return Ok(None) };
+    let down = match number(every.get(1)) {
+        Ok(Some(down)) => down,
+        Ok(None) | Err(_) => return Ok(None),
+    };
 
     Ok(Some((across, down)))
 }
 
 fn spot_of(held: &serde_json::Value) -> Result<Option<Spot>, Never> {
-    let Some(named) = held.get("name") else { return Ok(None) };
+    let named = match held.get("name") {
+        Some(named) => named,
+        None => return Ok(None),
+    };
 
-    let Some(name) = named.as_str() else { return Ok(None) };
+    let name = match named.as_str() {
+        Some(name) => name,
+        None => return Ok(None),
+    };
 
-    let Ok(Some(at)) = pair(held, "at") else { return Ok(None) };
+    let at = match pair(held, "at") {
+        Ok(Some(at)) => at,
+        Ok(None) | Err(_) => return Ok(None),
+    };
 
-    let Ok(Some(big)) = pair(held, "big") else { return Ok(None) };
+    let big = match pair(held, "big") {
+        Ok(Some(big)) => big,
+        Ok(None) | Err(_) => return Ok(None),
+    };
 
     Ok(Some(Spot {
         name: name.to_string(),
@@ -298,7 +342,10 @@ pub fn read(said: &str) -> Result<Told, String> {
 
     let Ok(room) = pair(&held, "room");
 
-    let Some(room) = room else { return Err("no room".to_string()) };
+    let room = match room {
+        Some(room) => room,
+        None => return Err("no room".to_string()),
+    };
 
     let lines = held.get("lines").and_then(|held| held.as_array()).ok_or("no lines")?;
 
@@ -446,10 +493,16 @@ mod tests {
     fn a_mark_is_found_by_the_name_it_is_drawn_under() {
         let told = told();
 
-        let Ok(Some(shut)) = told.wearing("shut") else { panic!("the way out is drawn") };
+        let shut = match told.wearing("shut") {
+            Ok(Some(shut)) => shut,
+            Ok(None) | Err(_) => panic!("the way out is drawn"),
+        };
 
         let Ok(middle) = shut.middle();
-        let Ok(Some(line)) = told.line_saying("beach.jpg") else { panic!("the row is drawn") };
+        let line = match told.line_saying("beach.jpg") {
+            Ok(Some(line)) => line,
+            Ok(None) | Err(_) => panic!("the row is drawn"),
+        };
 
         let Ok(worn) = line.wearing("else");
 

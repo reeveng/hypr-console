@@ -165,10 +165,13 @@ fn bytes(code: &str) -> Result<[u8; 3], Never> {
     let mut out = [0u8; 3];
 
     for (channel, i) in out.iter_mut().zip([0usize, 2, 4]) {
-        let Some(two) = code.get(i..i.saturating_add(2)) else {
-            eprintln!("a colour is too short to hold three channels; read as nought");
-            *channel = 0;
-            continue;
+        let two = match code.get(i..i.saturating_add(2)) {
+            Some(two) => two,
+            None => {
+                eprintln!("a colour is too short to hold three channels; read as nought");
+                *channel = 0;
+                continue;
+            }
         };
 
         let pair = match std::str::from_utf8(two) {

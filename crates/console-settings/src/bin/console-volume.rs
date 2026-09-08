@@ -18,8 +18,9 @@ use console_settings::rocker::{self, Press};
 fn pactl(argv: &[String]) -> Result<String, Never> {
     let mut asking = Program::Pactl.command()?;
 
-    let Ok(said) = asking.args(argv).output() else {
-        return Ok(String::new());
+    let said = match asking.args(argv).output() {
+        Ok(said) => said,
+        Err(_) => return Ok(String::new()),
     };
 
     Ok(String::from_utf8_lossy(&said.stdout).to_string())
@@ -55,9 +56,13 @@ fn said() -> Result<(), Never> {
 fn main() -> std::process::ExitCode {
     let Ok(named) = std::env::args().nth(1).as_deref().map(Press::named).transpose();
 
-    let Some(press) = named.flatten() else {
-        eprintln!("usage: console-volume [up|down|mute]");
-        return std::process::ExitCode::from(2);
+    let press = match named.flatten() {
+        Some(press) => press,
+        None => {
+            eprintln!("usage: console-volume [up|down|mute]");
+
+            return std::process::ExitCode::from(2);
+        }
     };
 
     let Ok(asks) = rocker::asks(press);

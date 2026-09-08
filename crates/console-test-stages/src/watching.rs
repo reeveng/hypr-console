@@ -142,8 +142,9 @@ pub struct Reached {
 pub fn late(gone: Duration, expecting: Duration) -> Result<String, Never> {
     let Ok(over) = over(gone, expecting);
 
-    let Some(over) = over else {
-        return Ok(String::new());
+    let over = match over {
+        Some(over) => over,
+        None => return Ok(String::new()),
     };
 
     let Ok(about) = about(over);
@@ -211,8 +212,9 @@ impl Watching {
     }
 
     pub fn drawn(&mut self) -> Result<(), Never> {
-        let Some(ahead) = &self.ahead else {
-            return Ok(());
+        let ahead = match &self.ahead {
+            Some(ahead) => ahead,
+            None => return Ok(()),
         };
 
         let gone = self.started.elapsed();
@@ -226,8 +228,9 @@ impl Watching {
     pub fn tick(&mut self) -> Result<String, Never> {
         let Ok(()) = self.drawn();
 
-        let Some(ahead) = &self.ahead else {
-            return Ok(String::new());
+        let ahead = match &self.ahead {
+            Some(ahead) => ahead,
+            None => return Ok(String::new()),
         };
 
         let Ok(far) = ahead.along(self.started.elapsed());

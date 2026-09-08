@@ -102,7 +102,10 @@ pub fn read(said: &str) -> Result<Option<Entry>, Never> {
         Err(_) => return Ok(None),
     };
 
-    let Some(object) = held.as_object() else { return Ok(None) };
+    let object = match held.as_object() {
+        Some(object) => object,
+        None => return Ok(None),
+    };
 
     let word = |name: &str| {
         let held = object.get(name)?;
@@ -115,7 +118,10 @@ pub fn read(said: &str) -> Result<Option<Entry>, Never> {
         held.as_f64()
     };
 
-    let Some(when) = object.get("at") else { return Ok(None) };
+    let when = match object.get("at") {
+        Some(when) => when,
+        None => return Ok(None),
+    };
 
     let at = match when {
         serde_json::Value::Number(n) => match n.as_u64() {
@@ -131,11 +137,20 @@ pub fn read(said: &str) -> Result<Option<Entry>, Never> {
     let up = number("up").unwrap_or(0.0);
     let load = number("load").unwrap_or(0.0);
 
-    let Some(who) = word("who") else { return Ok(None) };
+    let who = match word("who") {
+        Some(who) => who,
+        None => return Ok(None),
+    };
 
-    let Some(what) = word("what") else { return Ok(None) };
+    let what = match word("what") {
+        Some(what) => what,
+        None => return Ok(None),
+    };
 
-    let Some(waited) = number("waited") else { return Ok(None) };
+    let waited = match number("waited") {
+        Some(waited) => waited,
+        None => return Ok(None),
+    };
 
     let waited = Duration::from_secs_f64(waited / 1000.0);
     let entry = Entry {
@@ -247,7 +262,10 @@ mod tests {
         let entry = an_opening();
 
         let Ok(said) = written(&entry);
-        let Ok(Some(back)) = read(&said) else { panic!("a written line reads back") };
+        let back = match read(&said) {
+            Ok(Some(back)) => back,
+            Ok(None) | Err(_) => panic!("a written line reads back"),
+        };
 
         assert_eq!(back.who, entry.who);
         assert_eq!(back.what, entry.what);
@@ -261,7 +279,10 @@ mod tests {
     #[test]
     fn what_the_line_is_about_is_never_read_as_a_stretch_of_the_wait() {
         let Ok(said) = written(&an_opening());
-        let Ok(Some(back)) = read(&said) else { panic!("a line") };
+        let back = match read(&said) {
+            Ok(Some(back)) => back,
+            Ok(None) | Err(_) => panic!("a line"),
+        };
 
         let named: Vec<&str> = back.marks.iter().map(|(name, _)| name.as_str()).collect();
         assert!(!named.contains(&"up"));

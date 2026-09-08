@@ -12,6 +12,7 @@
 //! of the desktop uses.
 
 pub mod pulling;
+pub mod renaming;
 
 use console_core_never::Never;
 use std::path::{Path, PathBuf};

@@ -115,10 +115,18 @@ impl Program for Sun {
     }
 
     fn heard(state: &Sky, word: &Word<Heard>) -> Turn<Sky, Its> {
-        let Word::Its(heard) = word else {
-            let Ok(nothing) = Turn::nothing(state.clone());
+        let heard = match word {
+            Word::Its(heard) => heard,
+            Word::Opened
+            | Word::Changed(_)
+            | Word::CameRound(_, _)
+            | Word::Answered(_)
+            | Word::Chose(_)
+            | Word::Stopping => {
+                let Ok(nothing) = Turn::nothing(state.clone());
 
-            return nothing;
+                return nothing;
+            }
         };
 
         let Ok(turn) = match heard {

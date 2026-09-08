@@ -51,9 +51,15 @@ fn said(room: (i32, i32)) -> Result<String, Never> {
 }
 
 fn number(word: Option<&str>) -> Result<i32, Never> {
-    let Some(word) = word else { return Ok(0) };
+    let word = match word {
+        Some(word) => word,
+        None => return Ok(0),
+    };
 
-    let Ok(number) = word.parse::<i32>() else { return Ok(0) };
+    let number = match word.parse::<i32>() {
+        Ok(number) => number,
+        Err(_fault) => return Ok(0),
+    };
 
     Ok(number)
 }

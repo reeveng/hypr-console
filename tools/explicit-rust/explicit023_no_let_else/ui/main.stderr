@@ -1,0 +1,23 @@
+error: `let … else` leaves an outcome without a name: the case that did not bind is spelled `else`
+  --> $DIR/main.rs:17:5
+   |
+LL | /     let Some(word) = said.split_whitespace().next() else {
+LL | |         return String::new();
+LL | |     };
+   | |______^
+   |
+   = help: write the decision as a `match` in the initializer -- `let held = match value { Some(held) => held, None => … };` -- so the case that leaves is named as well as the case that binds
+   = note: `#[deny(explicit023_no_let_else)]` on by default
+
+error: `let … else` leaves an outcome without a name: the case that did not bind is spelled `else`
+  --> $DIR/main.rs:28:5
+   |
+LL | /     let Ok(said) = std::fs::read_to_string(at) else {
+LL | |         return String::new();
+LL | |     };
+   | |______^
+   |
+   = help: write the decision as a `match` in the initializer -- `let held = match value { Some(held) => held, None => … };` -- so the case that leaves is named as well as the case that binds
+
+error: aborting due to 2 previous errors
+

@@ -79,8 +79,9 @@ fn put_away(stage: &mut Device) -> Done {
 fn again(stage: &mut Device) -> Done {
     let Ok(first) = opened(stage, OPENS_THE_MENU, MENU);
 
-    let Some(first) = first else {
-        return failed("the menu did not draw at all, so nothing here was answered".to_string());
+    let first = match first {
+        Some(first) => first,
+        None => return failed("the menu did not draw at all, so nothing here was answered".to_string()),
     };
 
     put_away(stage)?;
@@ -101,10 +102,13 @@ fn again(stage: &mut Device) -> Done {
 
     let Ok(after) = opened(stage, OPENS_THE_MENU, MENU);
 
-    let Some(after) = after else {
-        return failed(
-            "the menu drew once and would not draw again after another panel had".to_string(),
-        );
+    let after = match after {
+        Some(after) => after,
+        None => {
+            return failed(
+                "the menu drew once and would not draw again after another panel had".to_string(),
+            );
+        }
     };
 
     same(&after, &first, || {

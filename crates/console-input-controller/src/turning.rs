@@ -1,9 +1,17 @@
 //! The loop, said as one turn of it.
 //!
 //! What is here is which device is read, when one that has gone is looked for
-//! again, and in what order the three are drained. None of that touches a
-//! device: what a device is, is a trait, so the same loop runs against the
-//! machine and against a world that exists only inside a test.
+//! again, and in what order they are drained. None of that touches a device:
+//! what a device is, is a trait, so the same loop runs against the machine and
+//! against a world that exists only inside a test.
+//!
+//! A sort of device is one of them or all of them, and [`From::wants`] is
+//! where that is said. Three of the four are one apiece -- there is one pad,
+//! one keyboard InputPlumber makes, one touchpad -- and a keyboard somebody
+//! plugged in is every one of them, because two are as ordinary as one and a
+//! press on the second has to count as much as a press on the first. That is
+//! also why the hunt keeps looking after one is open: a second keyboard
+//! arrives an hour later and nothing else would go and find it.
 
 use std::collections::BTreeMap;
 
@@ -13,11 +21,11 @@ use evdev::InputEvent;
 use crate::doing::Doing;
 use crate::finding::{self, Says};
 use crate::means::Table;
-use crate::reading::{Controller, From, Ranges};
+use crate::reading::{Controller, From, Ranges, Wants};
 
 pub struct Gone;
 
-pub const READ: [From; 3] = [From::Pad, From::Keys, From::Touch];
+pub const READ: [From; 4] = [From::Pad, From::Keys, From::Touch, From::Typing];
 
 pub const AWAY_SECONDS: f64 = 0.25;
 
@@ -47,7 +55,7 @@ pub trait Plugged {
 pub struct Turning {
     pub held: Controller,
     told: BTreeMap<From, String>,
-    open: BTreeMap<From, String>,
+    open: Vec<(From, String)>,
     hunted: BTreeMap<From, f64>,
     last: Option<f64>,
     settling: Option<f64>,
@@ -80,36 +88,44 @@ impl Turning {
         let mut doing: Vec<Doing> = Vec::new();
 
         for which in READ {
-            let Some(path) = self.open.get(&which).cloned() else { continue };
+            let paths: Vec<String> = self
+                .open
+                .iter()
+                .filter(|(one, _)| *one == which)
+                .map(|(_, path)| path.clone())
+                .collect();
 
-            for _ in 0..match deaf {
-                true => DRY,
-                false => 1,
-            } {
-                match machine.drain(&path) {
-                    Ok(arrived) => {
-                        let dry = arrived.is_empty();
+            for path in paths {
+                for _ in 0..match deaf {
+                    true => DRY,
+                    false => 1,
+                } {
+                    match machine.drain(&path) {
+                        Ok(arrived) => {
+                            let dry = arrived.is_empty();
 
-                        for event in arrived {
-                            let kind = event.event_type();
-                            let Ok(did) = self.held.saw(which, kind, event.code(), event.value(), now);
+                            for event in arrived {
+                                let kind = event.event_type();
+                                let Ok(did) =
+                                    self.held.saw(which, kind, event.code(), event.value(), now);
 
-                            match deaf {
-                                true => {},
-                                false => doing.extend(did),
+                                match deaf {
+                                    true => {},
+                                    false => doing.extend(did),
+                                }
+                            }
+
+                            match dry {
+                                true => break,
+                                false => {},
                             }
                         }
+                        Err(Gone) => {
+                            let Ok(went) = self.went(which, &path);
 
-                        match dry {
-                            true => break,
-                            false => {},
+                            doing.extend(went);
+                            break;
                         }
-                    }
-                    Err(Gone) => {
-                        let Ok(went) = self.went(which);
-
-                        doing.extend(went);
-                        break;
                     }
                 }
             }
@@ -140,15 +156,18 @@ impl Turning {
     }
 
     pub fn missing(&self) -> Result<Vec<From>, Never> {
-        Ok(READ.into_iter().filter(|which| !self.open.contains_key(which)).collect())
+        Ok(READ
+            .into_iter()
+            .filter(|which| !self.open.iter().any(|(one, _)| one == which))
+            .collect())
     }
 
-    pub fn holding(&self) -> Result<&BTreeMap<From, String>, Never> {
+    pub fn holding(&self) -> Result<&[(From, String)], Never> {
         Ok(&self.open)
     }
 
-    fn went(&mut self, which: From) -> Result<Vec<Doing>, Never> {
-        self.open.remove(&which);
+    fn went(&mut self, which: From, path: &str) -> Result<Vec<Doing>, Never> {
+        self.open.retain(|(_, at)| at != path);
 
         match which == From::Pad {
             true => self.held.pad_went(),
@@ -157,9 +176,21 @@ impl Turning {
     }
 
     fn find(&mut self, machine: &mut impl Plugged, now: f64) -> Result<(), Never> {
-        let Ok(missing) = self.missing();
+        for which in READ {
+            let Ok(wants) = which.wants();
 
-        for which in missing {
+            let already = self.open.iter().any(|(one, _)| *one == which);
+
+            let looking = match wants {
+                Wants::One => !already,
+                Wants::Every => true,
+            };
+
+            match looking {
+                true => {},
+                false => continue,
+            }
+
             let looked = self.hunted.get(&which).copied().unwrap_or(f64::NEG_INFINITY);
 
             match now - looked < HUNT_SECONDS {
@@ -171,39 +202,57 @@ impl Turning {
 
             let Ok(found) = self.at(machine, which);
 
-            let Some(path) = found else { continue };
+            for path in found {
+                match self.open.iter().any(|(_, at)| *at == path) {
+                    true => continue,
+                    false => {},
+                }
 
-            match machine.open(&path) {
-                Took::Refused => continue,
-                Took::Held => {},
+                match machine.open(&path) {
+                    Took::Refused => continue,
+                    Took::Held => {},
+                }
+
+                match which {
+                    From::Pad => {
+                        let Ok(()) = self.held.reading(machine.ranges(&path));
+                    },
+                    From::Keys | From::Touch | From::Typing => {},
+                }
+
+                self.open.push((which, path));
+
+                match wants {
+                    Wants::One => break,
+                    Wants::Every => {},
+                }
             }
-
-            match which {
-                From::Pad => {
-                    let Ok(()) = self.held.reading(machine.ranges(&path));
-                },
-                From::Keys | From::Touch => {},
-            }
-
-            self.open.insert(which, path);
         }
 
         Ok(())
     }
 
-    fn at(&self, machine: &impl Plugged, which: From) -> Result<Option<String>, Never> {
+    fn at(&self, machine: &impl Plugged, which: From) -> Result<Vec<String>, Never> {
         match self.told.get(&which) {
-            Some(path) => return Ok(Some(path.clone())),
+            Some(path) => return Ok(vec![path.clone()]),
             None => {},
         }
 
         let said = machine.every();
-        let Ok(found) = match which {
-            From::Pad => finding::gamepad(&said),
-            From::Keys => finding::keyboard(&said),
-            From::Touch => finding::touchpad(&said),
+
+        let Ok(every) = match which {
+            From::Typing => finding::typing(&said),
+            From::Pad | From::Keys | From::Touch => {
+                let Ok(one) = match which {
+                    From::Pad => finding::gamepad(&said),
+                    From::Keys => finding::keyboard(&said),
+                    From::Touch | From::Typing => finding::touchpad(&said),
+                };
+
+                Ok(one.into_iter().collect())
+            }
         };
 
-        Ok(found.map(|says| says.path.clone()))
+        Ok(every.into_iter().map(|says| says.path.clone()).collect())
     }
 }

@@ -10,8 +10,11 @@ name = "console_test_stages"
 path = "src/lib.rs"
 
 [dependencies]
+console-compositor.workspace = true
 console-core-external-programs.workspace = true
+console-core-ini-files.workspace = true
 console-core-never.workspace = true
+console-core-places.workspace = true
 console-waiting.workspace = true
 console-onscreen.workspace = true
 console-core-number-conversion.workspace = true
@@ -22,6 +25,7 @@ console-how-far.workspace = true
 cairo-rs = { version = "0.22", features = ["png"] }
 evdev = "0.13"
 console-core-colour.workspace = true
+console-input-bindings.workspace = true
 console-input-controller.workspace = true
 # `read` because a stage says what a button does, which means opening the
 # profiles. Nothing on the device does that; see `console-input-gamepad` for why it

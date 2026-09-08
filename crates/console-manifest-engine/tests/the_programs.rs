@@ -42,7 +42,7 @@ fn section(held: &str, wanted: &str) -> Vec<String> {
                 Some(name) => (out, Some(name.to_string())),
                 None => {
                     if at.as_deref() == Some(wanted) {
-                        out.push(line.to_string());
+                        out.push(line.split_whitespace().next().unwrap_or("").to_string());
                     }
                     (out, at)
                 }
@@ -53,7 +53,10 @@ fn section(held: &str, wanted: &str) -> Vec<String> {
 
 fn sources() -> Vec<PathBuf> {
     fn walk(at: &Path, into: &mut Vec<PathBuf>) {
-        let Ok(entries) = std::fs::read_dir(at) else { return };
+        let entries = match std::fs::read_dir(at) {
+            Ok(entries) => entries,
+            Err(_fault) => return,
+        };
         for path in entries.flatten().map(|entry| entry.path()) {
             match path {
                 path if path.is_dir() => walk(&path, into),
@@ -65,7 +68,10 @@ fn sources() -> Vec<PathBuf> {
     let ourself = root().join(file!());
     let declaring = root().join("crates/console-core-external-programs");
     let mut found = Vec::new();
-    let Ok(crates) = std::fs::read_dir(root().join("crates")) else { return found };
+    let crates = match std::fs::read_dir(root().join("crates")) {
+        Ok(crates) => crates,
+        Err(_fault) => return found,
+    };
     for crate_ in crates.flatten().map(|entry| entry.path()) {
         match crate_ == declaring {
             true => continue,
@@ -127,8 +133,9 @@ fn nothing_starts_a_program_by_writing_its_name() {
     for (at, said) in read() {
         for (found, _) in said.match_indices(&door) {
             let from = found.saturating_add(door.len());
-            let Some(name) = said.get(from..).and_then(|rest| rest.split('"').next()) else {
-                continue;
+            let name = match said.get(from..).and_then(|rest| rest.split('"').next()) {
+                Some(name) => name,
+                None => continue,
             };
 
             match ours.contains(name) {

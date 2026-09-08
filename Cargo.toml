@@ -21,10 +21,13 @@ console-applications = { path = "crates/console-applications" }
 console-input-mapping = { path = "crates/console-input-mapping" }
 console-program-lifetime = { path = "crates/console-program-lifetime" }
 console-core-colour = { path = "crates/console-core-colour" }
+console-compositor = { path = "crates/console-compositor" }
 console-input-controller = { path = "crates/console-input-controller" }
 console-cpu-boost = { path = "crates/console-cpu-boost" }
 console-default-applications = { path = "crates/console-default-applications" }
 console-device = { path = "crates/console-device" }
+console-input-alphabets = { path = "crates/console-input-alphabets" }
+console-input-bindings = { path = "crates/console-input-bindings" }
 console-input-dictation = { path = "crates/console-input-dictation" }
 console-downloads = { path = "crates/console-downloads" }
 console-events = { path = "crates/console-events" }
@@ -37,17 +40,21 @@ console-button-guide = { path = "crates/console-button-guide" }
 console-home-screen = { path = "crates/console-home-screen" }
 console-how-far = { path = "crates/console-how-far" }
 console-input-focus = { path = "crates/console-input-focus" }
+console-input-language = { path = "crates/console-input-language" }
 console-input-keyboard = { path = "crates/console-input-keyboard" }
 console-launcher = { path = "crates/console-launcher" }
 console-manifest-migrations = { path = "crates/console-manifest-migrations" }
-console-music = { path = "crates/console-music" }
+console-music-panel = { path = "crates/console-music-panel" }
+console-music-player = { path = "crates/console-music-player" }
 console-test-desktop = { path = "crates/console-test-desktop" }
 console-core-never = { path = "crates/console-core-never" }
 console-notifications = { path = "crates/console-notifications" }
+console-core-ini-files = { path = "crates/console-core-ini-files" }
 console-core-number-conversion = { path = "crates/console-core-number-conversion" }
 console-onscreen = { path = "crates/console-onscreen" }
 console-panel = { path = "crates/console-panel" }
 console-panels = { path = "crates/console-panels" }
+console-core-places = { path = "crates/console-core-places" }
 console-program-contract = { path = "crates/console-program-contract" }
 console-program-runtime = { path = "crates/console-program-runtime" }
 console-core-reconnect = { path = "crates/console-core-reconnect" }
@@ -61,6 +68,7 @@ console-media-viewer = { path = "crates/console-media-viewer" }
 console-input-pointer = { path = "crates/console-input-pointer" }
 console-input-touchscreen = { path = "crates/console-input-touchscreen" }
 console-response-times = { path = "crates/console-response-times" }
+console-resume = { path = "crates/console-resume" }
 console-wallpaper = { path = "crates/console-wallpaper" }
 console-waiting = { path = "crates/console-waiting" }
 
@@ -106,6 +114,16 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(dylint_lib, values(any()))
 # nobody was told. Nothing can satisfy both at the call site, because each denies
 # what the other asks for. Settled here once rather than by an `#[allow]` beside
 # every variable a program reads.
+#
+# The last two are EXPLICIT023's side of the same standoff. `manual_let_else`
+# asks for the `let … else` the rule exists to remove, which is as direct a
+# contradiction as this file holds. `manual_unwrap_or_default` is the quieter
+# one and the more important: every guard clause whose other case is a default
+# becomes a two-armed `match`, and clippy offers `unwrap_or_default()` back.
+# On a `Result` that call is the exact fault `console-core-atomic-writes` was
+# written against -- it turns "this would not be read" into "this was empty",
+# and the machine runs on a value nobody chose. The `match` is what says which
+# of the two happened, so it stays.
 [workspace.lints.clippy]
 single_match = "allow"
 single_match_else = "allow"
@@ -113,6 +131,8 @@ match_bool = "allow"
 equatable_if_let = "allow"
 option_if_let_else = "allow"
 manual_ok_err = "allow"
+manual_let_else = "allow"
+manual_unwrap_or_default = "allow"
 
 # The other direction: stock rules that say what the suite already says, or
 # name a harm no EXPLICIT rule covers. Nothing in the tree breaks any of them

@@ -45,23 +45,35 @@ pub fn spelt(says: &Says) -> Result<String, Never> {
 }
 
 pub fn read(line: &str) -> Result<Option<Says>, Never> {
-    let Some((verb, rest)) = line.split_once(' ') else { return Ok(None) };
+    let (verb, rest) = match line.split_once(' ') {
+        Some((verb, rest)) => (verb, rest),
+        None => return Ok(None),
+    };
 
     Ok(match verb {
         "listen" => {
-            let Ok(Some(about)) = topic(rest) else { return Ok(None) };
+            let about = match topic(rest) {
+                Ok(Some(about)) => about,
+                Ok(None) | Err(_) => return Ok(None),
+            };
 
             Some(Says::Listen(about))
         }
         "deafen" => {
-            let Ok(Some(about)) = topic(rest) else { return Ok(None) };
+            let about = match topic(rest) {
+                Ok(Some(about)) => about,
+                Ok(None) | Err(_) => return Ok(None),
+            };
 
             Some(Says::Deafen(about))
         }
         "said" => {
             let (spelt, said) = rest.split_once(' ').unwrap_or((rest, ""));
 
-            let Ok(Some(about)) = topic(spelt) else { return Ok(None) };
+            let about = match topic(spelt) {
+                Ok(Some(about)) => about,
+                Ok(None) | Err(_) => return Ok(None),
+            };
 
             Some(Says::Said(Changed { about, said: said.to_string() }))
         }
@@ -94,7 +106,10 @@ pub fn topic(token: &str) -> Result<Option<Topic>, Never> {
         "units" => Some(Topic::Units),
         "player" => Some(Topic::Player),
         _ => {
-            let Some(at) = token.strip_prefix("path:") else { return Ok(None) };
+            let at = match token.strip_prefix("path:") {
+                Some(at) => at,
+                None => return Ok(None),
+            };
 
             let Ok(plain) = plain(at);
 

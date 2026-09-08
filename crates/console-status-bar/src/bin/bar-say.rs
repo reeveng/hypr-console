@@ -33,9 +33,12 @@ fn main() -> ExitCode {
         named
     });
 
-    let Some(what) = named else {
-        eprintln!("{USAGE}");
-        return ExitCode::FAILURE;
+    let what = match named {
+        Some(what) => what,
+        None => {
+            eprintln!("{USAGE}");
+            return ExitCode::FAILURE;
+        }
     };
 
     let Ok(heard) = watching(what);
@@ -109,7 +112,10 @@ fn main() -> ExitCode {
 }
 
 fn taken(what: What, dwindling: &mut Watching) -> Result<Says, Never> {
-    let What::Battery = what else { return what.says() };
+    match what {
+        What::Battery => {},
+        What::Bluetooth | What::Network | What::Sound => return what.says(),
+    }
 
     let said = console_default_applications::battery::charge()?;
     let Ok(()) = dwindling.seen(&said);

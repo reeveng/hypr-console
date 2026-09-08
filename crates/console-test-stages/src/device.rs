@@ -6,6 +6,28 @@
 //! device already uses. So there is no second pad for the daemons to find and
 //! nothing to clean up if a check stops halfway.
 //!
+//! Every press is a chord, and that is not a shorthand for a press. InputPlumber
+//! has two ways to be asked for an event and only one of them works: `SendEvent`
+//! reaches a `blocking_send` on a tokio worker and panics the daemon's own task
+//! rather than emitting anything, on every version this desktop has run, so a
+//! button cannot be held down and a trigger cannot be pulled. `SendButtonChord`
+//! presses and lets go by itself and is sound. So a walk is taps rather than a
+//! hold, a key is a chord of `Keyboard:` capabilities, and the two that need a
+//! button held say they cannot rather than sending something the daemon drops on
+//! the floor. todos.md is the rest, and this comes back the day it is fixed.
+//!
+//! A chord also lets go in its own time, and the call comes back before it does.
+//! Asking for one puts the button down, answers, and lets go eighty milliseconds
+//! later; a second chord inside that window is not a second press, because the
+//! axis is already where it would put it and there is nothing for the kernel to
+//! report. Eighteen of them in a shell loop take sixty-six milliseconds and reach
+//! the pad as one press and one release, which is what `290` was walking on: a
+//! walk of eighteen squares that moved one, or four on a slower loop, with no
+//! error anywhere to say which. So a walk waits `LET_GO` between one chord and
+//! the next. The number is the daemon's rather than this file's, and reading it
+//! again means asking for a chord and watching the pad's own node for what came
+//! out of it.
+//!
 //! What a press then does to the machine is another matter, and it is somebody
 //! else's machine. Two things here are the bookkeeping that lets a run give it
 //! back the way it found it: a window opened through `open` is remembered, so
@@ -20,7 +42,6 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use console_input_controller::means::Press;
 use console_core_never::Never;
 use console_input_gamepad::profile::{Kind, Profile};
 use console_input_gamepad::router::every_profile;
@@ -59,6 +80,10 @@ const PIECES: [&str; 14] = [
 
 const BY_A_SWITCH: &str = "console-warm";
 
+const SENDEVENT: &str = "InputPlumber's SendEvent panics on its own runtime rather than \
+     emitting anything, so nothing here can hold a button down or pull a trigger; \
+     press instead, and see todos.md";
+
 const BUS: (&str, &str, &str) = (
     "org.shadowblip.InputPlumber",
     "/org/shadowblip/InputPlumber/CompositeDevice0",
@@ -75,6 +100,8 @@ fn session_env(whom: &str) -> Result<String, Never> {
          {{ echo 'nothing on the device is in a Hyprland session' >&2; exit 1; }}"
     ))
 }
+
+pub const LET_GO: f64 = 0.12;
 
 pub const SETTLED: f64 = 0.6;
 
@@ -173,7 +200,10 @@ impl Level {
 }
 
 fn brightness_in(said: &str) -> Result<Level, Never> {
-    let Some(line) = said.lines().next() else { return Ok(Level::Unsaid) };
+    let line = match said.lines().next() {
+        Some(line) => line,
+        None => return Ok(Level::Unsaid),
+    };
 
     Ok(match line.trim().parse() {
         Ok(brightness) => Level::At(brightness),
@@ -184,7 +214,10 @@ fn brightness_in(said: &str) -> Result<Level, Never> {
 fn volume_in(said: &str) -> Result<Level, Never> {
     let word = said.lines().next().and_then(|line| line.split_whitespace().nth(4));
 
-    let Some(word) = word else { return Ok(Level::Unsaid) };
+    let word = match word {
+        Some(word) => word,
+        None => return Ok(Level::Unsaid),
+    };
 
     Ok(match word.trim_end_matches('%').parse() {
         Ok(volume) => Level::At(volume),
@@ -256,8 +289,9 @@ impl Device {
     }
 
     fn along(&mut self) -> Result<String, Never> {
-        let Some(watching) = self.watching.as_ref() else {
-            return Ok(String::new());
+        let watching = match self.watching.as_ref() {
+            Some(watching) => watching,
+            None => return Ok(String::new()),
         };
 
         let Ok(mut held) = crate::watching::held(watching);
@@ -328,71 +362,65 @@ impl Device {
         capability_under(loaded.as_ref(), button)
     }
 
-    pub fn press(&mut self, button: &str) -> Result<(), Never> {
+    fn chorded(&mut self, capabilities: &[String]) -> Result<String, Never> {
         self.taken = None;
 
+        let Ok(chord) = chord(capabilities);
+        let Ok(asked) = calling(&chord);
+
+        self.ssh(&asked)
+    }
+
+    pub fn press(&mut self, button: &str) -> Result<(), Never> {
         let Ok(found) = self.capability(button);
 
-        let Some(capability) = found else {
-            return Ok(());
+        let capability = match found {
+            Some(capability) => capability,
+            None => return Ok(()),
         };
 
-        let Ok(quoted) = quoted(&capability);
-        let asked = format!(
-            "busctl --system call {} {} {} SendButtonChord as 1 {quoted}",
-            BUS.0, BUS.1, BUS.2,
-        );
-        let Ok(_) = self.ssh(&asked);
+        let Ok(_) = self.chorded(&[capability]);
 
         Ok(())
     }
 
-    fn send(&mut self, capability: &str, down: Press) -> Result<(), Never> {
+    pub fn presses(&mut self, button: &str, times: usize) -> Result<(), Never> {
         self.taken = None;
 
-        let Ok(quoted) = quoted(capability);
-        let asked = format!(
-            "busctl --system call {} {} {} SendEvent sv {quoted} b {}",
-            BUS.0,
-            BUS.1,
-            BUS.2,
-            match down {
-                Press::Down => "true",
-                Press::Up => "false",
-            }
-        );
-        let Ok(_) = self.ssh(&asked);
+        let Ok(found) = self.capability(button);
+
+        let capability = match found {
+            Some(capability) => capability,
+            None => return Ok(()),
+        };
+
+        let Ok(chord) = chord(&[capability]);
+        let Ok(asked) = calling(&chord);
+        let Ok(_) = self.ssh(&format!(
+            "for _ in $(seq {times}); do {asked}; sleep {LET_GO}; done"
+        ));
 
         Ok(())
     }
 
-    pub fn hold(&mut self, button: &str) -> Result<(), Never> {
-        let Ok(found) = self.capability(button);
-
-        match found {
-            Some(capability) => self.send(&capability, Press::Down),
-            None => Ok(()),
-        }
+    pub fn hold(&mut self, _button: &str) -> Done {
+        cannot(SENDEVENT)
     }
 
-    pub fn release(&mut self, button: Option<&str>) -> Result<(), Never> {
-        let Some(button) = button else { return Ok(()) };
-
-        let Ok(found) = self.capability(button);
-
-        match found {
-            Some(capability) => self.send(&capability, Press::Up),
-            None => Ok(()),
-        }
+    pub fn release(&mut self, _button: Option<&str>) -> Done {
+        cannot(SENDEVENT)
     }
 
     pub fn trigger(&mut self, which: &str, amount: f64) -> Done {
         let Ok(found) = named(&vocabulary::TRIGGERS, which);
 
-        let Some(named) = found else {
-            let Ok(said) = said(&vocabulary::TRIGGERS);
+        let named = match found {
+            Some(named) => named,
+            None => {
+                let Ok(said) = said(&vocabulary::TRIGGERS);
 
-            return failed(format!("there is no trigger called {which:?}; {said}"));
+                return failed(format!("there is no trigger called {which:?}; {said}"));
+            }
         };
 
         match (0.0..=1.0).contains(&amount) {
@@ -408,10 +436,13 @@ impl Device {
     pub fn stick(&mut self, which: &str, across: f64, down: f64) -> Done {
         let Ok(found) = named(&vocabulary::AXES, which);
 
-        let Some(named) = found else {
-            let Ok(said) = said(&vocabulary::AXES);
+        let named = match found {
+            Some(named) => named,
+            None => {
+                let Ok(said) = said(&vocabulary::AXES);
 
-            return failed(format!("there is no stick called {which:?}; {said}"));
+                return failed(format!("there is no stick called {which:?}; {said}"));
+            }
         };
 
         for amount in [across, down] {
@@ -537,45 +568,48 @@ impl Device {
         })
     }
 
+    pub fn home_carrying(&mut self) -> Result<Seen, Never> {
+        let Ok(said) =
+            self.user("test -e \"$XDG_RUNTIME_DIR/console/home-carrying\" && echo carrying");
+
+        Ok(match said.contains("carrying") {
+            true => Seen::Yes,
+            false => Seen::NotYet,
+        })
+    }
+
     pub fn layer(&mut self, namespace: &str) -> Result<Option<(u32, u32, u32, u32)>, Never> {
         let Ok(said) = self.hypr("layers -j");
         let Ok(read) = read(&said);
 
-        let Some(found) = read else { return Ok(None) };
+        let found = match read {
+            Some(found) => found,
+            None => return Ok(None),
+        };
 
-        for screen in found.as_object().into_iter().flat_map(|screens| screens.values()) {
-            for level in screen
-                .get("levels")
-                .and_then(|levels| levels.as_object())
-                .into_iter()
-                .flat_map(|levels| levels.values())
-            {
-                for layer in level.as_array().into_iter().flatten() {
-                    match layer.get("namespace").and_then(|said| said.as_str()) == Some(namespace)
-                    {
-                        true => {},
-                        false => continue,
-                    }
+        let Ok(surfaces) = console_compositor::surfaces(&found);
 
-                    let at = |name: &str| {
-                        let said = layer.get(name).and_then(|said| said.as_i64())?;
+        for layer in surfaces {
+            let Ok(named) = console_compositor::namespace(layer);
 
-                        let Ok(said) = fitted::<i64, u32>(said);
-
-                        Some(said)
-                    };
-
-                    let Some(x) = at("x") else { return Ok(None) };
-
-                    let Some(y) = at("y") else { return Ok(None) };
-
-                    let Some(wide) = at("w") else { return Ok(None) };
-
-                    let Some(tall) = at("h") else { return Ok(None) };
-
-                    return Ok(Some((x, y, wide, tall)));
-                }
+            match named == Some(namespace) {
+                true => {},
+                false => continue,
             }
+
+            let Ok(said) = console_compositor::corner(layer);
+
+            let corner = match said {
+                Some(corner) => corner,
+                None => return Ok(None),
+            };
+
+            let Ok(x) = fitted::<i64, u32>(corner.across);
+            let Ok(y) = fitted::<i64, u32>(corner.down);
+            let Ok(wide) = fitted::<i64, u32>(corner.wide);
+            let Ok(tall) = fitted::<i64, u32>(corner.tall);
+
+            return Ok(Some((x, y, wide, tall)));
         }
 
         Ok(None)
@@ -655,7 +689,10 @@ impl Device {
 
         let Ok(pid) = self.pid_at(&closing);
 
-        let Some(pid) = pid else { return Ok(Waited::Happened) };
+        let pid = match pid {
+            Some(pid) => pid,
+            None => return Ok(Waited::Happened),
+        };
 
         let Ok(_) = self.user(&format!("kill {pid}"));
 
@@ -714,7 +751,10 @@ impl Device {
                     address.is_some_and(|found| !was.contains(&found))
                 });
 
-                let Some(new) = new else { return Ok(Seen::NotYet) };
+                let new = match new {
+                    Some(new) => new,
+                    None => return Ok(Seen::NotYet),
+                };
 
                 let Ok(found) = address(new);
 
@@ -768,22 +808,28 @@ impl Device {
         let Ok(said) = self.hypr("activeworkspace -j");
         let Ok(found) = read(&said);
 
-        Ok(found
-            .map(|found| {
-                found
-                    .get("name")
-                    .and_then(|name| name.as_str())
-                    .unwrap_or_default()
-                    .to_string()
-            })
-            .unwrap_or_default())
+        let found = match found {
+            Some(found) => found,
+            None => return Ok(String::new()),
+        };
+
+        let Ok(named) = console_compositor::workspace(&found);
+
+        Ok(named.unwrap_or_default().to_string())
     }
 
     fn clients(&mut self) -> Result<Vec<serde_json::Value>, Never> {
         let Ok(said) = self.hypr("clients -j");
         let Ok(found) = read(&said);
 
-        Ok(found.and_then(|found| found.as_array().cloned()).unwrap_or_default())
+        let found = match found {
+            Some(found) => found,
+            None => return Ok(Vec::new()),
+        };
+
+        let Ok(clients) = console_compositor::clients(&found);
+
+        Ok(clients.cloned().collect())
     }
 
     pub fn windows(&mut self) -> Result<Vec<String>, Never> {
@@ -827,13 +873,38 @@ impl Device {
         self.user(&format!("{session} && wtype {quoted}"))
     }
 
+    pub fn keyed(&mut self, held: &[&str], key: &str) -> Done {
+        let mut chord = Vec::new();
+
+        for one in held.iter().chain(std::iter::once(&key)) {
+            let Ok(found) = vocabulary::key_capability(one);
+
+            match found {
+                Some(capability) => chord.push(capability),
+                None => return failed(format!("there is no key called {one:?} to press")),
+            }
+        }
+
+        let Ok(said) = self.chorded(&chord);
+
+        match said.contains("Call failed") {
+            true => failed(format!("{chord:?} was not sent: {}", said.trim())),
+            false => Ok(()),
+        }
+    }
+
     pub fn windows_here(&mut self) -> Result<i64, Never> {
         let Ok(said) = self.hypr("activeworkspace -j");
         let Ok(found) = read(&said);
 
-        Ok(found
-            .and_then(|found| found.get("windows").and_then(|windows| windows.as_i64()))
-            .unwrap_or(0))
+        let found = match found {
+            Some(found) => found,
+            None => return Ok(0),
+        };
+
+        let Ok(held) = console_compositor::windows(&found);
+
+        Ok(held.unwrap_or(0))
     }
 
     pub fn keyboard(&mut self) -> Result<Seen, Never> {
@@ -963,34 +1034,21 @@ impl Device {
         let Ok(said) = self.hypr("layers -j");
         let Ok(read) = read(&said);
 
-        let Some(found) = read else {
-            return Ok(Vec::new());
+        let found = match read {
+            Some(found) => found,
+            None => return Ok(Vec::new()),
         };
 
         let mut named = Vec::new();
+        let Ok(surfaces) = console_compositor::surfaces(&found);
 
-        for screen in found
-            .as_object()
-            .into_iter()
-            .flat_map(|screens| screens.values())
-        {
-            for level in screen
-                .get("levels")
-                .and_then(|levels| levels.as_object())
-                .into_iter()
-                .flat_map(|levels| levels.values())
-            {
-                for layer in level.as_array().into_iter().flatten() {
-                    let namespace = layer
-                        .get("namespace")
-                        .and_then(|said| said.as_str())
-                        .unwrap_or_default();
+        for layer in surfaces {
+            let Ok(said) = console_compositor::namespace(layer);
+            let namespace = said.unwrap_or_default();
 
-                    match FURNITURE.contains(&namespace) {
-                        true => {},
-                        false => named.push(namespace.to_string()),
-                    }
-                }
+            match FURNITURE.contains(&namespace) {
+                true => {},
+                false => named.push(namespace.to_string()),
             }
         }
 
@@ -1181,28 +1239,42 @@ impl Device {
         let Ok(said) = self.hypr("monitors -j");
         let Ok(read) = read(&said);
 
-        let Some(found) = read else { return Ok(None) };
+        let found = match read {
+            Some(found) => found,
+            None => return Ok(None),
+        };
 
-        let Some(every) = found.as_array() else { return Ok(None) };
+        let Ok(monitors) = console_compositor::monitors(&found);
 
-        let Some(first) = every.first() else { return Ok(None) };
+        let first = match monitors.first() {
+            Some(first) => first,
+            None => return Ok(None),
+        };
 
-        let number = |name: &str| first.get(name).and_then(serde_json::Value::as_f64);
+        let (wide, tall) = match first.size {
+            Some(size) => size,
+            None => return Ok(None),
+        };
 
-        let Some(wide) = number("width") else { return Ok(None) };
+        let refresh = match first.refresh {
+            Some(refresh) => refresh,
+            None => return Ok(None),
+        };
 
-        let Some(tall) = number("height") else { return Ok(None) };
+        let scale = match first.scale {
+            Some(scale) => scale,
+            None => return Ok(None),
+        };
 
-        let Some(refresh) = number("refreshRate") else { return Ok(None) };
+        let turn = match first.transform {
+            Some(turn) => turn,
+            None => return Ok(None),
+        };
 
-        let Some(scale) = number("scale") else { return Ok(None) };
-
-        let Some(turn) = number("transform") else { return Ok(None) };
-
-        let Ok(across) = whole_u32(wide);
-        let Ok(down) = whole_u32(tall);
+        let Ok(across) = fitted::<i64, u32>(wide);
+        let Ok(down) = fitted::<i64, u32>(tall);
         let Ok(refresh) = whole_u32(refresh);
-        let Ok(transform) = whole_u32(turn);
+        let Ok(transform) = fitted::<i64, u32>(turn);
 
         Ok(Some(console_screen::Screen {
             mode: (across, down),
@@ -1304,9 +1376,15 @@ pub fn capability_under(here: Option<&Profile>, button: &str) -> Result<Option<S
         Err(_unnamed) => None,
     };
 
-    let Some(here) = here else { return Ok(itself) };
+    let here = match here {
+        Some(here) => here,
+        None => return Ok(itself),
+    };
 
-    let Ok(named) = here.for_button(button) else { return Ok(itself) };
+    let named = match here.for_button(button) {
+        Ok(named) => named,
+        Err(_fault) => return Ok(itself),
+    };
 
     let sent = named.iter().flat_map(|mapping| &mapping.targets).find_map(|target| {
         let Ok(spoken) = spoken_as(target.kind, &target.name);
@@ -1326,10 +1404,10 @@ fn address(client: &serde_json::Value) -> Result<Option<String>, Never> {
 }
 
 fn read(said: &str) -> Result<Option<serde_json::Value>, Never> {
-    Ok(match serde_json::from_str(said) {
+    Ok(match console_compositor::read(said) {
         Ok(parsed) => Some(parsed),
-        Err(fault) => {
-            eprintln!("console-test-stages: the device answered with something that is not JSON: {fault}");
+        Err(why) => {
+            eprintln!("console-test-stages: the device answered with something the compositor did not: {why}");
 
             None
         }
@@ -1338,6 +1416,22 @@ fn read(said: &str) -> Result<Option<serde_json::Value>, Never> {
 
 pub fn quoted(said: &str) -> Result<String, Never> {
     Ok(format!("'{}'", said.replace('\'', r"'\''")))
+}
+
+fn chord(capabilities: &[String]) -> Result<String, Never> {
+    let mut words = vec![format!("as {}", capabilities.len())];
+
+    for one in capabilities {
+        let Ok(one) = quoted(one);
+
+        words.push(one);
+    }
+
+    Ok(words.join(" "))
+}
+
+fn calling(chord: &str) -> Result<String, Never> {
+    Ok(format!("busctl --system call {} {} {} SendButtonChord {chord} 2>&1", BUS.0, BUS.1, BUS.2))
 }
 
 #[cfg(test)]
@@ -1371,22 +1465,13 @@ mod tests {
         let held = std::fs::read_to_string(root().join("desktop.conf"))
             .expect("the manifest");
 
-        let mut named: Vec<String> = Vec::new();
-        let mut inside = false;
+        let Ok(services) = console_core_ini_files::lines(&held, "services");
 
-        for line in held.lines() {
-            let line = line.trim();
-
-            match line.starts_with('[') {
-                true => inside = line == "[services]",
-                false => {}
-            }
-
-            match inside && line.ends_with(".service") {
-                true => named.push(line.trim_end_matches(".service").to_string()),
-                false => {}
-            }
-        }
+        let mut named: Vec<String> = services
+            .into_iter()
+            .filter(|line| line.ends_with(".service"))
+            .map(|line| line.trim_end_matches(".service").to_string())
+            .collect();
 
         let mut wanted: Vec<String> = PIECES.iter().map(|piece| piece.to_string()).collect();
         named.sort();
@@ -1402,6 +1487,27 @@ mod tests {
     fn a_word_with_a_quote_in_it_is_still_one_word() {
         assert_eq!(quoted("plain"), "'plain'");
         assert_eq!(quoted("it's"), r"'it'\''s'");
+    }
+
+    #[test]
+    fn a_chord_says_how_many_it_is_before_it_says_what_they_are() {
+        let Ok(said) = super::chord(&["Gamepad:Button:South".to_string()]);
+        assert_eq!(said, "as 1 'Gamepad:Button:South'");
+    }
+
+    #[test]
+    fn a_key_under_a_modifier_is_the_modifier_and_then_the_key() {
+        let Ok(one) = vocabulary::key_capability("super");
+        let Ok(other) = vocabulary::key_capability("i");
+        let Ok(said) = super::chord(&[one.expect("a modifier"), other.expect("a letter")]);
+
+        assert_eq!(said, "as 2 'Keyboard:KeyLeftMeta' 'Keyboard:KeyI'");
+    }
+
+    #[test]
+    fn a_key_nothing_names_is_answered_with_nothing_rather_than_a_guess() {
+        assert_eq!(vocabulary::key_capability("logo"), Ok(None));
+        assert_eq!(vocabulary::key_capability("slash"), Ok(None));
     }
 
     #[test]

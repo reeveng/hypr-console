@@ -13,7 +13,8 @@ use std::path::Path;
 use console_input_controller::means::Table;
 use console_input_gamepad::front::{DEVICES, Front, asking, loading, one_said, wearing};
 use console_input_gamepad::devices::Has;
-use console_input_gamepad::jobs::{Jobs, Played, path_in};
+use console_input_bindings::bound::{Binding, Input, Played};
+use console_input_bindings::moved::{Jobs, path_in};
 use console_input_gamepad::router::{FILE, PROFILES, Router};
 use console_input_gamepad::vocabulary::button_name;
 use console_core_never::Never;
@@ -64,7 +65,7 @@ pub fn standing(_root: &Path, home: &str) -> Result<Standing, Never> {
     let Ok(asking) = asking();
     let Ok(asked) = machine::run(&asking);
     let Ok(front) = Front::of(&asked.out, &devices);
-    let Ok(at) = path_in(home);
+    let Ok(at) = path_in(Path::new(home));
     let told = at.exists();
     let Ok(said) = read(home);
     let Ok(table) = Table::of(&said);
@@ -73,17 +74,18 @@ pub fn standing(_root: &Path, home: &str) -> Result<Standing, Never> {
     let mut missing: Vec<String> = Vec::new();
 
     for (job, bound) in every {
-        let played: Vec<&console_input_gamepad::jobs::Binding> = bound
+        let played: Vec<&Binding> = bound
             .iter()
+            .filter(|one| one.on == Input::Pad)
             .filter(|one| {
                 let Ok(played) = one.played();
 
-                played == Played::ByAButton
+                played == Played::ByAPress
             })
             .collect();
 
         let anywhere = played.iter().any(|one| {
-            let Ok(here) = here(&front, &one.button);
+            let Ok(here) = here(&front, one);
 
             here == Has::Yes
         });
@@ -93,7 +95,15 @@ pub fn standing(_root: &Path, home: &str) -> Result<Standing, Never> {
             false => {},
         }
 
-        let where_ = played.iter().map(|one| one.to_string()).collect::<Vec<_>>().join(" or ");
+        let where_ = played
+            .iter()
+            .map(|one| {
+                let Ok(said) = spoken(one);
+
+                said
+            })
+            .collect::<Vec<String>>()
+            .join(" or ");
         let Ok(says) = job.what.says();
 
         missing.push(format!("{says}, on {where_}"));
@@ -108,17 +118,40 @@ pub fn standing(_root: &Path, home: &str) -> Result<Standing, Never> {
     })
 }
 
-fn here(front: &Front, button: &str) -> Result<Has, Never> {
-    let sends = button_name(button).is_ok_and(|named| {
-        let Ok(can) = front.can_send(named);
+fn spoken(binding: &Binding) -> Result<String, Never> {
+    let mut words: Vec<&str> = binding.held.iter().map(String::as_str).collect();
 
-        can == Has::Yes
-    });
+    words.push(&binding.pressed);
 
-    Ok(match sends {
-        true => Has::Yes,
-        false => Has::No,
-    })
+    Ok(words.join(" + "))
+}
+
+fn here(front: &Front, binding: &Binding) -> Result<Has, Never> {
+    let mut wanted: Vec<&str> = binding.held.iter().map(String::as_str).collect();
+
+    wanted.push(&binding.pressed);
+
+    for button in wanted {
+        let Ok(trigger) = console_input_gamepad::vocabulary::is_trigger(button);
+
+        match trigger {
+            console_input_gamepad::vocabulary::Names::ATrigger => continue,
+            console_input_gamepad::vocabulary::Names::AButton => {},
+        }
+
+        let sends = button_name(button).is_ok_and(|named| {
+            let Ok(can) = front.can_send(named);
+
+            can == Has::Yes
+        });
+
+        match sends {
+            true => {},
+            false => return Ok(Has::No),
+        }
+    }
+
+    Ok(Has::Yes)
 }
 
 pub fn wrote_router() -> Result<Option<String>, Never> {
@@ -126,7 +159,10 @@ pub fn wrote_router() -> Result<Option<String>, Never> {
     let Ok(asked) = machine::run(&asking);
     let Ok(front) = Front::of(&asked.out, "");
 
-    let Some(capabilities) = front.capabilities else { return Ok(None) };
+    let capabilities = match front.capabilities {
+        Some(capabilities) => capabilities,
+        None => return Ok(None),
+    };
 
     let Ok(router) = Router::of(&capabilities);
 
@@ -176,9 +212,12 @@ pub fn wear_again() -> Result<(), Never> {
 }
 
 pub fn read(home: &str) -> Result<Jobs, Never> {
-    let Ok(at) = path_in(home);
+    let Ok(at) = path_in(Path::new(home));
 
-    let Ok(said) = std::fs::read_to_string(&at) else { return Jobs::none() };
+    let said = match std::fs::read_to_string(&at) {
+        Ok(said) => said,
+        Err(_fault) => return Jobs::none(),
+    };
 
     match Jobs::read(&said) {
         Ok(jobs) => Ok(jobs),

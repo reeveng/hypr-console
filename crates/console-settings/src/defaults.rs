@@ -14,8 +14,7 @@
 //! from the machine, so it can be tested against the awkward ones: a file with
 //! no name, a file that asks not to be shown, a file that is not an application.
 
-use std::collections::BTreeMap;
-
+use console_applications::entry::{DesktopEntry, Worth};
 use console_core_never::Never;
 use console_panel::page::{Does, NOW, Row, Showing, YET};
 
@@ -86,47 +85,25 @@ impl Application {
 }
 
 pub fn application(id: &str, held: &str) -> Result<Option<Application>, Never> {
-    let mut fields: BTreeMap<&str, &str> = BTreeMap::new();
+    let entry = DesktopEntry::read(held)?;
 
-    for line in held.lines().map(str::trim) {
-        match line.starts_with('[') && !fields.is_empty() {
-            true => break,
-            false => {},
-        }
+    let worth = entry.worth()?;
 
-        match line.split_once('=') {
-            Some((name, value)) => {
-                fields.entry(name.trim()).or_insert(value.trim());
-            }
-            None => {},
-        }
+    match worth {
+        Worth::Skipping => return Ok(None),
+        Worth::Drawing => {},
     }
 
-    match fields.get("Type") == Some(&"Application") {
-        true => {},
-        false => return Ok(None),
-    }
+    let named = entry.says()?;
 
-    match fields.get("NoDisplay") == Some(&"true") || fields.get("Hidden") == Some(&"true") {
-        true => return Ok(None),
-        false => {},
-    }
-
-    let Some(says) = fields.get("Name").filter(|name| !name.is_empty()) else {
-        return Ok(None);
+    let says = match named {
+        Some(says) => says,
+        None => return Ok(None),
     };
 
-    Ok(Some(Application {
-        id: id.to_string(),
-        says: (*says).to_string(),
-        opens: fields
-            .get("MimeType")
-            .unwrap_or(&"")
-            .split(';')
-            .filter(|kind| !kind.is_empty())
-            .map(str::to_string)
-            .collect(),
-    }))
+    let opens = entry.opens()?;
+
+    Ok(Some(Application { id: id.to_string(), says: says.to_string(), opens }))
 }
 
 pub fn defaults_rows(

@@ -97,6 +97,26 @@ pub fn keyboard(among: &[Says]) -> Result<Option<&Says>, Never> {
     Ok(None)
 }
 
+pub fn typing(among: &[Says]) -> Result<Vec<&Says>, Never> {
+    let mut found = Vec::new();
+
+    for says in among {
+        let first = says.has_key(KeyCode::KEY_A)?;
+        let last = says.has_key(KeyCode::KEY_Z)?;
+        let escape = says.has_key(KeyCode::KEY_ESC)?;
+        let letters = first == Has::Yes && last == Has::Yes && escape == Has::Yes;
+
+        let made = says.made()?;
+
+        match letters && made == Made::ByHand {
+            true => found.push(says),
+            false => {},
+        }
+    }
+
+    Ok(found)
+}
+
 pub fn touchpad(among: &[Says]) -> Result<Option<&Says>, Never> {
     for says in among {
         let touched = says.has_key(KeyCode::BTN_TOUCH)?;
@@ -181,10 +201,63 @@ mod tests {
         assert_eq!(touchpad(&[screen]), Ok(None));
     }
 
+    fn typed(name: &str) -> Says {
+        Says {
+            path: "/dev/input/event3".into(),
+            name: name.into(),
+            phys: "usb-0000:c2:00.3-4/input0".into(),
+            keys: vec![KeyCode::KEY_A.0, KeyCode::KEY_Z.0, KeyCode::KEY_ESC.0],
+            axes: vec![],
+        }
+    }
+
+    #[test]
+    fn a_keyboard_somebody_plugged_in_is_the_one_with_letters_on_it() {
+        let every = [pad(""), keys(), touch(), typed("Logitech K380")];
+        let Ok(found) = typing(&every);
+
+        assert_eq!(
+            found.iter().map(|says| says.name.as_str()).collect::<Vec<&str>>(),
+            vec!["Logitech K380"]
+        );
+    }
+
+    #[test]
+    fn every_keyboard_somebody_plugged_in_is_one_of_them() {
+        let every = [typed("Logitech K380"), typed("Some Other Board")];
+        let Ok(found) = typing(&every);
+
+        assert_eq!(found.len(), 2, "a second keyboard is a second keyboard");
+    }
+
+    #[test]
+    fn the_rocker_on_the_edge_of_the_machine_is_not_a_keyboard_to_type_on() {
+        let rocker = Says {
+            path: "/dev/input/event4".into(),
+            name: "Legion Go Volume".into(),
+            phys: "isa0060/serio0/input0".into(),
+            keys: vec![KeyCode::KEY_VOLUMEUP.0, KeyCode::KEY_VOLUMEDOWN.0],
+            axes: vec![],
+        };
+
+        assert_eq!(typing(&[rocker]), Ok(Vec::new()));
+    }
+
+    #[test]
+    fn what_inputplumber_publishes_is_not_something_somebody_types_on() {
+        let ours = Says {
+            keys: vec![KeyCode::KEY_A.0, KeyCode::KEY_Z.0, KeyCode::KEY_ESC.0],
+            ..keys()
+        };
+
+        assert_eq!(typing(&[ours]), Ok(Vec::new()));
+    }
+
     #[test]
     fn nothing_at_all_is_nothing_rather_than_a_guess() {
         assert_eq!(gamepad(&[]), Ok(None));
         assert_eq!(keyboard(&[]), Ok(None));
         assert_eq!(touchpad(&[]), Ok(None));
+        assert_eq!(typing(&[]), Ok(Vec::new()));
     }
 }

@@ -26,6 +26,7 @@
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use console_core_atomic_writes::Held;
 use console_core_never::Never;
 
 use crate::sun::Where;
@@ -68,13 +69,20 @@ pub fn here() -> Result<Where, Never> {
 }
 
 fn asking() -> Result<Where, Never> {
-    let Some(zone) = zone()? else { return Ok(NOWHERE) };
+    let zone = zone()?;
+
+    let zone = match zone {
+        Some(zone) => zone,
+        None => return Ok(NOWHERE),
+    };
 
     for named in ZONES {
-        let table = match std::fs::read_to_string(named) {
-            Ok(table) => table,
-            Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(fault) => {
+        let Ok(held) = console_core_atomic_writes::read(std::path::Path::new(named));
+
+        let table = match held {
+            Held::Said(table) => table,
+            Held::Nothing => continue,
+            Held::Unreadable(fault) => {
                 eprintln!("console-sky: {named}: {fault}");
 
                 continue;
@@ -110,7 +118,10 @@ pub fn zone() -> Result<Option<String>, Never> {
         }
     };
 
-    let Some(said) = at.to_str() else { return Ok(None) };
+    let said = match at.to_str() {
+        Some(said) => said,
+        None => return Ok(None),
+    };
 
     Ok(said.split_once("zoneinfo/").map(|(_, zone)| zone.to_string()))
 }
@@ -124,9 +135,15 @@ pub fn at(zone: &str, table: &str) -> Result<Option<Where>, Never> {
 
         let mut columns = line.split('\t');
 
-        let Some(place) = columns.nth(1) else { continue };
+        let place = match columns.nth(1) {
+            Some(place) => place,
+            None => continue,
+        };
 
-        let Some(said) = columns.next() else { continue };
+        let said = match columns.next() {
+            Some(said) => said,
+            None => continue,
+        };
 
         match said == zone {
             true => {},
@@ -150,23 +167,45 @@ fn pair(said: &str) -> Result<Option<Where>, Never> {
         .skip(1)
         .find(|(_, c)| *c == '+' || *c == '-');
 
-    let Some(found) = found else { return Ok(None) };
+    let found = match found {
+        Some(found) => found,
+        None => return Ok(None),
+    };
 
     let at = found.0;
 
-    let Some(before) = said.get(..at) else { return Ok(None) };
+    let before = match said.get(..at) {
+        Some(before) => before,
+        None => return Ok(None),
+    };
 
-    let Some(after) = said.get(at..) else { return Ok(None) };
+    let after = match said.get(at..) {
+        Some(after) => after,
+        None => return Ok(None),
+    };
 
-    let Some(latitude) = degrees(before)? else { return Ok(None) };
+    let latitude = degrees(before)?;
 
-    let Some(longitude) = degrees(after)? else { return Ok(None) };
+    let latitude = match latitude {
+        Some(latitude) => latitude,
+        None => return Ok(None),
+    };
+
+    let longitude = degrees(after)?;
+
+    let longitude = match longitude {
+        Some(longitude) => longitude,
+        None => return Ok(None),
+    };
 
     Ok(Some(Where { latitude, longitude }))
 }
 
 fn degrees(said: &str) -> Result<Option<f64>, Never> {
-    let Some(first) = said.as_bytes().first() else { return Ok(None) };
+    let first = match said.as_bytes().first() {
+        Some(first) => first,
+        None => return Ok(None),
+    };
 
     let sign = match first {
         b'+' => 1.0,
@@ -174,7 +213,10 @@ fn degrees(said: &str) -> Result<Option<f64>, Never> {
         _ => return Ok(None),
     };
 
-    let Some(digits) = said.get(1..) else { return Ok(None) };
+    let digits = match said.get(1..) {
+        Some(digits) => digits,
+        None => return Ok(None),
+    };
 
     match digits.bytes().all(|byte| byte.is_ascii_digit()) {
         true => {},
@@ -187,10 +229,14 @@ fn degrees(said: &str) -> Result<Option<f64>, Never> {
         _ => return Ok(None),
     };
 
-    let Some(first_two) = rest.get(..2) else { return Ok(None) };
+    let first_two = match rest.get(..2) {
+        Some(first_two) => first_two,
+        None => return Ok(None),
+    };
 
-    let (Ok(minutes), Ok(whole)) = (first_two.parse::<f64>(), whole.parse::<f64>()) else {
-        return Ok(None);
+    let (minutes, whole) = match (first_two.parse::<f64>(), whole.parse::<f64>()) {
+        (Ok(minutes), Ok(whole)) => (minutes, whole),
+        (Err(_), _) | (_, Err(_)) => return Ok(None),
     };
 
     let seconds: f64 = match rest.get(2..) {

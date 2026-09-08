@@ -73,7 +73,10 @@ impl Plugged for Plug<'_> {
     }
 
     fn ranges(&self, path: &str) -> Ranges {
-        let Some(told) = self.descriptor(path) else { return Ranges::default() };
+        let told = match self.descriptor(path) {
+            Some(told) => told,
+            None => return Ranges::default(),
+        };
         Ranges {
             stick: ok(told.axis(AbsoluteAxisCode::ABS_RX.0)).map_or(1, |axis| ok(axis.span())),
             trigger: ok(told.axis(AbsoluteAxisCode::ABS_Z.0))
@@ -82,8 +85,9 @@ impl Plugged for Plug<'_> {
     }
 
     fn drain(&mut self, path: &str) -> Result<Vec<InputEvent>, Gone> {
-        let Some(role) = ok(self.devices.sink.role_at(path)).map(str::to_string) else {
-            return Err(Gone);
+        let role = match ok(self.devices.sink.role_at(path)).map(str::to_string) {
+            Some(role) => role,
+            None => return Err(Gone),
         };
         let arrived =
             self.devices.sink.devices.get_mut(&role).map(|device| ok(device.drain()));
@@ -97,6 +101,7 @@ pub struct Did {
     pub commands: Vec<Vec<String>>,
     pub written: Vec<Out>,
     pub told: Vec<console_onscreen::Said>,
+    pub using: Vec<console_input_bindings::bound::Input>,
 }
 
 impl Did {
@@ -160,6 +165,7 @@ impl Daemon {
                     Doing::Run(argv) => self.did.commands.push(argv),
                     Doing::Frame(frame) => self.did.written.extend(frame),
                     Doing::Tell(said) => self.did.told.push(said),
+                    Doing::Using(on) => self.did.using.push(on),
                 }
             }
             let Ok(poll) = self.turning.poll();

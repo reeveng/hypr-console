@@ -86,8 +86,9 @@ impl Ramp {
         let mut read: Vec<Lab> = Vec::new();
 
         for name in RAMP {
-            let Some(code) = colours(name) else {
-                return Err(format!("the palette names no {name}"));
+            let code = match colours(name) {
+                Some(code) => code,
+                None => return Err(format!("the palette names no {name}")),
             };
 
             let Ok(lab) = Lab::of(&code);

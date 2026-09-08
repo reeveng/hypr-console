@@ -86,7 +86,10 @@ pub fn taking(why: &str) -> Result<Asked, Never> {
 
 impl Drop for Staying {
     fn drop(&mut self) {
-        let Some(mut holding) = self.holding.take() else { return };
+        let mut holding = match self.holding.take() {
+            Some(holding) => holding,
+            None => return,
+        };
 
         let Ok(writing) = holding.writing();
 
@@ -114,8 +117,9 @@ mod tests {
 
     #[test]
     fn a_machine_that_cannot_be_asked_says_so_rather_than_failing() {
-        let Asked::NotHeld(said) = taking_with("this-is-not-a-program-on-any-machine") else {
-            panic!("a program that does not exist held a lock");
+        let said = match taking_with("this-is-not-a-program-on-any-machine") {
+            Asked::NotHeld(said) => said,
+            Asked::Held(_) => panic!("a program that does not exist held a lock"),
         };
         assert!(said.contains("stay up"), "{said}");
     }
@@ -139,8 +143,9 @@ mod tests {
 
         asking.stdin(Stdio::piped()).stdout(Stdio::null());
 
-        let Ok(holding) = alongside(&mut asking) else {
-            return;
+        let holding = match alongside(&mut asking) {
+            Ok(holding) => holding,
+            Err(_fault) => return,
         };
 
         let Ok(id) = holding.id();

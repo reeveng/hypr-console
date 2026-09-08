@@ -30,10 +30,14 @@ pub struct Thing {
 
 impl Thing {
     pub fn level(&self) -> Result<i32, Never> {
-        let Some(channel) = self.volume.values().next() else { return Ok(0) };
+        let channel = match self.volume.values().next() {
+            Some(channel) => channel,
+            None => return Ok(0),
+        };
 
-        let Ok(level) = channel.value_percent.trim_end_matches('%').parse::<i32>() else {
-            return Ok(0);
+        let level = match channel.value_percent.trim_end_matches('%').parse::<i32>() {
+            Ok(level) => level,
+            Err(_) => return Ok(0),
         };
 
         Ok(level)

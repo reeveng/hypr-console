@@ -64,10 +64,13 @@ pub fn line(said: &str) -> Result<(), Never> {
 
     let Ok(held) = writer();
 
-    let Some(say) = held else {
-        let Ok(()) = by_hand(&whole);
+    let say = match held {
+        Some(say) => say,
+        None => {
+            let Ok(()) = by_hand(&whole);
 
-        return Ok(());
+            return Ok(());
+        }
     };
 
     match say.try_send(Asked::Line(whole.clone())) {
@@ -83,7 +86,10 @@ pub fn line(said: &str) -> Result<(), Never> {
 pub fn settled() -> Result<(), Never> {
     let Ok(held) = writer();
 
-    let Some(say) = held else { return Ok(()) };
+    let say = match held {
+        Some(say) => say,
+        None => return Ok(()),
+    };
 
     let (told, back) = sync_channel(0);
 
@@ -113,6 +119,11 @@ fn start() -> Result<Option<SyncSender<Asked>>, Never> {
     let (say, heard) = sync_channel(QUEUE);
 
     let Ok(at) = where_();
+
+    let at = match at {
+        Some(at) => at,
+        None => return Ok(None),
+    };
 
     let started = std::thread::Builder::new()
         .name("wait-times".to_string())
@@ -158,9 +169,10 @@ fn written(store: Option<Store>, at: &Path, said: &str) -> Result<Option<Store>,
         None => {
             let Ok(held) = opened(at);
 
-            let Some(held) = held else { return Ok(None) };
-
-            held
+            match held {
+                Some(held) => held,
+                None => return Ok(None),
+            }
         }
     };
 
@@ -232,9 +244,18 @@ fn set_aside(at: &Path) -> Result<(), Never> {
 
 fn by_hand(said: &str) -> Result<(), Never> {
     let Ok(at) = where_();
+
+    let at = match at {
+        Some(at) => at,
+        None => return Ok(()),
+    };
+
     let Ok(held) = opened(&at);
 
-    let Some(mut store) = held else { return Ok(()) };
+    let mut store = match held {
+        Some(store) => store,
+        None => return Ok(()),
+    };
 
     let _ = store.file.write_all(said.as_bytes());
 

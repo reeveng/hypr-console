@@ -33,6 +33,7 @@
 
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
+use console_core_places::Base;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -52,14 +53,10 @@ pub struct Picture {
     pub pixels: Vec<u8>,
 }
 
-pub fn store() -> Result<PathBuf, Never> {
-    let cache = match (std::env::var("XDG_CACHE_HOME"), std::env::var("HOME")) {
-        (Ok(cache), _) if !cache.is_empty() => PathBuf::from(cache),
-        (_, Ok(home)) => PathBuf::from(home).join(".cache"),
-        (_, Err(_)) => PathBuf::from("/root").join(".cache"),
-    };
+pub fn store() -> Result<Option<PathBuf>, Never> {
+    let ours = Base::Cache.ours()?;
 
-    Ok(cache.join("console").join("pictures"))
+    Ok(ours.map(|ours| ours.join("pictures")))
 }
 
 pub fn written(pictures: &[Picture]) -> Result<Vec<u8>, Never> {
@@ -100,15 +97,24 @@ pub struct Where {
 }
 
 pub fn read(bytes: &[u8]) -> Result<Option<BTreeMap<String, Where>>, Never> {
-    let Some(after) = bytes.strip_prefix(MAGIC) else { return Ok(None) };
+    let after = match bytes.strip_prefix(MAGIC) {
+        Some(after) => after,
+        None => return Ok(None),
+    };
 
-    let Ok(Some((count, mut rest))) = number(after) else { return Ok(None) };
+    let (count, mut rest) = match number(after) {
+        Ok(Some((count, rest))) => (count, rest),
+        Ok(None) | Err(_) => return Ok(None),
+    };
 
     let mut held: BTreeMap<String, Where> = BTreeMap::new();
     let mut entries = Vec::new();
 
     for _ in 0..count {
-        let Ok(Some((long, after))) = number(rest) else { return Ok(None) };
+        let (long, after) = match number(rest) {
+            Ok(Some((long, after))) => (long, after),
+            Ok(None) | Err(_) => return Ok(None),
+        };
 
         let Ok(long) = fitted::<u32, usize>(long);
 
@@ -119,17 +125,35 @@ pub fn read(bytes: &[u8]) -> Result<Option<BTreeMap<String, Where>>, Never> {
 
         let (name, after) = after.split_at(long);
 
-        let Ok(of) = String::from_utf8(name.to_vec()) else { return Ok(None) };
+        let of = match String::from_utf8(name.to_vec()) {
+            Ok(of) => of,
+            Err(_fault) => return Ok(None),
+        };
 
-        let Ok(Some((wide, after))) = number(after) else { return Ok(None) };
+        let (wide, after) = match number(after) {
+            Ok(Some((wide, after))) => (wide, after),
+            Ok(None) | Err(_) => return Ok(None),
+        };
 
-        let Ok(Some((tall, after))) = number(after) else { return Ok(None) };
+        let (tall, after) = match number(after) {
+            Ok(Some((tall, after))) => (tall, after),
+            Ok(None) | Err(_) => return Ok(None),
+        };
 
-        let Ok(Some((stride, after))) = number(after) else { return Ok(None) };
+        let (stride, after) = match number(after) {
+            Ok(Some((stride, after))) => (stride, after),
+            Ok(None) | Err(_) => return Ok(None),
+        };
 
-        let Ok(Some((at, after))) = number(after) else { return Ok(None) };
+        let (at, after) = match number(after) {
+            Ok(Some((at, after))) => (at, after),
+            Ok(None) | Err(_) => return Ok(None),
+        };
 
-        let Ok(Some((len, after))) = number(after) else { return Ok(None) };
+        let (len, after) = match number(after) {
+            Ok(Some((len, after))) => (len, after),
+            Ok(None) | Err(_) => return Ok(None),
+        };
 
         let Ok(at) = fitted::<u32, usize>(at);
         let Ok(len) = fitted::<u32, usize>(len);
@@ -138,12 +162,21 @@ pub fn read(bytes: &[u8]) -> Result<Option<BTreeMap<String, Where>>, Never> {
         rest = after;
     }
 
-    let Some(began) = bytes.len().checked_sub(rest.len()) else { return Ok(None) };
+    let began = match bytes.len().checked_sub(rest.len()) {
+        Some(began) => began,
+        None => return Ok(None),
+    };
 
     for (of, wide, tall, stride, at, long) in entries {
-        let Some(at) = began.checked_add(at) else { return Ok(None) };
+        let at = match began.checked_add(at) {
+            Some(at) => at,
+            None => return Ok(None),
+        };
 
-        let Some(end) = at.checked_add(long) else { return Ok(None) };
+        let end = match at.checked_add(long) {
+            Some(end) => end,
+            None => return Ok(None),
+        };
 
         match end > bytes.len() || long == 0 {
             true => return Ok(None),
@@ -153,13 +186,22 @@ pub fn read(bytes: &[u8]) -> Result<Option<BTreeMap<String, Where>>, Never> {
         let Ok(step) = fitted::<u32, usize>(stride);
         let Ok(down) = fitted::<u32, usize>(tall.saturating_sub(1));
 
-        let Some(rows) = step.checked_mul(down) else { return Ok(None) };
+        let rows = match step.checked_mul(down) {
+            Some(rows) => rows,
+            None => return Ok(None),
+        };
 
         let Ok(across) = fitted::<u32, usize>(wide);
 
-        let Some(last) = across.checked_mul(4) else { return Ok(None) };
+        let last = match across.checked_mul(4) {
+            Some(last) => last,
+            None => return Ok(None),
+        };
 
-        let Some(whole) = rows.checked_add(last) else { return Ok(None) };
+        let whole = match rows.checked_add(last) {
+            Some(whole) => whole,
+            None => return Ok(None),
+        };
 
         match whole > long {
             true => return Ok(None),
@@ -181,9 +223,20 @@ fn held() -> Result<Option<&'static Held>, Never> {
         .get_or_init(|| {
             let Ok(store) = store();
 
-            let Ok(bytes) = std::fs::read(store) else { return None };
+            let store = match store {
+                Some(store) => store,
+                None => return None,
+            };
 
-            let Ok(Some(index)) = read(&bytes) else { return None };
+            let bytes = match std::fs::read(store) {
+                Ok(bytes) => bytes,
+                Err(_fault) => return None,
+            };
+
+            let index = match read(&bytes) {
+                Ok(Some(index)) => index,
+                Ok(None) | Err(_) => return None,
+            };
 
             Some((bytes, index))
         })
@@ -191,15 +244,27 @@ fn held() -> Result<Option<&'static Held>, Never> {
 }
 
 pub fn ready(of: &Path) -> Result<Option<gdk::Texture>, Never> {
-    let Ok(Some((bytes, index))) = held() else { return Ok(None) };
+    let (bytes, index) = match held() {
+        Ok(Some((bytes, index))) => (bytes, index),
+        Ok(None) | Err(_) => return Ok(None),
+    };
 
-    let Some(named) = of.to_str() else { return Ok(None) };
+    let named = match of.to_str() {
+        Some(named) => named,
+        None => return Ok(None),
+    };
 
-    let Some(found) = index.get(named) else { return Ok(None) };
+    let found = match index.get(named) {
+        Some(found) => found,
+        None => return Ok(None),
+    };
 
     let pixels = bytes.get(found.at..found.at.saturating_add(found.long));
 
-    let Some(pixels) = pixels else { return Ok(None) };
+    let pixels = match pixels {
+        Some(pixels) => pixels,
+        None => return Ok(None),
+    };
 
     let Ok(wide) = fitted(found.wide);
     let Ok(tall) = fitted(found.tall);
@@ -232,7 +297,10 @@ pub fn make(wanted: &[String]) -> Result<(), Never> {
     static ASKED: std::sync::Mutex<Option<std::collections::BTreeSet<String>>> =
         std::sync::Mutex::new(None);
 
-    let Ok(mut asked) = ASKED.lock() else { return Ok(()) };
+    let mut asked = match ASKED.lock() {
+        Ok(asked) => asked,
+        Err(_fault) => return Ok(()),
+    };
 
     let asked = asked.get_or_insert_with(std::collections::BTreeSet::new);
     let wanted: Vec<String> =
@@ -254,7 +322,9 @@ pub fn make(wanted: &[String]) -> Result<(), Never> {
     let started = console_program_lifetime::let_go(&mut drawing);
 
     match started {
-        Ok(_drawing) => {},
+        Ok(drawing) => {
+            let Ok(()) = crate::running::kept(drawing);
+        },
         Err(fault) => {
             eprintln!("no pictures made: {fault}");
         }
@@ -264,9 +334,15 @@ pub fn make(wanted: &[String]) -> Result<(), Never> {
 }
 
 fn number(bytes: &[u8]) -> Result<Option<(u32, &[u8])>, Never> {
-    let Some((four, rest)) = bytes.split_at_checked(4) else { return Ok(None) };
+    let (four, rest) = match bytes.split_at_checked(4) {
+        Some((four, rest)) => (four, rest),
+        None => return Ok(None),
+    };
 
-    let Ok(four): Result<[u8; 4], _> = four.try_into() else { return Ok(None) };
+    let four: [u8; 4] = match four.try_into() {
+        Ok(four) => four,
+        Err(_not_four_bytes) => return Ok(None),
+    };
 
     Ok(Some((u32::from_le_bytes(four), rest)))
 }
@@ -289,7 +365,10 @@ mod tests {
     fn a_store_says_where_each_picture_is_and_how_big() {
         let pictures = vec![a_picture("/usr/share/icons/one.svg", 32), a_picture("/two.png", 16)];
         let Ok(bytes) = written(&pictures);
-        let Ok(Some(held)) = read(&bytes) else { panic!("a written store reads back") };
+        let held = match read(&bytes) {
+            Ok(Some(held)) => held,
+            Ok(None) | Err(_) => panic!("a written store reads back"),
+        };
 
         assert_eq!(held.len(), 2);
         let one = held.get("/usr/share/icons/one.svg").expect("the first picture");
@@ -337,7 +416,10 @@ mod tests {
     fn an_empty_store_is_a_store_with_nothing_in_it() {
         let Ok(bytes) = written(&[]);
 
-        let Ok(Some(held)) = read(&bytes) else { panic!("an empty store is still a store") };
+        let held = match read(&bytes) {
+            Ok(Some(held)) => held,
+            Ok(None) | Err(_) => panic!("an empty store is still a store"),
+        };
 
         assert!(held.is_empty());
     }

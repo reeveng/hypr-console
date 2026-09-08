@@ -14,6 +14,7 @@
 //! the flags this stage types with, and neither is written down twice.
 
 
+use console_core_ini_files::field;
 use console_core_never::Never;
 use console_core_number_conversion::whole_u32;
 use console_screen::Screen;
@@ -21,12 +22,9 @@ use console_screen::Screen;
 pub const UNIT: &str = "files/etc/systemd/user/console-input-keyboard.service";
 
 pub fn started_by(unit: &str) -> Result<Option<String>, Never> {
-    Ok(unit
-        .lines()
-        .find_map(|line| line.strip_prefix("ExecStart="))
-        .map(str::trim)
-        .filter(|command| command.starts_with('/'))
-        .map(str::to_string))
+    let started = field(unit, "Service", "ExecStart")?;
+
+    Ok(started.filter(|command| command.starts_with('/')).map(str::to_string))
 }
 
 pub const MARK: &str = "@keyboard@";

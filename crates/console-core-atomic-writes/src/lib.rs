@@ -129,7 +129,10 @@ pub fn settled(at: &Path, bytes: &[u8]) -> Result<(), String> {
 }
 
 pub fn named(at: &Path) -> Result<(), String> {
-    let Some(holding) = at.parent() else { return Ok(()) };
+    let holding = match at.parent() {
+        Some(holding) => holding,
+        None => return Ok(()),
+    };
 
     File::open(holding)
         .and_then(|dir| dir.sync_all())

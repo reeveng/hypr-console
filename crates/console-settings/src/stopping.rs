@@ -70,10 +70,9 @@ pub const STATE: &str = "/sys/power/state";
 pub const RESUME: &str = "/sys/power/resume";
 
 pub fn stop() -> Result<Stop, Never> {
-    let said = |at: &str| {
-        let Ok(said) = std::fs::read_to_string(at) else { return String::new() };
-
-        said
+    let said = |at: &str| match std::fs::read_to_string(at) {
+        Ok(said) => said,
+        Err(_) => String::new(),
     };
 
     Stop::of(&said(STATE), &said(RESUME))

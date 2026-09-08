@@ -24,7 +24,10 @@ fn root() -> PathBuf {
 
 fn sources() -> Vec<PathBuf> {
     fn walk(at: &Path, into: &mut Vec<PathBuf>) {
-        let Ok(entries) = std::fs::read_dir(at) else { return };
+        let entries = match std::fs::read_dir(at) {
+            Ok(entries) => entries,
+            Err(_fault) => return,
+        };
         for path in entries.flatten().map(|entry| entry.path()) {
             match path {
                 path if path.is_dir() => walk(&path, into),
@@ -36,7 +39,10 @@ fn sources() -> Vec<PathBuf> {
     let ourself = root().join(file!());
     let declaring = root().join("crates/console-panel/src/icons.rs");
     let mut found = Vec::new();
-    let Ok(crates) = std::fs::read_dir(root().join("crates")) else { return found };
+    let crates = match std::fs::read_dir(root().join("crates")) {
+        Ok(crates) => crates,
+        Err(_fault) => return found,
+    };
     for crate_ in crates.flatten().map(|entry| entry.path()) {
         for held in ["src", "tests", "examples"] {
             walk(&crate_.join(held), &mut found);
@@ -53,7 +59,10 @@ fn nothing_hands_gtk_an_icon_name_it_spelled_itself() {
     let mut strange: Vec<String> = Vec::new();
 
     for at in sources() {
-        let Ok(said) = std::fs::read_to_string(&at) else { continue };
+        let said = match std::fs::read_to_string(&at) {
+            Ok(said) => said,
+            Err(_fault) => continue,
+        };
 
         for door in &doors {
             for (found, _) in said.match_indices(door.as_str()) {

@@ -6,20 +6,29 @@ extern crate rustc_middle;
 extern crate rustc_span;
 
 use clippy_utils::diagnostics::span_lint_and_help;
-use rustc_hir::{Expr, ExprKind, FnRetTy};
+use rustc_hir::{Expr, ExprKind};
 use rustc_lint::{LateContext, LateLintPass, LintContext};
 use rustc_middle::ty::Ty;
 
 dylint_linting::declare_late_lint! {
-    /// EXPLICIT001: a function that can fail must say so in its return type.
+    /// EXPLICIT001: a failure met is a failure said, whatever the signature
+    /// promises.
     ///
     /// A lint cannot read "fallible" off a signature, so this reads it off the
     /// body instead: a function that swallows somebody else's error -- with
     /// `unwrap_or`, `unwrap_or_else`, `unwrap_or_default`, `ok`, `is_ok`,
     /// `is_err` -- is a function that has met a failure and decided not to
-    /// mention it. If it returns `Result` that is a choice it is entitled to
-    /// make. If it does not, the failure has nowhere to go and the caller
-    /// cannot know there was one.
+    /// mention it, and the caller cannot know there was one.
+    ///
+    /// This used to let a function that returns `Result` swallow anyway, on the
+    /// grounds that it had already said it could fail. What that permitted was
+    /// the shape nobody reads twice: a `strip_prefix` that quietly hands back
+    /// the whole path, a clock reading that quietly becomes zero, a file that
+    /// could not be read quietly becoming an empty one. Saying somewhere that
+    /// you can fail is not the same as saying that you did. Name the other way
+    /// instead -- a `match` with both arms, and the failing arm's binding
+    /// saying what went wrong -- which is what `Err(_outside_the_tree)` does
+    /// and what `unwrap_or_default` never can.
     pub EXPLICIT001_FALLIBLE_RESULT,
     Deny,
     "a function that swallows a failure must return `Result<T, E>`"
@@ -67,39 +76,13 @@ impl<'tcx> LateLintPass<'tcx> for Explicit001FallibleResult {
             return;
         }
 
-        // The function this sits in, and what it promises to return.
-        let owner = cx.tcx.hir_get_parent_item(expr.hir_id);
-        let Some(decl) = cx.tcx.hir_fn_decl_by_hir_id(cx.tcx.local_def_id_to_hir_id(owner.def_id))
-        else {
-            return;
-        };
-        let says_so = match decl.output {
-            FnRetTy::Return(ty) => {
-                let hir_id = ty.hir_id;
-                let _ = hir_id;
-                // Read the promise off the written type: `Result<..>` however
-                // it is spelled, including an alias whose name ends in Result.
-                matches!(
-                    ty.kind,
-                    rustc_hir::TyKind::Path(rustc_hir::QPath::Resolved(_, p))
-                        if p.segments.last().is_some_and(|s| s.ident.name.as_str().ends_with("Result"))
-                )
-            }
-            FnRetTy::DefaultReturn(_) => false,
-        };
-        if says_so {
-            return;
-        }
         span_lint_and_help(
             cx,
             EXPLICIT001_FALLIBLE_RESULT,
             expr.span,
-            format!(
-                "`{}` swallows a failure in a function that does not return `Result`",
-                path.ident.name
-            ),
+            format!("`{}` turns a failure into a value with nothing said", path.ident.name),
             None,
-            "return `Result<T, E>` and propagate with `?`, so the caller is told there was a failure",
+            "propagate it with `?`, or `match` both ways and name the failing one",
         );
     }
 }

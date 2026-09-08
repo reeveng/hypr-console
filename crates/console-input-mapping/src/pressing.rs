@@ -13,7 +13,7 @@
 
 use std::path::{Path, PathBuf};
 
-use console_input_gamepad::jobs::Jobs;
+use console_input_bindings::moved::Jobs;
 use console_core_never::Never;
 use console_program_contract::{
     Argv, Doing, Given, Opening, Program, Runs, Turn, Word, Writing,
@@ -96,7 +96,8 @@ impl Program for Setup {
 
             (Setting::Set { .. }, Word::Its(Heard::Asked(part))) => {
                 let Ok(asked) = question(part);
-                let Ok(asking) = Runs::ours(ASKING, &[&part.slug]);
+                let Ok(word) = part.on.word();
+                let Ok(asking) = Runs::ours(ASKING, &[&part.slug, word]);
 
                 Turn::doing(
                     state.clone(),
@@ -158,6 +159,7 @@ mod tests {
         Part {
             slug: "open-the-menu".to_string(),
             does: "Open the menu".to_string(),
+            on: console_input_bindings::bound::Input::Pad,
             plays: Vec::new(),
             moved: false,
         }
@@ -207,7 +209,7 @@ mod tests {
     #[test]
     fn asking_for_a_button_puts_the_card_up_before_the_card_is_started() {
         let said = pressing(&[TABLE, "/somewhere"], &[Heard::Asked(part())]);
-        let Ok(runs) = Runs::ours(ASKING, &["open-the-menu"]);
+        let Ok(runs) = Runs::ours(ASKING, &["open-the-menu", "pad"]);
 
         assert_eq!(said, vec![
             Doing::Its(Its::Note("Press the button for open the menu".to_string())),

@@ -221,8 +221,9 @@ mod tests {
         let buf = buffer(20, 20);
         {
             let mut bytes = buf.borrow_mut();
-            let Ok(Some(surface)) = Surface::new(&mut bytes, 20 * 4, 20, 1.0) else {
-                panic!("a surface over the test buffer");
+            let surface = match Surface::new(&mut bytes, 20 * 4, 20, 1.0) {
+                Ok(Some(surface)) => surface,
+                Ok(None) | Err(_) => panic!("a surface over the test buffer"),
             };
             let Ok(red) = Color::from_hex("ff0000");
             let Ok(at) = Rect::new(5.0, 5.0, 10.0, 10.0);
@@ -240,8 +241,9 @@ mod tests {
         let buf = buffer(10, 10);
         {
             let mut bytes = buf.borrow_mut();
-            let Ok(Some(surface)) = Surface::new(&mut bytes, 10 * 4, 10, 1.0) else {
-                panic!("a surface over the test buffer");
+            let surface = match Surface::new(&mut bytes, 10 * 4, 10, 1.0) {
+                Ok(Some(surface)) => surface,
+                Ok(None) | Err(_) => panic!("a surface over the test buffer"),
             };
             let Ok(white) = Color::from_hex("ffffff");
             let Ok(at) = Rect::new(0.0, 0.0, 10.0, 10.0);

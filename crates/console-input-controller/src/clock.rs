@@ -84,8 +84,9 @@ mod tests {
 
     #[test]
     fn it_agrees_with_what_the_kernel_calls_uptime() {
-        let Ok(said) = std::fs::read_to_string("/proc/uptime") else {
-            return;
+        let said = match std::fs::read_to_string("/proc/uptime") {
+            Ok(said) => said,
+            Err(_fault) => return,
         };
         let uptime: f64 =
             said.split_whitespace().next().expect("a first word").parse().expect("seconds");

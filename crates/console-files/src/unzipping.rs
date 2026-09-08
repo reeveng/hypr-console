@@ -86,7 +86,10 @@ pub enum Lift {
 pub fn lifting(inside: &[(String, Is)]) -> Result<Lift, Never> {
     let alone = inside.len() == 1;
 
-    let Some((name, is)) = inside.first() else { return Ok(Lift::Nothing) };
+    let (name, is) = match inside.first() {
+        Some((name, is)) => (name, is),
+        None => return Ok(Lift::Nothing),
+    };
 
     Ok(match (alone, is) {
         (true, Is::AFolder) => Lift::TheFolderInside(name.clone()),

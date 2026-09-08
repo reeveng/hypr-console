@@ -25,6 +25,17 @@
 //! that machine. `lasting::pace_of` is that arithmetic and it needs nothing
 //! kept anywhere, because both tables are already to hand.
 //!
+//! Nothing requires a check to be in here. A test used to: it wanted every
+//! device-only check to have a length carried for it, and it could not be
+//! satisfied at the moment it fired. A length is measured by a device run, a
+//! device run is the end of a deploy, and a deploy is what the test was
+//! standing in front of -- so the first check written for the device alone was
+//! also the last thing that tree could deploy. What it was guarding against
+//! was already handled: `Lengths::middle` gives a check nobody has timed the
+//! middle of what is known, which is `lasting`'s own answer and has its own
+//! test. The number arrives in the commit after the deploy that measured it,
+//! which is the only order it can arrive in.
+//!
 //! A device with nothing measured at all has no ratio to compute and gets
 //! these numbers as they stand, which is the honest guess: not a claim about
 //! that machine, a claim that it is a handheld like the one these came off.
@@ -91,8 +102,9 @@ mod tests {
 
         every.sort_unstable();
 
-        let (Some(quickest), Some(slowest)) = (every.first(), every.last()) else {
-            panic!("the carried table is empty");
+        let (quickest, slowest) = match (every.first(), every.last()) {
+            (Some(quickest), Some(slowest)) => (quickest, slowest),
+            (None, _) | (_, None) => panic!("the carried table is empty"),
         };
 
         assert!(

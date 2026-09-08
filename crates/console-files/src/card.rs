@@ -174,7 +174,10 @@ fn read(path: &Path) -> Result<Vec<Entry>, Never> {
         gio::Cancellable::NONE,
     );
 
-    let Ok(children) = asked else { return Ok(Vec::new()) };
+    let children = match asked {
+        Ok(children) => children,
+        Err(_fault) => return Ok(Vec::new()),
+    };
 
     let mut things = Vec::new();
 
@@ -209,12 +212,13 @@ fn kind_said(about: &gio::FileInfo) -> Result<String, Never> {
 }
 
 fn kind_of(path: &Path) -> Result<Option<String>, Never> {
-    let Ok(about) = gio::File::for_path(path).query_info(
+    let about = match gio::File::for_path(path).query_info(
         "standard::content-type",
         gio::FileQueryInfoFlags::NONE,
         gio::Cancellable::NONE,
-    ) else {
-        return Ok(None);
+    ) {
+        Ok(about) => about,
+        Err(_fault) => return Ok(None),
     };
 
     Ok(about.content_type().map(|kind| kind.to_string()))
@@ -241,7 +245,10 @@ fn home() -> Result<Vec<Place>, Never> {
     ];
     let home = glib::home_dir();
 
-    let Some((home_title, rest)) = WANTED.split_first() else { return Ok(Vec::new()) };
+    let (home_title, rest) = match WANTED.split_first() {
+        Some((home_title, rest)) => (home_title, rest),
+        None => return Ok(Vec::new()),
+    };
 
     let mut said: Vec<(&str, Option<PathBuf>)> = vec![(*home_title, Some(home.clone()))];
 
@@ -257,7 +264,10 @@ fn plugged_in() -> Result<Vec<Place>, Never> {
     let mut places: Vec<Place> = Vec::new();
 
     for mount in mounted.iter().filter(|mount| mount.can_unmount()) {
-        let Some(at) = mount.root().path() else { continue };
+        let at = match mount.root().path() {
+            Some(at) => at,
+            None => continue,
+        };
 
         let place = Place::new(&mount.name(), at)?;
 
@@ -572,7 +582,10 @@ fn ask_for_a_folder(
     let answer = answered(move |showing, word| {
         let Ok(name) = doing::a_name(word);
 
-        let Some(name) = name else { return };
+        let name = match name {
+            Some(name) => name,
+            None => return,
+        };
 
         let Ok(()) = back_to_the_folder(&held, tab, showing, from);
 
@@ -757,8 +770,9 @@ fn program_rows(
 fn started(id: &str, path: &Path) -> Result<(), Never> {
     let found = gio::AppInfo::all();
 
-    let Some(app) = found.iter().find(|app| app.id().is_some_and(|its| its == id)) else {
-        return Ok(());
+    let app = match found.iter().find(|app| app.id().is_some_and(|its| its == id)) {
+        Some(app) => app,
+        None => return Ok(()),
     };
 
     let _ = app.launch(&[gio::File::for_path(path)], gio::AppLaunchContext::NONE);
@@ -877,7 +891,10 @@ fn done(
             let answer = answered(move |showing, word| {
                 let Ok(name) = doing::a_name(word);
 
-                let Some(name) = name else { return };
+                let name = match name {
+                    Some(name) => name,
+                    None => return,
+                };
 
                 let Ok(()) = back_to_the_folder(&held, tab, showing, from);
 
@@ -1013,19 +1030,30 @@ fn went_to(standing: &mut Standing, said: &str) -> Result<Option<String>, Never>
         false => places::Is::AFile,
     };
 
-    let Some(leading) = places::leading_to(&standing.places, path, is)? else { return Ok(None) };
+    let leading = places::leading_to(&standing.places, path, is)?;
+
+    let leading = match leading {
+        Some(leading) => leading,
+        None => return Ok(None),
+    };
 
     for step in &leading.steps {
         let onto = first_thing(standing, leading.place)?;
 
-        let Some(walk) = standing.walks.get_mut(leading.place) else { return Ok(None) };
+        let walk = match standing.walks.get_mut(leading.place) {
+            Some(walk) => walk,
+            None => return Ok(None),
+        };
 
         walk.enter(step, onto)?;
     }
 
     standing.stand_on = leading.stand_on.map(|name| (leading.place, name));
 
-    let Some(place) = standing.places.get(leading.place) else { return Ok(None) };
+    let place = match standing.places.get(leading.place) {
+        Some(place) => place,
+        None => return Ok(None),
+    };
 
     Ok(Some(place.title.clone()))
 }

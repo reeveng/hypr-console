@@ -34,7 +34,7 @@ pub const NAMED: &str = "%(title)s [%(id)s].%(ext)s";
 
 pub fn into(kind: Kind) -> Result<PathBuf, Never> {
     Ok(match kind {
-        Kind::Sound => console_music::library::folder()?,
+        Kind::Sound => console_music_panel::library::folder()?,
         Kind::Film => glib::user_special_dir(UserDirectory::Videos)
             .unwrap_or_else(|| glib::home_dir().join("Videos")),
     })
@@ -84,12 +84,13 @@ pub fn argv(kind: Kind, url: &str, into: &Path) -> Result<Vec<String>, Never> {
 pub fn id_in(url: &str) -> Result<Option<String>, Never> {
     let after = |mark: &str| url.split_once(mark).map(|(_, rest)| rest);
 
-    let Some(said) = after("watch?v=")
+    let said = match after("watch?v=")
         .or_else(|| after("youtu.be/"))
         .or_else(|| after("shorts/"))
         .or_else(|| after("/v/"))
-    else {
-        return Ok(None);
+    {
+        Some(said) => said,
+        None => return Ok(None),
     };
 
     let end = |letter: char| letter == '&' || letter == '?' || letter == '/' || letter == '#';
@@ -136,8 +137,9 @@ pub fn have_it(names: impl IntoIterator<Item = String>, id: &str) -> Result<Have
 }
 
 pub fn holds(folder: &Path, id: &str) -> Result<Have, Never> {
-    let Ok(reading) = std::fs::read_dir(folder) else {
-        return Ok(Have::Not);
+    let reading = match std::fs::read_dir(folder) {
+        Ok(reading) => reading,
+        Err(_fault) => return Ok(Have::Not),
     };
 
     let names = reading.flatten().map(|entry| entry.file_name().to_string_lossy().to_string());
@@ -195,7 +197,7 @@ mod tests {
     fn a_fetched_song_is_named_the_way_the_music_library_reads_a_name() {
         assert_eq!(after(&words(Kind::Sound), "--output"), NAMED);
         assert_eq!(
-            console_music::library::named("Africa [FTQbiNvZqaY].opus"),
+            console_music_panel::library::named("Africa [FTQbiNvZqaY].opus"),
             Ok("Africa".to_string()),
         );
     }

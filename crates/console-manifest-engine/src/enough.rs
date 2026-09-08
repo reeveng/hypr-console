@@ -49,7 +49,10 @@ pub fn enough(charge: Charge, levels: Levels) -> Result<Enough, Never> {
         false => {},
     }
 
-    let Some(percent) = charge.percent else { return Ok(Enough::Yes) };
+    let percent = match charge.percent {
+        Some(percent) => percent,
+        None => return Ok(Enough::Yes),
+    };
 
     let Ok(wanted) = wanted(levels);
 
@@ -127,7 +130,10 @@ mod tests {
 
     #[test]
     fn the_refusal_says_what_is_wrong_and_what_would_fix_it() {
-        let Enough::No(said) = asking(on_battery(8), levels(5)) else { panic!("it was allowed") };
+        let said = match asking(on_battery(8), levels(5)) {
+            Enough::No(said) => said,
+            Enough::Yes => panic!("it was allowed"),
+        };
         assert!(said.contains("8%"), "{said}");
         assert!(said.contains("5%"), "{said}");
         assert!(said.contains("Plug it in"), "{said}");

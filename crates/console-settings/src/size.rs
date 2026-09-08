@@ -102,16 +102,21 @@ impl Size {
     }
 }
 
-pub const UNDER: &str = ".config/console/scale";
+pub const NAMED: &str = "scale";
 
-pub fn at(home: &str) -> Result<std::path::PathBuf, Never> {
-    Ok(std::path::Path::new(home).join(UNDER))
+pub fn at(home: &std::path::Path) -> Result<std::path::PathBuf, Never> {
+    let Ok(ours) = console_core_places::Base::Config.ours_under(home);
+
+    Ok(ours.join(NAMED))
 }
 
-pub fn standing(said: &str) -> Result<Option<Size>, Never> {
-    let Ok(now) = scale_of(said);
+pub fn standing(monitors: &serde_json::Value) -> Result<Option<Size>, Never> {
+    let Ok(now) = scale_of(monitors);
 
-    let Some(now) = now else { return Ok(None) };
+    let now = match now {
+        Some(now) => now,
+        None => return Ok(None),
+    };
 
     Ok(EVERY.into_iter().find(|size| {
         let Ok(scale) = size.scale();
@@ -120,20 +125,10 @@ pub fn standing(said: &str) -> Result<Option<Size>, Never> {
     }))
 }
 
-pub fn scale_of(said: &str) -> Result<Option<f64>, Never> {
-    let Some(at) = said.find("\"scale\"") else { return Ok(None) };
+pub fn scale_of(monitors: &serde_json::Value) -> Result<Option<f64>, Never> {
+    let Ok(screens) = console_compositor::monitors(monitors);
 
-    let Some(from) = said.get(at..) else { return Ok(None) };
-
-    let Some(split) = from.split_once(':') else { return Ok(None) };
-
-    let rest = split.1;
-    let number: String =
-        rest.trim_start().chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
-
-    let Ok(scale) = number.parse::<f64>() else { return Ok(None) };
-
-    Ok(Some(scale))
+    Ok(screens.first().and_then(|screen| screen.scale))
 }
 
 pub fn lua(screen: &Screen, scale: f64) -> Result<String, Never> {
@@ -147,10 +142,12 @@ pub fn lua(screen: &Screen, scale: f64) -> Result<String, Never> {
 
 pub const OUTPUT: &str = "eDP-1";
 
-pub const BAR_UNDER: &str = ".config/console/bar.css";
+pub const BAR_NAMED: &str = "bar.css";
 
-pub fn bar_at(home: &str) -> Result<std::path::PathBuf, Never> {
-    Ok(std::path::Path::new(home).join(BAR_UNDER))
+pub fn bar_at(home: &std::path::Path) -> Result<std::path::PathBuf, Never> {
+    let Ok(ours) = console_core_places::Base::Config.ours_under(home);
+
+    Ok(ours.join(BAR_NAMED))
 }
 
 #[cfg(test)]
@@ -175,8 +172,12 @@ mod tests {
         size
     }
 
-    fn standing(said: &str) -> Option<Size> {
-        let Ok(size) = super::standing(said);
+    fn said(text: &str) -> serde_json::Value {
+        console_compositor::read(text).expect("what hyprctl said")
+    }
+
+    fn standing(text: &str) -> Option<Size> {
+        let Ok(size) = super::standing(&said(text));
 
         size
     }
@@ -253,8 +254,13 @@ mod tests {
 
     #[test]
     fn a_density_that_is_none_of_the_three_marks_none_of_them() {
-        assert_eq!(standing(r#"[{"scale": 1.75}]"#), None);
-        assert_eq!(standing("hyprctl said nothing at all"), None);
+        assert_eq!(standing(r#"[{"name": "eDP-1", "scale": 1.75}]"#), None);
+    }
+
+    #[test]
+    fn an_answer_that_is_not_a_list_of_screens_stands_on_no_rung_at_all() {
+        assert_eq!(standing(r#"{"eDP-1": {"levels": {}}}"#), None);
+        assert_eq!(standing(r#"[{"width": 1600, "scale": 2.5}]"#), None);
     }
 
     #[test]

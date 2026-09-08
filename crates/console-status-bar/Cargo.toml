@@ -9,6 +9,13 @@ license.workspace = true
 name = "console_status_bar"
 path = "src/lib.rs"
 
+# The clock. waybar's own module drew it until the hour became a thing
+# somebody chooses, and its format lives in a file the manifest owns; the
+# module's own head is the argument.
+[[bin]]
+name = "bar-clock"
+path = "src/bin/bar-clock.rs"
+
 [[bin]]
 name = "bar-notice"
 path = "src/bin/bar-notice.rs"
@@ -25,6 +32,8 @@ console-core-number-conversion.workspace = true
 console-core-reconnect.workspace = true
 console-default-applications.workspace = true
 console-notifications.workspace = true
+# Waiting for the minute to turn rather than for a number of seconds.
+console-waiting.workspace = true
 console-panel.workspace = true
 # The one subscription per source on this machine. What used to be this
 # program's own connection to the compositor is a line down the pool's socket.

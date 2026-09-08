@@ -5,7 +5,7 @@
 //!
 //!   - `KINDS`, which is what the settings panel writes when somebody chooses
 //!     what opens Music.
-//!   - `console-music.desktop`, which is what the music panel claims it can
+//!   - `console-music-panel.desktop`, which is what the music panel claims it can
 //!     open, and therefore whether it is offered on that list at all.
 //!   - `/etc/xdg/mimeapps.list`, which is the answer a machine rebuilt from the
 //!     manifest starts from, before anybody has chosen anything.
@@ -60,11 +60,11 @@ fn the_music_setting_names_the_type_an_opus_file_is() {
 
 #[test]
 fn the_music_panel_claims_everything_the_setting_would_hand_it() {
-    let claims = claimed(&read("files/usr/share/applications/console-music.desktop"));
+    let claims = claimed(&read("files/usr/share/applications/console-music-panel.desktop"));
     let Ok(every) = music().every();
 
     for kind in every {
-        assert!(claims.iter().any(|said| said == kind), "console-music.desktop does not open {kind}");
+        assert!(claims.iter().any(|said| said == kind), "console-music-panel.desktop does not open {kind}");
     }
 }
 
@@ -74,7 +74,7 @@ fn a_machine_that_has_chosen_nothing_still_opens_a_song_in_the_music_panel() {
     let Ok(every) = music().every();
 
     for kind in every {
-        let line = format!("{kind}=console-music.desktop");
+        let line = format!("{kind}=console-music-panel.desktop");
         assert!(said.lines().any(|said| said.trim() == line), "mimeapps.list is missing: {line}");
     }
 }

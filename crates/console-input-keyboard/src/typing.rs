@@ -101,9 +101,14 @@ impl Typist {
         hand: &QueueHandle<Board>,
         alphabets: Vec<Keymap>,
         walk: Vec<Which>,
+        opening: Option<Which>,
     ) -> Result<Typist, Never> {
         let keys = manager.create_virtual_keyboard(seat, hand, ());
-        let showing = walk.first().copied().unwrap_or(Which::Full);
+        let showing = opening
+            .filter(|which| walk.contains(which))
+            .or_else(|| walk.first().copied())
+            .unwrap_or(Which::Full);
+        let step = walk.iter().position(|which| *which == showing).unwrap_or(0);
         let mut typist = Typist {
             keys,
             alphabets,
@@ -113,7 +118,7 @@ impl Typist {
             composing: false,
             showing,
             walk,
-            step: 0,
+            step,
             last_alphabet: showing,
         };
         let Ok(of) = of(showing);
@@ -131,11 +136,15 @@ impl Typist {
             false => {},
         }
 
-        let Some(keymap) = self.alphabets.iter().find(|k| k.layer == alphabet) else {
-            return Ok(());
+        let keymap = match self.alphabets.iter().find(|k| k.layer == alphabet) {
+            Some(keymap) => keymap,
+            None => return Ok(()),
         };
 
-        let Ok((file, long)) = keymap_file(&keymap.bytes) else { return Ok(()) };
+        let (file, long) = match keymap_file(&keymap.bytes) {
+            Ok((file, long)) => (file, long),
+            Err(_fault) => return Ok(()),
+        };
 
         let Ok(long) = fitted(long);
 
@@ -175,7 +184,10 @@ impl Typist {
             character
         );
 
-        let Ok((file, long)) = keymap_file(&one) else { return Ok(()) };
+        let (file, long) = match keymap_file(&one) {
+            Ok((file, long)) => (file, long),
+            Err(_fault) => return Ok(()),
+        };
 
         let Ok(long) = fitted(long);
 
@@ -243,7 +255,10 @@ impl Typist {
             }
         }
 
-        let Some(going) = self.walk.get(self.step).copied() else { return Ok(()) };
+        let going = match self.walk.get(self.step).copied() {
+            Some(going) => going,
+            None => return Ok(()),
+        };
 
         let Ok(()) = self.go(going);
 

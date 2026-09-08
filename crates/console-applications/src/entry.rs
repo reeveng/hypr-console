@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use console_core_ini_files::fields;
 use console_core_never::Never;
 
 use crate::words::without_field_codes;
@@ -15,35 +16,6 @@ pub struct Application {
     pub icon: String,
 }
 
-fn fields(said: &str) -> Result<BTreeMap<String, String>, Never> {
-    let mut found = BTreeMap::new();
-    let mut inside = false;
-
-    for line in said.lines().map(str::trim) {
-        match line.starts_with('[') {
-            true => {
-                inside = line == "[Desktop Entry]";
-                continue;
-            }
-            false => {},
-        }
-
-        match inside {
-            true => {},
-            false => continue,
-        }
-
-        match line.split_once('=') {
-            Some((key, value)) => {
-                found.entry(key.to_string()).or_insert_with(|| value.to_string());
-            }
-            None => {},
-        }
-    }
-
-    Ok(found)
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Installed {
     Yes,
@@ -51,37 +23,85 @@ pub enum Installed {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Worth {
+pub enum Worth {
     Drawing,
     Skipping,
 }
 
-fn worth_drawing(fields: &BTreeMap<String, String>) -> Result<Worth, Never> {
-    let says = |key: &str| fields.get(key).map(|said| said.to_lowercase());
-    let drawn = fields.get("Type").is_some_and(|kind| kind == "Application")
-        && says("NoDisplay").as_deref() != Some("true")
-        && says("Hidden").as_deref() != Some("true");
+const GROUP: &str = "Desktop Entry";
 
-    Ok(match drawn {
-        true => Worth::Drawing,
-        false => Worth::Skipping,
-    })
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DesktopEntry<'a> {
+    pub kind: Option<&'a str>,
+    pub name: Option<&'a str>,
+    pub command: Option<&'a str>,
+    pub icon: Option<&'a str>,
+    pub terminal: Option<&'a str>,
+    pub try_exec: Option<&'a str>,
+    pub no_display: Option<&'a str>,
+    pub hidden: Option<&'a str>,
+    pub mime: Option<&'a str>,
+}
+
+impl<'a> DesktopEntry<'a> {
+    pub fn read(said: &'a str) -> Result<Self, Never> {
+        let fields = fields(said, GROUP)?;
+        let of = |key| fields.get(key).copied();
+
+        Ok(DesktopEntry {
+            kind: of("Type"),
+            name: of("Name"),
+            command: of("Exec"),
+            icon: of("Icon"),
+            terminal: of("Terminal"),
+            try_exec: of("TryExec"),
+            no_display: of("NoDisplay"),
+            hidden: of("Hidden"),
+            mime: of("MimeType"),
+        })
+    }
+
+    pub fn worth(&self) -> Result<Worth, Never> {
+        let said = |value: Option<&str>| value.map(str::to_lowercase);
+        let drawn = self.kind == Some("Application")
+            && said(self.no_display).as_deref() != Some("true")
+            && said(self.hidden).as_deref() != Some("true");
+
+        Ok(match drawn {
+            true => Worth::Drawing,
+            false => Worth::Skipping,
+        })
+    }
+
+    pub fn says(&self) -> Result<Option<&'a str>, Never> {
+        Ok(self.name.filter(|name| !name.is_empty()))
+    }
+
+    pub fn opens(&self) -> Result<Vec<String>, Never> {
+        Ok(self
+            .mime
+            .unwrap_or_default()
+            .split(';')
+            .filter(|kind| !kind.is_empty())
+            .map(str::to_string)
+            .collect())
+    }
 }
 
 pub fn read(
     said: &str,
     here: impl Fn(&str) -> Result<Installed, Never>,
 ) -> Result<Option<Application>, Never> {
-    let fields = fields(said)?;
+    let entry = DesktopEntry::read(said)?;
 
-    let worth = worth_drawing(&fields)?;
+    let worth = entry.worth()?;
 
     match worth {
         Worth::Skipping => return Ok(None),
         Worth::Drawing => {},
     }
 
-    match fields.get("TryExec") {
+    match entry.try_exec {
         Some(wanted) => {
             let installed = here(wanted)?;
 
@@ -93,36 +113,34 @@ pub fn read(
         None => {},
     }
 
-    let (Some(name), Some(command)) = (fields.get("Name"), fields.get("Exec")) else {
-        return Ok(None);
+    let says = entry.says()?;
+
+    let (name, command) = match (says, entry.command.filter(|command| !command.is_empty())) {
+        (Some(name), Some(command)) => (name, command),
+        (None, _) | (_, None) => return Ok(None),
     };
 
-    match name.is_empty() || command.is_empty() {
-        true => return Ok(None),
-        false => {},
-    }
-
     let command = without_field_codes(command)?;
+    let terminal = entry.terminal.map(str::to_lowercase).as_deref() == Some("true");
 
     Ok(Some(Application {
-        name: name.clone(),
+        name: name.to_string(),
         command,
-        terminal: fields.get("Terminal").map(|said| said.to_lowercase()).as_deref() == Some("true"),
-        icon: fields.get("Icon").cloned().unwrap_or_default(),
+        terminal,
+        icon: entry.icon.unwrap_or_default().to_string(),
     }))
 }
 
-pub fn files(home: &Path, data_dirs: &str) -> Result<Vec<PathBuf>, Never> {
-    let mut roots = vec![home.join(".local/share/applications")];
-    roots.extend(data_dirs.split(':').filter(|dir| !dir.is_empty()).map(|dir| Path::new(dir).join("applications")));
+pub fn files(roots: &[PathBuf]) -> Result<Vec<PathBuf>, Never> {
     let mut found: BTreeMap<String, PathBuf> = BTreeMap::new();
 
     for root in roots {
-        let under = under(&root)?;
+        let under = under(root)?;
 
         for path in under {
-            let Some(name) = path.file_name().map(|name| name.to_string_lossy().to_string()) else {
-                continue;
+            let name = match path.file_name().map(|name| name.to_string_lossy().to_string()) {
+                Some(name) => name,
+                None => continue,
             };
 
             found.entry(name).or_insert(path);
@@ -133,7 +151,10 @@ pub fn files(home: &Path, data_dirs: &str) -> Result<Vec<PathBuf>, Never> {
 }
 
 fn under(root: &Path) -> Result<Vec<PathBuf>, Never> {
-    let Ok(reading) = std::fs::read_dir(root) else { return Ok(Vec::new()) };
+    let reading = match std::fs::read_dir(root) {
+        Ok(reading) => reading,
+        Err(_fault) => return Ok(Vec::new()),
+    };
 
     let mut found: Vec<PathBuf> = Vec::new();
     let mut names: Vec<PathBuf> = reading.filter_map(Result::ok).map(|entry| entry.path()).collect();
@@ -155,8 +176,6 @@ fn under(root: &Path) -> Result<Vec<PathBuf>, Never> {
 
     Ok(found)
 }
-
-pub const DATA_DIRS: &str = "/usr/local/share:/usr/share";
 
 #[cfg(test)]
 mod tests {

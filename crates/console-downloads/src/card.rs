@@ -137,8 +137,9 @@ fn carry(doing: &Doing<Its>, showing: &dyn Showing) -> Result<(), Never> {
 fn looked(kind: Kind) -> Result<Looked, Never> {
     let Ok(at) = store::found_at(&glib::user_cache_dir(), kind);
 
-    let Ok(said) = std::fs::read_to_string(at) else {
-        return Ok(Looked::default());
+    let said = match std::fs::read_to_string(at) {
+        Ok(said) => said,
+        Err(_fault) => return Ok(Looked::default()),
     };
 
     looking::kept(&said)

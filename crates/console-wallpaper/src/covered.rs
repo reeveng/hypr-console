@@ -41,7 +41,8 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use console_core_external_programs::Program;
+use console_compositor::Asked;
+use console_compositor::stirred::Stirred;
 use console_core_never::Never;
 use console_onscreen::{Over, over_the_desktop};
 
@@ -49,16 +50,13 @@ static ANSWERING: AtomicBool = AtomicBool::new(true);
 
 pub use console_onscreen::FURNITURE as BEHIND;
 
-pub fn holds_a_window(activeworkspace: &str) -> Result<Covered, Never> {
-    let Ok(workspace) = serde_json::from_str::<serde_json::Value>(activeworkspace) else {
-        return Ok(Covered::Yes);
-    };
-
-    let held = workspace.get("windows").and_then(serde_json::Value::as_u64).unwrap_or(1) > 0;
+pub fn holds_a_window(activeworkspace: &serde_json::Value) -> Result<Covered, Never> {
+    let Ok(held) = console_compositor::windows(activeworkspace);
 
     Ok(match held {
-        true => Covered::Yes,
-        false => Covered::No,
+        Some(0) => Covered::No,
+        Some(_held) => Covered::Yes,
+        None => Covered::Yes,
     })
 }
 
@@ -68,12 +66,8 @@ pub enum Covered {
     No,
 }
 
-pub fn something_over_it(layers: &str) -> Result<Covered, Never> {
-    let Ok(screens) = serde_json::from_str::<serde_json::Value>(layers) else {
-        return Ok(Covered::Yes);
-    };
-
-    let over = over_the_desktop(&screens)?;
+pub fn something_over_it(layers: &serde_json::Value) -> Result<Covered, Never> {
+    let over = over_the_desktop(layers)?;
 
     Ok(match over {
         Over::Something => Covered::Yes,
@@ -81,24 +75,25 @@ pub fn something_over_it(layers: &str) -> Result<Covered, Never> {
     })
 }
 
-pub fn now() -> Result<Covered, Never> {
-    let ask = |what: &str| {
-        let Ok(mut asking) = Program::Hyprctl.command();
-
-        match asking.args([what, "-j"]).output() {
-            Ok(said) if said.status.success() => {
-                Some(String::from_utf8_lossy(&said.stdout).into_owned())
+fn asking(question: Asked) -> Result<Option<serde_json::Value>, Never> {
+    Ok(match console_compositor::asked(question) {
+        Ok(said) => Some(said),
+        Err(why) => {
+            match ANSWERING.swap(false, Ordering::Relaxed) {
+                true => eprintln!("{why} -- the picture stays still until it does"),
+                false => {},
             }
-            Ok(_) => None,
-            Err(fault) => {
-                eprintln!("console-sky: asking hyprctl for {what}: {fault}");
 
-                None
-            }
+            None
         }
-    };
+    })
+}
 
-    match (ask("activeworkspace"), ask("layers")) {
+pub fn now() -> Result<Covered, Never> {
+    let Ok(front) = asking(Asked::ActiveWorkspace);
+    let Ok(screens) = asking(Asked::Layers);
+
+    match (front, screens) {
         (Some(workspace), Some(layers)) => {
             ANSWERING.store(true, Ordering::Relaxed);
 
@@ -111,37 +106,27 @@ pub fn now() -> Result<Covered, Never> {
                 false => Covered::No,
             })
         }
-        _ => {
-            match ANSWERING.swap(false, Ordering::Relaxed) {
-                true => {
-                    eprintln!(
-                        "hyprctl will not say what is on the screen: \
-                         the picture stays still until it does"
-                    );
-                }
-                false => {},
-            }
-
-            Ok(Covered::Yes)
-        }
+        _ => Ok(Covered::Yes),
     }
 }
 
-pub const WORTH_WAKING_FOR: [&str; 8] = [
-    "closelayer>>",
-    "closewindow>>",
-    "fullscreen>>",
-    "movewindow>>",
-    "openlayer>>",
-    "openwindow>>",
-    "workspace>>",
-    "workspacev2>>",
-];
-
 pub fn worth_waking_for(line: &str) -> Result<Worth, Never> {
-    Ok(match WORTH_WAKING_FOR.iter().any(|event| line.starts_with(event)) {
-        true => Worth::Waking,
-        false => Worth::Ignoring,
+    let stirred = console_compositor::stirred::read(line)?;
+
+    Ok(match stirred {
+        Stirred::WindowOpened(_)
+        | Stirred::WindowClosed(_)
+        | Stirred::WindowMoved
+        | Stirred::WindowFilled
+        | Stirred::LayerOpened
+        | Stirred::LayerClosed
+        | Stirred::WorkspaceChanged => Worth::Waking,
+        Stirred::WindowRenamed(_)
+        | Stirred::WindowFloated
+        | Stirred::WindowPinned
+        | Stirred::ScreenFocused
+        | Stirred::ConfigReloaded
+        | Stirred::Nothing => Worth::Ignoring,
     })
 }
 
@@ -160,20 +145,24 @@ mod tests {
         "2":[{"address":"0x2","namespace":"waybar"},
              {"address":"0x3","namespace":"updating"}]}}}"#;
 
+    fn said(text: &str) -> serde_json::Value {
+        console_compositor::read(text).expect("what hyprctl said")
+    }
+
     #[test]
     fn a_workspace_with_a_window_on_it_covers_the_wallpaper() {
-        assert_eq!(holds_a_window(r#"{"id":3,"name":"3","windows":1}"#), Ok(Covered::Yes));
-        assert_eq!(holds_a_window(r#"{"id":3,"name":"3","windows":2}"#), Ok(Covered::Yes));
+        assert_eq!(holds_a_window(&said(r#"{"id":3,"name":"3","windows":1}"#)), Ok(Covered::Yes));
+        assert_eq!(holds_a_window(&said(r#"{"id":3,"name":"3","windows":2}"#)), Ok(Covered::Yes));
     }
 
     #[test]
     fn an_empty_workspace_does_not() {
-        assert_eq!(holds_a_window(r#"{"id":1,"name":"1","windows":0}"#), Ok(Covered::No));
+        assert_eq!(holds_a_window(&said(r#"{"id":1,"name":"1","windows":0}"#)), Ok(Covered::No));
     }
 
     #[test]
     fn the_wallpaper_and_the_bar_are_not_in_front_of_the_wallpaper() {
-        assert_eq!(something_over_it(NOTHING_UP), Ok(Covered::No));
+        assert_eq!(something_over_it(&said(NOTHING_UP)), Ok(Covered::No));
     }
 
     #[test]
@@ -182,7 +171,7 @@ mod tests {
             "0":[{"namespace":"awww-daemon","h":800}],
             "1":[{"namespace":"console-home","h":760}],
             "2":[{"namespace":"waybar","h":38},{"namespace":"updating","h":2}]}}}"#;
-        assert_eq!(something_over_it(home), Ok(Covered::No));
+        assert_eq!(something_over_it(&said(home)), Ok(Covered::No));
     }
 
     #[test]
@@ -191,7 +180,7 @@ mod tests {
             "0":[{"namespace":"awww-daemon","h":800}],
             "1":[{"namespace":"console-home","h":760}],
             "3":[{"namespace":"home-square","h":760}]}}}"#;
-        assert_eq!(something_over_it(card), Ok(Covered::Yes));
+        assert_eq!(something_over_it(&said(card)), Ok(Covered::Yes));
     }
 
     #[test]
@@ -200,7 +189,7 @@ mod tests {
             "0":[{"namespace":"awww-daemon","h":800}],
             "1":[{"namespace":"console-home","h":760}],
             "3":[{"namespace":"home-square","h":0}]}}}"#;
-        assert_eq!(something_over_it(gone), Ok(Covered::No));
+        assert_eq!(something_over_it(&said(gone)), Ok(Covered::No));
     }
 
     #[test]
@@ -209,7 +198,7 @@ mod tests {
             "0":[{"namespace":"awww-daemon"}],
             "2":[{"namespace":"waybar"}],
             "3":[{"namespace":"wofi"}]}}}"#;
-        assert_eq!(something_over_it(menu), Ok(Covered::Yes));
+        assert_eq!(something_over_it(&said(menu)), Ok(Covered::Yes));
     }
 
     #[test]
@@ -217,16 +206,12 @@ mod tests {
         let new_thing = r#"{"eDP-1":{"levels":{
             "0":[{"namespace":"awww-daemon"}],
             "3":[{"namespace":"something-written-next-year"}]}}}"#;
-        assert_eq!(something_over_it(new_thing), Ok(Covered::Yes));
+        assert_eq!(something_over_it(&said(new_thing)), Ok(Covered::Yes));
     }
 
     #[test]
-    fn a_compositor_that_will_not_answer_is_taken_as_covered() {
-        assert_eq!(holds_a_window(""), Ok(Covered::Yes));
-        assert_eq!(holds_a_window("no such option"), Ok(Covered::Yes));
-        assert_eq!(holds_a_window(r#"{"id":1}"#), Ok(Covered::Yes));
-        assert_eq!(something_over_it(""), Ok(Covered::Yes));
-        assert_eq!(something_over_it("no such option"), Ok(Covered::Yes));
+    fn a_workspace_that_counts_nothing_is_taken_as_covered() {
+        assert_eq!(holds_a_window(&said(r#"{"id":1}"#)), Ok(Covered::Yes));
     }
 
     #[test]

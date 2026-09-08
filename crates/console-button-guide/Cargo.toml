@@ -14,14 +14,18 @@ name = "console-buttons"
 path = "src/bin/console-buttons.rs"
 
 [dependencies]
+console-compositor.workspace = true
 console-core-external-programs.workspace = true
 evdev = "0.13"
 console-input-controller.workspace = true
 console-files.workspace = true
+console-input-bindings.workspace = true
 console-input-gamepad.workspace = true
 # The devices, taken while a press is being named rather than the daemon stopped.
 console-input-focus.workspace = true
+console-core-atomic-writes.workspace = true
 console-core-never.workspace = true
+console-core-places.workspace = true
 console-panel.workspace = true
 
 [lints]

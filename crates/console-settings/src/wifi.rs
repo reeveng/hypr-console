@@ -11,7 +11,10 @@ pub struct Network {
 }
 
 fn signal_of(said: &str) -> Result<i32, Never> {
-    let Ok(signal) = said.parse::<i32>() else { return Ok(0) };
+    let signal = match said.parse::<i32>() {
+        Ok(signal) => signal,
+        Err(_) => return Ok(0),
+    };
 
     Ok(signal)
 }
@@ -27,8 +30,9 @@ pub fn networks(said: &str) -> Result<Vec<Network>, Never> {
             false => {},
         }
 
-        let [here, name, signal, locked @ ..] = parts.as_slice() else {
-            continue;
+        let (here, name, signal, locked) = match parts.as_slice() {
+            [here, name, signal, locked @ ..] => (here, name, signal, locked),
+            _ => continue,
         };
 
         match name.is_empty() {

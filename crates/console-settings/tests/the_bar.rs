@@ -64,7 +64,10 @@ fn opens(read: &str) -> BTreeMap<String, String> {
         if let Some((name, _)) = named.and_then(|rest| rest.split_once("\": {")) {
             icon = name.to_string();
         }
-        let Some(said) = line.trim().strip_prefix("\"on-click\":") else { continue };
+        let said = match line.trim().strip_prefix("\"on-click\":") {
+            Some(said) => said,
+            None => continue,
+        };
         let said = said.trim().trim_matches(|letter| letter == ',' || letter == '"');
         let mut words = asked(said).into_iter();
         let program = words.next().unwrap_or_default();

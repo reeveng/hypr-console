@@ -74,8 +74,9 @@ pub fn search(asked: &str) -> Result<Vec<String>, Never> {
 }
 
 pub fn found_in(said: &str) -> Result<Vec<Found>, Never> {
-    let Ok(held) = serde_json::from_str::<Value>(said) else {
-        return Ok(Vec::new());
+    let held = match serde_json::from_str::<Value>(said) {
+        Ok(held) => held,
+        Err(_fault) => return Ok(Vec::new()),
     };
 
     Ok(match held.get("entries").and_then(Value::as_array) {
@@ -138,8 +139,9 @@ fn one(entry: &Value) -> Result<Option<Found>, Never> {
 pub fn picture_in(entry: &Value) -> Result<String, Never> {
     let url = |one: &Value| one.get("url").and_then(Value::as_str).unwrap_or_default().to_string();
 
-    let Some(many) = entry.get("thumbnails").and_then(Value::as_array) else {
-        return Ok(entry.get("thumbnail").and_then(Value::as_str).unwrap_or_default().to_string());
+    let many = match entry.get("thumbnails").and_then(Value::as_array) {
+        Some(many) => many,
+        None => return Ok(entry.get("thumbnail").and_then(Value::as_str).unwrap_or_default().to_string()),
     };
 
     let wide = |one: &&Value| one.get("width").and_then(Value::as_u64).unwrap_or_default();
@@ -178,8 +180,9 @@ pub fn written(looked: &Looked) -> Result<String, String> {
 }
 
 pub fn kept(said: &str) -> Result<Looked, Never> {
-    let Ok(held) = serde_json::from_str::<Value>(said) else {
-        return Ok(Looked::default());
+    let held = match serde_json::from_str::<Value>(said) {
+        Ok(held) => held,
+        Err(_fault) => return Ok(Looked::default()),
     };
 
     let word = |key: &str| held.get(key).and_then(Value::as_str).unwrap_or_default().to_string();

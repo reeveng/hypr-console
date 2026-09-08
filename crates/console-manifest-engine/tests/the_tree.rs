@@ -27,7 +27,10 @@ fn console(args: &[&str]) -> (bool, String) {
 
 fn carried() -> Vec<(PathBuf, String)> {
     fn walk(at: &Path, into: &mut Vec<PathBuf>) {
-        let Ok(entries) = std::fs::read_dir(at) else { return };
+        let entries = match std::fs::read_dir(at) {
+            Ok(entries) => entries,
+            Err(_fault) => return,
+        };
         for path in entries.flatten().map(|entry| entry.path()) {
             match path {
                 path if path.ends_with("__pycache__") => {}
@@ -225,7 +228,7 @@ fn section(held: &str, wanted: &str) -> Vec<String> {
                 Some(name) => (out, Some(name.to_string())),
                 None => {
                     if at.as_deref() == Some(wanted) {
-                        out.push(line.to_string());
+                        out.push(line.split_whitespace().next().unwrap_or("").to_string());
                     }
                     (out, at)
                 }
@@ -322,7 +325,10 @@ fn every_program_a_carried_script_reaches_for_is_carried() {
     let held = manifest();
     let listed = carried_or_declared(&held);
     for path in every("/usr/local/bin/", "") {
-        let Ok(said) = std::fs::read_to_string(&path) else { continue };
+        let said = match std::fs::read_to_string(&path) {
+            Ok(said) => said,
+            Err(_fault) => continue,
+        };
         let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
         for at in reaches_for(&said) {
             assert!(listed.contains(&at), "{name} runs {at}, which is not carried");
@@ -346,7 +352,10 @@ fn reaches_for(said: &str) -> BTreeSet<String> {
 #[test]
 fn every_shell_script_parses() {
     for (path, live) in carried() {
-        let Ok(said) = std::fs::read_to_string(&path) else { continue };
+        let said = match std::fs::read_to_string(&path) {
+            Ok(said) => said,
+            Err(_fault) => continue,
+        };
         let first = said.lines().next().unwrap_or_default();
         if !(first.starts_with("#!") && (first.contains("/sh") || first.contains("bash"))) {
             continue;
@@ -467,7 +476,10 @@ fn nothing_matches_a_process_by_a_name_the_kernel_cannot_hold() {
     let mut asked = 0;
     for found in inside.flatten() {
         let path = found.path();
-        let Ok(held) = std::fs::read_to_string(&path) else { continue };
+        let held = match std::fs::read_to_string(&path) {
+            Ok(held) => held,
+            Err(_fault) => continue,
+        };
         for line in held.lines() {
             let line = line.trim();
             if line.starts_with('#') || !(line.contains("pkill") || line.contains("pgrep")) {
@@ -556,7 +568,10 @@ fn every_module_reads_from_a_program_the_manifest_builds() {
     let built = programs();
     let mut asked = 0;
     for (module, about) in bar_modules() {
-        let Some(run) = about.get("exec").and_then(|run| run.as_str()) else { continue };
+        let run = match about.get("exec").and_then(|run| run.as_str()) {
+            Some(run) => run,
+            None => continue,
+        };
         let program = run.split_whitespace().next().expect("something to run");
         asked += 1;
         assert!(
@@ -608,29 +623,17 @@ fn the_strip_is_as_wide_as_the_screen() {
 }
 
 #[test]
-fn the_power_button_puts_the_panel_back_and_is_bound_before_anything_that_could_fail() {
+fn the_compositors_file_binds_nothing() {
     let lua = std::fs::read_to_string(root().join("files/home/@user@/.config/hypr/hyprland.lua"))
         .expect("the compositor's config");
 
-    let bound = lua
-        .lines()
-        .position(|line| line.contains("hl.bind(\"XF86PowerOff\""))
-        .expect("nothing binds the power key, so a dark screen has no way back");
+    let bound: Vec<&str> = lua.lines().filter(|line| line.contains("hl.bind(")).collect();
 
     assert!(
-        lua.lines().nth(bound).is_some_and(|line| line.contains("console-brightness undim")),
-        "the power key runs something other than the program that puts the screen back"
+        bound.is_empty(),
+        "the table is the only place that says what a press does, and this file says it too: {}",
+        bound.join("\n")
     );
-
-    for after in ["hl.config({", "hl.monitor({", "console-palette:begin"] {
-        let at = lua.lines().position(|line| line.contains(after)).expect(after);
-
-        assert!(
-            bound < at,
-            "the power key is bound at line {bound}, after `{after}` at line {at}: a failure \
-             above it takes the only way out of a dark screen with it"
-        );
-    }
 }
 
 #[test]
@@ -767,7 +770,10 @@ fn bound(value: &str) -> Bound {
 
 fn read_for(unit: &Path) -> Vec<PathBuf> {
     let named = unit.file_name().expect("a unit name").to_string_lossy().into_owned();
-    let Some(whose) = named.strip_suffix(".service") else { return Vec::new() };
+    let whose = match named.strip_suffix(".service") {
+        Some(whose) => whose,
+        None => return Vec::new(),
+    };
 
     let mut theirs: Vec<PathBuf> = every("etc/systemd/user", ".conf")
         .into_iter()
@@ -777,7 +783,10 @@ fn read_for(unit: &Path) -> Vec<PathBuf> {
                 .and_then(Path::file_name)
                 .map(|name| name.to_string_lossy().into_owned())
                 .unwrap_or_default();
-            let Some(stem) = over.strip_suffix(".service.d") else { return false };
+            let stem = match over.strip_suffix(".service.d") {
+                Some(stem) => stem,
+                None => return false,
+            };
 
             stem == whose || (stem.ends_with('-') && whose.starts_with(stem))
         })
@@ -795,7 +804,10 @@ fn still_seccomp(unit: &Path) -> BTreeSet<String> {
         let held = std::fs::read_to_string(&path).unwrap_or_default();
 
         for line in section(&held, "Service") {
-            let Some((key, value)) = line.split_once('=') else { continue };
+            let (key, value) = match line.split_once('=') {
+                Some((key, value)) => (key, value),
+                None => continue,
+            };
             let key = key.trim();
 
             match FORCES.contains(&key) {

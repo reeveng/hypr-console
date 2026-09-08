@@ -89,11 +89,9 @@ ready:
 # Deliberately not in `ready`, because what it counts is the warned tier:
 # production code is held to the denied rules by `just explicit-gate`, and this
 # is where a rule the code has not caught up with says how far there is left to
-# go. Nothing stands there today -- 022 was the last, and it came out when the
-# home screen's checks stopped waiting out a number of seconds on the handheld
-# -- so this prints nothing until somebody writes a rule ahead of the code
-# again, which is what it is for. tools/explicit-rust/README.md says what each
-# rule is for.
+# go. Nothing stands there now -- 023 was the last, and it went out with the
+# `let … else` sweep -- so this prints a census rather than a distance, and it
+# is the whole tree. tools/explicit-rust/README.md says what each rule is for.
 #
 # Capped to warnings so the run reaches every crate. Left uncapped it stops at
 # the first one that fails, which is the first one alphabetically and tells
@@ -146,12 +144,11 @@ explicit:
 
 # The ALLOW list this recipe once carried is gone for good: a rule's tier now
 # lives in its own crate, as the level in `declare_late_lint!`. Every rule the
-# workspace keeps is Deny and fails this gate, and today that is every rule
-# there is -- the warned tier, where a rule written ahead of the code prints its
-# remaining distance on every run without blocking it, is empty. `just explicit`
-# is where that distance is read when there is one. A rule moves from Warn to
-# Deny in its own source when the last call site that broke it is fixed, and it
-# never moves back. The last out was 022, and what let it out was not a check
+# workspace keeps is Deny and fails this gate, and today that is all of them:
+# nothing is warned. A rule moves from Warn to Deny in its own source when the
+# last call site that broke it is fixed, and it never moves back. The last out
+# was 023, which went the way 019 went -- every `let … else` in the tree turned
+# into a `match` in the initializer. Before it, 022, and what let that one out was not a check
 # but what a wait may carry: `Device::until` now carries the fault its question
 # carries, so a question that reads the screen -- which is what the home
 # screen's checks were waiting on -- can be handed to one. Before it, 002 had

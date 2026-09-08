@@ -41,6 +41,14 @@ has the keyboard is `hyprctl dispatch 'hl.dsp.send_shortcut{mods="", key="a"}'`,
 a table and not a string. `hl.dsp` holds the names, and one it does not know
 comes back as a nil value rather than as a dispatcher nobody has.
 
+Which names it holds can be asked without pressing anything. Reading one is
+silent whether or not it is there and calling one is not, so `hyprctl eval
+'local d = hl.dsp.window.resize({})'` answers either with the arguments that
+dispatcher wanted or with the nil value it is. Building a dispatcher is not
+dispatching it -- `hl.bind` takes one built -- so the question is safe to ask
+on a desktop somebody is using, which is how `window.resize` was found to exist
+and `window.size` not to.
+
 `HOME` is the stage, not this machine's home. A program that reads a file out
 of it reads the copy under the stage, so a setting a picture is meant to show
 has to be written there while the run is going rather than here beforehand.

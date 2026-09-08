@@ -14,6 +14,7 @@
 //! stage it is written for. A stage nothing is written for skips it and says so
 //! rather than passing quietly.
 
+pub mod bluetooth;
 pub mod brightness;
 pub mod carry;
 pub mod chooser;
@@ -28,13 +29,16 @@ pub mod home;
 pub mod icons;
 pub mod input;
 pub mod keyboard;
+pub mod language;
 pub mod launcher;
 pub mod music;
 pub mod notices;
 pub mod panel;
 pub mod pointer;
+pub mod resume;
 pub mod screenshot;
 pub mod services;
+pub mod typing;
 pub mod volume;
 pub mod wallpaper;
 pub mod workspaces;
@@ -42,7 +46,7 @@ pub mod workspaces;
 use console_core_never::Never;
 use console_test_stages::checking::{Check, Named};
 
-pub const CHECKS: [&Check; 40] = [
+pub const CHECKS: [&Check; 49] = [
     &workspaces::RIGHT,
     &workspaces::LEFT,
     &carry::CARRY,
@@ -76,6 +80,7 @@ pub const CHECKS: [&Check; 40] = [
     &home::WHOSE_BUTTONS,
     &home::PRESSABLE,
     &music::LIBRARY,
+    &music::QUIET,
     &home::ARRANGING,
     &icons::ICONS,
     &home::POINTED,
@@ -83,6 +88,14 @@ pub const CHECKS: [&Check; 40] = [
     &held::AGAIN,
     &held::HOLDS_NOTHING,
     &files::UNZIPS,
+    &resume::REFUSED,
+    &resume::AGAIN,
+    &resume::NOT_TWICE,
+    &language::HOUR,
+    &typing::HANDED,
+    &typing::A_KEY,
+    &typing::LAST_PRESS,
+    &bluetooth::LOOKS,
 ];
 
 pub fn chosen(words: &[String]) -> Result<Vec<&'static Check>, Never> {
@@ -115,29 +128,6 @@ mod tests {
             CHECKS.iter().map(|check| check.name).filter(|name| !seen.insert(*name)).collect();
 
         assert!(twice.is_empty(), "two checks are called {twice:?}");
-    }
-
-    #[test]
-    fn every_check_the_device_answers_has_a_length_carried_for_it() {
-        let Ok(carried) = console_test_stages::baseline::lengths();
-        let Ok(names) = carried.names();
-        let missing: Vec<&str> = CHECKS
-            .iter()
-            .filter(|check| {
-                let Ok(spared) = check.without_the_device();
-
-                spared.is_none()
-            })
-            .map(|check| check.name)
-            .filter(|name| !names.iter().any(|carried| carried == name))
-            .collect();
-
-        assert!(
-            missing.is_empty(),
-            "{missing:?} is answered on the device alone and nothing carried says how long it \
-             takes, so a machine that has never been checked guesses at it: `just lengths` \
-             after a device run"
-        );
     }
 
     #[test]

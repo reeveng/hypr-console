@@ -7,9 +7,15 @@
 //!
 //! Asked of the program rather than of the table it is built from, because the
 //! table is not the only thing between a layer existing and a person reaching
-//! it: `named` has to find it by the word the unit's command line uses, and
-//! `--list-layers` is what a person would run to find that word out. Running it
-//! asks both at once.
+//! it: `named` has to find it by the word the walk uses, and `--list-layers` is
+//! what a person would run to find that word out. Running it asks both at once.
+//!
+//! The walk used to be on the unit's command line and this asked the unit for
+//! it. Which alphabets this machine types is a setting now --
+//! `console_input_alphabets` is the list the panel writes and this reads -- so
+//! the question moved with it: every arrangement anybody can choose has to be
+//! one the keyboard has, or a row in the settings would be a row that does
+//! nothing and says nothing about it.
 //!
 //! ## It used to live in `console-manifest-engine` and skip
 //!  This was `crates/console-manifest-engine/tests/the_keyboard.rs`, which ran
@@ -60,30 +66,35 @@ fn the_latin_layers_are_still_there() {
 }
 
 #[test]
-fn the_unit_asks_for_layers_the_keyboard_has() {
-    let unit = std::fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../files/etc/systemd/user/console-input-keyboard.service"),
-    )
-    .expect("console-input-keyboard.service");
-    let asked: Vec<String> = unit
-        .lines()
-        .filter_map(|line| line.strip_prefix("ExecStart="))
-        .flat_map(str::split_whitespace)
-        .skip_while(|word| *word != "--landscape-layers" && *word != "-l")
-        .nth(1)
-        .unwrap_or_default()
-        .split(',')
-        .map(str::to_string)
-        .collect();
-    assert!(!asked.is_empty(), "the unit names no layers at all");
-
+fn every_alphabet_somebody_can_choose_is_one_the_keyboard_has() {
     let layers = layers();
-    for one in &asked {
-        assert!(
-            layers.iter().any(|layer| layer == one),
-            "console-input-keyboard.service asks for the layer {one}, which the keyboard does not have. \
-             It has {layers:?}. A layer nobody can find is dropped without a word."
-        );
+
+    for alphabet in &console_input_alphabets::EVERY {
+        for wanted in [alphabet.upright, alphabet.across] {
+            assert!(
+                layers.iter().any(|layer| layer == wanted),
+                "the settings panel offers {}, which walks the {wanted} arrangement, and the \
+                 keyboard has {layers:?}. A layer nobody can find is dropped without a word, so \
+                 choosing that alphabet would do nothing and say nothing.",
+                alphabet.says
+            );
+        }
+    }
+}
+
+#[test]
+fn the_shelf_of_symbols_is_reachable_from_either_way_up() {
+    let layers = layers();
+    let Ok(chosen) = console_input_alphabets::read(console_input_alphabets::UNLESS_TOLD);
+
+    for holding in [console_input_alphabets::Held::Upright, console_input_alphabets::Held::Across] {
+        let Ok(walk) = console_input_alphabets::walk(&chosen, holding);
+
+        for one in &walk {
+            assert!(
+                layers.iter().any(|layer| layer == one),
+                "the walk this machine types with asks for {one}, and the keyboard has {layers:?}"
+            );
+        }
     }
 }

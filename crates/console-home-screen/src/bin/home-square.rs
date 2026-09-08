@@ -58,10 +58,13 @@ fn rows(chosen: &Arc<OnceLock<Said>>) -> Result<Vec<Row>, Never> {
 }
 
 fn main() {
-    let Some(name) = std::env::args().nth(1).filter(|name| !name.is_empty()) else {
-        eprintln!("home-square: nothing was named, so there is no square this is about");
+    let name = match std::env::args().nth(1).filter(|name| !name.is_empty()) {
+        Some(name) => name,
+        None => {
+            eprintln!("home-square: nothing was named, so there is no square this is about");
 
-        return;
+            return;
+        }
     };
 
     let Ok(alone) = chooser::alone("home-square", chooser::Again::Closes);
@@ -85,7 +88,10 @@ fn main() {
         None,
     );
 
-    let Some(said) = chosen.get() else { return };
+    let said = match chosen.get() {
+        Some(said) => said,
+        None => return,
+    };
 
     match console_onscreen::telling(*said) {
         Ok(()) => {},

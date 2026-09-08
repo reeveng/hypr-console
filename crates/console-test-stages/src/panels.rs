@@ -96,24 +96,17 @@ impl Drop for Room {
     }
 }
 
-fn beside(program: &str) -> Result<PathBuf, Never> {
-    let here = match std::env::current_exe() {
-        Ok(at) => at.parent().and_then(|at| at.parent()).map(|at| at.join(program)),
-        Err(fault) => {
-            eprintln!("console-test-stages: where this program is: {fault}");
-
-            None
-        }
-    };
-
-    Ok(here.filter(|at| at.exists()).unwrap_or_else(|| PathBuf::from(program)))
-}
-
 fn built_since_the_panel_code(program: &Path) -> Result<(), String> {
     let when = |at: &Path| -> Option<std::time::SystemTime> {
-        let Ok(about) = at.metadata() else { return None };
+        let about = match at.metadata() {
+            Ok(about) => about,
+            Err(_fault) => return None,
+        };
 
-        let Ok(when) = about.modified() else { return None };
+        let when = match about.modified() {
+            Ok(when) => when,
+            Err(_fault) => return None,
+        };
 
         Some(when)
     };
@@ -121,13 +114,19 @@ fn built_since_the_panel_code(program: &Path) -> Result<(), String> {
     let crates = Path::new(env!("CARGO_MANIFEST_DIR")).parent();
     let library = crates.map(|at| at.join("console-panel").join("src"));
 
-    let Some(library) = library else { return Ok(()) };
+    let library = match library {
+        Some(library) => library,
+        None => return Ok(()),
+    };
 
     let mut newest = None;
     let mut look = vec![library];
 
     while let Some(at) = look.pop() {
-        let Ok(entries) = std::fs::read_dir(&at) else { continue };
+        let entries = match std::fs::read_dir(&at) {
+            Ok(entries) => entries,
+            Err(_fault) => continue,
+        };
 
         for found in entries.flatten() {
             let at = found.path();
@@ -215,7 +214,10 @@ impl Panel {
     }
 
     fn script(&self) -> Result<Option<(String, f64)>, Never> {
-        let Some((first, rest)) = self.presses.split_first() else { return Ok(None) };
+        let (first, rest) = match self.presses.split_first() {
+            Some((first, rest)) => (first, rest),
+            None => return Ok(None),
+        };
 
         let mut script = format!("sleep {DRAWN}; {first}");
 
@@ -236,7 +238,7 @@ impl Panel {
         }
 
         let Ok(_room) = Room::for_one_more(self.mine);
-        let Ok(program) = beside(&self.program);
+        let Ok(program) = crate::beside(&self.program);
 
         match program.is_file() {
             true => built_since_the_panel_code(&program)?,
@@ -261,7 +263,7 @@ impl Panel {
             self.args.join(" ")
         );
 
-        let Ok(desktop) = beside("console-desktop");
+        let Ok(desktop) = crate::beside("console-desktop");
         let mut nesting = Command::new(desktop);
         nesting.arg("shot").arg(self.here.join("screen.png"));
 

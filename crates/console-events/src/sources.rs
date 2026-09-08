@@ -1,11 +1,39 @@
 //! Where the words come from, one subscription each.
 //!
-//! Two so far -- the compositor and the sound -- because the document this
-//! comes from says one at a time and means it: each of the others is a program
-//! of somebody else's whose output has to be watched in a nested desktop
-//! before anybody can say what it does when it is restarted underneath. What a
-//! topic with no source does is say so on the journal and hand out nothing,
-//! which is a topic that is quiet rather than a pool that is broken.
+//! Five of them now, and the two that are left out are left out for a reason
+//! rather than for want of an afternoon. A source is held on the first `listen`
+//! for its topic and never before, so a topic nobody is listening to costs
+//! nothing at all: what decides whether one belongs here is whether the thing
+//! that says a change has happened already exists as a program, not whether
+//! anybody is asking yet. What a topic with no source does is say so on the
+//! journal and hand out nothing, which is a topic that is quiet rather than a
+//! pool that is broken.
+//!
+//! **`Units` has no source because nothing on this machine emits one.** systemd
+//! sends `UnitNew`, `JobRemoved` and the rest only while some connection is
+//! holding a `Subscribe` open, and a monitor sees what is sent rather than
+//! asking for it -- so a `busctl monitor` here would sit watching a bus that
+//! stays silent and report a machine where no unit ever changes, which is worse
+//! than a topic that says it is quiet. What it wants is a connection that
+//! subscribes and stays, and that is a program rather than a line in this file.
+//!
+//! **`Path` has no source because it is not one subscription.** Every other
+//! topic here is one watcher for the whole machine; a path is a different
+//! watcher per path, held for as long as somebody wants that path and dropped
+//! when they stop, and nothing here can tell them apart -- `held` is a list of
+//! topics that have been started once. It also wants inotify, which is a
+//! package this desktop does not have or a crate it does not carry. Both of
+//! those are decisions, and neither is this one.
+//!
+//! **What the bus watches is narrowed where it is asked rather than where it is
+//! read.** `busctl monitor` given a name is not filtered to that name -- traffic
+//! to the music player turns up in a monitor of the notification service -- so
+//! without a match the pool would relay every message on the session bus to
+//! whoever asked about notices. The match is the pool spelling what it *asks*,
+//! which is its own business the way `pactl subscribe` and `nmcli monitor`
+//! already are; what an answer means is still the subscriber's, and the names
+//! are exported so that the one filter that reads them does not spell them a
+//! second time.
 //!
 //! **A source that is somebody else's program is started `alongside`.** The
 //! pool is the only thing holding it, so it dies when the pool does -- by a
@@ -45,6 +73,12 @@ pub enum Held {
     Nothing,
 }
 
+pub const NOTICES: &str = "org.freedesktop.Notifications";
+
+pub const MAKO: &str = "fr.emersion.Mako";
+
+pub const PLAYERS: &str = "/org/mpris/MediaPlayer2";
+
 pub fn hold(topic: &Topic, say: Sender<Changed>) -> Result<Held, Never> {
     Ok(match topic {
         Topic::Compositor => {
@@ -53,13 +87,48 @@ pub fn hold(topic: &Topic, say: Sender<Changed>) -> Result<Held, Never> {
             Held::Yes
         }
         Topic::Sound => {
-            let Ok(()) = theirs(Topic::Sound, Program::Pactl, &["subscribe"], say);
+            let Ok(argv) = worded(&["subscribe"]);
+            let Ok(()) = theirs(Topic::Sound, Program::Pactl, argv, say);
 
             Held::Yes
         }
-        Topic::Network | Topic::Notices | Topic::Units | Topic::Player => Held::Nothing,
+        Topic::Network => {
+            let Ok(argv) = worded(&["monitor"]);
+            let Ok(()) = theirs(Topic::Network, Program::Nmcli, argv, say);
+
+            Held::Yes
+        }
+        Topic::Notices => {
+            let Ok(argv) = monitoring(&[
+                format!("--match=interface={NOTICES}"),
+                format!("--match=interface={MAKO}"),
+            ]);
+            let Ok(()) = theirs(Topic::Notices, Program::Stdbuf, argv, say);
+
+            Held::Yes
+        }
+        Topic::Player => {
+            let Ok(argv) = monitoring(&[format!("--match=path={PLAYERS}")]);
+            let Ok(()) = theirs(Topic::Player, Program::Stdbuf, argv, say);
+
+            Held::Yes
+        }
+        Topic::Units => Held::Nothing,
         Topic::Path(_) => Held::Nothing,
     })
+}
+
+fn worded(argv: &[&str]) -> Result<Vec<String>, Never> {
+    Ok(argv.iter().map(|word| (*word).to_string()).collect())
+}
+
+fn monitoring(matches: &[String]) -> Result<Vec<String>, Never> {
+    let Ok(busctl) = Program::Busctl.name();
+    let Ok(mut argv) = worded(&["-oL", busctl, "--user", "monitor"]);
+
+    argv.extend(matches.iter().cloned());
+
+    Ok(argv)
 }
 
 fn compositor(say: Sender<Changed>) -> Result<(), Never> {
@@ -120,20 +189,22 @@ fn compositor(say: Sender<Changed>) -> Result<(), Never> {
 fn theirs(
     about: Topic,
     program: Program,
-    argv: &'static [&'static str],
+    argv: Vec<String>,
     say: Sender<Changed>,
 ) -> Result<(), Never> {
     let Ok(()) = keep(move || {
         let Ok(mut asking) = program.command();
 
-        asking.args(argv).stdout(Stdio::piped()).stderr(Stdio::null());
+        asking.args(&argv).stdout(Stdio::piped()).stderr(Stdio::null());
 
-        let Ok(mut running) = alongside(&mut asking) else {
-            return Round::Another;
+        let mut running = match alongside(&mut asking) {
+            Ok(running) => running,
+            Err(_fault) => return Round::Another,
         };
 
-        let Ok(Some(reading)) = running.reading() else {
-            return Round::Another;
+        let reading = match running.reading() {
+            Ok(Some(reading)) => reading,
+            Ok(None) | Err(_) => return Round::Another,
         };
 
         for line in BufReader::new(reading).lines().map_while(Result::ok) {

@@ -83,9 +83,15 @@ pub fn holds(section: &str, entry: &str) -> Result<Option<String>, Never> {
 }
 
 pub fn whoevers(path: &str) -> Result<String, Never> {
-    let Some(rest) = path.strip_prefix("/home/") else { return Ok(path.to_string()) };
+    let rest = match path.strip_prefix("/home/") {
+        Some(rest) => rest,
+        None => return Ok(path.to_string()),
+    };
 
-    let Some((_, under)) = rest.split_once('/') else { return Ok(path.to_string()) };
+    let (_taken, under) = match rest.split_once('/') {
+        Some((_taken, under)) => (_taken, under),
+        None => return Ok(path.to_string()),
+    };
 
     Ok(format!("/home/{USER}/{under}"))
 }

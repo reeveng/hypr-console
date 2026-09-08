@@ -74,15 +74,17 @@ pub fn asked(words: &[String]) -> Result<Asked, String> {
         match word.as_str() {
             "--click" => does = Does::Click,
             "--in" => {
-                let Some(said) = words.next() else {
-                    return Err("--in wants the namespace of a surface".to_string());
+                let said = match words.next() {
+                    Some(said) => said,
+                    None => return Err("--in wants the namespace of a surface".to_string()),
                 };
 
                 measured = Measured::FromTheCorner(said.clone());
             },
             "--scroll" => {
-                let Some(said) = words.next() else {
-                    return Err("--scroll wants a number of notches".to_string());
+                let said = match words.next() {
+                    Some(said) => said,
+                    None => return Err("--scroll wants a number of notches".to_string()),
                 };
 
                 let notches = said

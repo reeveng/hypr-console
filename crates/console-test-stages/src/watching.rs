@@ -100,7 +100,7 @@ use std::time::{Duration, Instant};
 use console_core_never::Never;
 use console_core_number_conversion::toward_zero_u16;
 use console_how_far::Bar;
-use console_notifications::saying::Notice;
+use console_notifications::saying::{Notice, Said};
 use console_notifications::updating::{self, Far, WAKING};
 use console_waiting::{Patience, Seen, until};
 
@@ -152,7 +152,16 @@ pub fn late(gone: Duration, expecting: Duration) -> Result<String, Never> {
     Ok(format!("({about} so far)"))
 }
 
-pub fn reached(at: u16, span: u16, gone: Duration, expecting: Duration) -> Result<Reached, Never> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Reaching {
+    pub at: u16,
+    pub span: u16,
+    pub gone: Duration,
+    pub expecting: Duration,
+}
+
+pub fn reached(reaching: Reaching) -> Result<Reached, Never> {
+    let Reaching { at, span, gone, expecting } = reaching;
     let Ok(part) = crept(gone, expecting);
     let Ok(into) = console_how_far::percent(part);
     let Ok(inside) = toward_zero_u16(f64::from(span) * part);
@@ -180,6 +189,13 @@ pub struct Watching {
     ended: Ended,
 }
 
+#[cfg_attr(
+    dylint_lib = "explicit039_no_reading_the_clock",
+    allow(
+        explicit039_no_reading_the_clock,
+        reason = "the stopwatch the strip is drawn from: how far a check has crept is how long it has been running, and a reading handed in would be the caller timing the run instead of this"
+    )
+)]
 impl Watching {
     pub fn of(many: usize) -> Result<Self, Never> {
         let Ok(bar) = Bar::of(many);
@@ -359,8 +375,10 @@ pub fn starting(many: usize, ahead: &Ahead) -> Result<Notice, Never> {
         None => String::new(),
     };
 
-    let Ok(notice) =
-        Notice::new(STARTING, &format!("{many} checks{long}. Don't touch the controls."));
+    let Ok(notice) = Notice::new(Said {
+        summary: STARTING,
+        body: &format!("{many} checks{long}. Don't touch the controls."),
+    });
 
     notice.staying()
 }
@@ -374,18 +392,20 @@ pub fn ended(
     let notice = match failed.first() {
         None => {
             let Ok(about) = about(took);
-            let Ok(notice) =
-                Notice::new("Checks passed", &format!("{ok} of them, in {about}."));
+            let Ok(notice) = Notice::new(Said {
+                summary: "Checks passed",
+                body: &format!("{ok} of them, in {about}."),
+            });
             let Ok(notice) = notice.lasting(8000);
 
             notice
         }
 
         Some(_something) => {
-            let Ok(notice) = Notice::new(
-                "Checks failed",
-                &format!("{ok} passed, {} failed: {}.", failed.len(), failed.join(", ")),
-            );
+            let Ok(notice) = Notice::new(Said {
+                summary: "Checks failed",
+                body: &format!("{ok} passed, {} failed: {}.", failed.len(), failed.join(", ")),
+            });
             let Ok(notice) = notice.urgent();
             let Ok(notice) = notice.staying();
 
@@ -492,14 +512,24 @@ mod tests {
     #[test]
     fn a_check_that_has_only_just_started_has_not_moved_the_strip() {
         assert_eq!(
-            reached(20, 10, Duration::ZERO, Duration::from_secs(60)),
+            reached(Reaching {
+            at: 20,
+            span: 10,
+            gone: Duration::ZERO,
+            expecting: Duration::from_secs(60),
+        }),
             Ok(Reached { into: 0, far: 20 })
         );
     }
 
     #[test]
     fn a_check_halfway_through_its_estimate_is_halfway_along_its_own_share() {
-        let Ok(reached) = reached(20, 10, Duration::from_secs(30), Duration::from_secs(60));
+        let Ok(reached) = reached(Reaching {
+            at: 20,
+            span: 10,
+            gone: Duration::from_secs(30),
+            expecting: Duration::from_secs(60),
+        });
 
         assert_eq!(reached, Reached { into: 45, far: 24 });
     }
@@ -520,7 +550,12 @@ mod tests {
 
     #[test]
     fn a_check_stays_inside_its_own_share_however_long_it_runs() {
-        let Ok(reached) = reached(20, 10, Duration::from_secs(6000), Duration::from_secs(60));
+        let Ok(reached) = reached(Reaching {
+            at: 20,
+            span: 10,
+            gone: Duration::from_secs(6000),
+            expecting: Duration::from_secs(60),
+        });
 
         assert!(reached.far < 30, "it walked into the next check's share: {reached:?}");
         assert!(reached.far > 28, "it stopped moving well short of its own end: {reached:?}");
@@ -529,7 +564,12 @@ mod tests {
     #[test]
     fn a_check_nothing_has_ever_timed_leaves_the_strip_where_the_last_one_left_it() {
         assert_eq!(
-            reached(20, 10, Duration::from_secs(30), Duration::ZERO),
+            reached(Reaching {
+            at: 20,
+            span: 10,
+            gone: Duration::from_secs(30),
+            expecting: Duration::ZERO,
+        }),
             Ok(Reached { into: 0, far: 20 }),
             "a run with nothing to go on invented a number"
         );
@@ -537,7 +577,12 @@ mod tests {
 
     #[test]
     fn the_last_check_of_a_run_cannot_carry_the_strip_past_the_end() {
-        let Ok(reached) = reached(96, 10, Duration::from_secs(600), Duration::from_secs(1));
+        let Ok(reached) = reached(Reaching {
+            at: 96,
+            span: 10,
+            gone: Duration::from_secs(600),
+            expecting: Duration::from_secs(1),
+        });
 
         assert_eq!(reached.far, WHOLE);
     }

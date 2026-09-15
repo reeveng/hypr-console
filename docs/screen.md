@@ -134,16 +134,16 @@ this repository would be guessing at what Hyprland already knows.
 
 `hypridle` does not watch devices. The compositor tells it, and the compositor
 only counts devices it has bound. Asked on this machine, `hyprctl devices`
-lists `inputplumber-keyboard`, `inputplumber-mouse`, `stick-scroll`, the
+lists `inputplumber-keyboard`, `inputplumber-mouse`, `controller-desktop`, the
 touchscreen, the touchpad, and wvkbd's virtual keyboard. **There is no gamepad
 in that list at all.**
 
 That sounds like a device that dims in your hands and is not, and the reason is
 where the keys come from. A button reaches the compositor twice over. The ones
 the profile routes to keys arrive on `inputplumber-keyboard`, which is bound
-and counted. And whatever a press comes to -- an arrow key, a click, a
-scroll -- is sent by the controller daemon through a device of its own, which
-is `stick-scroll` in that list and is counted too. What the compositor never
+and counted. And whatever a press comes to -- an arrow key, a click, a scroll
+-- is sent by the controller daemon through a device of its own, which is
+`controller-desktop` in that list and is counted too. What the compositor never
 sees is the pad itself: the face buttons and the d-pad arrive on a gamepad it
 has not bound, and the daemon's answer to them is what wakes the screen.
 
@@ -177,7 +177,7 @@ timer that would have done it is not there.
 
 ## Where a change goes
 
-The times are in `files/home/@user@/.config/hypr/hypridle.conf`. What each
+The times are in `files/home/@user@/.config/console/hypr/hypridle.conf`. What each
 listener runs is ours, and deliberately:
 
 `console-brightness dim` and `undim` rather than `brightnessctl -s` and `-r`.

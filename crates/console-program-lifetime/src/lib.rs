@@ -46,6 +46,13 @@
 //! `console-manifest-engine/tests/the_children.rs` holds shut. A `Command` that
 //! is run to completion with `status` or `output` is nobody's business here: it
 //! is over before the call returns and cannot be left behind.
+//!
+//! [`threads`] is the same question asked about a thread, which was left out of
+//! this for years because a handle is cheap to drop. Only half of it carries
+//! over -- a thread cannot be ended from outside -- so what is there is the
+//! `LetGo` half and the word for it, and EXPLICIT035 asks at every `spawn`.
+
+pub mod threads;
 
 use console_core_never::Never;
 use std::io;

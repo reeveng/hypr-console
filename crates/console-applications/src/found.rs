@@ -23,25 +23,20 @@ use crate::entry::{Application, Installed};
 use crate::icons::{FALLBACKS, steam_appid};
 use crate::{counts, entry, icons, image, kept, words};
 
+const NOWHERE_IN_PARTICULAR: &str = "";
+
+
+const WHAT_THIS_CRATE_IS_CALLED: &str = "console-applications";
+
 fn whoami() -> Result<String, Never> {
-    Ok(std::env::args()
+    let argv0 = std::env::args()
         .next()
-        .and_then(|argv0| Path::new(&argv0).file_name().map(|name| name.to_string_lossy().to_string()))
-        .unwrap_or_else(|| "console-applications".to_string()))
-}
+        .and_then(|argv0| Path::new(&argv0).file_name().map(|name| name.to_string_lossy().to_string()));
 
-pub fn said(name: &str) -> Result<Option<String>, Never> {
-    match std::env::var(name) {
-        Ok(said) => Ok(Some(said)),
-        Err(std::env::VarError::NotPresent) => Ok(None),
-        Err(fault) => {
-            let who = whoami()?;
-
-            eprintln!("{who}: {name}: {fault}");
-
-            Ok(None)
-        }
-    }
+    Ok(match argv0 {
+        Some(called) => called,
+        None => WHAT_THIS_CRATE_IS_CALLED.to_string(),
+    })
 }
 
 pub fn counts_at() -> Result<Option<PathBuf>, Never> {
@@ -164,7 +159,7 @@ fn index() -> Result<BTreeMap<String, String>, Never> {
 
             let said = icons::written(&built)?;
 
-            let _ = std::fs::write(&at, said);
+            let _ = console_core_atomic_writes::whole(&at, said.as_bytes());
         }
         None => {},
     }
@@ -214,7 +209,11 @@ fn steam_icon(appid: &str) -> Result<Option<String>, Never> {
                 false => {},
             }
 
-            let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+            let name = match path.file_name() {
+                Some(name) => name.to_string_lossy().to_string(),
+                None => continue,
+            };
+
             fallbacks.entry(name).or_insert_with(|| path.to_string_lossy().to_string());
         }
     }
@@ -258,13 +257,16 @@ fn icon_at(name: &str, index: &BTreeMap<String, String>) -> Result<Option<String
 }
 
 fn here(wanted: &str) -> Result<Installed, Never> {
-    let path = said("PATH")?;
+    let path = console_core_external_programs::path()?;
 
     let found = match wanted.starts_with('/') {
         true => Path::new(wanted).exists(),
-        false => path.unwrap_or_default().split(':').any(|where_| {
-            !where_.is_empty() && Path::new(where_).join(wanted).exists()
-        }),
+        false => match path {
+            Some(path) => path
+                .split(':')
+                .any(|where_| !where_.is_empty() && Path::new(where_).join(wanted).exists()),
+            None => false,
+        },
     };
 
     Ok(match found {
@@ -361,7 +363,12 @@ pub fn remembered() -> Result<Found, Never> {
         Some(Ok(Held::Unreadable(fault))) => {
             let who = whoami()?;
 
-            eprintln!("{who}: {}: {fault}", at.as_ref().map(|at| at.display().to_string()).unwrap_or_default());
+            let named = match at.as_ref() {
+                Some(at) => at.display().to_string(),
+                None => NOWHERE_IN_PARTICULAR.to_string(),
+            };
+
+            eprintln!("{who}: {named}: {fault}");
 
             String::new()
         }
@@ -408,7 +415,7 @@ fn keep(
         None => {},
     }
 
-    let _ = std::fs::write(&at, said);
+    let _ = console_core_atomic_writes::whole(&at, said.as_bytes());
 
     Ok(())
 }
@@ -422,7 +429,12 @@ pub fn counted() -> Result<BTreeMap<String, u64>, Never> {
         Some(Ok(Held::Unreadable(fault))) => {
             let who = whoami()?;
 
-            eprintln!("{who}: {}: {fault}", at.as_ref().map(|at| at.display().to_string()).unwrap_or_default());
+            let named = match at.as_ref() {
+                Some(at) => at.display().to_string(),
+                None => NOWHERE_IN_PARTICULAR.to_string(),
+            };
+
+            eprintln!("{who}: {named}: {fault}");
 
             String::new()
         }
@@ -484,7 +496,7 @@ pub fn bump(name: &str) -> Result<(), Never> {
 
     let said = counts::written(&bumped)?;
 
-    let _ = std::fs::write(&at, said);
+    let _ = console_core_atomic_writes::whole(&at, said.as_bytes());
 
     Ok(())
 }

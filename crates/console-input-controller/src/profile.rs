@@ -32,14 +32,29 @@
 //! that can only be observed by waiting for it; a program that asks for a
 //! stretch and is told when it has gone by can be handed sixty of them in no
 //! time at all, which is what `the_wait_for_the_bus` below does.
+//!
+//! **A machine with no pad is not a machine whose bus is late.** They arrive
+//! here looking the same -- nothing answers -- and waiting a minute for the
+//! second is right where waiting a minute for the first is a minute of every
+//! login spent on a question that was answered before it was asked. So the
+//! answer comes in as a word: `--pad` is the machine saying it has one, the
+//! binary reads the kernel's own list of devices to decide, and without it
+//! this says there is nothing to put a profile on and stops well. A machine
+//! that has a pad and a bus that never came still fails, which is the whole
+//! reason the two are told apart rather than both forgiven.
 
 use std::time::Duration;
 
 use console_core_external_programs::Program as Theirs;
+use console_core_words::Words;
+use console_input_gamepad::devices::Has;
 use console_input_gamepad::router::{self, PROFILES};
 use console_core_never::Never;
+
+const THE_PROFILE: &str = "the profile";
+
 use console_program_contract::{
-    Argv, Doing, Ending, Opening, Program, Round, Runs, Turn, Wants, Went, Word,
+    Argv, Doing, Ending, Given, Opening, Program, Round, Runs, Turn, Wants, Went, Word,
 };
 
 const BUS: &str = "org.shadowblip.InputPlumber";
@@ -54,6 +69,10 @@ const MOST: u32 = 60;
 
 const GAME: &str = "game.yaml";
 
+pub const PAD: &str = "--pad";
+
+const NO_PAD: &str = "this machine has no pad, so there is nothing to put a profile on";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Which {
     Router,
@@ -64,7 +83,8 @@ pub enum Which {
 
 impl Which {
     pub fn of(argv: &Argv) -> Result<Self, Never> {
-        let Ok(first) = argv.first();
+        let Ok(words) = argv.words();
+        let first = words.iter().map(String::as_str).find(|word| *word != PAD);
 
         Ok(match first {
             None => Which::Asking,
@@ -91,19 +111,12 @@ impl Which {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
 pub enum Buzz {
+    #[words(written = "true")]
     On,
+    #[words(written = "false")]
     Off,
-}
-
-impl Buzz {
-    pub const fn written(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Buzz::On => "true",
-            Buzz::Off => "false",
-        })
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -122,6 +135,7 @@ pub enum Step {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Asking {
     pub wants: Which,
+    pub pad: Has,
     pub step: Step,
     pub tried: u32,
 }
@@ -135,27 +149,34 @@ impl Program for Profile {
 
     fn opening(argv: &Argv) -> Opening<Asking> {
         let Ok(wants) = Which::of(argv);
-        let holding = Asking { wants, step: Step::Opening, tried: 0 };
+        let Ok(given) = argv.given(PAD);
+        let Ok(pad) = has(given);
+        let holding = Asking { wants, pad, step: Step::Opening, tried: 0 };
         let Ok(file) = holding.wants.file();
 
-        let Ok(opening) = match file {
-            Some(_) => Opening::listening(holding, vec![Wants::Round(AGAIN)]),
-            None => Opening::holding(holding),
+        let Ok(opening) = match (file, pad) {
+            (Some(_), Has::Yes) => Opening::listening(holding, vec![Wants::Round(AGAIN)]),
+            (Some(_), Has::No) | (None, _) => Opening::holding(holding),
         };
 
         opening
     }
 
     fn heard(state: &Asking, word: &Word<console_core_never::Never>) -> Turn<Asking, Its> {
-        let Ok(turn) = match (&state.wants, word) {
-            (Which::Wrong(word), Word::Opened) => Turn::doing(
+        let Ok(turn) = match (state.pad, &state.wants, word) {
+            (_, Which::Wrong(word), Word::Opened) => Turn::doing(
                 state.clone(),
                 vec![Doing::Stop(Ending::Badly(format!(
                     "{word}: usage: controller-profile [router|game]"
                 )))],
             ),
 
-            (Which::Asking, Word::Opened) => {
+            (Has::No, Which::Asking | Which::Router | Which::Game, Word::Opened) => Turn::doing(
+                state.clone(),
+                vec![Doing::Print(NO_PAD.to_string()), Doing::Stop(Ending::Done)],
+            ),
+
+            (Has::Yes, Which::Asking, Word::Opened) => {
                 let Ok(reading) = reading();
 
                 Turn::doing(
@@ -164,7 +185,7 @@ impl Program for Profile {
                 )
             }
 
-            (Which::Router | Which::Game, Word::Opened) => {
+            (Has::Yes, Which::Router | Which::Game, Word::Opened) => {
                 let Ok(reading) = reading();
                 let Ok(buzzing) = buzzing(&state.wants);
 
@@ -174,11 +195,11 @@ impl Program for Profile {
                 )
             }
 
-            (_, Word::Answered(answer)) => answered(state, &answer.went, &answer.said),
+            (_, _, Word::Answered(answer)) => answered(state, &answer.went, &answer.said),
 
-            (_, Word::CameRound(_, _)) => tried(state),
+            (_, _, Word::CameRound(_, _)) => tried(state),
 
-            (_, Word::Changed(_) | Word::Chose(_) | Word::Stopping | Word::Its(_)) => {
+            (_, _, Word::Changed(_) | Word::Chose(_) | Word::Stopping | Word::Its(_)) => {
                 Turn::nothing(state.clone())
             }
         };
@@ -213,7 +234,10 @@ fn answered(state: &Asking, went: &Went, said: &str) -> Result<Turn<Asking, Its>
 
         (Step::Loading, Went::Badly(_)) => {
             let Ok(file) = state.wants.file();
-            let named = file.unwrap_or_else(|| "the profile".to_string());
+            let named = match file {
+                Some(named) => named,
+                None => THE_PROFILE.to_string(),
+            };
 
             Turn::doing(
                 state.clone(),
@@ -226,7 +250,13 @@ fn answered(state: &Asking, went: &Went, said: &str) -> Result<Turn<Asking, Its>
 
             Turn::doing(
                 state.clone(),
-                vec![Doing::Print(named.unwrap_or_default()), Doing::Stop(Ending::Done)],
+                vec![
+                    Doing::Print(match named {
+                        Some(named) => named,
+                        None => String::new(),
+                    }),
+                    Doing::Stop(Ending::Done),
+                ],
             )
         }
 
@@ -257,6 +287,13 @@ fn tried(state: &Asking) -> Result<Turn<Asking, Its>, Never> {
             ))],
         ),
     }
+}
+
+fn has(given: Given) -> Result<Has, Never> {
+    Ok(match given {
+        Given::Yes => Has::Yes,
+        Given::No => Has::No,
+    })
 }
 
 fn buzzing(wants: &Which) -> Result<Vec<Doing<Its>>, Never> {
@@ -307,9 +344,9 @@ mod tests {
 
     #[test]
     fn the_desktops_word_and_the_router_are_the_same_file() {
-        let Ok(desktop) = Argv::of(&["desktop"]);
-        let Ok(tabs) = Argv::of(&["tabs"]);
-        let Ok(router) = Argv::of(&["router"]);
+        let Ok(desktop) = Argv::of(&["desktop", PAD]);
+        let Ok(tabs) = Argv::of(&["tabs", PAD]);
+        let Ok(router) = Argv::of(&["router", PAD]);
 
         assert_eq!(Which::of(&desktop), Ok(Which::Router));
         assert_eq!(Which::of(&tabs), Ok(Which::Router));
@@ -318,8 +355,8 @@ mod tests {
 
     #[test]
     fn the_buzz_is_off_for_the_desktop_and_on_for_a_game() {
-        let Ok(router) = Argv::of(&["router"]);
-        let Ok(playing) = Argv::of(&["game"]);
+        let Ok(router) = Argv::of(&["router", PAD]);
+        let Ok(playing) = Argv::of(&["game", PAD]);
         let Ok(said) = told::<Profile>(&router, &[Word::Opened]);
         let Ok(game) = told::<Profile>(&playing, &[Word::Opened]);
         let Ok(first) = said.on(0);
@@ -341,7 +378,7 @@ mod tests {
         words.push(Word::CameRound(AGAIN, Duration::ZERO));
         words.push(answered_with(Went::Well, "s \"router\""));
 
-        let Ok(router) = Argv::of(&["router"]);
+        let Ok(router) = Argv::of(&["router", PAD]);
         let Ok(said) = told::<Profile>(&router, &words);
         let Ok(doings) = said.doings();
         let Ok(loading) = loading("/etc/inputplumber/profiles/router.yaml");
@@ -358,7 +395,7 @@ mod tests {
             words.push(answered_with(Went::Badly(Some(1)), ""));
         }
 
-        let Ok(router) = Argv::of(&["router"]);
+        let Ok(router) = Argv::of(&["router", PAD]);
         let Ok(said) = told::<Profile>(&router, &words);
         let Ok(doings) = said.doings();
 
@@ -372,8 +409,9 @@ mod tests {
 
     #[test]
     fn asking_which_profile_is_on_prints_the_name_out_of_what_the_bus_said() {
+        let Ok(pad) = Argv::of(&[PAD]);
         let Ok(said) = told::<Profile>(
-            &Argv::default(),
+            &pad,
             &[Word::Opened, answered_with(Went::Well, "s \"router\"\n")],
         );
 
@@ -384,8 +422,41 @@ mod tests {
     }
 
     #[test]
+    fn the_machines_own_word_is_not_the_word_the_person_typed() {
+        let Ok(nothing) = Argv::of(&[PAD]);
+        let Ok(router) = Argv::of(&["router", PAD]);
+
+        assert_eq!(Which::of(&nothing), Ok(Which::Asking));
+        assert_eq!(Which::of(&router), Ok(Which::Router));
+    }
+
+    #[test]
+    fn a_machine_with_no_pad_says_so_rather_than_waiting_out_the_whole_minute() {
+        let Ok(router) = Argv::of(&["router"]);
+        let Ok(said) = told::<Profile>(&router, &[Word::Opened]);
+
+        assert_eq!(
+            said.on(0),
+            Ok(Some(
+                [Doing::Print(NO_PAD.to_string()), Doing::Stop(Ending::Done)].as_slice()
+            ))
+        );
+    }
+
+    #[test]
+    fn a_machine_with_no_pad_asks_the_bus_nothing_and_waits_for_no_round() {
+        let Ok(router) = Argv::of(&["router"]);
+        let opening = Profile::opening(&router);
+        let Ok(said) = told::<Profile>(&router, &[Word::Opened]);
+        let Ok(doings) = said.doings();
+
+        assert_eq!(opening.wants, Vec::new());
+        assert!(!doings.iter().any(|doing| matches!(doing, Doing::Ask(_))), "{doings:?}");
+    }
+
+    #[test]
     fn a_word_this_program_does_not_know_is_refused_with_the_usage() {
-        let Ok(keyboard) = Argv::of(&["keyboard"]);
+        let Ok(keyboard) = Argv::of(&["keyboard", PAD]);
         let Ok(said) = told::<Profile>(&keyboard, &[Word::Opened]);
 
         assert_eq!(
@@ -401,9 +472,10 @@ mod tests {
 
     #[test]
     fn nothing_waits_for_a_bus_it_is_only_asking_about() {
-        let Ok(game) = Argv::of(&["game"]);
+        let Ok(pad) = Argv::of(&[PAD]);
+        let Ok(game) = Argv::of(&["game", PAD]);
 
-        let asking = Profile::opening(&Argv::default());
+        let asking = Profile::opening(&pad);
         let loading = Profile::opening(&game);
 
         assert_eq!(asking.wants, Vec::new());

@@ -10,7 +10,7 @@
 //! relays a line as a line and never parses one, and the bar keeps different
 //! lines from the wallpaper -- so the deciding happens here, on the near side
 //! of the socket, and anything that wants to disagree asks
-//! [`crate::listening`] itself the way `console-sky` does.
+//! [`crate::listening`] itself the way `console-wallpaper` does.
 //!
 //! **[`about`] cannot be called without saying what the lines mean, and it
 //! could.** It used to turn every line on a topic into *ask again* and ask
@@ -32,6 +32,7 @@ use std::sync::mpsc::Sender;
 
 use console_core_never::Never;
 use console_program_contract::Topic;
+use console_program_lifetime::threads;
 
 use crate::listening::{self, Heard, Listening};
 
@@ -69,7 +70,7 @@ fn surfaces(line: &str) -> Result<Worth, Never> {
 }
 
 fn saying(listening: Listening, worth: Worthwhile, say: Sender<()>) -> Result<(), Never> {
-    let _ = std::thread::spawn(move || {
+    let Ok(()) = threads::let_go(std::thread::spawn(move || {
         let Ok(heard) = listening.heard();
 
         for heard in heard.iter() {
@@ -92,7 +93,7 @@ fn saying(listening: Listening, worth: Worthwhile, say: Sender<()>) -> Result<()
                 Worth::Ignoring => {},
             }
         }
-    });
+    }));
 
     Ok(())
 }

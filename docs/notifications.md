@@ -4,8 +4,8 @@ What this desktop says to somebody who is not in a terminal. A fault it met, a
 wallpaper it has set going, the dictation saying it is listening: one card,
 top right, under the bar.
 
-`mako` draws them and `libnotify`'s `notify-send` is how everything here
-speaks to it. Between the two sits `console-say`, which counts.
+`console-notify` draws them and `libnotify`'s `notify-send` is how everything
+here speaks to it. Between the two sits `console-say`, which counts.
 
 ## The name
 
@@ -26,14 +26,14 @@ fault reaches the screen had never once been kept.
 The package cannot be removed without taking the login manager with it, so the
 name is taken instead. `/usr/local/share/dbus-1/services/` is searched before
 `/usr/share/`, and the file there names `console-notify.service`, so anything
-that asks for the name before the desktop is up starts our mako rather than
-KDE's dead one. With the desktop up the question never arises: the target has
-already started it and it already holds the name.
+that asks for the name before the desktop is up starts this desktop's own
+daemon rather than KDE's dead one. With the desktop up the question never
+arises: the target has already started it and it already holds the name.
 
 ## One unit may watch a bus name
 
-Taking the name was half of it. mako's own package ships
-`/usr/lib/systemd/user/mako.service`, which declares the same `Type=dbus` and
+Taking the name was half of it. mako's own package shipped
+`/usr/lib/systemd/user/mako.service`, which declared the same `Type=dbus` and
 the same `BusName`, and a user manager lets exactly one unit watch a bus name:
 the second to load is refused with `EEXIST`. Units under `/usr/lib` are loaded
 first, so mako's won and `console-notify.service` lost.
@@ -45,23 +45,72 @@ same mako and took the same name. So the unit this repository writes was dead
 from the day it was written and the desktop looked exactly as though it were
 not.
 
-What was lost is everything the unit around mako is for. `ExecStopPost` never
-ran, so a mako that died said nothing -- on the one daemon whose whole purpose
-is that a thing which broke while nobody was looking is still there when
-somebody looks. There is no `Restart=` on the package's unit, and it is
-`PartOf=graphical-session.target` rather than this desktop's.
+What was lost is everything the unit around a notification daemon is for.
+`ExecStopPost` never ran, so a daemon that died said nothing -- on the one
+daemon whose whole purpose is that a thing which broke while nobody was looking
+is still there when somebody looks. There is no `Restart=` on the package's
+unit, and it is `PartOf=graphical-session.target` rather than this desktop's.
 
-So `mako.service` is masked, under `[masked]` in the manifest beside the
-autologin unit. Masked rather than removed, for the same reason the name is
-taken rather than the package: the unit belongs to mako, and mako is wanted
-here.
+`mako.service` is masked, under `[masked]` in the manifest beside the autologin
+unit, and it stays masked now that mako has left `[packages]`. An apply installs
+a name and has never removed one, so every device that applied an earlier commit
+is still holding the package and still has that unit under `/usr/lib` waiting to
+win the same race. On a machine that never had mako the mask is a symlink to
+`/dev/null` for a unit nothing was going to load anyway.
+
+## What draws the card
+
+mako was the last surface on this desktop drawn in somebody else's colours.
+Every other half of a notification was already in this tree -- `console-say`
+is what raises one, `console_notifications::reading` and `rows` are what keep
+and draw it afterwards, and what was asked of `makoctl` was a list, a mode and
+a dismissal -- so what was left in the package was a socket, a timer and a card
+on a layer surface, and a card on a layer surface is what every panel in this
+repository already is.
+
+`console-notify` is that. It answers `Notify`, `CloseNotification`,
+`GetCapabilities` and `GetServerInformation`, emits `NotificationClosed` with
+the reason the specification asks for, and adds `console.Notices` beside them,
+with `ClearAll` and `Quieten` -- the two presses this desktop makes on its own
+daemon and the two the freedesktop interface has no word for.
+
+The wire is `console-bus`, written here rather than taken from zbus. What a
+notification daemon needs is a connection, a name and one signature --
+`susssasa{sv}i` -- and zbus brings an async runtime, a proc-macro layer and a
+type system for a bus this desktop speaks to nobody else on. What is here is a
+header, an alignment table and a walk over a signature. `tests/the_bus.rs`
+takes a name on a live session bus and has `busctl` call back into it, which is
+the only way to be sure of a wire format: a marshaller tested against its own
+reader agrees with itself and with nothing else.
+
+What decides is `serving`, and it has no socket and no screen in it. A message
+goes in; a reply, the signals to emit, what changed and what to arm a timer for
+come out. That is what makes the awkward half of a notification daemon
+answerable without one -- an id can be raised again while its own card is still
+up, and a count carried through the timer is what stops the first card's expiry
+taking down the second. Nothing about that is visible on a screen until the day
+it goes wrong.
+
+What this must not become is a general notification server. No actions, no icon
+data, no fd passing, no hints beyond urgency and progress, because everything
+that raises a notification here is named in one module. The day a program
+nobody wrote raises one is the day that question is worth answering, and
+`todos.md` says what it would take.
 
 ## Five seconds, or until it is seen
 
 Everything is drawn the same, out of `theme/palette.toml`, on the panel colour
-every other card in front of the wallpaper is drawn on. The border is what says
-which kind it is, because it is the only part that nothing has to stay readable
-against: soft for low, coral for critical, the ordinary edge for the rest.
+every other card in front of the wallpaper is drawn on. Which used to mean a
+second stylesheet: `console-palette` wrote mako's colours into
+`~/.config/mako/config` in mako's own spelling, and a daemon reads its config
+once, when it starts. So `just theme` on a running desktop changed every surface
+except the one that arrives uninvited, and it went on being yesterday's palette
+until something restarted it. The card loads `console_panel::style::sheet()`
+now, which is the sheet every panel loads.
+
+The border is what says which kind it is, because it is the only part that
+nothing has to stay readable against: soft for low, coral for critical, the
+ordinary edge for the rest.
 
 A notification goes after five seconds. Critical ones do not go at all, and
 everything `console-say` raises is critical, because the whole point of it is
@@ -162,7 +211,7 @@ told either way, because a machine found off in the morning is a question.
 
 ## The bell
 
-`bar-notice` counts what mako is holding and the bar draws it on the right,
+`bar-notice` counts what `console-notify` is holding and the bar draws it on the right,
 beside the tray. Lit with a number when something is waiting, soft and empty
 when nothing is -- the same soft the bar wears for bluetooth that is off and
 music that is not playing. A tap opens the panel, and a second tap puts it
@@ -171,10 +220,11 @@ away, which is how every icon along that edge works.
 It is nearly always a fault, for the reason above: everything else has taken
 itself down by the time it could be counted.
 
-The count is not polled. `busctl --user monitor` watches the one name, which
-catches both halves -- the call that raises a notification and the signal that
-says one has closed, whether a thumb took it down or it ran out of seconds --
-and a ten second tick sits under that as the net. The compositor is watched
+The count is not polled. `busctl --user monitor` watches the two interfaces the
+daemon answers, which catches every half -- the call that raises a notification,
+the signal that says one has closed whether a thumb took it down or it ran out
+of seconds, and the press that quietens the lot -- and a ten second tick sits
+under that as the net. The compositor is watched
 beside it, because the bell lights while its own panel is in front and nothing
 else says when that changed.
 
@@ -234,15 +284,27 @@ every rule is the same shape with the stop moved, so a `transition` on the
 module turns the last of the stepping into movement. A GTK that stopped
 interpolating them would put the stepping back and nothing else.
 
-The four pixels are bought rather than taken: they are reserved whether an
-apply is running or not. A strip that appeared only during one would shove
-every window on the screen down and back again, and one that reserved nothing
-would sit on top of the bar instead of under it. Idle, it is the same colour as
-the bar above it, so what it reads as is the bar being four pixels taller.
+The row is bought rather than taken: it is reserved whether an apply is running
+or not. A strip that appeared only during one would shove every window on the
+screen down and back again, and one that reserved nothing would sit on top of
+the bar instead of under it. Idle, it is the same colour as the bar above it, so
+what it reads as is the bar being a row taller.
+
+None of that is believed from the JSON. `440-the-strip-under-the-bar-fills` puts
+a number in the file the strip reads, brings the nested desktop up with it
+already there, and reads the row back off the screen: the fill colour on the
+left of where the number says, the bar's own ground on the right of it. A
+stylesheet naming a colour nobody defined does not fail -- GTK drops the
+declaration and carries on -- so the file parses, the widget lays out, waybar
+exits 0 and the journal is empty while the strip fills to nothing. That is how
+it shipped once, and asking the machine three ways got three answers about the
+plumbing. The path is `CONSOLE_UPDATING_PATH` when something says so, which is
+how a staged session is filled without writing into the laptop's own `/run`;
+the engine runs as root outside anybody's session and is never told.
 
 ## The panel
 
-`notices-panel`, and it is the same card as the settings and the files:
+`notifications-panel`, and it is the same card as the settings and the files:
 [`docs/panels.md`](panels.md) is how it is built and what its buttons promise.
 Two tabs, because a notification is in one of two states.
 
@@ -250,27 +312,28 @@ Two tabs, because a notification is in one of two states.
 whole of what it said -- who said it, the summary, and the body under them --
 and that page is the only place the body can be read. A card is 320 by 140 and
 the body is the half that does not fit: the summary names what broke and the
-body says what happened to it. Under the notifications is **Clear them all**,
+body says what happened to it. Under the notifications is **Clear all**,
 which is what the bell's tap used to do on its own.
 
-The body needs mako 1.11, which is where `makoctl list -j` arrived, and the
-device has it. On 1.10 the flag is ignored rather than refused and the printed
-form comes back instead, which carries no body at all: the panel would list
-what is waiting and open onto a name and a summary with nothing under them.
+Both tabs are one reading, and so is the bell and so is the settings page.
+`console-notify` writes what it is holding and what it has finished holding
+into one file under the runtime directory, and everything that wants to know
+reads that. So what the bar counts and what the panel lists cannot disagree,
+and none of them forks a program to find out -- `makoctl list -j` was a process
+per draw and another per tick, and `busctl monitor` showed the bell's own asking
+as traffic to be woken by.
 
-`console_notices::reading` reads both shapes and lets the answer say which mako
-it is, so nothing asks and nothing has to be right about the version. The
-printed form is kept for the bell as much as for the panel. It is the shape the
-count was built on and the only one this device has ever been seen to print,
-and a bell that goes permanently empty is worse than no bell: it is a reading,
-and it is wrong.
+The file goes with the thing that wrote it. `ExecStopPost` takes it away when
+the daemon stops, because a file nobody is writing any more still reads as a
+count, and a bell lit over a daemon that is gone is a reading and it is wrong.
 
 Nothing is asked before clearing. What is cleared is in Earlier a moment
 later, so it is a press that moves things rather than one that throws them
 away, and a question about a press that can be walked back is a question
 somebody learns to answer without reading it.
 
-**Earlier** is mako's history buffer and nothing else. It keeps the last twenty,
+**Earlier** is what the daemon has finished holding, and nothing else. It keeps
+the last twenty,
 dismissed and expired alike, and it is read rather than chosen: there is
 nothing to do to a notification that has already gone. Both halves are drawn at
 once, in the two columns a row that is only read is given, so the tab can be
@@ -283,10 +346,9 @@ of this page makes about a fault that reached a stderr nobody was reading.
 
 ## Quiet, without going deaf
 
-The last row of Waiting keeps cards off the screen. It is mako's
-`do-not-disturb` mode, added and removed with `makoctl mode -t`, and
-`~/.config/mako/config` is where it is given its meaning: one criteria, setting
-`invisible`.
+The last row of Waiting keeps cards off the screen. It is `Quieten` on
+`console.Notices`, which flips the daemon and answers with the state it is now
+in, so the row that pressed it is not left guessing at what it did.
 
 That is the whole of what it does. What was sent is still held, the bell still
 counts it, and the bell still turns coral for a fault -- it only wears a
@@ -300,6 +362,8 @@ So the bell is the one thing that says the desktop has been quietened. The
 cards are gone by definition, and nothing else on the screen would tell you.
 
     journalctl --user -t console        every fault console-say has counted
-    makoctl list -j                     what is waiting right now
-    makoctl history -j                  what the Earlier tab is
-    makoctl mode                        whether they are being held back
+    cat "$XDG_RUNTIME_DIR"/console/notices.json
+                                        what is waiting, what the Earlier tab
+                                        is, and whether cards are held back
+    busctl --user introspect org.freedesktop.Notifications \
+        /org/freedesktop/Notifications  every call the daemon answers

@@ -23,10 +23,67 @@ pub mod session;
 pub mod staging;
 pub mod talking;
 
+use std::fmt;
 use std::path::{Path, PathBuf};
 
 use console_core_never::Never;
 
+#[derive(Debug)]
+pub enum Unnested {
+    Machine(std::io::Error),
+    Unreadable(PathBuf, std::io::Error),
+    Undeclared(console_screen::Undeclared),
+    Staging(&'static str, std::io::Error),
+    Unwritten(&'static str, console_core_atomic_writes::Unwritten),
+    NoExecStart(PathBuf),
+    NoCompositor,
+    NoScreen,
+    NowhereToWrite,
+    NothingToPress,
+}
+
+impl fmt::Display for Unnested {
+    fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Unnested::Machine(fault) => write!(to, "{fault}"),
+            Unnested::Unreadable(at, fault) => write!(to, "{}: {fault}", at.display()),
+            Unnested::Undeclared(fault) => write!(to, "{fault}"),
+            Unnested::Staging(what, fault) => write!(to, "{what}: {fault}"),
+            Unnested::Unwritten(what, fault) => write!(to, "{what}: {fault}"),
+            Unnested::NoExecStart(at) => write!(
+                to,
+                "{} names no absolute ExecStart, so the stage would start a keyboard \
+                 nothing could raise",
+                at.display()
+            ),
+            Unnested::NoCompositor => write!(to, "the nested compositor never came up"),
+            Unnested::NoScreen => write!(to, "the screen never appeared"),
+            Unnested::NowhereToWrite => {
+                write!(to, "a picture wants somewhere to be written")
+            }
+            Unnested::NothingToPress => write!(
+                to,
+                "a press wants the file the panel writes its draws to and a --then to press"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for Unnested {}
+
+impl From<console_screen::Undeclared> for Unnested {
+    fn from(fault: console_screen::Undeclared) -> Self {
+        Unnested::Undeclared(fault)
+    }
+}
+
+#[cfg_attr(
+    dylint_lib = "explicit026_env_read_once",
+    allow(
+        explicit026_env_read_once,
+        reason = "CONSOLE_STAGE names which stage tree this run is using, and a stage is what this crate is. What it used to read as well -- PATH, the runtime directory, the compositor's signature -- belongs to other crates and is asked of them now"
+    )
+)]
 pub(crate) fn said(name: &str) -> Result<Option<String>, Never> {
     Ok(match std::env::var(name) {
         Ok(said) => Some(said),
@@ -48,13 +105,14 @@ pub fn root() -> Result<PathBuf, Never> {
     })
 }
 
-pub fn screen() -> Result<console_screen::Screen, String> {
+pub fn screen() -> Result<console_screen::Screen, Unnested> {
     let Ok(root) = root();
 
     let at = root.join(console_screen::CONFIG);
     let said = std::fs::read_to_string(&at)
-        .map_err(|why| format!("{}: {why}", at.display()))?;
-    console_screen::Screen::read(&said)
+        .map_err(|why| Unnested::Unreadable(at.clone(), why))?;
+
+    console_screen::Screen::read(&said).map_err(Unnested::Undeclared)
 }
 
 pub fn stages() -> Result<PathBuf, Never> {
@@ -65,19 +123,27 @@ pub fn stages() -> Result<PathBuf, Never> {
 
 pub fn stage() -> Result<PathBuf, Never> {
     let Ok(told) = said("CONSOLE_STAGE");
-    let named = told.unwrap_or_else(|| format!("session-{}", std::process::id()));
+    let named = match told {
+        Some(named) => named,
+        None => format!("session-{}", std::process::id()),
+    };
     let Ok(stages) = stages();
 
     Ok(stages.join(named))
 }
 
 pub fn runtime() -> Result<PathBuf, Never> {
-    // SAFETY: getuid cannot fail and touches nothing.
-    let uid = unsafe { libc::getuid() };
-    let Ok(told) = said("XDG_RUNTIME_DIR");
-    let at = told.unwrap_or_else(|| format!("/run/user/{uid}"));
+    let told = console_core_places::runtime()?;
 
-    Ok(PathBuf::from(at))
+    Ok(match told {
+        Some(told) => told,
+        None => {
+            // SAFETY: getuid cannot fail and touches nothing.
+            let uid = unsafe { libc::getuid() };
+
+            PathBuf::from(format!("/run/user/{uid}"))
+        }
+    })
 }
 
 pub const HOME: &str = "/home/@user@";

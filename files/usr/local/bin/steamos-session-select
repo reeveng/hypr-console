@@ -9,6 +9,12 @@
 # Which session logs in is written through the helper polkit already lets any
 # user run, so both directions leave their answer in the one file rather than
 # racing over which name sorts last.
+#
+# The name it writes is console.desktop and not hyprland.desktop. The hyprland
+# package's own entry runs the compositor with no argument, which reads whatever
+# is in ~/.config/hypr -- a directory this desktop stopped owning when it became
+# something you can install beside another one. The entry that names this
+# desktop's config is in desktop.conf, and so is the argument.
 
 session() {
     pkexec /usr/lib/steamos/steam-set-session "$1"
@@ -60,7 +66,7 @@ gamescope | gamescope-session)
     # session recorded but not left, or a desktop whose services were stopped
     # out from under it, is worse than a button that did nothing.
     if ! hyprctl dispatch 'hl.dsp.exit()'; then
-        session hyprland.desktop
+        session console.desktop
         exit 1
     fi
     # What this desktop handed systemd on the way in names a compositor that
@@ -84,7 +90,7 @@ plasma | plasma-session)
     # here: Game Mode's target is stopped below, and stopping it with nothing
     # else recorded is the display manager starting Game Mode again. A way back
     # that cannot record where it is going stays where it is.
-    if ! session hyprland.desktop; then
+    if ! session console.desktop; then
         echo "the session was not recorded; staying in game mode" >&2
         exit 1
     fi

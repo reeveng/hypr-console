@@ -1,15 +1,19 @@
 //! What the desktop has said, drawn.
 //!
 //! ```text
-//!     notices-panel
-//!     notices-panel Earlier
+//!     notifications-panel
+//!     notifications-panel Earlier
 //! ```
 //!
 //! The bell on the right of the bar opens it, and tapping the bell again puts
 //! it away, which is how every other icon along there works.
 //!
-//! What is here is the asking of mako and the drawing. What each tab holds
-//! once it has been asked is `crate::rows`; where a press
+//! What is here is the reading of the file the daemon writes, and the drawing.
+//! Both tabs come out of one reading, which is the point of it being a file:
+//! the panel used to ask mako twice, once for what was waiting and once for
+//! the history, and the two answers were two moments -- a tab opened between
+//! them showed a notification in neither list or in both. What each tab holds
+//! once it has been read is `crate::rows`; where a press
 //! leaves you is `crate::notices`, which is a
 //! `console_program_contract::Program` and holds the whole of what this panel
 //! decides. The actor is what makes that state reachable from a closure on
@@ -20,7 +24,8 @@ use std::sync::Arc;
 
 use console_core_external_programs::Program;
 use crate::notices::{Closes, Heard, Its, Notices, Onto, closes};
-use crate::reading::{self, Notice};
+use crate::reading::Notice;
+use crate::serving;
 use crate::rows::{Chosen, earlier_rows, gone_rows, one_rows, tab, waiting_rows};
 use console_panel::actor::{self, Addr, Answer};
 use console_panel::card::{Card, Door};
@@ -29,20 +34,19 @@ use console_panel::running::said;
 use console_core_never::Never;
 use console_program_contract::{Argv, Doing, Named, Program as _, Turn, Word};
 
-fn makoctl(argv: &[&str]) -> Result<String, Never> {
-    said(Program::Makoctl, argv)
-}
+const NO_TAB_NAMED: &str = "";
+
 
 fn waiting() -> Result<Vec<Notice>, Never> {
-    let Ok(listed) = makoctl(&["list", "-j"]);
+    let Ok(held) = serving::held();
 
-    reading::read(&listed)
+    Ok(held.waiting)
 }
 
 fn earlier() -> Result<Vec<Notice>, Never> {
-    let Ok(listed) = makoctl(&["history", "-j"]);
+    let Ok(held) = serving::held();
 
-    reading::read(&listed)
+    Ok(held.earlier)
 }
 
 struct Looking {
@@ -87,7 +91,7 @@ fn press(held: &Held, heard: Heard, showing: &dyn Showing) -> Result<(), Never> 
     let doings = match held.ask(|answer| Msg::Heard(heard, answer)) {
         Ok(doings) => doings,
         Err(_) => {
-            eprintln!("notices-panel: the panel's own state has gone, so the press did nothing");
+            eprintln!("notifications-panel: the panel's own state has gone, so the press did nothing");
 
             Vec::new()
         }
@@ -257,12 +261,15 @@ fn pages(looking: &Held) -> Result<Vec<Page>, Never> {
 }
 
 
-pub const WHO: &str = "notices-panel";
+pub const WHO: &str = "notifications-panel";
 
 const UNDER: i32 = 250;
 
 pub fn door(argv: &[String]) -> Result<Door, Never> {
-    let tab = argv.first().map(String::as_str).unwrap_or_default();
+    let tab = match argv.first() {
+        Some(tab) => tab.as_str(),
+        None => NO_TAB_NAMED,
+    };
 
     Door::closing(&format!("notices {tab}"))
 }

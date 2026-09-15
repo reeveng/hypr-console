@@ -29,9 +29,13 @@
 //! day this desktop speaks a second language. A machine without `iso-codes`
 //! draws the codes instead and says why once.
 
+use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
 
 use console_core_never::Never;
+
+const NOTHING_SAID: &str = "";
+
 
 pub const SUPPORTED: &str = "/usr/share/i18n/SUPPORTED";
 
@@ -71,15 +75,42 @@ impl Locale {
     }
 }
 
-pub fn read(name: &str, charset: &str) -> Result<Option<Locale>, Never> {
-    let stem = name.split('.').next().unwrap_or_default();
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Named<'a> {
+    pub name: &'a str,
+    pub charset: &'a str,
+}
+
+pub fn read(named: Named<'_>) -> Result<Option<Locale>, Never> {
+    let Named { name, charset } = named;
+    let stem = match name.split('.').next() {
+        Some(stem) => stem,
+        None => name,
+    };
+
     let mut parts = stem.split('@');
-    let named = parts.next().unwrap_or_default();
-    let how = parts.next().unwrap_or_default();
+
+    let named = match parts.next() {
+        Some(named) => named,
+        None => stem,
+    };
+
+    let how = match parts.next() {
+        Some(how) => how,
+        None => NOTHING_SAID,
+    };
 
     let mut halves = named.split('_');
-    let language = halves.next().unwrap_or_default();
-    let place = halves.next().unwrap_or_default();
+
+    let language = match halves.next() {
+        Some(language) => language,
+        None => named,
+    };
+
+    let place = match halves.next() {
+        Some(place) => place,
+        None => NOTHING_SAID,
+    };
 
     let nobody = NOBODY_CHOOSES.contains(&language);
 
@@ -111,7 +142,7 @@ pub fn supported(said: &str) -> Result<Vec<Locale>, Never> {
             false => continue,
         }
 
-        let one = read(name, charset)?;
+        let one = read(Named { name, charset })?;
 
         match one {
             Some(locale) => kept.push(locale),
@@ -163,7 +194,11 @@ pub const LOCALE_GEN: &str = "/etc/locale.gen";
 
 pub const LOCALE_CONF: &str = "/etc/locale.conf";
 
-pub fn generating(said: &str, line: &str) -> Result<String, Never> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Line<'a>(pub &'a str);
+
+pub fn generating(said: &str, line: Line<'_>) -> Result<String, Never> {
+    let line = line.0;
     let mut written: Vec<String> = Vec::new();
     let mut found = Found::No;
 
@@ -238,10 +273,16 @@ fn table(said: &str, codes: &[&str]) -> Result<BTreeMap<String, String>, Never> 
     Ok(names)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Tables<'a> {
+    pub languages: &'a str,
+    pub places: &'a str,
+}
+
 impl Names {
-    pub fn read(languages: &str, places: &str) -> Result<Self, Never> {
-        let Ok(languages) = table(languages, &["alpha_2", "alpha_3"]);
-        let Ok(places) = table(places, &["alpha_2"]);
+    pub fn read(tables: Tables<'_>) -> Result<Self, Never> {
+        let Ok(languages) = table(tables.languages, &["alpha_2", "alpha_3"]);
+        let Ok(places) = table(tables.places, &["alpha_2"]);
 
         Ok(Names { languages, places })
     }
@@ -255,7 +296,7 @@ impl Names {
         let places = std::fs::read_to_string(PLACES);
 
         match (languages, places) {
-            (Ok(languages), Ok(places)) => Names::read(&languages, &places),
+            (Ok(languages), Ok(places)) => Names::read(Tables { languages: &languages, places: &places }),
             (Err(_), _) | (_, Err(_)) => {
                 eprintln!(
                     "settings-panel: {LANGUAGES} and {PLACES} are what a language and a country \
@@ -269,11 +310,17 @@ impl Names {
     }
 
     pub fn language(&self, code: &str) -> Result<String, Never> {
-        Ok(self.languages.get(code).cloned().unwrap_or_else(|| code.to_string()))
+        Ok(match self.languages.get(code).cloned() {
+            Some(says) => says,
+            None => code.to_string(),
+        })
     }
 
     pub fn place(&self, code: &str) -> Result<String, Never> {
-        Ok(self.places.get(code).cloned().unwrap_or_else(|| code.to_string()))
+        Ok(match self.places.get(code).cloned() {
+            Some(says) => says,
+            None => code.to_string(),
+        })
     }
 
     pub fn where_(&self, locale: &Locale) -> Result<String, Never> {
@@ -308,22 +355,15 @@ pub struct Tongue {
 }
 
 pub fn tongues(supported: &[Locale], names: &Names) -> Result<Vec<Tongue>, Never> {
-    let mut spoken: Vec<Tongue> = Vec::new();
+    let mut standing: BTreeMap<String, Tongue> = BTreeMap::new();
 
     for locale in supported {
-        let standing = spoken.iter().position(|tongue| tongue.language == locale.language);
-
-        match standing {
-            Some(at) => {
-                match spoken.get_mut(at) {
-                    Some(tongue) => tongue.locales.push(locale.clone()),
-                    None => {},
-                }
-            }
-            None => {
+        match standing.entry(locale.language.clone()) {
+            Entry::Occupied(mut tongue) => tongue.get_mut().locales.push(locale.clone()),
+            Entry::Vacant(nothing) => {
                 let Ok(says) = names.language(&locale.language);
 
-                spoken.push(Tongue {
+                let _ = nothing.insert(Tongue {
                     language: locale.language.clone(),
                     says,
                     locales: vec![locale.clone()],
@@ -331,6 +371,8 @@ pub fn tongues(supported: &[Locale], names: &Names) -> Result<Vec<Tongue>, Never
             }
         }
     }
+
+    let mut spoken: Vec<Tongue> = standing.into_values().collect();
 
     for tongue in &mut spoken {
         tongue.locales.sort_by_key(|locale| {
@@ -400,7 +442,7 @@ eo UTF-8";
         {"alpha_2":"TH","name":"Thailand"}]}"#;
 
     fn names() -> Names {
-        let Ok(names) = Names::read(NAMES, PLACED);
+        let Ok(names) = Names::read(Tables { languages: NAMES, places: PLACED });
 
         names
     }
@@ -504,14 +546,14 @@ eo UTF-8";
     #[test]
     fn a_language_that_is_already_named_and_commented_out_is_uncommented_where_it_stands() {
         let said = "#en_GB.UTF-8 UTF-8  \n#nl_NL.UTF-8 UTF-8\nen_US.UTF-8 UTF-8\n";
-        let Ok(written) = generating(said, "nl_NL.UTF-8 UTF-8");
+        let Ok(written) = generating(said,Line("nl_NL.UTF-8 UTF-8"));
 
         assert_eq!(written, "#en_GB.UTF-8 UTF-8  \nnl_NL.UTF-8 UTF-8\nen_US.UTF-8 UTF-8\n");
     }
 
     #[test]
     fn a_language_the_file_has_never_heard_of_is_written_at_the_end() {
-        let Ok(written) = generating("en_US.UTF-8 UTF-8\n", "th_TH.UTF-8 UTF-8");
+        let Ok(written) = generating("en_US.UTF-8 UTF-8\n",Line("th_TH.UTF-8 UTF-8"));
 
         assert_eq!(written, "en_US.UTF-8 UTF-8\nth_TH.UTF-8 UTF-8\n");
     }
@@ -519,7 +561,7 @@ eo UTF-8";
     #[test]
     fn one_already_made_is_left_exactly_as_it_was() {
         let said = "en_US.UTF-8 UTF-8\n";
-        let Ok(written) = generating(said, "en_US.UTF-8 UTF-8");
+        let Ok(written) = generating(said,Line("en_US.UTF-8 UTF-8"));
 
         assert_eq!(written, said);
     }

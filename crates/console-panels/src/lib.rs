@@ -64,7 +64,7 @@ pub const PANELS: &[Panel] = &[
     Panel { who: console_launcher::WHO, card: console_launcher::card },
     Panel { who: console_settings::WHO, card: console_settings::card },
     Panel { who: console_files::WHO, card: console_files::card },
-    Panel { who: console_music_panel::WHO, card: console_music_panel::card },
+    Panel { who: console_music::WHO, card: console_music::card },
     Panel { who: console_media_viewer::WHO, card: console_media_viewer::card },
     Panel { who: console_downloads::WHO, card: console_downloads::card },
     Panel { who: console_notifications::WHO, card: console_notifications::card },
@@ -252,7 +252,7 @@ fn put_up(
     let Ok(()) = console_panel::opening::asked(
         &asked.who,
         asked.pressed.as_deref(),
-        &asked.from,
+        console_panel::opening::Came(&asked.from),
         asked.exec,
     );
 

@@ -52,6 +52,32 @@ use std::fmt::Write as _;
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
 
+const SAID_NOTHING: &str = "";
+
+fn word_in(held: &serde_json::Value, key: &str) -> Result<String, Never> {
+    Ok(match held.get(key).and_then(|held| held.as_str()) {
+        Some(said) => said.to_string(),
+        None => SAID_NOTHING.to_string(),
+    })
+}
+
+fn spots_in(held: &serde_json::Value) -> Result<Vec<Spot>, Never> {
+    let every = match held.get("spots").and_then(|held| held.as_array()) {
+        Some(every) => every,
+        None => return Ok(Vec::new()),
+    };
+
+    Ok(every
+        .iter()
+        .filter_map(|held| {
+            let Ok(spot) = spot_of(held);
+
+            spot
+        })
+        .collect())
+}
+
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Spot {
     pub name: String,
@@ -111,6 +137,12 @@ pub enum Bare {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Heading {
+    Yes,
+    No,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Standing {
     On,
     Beside,
@@ -124,6 +156,7 @@ pub struct Line {
     pub aside: String,
     pub offers: Offers,
     pub bare: Bare,
+    pub heading: Heading,
     pub standing: Standing,
     pub spots: Vec<Spot>,
 }
@@ -168,6 +201,13 @@ impl Told {
 
 pub const OFFERED: [&str; 7] = ["tab", "shut", "more", "step", "else", "press", "answer"];
 
+#[cfg_attr(
+    dylint_lib = "explicit026_env_read_once",
+    allow(
+        explicit026_env_read_once,
+        reason = "CONSOLE_PANEL_TELLS is how a panel is told where to say what it did, and a panel is what this crate is"
+    )
+)]
 pub fn where_to() -> Result<Option<String>, Never> {
     Ok(match std::env::var("CONSOLE_PANEL_TELLS") {
         Ok(said) if !said.is_empty() => Some(said),
@@ -221,7 +261,7 @@ pub fn said(told: &Told) -> Result<String, Never> {
 
             format!(
                 "{{\"at\":{},\"says\":{},\"aside\":{},\"offers\":{},\"bare\":{},\
-                 \"standing\":{},\"spots\":{}}}",
+                 \"heading\":{},\"standing\":{},\"spots\":{}}}",
                 line.at,
                 says,
                 aside,
@@ -232,6 +272,10 @@ pub fn said(told: &Told) -> Result<String, Never> {
                 match line.bare {
                     Bare::Yes => "true",
                     Bare::No => "false",
+                },
+                match line.heading {
+                    Heading::Yes => "true",
+                    Heading::No => "false",
                 },
                 match line.standing {
                     Standing::On => "\"on\"",
@@ -336,41 +380,62 @@ fn spot_of(held: &serde_json::Value) -> Result<Option<Spot>, Never> {
     }))
 }
 
-pub fn read(said: &str) -> Result<Told, String> {
-    let held: serde_json::Value =
-        serde_json::from_str(said).map_err(|fault| format!("{fault}: {said}"))?;
+#[derive(Debug)]
+pub enum Untold {
+    Unparsed(serde_json::Error, String),
+    NoRoom,
+    NoLines,
+}
+
+impl std::fmt::Display for Untold {
+    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Untold::Unparsed(fault, said) => write!(to, "{fault}: {said}"),
+            Untold::NoRoom => write!(to, "no room"),
+            Untold::NoLines => write!(to, "no lines"),
+        }
+    }
+}
+
+impl std::error::Error for Untold {}
+
+pub fn read(said: &str) -> Result<Told, Untold> {
+    let held: serde_json::Value = serde_json::from_str(said)
+        .map_err(|fault| Untold::Unparsed(fault, said.to_string()))?;
 
     let Ok(room) = pair(&held, "room");
 
     let room = match room {
         Some(room) => room,
-        None => return Err("no room".to_string()),
+        None => return Err(Untold::NoRoom),
     };
 
-    let lines = held.get("lines").and_then(|held| held.as_array()).ok_or("no lines")?;
+    let lines = held
+        .get("lines")
+        .and_then(|held| held.as_array())
+        .ok_or(Untold::NoLines)?;
 
     Ok(Told {
-        panel: held.get("panel").and_then(|held| held.as_str()).unwrap_or_default().to_string(),
-        tab: held.get("tab").and_then(|held| held.as_str()).unwrap_or_default().to_string(),
+        panel: {
+            let Ok(panel) = word_in(&held, "panel");
+
+            panel
+        },
+        tab: {
+            let Ok(tab) = word_in(&held, "tab");
+
+            tab
+        },
         out: match held.get("out").and_then(|held| held.as_bool()) {
             Some(true) => Out::Yes,
             Some(false) | None => Out::No,
         },
         room,
-        spots: held
-            .get("spots")
-            .and_then(|held| held.as_array())
-            .map(|every| {
-                every
-                    .iter()
-                    .filter_map(|held| {
-                        let Ok(spot) = spot_of(held);
+        spots: {
+            let Ok(spots) = spots_in(&held);
 
-                        spot
-                    })
-                    .collect()
-            })
-            .unwrap_or_default(),
+            spots
+        },
         lines: lines
             .iter()
             .enumerate()
@@ -383,12 +448,16 @@ pub fn read(said: &str) -> Result<Told, String> {
                     },
                     None => at,
                 },
-                says: held.get("says").and_then(|held| held.as_str()).unwrap_or_default().to_string(),
-                aside: held
-                    .get("aside")
-                    .and_then(|held| held.as_str())
-                    .unwrap_or_default()
-                    .to_string(),
+                says: {
+                    let Ok(says) = word_in(held, "says");
+
+                    says
+                },
+                aside: {
+                    let Ok(aside) = word_in(held, "aside");
+
+                    aside
+                },
                 offers: match held.get("offers").and_then(|held| held.as_bool()) {
                     Some(true) => Offers::Yes,
                     Some(false) | None => Offers::No,
@@ -397,32 +466,27 @@ pub fn read(said: &str) -> Result<Told, String> {
                     Some(true) => Bare::Yes,
                     Some(false) | None => Bare::No,
                 },
+                heading: match held.get("heading").and_then(|held| held.as_bool()) {
+                    Some(true) => Heading::Yes,
+                    Some(false) | None => Heading::No,
+                },
                 standing: match held.get("standing").and_then(|held| held.as_str()) {
                     Some("on") => Standing::On,
                     Some("beside") => Standing::Beside,
                     Some(_) | None => Standing::No,
                 },
-                spots: held
-                    .get("spots")
-                    .and_then(|held| held.as_array())
-                    .map(|every| {
-                every
-                    .iter()
-                    .filter_map(|held| {
-                        let Ok(spot) = spot_of(held);
+                spots: {
+                    let Ok(spots) = spots_in(held);
 
-                        spot
-                    })
-                    .collect()
-            })
-                    .unwrap_or_default(),
+                    spots
+                },
             })
             .collect(),
     })
 }
 
 
-pub fn every(said: &str) -> Result<Vec<Told>, String> {
+pub fn every(said: &str) -> Result<Vec<Told>, Untold> {
     said.lines().filter(|line| !line.trim().is_empty()).map(read).collect()
 }
 
@@ -452,6 +516,7 @@ mod tests {
                     aside: String::new(),
                     offers: Offers::Yes,
                     bare: Bare::Yes,
+                    heading: Heading::No,
                     standing: Standing::No,
                     spots: Vec::new(),
                 },
@@ -461,6 +526,7 @@ mod tests {
                     aside: "2 of 7".to_string(),
                     offers: Offers::Yes,
                     bare: Bare::No,
+                    heading: Heading::No,
                     standing: Standing::Beside,
                     spots: vec![spot("else", (900, 300), (40, 30))],
                 },
@@ -472,7 +538,7 @@ mod tests {
     fn what_was_drawn_survives_the_trip_through_a_file() {
         let Ok(said) = said(&told());
 
-        assert_eq!(read(&said), Ok(told()));
+        assert_eq!(read(&said).expect("what was drawn"), told());
     }
 
     #[test]
@@ -480,7 +546,7 @@ mod tests {
         let Ok(said) = said(&told());
         let run = format!("{said}\n{said}\n");
 
-        assert_eq!(every(&run).map(|every| every.len()), Ok(2));
+        assert_eq!(every(&run).expect("two draws").len(), 2);
     }
 
     #[test]

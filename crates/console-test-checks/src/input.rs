@@ -17,6 +17,12 @@
 //! a claim that was taken and never handed back -- `console_input_focus` is
 //! that contract -- or a program nobody meant to be listening.
 //!
+//! Every name here is put through `comm` before it is compared, because that
+//! is the field being read and it is fifteen bytes. `controller-desktop` is
+//! eighteen and arrives as `controller-desk`, which read as nothing of ours
+//! holding a button at all -- on a machine where the daemon had four of them
+//! open and the list said so two lines further down.
+//!
 //! It is asked with nothing in front, because a claim is exactly what a
 //! surface takes while it is up: the keyboard, the guide and the card that
 //! asks which button you pressed all hold a device for as long as they are
@@ -24,7 +30,7 @@
 //! "at rest".
 
 use console_test_stages::checking::{Body, Check, Done, empty, failed};
-use console_test_stages::device::Device;
+use console_test_stages::device::{Device, comm};
 
 pub const OWNED: Check = Check {
     name: "320-only-the-controller-is-reading-the-buttons",
@@ -35,9 +41,9 @@ pub const OWNED: Check = Check {
 };
 
 const ALLOWED: [&str; 5] =
-    ["systemd", "systemd-logind", "Hyprland", "inputplumber", "stick-scroll"];
+    ["systemd", "systemd-logind", "Hyprland", "inputplumber", "controller-desktop"];
 
-const OURS: &str = "stick-scroll";
+const OURS: &str = "controller-desktop";
 
 const ASKING: &str = "for fd in /proc/[0-9]*/fd/*; do \
      seen=$(readlink \"$fd\" 2>/dev/null) || continue; \
@@ -54,17 +60,19 @@ fn owned(stage: &mut Device) -> Done {
     let holding: Vec<&str> =
         said.lines().map(str::trim).filter(|line| !line.is_empty()).collect();
 
+    let Ok(ours_is) = comm(OURS);
+
     let ours = holding
         .iter()
         .filter_map(|line| line.split_whitespace().next())
-        .any(|name| name == OURS);
+        .any(|name| name == ours_is);
 
     match ours {
         true => {},
         false => {
             return failed(format!(
-                "nothing is reading the buttons: {OURS} has no input device open, \
-                 and what does is {holding:?}"
+                "nothing is reading the buttons: {OURS} has no input device open -- \
+                 the kernel would call it {ours_is} -- and what does is {holding:?}"
             ));
         }
     }
@@ -73,7 +81,11 @@ fn owned(stage: &mut Device) -> Done {
         .iter()
         .copied()
         .filter(|line| match line.split_whitespace().next() {
-            Some(name) => !ALLOWED.contains(&name),
+            Some(name) => !ALLOWED.iter().any(|allowed| {
+                let Ok(allowed) = comm(allowed);
+
+                allowed == name
+            }),
             None => false,
         })
         .collect();

@@ -1,4 +1,4 @@
-//! Reaching again for something that has gone.
+//! A subscription made again, for as long as somebody still wants one.
 //!
 //! Every watcher on this desktop is a subscription to something else: the
 //! compositor's socket, a `pactl subscribe`, a `nmcli monitor`. Each of them
@@ -14,6 +14,14 @@
 //! different things. It is one crate rather than a loop written out in each,
 //! because how long a handheld waits before it wakes to ask again is one
 //! decision, and four copies of it is four answers waiting to disagree.
+//!
+//! The waiting has two shapes because a caller has two. [`keep`] is the whole
+//! of it for a program with a thread to spare: hand it a round and it is made
+//! again forever. A program already inside a loop of somebody else's -- a
+//! panel's, which is glib's -- cannot be handed a thread and has to do its own
+//! awaiting, so [`Between`] is the same decision without the thread: how long
+//! before the next try, given how long the last one stood. `keep` is written on
+//! it, which is what stops the two from drifting.
 
 use console_core_never::Never;
 use std::time::{Duration, Instant};
@@ -41,11 +49,46 @@ pub enum Round {
     Done,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Between {
+    waited: Duration,
+}
+
+impl Between {
+    pub fn tries() -> Result<Self, Never> {
+        Ok(Self { waited: FIRST })
+    }
+
+    pub fn after(&mut self, stood: Duration) -> Result<Duration, Never> {
+        let Ok(again) = after(self.waited, stood);
+
+        let Ok(longer) = longer(again);
+
+        self.waited = longer;
+
+        Ok(again)
+    }
+}
+
 pub fn keep(mut once: impl FnMut() -> Round + Send + 'static) -> Result<(), Never> {
+    #[cfg_attr(
+        dylint_lib = "explicit035_no_loose_thread",
+        allow(
+            explicit035_no_loose_thread,
+            reason = "this crate is what a subscription made again is, and the thread is the making: it runs until the caller's own round says Done or the program ends, which is what `keep` is asked for. There is nothing above it to hold a handle, and the word this rule asks for is the name of the function"
+        )
+    )]
     let _ = std::thread::spawn(move || {
-        let mut waited = FIRST;
+        let Ok(mut between) = Between::tries();
 
         loop {
+            #[cfg_attr(
+                dylint_lib = "explicit039_no_reading_the_clock",
+                allow(
+                    explicit039_no_reading_the_clock,
+                    reason = "the gap before the next try is measured from how long the last one took, which is this crate measuring its own waiting rather than deciding anything from the clock"
+                )
+            )]
             let began = Instant::now();
 
             match once() {
@@ -53,7 +96,7 @@ pub fn keep(mut once: impl FnMut() -> Round + Send + 'static) -> Result<(), Neve
                 Round::Another => {}
             }
 
-            let Ok(again) = after(waited, began.elapsed());
+            let Ok(again) = between.after(began.elapsed());
 
             #[cfg_attr(
                 dylint_lib = "explicit021_no_sleeping",
@@ -63,10 +106,6 @@ pub fn keep(mut once: impl FnMut() -> Round + Send + 'static) -> Result<(), Neve
                 )
             )]
             std::thread::sleep(again);
-
-            let Ok(longer) = longer(again);
-
-            waited = longer;
         }
     });
 
@@ -118,6 +157,36 @@ mod tests {
         let Ok(kept) = after(waited, Duration::from_millis(1));
 
         assert_eq!(kept, waited);
+    }
+
+    #[test]
+    fn the_waiting_a_caller_does_itself_is_the_waiting_the_thread_does() {
+        let Ok(mut between) = Between::tries();
+        let mut waited = FIRST;
+
+        for _ in 0..10 {
+            let Ok(theirs) = after(waited, Duration::from_millis(0));
+            let Ok(longer) = longer(theirs);
+
+            waited = longer;
+
+            let Ok(ours) = between.after(Duration::from_millis(0));
+
+            assert_eq!(ours, theirs);
+        }
+    }
+
+    #[test]
+    fn a_caller_whose_last_try_stood_waits_from_the_start_again() {
+        let Ok(mut between) = Between::tries();
+
+        for _ in 0..5 {
+            let Ok(_growing) = between.after(Duration::from_millis(0));
+        }
+
+        let Ok(after_it_stood) = between.after(STOOD);
+
+        assert_eq!(after_it_stood, FIRST);
     }
 
     #[test]

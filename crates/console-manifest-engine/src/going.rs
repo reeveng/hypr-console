@@ -78,7 +78,14 @@
 
 use console_core_never::Never;
 use console_core_number_conversion::toward_zero_u16;
-use console_how_far::Bar;
+use console_how_far::{Bar, Far, Now};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Reach {
+    start: u16,
+    share: u16,
+}
+
 use console_notifications::updating;
 
 use crate::went;
@@ -94,6 +101,7 @@ pub const SWAPPING: &str = "swapping in";
 pub const ADD_ON: &str = "the add-on";
 pub const BROWSERS: &str = "the browsers";
 pub const PROFILES: &str = "the profiles";
+pub const SCREEN: &str = "the screen";
 pub const WALLPAPERS: &str = "the wallpapers";
 pub const SERVICES: &str = "services";
 pub const RELEASE: &str = "keeping the release";
@@ -106,18 +114,19 @@ pub struct Stretch {
 
 pub const WHOLE: u16 = 100;
 
-pub const STRETCHES: [Stretch; 14] = [
+pub const STRETCHES: [Stretch; 15] = [
     Stretch { doing: READING, share: 1 },
     Stretch { doing: WANTED, share: 1 },
     Stretch { doing: PACKAGES, share: 6 },
     Stretch { doing: KEEPING, share: 1 },
     Stretch { doing: SWEEPING, share: 1 },
-    Stretch { doing: BUILDING, share: 60 },
+    Stretch { doing: BUILDING, share: 59 },
     Stretch { doing: FILES, share: 8 },
     Stretch { doing: SWAPPING, share: 1 },
     Stretch { doing: ADD_ON, share: 2 },
     Stretch { doing: BROWSERS, share: 2 },
     Stretch { doing: PROFILES, share: 3 },
+    Stretch { doing: SCREEN, share: 1 },
     Stretch { doing: WALLPAPERS, share: 2 },
     Stretch { doing: SERVICES, share: 10 },
     Stretch { doing: RELEASE, share: 2 },
@@ -153,14 +162,14 @@ pub struct Moving<'a> {
 
 impl Moving<'_> {
     pub fn far(&mut self, far: f64, now: &str) -> Result<(), Never> {
-        self.going.inside(self.doing, self.start, self.share, far, now)
+        self.going.inside(self.doing, Reach { start: self.start, share: self.share }, far, Now(now))
     }
 
-    pub fn at(&mut self, done: usize, many: usize, now: &str) -> Result<(), Never> {
-        let Ok(far) = console_how_far::fraction(done, many);
-        let Ok(counted) = console_how_far::counted(done, many);
+    pub fn at(&mut self, far: Far, now: &str) -> Result<(), Never> {
+        let Ok(part) = console_how_far::fraction(far);
+        let Ok(counted) = console_how_far::counted(far);
 
-        self.far(far, &format!("{counted} {now}"))
+        self.far(part, &format!("{counted} {now}"))
     }
 
     pub fn say(&mut self, line: &str) -> Result<(), Never> {
@@ -215,17 +224,16 @@ impl Going {
     fn inside(
         &mut self,
         doing: &str,
-        start: u16,
-        share: u16,
+        reach: Reach,
         far: f64,
-        now: &str,
+        now: Now<'_>,
     ) -> Result<(), Never> {
         let far = far.clamp(0.0, 1.0);
         let Ok(into) = console_how_far::percent(far);
-        let Ok(inside) = toward_zero_u16(f64::from(share) * far);
-        let reached = start.saturating_add(inside).min(WHOLE);
+        let Ok(inside) = toward_zero_u16(f64::from(reach.share) * far);
+        let reached = reach.start.saturating_add(inside).min(WHOLE);
 
-        let Ok(()) = self.bar.filling(into, now);
+        let Ok(()) = self.bar.filling(into, now.0);
 
         match reached <= self.done {
             true => return Ok(()),
@@ -340,18 +348,18 @@ mod tests {
     #[test]
     fn what_a_stretch_says_on_the_way_stays_inside_its_own_share() {
         let mut going = Going::quiet();
-        let Ok(()) = going.inside(BUILDING, 10, 60, 0.5, "");
+        let Ok(()) = going.inside(BUILDING, Reach { start: 10, share: 60 }, 0.5, Now(""));
         assert_eq!(far(&going), 40);
-        let Ok(()) = going.inside(BUILDING, 10, 60, 2.0, "");
+        let Ok(()) = going.inside(BUILDING, Reach { start: 10, share: 60 }, 2.0, Now(""));
         assert_eq!(far(&going), 70, "a stretch reported past its end went past it");
     }
 
     #[test]
     fn a_stretch_that_says_it_has_gone_backwards_moves_nothing() {
         let mut going = Going::quiet();
-        let Ok(()) = going.inside(BUILDING, 10, 60, 0.5, "");
-        let Ok(()) = going.inside(BUILDING, 10, 60, 0.1, "");
-        let Ok(()) = going.inside(BUILDING, 10, 60, -1.0, "");
+        let Ok(()) = going.inside(BUILDING, Reach { start: 10, share: 60 }, 0.5, Now(""));
+        let Ok(()) = going.inside(BUILDING, Reach { start: 10, share: 60 }, 0.1, Now(""));
+        let Ok(()) = going.inside(BUILDING, Reach { start: 10, share: 60 }, -1.0, Now(""));
         assert_eq!(far(&going), 40);
     }
 
@@ -360,7 +368,7 @@ mod tests {
         let mut going = Going::quiet();
         let mut said = String::new();
         let Ok(()) = going.during(FILES, |moving| {
-            let Ok(()) = moving.at(1, 4, "waybar/style.css");
+            let Ok(()) = moving.at(Far { done: 1, many: 4 }, "waybar/style.css");
             let Ok(drawn) = moving.going.bar.line();
 
             said = drawn;
@@ -376,7 +384,7 @@ mod tests {
         let mut seen: Vec<String> = Vec::new();
         let Ok(()) = going.during(BUILDING, |moving| {
             for done in [0_usize, 1, 2, 1, 4] {
-                let Ok(()) = moving.at(done, 4, "console-panel");
+                let Ok(()) = moving.at(Far { done, many: 4 }, "console-panel");
                 let Ok(drawn) = moving.going.bar.line();
 
                 seen.push(drawn);
@@ -398,7 +406,9 @@ mod tests {
         let Ok(()) = going.through(READING, || ());
         let said = line(&going);
 
-        assert!(said.starts_with("( 1/14) "), "{said}");
+        let many = STRETCHES.len();
+
+        assert!(said.starts_with(&format!("( 1/{many}) ")), "{said}");
         assert!(said.ends_with("] 100%"), "{said}");
     }
 
@@ -446,7 +456,9 @@ mod tests {
         for stretch in STRETCHES {
             let Ok(()) = going.through(stretch.doing, || ());
         }
-        assert!(line(&going).starts_with("(14/14)"), "{}", line(&going));
+        let many = STRETCHES.len();
+
+        assert!(line(&going).starts_with(&format!("({many}/{many})")), "{}", line(&going));
     }
 
     #[test]

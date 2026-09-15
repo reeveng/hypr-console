@@ -6,7 +6,7 @@ nothing to hold and nothing to aim at, which is what a button on the back of a
 device has to be.
 
 `crates/console-input-dictation` is the whole of it: a library that decides the
-shape of each call, and `dictate`, which makes them.
+shape of each call, and `console-dictate`, which makes them.
 
 ## What it is made of
 
@@ -158,8 +158,8 @@ it, because the bottom of it is the one path a failure never reaches, and a
 failure is exactly the case where somebody's voice would otherwise sit there.
 
 What survives that is a recording nothing is reading any more -- a session that
-ended mid-sentence, a `dictate` that was killed. Those go with the runtime
-directory at logout, which is what a runtime directory is for.
+ended mid-sentence, a `console-dictate` that was killed. Those go with the
+runtime directory at logout, which is what a runtime directory is for.
 
 Nothing is sent anywhere. The hearing is a program on this machine reading a
 file on this machine, and the only thing that leaves the room is the words,
@@ -169,7 +169,7 @@ into the box that had the focus.
 
 `ggml-large-v3-turbo-q5_0.bin`, in `~/.local/share/console/voice/`, fetched
 once from the whisper.cpp project on the first press that needs it.
-`dictate --fetch` asks for it in advance.
+`console-dictate --fetch` asks for it in advance.
 
 Large because what is dictated here is English, Dutch and Thai, and the small
 models are good at one of those. That was the original reason and it is still
@@ -275,7 +275,7 @@ It is built once, on the first press that wants it, and that press does not
 wait for it: a C++ project takes four minutes and the sentence somebody just
 spoke is worth more than the speed of the one after it. So the press that finds
 no build starts one behind itself and uses the packaged hearing this time.
-`dictate --fetch` asks for both the model and the build in advance.
+`console-dictate --fetch` asks for both the model and the build in advance.
 
 The tag is pinned. This is a compiler being pointed at somebody else's
 repository on a device somebody is holding, and a branch is whatever it happens

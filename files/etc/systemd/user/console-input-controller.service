@@ -4,8 +4,19 @@ PartOf=console.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/stick-scroll
-ExecStartPost=/usr/local/bin/controller-profile router
+ExecStart=/usr/local/bin/controller-desktop
+# Tolerated, because the daemon above is not only the pad. It renders the
+# keyboard half of the same table and hands it to the compositor -- every key on
+# this desktop is a bind this process sent -- so a unit that fails is a machine
+# with no keys either. A machine with no pad in it now says so and stops well,
+# having read the kernel's list of devices before it asked any bus, so the
+# minute that used to be spent here every login is gone. What the `-` is still
+# for is the other machine: one with a pad whose InputPlumber never comes up.
+# That is a real failure and is still reported as one, and without the `-` it
+# would be the unit's, `Restart=always` would kill the daemon, and the whole
+# thing would go round again every minute -- taking the keyboard with it each
+# time.
+ExecStartPost=-/usr/local/bin/controller-profile router
 # A profile switch destroys and recreates the pad. The daemon waits for a new
 # one, but if it ever dies for another reason it must not stay dead: losing it
 # silently takes the workspace and close buttons with it.

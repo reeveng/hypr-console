@@ -104,6 +104,13 @@ pub fn settled() -> Result<(), Never> {
 }
 
 fn writer() -> Result<Option<&'static SyncSender<Asked>>, Never> {
+    #[cfg_attr(
+        dylint_lib = "explicit044_no_ambient_value",
+        allow(
+            explicit044_no_ambient_value,
+            reason = "one thread per process holds the file open for the life of it, which is what this crate's head argues for: the queue is what every timed thread hands a line to, and a sender held by any one of them would be a sender the next one cannot find"
+        )
+    )]
     static WRITER: OnceLock<Option<SyncSender<Asked>>> = OnceLock::new();
 
     let held = WRITER.get_or_init(|| {
@@ -212,6 +219,13 @@ fn opened(at: &Path) -> Result<Option<Store>, Never> {
         None => {}
     }
 
+    #[cfg_attr(
+        dylint_lib = "explicit040_no_torn_write",
+        allow(
+            explicit040_no_torn_write,
+            reason = "a log appended to a line at a time, opened once and held for the life of the process: a rename over it would take away every line the other processes are still appending to"
+        )
+    )]
     let file = match OpenOptions::new().create(true).append(true).open(at) {
         Ok(file) => file,
         Err(fault) => {

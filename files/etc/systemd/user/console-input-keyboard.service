@@ -51,7 +51,7 @@ Type=simple
 # and the settings panel read. The flag is still taken and still wins, because
 # a keyboard started by hand to try an arrangement out should get the one it
 # was asked for.
-ExecStart=/usr/local/bin/virtual-keyboard
+ExecStart=/usr/local/bin/console-keyboard
 ExecStopPost=-/usr/local/bin/console-fell %n
 Restart=always
 RestartSec=2

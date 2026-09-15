@@ -37,6 +37,10 @@
 //! screen this laptop has not got is a question with an answer here.
 
 use console_core_never::Never;
+use console_core_words::Words;
+
+const NO_ROOM: i32 = 0;
+
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Shape {
@@ -50,6 +54,9 @@ impl Default for Shape {
         Shape::USUAL
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Value<'a>(&'a str);
 
 impl Shape {
     pub const USUAL: Shape = Shape { columns: 5, rows: 3, size: Size::Normal };
@@ -84,7 +91,9 @@ impl Shape {
         Ok(format!("columns {}\nrows {}\nsize {word}\n", self.columns, self.rows))
     }
 
-    fn told(self, word: &str, value: &str) -> Result<Shape, Never> {
+    fn told(self, word: &str, value: Value<'_>) -> Result<Shape, Never> {
+        let value = value.0;
+
         match word {
             "columns" => match value.parse() {
                 Ok(columns) => self.across(columns),
@@ -109,7 +118,7 @@ impl Shape {
     pub fn read(said: &str) -> Result<Shape, Never> {
         said.lines()
             .filter_map(|line| line.trim().split_once(char::is_whitespace))
-            .try_fold(Shape::USUAL, |shape, (word, value)| shape.told(word, value.trim()))
+            .try_fold(Shape::USUAL, |shape, (word, value)| shape.told(word, Value(value.trim())))
     }
 }
 
@@ -125,38 +134,23 @@ pub fn at(home: &std::path::Path) -> Result<std::path::PathBuf, Never> {
     Ok(ours.join(NAMED))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
 pub enum Size {
+    #[words(word = "tiny", says = "Tiny")]
     Tiny,
+    #[words(word = "smaller", says = "Smaller")]
     Smaller,
+    #[words(word = "normal", says = "Normal")]
     Normal,
+    #[words(word = "bigger", says = "Bigger")]
     Bigger,
+    #[words(word = "huge", says = "Huge")]
     Huge,
 }
 
 pub const EVERY: [Size; 5] = [Size::Tiny, Size::Smaller, Size::Normal, Size::Bigger, Size::Huge];
 
 impl Size {
-    pub fn word(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Size::Tiny => "tiny",
-            Size::Smaller => "smaller",
-            Size::Normal => "normal",
-            Size::Bigger => "bigger",
-            Size::Huge => "huge",
-        })
-    }
-
-    pub fn says(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Size::Tiny => "Tiny",
-            Size::Smaller => "Smaller",
-            Size::Normal => "Normal",
-            Size::Bigger => "Bigger",
-            Size::Huge => "Huge",
-        })
-    }
-
     pub fn read(word: &str) -> Result<Option<Size>, Never> {
         for size in EVERY {
             let said = size.word()?;
@@ -197,8 +191,16 @@ pub fn square(room: (i32, i32), shape: Shape) -> Result<Square, Never> {
 
     let rows = i32_of(shape.rows)?;
 
-    let across = pane.0.checked_div(columns).unwrap_or(0);
-    let down = pane.1.checked_div(rows).unwrap_or(0);
+    let across = match pane.0.checked_div(columns) {
+        Some(across) => across,
+        None => NO_ROOM,
+    };
+
+    let down = match pane.1.checked_div(rows) {
+        Some(down) => down,
+        None => NO_ROOM,
+    };
+
     let cell = across.min(down).max(0);
 
     let part = shape.size.part()?;

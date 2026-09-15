@@ -23,11 +23,20 @@
 //! quiet rather than red -- which is the worse of the two. `PlaybackStatus` is
 //! the question the sentence above promises: a stopped player is not somebody's
 //! afternoon and this may take it.
+//!
+//! What the last check here presses is the player being started again, which is
+//! the only way to ask whether it comes up holding the song it was left on. It
+//! writes over the note that remembers that song, which is somebody's own --
+//! the thing they were in the middle of -- so the note is read before the first
+//! press and written back after the last one, and a machine that had none has
+//! none afterwards.
 
 use std::collections::BTreeSet;
 
 use console_core_never::Never;
 use console_music_player::answers::{NAME, OBJECT, PLAYER, Status};
+use console_core_places::{Base, OURS};
+use console_music_player::remembering::NOTE;
 use console_test_stages::checking::{Body, Check, Done, Why, cannot, failed};
 use console_test_stages::device::{Device, PATIENCE, Seen};
 
@@ -45,6 +54,14 @@ pub const QUIET: Check = Check {
     feature: "music",
     since: "2026-09-08",
     bodies: &[Body::Device(quiet)],
+};
+
+pub const AGAIN: Check = Check {
+    name: "282-a-player-started-again-is-holding-the-last-song",
+    about: "A player started again holds the song it was left on, paused, so nothing opens empty.",
+    feature: "music",
+    since: "2026-09-08",
+    bodies: &[Body::Device(again)],
 };
 
 const WALK: usize = 6;
@@ -208,6 +225,109 @@ fn quiet(stage: &mut Device) -> Done {
     }
 }
 
+fn again(stage: &mut Device) -> Done {
+    let Ok(playing) = playing(stage);
+
+    match playing {
+        Seen::Yes => {
+            return cannot(
+                "this machine is already playing something, and the check would have to stop it",
+            );
+        }
+        Seen::NotYet => {},
+    }
+
+    let Ok(songs) = library(stage);
+
+    match songs.is_empty() {
+        true => return cannot("this machine has no music on it to play"),
+        false => {}
+    }
+
+    let first = songs.first().ok_or(Why::Cannot("no songs".to_string()))?;
+    let Ok(note) = note(stage);
+
+    playing_the_library(stage, first)?;
+
+    let Ok(was) = song_playing(stage);
+    let Ok(()) = ended(stage);
+    let Ok(()) = started(stage);
+
+    let Ok(now) = song_playing(stage);
+    let Ok(held) = paused(stage);
+
+    let Ok(()) = ended(stage);
+    let Ok(()) = put_back(stage, &note);
+
+    match now == was {
+        true => {}
+        false => {
+            return failed(format!(
+                "the player was left on {was} and came up holding {}, so the panel opens on                  nothing until somebody goes and finds a song",
+                match now.is_empty() {
+                    true => "nothing at all".to_string(),
+                    false => now,
+                }
+            ));
+        }
+    }
+
+    match held {
+        Seen::Yes => Ok(()),
+        Seen::NotYet => failed(format!(
+            "the player came up holding {was} and not paused on it, so a device switched on in              a bag decides for itself what the room hears"
+        )),
+    }
+}
+
+fn started(stage: &mut Device) -> Result<(), Never> {
+    let Ok(_) = stage.user(&format!(
+        "systemd-run --user --collect --unit={UNIT} --quiet {PROGRAM} \"$HOME/Music\""
+    ));
+    let Ok(_) = stage.until(answering, PATIENCE);
+
+    Ok(())
+}
+
+fn paused(stage: &mut Device) -> Result<Seen, Never> {
+    let Ok(word) = Status::Paused.said();
+    let Ok(said) = stage.user(&format!(
+        "busctl --user get-property {NAME} {OBJECT} {PLAYER} PlaybackStatus 2>&1"
+    ));
+
+    Ok(match said.trim() == format!("s \"{word}\"") {
+        true => Seen::Yes,
+        false => Seen::NotYet,
+    })
+}
+
+fn kept() -> Result<String, Never> {
+    let Ok(state) = Base::State.usual();
+
+    Ok(format!("\"$HOME/{state}/{OURS}/{NOTE}\""))
+}
+
+fn note(stage: &mut Device) -> Result<String, Never> {
+    let Ok(at) = kept();
+
+    stage.user(&format!("cat {at} 2>/dev/null"))
+}
+
+fn put_back(stage: &mut Device, note: &str) -> Result<(), Never> {
+    let Ok(at) = kept();
+
+    let Ok(_) = match note.is_empty() {
+        true => stage.user(&format!("rm -f {at}")),
+        false => {
+            let Ok(quoted) = single_quoted(note);
+
+            stage.user(&format!("printf '%s' {quoted} > {at}"))
+        }
+    };
+
+    Ok(())
+}
+
 fn sounding(stage: &mut Device) -> Result<Seen, Never> {
     let Ok(said) = stage.user("pactl list short sinks");
 
@@ -314,7 +434,10 @@ fn title_in(said: &str) -> Result<String, Never> {
     let mut quoted = after.1.split('"');
     quoted.next();
 
-    Ok(quoted.next().unwrap_or_default().to_string())
+    Ok(match quoted.next() {
+        Some(inside) => inside.to_string(),
+        None => String::new(),
+    })
 }
 
 fn single_quoted(word: &str) -> Result<String, Never> {

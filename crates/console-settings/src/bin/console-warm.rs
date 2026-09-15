@@ -16,7 +16,7 @@
 //! than a word: systemd reads the code, and a program run before every start of
 //! a unit should print nothing into the journal for the ordinary case.
 //!
-//! `curve` is how `files/home/@user@/.config/hypr/hyprsunset.conf` is made. It
+//! `curve` is how `files/home/@user@/.config/console/hypr/hyprsunset.conf` is made. It
 //! is not something the device runs; it is run here, into the tree, and a test
 //! holds the file to it.
 
@@ -28,7 +28,10 @@ use console_settings::warm::{self, Standing, Wanted, Warmth, at, config};
 const UNIT: &str = "console-warm.service";
 
 fn main() -> ExitCode {
-    let word = std::env::args().nth(1).unwrap_or_default();
+    let word = match std::env::args().nth(1) {
+        Some(word) => word,
+        None => String::new(),
+    };
 
     match word == "curve" {
         true => {
@@ -106,7 +109,7 @@ fn main() -> ExitCode {
 
             let Ok(written) = wanted.written();
 
-            match std::fs::write(&at, written) {
+            match console_core_atomic_writes::whole(&at, written.as_bytes()) {
                 Ok(()) => {},
                 Err(fault) => {
                     eprintln!("console-warm: {}: {fault}, so nothing was changed", at.display());

@@ -9,9 +9,9 @@
 //! Put away rather than paused, because the wallpaper daemon has no pause. It
 //! plays what it was given, so what it is given is the thing that changes.
 //!
-//! And put away late rather than at once. A daemon handed a file starts it at
-//! the first frame, so swapping in the still and back again is a picture that
-//! begins over rather than one that carries on. `console-sky` waits out anything
+//! And put away late rather than at once. A daemon handed a file starts it at the
+//! first frame, so swapping in the still and back again is a picture that begins
+//! over rather than one that carries on. `console-wallpaper` waits out anything
 //! that is about to go away again; this only answers whether the wallpaper is
 //! covered now.
 //!
@@ -39,14 +39,18 @@
 //! in front for every program at once, and this one cannot fall behind the
 //! daemon's answer again.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use console_compositor::Asked;
 use console_compositor::stirred::Stirred;
 use console_core_never::Never;
 use console_onscreen::{Over, over_the_desktop};
 
-static ANSWERING: AtomicBool = AtomicBool::new(true);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Told {
+    #[default]
+    NotYet,
+    Already,
+}
 
 pub use console_onscreen::FURNITURE as BEHIND;
 
@@ -75,13 +79,17 @@ pub fn something_over_it(layers: &serde_json::Value) -> Result<Covered, Never> {
     })
 }
 
-fn asking(question: Asked) -> Result<Option<serde_json::Value>, Never> {
+fn asking(question: Asked, told: &mut Told) -> Result<Option<serde_json::Value>, Never> {
     Ok(match console_compositor::asked(question) {
         Ok(said) => Some(said),
         Err(why) => {
-            match ANSWERING.swap(false, Ordering::Relaxed) {
-                true => eprintln!("{why} -- the picture stays still until it does"),
-                false => {},
+            match *told {
+                Told::NotYet => {
+                    *told = Told::Already;
+
+                    eprintln!("{why} -- the picture stays still until it does");
+                }
+                Told::Already => {},
             }
 
             None
@@ -89,13 +97,13 @@ fn asking(question: Asked) -> Result<Option<serde_json::Value>, Never> {
     })
 }
 
-pub fn now() -> Result<Covered, Never> {
-    let Ok(front) = asking(Asked::ActiveWorkspace);
-    let Ok(screens) = asking(Asked::Layers);
+pub fn now(told: &mut Told) -> Result<Covered, Never> {
+    let Ok(front) = asking(Asked::ActiveWorkspace, told);
+    let Ok(screens) = asking(Asked::Layers, told);
 
     match (front, screens) {
         (Some(workspace), Some(layers)) => {
-            ANSWERING.store(true, Ordering::Relaxed);
+            *told = Told::NotYet;
 
             let window = holds_a_window(&workspace)?;
 

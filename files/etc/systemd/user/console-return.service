@@ -7,7 +7,7 @@ PartOf=gamescope-session.service
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/game-return
+ExecStart=/usr/local/bin/controller-game
 # Losing this silently is losing the way back, and the button that would say
 # so is the one that has stopped working.
 ExecStopPost=-/usr/local/bin/console-fell %n
@@ -23,5 +23,5 @@ RestartSec=2
 # `RestrictAddressFamilies=AF_UNIX AF_NETLINK` was here and is gone, for the
 # reason `confining.conf` gives: it is seccomp, and seccomp on a unit of an
 # unprivileged manager is `NoNewPrivileges=` on the process whatever the flag
-# says. Holding the button runs `desktop-mode`, which records the session with
-# `pkexec`, so this is the other of the two that cannot carry it.
+# says. Holding the button runs `session-desktop`, which records the session
+# with `pkexec`, so this is the other of the two that cannot carry it.

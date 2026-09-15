@@ -1,0 +1,35 @@
+error: `usize::MAX` is compared against, which makes it a case the type does not declare
+  --> $DIR/main.rs:7:13
+   |
+LL |     held == usize::MAX
+   |             ^^^^^^^^^^
+   |
+   = help: say the case with a type that has it: `Option` for a value that may not be there, an enum for `Unlimited` or `Unset`. Where the end of the type is the answer rather than a stand-in -- a saturating result met on purpose, a bound checked against what the type can hold -- allow this rule here and let the reason say which
+   = note: `#[deny(explicit025_no_sentinel_value)]` on by default
+
+error: a negative number is compared against, which makes it a case the type does not declare
+  --> $DIR/main.rs:13:11
+   |
+LL |     at == -1
+   |           ^^
+   |
+   = help: say the case with a type that has it: `Option` for a value that may not be there, an enum for `Unlimited` or `Unset`. Where the end of the type is the answer rather than a stand-in -- a saturating result met on purpose, a bound checked against what the type can hold -- allow this rule here and let the reason say which
+
+error: a negative number is handed back as an answer, which makes it a case the type does not declare
+  --> $DIR/main.rs:19:5
+   |
+LL |     -1
+   |     ^^
+   |
+   = help: say the case with a type that has it: `Option` for a value that may not be there, an enum for `Unlimited` or `Unset`. Where the end of the type is the answer rather than a stand-in -- a saturating result met on purpose, a bound checked against what the type can hold -- allow this rule here and let the reason say which
+
+error: a negative number is handed back as an answer, which makes it a case the type does not declare
+  --> $DIR/main.rs:27:24
+   |
+LL |         None => return -1,
+   |                        ^^
+   |
+   = help: say the case with a type that has it: `Option` for a value that may not be there, an enum for `Unlimited` or `Unset`. Where the end of the type is the answer rather than a stand-in -- a saturating result met on purpose, a bound checked against what the type can hold -- allow this rule here and let the reason say which
+
+error: aborting due to 4 previous errors
+

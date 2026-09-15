@@ -55,13 +55,17 @@ pub fn name() -> Result<String, Never> {
 }
 
 fn argv0() -> Result<String, Never> {
-    Ok(std::env::args()
+    let argv0 = std::env::args()
         .next()
         .and_then(|argv0| {
             Path::new(&argv0).file_name().and_then(|name| name.to_str()).map(str::to_string)
         })
-        .filter(|name| !name.is_empty())
-        .unwrap_or_else(|| NOBODY.to_string()))
+        .filter(|name| !name.is_empty());
+
+    Ok(match argv0 {
+        Some(whose) => whose,
+        None => NOBODY.to_string(),
+    })
 }
 
 #[cfg(test)]

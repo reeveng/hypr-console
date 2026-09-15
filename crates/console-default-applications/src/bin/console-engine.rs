@@ -26,12 +26,15 @@ use std::path::{Path, PathBuf};
 
 use console_default_applications::engines;
 use console_default_applications::policies::{self, CHROMIUM, FIREFOX, LIBREWOLF, Where};
-use console_core_atomic_writes::Held;
+use console_core_atomic_writes::{Held, Unwritten};
 use console_core_never::Never;
 
 fn main() -> std::process::ExitCode {
     let Ok(chosen) = engines::chosen();
-    let key = std::env::args().nth(1).unwrap_or(chosen);
+    let key = match std::env::args().nth(1) {
+        Some(key) => key,
+        None => chosen,
+    };
     let Ok(known) = engines::one(&key);
 
     let engine = match known {
@@ -92,14 +95,11 @@ enum Installed {
 }
 
 fn here(program: &str) -> Result<Installed, Never> {
-    let path = match std::env::var("PATH") {
-        Ok(path) => path,
-        Err(std::env::VarError::NotPresent) => "/usr/bin:/usr/local/bin".to_string(),
-        Err(fault) => {
-            eprintln!("console-engine: PATH: {fault}");
+    let Ok(told) = console_core_external_programs::path();
 
-            "/usr/bin:/usr/local/bin".to_string()
-        }
+    let path = match told {
+        Some(path) => path,
+        None => "/usr/bin:/usr/local/bin".to_string(),
     };
 
     let found = path
@@ -113,11 +113,13 @@ fn here(program: &str) -> Result<Installed, Never> {
     })
 }
 
-fn wrote(at: &Path, said: &str) -> std::io::Result<()> {
+fn wrote(at: &Path, said: &str) -> Result<(), Unwritten> {
     match at.parent() {
-        Some(parent) => std::fs::create_dir_all(parent)?,
+        Some(parent) => {
+            std::fs::create_dir_all(parent).map_err(|fault| Unwritten::Making(parent.to_path_buf(), fault))?
+        }
         None => {}
     }
 
-    std::fs::write(at, said)
+    console_core_atomic_writes::whole(at, said.as_bytes())
 }

@@ -22,10 +22,27 @@ checkout, send the history alone out of a copy nobody is working in.
 
 A deploy stops twice to ask, and neither question is this laptop's to answer.
 The machine that is about to change is in somebody's hands, and the second
-question -- whether to press every feature now -- takes their screen for
-several minutes. So the question goes to the device: `console-confirm` raises a
-card in their session, they answer it with the pad, and its status comes back
-as the answer.
+question -- whether to test the update now -- takes their screen for several
+minutes. So the question goes to the device: `console-confirm` raises a card in
+their session, they answer it with the pad, and its status comes back as the
+answer. Both cards are written the way `docs/panels.md` says a card is written:
+the question names the update, and the row for going ahead is the verb out of
+it -- `Accept` on the first and `Test` on the second.
+
+That verb is handed over in `CONSOLE_CONFIRM_DOES` rather than as an argument,
+and the question is the whole of `console-confirm`'s argument list. The reason
+is the order of a deploy: the first card is raised before anything is installed,
+so it is always drawn by the copy of `console-confirm` the device already had --
+on the deploy carrying a change to that program, the copy from before it. The
+one before the verb existed drew every word it was handed as the question, so a
+flag reached a handheld as part of the sentence. A word in the environment is a
+word an older copy has never heard of and does not draw.
+
+A card that cannot read how it was called exits `CONFIRM_UNASKED` rather than
+one. One is no, so a card that never reached anybody used to tell the deploy
+that somebody had declined -- which is the worst shape a fault can take, because
+the answer it invents cannot be told from a real one. The arm below is what it
+reaches instead.
 
 `--yes` skips both, and means a person has already said so. A device with no
 card to raise -- the first deploy that carries one, or a machine whose desktop

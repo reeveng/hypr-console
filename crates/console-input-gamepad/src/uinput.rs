@@ -15,6 +15,7 @@ use evdev::{
 
 use crate::capture::Descriptor;
 use crate::devices::{Has, Sink};
+use crate::{Making, Unpressed};
 
 struct Made {
     device: VirtualDevice,
@@ -27,19 +28,20 @@ pub struct Uinput {
 }
 
 impl Uinput {
-    pub fn of(descriptors: &BTreeMap<String, Descriptor>) -> Result<Self, String> {
+    pub fn of(descriptors: &BTreeMap<String, Descriptor>) -> Result<Self, Unpressed> {
         descriptors
             .iter()
             .map(|(role, descriptor)| built(descriptor).map(|made| (role.clone(), made)))
-            .collect::<Result<BTreeMap<String, Made>, String>>()
+            .collect::<Result<BTreeMap<String, Made>, Unpressed>>()
             .map(|made| Uinput { made })
     }
 }
 
-fn built(descriptor: &Descriptor) -> Result<Made, String> {
-    let fault = |what: &'static str| move |e: std::io::Error| format!("{what}: {e}");
+fn built(descriptor: &Descriptor) -> Result<Made, Unpressed> {
+    let fault = |making: Making| move |e: std::io::Error| Unpressed::Unmade(making, e);
 
-    let phys = CString::new(descriptor.phys.as_str()).map_err(|_| "a phys with a nul in it")?;
+    let phys =
+        CString::new(descriptor.phys.as_str()).map_err(|_| Unpressed::PhysHasANul)?;
     let id = InputId::new(
         BusType(descriptor.bustype),
         descriptor.vendor,
@@ -47,19 +49,19 @@ fn built(descriptor: &Descriptor) -> Result<Made, String> {
         descriptor.version,
     );
 
-    let opened = VirtualDevice::builder().map_err(fault("no way in to /dev/uinput"))?;
+    let opened = VirtualDevice::builder().map_err(fault(Making::Opening))?;
     let mut builder: VirtualDeviceBuilder = opened
         .name(&descriptor.name)
         .input_id(id)
         .with_phys(&phys)
-        .map_err(fault("a physical location"))?;
+        .map_err(fault(Making::Phys))?;
 
     match descriptor.capabilities.key.is_empty() {
         true => {},
         false => {
             let keys: AttributeSet<KeyCode> =
                 descriptor.capabilities.key.iter().map(|code| KeyCode(*code)).collect();
-            let keyed = builder.with_keys(&keys).map_err(fault("the keys"))?;
+            let keyed = builder.with_keys(&keys).map_err(fault(Making::Keys))?;
 
             builder = keyed;
         }
@@ -70,8 +72,9 @@ fn built(descriptor: &Descriptor) -> Result<Made, String> {
         false => {
             let axes: AttributeSet<RelativeAxisCode> =
                 descriptor.capabilities.rel.iter().map(|code| RelativeAxisCode(*code)).collect();
-            let with_axes =
-                builder.with_relative_axes(&axes).map_err(fault("the relative axes"))?;
+            let with_axes = builder
+                .with_relative_axes(&axes)
+                .map_err(fault(Making::RelativeAxes))?;
 
             builder = with_axes;
         }
@@ -82,7 +85,7 @@ fn built(descriptor: &Descriptor) -> Result<Made, String> {
         false => {
             let misc: AttributeSet<MiscCode> =
                 descriptor.capabilities.msc.iter().map(|code| MiscCode(*code)).collect();
-            let with_misc = builder.with_msc(&misc).map_err(fault("the misc codes"))?;
+            let with_misc = builder.with_msc(&misc).map_err(fault(Making::Misc))?;
 
             builder = with_misc;
         }
@@ -93,7 +96,9 @@ fn built(descriptor: &Descriptor) -> Result<Made, String> {
         false => {
             let props: AttributeSet<PropType> =
                 descriptor.properties.iter().map(|code| PropType(*code)).collect();
-            let with_props = builder.with_properties(&props).map_err(fault("the properties"))?;
+            let with_props = builder
+                .with_properties(&props)
+                .map_err(fault(Making::Properties))?;
 
             builder = with_props;
         }
@@ -104,19 +109,16 @@ fn built(descriptor: &Descriptor) -> Result<Made, String> {
             AbsoluteAxisCode(axis.code),
             AbsInfo::new(0, axis.min, axis.max, axis.fuzz, axis.flat, axis.resolution),
         );
-        let with_axis = builder.with_absolute_axis(&setup).map_err(fault("an axis"))?;
+        let with_axis = builder.with_absolute_axis(&setup).map_err(fault(Making::Axis))?;
 
         builder = with_axis;
     }
 
-    let mut device = builder.build().map_err(fault("the device would not build"))?;
+    let mut device = builder.build().map_err(fault(Making::Building))?;
     let mut nodes = device
         .enumerate_dev_nodes_blocking()
-        .map_err(fault("the device's nodes would not be listed"))?;
-    let first = nodes
-        .next()
-        .transpose()
-        .map_err(fault("the device's node would not be read"))?;
+        .map_err(fault(Making::Listing))?;
+    let first = nodes.next().transpose().map_err(fault(Making::Reading))?;
     let path = first.map(|node| node.display().to_string());
     Ok(Made { device, path, frame: Vec::new() })
 }

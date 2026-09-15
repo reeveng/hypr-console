@@ -30,12 +30,14 @@
 //! screenshot taken seconds later still has the pointer standing on whatever
 //! this stood it on.
 
+use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
+use console_core_geometry::{Point, Size};
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
 use console_input_pointer::{
-    Does, Measured, Where, approach, asked, from_the_corner, on_the_screen,
+    Does, Measured, Unsaid, Where, approach, asked, from_the_corner, on_the_screen,
 };
 use wayland_client::protocol::wl_pointer::{Axis, AxisSource, ButtonState};
 use wayland_client::protocol::{wl_output, wl_registry, wl_seat};
@@ -58,17 +60,88 @@ const PRESSED: Duration = Duration::from_millis(80);
 
 const HELD: Duration = Duration::from_millis(400);
 
-fn main() {
+fn main() -> ExitCode {
     match pointed() {
-        Ok(()) => {},
+        Ok(()) => ExitCode::SUCCESS,
         Err(fault) => {
             eprintln!("console-point: {fault}");
-            std::process::exit(1);
+
+            ExitCode::FAILURE
         },
     }
 }
 
-fn pointed() -> Result<(), String> {
+#[derive(Debug)]
+enum Unpointed {
+    Unsaid(Unsaid),
+    Undeclared(console_screen::Undeclared),
+    Onscreen(console_onscreen::Amiss),
+    NotUp(String),
+    PastTheSurface(Point<u32>, Size<u32>, String),
+    OffTheScreen(Point<u32>, Size<u32>),
+    NoCompositor(wayland_client::ConnectError),
+    Unsized(wayland_client::DispatchError),
+    NoManager,
+    Unasked(wayland_client::backend::WaylandError),
+    Unwritten(wayland_client::backend::WaylandError),
+}
+
+impl std::fmt::Display for Unpointed {
+    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Unpointed::Unsaid(fault) => write!(to, "{fault}"),
+            Unpointed::Undeclared(fault) => write!(to, "{fault}"),
+            Unpointed::Onscreen(fault) => write!(to, "{fault}"),
+            Unpointed::NotUp(namespace) => write!(
+                to,
+                "nothing called {namespace} is on the screen, so there is no corner to measure from"
+            ),
+            Unpointed::PastTheSurface(at, room, namespace) => write!(
+                to,
+                "({}, {}) is past the {}x{} of {namespace}",
+                at.across, at.down, room.wide, room.tall
+            ),
+            Unpointed::OffTheScreen(at, room) => write!(
+                to,
+                "({}, {}) is not on a {}x{} screen",
+                at.across, at.down, room.wide, room.tall
+            ),
+            Unpointed::NoCompositor(fault) => write!(to, "no compositor to point at: {fault}"),
+            Unpointed::Unsized(fault) => {
+                write!(to, "the compositor said nothing about itself: {fault}")
+            }
+            Unpointed::NoManager => write!(
+                to,
+                "this compositor publishes no zwlr_virtual_pointer_manager_v1, \
+                 so nothing but a hand can move its pointer"
+            ),
+            Unpointed::Unasked(fault) => write!(to, "the pointer could not be asked for: {fault}"),
+            Unpointed::Unwritten(fault) => write!(to, "writing to the compositor: {fault}"),
+        }
+    }
+}
+
+impl std::error::Error for Unpointed {}
+
+impl From<Unsaid> for Unpointed {
+    fn from(fault: Unsaid) -> Self {
+        Unpointed::Unsaid(fault)
+    }
+}
+
+impl From<console_screen::Undeclared> for Unpointed {
+    fn from(fault: console_screen::Undeclared) -> Self {
+        Unpointed::Undeclared(fault)
+    }
+}
+
+impl From<console_onscreen::Amiss> for Unpointed {
+    fn from(fault: console_onscreen::Amiss) -> Self {
+        Unpointed::Onscreen(fault)
+    }
+}
+
+fn pointed() -> Result<(), Unpointed> {
     let words: Vec<String> = std::env::args().skip(1).collect();
     let asked = asked(&words)?;
     let at = match &asked.measured {
@@ -83,7 +156,7 @@ fn pointed() -> Result<(), String> {
     match standing {
         Where::OnTheScreen => {},
         Where::OffIt => {
-            return Err(format!("({}, {}) is not on a {}x{} screen", at.0, at.1, room.0, room.1));
+            return Err(Unpointed::OffTheScreen(at, room));
         },
     }
 
@@ -118,29 +191,29 @@ fn pointed() -> Result<(), String> {
     Ok(())
 }
 
-fn in_the_surface(at: (u32, u32), namespace: &str) -> Result<(u32, u32), String> {
+fn in_the_surface(at: Point<u32>, namespace: &str) -> Result<Point<u32>, Unpointed> {
     let screens = console_onscreen::screens()?;
     let Ok(drawn) = console_onscreen::standing(&screens, namespace);
 
-    let standing = drawn.ok_or(format!(
-        "nothing called {namespace} is on the screen, so there is no corner to measure from"
-    ))?;
+    let standing = drawn.ok_or_else(|| Unpointed::NotUp(namespace.to_string()))?;
 
     let Ok(wide) = fitted::<i64, u32>(standing.wide);
     let Ok(tall) = fitted::<i64, u32>(standing.tall);
-    let Ok(inside) = on_the_screen(at, (wide, tall));
+    let Ok(inside) = on_the_screen(at, Size { wide, tall });
 
     match inside {
         Where::OnTheScreen => {},
         Where::OffIt => {
-            return Err(format!(
-                "({}, {}) is past the {wide}x{tall} of {namespace}",
-                at.0, at.1
+            return Err(Unpointed::PastTheSurface(
+                at,
+                Size { wide, tall },
+                namespace.to_string(),
             ));
         },
     }
 
-    from_the_corner(at, (standing.across, standing.down))
+    from_the_corner(at, Point { across: standing.across, down: standing.down })
+        .map_err(Unpointed::Unsaid)
 }
 
 #[derive(Default)]
@@ -149,28 +222,25 @@ struct Found {
     sizes: Option<ZxdgOutputManagerV1>,
     seat: Option<wl_seat::WlSeat>,
     screen: Option<wl_output::WlOutput>,
-    room: Option<(u32, u32)>,
+    room: Option<Size<u32>>,
 }
 
 struct Pointer {
     connection: Connection,
     said: ZwlrVirtualPointerV1,
-    room: (u32, u32),
+    room: Size<u32>,
     since: Instant,
 }
 
 impl Pointer {
-    fn new() -> Result<Pointer, String> {
-        let connection = Connection::connect_to_env()
-            .map_err(|fault| format!("no compositor to point at: {fault}"))?;
+    fn new() -> Result<Pointer, Unpointed> {
+        let connection = Connection::connect_to_env().map_err(Unpointed::NoCompositor)?;
         let mut queue = connection.new_event_queue();
         let handle = queue.handle();
         let _registry = connection.display().get_registry(&handle, ());
 
         let mut found = Found::default();
-        queue
-            .roundtrip(&mut found)
-            .map_err(|fault| format!("the compositor said nothing about itself: {fault}"))?;
+        queue.roundtrip(&mut found).map_err(Unpointed::Unsized)?;
 
         let asking = (found.sizes.as_ref(), found.screen.as_ref());
 
@@ -198,10 +268,7 @@ impl Pointer {
             },
         };
 
-        let manager = found.manager.ok_or(
-            "this compositor publishes no zwlr_virtual_pointer_manager_v1, \
-             so nothing but a hand can move its pointer",
-        )?;
+        let manager = found.manager.ok_or(Unpointed::NoManager)?;
         let said = manager.create_virtual_pointer_with_output(
             found.seat.as_ref(),
             found.screen.as_ref(),
@@ -209,9 +276,7 @@ impl Pointer {
             (),
         );
 
-        connection
-            .flush()
-            .map_err(|fault| format!("the pointer could not be asked for: {fault}"))?;
+        connection.flush().map_err(Unpointed::Unasked)?;
 
         Ok(Pointer { connection, said, room, since: Instant::now() })
     }
@@ -220,20 +285,20 @@ impl Pointer {
         fitted(self.since.elapsed().as_millis())
     }
 
-    fn flush(&self) -> Result<(), String> {
-        self.connection.flush().map_err(|fault| format!("writing to the compositor: {fault}"))
+    fn flush(&self) -> Result<(), Unpointed> {
+        self.connection.flush().map_err(Unpointed::Unwritten)
     }
 
-    fn to(&self, at: (u32, u32)) -> Result<(), String> {
+    fn to(&self, at: Point<u32>) -> Result<(), Unpointed> {
         let Ok(now) = self.now();
 
-        self.said.motion_absolute(now, at.0, at.1, self.room.0, self.room.1);
+        self.said.motion_absolute(now, at.across, at.down, self.room.wide, self.room.tall);
         self.said.frame();
 
         self.flush()
     }
 
-    fn click(&self) -> Result<(), String> {
+    fn click(&self) -> Result<(), Unpointed> {
         let Ok(pressed) = self.now();
 
         self.said.button(pressed, BTN_LEFT, ButtonState::Pressed);
@@ -257,7 +322,7 @@ impl Pointer {
         self.flush()
     }
 
-    fn scroll(&self, notches: i32) -> Result<(), String> {
+    fn scroll(&self, notches: i32) -> Result<(), Unpointed> {
         let far = f64::from(notches) * NOTCH;
         let Ok(now) = self.now();
 
@@ -316,7 +381,7 @@ impl Dispatch<ZxdgOutputV1, ()> for Found {
         let Ok(wide) = fitted(width);
         let Ok(tall) = fitted(height);
 
-        found.room = Some((wide, tall));
+        found.room = Some(Size { wide, tall });
     }
 }
 

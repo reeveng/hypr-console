@@ -19,6 +19,17 @@
 //! as 41 "Gamepad:Button:South" "Gamepad:Button:LeftPaddle1" "Gyroscope:Center" ...
 //! ```
 //!
+//! There is one question the other way round, and `pad` is it: whether this
+//! machine has a pad at all. The bus cannot answer that one, because a machine
+//! with no pad has no composite device for InputPlumber to build and nothing
+//! for a caller to ask -- so a program that asks anyway waits out its whole
+//! patience for an answer that was never coming. The kernel's list says it
+//! before any bus is up, by the bits udev reads for the same word:
+//! `BTN_JOYSTICK` through `BTN_THUMBR`, which is `0x120` to `0x13f` and so the
+//! top half of the fifth word of a key bitmap counted from the low end. That is
+//! a question about whether a thing is there rather than about what it can
+//! send, which is why it is not the mistake above.
+//!
 //! Nothing here opens a bus or reads a file. What was said is handed in, so
 //! every rule can be asked of a machine that is not in the room -- including
 //! the machine this desktop has never run on, which is the one that matters.
@@ -88,11 +99,17 @@ pub struct Front {
     pub touchscreen: Option<bool>,
 }
 
-impl Front {
-    pub fn of(said: &str, devices: &str) -> Result<Self, Never> {
-        let capabilities = capabilities(said)?;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Read<'a> {
+    pub said: &'a str,
+    pub devices: &'a str,
+}
 
-        let touchscreen = touchscreen(devices)?;
+impl Front {
+    pub fn of(read: Read<'_>) -> Result<Self, Never> {
+        let capabilities = capabilities(read.said)?;
+
+        let touchscreen = touchscreen(read.devices)?;
 
         Ok(Front { capabilities, touchscreen })
     }
@@ -195,6 +212,58 @@ pub fn touchscreen(devices: &str) -> Result<Option<bool>, Never> {
 
 const DIRECT: u64 = 1 << 1;
 
+pub fn pad(devices: &str) -> Result<Option<Has>, Never> {
+    match devices.trim().is_empty() {
+        true => return Ok(None),
+        false => {},
+    }
+
+    let mut unreadable = false;
+
+    for line in devices.lines() {
+        let buttons = buttons(line)?;
+
+        match buttons {
+            Buttons::Bits(bits) if bits & PAD != 0 => return Ok(Some(Has::Yes)),
+            Buttons::Unreadable => unreadable = true,
+            Buttons::Bits(_) | Buttons::Below | Buttons::Elsewhere => {},
+        }
+    }
+
+    Ok(match unreadable {
+        true => None,
+        false => Some(Has::No),
+    })
+}
+
+const PAD: u64 = 0xffff_ffff_0000_0000;
+
+const WORD: usize = 4;
+
+enum Buttons {
+    Elsewhere,
+    Unreadable,
+    Below,
+    Bits(u64),
+}
+
+fn buttons(line: &str) -> Result<Buttons, Never> {
+    let bitmap = match line.strip_prefix("B: KEY=") {
+        Some(bitmap) => bitmap,
+        None => return Ok(Buttons::Elsewhere),
+    };
+
+    let word = match bitmap.split_whitespace().rev().nth(WORD) {
+        Some(word) => word,
+        None => return Ok(Buttons::Below),
+    };
+
+    Ok(match u64::from_str_radix(word, 16) {
+        Ok(bits) => Buttons::Bits(bits),
+        Err(_) => Buttons::Unreadable,
+    })
+}
+
 enum Properties {
     Elsewhere,
     Unreadable,
@@ -243,7 +312,7 @@ B: ABS=10000000003
 
     #[test]
     fn what_the_machine_said_is_read_as_what_it_has() {
-        let front = ok(Front::of(SAID, LISTED));
+        let front = ok(Front::of(Read { said: SAID, devices: LISTED }));
         let has = front.capabilities.expect("it answered");
         assert!(has.contains("Gamepad:Button:LeftPaddle1"));
         assert!(has.contains("Gamepad:Axis:LeftStick"));
@@ -252,7 +321,7 @@ B: ABS=10000000003
 
     #[test]
     fn a_button_this_machine_cannot_send_is_the_one_that_comes_back() {
-        let front = ok(Front::of(SAID, LISTED));
+        let front = ok(Front::of(Read { said: SAID, devices: LISTED }));
         assert_eq!(ok(front.missing(&["South", "RightPaddle1"])), ["RightPaddle1"]);
         assert_eq!(front.can_send("South"), Ok(Has::Yes));
         assert_eq!(front.can_send("RightPaddle1"), Ok(Has::No));
@@ -260,7 +329,7 @@ B: ABS=10000000003
 
     #[test]
     fn a_machine_that_could_not_be_asked_is_missing_nothing() {
-        let quiet = ok(Front::of("", ""));
+        let quiet = ok(Front::of(Read { said: "", devices: "" }));
         assert_eq!(quiet.capabilities, None);
         assert_eq!(quiet.touchscreen, None);
         assert!(ok(quiet.missing(&["South"])).is_empty());
@@ -274,7 +343,7 @@ B: ABS=10000000003
 
     #[test]
     fn a_button_nothing_is_bound_to_is_one_the_setup_screen_can_offer() {
-        let front = ok(Front::of(SAID, LISTED));
+        let front = ok(Front::of(Read { said: SAID, devices: LISTED }));
         let spare = ok(front.spare(&["South"]));
         assert!(spare.contains(&"Gamepad:Button:RightPaddle3".to_string()), "{spare:?}");
         assert!(!spare.contains(&"Gamepad:Button:South".to_string()), "{spare:?}");
@@ -292,6 +361,35 @@ B: ABS=10000000003
     #[test]
     fn a_kernel_that_said_nothing_is_not_a_machine_without_a_screen() {
         assert_eq!(touchscreen(""), Ok(None));
+    }
+
+    const A_PAD: &str = "\
+N: Name=\"Microsoft X-Box One Elite 2 pad\"
+P: Phys=
+H: Handlers=event14 js0
+B: PROP=0
+B: EV=20000b
+B: KEY=ff 0 0 0 0 0 0 7cdb000000000000 0 8000000000 0 0
+B: ABS=3003f
+";
+
+    #[test]
+    fn a_machine_with_a_pad_is_told_from_one_without_by_the_buttons_only_a_pad_has() {
+        assert_eq!(pad(A_PAD), Ok(Some(Has::Yes)));
+        assert_eq!(pad(LISTED), Ok(Some(Has::No)));
+    }
+
+    #[test]
+    fn a_keyboard_is_not_a_pad_however_many_keys_it_has() {
+        let keys = "B: KEY=402000007 ff803078f800d001 feffffdfffcfffff fffffffffffffffe";
+
+        assert_eq!(pad(keys), Ok(Some(Has::No)));
+    }
+
+    #[test]
+    fn a_kernel_that_said_nothing_is_not_a_machine_without_a_pad() {
+        assert_eq!(pad(""), Ok(None));
+        assert_eq!(pad("B: KEY=nonsense 0 0 0 0"), Ok(None));
     }
 
     #[test]

@@ -5,6 +5,13 @@ matters should be implicit. It is the spirit of Elixir's `{:ok, value}` put to
 Rust -- a call either says what it returns or says how it failed, and nothing
 important happens because of a `bool`, an `as`, or a panic nobody declared.
 
+The rules after 026 say the same thing about cost. A line that allocates a
+list, walks one twice over, runs a program per item or copies something in
+order to lend it is a line whose price is nowhere on it, and a price nobody
+wrote down is a decision nobody made -- which is the complaint the first
+twenty-six make about types, arriving in the profiler instead of in the
+compiler.
+
 It is a workspace of its own, on a nightly of its own, excluded from the one
 above by `exclude = ["tools/*"]`. Lint crates link against `rustc_private`,
 which stable cannot do; `rust-toolchain.toml` pins the nightly and the
@@ -38,18 +45,108 @@ which stable cannot do; `rust-toolchain.toml` pins the nightly and the
     EXPLICIT021  no waiting on the clock; ask for the thing, and keep asking
     EXPLICIT022  no settling on a number of seconds on the handheld; ask it
     EXPLICIT023  no `let … else`; the `match` goes in the initializer
+    EXPLICIT024  no two parameters the compiler would take in either order
+    EXPLICIT025  no number standing for a case the type does not declare
+    EXPLICIT026  an environment variable is read in the crate that owns it
+    EXPLICIT027  no collection made only to be walked again
+    EXPLICIT028  no list searched from inside a loop
+    EXPLICIT029  no program run and no file read from inside a loop
+    EXPLICIT030  no copy allocated only so a borrow of it can be handed over
+    EXPLICIT031  no list walked by counting to its length
+    EXPLICIT032  no iterator walked to its end to answer a yes or a no
+    EXPLICIT033  no `None` answered by a value nobody wrote down
+    EXPLICIT034  an answer that is the point of a call says `#[must_use]`
+    EXPLICIT035  a thread's lifetime is said where the thread is started
+    EXPLICIT036  no program named by a string literal
+    EXPLICIT037  no number laid out in the machine's own byte order
+    EXPLICIT038  a fault is a type, not a sentence
+    EXPLICIT039  the clock is read at the edge and handed inward
+    EXPLICIT040  a file is written whole or not at all
+    EXPLICIT041  a program written to the contract says what it prints
+    EXPLICIT042  a program ends by returning from `main`
+    EXPLICIT043  a topic listened to is a topic deafened
+    EXPLICIT044  a function decides from what it was handed
 
 All of them are written. Each is one crate with a `ui/` case beside it.
 
-The level in the lint's own source says which tier a rule is in, and every rule
-here is `Deny`: the gate fails on every one of them and the warned tier is
-empty. It is not abolished -- it is where a rule written ahead of the code
-waits, printing its remaining distance on every run so it is never out of
-sight -- but nothing stands there, and a rule that arrives with call sites
-still breaking it is the only thing that will put anything there again. A rule
-moves from `Warn` to `Deny` in its own crate when the last call site that broke
-it is fixed, and by the ratchet's one law it never moves back. 023 was the last
-out and went the way 019 did, by sweep; before it, 022 came out on a change to
+The level in the lint's own source says which tier a rule is in. A `Deny` rule
+fails the gate; a `Warn` rule is one written ahead of the code, printing its
+remaining distance on every run so it is never out of sight. A rule moves from
+`Warn` to `Deny` in its own crate when the last call site that broke it is
+fixed, and by the ratchet's one law it never moves back.
+
+No rule stands warned. 039, 040, 041 and 044 arrived there together, which is
+the state this README said the suite would be found in the moment somebody
+wrote the next rule, and they have all come out; 042 and 043 came in denied
+beside them, 042 with the tree breaking it in a handful of binaries, all of
+them an error arm at the end of a `main`, and 043 green, which makes it the
+third ratchet after 034 and 037. Of what came after 023, 025 and three of the
+five after 033 also arrived denied, and the others arrived with the tree
+breaking them -- which is the thing this README used to say would be the only
+way to put anything back in that tier, and it was right. None of them was one
+sweep: some of what they found wanted moving, and some of it wanted a sentence
+at the site saying why it is where it is, and the rule was doing its work
+either way. Neither answer is available to somebody who cannot see the list,
+which is what the tier is for.
+
+The four came out together and each one came out the same shape: where somebody
+at the edge could hold the answer, it moved there and became a parameter, and
+where the process really is the only thing that can hold it, the site carries
+the allow and EXPLICIT018 makes the reason say why. 040 was the largest by a
+long way and the least argued-with -- nearly every site was one call and two
+words -- and the two that were more than that are worth knowing: the session
+that decides what comes back after a reboot was streamed into an open file a
+line at a time and is now built whole and written once, and the add-on packer
+had written its own beside-and-rename with neither `fsync`, which is the half of
+the argument `console-core-atomic-writes` was written for. 044 found a fifth
+crate quietly deciding what marks the top of this tree, and it now asks
+`console_repository` like the other four. Each rule's own head says what it
+found and what carries its allows.
+
+038 was the last one standing there before these, and the largest arrival since
+019: not a sweep at all but an enum per crate naming the ways its calls fail,
+with every call site moved onto it. 024 went the same way before it, a run of
+new types rather than a sweep.
+
+039 to 044 arrived together and are one argument, the way 026 to 032 were. The
+rules before them are about what a call says it returns and how it says it
+failed. These are about the third thing a call has and never writes down: what
+it needs in order to run at all. A function that reads the clock, opens the live
+file, prints beside its own contract or reaches into a value the whole process
+shares has an input nothing handed it, and the tree's answer at every site that
+already got this right is the same one -- hand it in. 041 narrowed twice on its
+readings of the tree, the way 029 narrowed to programs on its own: first to
+stdout, because what it found on stderr was almost all a fault or a usage line
+going to the journal, which is where EXPLICIT038 already sends one; then to the
+crates that name the doings rather than the crates that name the contract at
+all, because what was left was mostly `Topic` in a bar module whose whole output
+is one line down a pipe. `console-cpu-boost`
+decides nothing from the clock because `asked(now)` takes the instant and the
+binary does the reading; `console-core-atomic-writes` is where a file is written
+whole; `Doing::Print` is on the list a program hands back. What the rules do is
+stop the other spelling.
+
+042 and 043 are the two ends of that. 042 is a program leaving without
+unwinding, which drops nothing and so keeps nothing's promise -- a child started
+`Alongside` is killed by a `Drop` and by nothing else. 043 is the one obligation
+here a single line cannot answer, because its two halves are in two places on
+purpose, so it asks the crate rather than the call and says in its own head why
+that is weaker than the type it is standing in for. `todos.md` carries the rest
+of that argument.
+
+028 and 029 grew a half at the same time and for the same reason. Both stopped
+climbing at a closure, which meant `wanted.iter().filter(|one| held.contains(one))`
+and `named.iter().map(|one| Command::new(one))` were the loop each rule is
+against, spelled as a word, getting past. They now ask what the closure was
+handed to: the iterator words that run a body once per item carry the climb over
+the list they were called on, and the families that share those words and run
+once -- `Option::map` and its kin -- are told apart by the receiver rather than
+by the word. What that found in a tree where both rules were already green was a
+run of real ones and rather more that wanted a sentence saying the list is a
+handful, which is the shape every arrival here has had.
+
+Of the rules that came out, 023 was the last, and it went the way 019 did, by
+sweep; before it, 022 came out on a change to
 what a wait may carry rather than a change to any check: `until` now carries
 the fault its question carries, so a question that reads the screen is one a
 wait can be given.
@@ -369,6 +466,19 @@ Every allow in the tree is one of these, and each carries its reason:
     which changes how a running process is asked to go away and wants deciding
     on its own rather than inside a lint sweep.
 
+  - **`console-core-words`' derive.** EXPLICIT002. A derive answers the
+    compiler in token streams, and a `Result` does not cross that boundary any
+    more than it crosses an `extern` one -- which is the exemption this rule
+    already writes for itself, arrived at by a road none of its four kinds
+    names. `#[proc_macro_derive]` decides the signature, so there is nothing to
+    choose here, and a derive that cannot do what it was asked says so in a
+    `compile_error!` where somebody reading the build will see it rather than in
+    an `Err` with no caller to meet it. It is the one function in the tree that
+    is reached this way, which is why the exemption is written here rather than
+    into the lint: a `proc_macro_derive` cannot be spelled in a `ui/` case,
+    because it is only a derive inside a crate that is one, and a branch in a
+    lint that no case presses is worse than an allow that says what it is for.
+
   - **The waits.** EXPLICIT021, and there are more of these than of anything
     else, because the rule is the only one in the suite whose exception is a
     whole category rather than an accident. Each is a site where a duration is
@@ -440,9 +550,10 @@ past the check, which buys notation and still needs the allow.
 ## What an error says
 
 EXPLICIT001 and EXPLICIT006 both end the same way: a call that used to swallow
-a failure has to say what happened instead. The error is a `String`, so what it
-says is a sentence somebody reads in a journal rather than a type a compiler
-checks. Three things about that sentence are not the call site's own choice,
+a failure has to say what happened instead. The error is a type of the crate's own now, so what it says is a sentence
+somebody reads in a journal
+rather than a type a compiler checks -- which is what EXPLICIT038 walked the
+tree out of, and the last sub-section here is what that does to this one. Three things about that sentence are not the call site's own choice,
 and each is written here because it was got wrong first.
 
 ### A fallback is not a failure, and the rule cannot tell them apart
@@ -470,7 +581,7 @@ So the rule does not ask for a `Result`. It asks that the failure be met, and a
     let home = match std::env::var("HOME") {
         Ok(home) => Some(home),
         Err(fault) => {
-            eprintln!("stick-scroll: HOME: {fault}; no button anybody moved will be read");
+            eprintln!("controller-desktop: HOME: {fault}; no button anybody moved will be read");
             None
         }
     };
@@ -539,6 +650,24 @@ So a helper of this kind stays in the crate whose policy it carries. What is
 shared is this page: the grammar of the sentence, and the question in the first
 section that every site has to answer for itself.
 
+### And then 038 reopened the first sentence of this section
+
+"The error is a `String`" was the standing answer when 001 and 006 were
+written, and EXPLICIT038 is the argument that it should not be. Nothing above
+is withdrawn: every word of it is about the *wording* of a fault, and the
+wording is exactly what survives the change. An enum naming the ways one call
+can fail, with `Display` on it, says the same sentence into the same journal --
+what it adds is that the caller reading it is no longer the only thing that can
+act on it.
+
+The three sub-sections keep their jobs and gain a place to live. The purpose
+rather than the mechanism is what the `Display` arm spells. The helper that
+folds two faults into one answer becomes the `From` that turns somebody else's
+fault into one of this crate's own cases, in the crate whose policy it is, for
+the same reason it could not be shared before. And the question in the first
+section -- what should this program do on a machine where this is missing --
+is the one a variant is a name for.
+
 ## Where clippy disagrees
 
 Two of these rules contradict a clippy lint, and `just ready` runs clippy with
@@ -592,11 +721,251 @@ Exempting it would also cut the rule along a line nobody can see from the file:
 `tests/the_tree.rs` is a test build and a `#[cfg(test)] mod` inside a library is
 not, so the same comment would be legal in one and not in the other.
 
+## The nine that came after, and the half of them that are about cost
+
+024, 025 and 026 are the suite finishing an argument `todos.md` had been
+keeping for it. Each is a thing a signature cannot say: 024 that two quantities
+are not the same quantity, 025 that a number is standing for a case the type
+does not have, 026 that a name read out of the air belongs to somebody. All
+three are the same complaint the first twenty-three make -- something that
+matters is not written down -- reaching one step further out each time, from
+what a function returns, to what it takes, to where it got what it takes from.
+
+**024** is the largest of the three and the largest arrival since 019. What it
+asks is narrow enough to decide off a signature: no two parameters the compiler
+would accept in either order, over bare representations only. What it cost was
+a type for every quantity this tree actually has, and nobody had counted that
+before the rule existed to count it. Geometry was the worst of it, and
+`oklch_to_rgb(lightness, chroma, hue)` was the shape of the whole problem in one
+line -- three `f64` in an order that is right because somebody remembered it.
+`console-core-geometry` is what came out of the largest half: a place and a size
+had been written out in about fifteen crates, and one `Point { across, down }`
+and one `Size { wide, tall }` answer for all of them. The rest went a family at
+a time rather than a function at a time, because the same pair kept arriving --
+a summary and a body, an old name and a new one, a heading and a key -- and a
+type per function would have been a type nobody could name twice.
+
+**025** arrived denied, which almost nothing does. The tree was already keeping
+it, and 015 is why: a rule that makes arithmetic name its policy sends every
+clamp to `saturating_*` and leaves nowhere for a hand-written `MAX` to be.
+
+**026** is the format rule said about ambient state. A `.desktop` file is read
+in one crate and `desktop.conf` in another because a second reading of one
+thing drifts quietly; a variable read from the environment is the same shape
+with less ceremony, and `console-core-places` exists because two crates once
+answered `/root` for `HOME` and neither of them said so. The rule denies the
+call and lets the owning crate carry the allow, which makes the set of owners
+greppable -- and makes a second crate wanting the same name come and take the
+allow off the first one.
+
+Then 027 through 032, which are about what a line costs rather than what it
+says. The suite's sentence still holds and only the noun changes: an allocation
+nobody wrote down, a walk nobody wrote down, a process nobody wrote down. The
+harm has the shape 016's has -- it is invisible while the list is short, and
+the day the list is not short there is nothing to notice, because the code
+still reads exactly as it did.
+
+**027** is the pair of words that cancel. `.collect()` followed by `.iter()`
+allocates a list to do what the iterator it was made from was already doing.
+Two shapes: chained, where the collection is a temporary and nothing else can
+possibly be looking at it, and bound, where a `let` is used once and used to
+walk. The bound half is asked narrowly on purpose -- a list walked twice, or
+walked inside a loop, is saving the work rather than wasting it, and both of
+those are common and right.
+
+**028** is the accidental square: a list searched from inside a loop over
+another list. The first sweep of it wrote the sentence rather than the fix at
+most of its sites -- a handful of open menus, a handful of networks in range --
+and the sentence was wrong at every one of them, because a handful is what a
+list is on the day somebody writes the allow and not on the day it matters.
+There are no allows on it now. What the sites turned into is the argument for
+the rule: a `BTreeSet` beside the list where the order of the list is the
+answer, an `entry` on a `BTreeMap` where the walk was really grouping and the
+search falls away with it, `Path::ancestors` where the walk was really a prefix
+test. Two things it does not ask about, and both are why the rest is
+believable: a table whose length was typed out, and a list made inside the loop
+that walks it -- built and walked once per turn, which is one pass rather than
+a square.
+
+**029** is the same multiplication where this device actually pays for it: a
+started program, which is a fork and an exec, and is one short word inside a
+loop. `console-compositor` will say what every window is in a single reply, and
+the loop belongs on the far side of that reply. It was written asking after
+files too and that half was taken back out, because a read is microseconds and
+almost every file this tree opens in a loop is genuinely one file per item --
+sysfs keeps one file per core, and a rule that is four-fifths allow is
+paperwork rather than a rule.
+
+**030** is what a borrow-checker complaint turns into when the fix was a guess.
+`f(&held.clone())` allocates a copy so it can lend a borrow of it, and `&held`
+was already that borrow. It is asked only where the copy and the thing are the
+same type once references are peeled, which is where `&held` is exactly what
+was meant. What it found is worth reading rather than deleting: a copy lent to
+one argument of a call whose next argument moves the original is a copy the
+compiler asked for, and that is the site's allow.
+
+**031** is the shape 014 left behind. Stock clippy's `needless_range_loop`
+fires where a counter is used to index, and indexing is denied here -- so what
+`for at in 0..held.len()` turns into in this tree is `held.get(at)` and a
+`None` arm that cannot happen, which clippy reads as a counter used for
+something and leaves alone. `iter()` says the walk with the item as its
+subject, and takes `enumerate` where the position is really wanted.
+
+**032** is a whole walk spent on one bit. `Iterator::count` consumes to the end
+by definition, and the definition is the part nobody reads: compared against
+nothing or one it is a question about emptiness wearing a number, and `.any(…)`
+and `.next().is_some()` stop at the element that answers it. A `len` is a field
+rather than a walk and is not asked about here -- stock clippy's `len_zero` is
+on in this workspace and has the rest of what there is to say.
+
+None of the six is a rule stock clippy already keeps. `needless_collect` and
+`redundant_clone` are nursery and off; `format_push_string` is restriction;
+`needless_range_loop` is on and does not reach the shape 014 produces. What is
+on is on, and this suite does not repeat it.
+
+**033** is 001 said about an `Option`, and it is the last of the family 004
+started. 004 took `unwrap` and `expect`, the two that announce themselves by
+crashing. 001 took `unwrap_or`, `unwrap_or_else` and `unwrap_or_default` over a
+`Result`, where what is swallowed is somebody else's error. What was left was
+the same three methods over an `Option`, where there is no error to swallow and
+the fault is the quietest of the four: a `None` meant something, and the line
+answers it with a value that is either a sentinel -- 025's fault, reached by a
+different road -- or, with `unwrap_or_default()`, not written down at all. The
+reader has to know the type to know whether the machine just ran on an empty
+string, a zero, a false or an empty list, and a type that changes under the line
+changes the answer without touching it.
+
+It arrived denied, and the tree broke it in three hundred and eight places, in
+thirty-eight crates. What those sites turned into is the argument for the rule,
+because they were not all one thing:
+
+  - most were a `match` with both arms and the chosen value written at the call
+    site, often beside a named constant -- `NEVER_OPENED`, `NOTHING_SAID`,
+    `THE_FIRST_PAGE` -- which is the whole of what the rule asks for;
+  - a few were a real fault wearing a default. `console-browser-extension` wrote
+    a file called `file` beside a path that had no file name, and
+    `console-manifest-engine` staged and kept one the same way; both now refuse,
+    and `laying::staged` hands back an `Option` so the caller has to;
+  - three shapes were the same answer written out in several crates, and the
+    rule is what made that visible. `Option::unwrap_or` cannot be deleted from
+    seven crates stepping round a list without somebody deciding what an empty
+    list means, so `console-core-walking` decides it once;
+    `without_a_comment` joined `console-core-ini-files`, whose business a
+    comment already was; and the evdev device description that
+    `console-input-gamepad::finding` owns had been copied into two other
+    binaries, which now call it.
+
+`ok`, `is_ok` and `is_err` are 001's and are not repeated here. `ok_or` and
+`ok_or_else` are not asked about at all: turning an absence into a fault is
+naming it, which is one of the two things this rule wants.
+
+015 changed to let the largest of those families out honestly. `/` and `%` by a
+`NonZero` are no longer bare arithmetic, because division has exactly one
+failure and that type is the proof it cannot happen -- so
+`checked_rem(many).unwrap_or(0)`, which used to be the only spelling 015
+allowed, is now `at % many` over a `NonZeroUsize` built once, where the decision
+about an empty list is made out loud instead of at every division downstream of
+it. It is the one place in the suite where a policy is a type rather than a
+method, and it is there because a type can carry a proof a method call cannot.
+
+## The five that came out of somebody else's list
+
+034 through 038 were read off a taxonomy written for C++ -- clang-tidy's
+`performance-*`, `bugprone-*`, `concurrency-*`, `portability-*` families and a
+list of architectural rules under them. Most of it was already answered here or
+is a fault the borrow checker will not let anybody have, and what was left was
+five questions this tree could be asked and had not been. Two of the five came
+back with call sites, one came back with a number, and two came back green,
+which is the ratchet working rather than five rules landing at once.
+
+**035 is `concurrency011`, and it is `console-program-lifetime`'s own argument
+finished.** That crate exists because a panel leaked sixty-five `pactl
+subscribe` processes, and its answer is that a caller has to say whether what it
+started dies with it or outlives it. Threads were never asked the same question,
+so every listener in the tree was started with `let _ = std::thread::spawn(...)`
+-- the handle dropped on the line that made it, nothing able to ask whether the
+thread was still running, and nothing at the site saying whether outliving its
+starter was the point or an oversight.
+
+Only half the answer carries over, and the half that does not is why the word
+matters more here. A child can be ended from outside, so `Alongside` does
+something as well as saying something; a thread cannot be, so a caller that is
+waiting on one holds the handle and joins it, and a caller that is not has
+nothing to hold. `console_program_lifetime::threads::let_go` is that second case
+said out loud: it takes the handle, takes only a thread that answers nothing,
+and drops it. The same drop, with a word on it.
+
+One site keeps the rule allowed and is the reason the allow test reads the way
+it does. `console_core_reconnect::keep` *is* the thread -- the crate is a
+subscription made again for as long as somebody wants one -- so the harm the
+rule names, that nothing says how long this runs, is absent at the one site
+where the function's own name says it.
+
+**036 is `architecture008`, and it turns a scan into a question.** A program
+this desktop runs and did not write has been a variant of
+`console_core_external_programs::Program` for a while, crossed against
+`[packages]` by a test; what held the rule was a scan of the source for a
+string literal at the front of an argv, which is a net, and the README of that
+crate already says what is wrong with nets. The lint asks the compiler instead:
+`Command::new` with a literal, wherever it is spelled and whatever the type is
+imported as.
+
+What the sweep found was the half nobody had looked at. Every literal left in
+the tree was one of *our own* programs -- `console-say`, `panel-pictures`,
+`console-dictate` -- which are on the device only because `desktop.conf`'s
+`[build]` names them, and were therefore exactly the same unchecked claim the
+foreign ones had stopped being. `console-core-our-programs` is the other list,
+crossed against `[build]` by the test beside the one that crosses `[packages]`.
+It also resolves: a program of ours is looked for beside the binary that is
+running before it is looked for on `PATH`, because a nested desktop runs what
+was staged for it and three crates had written that walk out separately.
+
+**034 is `api012` and 037 is `portability002`, and both arrived green.** 034
+asks that a function which hands back a value and changes nothing say
+`#[must_use]`, so that EXPLICIT009 can see a caller throwing the answer away;
+it found one site in the tree, a proc-macro entry point whose shape belongs to
+the compiler, and that is now one of the four kinds of signature it does not
+ask about. The reason there was nothing else is 002: every function here goes
+through `Result`, and `Result` carries the attribute itself. 037 denies
+`to_ne_bytes` and `from_ne_bytes`, which are the one property of a layout that
+is nowhere in the line that writes it; `console-bus` reads a byte order out of
+the first byte of a D-Bus header and has never reached for the native one.
+
+Neither of those two is a rule the tree earned by breaking it, and both are
+worth the file anyway: what they cost is a paragraph, and what they buy is that
+the day somebody writes the spelling that looks like it means "no conversion",
+the gate is already there. That is a different thing from the warned tier,
+which is for a rule the tree is walking towards.
+
+**038 is the suite arguing with itself, and it was the last rule with a
+distance.**
+001 makes sure a failure met is a failure said. 002 puts every function through
+a `Result` so a caller's shape does not change when the thing it calls learns
+how to fail. 005 makes sure the answer is met. Then what arrives is a `String`,
+and a caller that met it can do exactly one thing with it, which is show it to
+somebody: "the socket is not there" and "this desktop may not read it" reach
+the same arm, nothing can retry one and give up on the other, and a fault
+carried up through two crates is a sentence the second one is guessing the
+wording of.
+
+It stood warned while that was walked back, which is what that tier is for, and
+the distance was most of the crates in the tree. `Wire`, `Torn` and `Why` were
+what the answer looked like where it was already written -- an enum naming the
+ways one call fails, `Display` on the enum so the words are written once, `From`
+where a fault crosses a crate boundary and becomes one of the receiving crate's
+own cases. Every other crate has one now: `Unwritten` for the four steps of a
+write, `Unpressed` for everything a press walks through, `Awry` for what a stage
+can see, `Unapplied` for the ways an apply does not happen. It went a crate at a
+time, bottom-up, the way 002 went, and the sentence each fault used to print is
+the `Display` arm that replaced it -- so the journal reads as it did, and the
+caller can now ask which fault it is looking at.
+
 ## What it is, and what it is not yet
 
 `just explicit-gate` is a gate. It denies the rules that nothing in the tree
 breaks and warns the rest; which tier a rule is in is the level in its own
-crate and nowhere else. A rule moves up when the last call site that broke it
+crate and nowhere else. Nothing is in the warned tier today, which is a thing
+that is true between rules rather than a thing that is finished. A rule moves up when the last call site that broke it
 is fixed, and it never moves back. That is the whole ratchet.
 
 `just explicit` is the other half: every rule over every crate, counted rather

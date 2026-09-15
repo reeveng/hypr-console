@@ -64,8 +64,8 @@ mod tests {
 
     #[test]
     fn the_program_a_unit_runs_is_named_by_it() {
-        let unit = "[Service]\nExecStart=/usr/local/bin/stick-scroll\n";
-        assert!(named(unit).contains("/usr/local/bin/stick-scroll"));
+        let unit = "[Service]\nExecStart=/usr/local/bin/controller-desktop\n";
+        assert!(named(unit).contains("/usr/local/bin/controller-desktop"));
     }
 
     #[test]

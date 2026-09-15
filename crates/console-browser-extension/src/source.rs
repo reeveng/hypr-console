@@ -21,13 +21,21 @@ pub const FILES: [(&str, &str); 7] = [
 pub const VERSION: &str = "@version@";
 
 pub fn hosted(palette: &str) -> Result<Option<String>, Never> {
-    Ok(match palette.contains(":root") {
-        true => Some(palette.replace(":root", ":host, :root")),
-        false => None,
+    Ok(match palette.contains(":host, :root") {
+        true => Some(palette.to_string()),
+        false => match palette.contains(":root") {
+            true => Some(palette.replace(":root", ":host, :root")),
+            false => None,
+        }
     })
 }
 
-pub fn every(version: &str, palette: &str) -> Result<Vec<(String, Vec<u8>)>, Never> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Palette<'a>(pub &'a str);
+
+pub fn every(version: &str, palette: Palette<'_>) -> Result<Vec<(String, Vec<u8>)>, Never> {
+    let palette = palette.0;
+
     let mut files: Vec<(String, Vec<u8>)> = FILES
         .iter()
         .map(|(name, body)| ((*name).to_string(), body.replace(VERSION, version).into_bytes()))
@@ -60,7 +68,7 @@ mod tests {
         said
     }
 
-    fn every(version: &str, palette: &str) -> Vec<(String, Vec<u8>)> {
+    fn every(version: &str, palette: Palette<'_>) -> Vec<(String, Vec<u8>)> {
         let Ok(files) = super::every(version, palette);
 
         files
@@ -74,7 +82,7 @@ mod tests {
 
     #[test]
     fn the_version_is_filled_in_where_the_mark_is() {
-        let files = every("1.0.9", PALETTE);
+        let files = every("1.0.9", Palette(PALETTE));
         let (_, manifest) = files.iter().find(|(name, _)| name == "manifest.json").expect("it");
         let said = String::from_utf8(manifest.clone()).expect("json");
         assert!(said.contains("\"version\": \"1.0.9\""), "{said}");
@@ -89,7 +97,7 @@ mod tests {
 
     #[test]
     fn the_palette_is_packed_beside_them() {
-        let files = every("1.0.0", PALETTE);
+        let files = every("1.0.0", Palette(PALETTE));
         let (_, said) = files.iter().find(|(name, _)| name == "palette.css").expect("the palette");
         assert_eq!(said, PALETTE.as_bytes());
     }

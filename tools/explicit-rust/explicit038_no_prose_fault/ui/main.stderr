@@ -1,0 +1,27 @@
+error: this says how it failed in prose, so every way it can fail arrives as the same type
+  --> $DIR/main.rs:22:22
+   |
+LL | fn read(at: &str) -> Result<String, String> {
+   |                      ^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: name the ways this call fails in an enum, with `Display` on the enum so the words are written once, and `From` where the fault crosses into another crate. A caller can then answer one case and pass the rest on, which is the whole of what a fault is for
+   = note: `#[deny(explicit038_no_prose_fault)]` on by default
+
+error: this says how it failed in prose, so every way it can fail arrives as the same type
+  --> $DIR/main.rs:28:23
+   |
+LL | fn held(of: &[u8]) -> Result<u8, &'static str> {
+   |                       ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: name the ways this call fails in an enum, with `Display` on the enum so the words are written once, and `From` where the fault crosses into another crate. A caller can then answer one case and pass the rest on, which is the whole of what a fault is for
+
+error: this says how it failed in prose, so every way it can fail arrives as the same type
+  --> $DIR/main.rs:38:24
+   |
+LL |     fn asked(&self) -> Result<u8, String>;
+   |                        ^^^^^^^^^^^^^^^^^^
+   |
+   = help: name the ways this call fails in an enum, with `Display` on the enum so the words are written once, and `From` where the fault crosses into another crate. A caller can then answer one case and pass the rest on, which is the whole of what a fault is for
+
+error: aborting due to 3 previous errors
+

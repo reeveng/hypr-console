@@ -1,0 +1,19 @@
+error: `hyprctl` is spelled here, so nothing holds this desktop to having it
+  --> $DIR/main.rs:20:13
+   |
+LL |     let _ = Command::new("hyprctl").arg("monitors").status();
+   |             ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: a program this desktop runs and did not write is a variant of `console_core_external_programs::Program`, with the `Origin` that says where it comes from; a program of our own is on the device only because the manifest names it. Either way the name is answered for somewhere, and a literal here is answered for nowhere
+   = note: `#[deny(explicit036_no_program_by_name)]` on by default
+
+error: `console-say` is spelled here, so nothing holds this desktop to having it
+  --> $DIR/main.rs:26:13
+   |
+LL |     let _ = std::process::Command::new("console-say").arg("hello").status();
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: a program this desktop runs and did not write is a variant of `console_core_external_programs::Program`, with the `Origin` that says where it comes from; a program of our own is on the device only because the manifest names it. Either way the name is answered for somewhere, and a literal here is answered for nowhere
+
+error: aborting due to 2 previous errors
+

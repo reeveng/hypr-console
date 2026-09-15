@@ -59,39 +59,35 @@ use std::path::PathBuf;
 use std::os::unix::net::UnixDatagram;
 
 use console_core_never::Never;
+use console_core_words::Words;
 
-use crate::asked;
+use crate::Amiss;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
 pub enum Said {
+    #[words(word = "up")]
     Up,
+    #[words(word = "down")]
     Down,
+    #[words(word = "left")]
     Left,
+    #[words(word = "right")]
     Right,
+    #[words(word = "pressed")]
     Pressed,
+    #[words(word = "more")]
     More,
+    #[words(word = "back")]
     Back,
+    #[words(word = "again")]
     Again,
+    #[words(word = "carry")]
     Carry,
+    #[words(word = "off")]
     Off,
 }
 
 impl Said {
-    pub fn word(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Said::Up => "up",
-            Said::Down => "down",
-            Said::Left => "left",
-            Said::Right => "right",
-            Said::Pressed => "pressed",
-            Said::More => "more",
-            Said::Back => "back",
-            Said::Again => "again",
-            Said::Carry => "carry",
-            Said::Off => "off",
-        })
-    }
-
     pub fn read(word: &str) -> Result<Option<Said>, Never> {
         Ok(EVERY.iter().copied().find(|said| {
             let Ok(spelt) = said.word();
@@ -114,22 +110,22 @@ pub const EVERY: [Said; 10] = [
     Said::Off,
 ];
 
-pub fn homeward() -> Result<PathBuf, String> {
-    let runtime = asked("XDG_RUNTIME_DIR")?;
+pub fn homeward() -> Result<PathBuf, Amiss> {
+    let runtime = crate::runtime()?;
 
-    Ok(std::path::Path::new(&runtime).join("console").join("home.sock"))
+    Ok(runtime.join(console_core_places::OURS).join("home.sock"))
 }
 
-pub fn telling(said: Said) -> Result<(), String> {
+pub fn telling(said: Said) -> Result<(), Amiss> {
     let at = homeward()?;
-    let socket = UnixDatagram::unbound().map_err(|fault| format!("no socket to say it on: {fault}"))?;
+    let socket = UnixDatagram::unbound().map_err(Amiss::Unbound)?;
 
     let Ok(word) = said.word();
 
     socket
         .send_to(word.as_bytes(), &at)
         .map(|_| ())
-        .map_err(|fault| format!("{}: {fault}", at.display()))
+        .map_err(|fault| Amiss::Telling(at, fault))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -151,10 +147,10 @@ const AWAKE: &str = "home-awake";
 
 const CARRYING: &str = "home-carrying";
 
-fn note(named: &str) -> Result<PathBuf, String> {
-    let runtime = asked("XDG_RUNTIME_DIR")?;
+fn note(named: &str) -> Result<PathBuf, Amiss> {
+    let runtime = crate::runtime()?;
 
-    Ok(std::path::Path::new(&runtime).join("console").join(named))
+    Ok(runtime.join(console_core_places::OURS).join(named))
 }
 
 enum Note<'a> {
@@ -162,27 +158,28 @@ enum Note<'a> {
     Gone,
 }
 
-fn noting(named: &str, said: Note) -> Result<(), String> {
+fn noting(named: &str, said: Note) -> Result<(), Amiss> {
     let note = note(named)?;
 
     match note.parent() {
         Some(above) => std::fs::create_dir_all(above)
-            .map_err(|fault| format!("{}: making it: {fault}", above.display()))?,
+            .map_err(|fault| Amiss::Making(above.to_path_buf(), fault))?,
         None => {}
     }
 
     match said {
-        Note::Says(word) => std::fs::write(&note, word)
-            .map_err(|fault| format!("{}: writing it: {fault}", note.display())),
+        Note::Says(word) => {
+            console_core_atomic_writes::whole(&note, word.as_bytes()).map_err(Amiss::Writing)
+        }
         Note::Gone => match std::fs::remove_file(&note) {
             Ok(()) => Ok(()),
             Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(fault) => Err(format!("{}: removing it: {fault}", note.display())),
+            Err(fault) => Err(Amiss::Removing(note, fault)),
         },
     }
 }
 
-pub fn waking(awake: Awake) -> Result<(), String> {
+pub fn waking(awake: Awake) -> Result<(), Amiss> {
     noting(
         AWAKE,
         match awake {
@@ -207,7 +204,7 @@ impl Hand {
     }
 }
 
-pub fn carrying(hand: Hand) -> Result<(), String> {
+pub fn carrying(hand: Hand) -> Result<(), Amiss> {
     noting(
         CARRYING,
         match hand {

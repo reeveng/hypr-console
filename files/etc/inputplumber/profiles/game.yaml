@@ -7,9 +7,9 @@ description: >
   untouched: Steam and the games under it are handed a pad, and a pad is what
   they get, down to the button that leaves.
 
-  Legion left is Steam's own menu and stays Steam's. `game-return` reads the
-  same button off the pad and comes back to the desktop if it is held, which
-  is the one thing this desktop keeps while Steam is up.
+  Legion left is Steam's own menu and stays Steam's. `controller-game` reads
+  the same button off the pad and comes back to the desktop if it is held,
+  which is the one thing this desktop keeps while Steam is up.
 
   This stands where the shipped Default profile used to. It translates
   nothing, which is what Game Mode wants of it; what it is here for is naming

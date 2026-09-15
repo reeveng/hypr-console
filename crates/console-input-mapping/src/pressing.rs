@@ -9,7 +9,11 @@
 //! to overwrite one.
 //!
 //! Where the table is comes in as a word, because it is under `HOME` and this
-//! is not allowed to look.
+//! is not allowed to look. A machine that will not say whose buttons these are
+//! hands over no word at all, and that is a state of its own rather than an
+//! empty path carried around as though it were somewhere: an empty path is a
+//! write that goes nowhere and reports nothing. `Nowhere` writes nothing and
+//! the first press says why.
 
 use std::path::{Path, PathBuf};
 
@@ -29,6 +33,8 @@ pub const FIRST: &str = "--first";
 
 pub const WRITTEN: &str = "--written";
 
+pub const NOWHERE: &str = "This machine will not say whose buttons these are, so nothing can move";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Empty {
     Write,
@@ -46,6 +52,7 @@ impl Empty {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Setting {
+    Nowhere,
     Opening { at: PathBuf, empty: Empty },
     Set { at: PathBuf },
 }
@@ -72,11 +79,19 @@ impl Program for Setup {
 
     fn opening(argv: &Argv) -> Opening<Setting> {
         let Ok(after) = argv.after(TABLE);
-        let at = PathBuf::from(after.unwrap_or_default());
-        let Ok(first) = argv.given(FIRST);
-        let Ok(written) = argv.given(WRITTEN);
-        let Ok(empty) = Empty::of(first, written);
-        let Ok(opening) = Opening::holding(Setting::Opening { at, empty });
+
+        let setting = match after {
+            Some(said) => {
+                let Ok(first) = argv.given(FIRST);
+                let Ok(written) = argv.given(WRITTEN);
+                let Ok(empty) = Empty::of(first, written);
+
+                Setting::Opening { at: PathBuf::from(said), empty }
+            }
+            None => Setting::Nowhere,
+        };
+
+        let Ok(opening) = Opening::holding(setting);
 
         opening
     }
@@ -113,6 +128,10 @@ impl Program for Setup {
                 let Ok(nothing) = emptied(at);
 
                 Turn::doing(state.clone(), vec![Doing::Write(nothing)])
+            }
+
+            (Setting::Nowhere, Word::Its(_)) => {
+                Turn::doing(state.clone(), vec![Doing::Its(Its::Note(NOWHERE.to_string()))])
             }
 
             (_, _) => Turn::nothing(state.clone()),
@@ -204,6 +223,22 @@ mod tests {
             at: PathBuf::from("/somewhere"),
             what: nothing_written(),
         })));
+    }
+
+    #[test]
+    fn a_machine_that_will_not_say_whose_buttons_these_are_writes_nothing() {
+        assert!(opened(&[FIRST]).is_empty());
+        assert!(opened(&[]).is_empty());
+    }
+
+    #[test]
+    fn a_press_with_nowhere_to_write_says_so_rather_than_writing() {
+        let asked = pressing(&[FIRST], &[Heard::PutBack, Heard::Sure]);
+
+        assert_eq!(asked, vec![
+            Doing::Its(Its::Note(NOWHERE.to_string())),
+            Doing::Its(Its::Note(NOWHERE.to_string())),
+        ]);
     }
 
     #[test]

@@ -7,15 +7,28 @@
 //! is the one difference between a real pad and the one InputPlumber
 //! publishes.
 
+use std::collections::BTreeMap;
 use std::process::ExitCode;
 
 use evdev::{AbsoluteAxisCode, Device, EventType, KeyCode, MiscCode, PropType, RelativeAxisCode};
 use console_input_gamepad::capture::{Axis, Capabilities, Descriptor, ROLES};
+use console_input_gamepad::finding;
 
-fn described(device: &Device) -> Result<Descriptor, String> {
+#[derive(Debug)]
+struct Unread(std::io::Error);
+
+impl std::fmt::Display for Unread {
+    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(to, "its axes would not be read: {}", self.0)
+    }
+}
+
+impl std::error::Error for Unread {}
+
+fn described(device: &Device) -> Result<Descriptor, Unread> {
     let id = device.input_id();
     let listed = |kind: EventType| -> Vec<u16> {
-        match kind {
+        let every = match kind {
             EventType::KEY => {
                 device.supported_keys().map(|set| set.iter().map(|KeyCode(code)| code).collect())
             }
@@ -33,15 +46,19 @@ fn described(device: &Device) -> Result<Descriptor, String> {
         .map(|mut every: Vec<u16>| {
             every.sort_unstable();
             every
-        })
-        .unwrap_or_default()
+        });
+
+        match every {
+            Some(every) => every,
+            None => Vec::new(),
+        }
     };
     let mut properties: Vec<u16> =
         device.properties().iter().map(|PropType(what)| what).collect();
     properties.sort_unstable();
     let mut abs: Vec<Axis> = device
         .get_absinfo()
-        .map_err(|why| format!("its axes would not be read: {why}"))
+        .map_err(Unread)
         .map(|every| {
             every
                 .map(|(AbsoluteAxisCode(code), info)| Axis {
@@ -65,8 +82,16 @@ fn described(device: &Device) -> Result<Descriptor, String> {
             msc: listed(EventType::MISC),
             rel: listed(EventType::RELATIVE),
         },
-        name: device.name().unwrap_or_default().to_string(),
-        phys: device.physical_path().unwrap_or_default().to_string(),
+        name: {
+            let Ok(name) = finding::named(device);
+
+            name
+        },
+        phys: {
+            let Ok(phys) = finding::wired(device);
+
+            phys
+        },
         product: id.product(),
         properties,
         uniq: String::new(),
@@ -76,17 +101,17 @@ fn described(device: &Device) -> Result<Descriptor, String> {
 }
 
 fn main() -> ExitCode {
-    let mut found: Vec<(usize, Descriptor)> = Vec::new();
+    let mut found: BTreeMap<usize, Descriptor> = BTreeMap::new();
 
     for (_, device) in evdev::enumerate() {
-        let name = device.name().unwrap_or_default().to_string();
+        let Ok(name) = finding::named(&device);
 
         let at = match ROLES.iter().position(|(wanted, _)| *wanted == name) {
             Some(at) => at,
             None => continue,
         };
 
-        match found.iter().any(|(already, _)| *already == at) {
+        match found.contains_key(&at) {
             true => continue,
             false => {},
         }
@@ -99,15 +124,13 @@ fn main() -> ExitCode {
             },
         };
 
-        found.push((at, said));
+        let _ = found.insert(at, said);
     }
-
-    found.sort_by_key(|(at, _)| *at);
 
     let missing: Vec<&str> = ROLES
         .iter()
         .enumerate()
-        .filter(|(at, _)| !found.iter().any(|(there, _)| there == at))
+        .filter(|(at, _)| !found.contains_key(at))
         .map(|(_, (name, _))| *name)
         .collect();
 
@@ -116,7 +139,7 @@ fn main() -> ExitCode {
         false => eprintln!("not present: {}", missing.join(", ")),
     }
 
-    let written: Vec<Descriptor> = found.into_iter().map(|(_, device)| device).collect();
+    let written: Vec<Descriptor> = found.into_values().collect();
 
     match serde_json::to_string_pretty(&written) {
         Ok(said) => println!("{said}"),

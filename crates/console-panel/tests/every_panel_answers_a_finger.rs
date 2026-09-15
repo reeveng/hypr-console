@@ -66,12 +66,12 @@ fn the_music() {
 
 #[test]
 fn the_notices() {
-    held_to_the_contract("notices-panel", &[]);
+    held_to_the_contract("notifications-panel", &[]);
 }
 
 #[test]
 fn the_downloads() {
-    held_to_the_contract("download-panel", &[]);
+    held_to_the_contract("downloads-panel", &[]);
 }
 
 #[test]

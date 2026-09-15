@@ -14,6 +14,6 @@ pub const DRAWS: Check = Check {
 };
 
 fn draws(stage: &mut Desktop) -> Done {
-    stage.open("download-panel")?;
+    stage.open("downloads-panel")?;
     drew(stage)
 }

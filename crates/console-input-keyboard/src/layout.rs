@@ -26,6 +26,7 @@
 //! are `keymap`'s job now.
 
 
+use console_core_geometry::{Point, Size};
 use console_core_never::Never;
 use console_core_number_conversion::Float;
 use crate::keymap::Layer;
@@ -168,7 +169,7 @@ pub struct Placed {
     pub tall: f64,
 }
 
-pub fn placed(layout: &Layout, wide: f64, tall: f64) -> Result<Vec<Placed>, Never> {
+pub fn placed(layout: &Layout, room: Size<f64>) -> Result<Vec<Placed>, Never> {
     let Ok(rows) = rows(layout);
 
     match rows.is_empty() {
@@ -178,7 +179,7 @@ pub fn placed(layout: &Layout, wide: f64, tall: f64) -> Result<Vec<Placed>, Neve
 
     let Ok(many) = rows.len().float();
 
-    let deep = tall / many;
+    let deep = room.tall / many;
     let mut out = Vec::with_capacity(layout.keys.len());
 
     for (down, row) in rows.iter().enumerate() {
@@ -192,7 +193,7 @@ pub fn placed(layout: &Layout, wide: f64, tall: f64) -> Result<Vec<Placed>, Neve
         let mut x = 0.0;
 
         for (at, key) in row {
-            let w = key.width / across * wide;
+            let w = key.width / across * room.wide;
 
             match matches!(key.kind, Kind::Pad) {
                 true => {},
@@ -241,22 +242,37 @@ pub fn rows(layout: &Layout) -> Result<Vec<Vec<(usize, &'static Key)>>, Never> {
     Ok(out)
 }
 
-pub fn under(placed: &[Placed], x: f64, y: f64) -> Result<Option<Placed>, Never> {
+pub fn under(placed: &[Placed], at: Point<f64>) -> Result<Option<Placed>, Never> {
     Ok(placed
         .iter()
-        .find(|k| x >= k.x && x < k.x + k.wide && y >= k.y && y < k.y + k.tall)
+        .find(|k| {
+            at.across >= k.x
+                && at.across < k.x + k.wide
+                && at.down >= k.y
+                && at.down < k.y + k.tall
+        })
         .copied())
 }
 
-fn gap(low: f64, high: f64, point: f64) -> Result<f64, Never> {
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Between {
+    low: f64,
+    high: f64,
+}
+
+fn gap(between: Between, point: f64) -> Result<f64, Never> {
     Ok(match point {
-        p if p < low => low - p,
-        p if p > high => p - high,
+        p if p < between.low => between.low - p,
+        p if p > between.high => p - between.high,
         _ => 0.0,
     })
 }
 
-pub fn toward(keys: &[Placed], from: Option<usize>, dx: i32, dy: i32) -> Result<Option<usize>, Never> {
+pub fn toward(
+    keys: &[Placed],
+    from: Option<usize>,
+    step: Point<i32>,
+) -> Result<Option<usize>, Never> {
     let here = match from.and_then(|at| keys.iter().position(|k| k.at == at)) {
         Some(here) => here,
         None => return Ok(keys.first().map(|k| k.at)),
@@ -270,15 +286,15 @@ pub fn toward(keys: &[Placed], from: Option<usize>, dx: i32, dy: i32) -> Result<
     let middle = (sel.x + sel.wide / 2.0, sel.y + sel.tall / 2.0);
 
     let scored = |k: &Placed| {
-        let along = match (dx, dy) {
+        let along = match (step.across, step.down) {
             (d, _) if d > 0 => k.x - (sel.x + sel.wide),
             (d, _) if d < 0 => sel.x - (k.x + k.wide),
             (_, d) if d > 0 => k.y - (sel.y + sel.tall),
             _ => sel.y - (k.y + k.tall),
         };
-        let Ok(across) = match dx != 0 {
-            true => gap(k.y, k.y + k.tall, middle.1),
-            false => gap(k.x, k.x + k.wide, middle.0),
+        let Ok(across) = match step.across != 0 {
+            true => gap(Between { low: k.y, high: k.y + k.tall }, middle.1),
+            false => gap(Between { low: k.x, high: k.x + k.wide }, middle.0),
         };
 
         (along, along + across * 3.0)
@@ -336,8 +352,8 @@ mod tests {
         named
     }
 
-    fn placed(layout: &Layout, wide: f64, tall: f64) -> Vec<Placed> {
-        let Ok(placed) = super::placed(layout, wide, tall);
+    fn placed(layout: &Layout, room: Size<f64>) -> Vec<Placed> {
+        let Ok(placed) = super::placed(layout, room);
 
         placed
     }
@@ -348,20 +364,20 @@ mod tests {
         rows
     }
 
-    fn under(keys: &[Placed], x: f64, y: f64) -> Option<Placed> {
-        let Ok(under) = super::under(keys, x, y);
+    fn under(keys: &[Placed], at: Point<f64>) -> Option<Placed> {
+        let Ok(under) = super::under(keys, at);
 
         under
     }
 
-    fn gap(low: f64, high: f64, point: f64) -> f64 {
-        let Ok(gap) = super::gap(low, high, point);
+    fn gap(between: Between, point: f64) -> f64 {
+        let Ok(gap) = super::gap(between, point);
 
         gap
     }
 
-    fn toward(keys: &[Placed], from: Option<usize>, dx: i32, dy: i32) -> Option<usize> {
-        let Ok(toward) = super::toward(keys, from, dx, dy);
+    fn toward(keys: &[Placed], from: Option<usize>, step: Point<i32>) -> Option<usize> {
+        let Ok(toward) = super::toward(keys, from, step);
 
         toward
     }
@@ -369,12 +385,12 @@ mod tests {
     #[test]
     fn a_direction_crosses_the_row_it_started_on() {
         let layout = of(named("landscape").expect("landscape"));
-        let keys = placed(layout, 1892.0, 260.0);
+        let keys = placed(layout, Size { wide: 1892.0, tall: 260.0 });
         let start = keys[0].at;
         let row = keys[0].y;
         let mut at = start;
         for step in 0..8 {
-            at = toward(&keys, Some(at), 1, 0).expect("somewhere to the right");
+            at = toward(&keys, Some(at), Point { across: 1, down: 0 }).expect("somewhere to the right");
             let now = keys.iter().find(|k| k.at == at).expect("placed");
             assert_eq!(now.y, row, "step {step} left the row it started on");
         }
@@ -383,10 +399,10 @@ mod tests {
     #[test]
     fn up_is_the_row_above_and_not_a_diagonal() {
         let layout = of(named("landscape").expect("landscape"));
-        let keys = placed(layout, 1892.0, 260.0);
+        let keys = placed(layout, Size { wide: 1892.0, tall: 260.0 });
         let bottom = keys.iter().max_by(|a, b| a.y.total_cmp(&b.y)).expect("a bottom row").y;
         for key in keys.iter().filter(|k| k.y == bottom) {
-            let up = toward(&keys, Some(key.at), 0, -1).expect("a key above");
+            let up = toward(&keys, Some(key.at), Point { across: 0, down: -1 }).expect("a key above");
             let landed = keys.iter().find(|k| k.at == up).expect("placed");
             assert!(landed.y < key.y, "up went sideways");
             let rows: Vec<f64> = {
@@ -403,9 +419,9 @@ mod tests {
     #[test]
     fn a_direction_wraps_rather_than_stopping_at_the_edge() {
         let layout = of(named("landscape").expect("landscape"));
-        let keys = placed(layout, 1892.0, 260.0);
+        let keys = placed(layout, Size { wide: 1892.0, tall: 260.0 });
         let top = keys.iter().min_by(|a, b| a.y.total_cmp(&b.y)).expect("a top row").at;
-        let up = toward(&keys, Some(top), 0, -1).expect("wrapped round");
+        let up = toward(&keys, Some(top), Point { across: 0, down: -1 }).expect("wrapped round");
         let landed = keys.iter().find(|k| k.at == up).expect("placed");
         assert!(landed.y > keys[0].y, "up from the top row came out at the bottom");
     }
@@ -413,16 +429,16 @@ mod tests {
     #[test]
     fn the_first_direction_lands_somewhere() {
         let layout = of(named("landscape").expect("landscape"));
-        let keys = placed(layout, 1892.0, 260.0);
-        assert_eq!(toward(&keys, None, 1, 0), Some(keys[0].at));
-        assert_eq!(toward(&[], None, 1, 0), None, "and an empty layout is not a panic");
+        let keys = placed(layout, Size { wide: 1892.0, tall: 260.0 });
+        assert_eq!(toward(&keys, None, Point { across: 1, down: 0 }), Some(keys[0].at));
+        assert_eq!(toward(&[], None, Point { across: 1, down: 0 }), None, "and an empty layout is not a panic");
     }
 
     #[test]
     fn a_wide_key_is_measured_to_its_edge() {
-        assert_eq!(gap(10.0, 20.0, 15.0), 0.0, "inside the span is no distance at all");
-        assert_eq!(gap(10.0, 20.0, 5.0), 5.0);
-        assert_eq!(gap(10.0, 20.0, 25.0), 5.0);
+        assert_eq!(gap(Between { low: 10.0, high: 20.0 }, 15.0), 0.0, "inside the span is no distance at all");
+        assert_eq!(gap(Between { low: 10.0, high: 20.0 }, 5.0), 5.0);
+        assert_eq!(gap(Between { low: 10.0, high: 20.0 }, 25.0), 5.0);
     }
 
     #[test]
@@ -444,7 +460,7 @@ mod tests {
     #[test]
     fn the_keys_fill_the_surface_without_overlapping() {
         let layout = of(named("full").expect("full"));
-        let keys = placed(layout, 1000.0, 260.0);
+        let keys = placed(layout, Size { wide: 1000.0, tall: 260.0 });
         assert!(!keys.is_empty());
         for key in &keys {
             assert!(key.x >= -0.001, "a key off the left");
@@ -454,7 +470,7 @@ mod tests {
         let top = keys[0].tall / 2.0;
         for step in 0..100 {
             let x = step as f64 * 10.0 + 0.5;
-            assert!(under(&keys, x, top).is_some(), "nothing under {x}");
+            assert!(under(&keys, Point { across: x, down: top }).is_some(), "nothing under {x}");
         }
     }
 

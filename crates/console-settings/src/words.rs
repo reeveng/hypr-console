@@ -23,8 +23,7 @@ pub enum Word {
     System,
 
     ScreenBrightness,
-    NightColoursOff,
-    NightColoursOn,
+    NightColours,
     On,
     Off,
     HowBigEverythingIs,
@@ -67,15 +66,14 @@ impl Said for Word {
             Word::Wifi => "Wi-Fi",
             Word::Screen => "Screen",
             Word::Battery => "Battery",
-            Word::Notifications => "Messages",
-            Word::Wallpaper => "Background",
+            Word::Notifications => "Notifications",
+            Word::Wallpaper => "Wallpaper",
             Word::Configuration => "Setup",
             Word::Language => "Language",
             Word::System => "Power",
 
             Word::ScreenBrightness => "Screen brightness",
-            Word::NightColoursOff => "Turn night colours off",
-            Word::NightColoursOn => "Turn night colours on",
+            Word::NightColours => "Night colours",
             Word::On => "On",
             Word::Off => "Off",
             Word::HowBigEverythingIs => "How big everything is",
@@ -133,9 +131,15 @@ mod tests {
     }
 
     #[test]
-    fn the_two_sides_of_the_night_switch_are_different_sentences() {
-        assert_ne!(say(&Word::NightColoursOn), say(&Word::NightColoursOff));
+    fn a_switch_names_the_thing_and_its_two_states_are_told_apart() {
         assert_ne!(say(&Word::On), say(&Word::Off));
+
+        let Ok(night) = say(&Word::NightColours);
+
+        assert!(
+            !night.to_lowercase().contains(" on") && !night.to_lowercase().contains(" off"),
+            "a row that names its own state cannot say the state beside it too: {night}"
+        );
     }
 
     fn every() -> Vec<Word> {
@@ -151,8 +155,7 @@ mod tests {
             Word::Language,
             Word::System,
             Word::ScreenBrightness,
-            Word::NightColoursOff,
-            Word::NightColoursOn,
+            Word::NightColours,
             Word::On,
             Word::Off,
             Word::HowBigEverythingIs,

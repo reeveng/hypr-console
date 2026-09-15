@@ -34,7 +34,6 @@
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
-use std::sync::OnceLock;
 
 use console_core_never::Never;
 
@@ -334,7 +333,7 @@ fn inside(occupant: &Occupant, told: Directory) -> Result<Option<Vec<String>>, N
                 .collect();
 
             let Ok(call) =
-                shell_call(shell, &format!("{step_in}{}; exec {shell} -i", words.join(" ")));
+                shell_call(Shell(shell), &format!("{step_in}{}; exec {shell} -i", words.join(" ")));
 
             Some(call)
         },
@@ -342,7 +341,7 @@ fn inside(occupant: &Occupant, told: Directory) -> Result<Option<Vec<String>>, N
         (None, Some(shell)) => match step_in.is_empty() {
             true => None,
             false => {
-                let Ok(call) = shell_call(shell, &format!("{step_in}exec {shell} -i"));
+                let Ok(call) = shell_call(Shell(shell), &format!("{step_in}exec {shell} -i"));
 
                 Some(call)
             },
@@ -351,8 +350,11 @@ fn inside(occupant: &Occupant, told: Directory) -> Result<Option<Vec<String>>, N
     })
 }
 
-fn shell_call(shell: &str, line: &str) -> Result<Vec<String>, Never> {
-    Ok(vec![shell.to_string(), "-i".to_string(), "-c".to_string(), line.to_string()])
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Shell<'a>(&'a str);
+
+fn shell_call(shell: Shell<'_>, line: &str) -> Result<Vec<String>, Never> {
+    Ok(vec![shell.0.to_string(), "-i".to_string(), "-c".to_string(), line.to_string()])
 }
 
 fn options(words: &[String], spec: &Spec) -> Result<Vec<String>, Never> {
@@ -416,29 +418,25 @@ fn resumable(program: &str) -> Result<Resumable, Never> {
     })
 }
 
-fn never_resumed() -> Result<&'static Vec<String>, Never> {
-    static LIST: OnceLock<Vec<String>> = OnceLock::new();
+fn never_resumed() -> Result<Vec<String>, Never> {
+    let Ok(at) = never_resume_path();
 
-    Ok(LIST.get_or_init(|| {
-        let Ok(at) = never_resume_path();
+    let said = match at {
+        Some(at) => std::fs::read_to_string(at),
+        None => return Ok(NEVER_RESUMED.iter().map(|name| (*name).to_string()).collect()),
+    };
 
-        let said = match at {
-            Some(at) => std::fs::read_to_string(at),
-            None => return NEVER_RESUMED.iter().map(|name| (*name).to_string()).collect(),
-        };
-
-        match said {
-            Ok(listed) => listed
-                .lines()
-                .map(str::trim)
-                .filter(|line| !line.is_empty() && !line.starts_with('#'))
-                .map(str::to_string)
-                .collect(),
-            Err(_nobody_has_written_one) => {
-                NEVER_RESUMED.iter().map(|name| (*name).to_string()).collect()
-            },
-        }
-    }))
+    Ok(match said {
+        Ok(listed) => listed
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+            .map(str::to_string)
+            .collect(),
+        Err(_nobody_has_written_one) => {
+            NEVER_RESUMED.iter().map(|name| (*name).to_string()).collect()
+        },
+    })
 }
 
 fn never_resume_path() -> Result<Option<PathBuf>, Never> {
@@ -574,13 +572,19 @@ fn directory(pid: i32) -> Result<Option<String>, Never> {
 }
 
 fn binary_path(word: &str) -> Result<&str, Never> {
-    Ok(word.strip_prefix('-').unwrap_or(word))
+    Ok(match word.strip_prefix('-') {
+        Some(after) => after,
+        None => word,
+    })
 }
 
 fn binary(word: &str) -> Result<&str, Never> {
     let Ok(path) = binary_path(word);
 
-    Ok(path.rsplit('/').next().unwrap_or(path))
+    Ok(match path.rsplit('/').next() {
+        Some(binary) => binary,
+        None => path,
+    })
 }
 
 #[cfg(test)]

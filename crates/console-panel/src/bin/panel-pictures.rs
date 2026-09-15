@@ -158,19 +158,9 @@ fn written(pictures: &[Picture]) -> Result<Written, Never> {
         }
     }
 
-    let beside = at.with_extension("new");
     let Ok(said) = pictures::written(pictures);
 
-    match std::fs::write(&beside, said) {
-        Ok(_) => {},
-        Err(fault) => {
-            eprintln!("panel-pictures: {}: {fault}", beside.display());
-
-            return Ok(Written::No);
-        }
-    }
-
-    Ok(match std::fs::rename(&beside, &at) {
+    Ok(match console_core_atomic_writes::whole(&at, &said) {
         Ok(()) => Written::Yes,
 
         Err(fault) => {

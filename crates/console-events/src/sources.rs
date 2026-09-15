@@ -75,7 +75,7 @@ pub enum Held {
 
 pub const NOTICES: &str = "org.freedesktop.Notifications";
 
-pub const MAKO: &str = "fr.emersion.Mako";
+pub const OURS: &str = "console.Notices";
 
 pub const PLAYERS: &str = "/org/mpris/MediaPlayer2";
 
@@ -101,7 +101,7 @@ pub fn hold(topic: &Topic, say: Sender<Changed>) -> Result<Held, Never> {
         Topic::Notices => {
             let Ok(argv) = monitoring(&[
                 format!("--match=interface={NOTICES}"),
-                format!("--match=interface={MAKO}"),
+                format!("--match=interface={OURS}"),
             ]);
             let Ok(()) = theirs(Topic::Notices, Program::Stdbuf, argv, say);
 

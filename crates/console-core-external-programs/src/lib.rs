@@ -69,6 +69,7 @@ programs! {
     Cp, "cp", Origin::Arch;
     Curl, "curl", Origin::Package("curl");
     Date, "date", Origin::Arch;
+    DbusDaemon, "dbus-daemon", Origin::Arch;
     Df, "df", Origin::Arch;
     Du, "du", Origin::Arch;
     Echo, "echo", Origin::Arch;
@@ -89,7 +90,6 @@ programs! {
     Localectl, "localectl", Origin::Arch;
     Logger, "logger", Origin::Arch;
     Ls, "ls", Origin::Arch;
-    Makoctl, "makoctl", Origin::Package("mako");
     Mkdir, "mkdir", Origin::Arch;
     Modprobe, "modprobe", Origin::Arch;
     Mv, "mv", Origin::Arch;
@@ -147,6 +147,20 @@ impl Program {
 
         Ok(std::iter::once(name.to_string()).chain(rest).collect())
     }
+}
+
+#[cfg_attr(
+    dylint_lib = "explicit026_env_read_once",
+    allow(
+        explicit026_env_read_once,
+        reason = "PATH is where the machine looks for a program, and a program this desktop did not write is what this crate is a list of. Three crates read it to ask the same question and each said something different when it was unset"
+    )
+)]
+pub fn path() -> Result<Option<String>, Never> {
+    Ok(match std::env::var("PATH") {
+        Ok(said) if !said.is_empty() => Some(said),
+        Ok(_) | Err(_) => None,
+    })
 }
 
 #[cfg(test)]

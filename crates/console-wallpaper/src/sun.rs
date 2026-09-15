@@ -18,6 +18,7 @@
 
 use console_core_never::Never;
 use console_core_number_conversion::toward_zero_u32;
+use console_core_words::Words;
 
 #[derive(Debug, Clone, Copy, PartialEq, serde::Deserialize)]
 pub struct Where {
@@ -25,28 +26,23 @@ pub struct Where {
     pub longitude: f64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Words)]
 pub enum Sky {
+    #[words(word = "night")]
     Night,
+    #[words(word = "dawn")]
     Dawn,
+    #[words(word = "sunrise")]
     Sunrise,
+    #[words(word = "day")]
     Day,
+    #[words(word = "sunset")]
     Sunset,
+    #[words(word = "dusk")]
     Dusk,
 }
 
 impl Sky {
-    pub fn word(&self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Sky::Dawn => "dawn",
-            Sky::Day => "day",
-            Sky::Dusk => "dusk",
-            Sky::Night => "night",
-            Sky::Sunrise => "sunrise",
-            Sky::Sunset => "sunset",
-        })
-    }
-
     pub const EVERY: [Sky; 6] =
         [Sky::Dawn, Sky::Day, Sky::Dusk, Sky::Night, Sky::Sunrise, Sky::Sunset];
 
@@ -66,24 +62,19 @@ impl Sky {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Words)]
 pub enum Season {
+    #[words(word = "autumn")]
     Autumn,
+    #[words(word = "spring")]
     Spring,
+    #[words(word = "summer")]
     Summer,
+    #[words(word = "winter")]
     Winter,
 }
 
 impl Season {
-    pub fn word(&self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Season::Autumn => "autumn",
-            Season::Spring => "spring",
-            Season::Summer => "summer",
-            Season::Winter => "winter",
-        })
-    }
-
     pub const EVERY: [Season; 4] =
         [Season::Autumn, Season::Spring, Season::Summer, Season::Winter];
 

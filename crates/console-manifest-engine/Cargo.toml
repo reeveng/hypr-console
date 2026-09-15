@@ -12,13 +12,16 @@ name = "console"
 path = "src/main.rs"
 
 [dependencies]
+console-core-words.workspace = true
 console-how-far.workspace = true
 console-program-lifetime.workspace = true
 console-core-external-programs.workspace = true
+console-core-our-programs.workspace = true
 console-manifest-migrations.workspace = true
 console-core-ini-files.workspace = true
 console-core-never.workspace = true
 console-core-places.workspace = true
+console-screen.workspace = true
 console-core-number-conversion.workspace = true
 console-input-controller.workspace = true
 # For the battery, which is the one reading that moves while an apply runs.

@@ -12,6 +12,7 @@ console-core-places.workspace = true
 # The pad's own words. A binding on the pad is checked against the buttons this
 # desktop routes, and that list is the gamepad's to keep; the keyboard's words
 # are here because nothing else in this workspace may hold them.
+console-core-words.workspace = true
 console-input-gamepad.workspace = true
 evdev = "0.13"
 serde = { version = "1", features = ["derive"] }

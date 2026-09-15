@@ -19,18 +19,30 @@
 
 use console_core_external_programs::Program;
 use console_core_never::Never;
-use console_notifications::saying::{Kept, fault, for_the_journal, journal, raise};
+use console_notifications::saying::{Kept, Said, fault, for_the_journal, journal, raise};
+
+const SOMETHING_OF_THE_DESKTOPS: &str = "a piece of the desktop";
+
 
 const WELL: &str = "success";
 
 const DECLINED: &str = "exec-condition";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Stopped<'a> {
+    pub unit: &'a str,
+    pub said: &'a str,
+}
+
 pub fn fell(
-    unit: &str,
-    said: &str,
+    stopped: Stopped<'_>,
     result: Option<&str>,
 ) -> Result<Option<(String, String, String)>, Never> {
-    let how = result.unwrap_or(WELL);
+    let Stopped { unit, said } = stopped;
+    let how = match result {
+        Some(how) => how,
+        None => WELL,
+    };
 
     match how == WELL || how == DECLINED {
         true => return Ok(None),
@@ -64,26 +76,37 @@ fn described(unit: &str) -> Result<String, Never> {
 }
 
 fn main() {
-    let unit = std::env::args().nth(1).unwrap_or_else(|| "a piece of the desktop".to_string());
+    let unit = match std::env::args().nth(1) {
+        Some(unit) => unit,
+        None => SOMETHING_OF_THE_DESKTOPS.to_string(),
+    };
 
+    #[cfg_attr(
+        dylint_lib = "explicit026_env_read_once",
+        allow(
+            explicit026_env_read_once,
+            reason = "SERVICE_RESULT is what systemd hands an OnFailure unit, and this binary is that unit. Nothing else in this tree is started that way"
+        )
+    )]
     let result = match std::env::var("SERVICE_RESULT") {
         Ok(result) => result,
         Err(_fault) => return,
     };
 
     let Ok(described) = described(&unit);
-    let Ok(fell) = fell(&unit, &described, Some(&result));
+    let Ok(fell) = fell(Stopped { unit: &unit, said: &described }, Some(&result));
 
     let (kind, summary, body) = match fell {
         Some((kind, summary, body)) => (kind, summary, body),
         None => return,
     };
 
-    let Ok(said) = for_the_journal(&kind, &summary, &format!("{body} ({result})"));
+    let body = format!("{body} ({result})");
+    let Ok(said) = for_the_journal(&kind, Said { summary: &summary, body: &body });
     let Ok(()) = journal(&said);
     let Ok(counting) = Kept::counting(&kind);
     let Ok(again) = counting.again();
-    let Ok(fault) = fault(&summary, &body, again);
+    let Ok(fault) = fault(Said { summary: &summary, body: &body }, again);
 
     match fault {
         Some(notice) => {
@@ -95,26 +118,36 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    fn fell(unit: &str, said: &str, result: Option<&str>) -> Option<(String, String, String)> {
-        let Ok(fell) = super::fell(unit, said, result);
+    use super::Stopped;
+
+    const BAR: Stopped<'static> = Stopped { unit: "console-bar.service", said: "Status bar" };
+
+    fn fell(stopped: Stopped<'_>, result: Option<&str>) -> Option<(String, String, String)> {
+        let Ok(fell) = super::fell(stopped, result);
 
         fell
     }
 
     #[test]
     fn a_unit_that_was_stopped_on_purpose_says_nothing() {
-        assert_eq!(fell("console-bar.service", "Status bar", Some("success")), None);
+        assert_eq!(fell(BAR, Some("success")), None);
     }
 
     #[test]
     fn a_stop_with_no_reason_given_is_taken_as_a_clean_one() {
-        assert_eq!(fell("console-bar.service", "Status bar", None), None);
+        assert_eq!(fell(BAR, None), None);
     }
 
     #[test]
     fn a_unit_whose_condition_said_not_to_start_says_nothing() {
         assert_eq!(
-            fell("console-warm.service", "The colour of the screen, on a clock", Some("exec-condition")),
+            fell(
+                Stopped {
+                    unit: "console-warm.service",
+                    said: "The colour of the screen, on a clock",
+                },
+                Some("exec-condition")
+            ),
             None,
         );
     }
@@ -122,7 +155,7 @@ mod tests {
     #[test]
     fn a_unit_that_fell_over_says_so_in_a_line_anybody_can_read() {
         let (kind, summary, body) =
-            fell("console-bar.service", "Status bar", Some("exit-code")).expect("a fall");
+            fell(BAR, Some("exit-code")).expect("a fall");
         assert_eq!(kind, "unit-console-bar.service");
         assert_eq!(summary, "Status bar restarted");
         assert!(!summary.contains("console-bar.service"), "the top line names a unit: {summary}");
@@ -131,15 +164,15 @@ mod tests {
 
     #[test]
     fn a_unit_with_no_description_is_said_by_its_name() {
-        let (_, summary, _) =
-            fell("something-else.service", "", Some("exit-code")).expect("a fall");
+        let nameless = Stopped { unit: "something-else.service", said: "" };
+        let (_, summary, _) = fell(nameless, Some("exit-code")).expect("a fall");
         assert!(summary.starts_with("something-else.service"), "{summary}");
     }
 
     #[test]
     fn one_unit_is_one_kind_however_many_ways_it_falls() {
-        let one = fell("console-bar.service", "Status bar", Some("exit-code")).expect("a fall");
-        let other = fell("console-bar.service", "Status bar", Some("signal")).expect("a fall");
+        let one = fell(BAR, Some("exit-code")).expect("a fall");
+        let other = fell(BAR, Some("signal")).expect("a fall");
         assert_eq!(one.0, other.0);
     }
 }

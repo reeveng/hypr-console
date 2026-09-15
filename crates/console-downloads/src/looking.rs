@@ -98,11 +98,13 @@ pub fn found_in(said: &str) -> Result<Vec<Found>, Never> {
 
 fn one(entry: &Value) -> Result<Option<Found>, Never> {
     let said = |key: &str| {
-        entry.get(key).and_then(Value::as_str).unwrap_or_default().to_string()
+        let Ok(said) = word_in(entry, key);
+
+        said
     };
     let counted = |key: &str| {
-        let Ok(counted) =
-            toward_zero_u64(entry.get(key).and_then(Value::as_f64).unwrap_or_default());
+        let Ok(measured) = measured_in(entry, key);
+        let Ok(counted) = toward_zero_u64(measured);
 
         counted
     };
@@ -136,24 +138,73 @@ fn one(entry: &Value) -> Result<Option<Found>, Never> {
     }))
 }
 
+pub const SAID_NOTHING: &str = "";
+
+pub const COUNTED_NOTHING: u64 = 0;
+
+pub const MEASURED_NOTHING: f64 = 0.0;
+
+pub fn word_in(held: &Value, key: &str) -> Result<String, Never> {
+    Ok(match held.get(key).and_then(Value::as_str) {
+        Some(said) => said.to_string(),
+        None => SAID_NOTHING.to_string(),
+    })
+}
+
+pub fn measured_in(held: &Value, key: &str) -> Result<f64, Never> {
+    Ok(match held.get(key).and_then(Value::as_f64) {
+        Some(measured) => measured,
+        None => MEASURED_NOTHING,
+    })
+}
+
+pub fn counted_in(held: &Value, key: &str) -> Result<u64, Never> {
+    Ok(match held.get(key).and_then(Value::as_u64) {
+        Some(counted) => counted,
+        None => COUNTED_NOTHING,
+    })
+}
+
 pub fn picture_in(entry: &Value) -> Result<String, Never> {
-    let url = |one: &Value| one.get("url").and_then(Value::as_str).unwrap_or_default().to_string();
+    let url = |one: &Value| {
+        let Ok(url) = word_in(one, "url");
+
+        url
+    };
 
     let many = match entry.get("thumbnails").and_then(Value::as_array) {
         Some(many) => many,
-        None => return Ok(entry.get("thumbnail").and_then(Value::as_str).unwrap_or_default().to_string()),
+        None => return word_in(entry, "thumbnail"),
     };
 
-    let wide = |one: &&Value| one.get("width").and_then(Value::as_u64).unwrap_or_default();
+    let wide = |one: &&Value| {
+        let Ok(wide) = counted_in(one, "width");
+
+        wide
+    };
     let big_enough = many.iter().filter(|one| wide(one) >= WIDE).min_by_key(wide);
 
     Ok(match big_enough {
         Some(one) => url(one),
-        None => many.iter().max_by_key(|one| wide(one)).map(url).unwrap_or_default(),
+        None => match many.iter().max_by_key(|one| wide(one)).map(url) {
+            Some(url) => url,
+            None => SAID_NOTHING.to_string(),
+        },
     })
 }
 
-pub fn written(looked: &Looked) -> Result<String, String> {
+#[derive(Debug)]
+pub struct Unwritten(pub serde_json::Error);
+
+impl std::fmt::Display for Unwritten {
+    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(to, "writing down what the search found: {}", self.0)
+    }
+}
+
+impl std::error::Error for Unwritten {}
+
+pub fn written(looked: &Looked) -> Result<String, Unwritten> {
     let entries: Vec<Value> = looked
         .found
         .iter()
@@ -175,8 +226,7 @@ pub fn written(looked: &Looked) -> Result<String, String> {
         .collect();
     let held = json!({ "asked": looked.asked, "fault": looked.fault, "entries": entries });
 
-    serde_json::to_string_pretty(&held)
-        .map_err(|fault| format!("writing down what the search found: {fault}"))
+    serde_json::to_string_pretty(&held).map_err(Unwritten)
 }
 
 pub fn kept(said: &str) -> Result<Looked, Never> {
@@ -185,7 +235,11 @@ pub fn kept(said: &str) -> Result<Looked, Never> {
         Err(_fault) => return Ok(Looked::default()),
     };
 
-    let word = |key: &str| held.get(key).and_then(Value::as_str).unwrap_or_default().to_string();
+    let word = |key: &str| {
+        let Ok(said) = word_in(&held, key);
+
+        said
+    };
     let Ok(found) = found_in(said);
 
     Ok(Looked { asked: word("asked"), fault: word("fault"), found })
@@ -232,7 +286,13 @@ pub fn counted(views: u64) -> Result<String, Never> {
 
 pub fn complaint(said: &str) -> Result<String, Never> {
     let last = said.lines().map(str::trim).rfind(|line| !line.is_empty());
-    let said = last.unwrap_or(WENT_WRONG).trim_start_matches("ERROR:").trim();
+
+    let complained = match last {
+        Some(complained) => complained,
+        None => WENT_WRONG,
+    };
+
+    let said = complained.trim_start_matches("ERROR:").trim();
 
     Ok(match said.char_indices().nth(SHORT).and_then(|(at, _)| said.get(..at)) {
         Some(head) => format!("{head}\u{2026}"),

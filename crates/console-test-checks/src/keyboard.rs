@@ -1,5 +1,6 @@
 //! The on-screen keyboard: X brings it up, X puts it away, and it has depth.
 
+use console_core_geometry::Point;
 use std::collections::BTreeSet;
 
 use console_core_never::Never;
@@ -66,7 +67,7 @@ fn draws(stage: &mut Desktop) -> Done {
 
     for across in (ACROSS.0..ACROSS.1).step_by(ACROSS.2) {
         for down in (DOWN.0..DOWN.1).step_by(DOWN.2) {
-            let colour = stage.colour(f64::from(across), f64::from(down))?;
+            let colour = stage.colour(Point { across: f64::from(across), down: f64::from(down) })?;
             there.insert(colour);
         }
     }

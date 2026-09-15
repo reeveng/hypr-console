@@ -21,20 +21,14 @@
 //! desktop file is a failing test rather than a file that opens in a browser.
 
 use console_core_never::Never;
+use console_core_words::Words;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
 pub enum Kind {
+    #[words(says = "picture")]
     Picture,
+    #[words(says = "film")]
     Film,
-}
-
-impl Kind {
-    pub fn says(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Kind::Picture => "picture",
-            Kind::Film => "film",
-        })
-    }
 }
 
 pub fn of(mime: &str) -> Result<Option<Kind>, Never> {

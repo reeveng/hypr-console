@@ -6,7 +6,7 @@
 //! knows the alphabet is `crates/console-input-keyboard`'s own question and
 //! `tests/the_alphabets.rs` is where it moved to. It used to be here, and it
 //! used to work by running the keyboard the tree carried at
-//! `files/usr/local/bin/virtual-keyboard`, skipping when there was none --
+//! `files/usr/local/bin/console-keyboard`, skipping when there was none --
 //! which was right while the keyboard was a compiled C binary committed to the
 //! tree and kept out of the public copy. The device builds its own now, nothing
 //! is carried, and a check that looks for a carried keyboard is a check that

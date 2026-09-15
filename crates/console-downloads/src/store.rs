@@ -1,11 +1,12 @@
 //! The two kinds of thing this fetches, and where a search is kept.
 //!
-//! The panel holds no results. `download-find` runs off it, writes what came
+//! The panel holds no results. `downloads-find` runs off it, writes what came
 //! back here, and the panel draws again when that ends and reads whatever is
 //! there. So the slow half is a program with a name rather than a thread inside
 //! a card, and a search survives the tab being walked away from.
 
 use console_core_never::Never;
+use console_core_words::Words;
 use std::path::{Path, PathBuf};
 
 const SOUND_TAB: &str = "Audio";
@@ -13,28 +14,16 @@ const FILM_TAB: &str = "Video";
 
 pub const TABS: [&str; 2] = [SOUND_TAB, FILM_TAB];
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Words)]
 pub enum Kind {
+    #[words(word = "audio", flag = "--audio")]
     Sound,
+    #[words(word = "video", flag = "--video")]
     Film,
 }
 
 impl Kind {
     pub const BOTH: [Kind; 2] = [Kind::Sound, Kind::Film];
-
-    pub fn word(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Kind::Sound => "audio",
-            Kind::Film => "video",
-        })
-    }
-
-    pub fn flag(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Kind::Sound => "--audio",
-            Kind::Film => "--video",
-        })
-    }
 
     pub fn tab(self) -> Result<&'static str, Never> {
         Ok(match self {

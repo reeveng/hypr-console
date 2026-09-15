@@ -11,6 +11,7 @@
 //! once tells you neither which failed nor that only one did.
 
 use console_core_never::Never;
+use console_core_words::Words;
 
 use crate::desktop::Desktop;
 use crate::device::{Device, Seen, Waited};
@@ -25,6 +26,12 @@ pub enum Why {
 impl From<String> for Why {
     fn from(said: String) -> Self {
         Why::Failed(said)
+    }
+}
+
+impl From<crate::Awry> for Why {
+    fn from(fault: crate::Awry) -> Self {
+        Why::Failed(fault.to_string())
     }
 }
 
@@ -135,7 +142,10 @@ pub struct Check {
 
 impl Check {
     pub fn number(&self) -> Result<&str, Never> {
-        Ok(self.name.split('-').next().unwrap_or_default())
+        Ok(match self.name.split('-').next() {
+            Some(number) => number,
+            None => self.name,
+        })
     }
 
     pub fn rest(&self) -> Result<&str, Never> {
@@ -176,21 +186,14 @@ pub enum Named {
     No,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
 pub enum Stage {
+    #[words(name = "desktop")]
     Desktop,
+    #[words(name = "device")]
     Device,
+    #[words(name = "here")]
     Here,
-}
-
-impl Stage {
-    pub fn name(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Stage::Desktop => "desktop",
-            Stage::Device => "device",
-            Stage::Here => "here",
-        })
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

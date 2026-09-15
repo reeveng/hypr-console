@@ -25,6 +25,11 @@ use std::path::{Path, PathBuf};
 
 use crate::store::Kind;
 
+const NOTHING_SAID: &str = "";
+
+const NOT_A_STILL: &str = "0";
+
+
 pub const BITRATE: &str = "128k";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -81,8 +86,17 @@ pub fn beside(path: &Path, kind: Kind) -> Result<PathBuf, Never> {
 pub fn inside(said: &str) -> Result<Kind, Never> {
     let moving = said.lines().any(|line| {
         let mut said = line.trim().split(',');
-        let kind = said.next().unwrap_or_default();
-        kind == "video" && said.next().unwrap_or("0") != "1"
+        let kind = match said.next() {
+            Some(kind) => kind,
+            None => NOTHING_SAID,
+        };
+
+        let still = match said.next() {
+            Some(still) => still,
+            None => NOT_A_STILL,
+        };
+
+        kind == "video" && still != "1"
     });
 
     Ok(match moving {

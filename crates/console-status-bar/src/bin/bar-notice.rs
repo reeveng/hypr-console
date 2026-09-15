@@ -13,14 +13,12 @@ use std::time::Duration;
 use console_status_bar::notices::{Waiting, notices};
 use console_status_bar::reading::line;
 use console_status_bar::watch::{BELL, watching_notices};
-use console_core_external_programs::Program;
-use console_notifications::reading::{held_back, read};
+use console_notifications::serving::held;
 use console_panel::door::{Up, is_open};
-use console_panel::running::said;
 
 const SETTLE: Duration = Duration::from_millis(120);
 
-const PANEL: &str = "notices-panel";
+const PANEL: &str = "notifications-panel";
 
 fn main() {
     let Ok(heard) = watching_notices();
@@ -29,12 +27,8 @@ fn main() {
     let mut quiet = false;
 
     loop {
-        let Ok(listed) = said(Program::Makoctl, &["list", "-j"]);
-        let Ok(mode) = said(Program::Makoctl, &["mode"]);
-
-        let Ok(held) = read(&listed);
-        let Ok(back) = held_back(&mode);
-        let Ok(waiting) = Waiting::of(&held, back);
+        let Ok(whole) = held();
+        let Ok(waiting) = Waiting::of(&whole.waiting, whole.quiet);
 
         match is_open(PANEL) {
             Ok(up) => {

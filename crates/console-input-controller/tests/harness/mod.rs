@@ -58,6 +58,8 @@ impl Plugged for Plug<'_> {
                     path,
                     name: told.name.clone(),
                     phys: told.phys.clone(),
+                    vendor: told.vendor,
+                    product: told.product,
                     keys: told.capabilities.key.clone(),
                     axes: told.capabilities.abs.iter().map(|axis| axis.code).collect(),
                 })

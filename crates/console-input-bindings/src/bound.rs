@@ -31,35 +31,25 @@
 use std::fmt;
 
 use console_core_never::Never;
+use console_core_words::Words;
 use console_input_gamepad::vocabulary::{self, Names};
 
+use crate::Unbound;
 use crate::keys::{self, Words};
 
 pub const NOTHING: &str = "";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Words)]
 pub enum Input {
+    #[words(word = "pad", says = "Controller")]
     Pad,
+    #[words(word = "keyboard", says = "Keyboard")]
     Keyboard,
 }
 
 pub const EVERY: [Input; 2] = [Input::Pad, Input::Keyboard];
 
 impl Input {
-    pub fn word(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Input::Pad => "pad",
-            Input::Keyboard => "keyboard",
-        })
-    }
-
-    pub fn says(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Input::Pad => "Controller",
-            Input::Keyboard => "Keyboard",
-        })
-    }
-
     fn of_word(word: &str) -> Result<Option<Self>, Never> {
         Ok(EVERY.into_iter().find(|input| {
             let Ok(said) = input.word();
@@ -119,6 +109,13 @@ impl Binding {
     pub fn fits(&self, on: Input, held: &[&str], pressed: &str) -> Result<Fits, Never> {
         let Ok(played) = self.played();
 
+        #[cfg_attr(
+            dylint_lib = "explicit028_no_search_in_a_loop",
+            allow(
+                explicit028_no_search_in_a_loop,
+                reason = "the words held down on one binding against the words held down now, and neither is longer than a hand"
+            )
+        )]
         let ours = played == Played::ByAPress
             && self.on == on
             && self.pressed == pressed
@@ -130,7 +127,7 @@ impl Binding {
         })
     }
 
-    pub fn read(said: &str) -> Result<Self, String> {
+    pub fn read(said: &str) -> Result<Self, Unbound> {
         let said = said.trim();
 
         match said.is_empty() {
@@ -149,7 +146,10 @@ impl Binding {
                 let on = match named {
                     Some(on) => on,
                     None => {
-                        return Err(format!("nothing here is called {:?}, in {said:?}", word.trim()));
+                        return Err(Unbound::NoSuchInput(
+                            word.trim().to_string(),
+                            said.to_string(),
+                        ));
                     }
                 };
 
@@ -159,7 +159,10 @@ impl Binding {
         };
 
         let mut words: Vec<&str> = gesture.split('+').map(str::trim).collect();
-        let pressed = words.pop().unwrap_or_default().to_string();
+        let pressed = match words.pop() {
+            Some(pressed) => pressed.to_string(),
+            None => String::new(),
+        };
         let held: Vec<String> = words.iter().map(|word| (*word).to_string()).collect();
 
         let binding = Binding { on, held, pressed };
@@ -169,28 +172,25 @@ impl Binding {
         Ok(binding)
     }
 
-    fn makes_sense(&self) -> Result<(), String> {
+    fn makes_sense(&self) -> Result<(), Unbound> {
         match self.on {
             Input::Pad => self.on_the_pad(),
             Input::Keyboard => self.on_the_keyboard(),
         }
     }
 
-    fn on_the_pad(&self) -> Result<(), String> {
+    fn on_the_pad(&self) -> Result<(), Unbound> {
         let Ok(trigger) = vocabulary::is_trigger(&self.pressed);
 
         match trigger {
             Names::ATrigger => {
-                return Err(format!(
-                    "{:?} is a trigger, and a trigger is what is held: {self}",
-                    self.pressed
-                ));
+                return Err(Unbound::ATrigger(self.pressed.clone(), self.to_string()));
             }
             Names::AButton => {},
         }
 
         vocabulary::button_name(&self.pressed)
-            .map_err(|_unnamed| format!("nothing on this machine is called {:?}", self.pressed))?;
+            .map_err(|_unnamed| Unbound::NotOnThisMachine(self.pressed.clone()))?;
 
         for word in &self.held {
             let Ok(trigger) = vocabulary::is_trigger(word);
@@ -201,21 +201,18 @@ impl Binding {
             }
 
             vocabulary::button_name(word)
-                .map_err(|_unnamed| format!("nothing on this machine is called {word:?}"))?;
+                .map_err(|_unnamed| Unbound::NotOnThisMachine(word.clone()))?;
         }
 
         Ok(())
     }
 
-    fn on_the_keyboard(&self) -> Result<(), String> {
+    fn on_the_keyboard(&self) -> Result<(), Unbound> {
         let Ok(modifier) = keys::is_a_modifier(&self.pressed);
 
         match modifier {
             Words::AModifier => {
-                return Err(format!(
-                    "{:?} is a modifier, and a modifier is what is held: {self}",
-                    self.pressed
-                ));
+                return Err(Unbound::AModifier(self.pressed.clone(), self.to_string()));
             }
             Words::AKey => {},
         }
@@ -228,9 +225,7 @@ impl Binding {
             match modifier {
                 Words::AModifier => {},
                 Words::AKey => {
-                    return Err(format!(
-                        "{word:?} is a key, and a key is what is pressed rather than held"
-                    ));
+                    return Err(Unbound::AKey(word.clone()));
                 }
             }
         }
@@ -313,16 +308,26 @@ mod tests {
     #[test]
     fn what_this_machine_cannot_press_is_a_fault_and_not_a_guess() {
         let trigger = Binding::read("l2 + r2").expect_err("r2 is what is held");
-        assert!(trigger.contains("is a trigger"), "{trigger}");
+
+        assert!(matches!(trigger, Unbound::ATrigger(_, _)), "{trigger}");
 
         let nothing = Binding::read("triangle").expect_err("no such button");
-        assert!(nothing.contains("triangle"), "{nothing}");
+
+        assert!(
+            matches!(nothing, Unbound::NotOnThisMachine(ref said) if said == "triangle"),
+            "{nothing}"
+        );
 
         let key = Binding::read("keyboard: i + super").expect_err("super is held");
-        assert!(key.contains("is a modifier"), "{key}");
+
+        assert!(matches!(key, Unbound::AModifier(_, _)), "{key}");
 
         let word = Binding::read("mouse: left").expect_err("no such input");
-        assert!(word.contains("mouse"), "{word}");
+
+        assert!(
+            matches!(word, Unbound::NoSuchInput(ref said, _) if said == "mouse"),
+            "{word}"
+        );
     }
 
     #[test]

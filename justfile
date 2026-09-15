@@ -18,7 +18,7 @@ theme:
 
 # press the wallpapers the table names
 sky:
-    cargo run --quiet --release --bin sky-press
+    cargo run --quiet --release --bin wallpaper-press
 
 # `--all-features` because the keyboard's Rust port is behind one. It is off by
 # default so the device does not compile cairo and pango for a program it does
@@ -38,6 +38,19 @@ sky:
 test:
     cargo build --quiet --workspace --all-features
     cargo test --quiet --workspace --all-features
+
+# The tree's own accent, printed rather than enforced.
+#
+# The enforcing is in `just test` already, because the gate is a test like any
+# other: a word written far out of English's proportion is either under a
+# heading in `words.conf` or the run is red. This is the same measurement with
+# the table left on the screen, which is the half worth reading when nothing is
+# failing -- the words at the top are what this desktop sounds like, in order,
+# and a word nobody meant to lean on is visible there long before it is a habit.
+
+# the words this tree writes furthest out of English's proportion
+words:
+    cargo test --quiet -p console-vocabulary --test the_words -- --nocapture
 
 # What a deploy runs before it sends anything, and the only place the list
 # lives.
@@ -89,9 +102,11 @@ ready:
 # Deliberately not in `ready`, because what it counts is the warned tier:
 # production code is held to the denied rules by `just explicit-gate`, and this
 # is where a rule the code has not caught up with says how far there is left to
-# go. Nothing stands there now -- 023 was the last, and it went out with the
-# `let … else` sweep -- so this prints a census rather than a distance, and it
-# is the whole tree. tools/explicit-rust/README.md says what each rule is for.
+# go. Nothing stands there today -- 039, 040, 041 and 044 were the last four and
+# are denied -- so what this prints is nothing, and it is still worth running: it
+# is the whole tree rather than production alone, and it is where the next rule
+# written ahead of the code will say its distance.
+# tools/explicit-rust/README.md says what each rule is for.
 #
 # Capped to warnings so the run reaches every crate. Left uncapped it stops at
 # the first one that fails, which is the first one alphabetically and tells
@@ -143,11 +158,35 @@ explicit:
 # is for.
 
 # The ALLOW list this recipe once carried is gone for good: a rule's tier now
-# lives in its own crate, as the level in `declare_late_lint!`. Every rule the
-# workspace keeps is Deny and fails this gate, and today that is all of them:
-# nothing is warned. A rule moves from Warn to Deny in its own source when the
-# last call site that broke it is fixed, and it never moves back. The last out
-# was 023, which went the way 019 went -- every `let … else` in the tree turned
+# lives in its own crate, as the level in `declare_late_lint!`. Every rule in
+# the suite is Deny and fails this gate; nothing stands warned. A rule moves
+# from Warn to Deny in its own source when the last call site that broke it is
+# fixed, and it never moves back.
+#
+# The last five written were read off a rule taxonomy somebody keeps for C++,
+# which is worth saying because of what it cost: most of that list was already
+# answered here or is a fault Rust will not compile, and five questions came
+# back that this tree could be asked. Two had call sites -- 035, a thread let
+# go without the word being said, and 036, a program named by a string that no
+# list of what this desktop runs can see. Two arrived green and are ratchets
+# rather than sweeps, 034 and 037. The fifth is 038, the argument the suite had
+# been having with itself since 001, and it broke the tree in more crates than
+# anything since 019: a fault said as a `String` is one no caller can decide
+# anything about, and the answer is an enum per crate naming the ways its own
+# calls fail. It came out bottom-up, a crate at a time, the way 002 went.
+#
+# Before them 033 arrived denied
+# with the tree breaking it in more places than anything before it: the
+# `unwrap_or` family over an `Option`, which is 001's rule about a `Result` said
+# where there is no error to swallow, and what it found in three hundred-odd
+# sites was mostly a `match` with both arms and a named value, twice a real fault
+# wearing a default, and three times one answer written out in several crates --
+# `console-core-walking` is where the first of those went. Before it 024, which
+# arrived with the tree breaking it in more places than anything since 019 and
+# came out a family of quantities at a time rather than a function at a time.
+# Before it, 026
+# through 032, seven at once, which arrived together and
+# came out together. Before them 023, which went the way 019 went -- every `let … else` in the tree turned
 # into a `match` in the initializer. Before it, 022, and what let that one out was not a check
 # but what a wait may carry: `Device::until` now carries the fault its question
 # carries, so a question that reads the screen -- which is what the home

@@ -10,8 +10,8 @@ name = "console_input_language"
 path = "src/lib.rs"
 
 [[bin]]
-name = "switch-language"
-path = "src/bin/switch-language.rs"
+name = "language-switch"
+path = "src/bin/language-switch.rs"
 
 [dependencies]
 # Which alphabets this machine types, what each is called in xkb, and what each
@@ -22,6 +22,7 @@ console-input-alphabets.workspace = true
 # hyprctl word.
 console-compositor.workspace = true
 console-core-never.workspace = true
+console-core-walking.workspace = true
 console-core-places.workspace = true
 
 [lints]

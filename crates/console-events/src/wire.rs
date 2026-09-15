@@ -17,6 +17,8 @@ use std::path::PathBuf;
 use console_core_never::Never;
 use console_program_contract::{Changed, Topic};
 
+const NOTHING_AFTER_IT: &str = "";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Says {
     Listen(Topic),
@@ -68,7 +70,10 @@ pub fn read(line: &str) -> Result<Option<Says>, Never> {
             Some(Says::Deafen(about))
         }
         "said" => {
-            let (spelt, said) = rest.split_once(' ').unwrap_or((rest, ""));
+            let (spelt, said) = match rest.split_once(' ') {
+                Some(both) => both,
+                None => (rest, NOTHING_AFTER_IT),
+            };
 
             let about = match topic(spelt) {
                 Ok(Some(about)) => about,

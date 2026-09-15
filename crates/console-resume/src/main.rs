@@ -45,12 +45,16 @@
 use std::env;
 use std::fs::create_dir_all;
 use std::path::PathBuf;
-use std::process::exit;
+use std::process::ExitCode;
 use std::time::Duration;
 
 use console_core_never::Never;
+use console_resume::Unresumed;
 use console_resume::already::Already;
 use console_resume::session::{Duplicates, PutBack, Really, Restoring, Sessions};
+
+const UNLESS_NAMED: &str = "default";
+
 
 const SAVE_INTERVAL: Duration = Duration::from_secs(60);
 const ADJUSTING_FOR: Duration = Duration::from_secs(60);
@@ -123,14 +127,59 @@ fn known_flag(word: &str) -> Result<Known, Never> {
     })
 }
 
-fn asked(words: &[String]) -> Result<Asked, String> {
+#[derive(Debug)]
+enum Unstarted {
+    UnknownFlag(String),
+    UnknownMode(String),
+    NeverSaving,
+    Homeless,
+    Making(PathBuf, std::io::Error),
+    NoSession(PathBuf),
+    Resuming(Unresumed),
+}
+
+impl std::fmt::Display for Unstarted {
+    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Unstarted::UnknownFlag(word) => {
+                write!(to, "{word:?} is not one of --{}", FLAGS.join(", --"))
+            }
+            Unstarted::UnknownMode(said) => {
+                let every: Vec<&str> = EVERY.iter().map(|(spelt, _mode)| *spelt).collect();
+
+                write!(to, "{said:?} is not one of {}", every.join(", "))
+            }
+            Unstarted::NeverSaving => write!(to, "a save interval of nought is never"),
+            Unstarted::Homeless => write!(to, "there is no home to keep a session in"),
+            Unstarted::Making(at, fault) => {
+                write!(to, "{}: making it: {fault}", at.display())
+            }
+            Unstarted::NoSession(at) => write!(
+                to,
+                "{} has no session in it, so the screen is left as it is",
+                at.display()
+            ),
+            Unstarted::Resuming(fault) => write!(to, "{fault}"),
+        }
+    }
+}
+
+impl std::error::Error for Unstarted {}
+
+impl From<Unresumed> for Unstarted {
+    fn from(fault: Unresumed) -> Self {
+        Unstarted::Resuming(fault)
+    }
+}
+
+fn asked(words: &[String]) -> Result<Asked, Unstarted> {
     for word in words {
         let Ok(known) = known_flag(word);
 
         match known {
             Known::Yes => {},
             Known::No => {
-                return Err(format!("{word:?} is not one of --{}", FLAGS.join(", --")));
+                return Err(Unstarted::UnknownFlag(word.clone()));
             },
         }
     }
@@ -155,17 +204,13 @@ fn asked(words: &[String]) -> Result<Asked, String> {
 
     let mode = match known {
         Some(mode) => mode,
-        None => {
-            let every: Vec<&str> = EVERY.iter().map(|(spelt, _mode)| *spelt).collect();
-
-            return Err(format!("{said:?} is not one of {}", every.join(", ")));
-        },
+        None => return Err(Unstarted::UnknownMode(said.to_string())),
     };
 
     let Ok(save_interval) = seconds(flag("save-interval").as_deref(), SAVE_INTERVAL);
 
     match save_interval.is_zero() {
-        true => return Err("a save interval of nought is never".to_string()),
+        true => return Err(Unstarted::NeverSaving),
         false => {},
     }
 
@@ -173,7 +218,10 @@ fn asked(words: &[String]) -> Result<Asked, String> {
 
     Ok(Asked {
         mode,
-        name: mode_and_name.next().cloned().unwrap_or_else(|| "default".to_string()),
+        name: match mode_and_name.next().cloned() {
+            Some(name) => name,
+            None => UNLESS_NAMED.to_string(),
+        },
         save_interval,
         adjusting_for,
         really: match set("simulate") {
@@ -187,7 +235,14 @@ fn asked(words: &[String]) -> Result<Asked, String> {
     })
 }
 
-fn where_sessions_live() -> Result<PathBuf, String> {
+#[cfg_attr(
+    dylint_lib = "explicit026_env_read_once",
+    allow(
+        explicit026_env_read_once,
+        reason = "CONSOLE_RESUME_PATH is where a session is remembered, and the const beside it is the only spelling of the name"
+    )
+)]
+fn where_sessions_live() -> Result<PathBuf, Unstarted> {
     match env::var(WHERE) {
         Ok(said) => return Ok(PathBuf::from(said)),
         Err(_it_was_not_said) => {},
@@ -197,11 +252,11 @@ fn where_sessions_live() -> Result<PathBuf, String> {
 
     match ours {
         Some(ours) => Ok(ours.join(console_resume::OURS)),
-        None => Err("there is no home to keep a session in".to_string()),
+        None => Err(Unstarted::Homeless),
     }
 }
 
-fn putting_back(sessions: &Sessions, name: &str) -> Result<(), String> {
+fn putting_back(sessions: &Sessions, name: &str) -> Result<(), Unstarted> {
     let Ok(already) = console_resume::already::asked();
 
     match already {
@@ -235,14 +290,14 @@ fn putting_back(sessions: &Sessions, name: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn run() -> Result<(), String> {
+fn run() -> Result<(), Unstarted> {
     let words: Vec<String> = env::args().skip(1).collect();
 
     let asked = asked(&words)?;
 
     let at = where_sessions_live()?;
 
-    create_dir_all(&at).map_err(|fault| format!("{}: making it: {fault}", at.display()))?;
+    create_dir_all(&at).map_err(|fault| Unstarted::Making(at.clone(), fault))?;
 
     let sessions = Sessions {
         at,
@@ -260,12 +315,7 @@ fn run() -> Result<(), String> {
 
             match put_back {
                 PutBack::Windows => {},
-                PutBack::NothingSaved(at) => {
-                    return Err(format!(
-                        "{} has no session in it, so the screen is left as it is",
-                        at.display()
-                    ));
-                },
+                PutBack::NothingSaved(at) => return Err(Unstarted::NoSession(at)),
             }
         },
         Mode::Watch => {},
@@ -286,18 +336,20 @@ fn run() -> Result<(), String> {
     }
 
     match asked.mode {
-        Mode::Default | Mode::Watch => sessions.watch(&asked.name, asked.save_interval),
+        Mode::Default | Mode::Watch => sessions
+            .watch(&asked.name, asked.save_interval)
+            .map_err(Unstarted::Resuming),
         Mode::Save | Mode::List | Mode::Load | Mode::Clear | Mode::Delete => Ok(()),
     }
 }
 
-fn main() {
+fn main() -> ExitCode {
     match run() {
-        Ok(()) => {},
+        Ok(()) => ExitCode::SUCCESS,
         Err(why) => {
             eprintln!("console-resume: {why}");
 
-            exit(1);
+            ExitCode::FAILURE
         },
     }
 }
@@ -314,8 +366,10 @@ mod tests {
     fn no_words_at_all_is_what_the_unit_starts() {
         let asked = asked(&words(&[]));
 
-        assert_eq!(asked.as_ref().map(|asked| asked.mode), Ok(Mode::Default));
-        assert_eq!(asked.map(|asked| asked.name), Ok("default".to_string()));
+        let asked = asked.expect("what the unit starts");
+
+        assert_eq!(asked.mode, Mode::Default);
+        assert_eq!(asked.name, "default".to_string());
     }
 
     #[test]
@@ -323,8 +377,8 @@ mod tests {
         let asked = asked(&words(&[]));
 
         assert_ne!(
-            asked.map(|asked| asked.mode),
-            Ok(Mode::Load),
+            asked.expect("what the unit starts").mode,
+            Mode::Load,
             "a bare run of this program must not sweep the desktop"
         );
     }
@@ -341,27 +395,31 @@ mod tests {
 
     #[test]
     fn a_mode_nobody_here_says_names_the_ones_that_are_said() {
-        let said = asked(&words(&["sideways"]));
+        let why = match asked(&words(&["sideways"])) {
+            Err(why) => why,
+            Ok(_no_such_mode) => panic!("sideways was read as a mode"),
+        };
 
-        assert_eq!(said.map(|asked| asked.mode).map_err(|why| why.contains("delete")), Err(true));
+        assert!(why.to_string().contains("delete"), "{why}");
     }
 
     #[test]
     fn the_mode_is_a_word_and_the_name_is_the_word_after_it() {
-        let asked = asked(&words(&["load", "yesterday"]));
+        let asked = asked(&words(&["load", "yesterday"])).expect("a mode and a name");
 
-        assert_eq!(asked.as_ref().map(|asked| asked.mode), Ok(Mode::Load));
-        assert_eq!(asked.map(|asked| asked.name), Ok("yesterday".to_string()));
+        assert_eq!(asked.mode, Mode::Load);
+        assert_eq!(asked.name, "yesterday".to_string());
     }
 
     #[test]
     fn a_flag_is_read_wherever_it_stands_among_the_words() {
-        let asked = asked(&words(&["save", "--load-time=5", "nightly", "--simulate"]));
+        let asked = asked(&words(&["save", "--load-time=5", "nightly", "--simulate"]))
+            .expect("a mode, a name and two flags");
 
-        assert_eq!(asked.as_ref().map(|asked| asked.mode), Ok(Mode::Save));
-        assert_eq!(asked.as_ref().map(|asked| asked.name.clone()), Ok("nightly".to_string()));
-        assert_eq!(asked.as_ref().map(|asked| asked.adjusting_for), Ok(Duration::from_secs(5)));
-        assert_eq!(asked.map(|asked| asked.really), Ok(Really::Simulated));
+        assert_eq!(asked.mode, Mode::Save);
+        assert_eq!(asked.name, "nightly".to_string());
+        assert_eq!(asked.adjusting_for, Duration::from_secs(5));
+        assert_eq!(asked.really, Really::Simulated);
     }
 
     #[test]

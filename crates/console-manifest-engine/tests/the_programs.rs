@@ -18,11 +18,22 @@
 //! justify. A crate that also has a `console_program_contract::Program` in
 //! scope imports this one as `Theirs`, which is why the scan reads both
 //! spellings.
+//!
+//! The scan used to allow one kind of literal: a program of this tree's own,
+//! on the grounds that `[build]` names it. That was the same unchecked claim
+//! the foreign ones had stopped being, made about a different list, and
+//! `console-core-our-programs` is the list it should have been read off.
+//! So there are two crossings here now, one per list, and the scan allows
+//! nothing. What it is still worth running for is the targets EXPLICIT036
+//! cannot see: every rule in that suite exempts a test build, and a test that
+//! starts a program by writing its name is a test that passes on the machine
+//! it was written on.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use console_core_external_programs::{EVERY, Origin};
+use console_core_our_programs::EVERY as EVERY_OF_OURS;
 
 fn root() -> PathBuf {
     let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -94,16 +105,6 @@ fn read() -> Vec<(PathBuf, String)> {
         .collect()
 }
 
-fn ours() -> BTreeSet<String> {
-    let built = section(&manifest(), "build").into_iter();
-    let carried = std::fs::read_dir(root().join("files/usr/local/bin"))
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|entry| entry.file_name().into_string().ok());
-    built.chain(carried).collect()
-}
-
 #[test]
 fn every_package_a_program_comes_from_is_in_the_manifest() {
     let held = manifest();
@@ -125,9 +126,24 @@ fn every_package_a_program_comes_from_is_in_the_manifest() {
 }
 
 #[test]
+fn every_program_of_ours_that_is_run_is_in_the_manifest() {
+    let built: BTreeSet<String> = section(&manifest(), "build").into_iter().collect();
+    let missing: Vec<&str> = EVERY_OF_OURS
+        .iter()
+        .map(|ours| {
+            let Ok(name) = ours.name();
+
+            name
+        })
+        .filter(|named| !built.contains(*named))
+        .collect();
+
+    assert!(missing.is_empty(), "[build] does not name: {missing:?}");
+}
+
+#[test]
 fn nothing_starts_a_program_by_writing_its_name() {
     let door = format!("{}::new(\"", "Command");
-    let ours = ours();
     let mut strange: Vec<String> = Vec::new();
 
     for (at, said) in read() {
@@ -138,16 +154,15 @@ fn nothing_starts_a_program_by_writing_its_name() {
                 None => continue,
             };
 
-            match ours.contains(name) {
-                true => {},
-                false => strange.push(format!("{}: {name}", at.display())),
-            }
+            strange.push(format!("{}: {name}", at.display()));
         }
     }
 
     assert!(
         strange.is_empty(),
-        "these name a program instead of asking console_core_external_programs for one: {strange:?}"
+        "these name a program instead of asking for one: a program this desktop did not write is a \
+         console_core_external_programs::Program and one it did write is a console_core_our_programs::Ours \
+         -- {strange:?}"
     );
 }
 
@@ -160,6 +175,22 @@ fn said_exactly(said: &str, what: &str) -> bool {
 }
 
 const SPELT: [&str; 2] = ["Program", "Theirs"];
+
+#[test]
+fn nothing_of_ours_named_here_has_stopped_being_run() {
+    let said: String = read().into_iter().map(|(_, said)| said).collect::<Vec<_>>().join("\n");
+    let gone: Vec<&str> = EVERY_OF_OURS
+        .iter()
+        .filter(|ours| !said_exactly(&said, &format!("{}::{ours:?}", "Ours")))
+        .map(|ours| {
+            let Ok(name) = ours.name();
+
+            name
+        })
+        .collect();
+
+    assert!(gone.is_empty(), "the enum names what nothing runs: {gone:?}");
+}
 
 #[test]
 fn nothing_named_here_has_stopped_being_run() {

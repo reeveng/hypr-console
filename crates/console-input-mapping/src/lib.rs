@@ -13,7 +13,7 @@
 //! a handheld knows which paddle `RightPaddle3` is, and a list of names is the
 //! worse screen for the same question.
 //!
-//! `rows` is the screen and has never seen a machine. `layout-panel` is the
+//! `rows` is the screen and has never seen a machine. `mapping-panel` is the
 //! screen with one, and `console-asking` is the card that reads the press.
 
 pub mod card;
@@ -22,3 +22,24 @@ pub mod rows;
 pub mod table;
 
 pub use card::{WHO, card, door};
+
+#[derive(Debug)]
+pub enum Unmapped {
+    Nobodys,
+    Holding(std::path::PathBuf, std::io::Error),
+    Writing(console_core_atomic_writes::Unwritten),
+}
+
+impl std::fmt::Display for Unmapped {
+    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Unmapped::Nobodys => {
+                write!(to, "this machine will not say whose buttons these are")
+            }
+            Unmapped::Holding(at, fault) => write!(to, "{}: {fault}", at.display()),
+            Unmapped::Writing(fault) => write!(to, "{fault}"),
+        }
+    }
+}
+
+impl std::error::Error for Unmapped {}

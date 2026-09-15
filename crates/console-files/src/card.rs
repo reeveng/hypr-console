@@ -41,13 +41,16 @@ use crate::looking::{self, Found};
 use crate::places::{self, Place, WANTED};
 use crate::thumbs;
 use crate::standing::{
-    self, Closes, Files, HERE_START, Heard, Its, LINE, Onto, Standing, WAYS_START, closes,
+    self, Closes, Files, HERE_START, Heard, Its, LINE, Line, Onto, Standing, WAYS_START, closes,
     first_thing,
 };
 use console_panel::actor::{self, Addr, Answer as Reply};
 use console_program_contract::{Doing, Program as _, Turn, Word};
-use console_panel::page::{Answer, Does, Heading, Page, Picture, Row, Rows, Showing, Taken};
+use console_panel::page::{Answer, Aside, Does, Heading, Page, Picture, Row, Rows, Showing, Taken, Which};
 use console_panel::card::{Card, Door};
+
+const NOTHING_SAYS_WHAT_IT_IS: &str = "";
+
 
 enum Msg {
     Heard(Heard, Reply<Vec<Doing<Its>>>),
@@ -162,9 +165,9 @@ fn look(
     tab: usize,
     onto: Onto,
     showing: &dyn Showing,
-    row: usize,
+    row: Line,
 ) -> Result<(), Never> {
-    press(held, Heard::Opened { tab, onto, row }, showing)
+    press(held, Heard::Opened { tab, onto, row: row.0 }, showing)
 }
 
 fn read(path: &Path) -> Result<Vec<Entry>, Never> {
@@ -205,10 +208,10 @@ fn read(path: &Path) -> Result<Vec<Entry>, Never> {
 }
 
 fn kind_said(about: &gio::FileInfo) -> Result<String, Never> {
-    Ok(about
-        .attribute_string("standard::fast-content-type")
-        .map(|kind| kind.to_string())
-        .unwrap_or_default())
+    Ok(match about.attribute_string("standard::fast-content-type") {
+        Some(kind) => kind.to_string(),
+        None => NOTHING_SAYS_WHAT_IT_IS.to_string(),
+    })
 }
 
 fn kind_of(path: &Path) -> Result<Option<String>, Never> {
@@ -308,7 +311,7 @@ fn folder_rows(held: &Held, tab: usize, here: &Path) -> Result<Vec<Row>, Never> 
             });
 
             let row = here_too(held, tab, back)?;
-            let Ok(naming) = Row::naming(&called, "");
+            let Ok(naming) = Row::naming(&called, Aside(""));
 
             rows.push(row);
             rows.push(naming);
@@ -333,7 +336,7 @@ fn folder_rows(held: &Held, tab: usize, here: &Path) -> Result<Vec<Row>, Never> 
     for thing in things {
         let at = rows.len().saturating_add(LINE);
         let picture = picture(&store, here, &thing, room)?;
-        let row = thing_row(held, tab, &thing, at, &picture)?;
+        let row = thing_row(held, tab, &thing, Line(at), &picture)?;
 
         rows.push(row);
     }
@@ -345,7 +348,7 @@ fn folder_rows(held: &Held, tab: usize, here: &Path) -> Result<Vec<Row>, Never> 
     }) {
         true => {},
         false => {
-            let row = new_folder_row(held, tab, here, LINE)?;
+            let row = new_folder_row(held, tab, here, Line(LINE))?;
 
             rows.push(row);
         }
@@ -401,7 +404,10 @@ fn found_rows(held: &Held, tab: usize, here: &Path, word: &str) -> Result<Vec<Ro
 
     for one in found {
         let at = one.at(here)?;
-        let holding = at.parent().unwrap_or(here).to_path_buf();
+        let holding = match at.parent() {
+            Some(holding) => holding.to_path_buf(),
+            None => here.to_path_buf(),
+        };
         let picture = picture(&store, &holding, &one.thing, room)?;
         let row = found_row(held, tab, &one, &picture)?;
 
@@ -426,7 +432,7 @@ fn found_row(held: &Held, tab: usize, one: &Found, picture: &Picture) -> Result<
 
                 let Ok(()) = press(&held, Heard::Walked { tab, steps }, showing);
             });
-            let Ok(row) = Row::new(&one.thing.name, &aside, walks);
+            let Ok(row) = Row::new(&one.thing.name, Aside(&aside), walks);
             let Ok(opens) = row.opening();
 
             opens
@@ -437,7 +443,7 @@ fn found_row(held: &Held, tab: usize, one: &Found, picture: &Picture) -> Result<
             let said = said(&at)?;
             let Ok(opens) = Program::XdgOpen.name();
             let Ok(runs) = Does::run(&[opens, &said]);
-            let Ok(row) = Row::new(&one.thing.name, &aside, runs);
+            let Ok(row) = Row::new(&one.thing.name, Aside(&aside), runs);
 
             row
         }
@@ -496,7 +502,7 @@ fn thing_row(
     held: &Held,
     tab: usize,
     thing: &Entry,
-    at: usize,
+    at: Line,
     picture: &Picture,
 ) -> Result<Row, Never> {
     let aside = listing::aside(thing)?;
@@ -509,9 +515,9 @@ fn thing_row(
             let Ok(enters) = Does::and_stay(move |showing| {
                 let name = name.clone();
 
-                let Ok(()) = press(&held, Heard::Entered { tab, name, at }, showing);
+                let Ok(()) = press(&held, Heard::Entered { tab, name, at: at.0 }, showing);
             });
-            let Ok(row) = Row::new(&thing.name, &aside, enters);
+            let Ok(row) = Row::new(&thing.name, Aside(&aside), enters);
             let Ok(opens) = row.opening();
 
             opens
@@ -521,7 +527,7 @@ fn thing_row(
             let path = here.join(&thing.name);
             let Ok(opens) = Program::XdgOpen.name();
             let Ok(runs) = Does::run(&[opens, &path.to_string_lossy()]);
-            let Ok(row) = Row::new(&thing.name, &aside, runs);
+            let Ok(row) = Row::new(&thing.name, Aside(&aside), runs);
 
             row
         }
@@ -533,9 +539,9 @@ fn thing_row(
     let Ok(pictured) = row.picturing(picture.clone());
 
     pictured.offering(move |showing| {
-        let onto = Onto::Ways { thing: thing.clone(), from: at };
+        let onto = Onto::Ways { thing: thing.clone(), from: at.0 };
 
-        let Ok(()) = look(&held, tab, onto, showing, WAYS_START);
+        let Ok(()) = look(&held, tab, onto, showing, Line(WAYS_START));
 
         false
     })
@@ -566,14 +572,14 @@ fn put_down_row(held: &Held, holding: &Holding, here: &Path) -> Result<Row, Neve
         showing.later(argv.clone());
     });
 
-    Row::new(&says, "", puts)
+    Row::new(&says, Aside(""), puts)
 }
 
 fn ask_for_a_folder(
     held: &Held,
     tab: usize,
     here: &Path,
-    from: usize,
+    from: Line,
     showing: &dyn Showing,
 ) -> Result<(), Never> {
     let here = here.to_path_buf();
@@ -603,7 +609,7 @@ fn ask_for_a_folder(
 
 const NEW_FOLDER: &str = "New folder";
 
-fn new_folder_row(held: &Held, tab: usize, here: &Path, from: usize) -> Result<Row, Never> {
+fn new_folder_row(held: &Held, tab: usize, here: &Path, from: Line) -> Result<Row, Never> {
     let here = here.to_path_buf();
     let held = held.clone();
 
@@ -611,39 +617,40 @@ fn new_folder_row(held: &Held, tab: usize, here: &Path, from: usize) -> Result<R
         let Ok(()) = ask_for_a_folder(&held, tab, &here, from, showing);
     });
 
-    Row::new(NEW_FOLDER, "", asks)
+    Row::new(NEW_FOLDER, Aside(""), asks)
 }
 
 fn here_too(held: &Held, tab: usize, row: Row) -> Result<Row, Never> {
     let held = held.clone();
 
     row.offering(move |showing| {
-        let Ok(()) = look(&held, tab, Onto::Here { from: LINE }, showing, HERE_START);
+        let Ok(()) = look(&held, tab, Onto::Here { from: LINE }, showing, Line(HERE_START));
 
         false
     })
 }
 
-fn here_rows(held: &Held, tab: usize, here: &Path, from: usize) -> Result<Vec<Row>, Never> {
+fn here_rows(held: &Held, tab: usize, here: &Path, from: Line) -> Result<Vec<Row>, Never> {
     let folder = called(held, tab)?;
     let leaving = held.clone();
     let new_folder = new_folder_row(held, tab, here, from)?;
-    let one_format = one_format_row(held, tab, here, from)?;
+    let downloads_format = one_format_row(held, tab, here, from)?;
 
     let Ok(way_back) = Row::back(&folder, move |showing| {
         let Ok(()) = back_to_the_folder(&leaving, tab, showing, from);
     });
 
-    Ok(vec![way_back, new_folder, one_format])
+    Ok(vec![way_back, new_folder, downloads_format])
 }
 
 const UNZIPS: &str = "files-unzip";
 
 const ONE_FORMAT: &str = "Make everything one format";
-const ONE_FORMAT_ASKS: &str = "Make everything in here one format?";
-const ONE_FORMAT_YES: &str = "Yes, songs to opus and films to mkv";
+const ONE_FORMAT_ASKS: &str =
+    "Make everything in here one format? Songs become opus and films become mkv.";
+const ONE_FORMAT_DOES: &str = "Convert";
 
-fn one_format_row(held: &Held, tab: usize, here: &Path, from: usize) -> Result<Row, Never> {
+fn one_format_row(held: &Held, tab: usize, here: &Path, from: Line) -> Result<Row, Never> {
     let here = here.to_path_buf();
     let held = held.clone();
 
@@ -653,10 +660,10 @@ fn one_format_row(held: &Held, tab: usize, here: &Path, from: usize) -> Result<R
 
         let Ok(whole) = said(&here);
 
-        let folder = here
-            .file_name()
-            .map(|name| name.to_string_lossy().to_string())
-            .unwrap_or(whole);
+        let folder = match here.file_name() {
+            Some(folder) => folder.to_string_lossy().to_string(),
+            None => whole,
+        };
         let said_as = folder.clone();
 
         let Ok(then) = taken(move |showing, _| {
@@ -666,20 +673,20 @@ fn one_format_row(held: &Held, tab: usize, here: &Path, from: usize) -> Result<R
 
             let Ok(at) = said(&here);
 
-            showing.later(vec!["one-format".to_string(), at]);
+            showing.later(vec!["downloads-format".to_string(), at]);
         });
 
-        showing.sure(ONE_FORMAT_ASKS, &said_as, &[ONE_FORMAT_YES], then);
+        showing.sure(ONE_FORMAT_ASKS, Which(&said_as), &[ONE_FORMAT_DOES], then);
     });
 
-    Row::new(ONE_FORMAT, "", asks)
+    Row::new(ONE_FORMAT, Aside(""), asks)
 }
 
 fn way_rows(
     held: &Held,
     tab: usize,
     thing: &Entry,
-    from: usize,
+    from: Line,
     here: &Path,
 ) -> Result<Vec<Row>, Never> {
     let folder = called(held, tab)?;
@@ -689,7 +696,7 @@ fn way_rows(
     let Ok(way_back) = Row::back(&folder, move |showing| {
         let Ok(()) = back_to_the_folder(&leaving, tab, showing, from);
     });
-    let Ok(naming) = Row::naming(&thing.name, &aside);
+    let Ok(naming) = Row::naming(&thing.name, Aside(&aside));
     let mut rows = vec![way_back, naming];
 
     let path = here.join(&thing.name);
@@ -702,13 +709,13 @@ fn way_rows(
     }
 
     let new_folder = new_folder_row(held, tab, here, from)?;
-    let one_format = one_format_row(held, tab, here, from)?;
+    let downloads_format = one_format_row(held, tab, here, from)?;
 
-    let Ok(naming) = Row::naming(&format!("In {folder}"), "");
+    let Ok(naming) = Row::naming(&format!("In {folder}"), Aside(""));
 
     rows.push(naming);
     rows.push(new_folder);
-    rows.push(one_format);
+    rows.push(downloads_format);
 
     Ok(rows)
 }
@@ -717,7 +724,7 @@ fn program_rows(
     held: &Held,
     tab: usize,
     thing: &Entry,
-    from: usize,
+    from: Line,
     here: &Path,
 ) -> Result<Vec<Row>, Never> {
     let path = here.join(&thing.name);
@@ -725,12 +732,12 @@ fn program_rows(
     let going_back = thing.clone();
     let opens = Deed::OpenWith.says()?;
 
-    let Ok(way_back) = Row::back(&going_back.name.clone(), move |showing| {
-        let onto = Onto::Ways { thing: going_back.clone(), from };
+    let Ok(way_back) = Row::back(&thing.name, move |showing| {
+        let onto = Onto::Ways { thing: going_back.clone(), from: from.0 };
 
-        let Ok(()) = look(&leaving, tab, onto, showing, WAYS_START);
+        let Ok(()) = look(&leaving, tab, onto, showing, Line(WAYS_START));
     });
-    let Ok(naming) = Row::naming(opens, "");
+    let Ok(naming) = Row::naming(opens, Aside(""));
     let mut rows = vec![way_back, naming];
 
     let kind = kind_of(&path)?;
@@ -759,7 +766,7 @@ fn program_rows(
 
             true
         });
-        let Ok(row) = Row::new(&says, "", starts);
+        let Ok(row) = Row::new(&says, Aside(""), starts);
 
         rows.push(row);
     }
@@ -784,7 +791,7 @@ fn deed_row(
     held: &Held,
     tab: usize,
     thing: &Entry,
-    from: usize,
+    from: Line,
     path: &Path,
     deed: Deed,
 ) -> Result<Row, Never> {
@@ -795,7 +802,7 @@ fn deed_row(
             let Ok(opens) = Program::XdgOpen.name();
             let Ok(runs) = Does::run(&[opens, &path.to_string_lossy()]);
 
-            return Row::new(says, "", runs);
+            return Row::new(says, Aside(""), runs);
         }
         Deed::Copy | Deed::Delete | Deed::Move | Deed::OpenWith | Deed::Rename
         | Deed::Unzip | Deed::Wallpaper => {},
@@ -808,7 +815,7 @@ fn deed_row(
     let Ok(does) = Does::and_stay(move |showing| {
         let Ok(()) = done(&held, tab, &thing, from, &path, deed, showing);
     });
-    let Ok(row) = Row::new(says, "", does);
+    let Ok(row) = Row::new(says, Aside(""), does);
 
     Ok(match deed == Deed::OpenWith {
         true => {
@@ -824,7 +831,7 @@ fn done(
     held: &Held,
     tab: usize,
     thing: &Entry,
-    from: usize,
+    from: Line,
     path: &Path,
     deed: Deed,
     showing: &dyn Showing,
@@ -832,9 +839,9 @@ fn done(
     match deed {
         Deed::Open => (),
         Deed::OpenWith => {
-            let onto = Onto::Programs { thing: thing.clone(), from };
+            let onto = Onto::Programs { thing: thing.clone(), from: from.0 };
 
-            look(held, tab, onto, showing, 1)?;
+            look(held, tab, onto, showing, Line(1))?;
         }
         Deed::Delete => {
             let held = held.clone();
@@ -851,7 +858,7 @@ fn done(
                 showing.later(trashing);
             })?;
 
-            showing.sure(doing::SURE, &thing.name, &[says], then);
+            showing.sure(doing::SURE, Which(&thing.name), &[says], then);
         }
         Deed::Copy | Deed::Move => {
             let carrying = match deed == Deed::Move {
@@ -882,7 +889,7 @@ fn done(
 
             let at = said(path)?;
 
-            showing.later(vec!["sky-press".to_string(), "--take".to_string(), at]);
+            showing.later(vec!["wallpaper-press".to_string(), "--take".to_string(), at]);
         }
         Deed::Rename => {
             let held = held.clone();
@@ -918,7 +925,7 @@ fn back_to_the_folder(
     held: &Held,
     tab: usize,
     showing: &dyn Showing,
-    from: usize,
+    from: Line,
 ) -> Result<(), Never> {
     look(held, tab, Onto::Folder, showing, from)
 }
@@ -948,9 +955,9 @@ fn rows(held: &Held, tab: usize) -> Result<Vec<Row>, Never> {
 
     match onto {
         Onto::Folder => folder_rows(held, tab, &here),
-        Onto::Here { from } => here_rows(held, tab, &here, from),
-        Onto::Programs { thing, from } => program_rows(held, tab, &thing, from, &here),
-        Onto::Ways { thing, from } => way_rows(held, tab, &thing, from, &here),
+        Onto::Here { from } => here_rows(held, tab, &here, Line(from)),
+        Onto::Programs { thing, from } => program_rows(held, tab, &thing, Line(from), &here),
+        Onto::Ways { thing, from } => way_rows(held, tab, &thing, Line(from), &here),
     }
 }
 

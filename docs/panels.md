@@ -325,12 +325,12 @@ always been held to and the screen was not.
 
 `Showing::sure` asks it: what is being asked, the thing it is about beside it,
 and the answers on the line under. Left and right walk the answers, A takes the
-one standing, B is no.
+one standing, B leaves the question the way **Cancel** does.
 
 A list here is a list of things to go into, and a question written as rows is a
-sentence in an inventory. It also cost the answer a row of its own: yes was a
-row saying "Yes, delete" and no was row nought, which is the way back and not
-an answer to anything.
+sentence in an inventory. It also cost the answer a row of its own: going ahead
+was a row saying "Yes, delete" and declining was row nought, which is the way
+back and not an answer to anything.
 
 Nothing is pushed. The question stands over the list it was asked on and either
 answer leaves it, so there is no page to walk back out of and no state saying
@@ -345,10 +345,42 @@ or leave it alone.
 Every other list opens with the highlight on the first row that does something,
 because the first press of A should do the obvious thing.
 
-A question is the exception, and it opens standing on no. It is the one place
-where the obvious thing is a photograph thrown away by a thumb that pressed A
-twice. The answers that do something are drawn after it and wear the warmer
-colour.
+A question is the exception, and it opens standing on **Cancel**. It is the one
+place where the obvious thing is a photograph thrown away by a thumb that
+pressed A twice. The answers that do something are drawn after it and wear the
+warmer colour.
+
+## What a press does is what the row it is on says
+
+Apple's guidance on an alert is unusually flat, and the whole of it applies to
+every card here. A button title is one or two words describing the *result* of
+choosing it, and takes a verb out of the question's own words. Yes, No and OK
+are to be avoided, because they name the grammar of the question rather than
+what is about to happen. And the row that leaves is always **Cancel** --
+`marks::CANCEL`, put on the front of every `sure()` by the panel rather than by
+any caller, so there is one spelling of it on the device.
+
+Three things follow, and each of them was a row on this desktop that read wrong.
+
+**A pronoun is a word the row does not need.** "Put them back", "Move it",
+"Clear them all", "Forget it" -- in every one of them the thing is already named
+by the question over the row or by the title of the card the row is on, and the
+pronoun is the row repeating what the person is looking at. The word for going
+ahead is the verb and nothing else: `Put back`, `Move`, `Clear all`, `Forget`.
+`the_word_for_going_ahead_is_short_and_stands_for_nothing` is that rule, written
+in each crate that holds such a word.
+
+**A card about one thing does not say that thing's name again.** The pairing
+page is titled with the device, so the row under it is `Pair` rather than "Pair
+with Blue Keys", and the settings crate holds that with
+`a_row_that_acts_on_the_device_the_page_names_does_not_name_it_again`.
+
+**One act has one word across every surface it appears on.** The menu row said
+`Delete`, the question said "Throw this away?" and the button said `Delete`, so
+the question was the odd one and it asks `Delete this?` now. The same fault put
+`Add the picture in Pictures/Wallpapers` on a row and "the picture is being
+taken up" in the note it raised, and a single notification was `Dismiss` while
+every notification at once was "Clear them all".
 
 ## A card about one thing opens on the press it is for
 

@@ -1,0 +1,27 @@
+error: `unwrap_or_default` answers a `None` without saying what it meant
+  --> $DIR/main.rs:6:5
+   |
+LL |     of.first().cloned().unwrap_or_default()
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: `match` both ways, or hand the absence on as an `Option` or a named fault
+   = note: `#[deny(explicit033_no_unnamed_absence)]` on by default
+
+error: `unwrap_or` answers a `None` without saying what it meant
+  --> $DIR/main.rs:12:5
+   |
+LL |     said.unwrap_or(0)
+   |     ^^^^^^^^^^^^^^^^^
+   |
+   = help: `match` both ways, or hand the absence on as an `Option` or a named fault
+
+error: `unwrap_or_else` answers a `None` without saying what it meant
+  --> $DIR/main.rs:18:5
+   |
+LL |     of.unwrap_or_else(|| "untitled").to_string()
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: `match` both ways, or hand the absence on as an `Option` or a named fault
+
+error: aborting due to 3 previous errors
+

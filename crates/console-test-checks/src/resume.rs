@@ -87,6 +87,8 @@ use console_test_stages::desktop::{Desktop, Installed};
 use console_test_stages::here::Here;
 use console_waiting::{Patience, Seen, Waited};
 
+use crate::Unchecked;
+
 const TERMINAL: &str = "alacritty";
 
 const CLASS: &str = "Alacritty";
@@ -135,12 +137,12 @@ pub const NOT_TWICE: Check = Check {
     bodies: &[Body::Desktop(not_twice)],
 };
 
-fn ours(name: &str) -> Result<PathBuf, String> {
+fn ours(name: &str) -> Result<PathBuf, Unchecked> {
     let at = std::env::temp_dir().join(format!("console-resume-{name}-{}", std::process::id()));
 
     let _ = std::fs::remove_dir_all(&at);
 
-    std::fs::create_dir_all(&at).map_err(|fault| format!("{}: making it: {fault}", at.display()))?;
+    std::fs::create_dir_all(&at).map_err(|fault| Unchecked::Making(at.clone(), fault))?;
 
     Ok(at)
 }
@@ -159,14 +161,18 @@ fn when(there: &Path, then: &str) -> Result<String, Never> {
     Ok(format!("until [ -s {} ]; do sleep {ASKING_AGAIN}; done; {then}", there.display()))
 }
 
-fn marked() -> Result<PathBuf, String> {
-    let runtime = std::env::var("XDG_RUNTIME_DIR")
-        .map_err(|fault| format!("XDG_RUNTIME_DIR: {fault}"))?;
+fn marked() -> Result<PathBuf, Unchecked> {
+    let Ok(runtime) = console_core_places::runtime();
 
-    Ok(PathBuf::from(runtime).join(console_resume::OURS))
+    let runtime = match runtime {
+        Some(runtime) => runtime,
+        None => return Err(Unchecked::NoRuntime),
+    };
+
+    Ok(runtime.join(console_resume::OURS))
 }
 
-fn marks() -> Result<BTreeSet<PathBuf>, String> {
+fn marks() -> Result<BTreeSet<PathBuf>, Unchecked> {
     let at = marked()?;
 
     let read = match std::fs::read_dir(&at) {

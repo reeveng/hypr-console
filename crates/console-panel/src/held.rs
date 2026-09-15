@@ -80,12 +80,9 @@ pub enum Drawn {
 }
 
 pub fn where_() -> Result<Option<PathBuf>, Never> {
-    let run = match std::env::var("XDG_RUNTIME_DIR") {
-        Ok(run) if !run.is_empty() => run,
-        Ok(_) | Err(_) => return Ok(None),
-    };
+    let ours = console_core_places::runtime_ours()?;
 
-    Ok(Some(PathBuf::from(run).join("console").join(SOCKET)))
+    Ok(ours.map(|ours| ours.join(SOCKET)))
 }
 
 pub fn spelt(asked: &Asked) -> Result<String, Never> {
@@ -98,7 +95,10 @@ pub fn spelt(asked: &Asked) -> Result<String, Never> {
         said.push_str(&word);
     }
 
-    let stamp = asked.pressed.clone().unwrap_or_else(|| NOTHING.to_string());
+    let stamp = match asked.pressed.clone() {
+        Some(stamp) => stamp,
+        None => NOTHING.to_string(),
+    };
     let Ok(stamp) = escaped(&stamp);
 
     said.push(' ');
@@ -224,6 +224,13 @@ fn plain(said: &str) -> Result<String, Never> {
     Ok(written)
 }
 
+#[cfg_attr(
+    dylint_lib = "explicit044_no_ambient_value",
+    allow(
+        explicit044_no_ambient_value,
+        reason = "a signal handler is handed nothing and may allocate nothing: the descriptor it writes `close` down has to be a number it can read with one load"
+    )
+)]
 static TELLING: AtomicI32 = AtomicI32::new(-1);
 
 pub fn stood_in(who: &str, argv: &[String]) -> Result<Drawn, Never> {
@@ -325,7 +332,10 @@ fn asking_for(who: &str, argv: &[String]) -> Result<Asked, Never> {
         who: who.to_string(),
         from,
         pressed,
-        exec: exec.unwrap_or_default(),
+        exec: match exec {
+            Some(exec) => exec,
+            None => std::time::Duration::ZERO,
+        },
         argv: argv.to_vec(),
     })
 }

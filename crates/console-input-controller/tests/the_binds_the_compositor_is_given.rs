@@ -144,3 +144,48 @@ fn every_key_in_the_table_is_one_the_compositor_can_be_told_about() {
 
     assert!(asked > 1, "no job is on a keyboard, so this test asked nothing");
 }
+
+#[test]
+fn the_alphabets_step_both_ways_and_shift_is_the_way_back() {
+    let every = every();
+    let on_to = on(&every, &["super", "shift"], "space");
+    let back = on(&every, &["super", "ctrl"], "space");
+
+    assert!(
+        on_to.runs.contains(console_input_language::NAMED),
+        "the key that steps the alphabets runs {:?}",
+        on_to.runs
+    );
+    assert!(
+        back.runs.contains(console_input_language::NAMED)
+            && back.runs.contains(console_input_language::BACK),
+        "the other half runs {:?}, which is not the same walk the other way",
+        back.runs
+    );
+    assert_ne!(
+        on_to.runs, back.runs,
+        "both halves of the walk run the same thing, so a walk of three cannot be undone"
+    );
+}
+
+#[test]
+fn the_windows_are_reached_on_the_arrows_and_on_hjkl() {
+    let every = every();
+
+    for (arrow, letter) in [("left", "h"), ("down", "j"), ("up", "k"), ("right", "l")] {
+        assert_eq!(
+            on(&every, &["super"], arrow).runs,
+            on(&every, &["super"], letter).runs,
+            "{letter} and {arrow} part company, so one hand's way round the screen is not the \
+             other's"
+        );
+    }
+
+    for (arrow, letter) in [("left", "h"), ("right", "l")] {
+        assert_eq!(
+            on(&every, &["super", "shift"], arrow).runs,
+            on(&every, &["super", "shift"], letter).runs,
+            "Shift and {letter} does not carry the window where Shift and {arrow} carries it"
+        );
+    }
+}

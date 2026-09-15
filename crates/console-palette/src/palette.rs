@@ -102,12 +102,12 @@ fn waits_on(spec: &Colour) -> Result<impl Iterator<Item = &str>, Never> {
 }
 
 fn solve(spec: &Colour, known: &Palette) -> Result<String, Short> {
-    let (hue, chroma) = (spec.hue, spec.chroma);
+    let asked = col::Oklch { lightness: spec.lightness, chroma: spec.chroma, hue: spec.hue };
 
     let least = match &spec.least {
         Some(least) => least,
         None => {
-            let Ok(code) = col::hexcode(spec.lightness, chroma, hue);
+            let Ok(code) = col::hexcode(asked);
 
             return Ok(code);
         }
@@ -122,7 +122,8 @@ fn solve(spec: &Colour, known: &Palette) -> Result<String, Short> {
         true => spec.lightness,
         false => {
             let floor = both(least.ratio, least.lc, "it is read on")?;
-            let clearing = col::lightest_clearing(chroma, hue, &grounds, floor, 0.0)?;
+            let Ok(from) = asked.at(0.0);
+            let clearing = col::lightest_clearing(from, &grounds, floor)?;
 
             spec.lightness.max(clearing)
         }
@@ -132,10 +133,13 @@ fn solve(spec: &Colour, known: &Palette) -> Result<String, Short> {
         let floor = both(least.carries_ratio, least.carries_lc, "it carries")?;
         let over = known.must(name)?;
 
-        settle_until_it_carries(lightness, chroma, hue, over, floor)
+        let Ok(at) = asked.at(lightness);
+
+        settle_until_it_carries(at, over, floor)
     })?;
 
-    let Ok(code) = col::hexcode(carrying, chroma, hue);
+    let Ok(shade) = asked.at(carrying);
+    let Ok(code) = col::hexcode(shade);
 
     Ok(code)
 }
@@ -151,16 +155,17 @@ fn both(ratio: Option<f64>, lc: Option<f64>, saying: &str) -> Result<Floor, Shor
 }
 
 fn settle_until_it_carries(
-    from: f64,
-    chroma: f64,
-    hue: f64,
+    asked: col::Oklch,
     ink: &str,
     floor: Floor,
 ) -> Result<f64, Short> {
     const STEP: f64 = 0.002;
+    let from = asked.lightness;
+    let hue = asked.hue;
     let clears = |lightness: f64| {
-        let Ok(code) = col::hexcode(lightness, chroma, hue);
-        let Ok(cleared) = floor.cleared_by(ink, &code);
+        let Ok(at) = asked.at(lightness);
+        let Ok(code) = col::hexcode(at);
+        let Ok(cleared) = floor.cleared_by(col::Ink(ink), col::Ground(&code));
 
         cleared
     };
@@ -183,19 +188,19 @@ mod tests {
     use super::*;
 
     fn hexcode(lightness: f64, chroma: f64, hue: f64) -> String {
-        let Ok(code) = col::hexcode(lightness, chroma, hue);
+        let Ok(code) = col::hexcode(col::Oklch { lightness, chroma, hue });
 
         code
     }
 
-    fn contrast(one: &str, other: &str) -> f64 {
-        let Ok(contrast) = col::contrast(one, other);
+    fn contrast(ink: &str, ground: &str) -> f64 {
+        let Ok(contrast) = col::contrast(col::Ink(ink), col::Ground(ground));
 
         contrast
     }
 
     fn lc(ink: &str, ground: &str) -> f64 {
-        let Ok(lc) = col::lc(ink, ground);
+        let Ok(lc) = col::lc(col::Ink(ink), col::Ground(ground));
 
         lc
     }
@@ -271,7 +276,11 @@ mod tests {
     #[test]
     fn a_shade_that_could_never_carry_the_ink_says_so() {
         let floor = Floor { ratio: 21.0, lc: 100.0 };
-        let fault = settle_until_it_carries(0.5, 0.105, 342.0, "000000", floor)
+        let fault = settle_until_it_carries(
+            col::Oklch { lightness: 0.5, chroma: 0.105, hue: 342.0 },
+            "000000",
+            floor,
+        )
             .expect_err("no pink is white");
         assert!(fault.0.contains("carries"), "{}", fault.0);
     }

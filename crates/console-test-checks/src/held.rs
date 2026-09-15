@@ -55,7 +55,10 @@ const OPENS_THE_MENU: &str = "left-paddle-top";
 
 const OPENS_THE_PANEL: &str = "legion-right";
 
-fn opened(stage: &mut Device, button: &str, who: &str) -> Result<Option<(u32, u32)>, Never> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Layer<'a>(&'a str);
+
+fn opened(stage: &mut Device, button: &str, who: Layer<'_>) -> Result<Option<(u32, u32)>, Never> {
     let Ok(()) = stage.press(button);
     let Ok(drawn) = stage.drawn(PATIENCE);
 
@@ -64,12 +67,12 @@ fn opened(stage: &mut Device, button: &str, who: &str) -> Result<Option<(u32, u3
         Waited::Happened => {},
     }
 
-    let Ok(where_) = stage.layer(who);
+    let Ok(where_) = stage.layer(who.0);
 
     Ok(where_.map(|(_, _, wide, tall)| (wide, tall)))
 }
 
-fn put_away(stage: &mut Device) -> Done {
+fn console_put_away(stage: &mut Device) -> Done {
     let Ok(()) = stage.press("b");
     let Ok(gone) = stage.gone(PATIENCE);
 
@@ -77,16 +80,16 @@ fn put_away(stage: &mut Device) -> Done {
 }
 
 fn again(stage: &mut Device) -> Done {
-    let Ok(first) = opened(stage, OPENS_THE_MENU, MENU);
+    let Ok(first) = opened(stage, OPENS_THE_MENU, Layer(MENU));
 
     let first = match first {
         Some(first) => first,
         None => return failed("the menu did not draw at all, so nothing here was answered".to_string()),
     };
 
-    put_away(stage)?;
+    console_put_away(stage)?;
 
-    let Ok(between) = opened(stage, OPENS_THE_PANEL, "settings-panel");
+    let Ok(between) = opened(stage, OPENS_THE_PANEL, Layer("settings-panel"));
 
     match between {
         Some(_) => {},
@@ -98,9 +101,9 @@ fn again(stage: &mut Device) -> Done {
         }
     }
 
-    put_away(stage)?;
+    console_put_away(stage)?;
 
-    let Ok(after) = opened(stage, OPENS_THE_MENU, MENU);
+    let Ok(after) = opened(stage, OPENS_THE_MENU, Layer(MENU));
 
     let after = match after {
         Some(after) => after,
@@ -115,7 +118,7 @@ fn again(stage: &mut Device) -> Done {
         format!("the menu was {first:?} and opened again as {after:?}, out of the last one's leavings")
     })?;
 
-    put_away(stage)
+    console_put_away(stage)
 }
 
 const HOST: &str = "console-panels";

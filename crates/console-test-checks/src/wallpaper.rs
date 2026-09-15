@@ -2,8 +2,8 @@
 //!
 //! Two things put something on this screen and the check is different for each.
 //! `console-paper.service` brings the wallpaper daemon up and fills the screen
-//! with the deepest ground, which is all a machine with no pressed pictures
-//! ever shows. `console-sky` then paints a picture over it, which is what the
+//! with the deepest ground, which is all a machine with no pressed pictures ever
+//! shows. `console-wallpaper` then paints a picture over it, which is what the
 //! device shows and what the nested desktop has nothing to show.
 //!
 //! A wrong colour here has two causes and they want opposite answers, so a
@@ -13,11 +13,22 @@
 //! second rung of the ladder in docs/theme.md, and an afternoon once went at
 //! the encoder for want of somebody saying so.
 
+use console_core_geometry::Point;
 use serde::Deserialize;
 use console_core_never::Never;
+use console_test_stages::Awry;
 use console_test_stages::checking::{Body, Check, Done, cannot, same, seen};
 use console_test_stages::desktop::{Desktop, Installed};
 use console_test_stages::device::{A_MOMENT, Device, Seen};
+
+use crate::Unchecked;
+
+const NO_DIGITS_THERE: &str = "";
+
+const NONE_OF_THEM: i64 = 0;
+
+const NOTHING_SAID: &str = "";
+
 
 const WITHIN: i32 = 4;
 
@@ -42,32 +53,36 @@ struct Table {
     pictures: Vec<Named>,
 }
 
-pub fn named() -> Result<Vec<String>, String> {
+pub fn named() -> Result<Vec<String>, Unchecked> {
     let Ok(root) = console_test_stages::root();
 
     let at = root.join("theme/sky.toml");
-    let said = std::fs::read_to_string(&at).map_err(|fault| fault.to_string())?;
-    let table: Table = toml::from_str(&said).map_err(|fault| fault.to_string())?;
+    let said = std::fs::read_to_string(&at).map_err(Unchecked::Machine)?;
+    let table: Table = toml::from_str(&said).map_err(Unchecked::Unparsed)?;
     Ok(table.pictures.into_iter().map(|picture| picture.name).collect())
 }
 
-pub fn ground() -> Result<String, String> {
+pub fn ground() -> Result<String, Unchecked> {
     let Ok(root) = console_test_stages::root();
 
     let at = root.join("files/etc/systemd/user/console-paper.service");
-    let said = std::fs::read_to_string(&at).map_err(|fault| fault.to_string())?;
-    let Ok(after) = console_core_ini_files::field(&said, "Service", "ExecStartPost");
+    let said = std::fs::read_to_string(&at).map_err(Unchecked::Machine)?;
+    let Ok(after) = console_core_ini_files::field(
+        &said,
+        console_core_ini_files::Under("Service"),
+        console_core_ini_files::Key("ExecStartPost"),
+    );
 
     after
         .and_then(|after| after.rsplit_once("awww clear "))
         .map(|(_, colour)| colour.trim().to_string())
-        .ok_or_else(|| format!("{} sets no ground colour", at.display()))
+        .ok_or_else(|| Unchecked::NoGround(at.clone()))
 }
 
 pub trait Screenful {
-    fn background(&mut self) -> Result<String, String>;
+    fn background(&mut self) -> Result<String, Awry>;
 
-    fn patch(&mut self, across: f64, down: f64) -> Result<String, String>;
+    fn patch(&mut self, at: Point<f64>) -> Result<String, Awry>;
 
     fn frames(&mut self, _picture: &str) -> Result<(Option<i64>, Option<i64>), Never> {
         Ok((None, None))
@@ -75,22 +90,22 @@ pub trait Screenful {
 }
 
 impl Screenful for Desktop {
-    fn background(&mut self) -> Result<String, String> {
+    fn background(&mut self) -> Result<String, Awry> {
         Desktop::background(self)
     }
 
-    fn patch(&mut self, across: f64, down: f64) -> Result<String, String> {
-        Desktop::patch(self, across, down)
+    fn patch(&mut self, at: Point<f64>) -> Result<String, Awry> {
+        Desktop::patch(self, at)
     }
 }
 
 impl Screenful for Device {
-    fn background(&mut self) -> Result<String, String> {
+    fn background(&mut self) -> Result<String, Awry> {
         Device::background(self)
     }
 
-    fn patch(&mut self, across: f64, down: f64) -> Result<String, String> {
-        Device::patch(self, across, down)
+    fn patch(&mut self, at: Point<f64>) -> Result<String, Awry> {
+        Device::patch(self, at)
     }
 
     fn frames(&mut self, picture: &str) -> Result<(Option<i64>, Option<i64>), Never> {
@@ -104,9 +119,21 @@ pub enum Shade {
     Other,
 }
 
-pub fn near(one: &str, other: &str) -> Result<Shade, Never> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Shades<'a> {
+    pub one: &'a str,
+    pub other: &'a str,
+}
+
+pub fn near(shades: Shades<'_>) -> Result<Shade, Never> {
+    let Shades { one, other } = shades;
     let band = |said: &str, at: usize| {
-        i32::from_str_radix(said.get(at..at.saturating_add(2)).unwrap_or(""), 16)
+        let two = match said.get(at..at.saturating_add(2)) {
+            Some(two) => two,
+            None => NO_DIGITS_THERE,
+        };
+
+        i32::from_str_radix(two, 16)
     };
     let alike = (0..3usize).map(|band| band.saturating_mul(2)).all(|at| {
         match (band(one, at), band(other, at)) {
@@ -123,19 +150,25 @@ pub fn near(one: &str, other: &str) -> Result<Shade, Never> {
 
 pub fn how_long(seconds: i64) -> Result<String, Never> {
     let sizes = [(86400, "day"), (3600, "hour"), (60, "minute")];
-    Ok(sizes
-        .into_iter()
-        .find(|(size, _)| seconds >= *size)
-        .map(|(size, unit)| {
-            let many = seconds.checked_div(size).unwrap_or(0);
-            let ending = match many == 1 {
-                true => "",
-                false => "s",
-            };
 
-            format!("{many} {unit}{ending}")
-        })
-        .unwrap_or_else(|| format!("{seconds} seconds")))
+    let big = sizes.into_iter().find(|(size, _)| seconds >= *size);
+
+    let (size, unit) = match big {
+        Some(both) => both,
+        None => return Ok(format!("{seconds} seconds")),
+    };
+
+    let many = match seconds.checked_div(size) {
+        Some(many) => many,
+        None => NONE_OF_THEM,
+    };
+
+    let ending = match many == 1 {
+        true => "",
+        false => "s",
+    };
+
+    Ok(format!("{many} {unit}{ending}"))
 }
 
 pub fn or_the_cache(screen: &mut impl Screenful, picture: &str) -> Result<String, Never> {
@@ -150,7 +183,7 @@ pub fn or_the_cache(screen: &mut impl Screenful, picture: &str) -> Result<String
 
             format!(
                 " The decoded frames under ~/.cache/awww are {older} older than the picture, so \
-                 this is the cache and not the drawing: restart console-sky.service and look \
+                 this is the cache and not the drawing: restart console-wallpaper.service and look \
                  again."
             )
         },
@@ -160,7 +193,7 @@ pub fn or_the_cache(screen: &mut impl Screenful, picture: &str) -> Result<String
             format!(
                 " The decoded frames under ~/.cache/awww were written {after} after the picture, \
                  which does not clear them: a picture restored or copied with its own dates is \
-                 new bytes under an old one. Restart console-sky.service and look again before \
+                 new bytes under an old one. Restart console-wallpaper.service and look again before \
                  reading anything into the drawing."
             )
         },
@@ -170,14 +203,14 @@ pub fn or_the_cache(screen: &mut impl Screenful, picture: &str) -> Result<String
 pub fn grounded(screen: &mut impl Screenful) -> Done {
     let ground = ground()?;
     let behind = screen.background()?;
-    let Ok(near) = near(&behind, &ground);
+    let Ok(near) = near(Shades { one: &behind, other: &ground });
 
     same(&near, &Shade::Same, || {
         format!("the screen is #{behind} where the unit fills it with #{ground}")
     })
 }
 
-pub fn showing_a_picture(said: &str, names: &[String]) -> Result<String, String> {
+pub fn showing_a_picture(said: &str, names: &[String]) -> Result<String, Unchecked> {
     let path = said
         .rsplit_once("image: ")
         .map(|(_, path)| path.trim())
@@ -189,21 +222,23 @@ pub fn showing_a_picture(said: &str, names: &[String]) -> Result<String, String>
                 false => said,
             };
 
-            format!("the wallpaper daemon is showing {showing}")
+            Unchecked::ShowingInstead(showing.to_string())
         })?;
-    let name = path
-        .rsplit('/')
-        .next()
-        .and_then(|file| file.strip_suffix(".webp"))
-        .map(|name| name.strip_suffix(".still").unwrap_or(name))
-        .unwrap_or_default();
+    let named = path.rsplit('/').next().and_then(|file| file.strip_suffix(".webp")).map(|name| {
+        match name.strip_suffix(".still") {
+            Some(moving) => moving,
+            None => name,
+        }
+    });
+
+    let name = match named {
+        Some(name) => name,
+        None => NOTHING_SAID,
+    };
 
     match names.iter().any(|named| named == name) {
         true => Ok(path.to_string()),
-        false => Err(format!(
-            "the wallpaper is {path}, which theme/sky.toml does not name. It names {}",
-            names.join(", ")
-        )),
+        false => Err(Unchecked::NotInTheTable(path.to_string(), names.to_vec())),
     }
 }
 
@@ -243,7 +278,7 @@ fn device(stage: &mut Device) -> Done {
 
     let ground = ground()?;
     let behind = stage.background()?;
-    let Ok(near) = near(&behind, &ground);
+    let Ok(near) = near(Shades { one: &behind, other: &ground });
     let Ok(cached) = or_the_cache(stage, &picture);
 
     same(&near, &Shade::Other, || {
@@ -260,8 +295,8 @@ mod tests {
 
     #[test]
     fn a_colour_the_encoder_moved_is_still_the_colour() {
-        assert_eq!(near("65647f", "656580"), Ok(Shade::Same));
-        assert_eq!(near("65647f", "302937"), Ok(Shade::Other));
+        assert_eq!(near(Shades { one: "65647f", other: "656580" }), Ok(Shade::Same));
+        assert_eq!(near(Shades { one: "65647f", other: "302937" }), Ok(Shade::Other));
     }
 
     #[test]
@@ -284,7 +319,7 @@ mod tests {
         let names = vec!["campfire".to_string()];
         let said = "eDP-1: currently displaying: image: /usr/share/backgrounds/console.webp";
         let fault = showing_a_picture(said, &names).expect_err("not in the table");
-        assert!(fault.contains("console.webp"), "{fault}");
+        assert!(fault.to_string().contains("console.webp"), "{fault}");
     }
 
     #[test]
@@ -292,7 +327,7 @@ mod tests {
         let names = vec!["campfire".to_string()];
         for said in ["", "no daemon is running", "eDP-1: currently displaying: color: #110b12"] {
             let fault = showing_a_picture(said, &names).expect_err("no picture");
-            assert!(fault.contains("showing"), "{fault}");
+            assert!(fault.to_string().contains("showing"), "{fault}");
         }
     }
 

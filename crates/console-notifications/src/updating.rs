@@ -17,6 +17,20 @@
 //! left behind by a machine that lost power is a bar stuck at 62% until
 //! somebody notices, and `/run` is emptied at boot.
 //!
+//! # Where it is when the desktop is a copy of itself
+//!
+//! The nested desktop reads this device's own files out of a staged tree, and
+//! every path written inside one of those files is rewritten on the way in to
+//! point back into the stage. This path cannot be: it is spelled in a program
+//! rather than in a file, and `/run/console` on somebody's laptop is a
+//! directory the person running the checks is not allowed to make. So it is
+//! asked rather than assumed, and `CONSOLE_UPDATING_PATH` is how a staged
+//! session answers -- the same move the stage already makes for a home
+//! directory and the four XDG directories, and the only way a check can look at
+//! the strip filling rather than at the JSON behind it. The engine runs as root
+//! outside anybody's session and is never told, so the machine's own answer is
+//! the one below.
+//!
 //! # Why the bar is told rather than asked
 //!
 //! Nothing polls this. The engine signals waybar when the number changes and
@@ -32,8 +46,34 @@ use std::path::PathBuf;
 use console_core_external_programs::Program;
 use console_core_never::Never;
 
+pub const WHERE: &str = "CONSOLE_UPDATING_PATH";
+
+pub fn under(told: Option<&str>) -> Result<PathBuf, Never> {
+    Ok(match told.map(str::trim).filter(|said| !said.is_empty()) {
+        Some(said) => PathBuf::from(said),
+        None => Path::new("/run/console").join("updating"),
+    })
+}
+
+#[cfg_attr(
+    dylint_lib = "explicit026_env_read_once",
+    allow(
+        explicit026_env_read_once,
+        reason = "CONSOLE_UPDATING_PATH belongs to this crate, and the const beside it is the only spelling of the name"
+    )
+)]
 pub fn at() -> Result<PathBuf, Never> {
-    Ok(Path::new("/run/console").join("updating"))
+    let told = match std::env::var(WHERE) {
+        Ok(said) => Some(said),
+        Err(std::env::VarError::NotPresent) => None,
+        Err(fault) => {
+            eprintln!("console: {WHERE}: {fault}");
+
+            None
+        }
+    };
+
+    under(told.as_deref())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,20 +127,16 @@ pub fn wrote(far: &Far) -> Result<(), Never> {
         }
     }
 
-    let beside = holding.join("updating.writing");
-
     let Ok(written) = written(far);
 
-    match std::fs::write(&beside, written) {
+    match console_core_atomic_writes::whole(&at, written.as_bytes()) {
         Ok(()) => {}
         Err(fault) => {
-            eprintln!("console: {}: writing how far along an apply is: {fault}", beside.display());
+            eprintln!("console: {}: writing how far along an apply is: {fault}", at.display());
 
             return Ok(());
         }
     }
-
-    let _ = std::fs::rename(&beside, &at);
 
     Ok(())
 }
@@ -178,7 +214,17 @@ mod tests {
     }
 
     #[test]
-    fn it_is_under_run() {
-        assert_eq!(at(), Ok(PathBuf::from("/run/console/updating")));
+    fn it_is_under_run_when_nothing_says_otherwise() {
+        assert_eq!(under(None), Ok(PathBuf::from("/run/console/updating")));
+        assert_eq!(under(Some("")), Ok(PathBuf::from("/run/console/updating")));
+        assert_eq!(under(Some("   ")), Ok(PathBuf::from("/run/console/updating")));
+    }
+
+    #[test]
+    fn a_staged_session_is_read_where_it_says_rather_than_under_run() {
+        assert_eq!(
+            under(Some("/somewhere/.stage/session-1/run/console/updating")),
+            Ok(PathBuf::from("/somewhere/.stage/session-1/run/console/updating"))
+        );
     }
 }

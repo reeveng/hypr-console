@@ -41,6 +41,22 @@
 //! a third of a second at every pause, every seek and every song. Paused there
 //! is no pipe to be ahead of at all, so what is reported is the offset itself.
 //!
+//! **A song can be loaded without being played.** [`Sounding::ready`] is
+//! [`Sounding::play`] with the wanting the other way round and nobody woken:
+//! the thread is left waiting, the offset is held, and the next press is a
+//! resume rather than a start. That is what the player comes up holding when
+//! the last song it played is remembered, because a device switched on in
+//! somebody's bag must not begin making a noise on its own.
+//!
+//! **What a press costs is written down here rather than worked out later.** The
+//! stretch somebody feels is between asking for a song and hearing one, and it
+//! is spent in three places this thread can see: starting the decoder, starting
+//! the sink, and waiting for the first samples to come out of one and be taken
+//! by the other. So the stopwatch is [`one`]'s own and it ends at the first
+//! write, not at the end of the song, and a run that never reaches a first
+//! write -- a decoder that would not start, a press overtaken by the next one --
+//! writes nothing, because nobody waited for a sound that never came.
+//!
 //! The thread decides nothing about music. It is told a song and an offset, and
 //! it carries samples until somebody says otherwise or the song ends. When a
 //! song ends it says so and stops there: what plays next is the playlist's
@@ -52,6 +68,7 @@ use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_core_number_conversion::Float;
 use console_program_lifetime::{Alongside, alongside};
+use console_response_times::{Wait, Waiting};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -143,6 +160,18 @@ impl Sounding {
     }
 
     pub fn play(&self, song: &Path, from: f64) -> Result<(), Never> {
+        let Ok(()) = self.taking(song, from, Wanted::Playing);
+
+        self.telling.woken.notify_all();
+
+        Ok(())
+    }
+
+    pub fn ready(&self, song: &Path, from: f64) -> Result<(), Never> {
+        self.taking(song, from, Wanted::Paused)
+    }
+
+    fn taking(&self, song: &Path, from: f64, wanted: Wanted) -> Result<(), Never> {
         let Ok(mut state) = held(&self.telling.state);
 
         state.job = Job {
@@ -150,12 +179,9 @@ impl Sounding {
             from,
             turn: state.job.turn.saturating_add(1),
         };
-        state.wanted = Wanted::Playing;
+        state.wanted = wanted;
         state.written = 0;
         state.ended = None;
-
-        drop(state);
-        self.telling.woken.notify_all();
 
         Ok(())
     }
@@ -306,6 +332,7 @@ fn done(telling: &Arc<Telling>, turn: u64) -> Result<(), Never> {
 }
 
 fn one(telling: &Arc<Telling>, job: &Job, song: &Path) -> Result<Reached, Never> {
+    let Ok(mut waiting) = Waiting::here(Wait { who: "music-player", what: "sounding" });
     let Ok(decoding) = reading(song, job.from);
 
     let mut decoding = match decoding {
@@ -313,6 +340,7 @@ fn one(telling: &Arc<Telling>, job: &Job, song: &Path) -> Result<Reached, Never>
         None => return Ok(Reached::Told),
     };
 
+    let Ok(()) = waiting.mark("ffmpeg");
     let Ok(playing) = sink();
 
     let mut playing = match playing {
@@ -333,7 +361,9 @@ fn one(telling: &Arc<Telling>, job: &Job, song: &Path) -> Result<Reached, Never>
         None => return Ok(Reached::Told),
     };
 
+    let Ok(()) = waiting.mark("sink");
     let mut buffer = vec![0; CHUNK];
+    let mut sounded = Some(waiting);
 
     loop {
         let Ok(carry) = carrying_on(telling, job.turn);
@@ -365,6 +395,14 @@ fn one(telling: &Arc<Telling>, job: &Job, song: &Path) -> Result<Reached, Never>
         }
 
         let Ok(()) = wrote(telling, read);
+
+        match sounded.take() {
+            Some(mut waiting) => {
+                let Ok(()) = waiting.mark("first");
+                let Ok(()) = waiting.done_if_felt();
+            }
+            None => {},
+        }
     }
 }
 

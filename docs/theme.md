@@ -37,7 +37,7 @@ Four cannot import anything and are written into between a pair of markers:
   so its two border colours are written rather than read.
 - `console-paper.service`, because a systemd unit is a list of literals too. Its
   one colour is the ground the wallpaper daemon fills the screen with before
-  `console-sky` has chosen a picture.
+  `console-wallpaper` has chosen a picture.
 
 The placeholder icon is drawn. The wallpaper is a picture and cannot be read
 back the way the rest can, which is what the section below is about.
@@ -118,7 +118,7 @@ moving wallpaper down to the size of a photograph.
 one still image. mpvpaper would play a video, and a video decodes at its frame
 rate whether anything in it is moving or not.
 
-Which picture is up is `console-sky`'s, and `docs/sky.md` is where that is
+Which picture is up is `console-wallpaper`'s, and `docs/sky.md` is where that is
 written down. What belongs here is the one picture that is ours:
 `/usr/share/backgrounds/console.webp`, the cherry blossom garden, which is the
 ground `console-paper` fills the screen with and which `awww img` still paints
@@ -135,19 +135,20 @@ from what is inside the file. Install a different picture at the same path and
 fills with rectangles of the two mixed together, worst where they differ most.
 
 Nothing empties that cache wholesale. Those frames are what a picture costs to
-put up: with them a wallpaper arrives in the moment it is asked for, and without
-them the client decodes and compresses the whole loop first, which was measured
-on the device at twenty-five seconds of a core. Emptied at every start, that was
-paid at every boot, at every return from Game Mode, and every time a window
-stopped covering the screen. What is thrown away instead is the entries older
-than the picture they are entries for: `console_sky::place::freshen` does it by
-their date, before that picture goes up, and `sky-press` throws the cache away
-when it writes one. `console apply` throws it away when it writes a background,
-which covers `console.webp`: that one is painted by hand rather than by
-`console-sky`, so nothing else holds its date against what the daemon kept. It is
-an entry in `units::WAKES`. The same apply restarts the service when the picture
-changes, which is why `named_by` looks at a unit's arguments and not only at the
-program it runs.
+put up: with them a wallpaper arrives in the moment it is asked for, and
+without them the client decodes and compresses the whole loop first, which was
+measured on the device at twenty-five seconds of a core. Emptied at every
+start, that was paid at every boot, at every return from Game Mode, and every
+time a window stopped covering the screen. What is thrown away instead is the
+entries older than the picture they are entries for:
+`console_wallpaper::place::freshen` does it by their date, before that picture
+goes up, and `wallpaper-press` throws the cache away when it writes one.
+`console apply` throws it away when it writes a background, which covers
+`console.webp`: that one is painted by hand rather than by `console-wallpaper`,
+so nothing else holds its date against what the daemon kept. It is an entry in
+`units::WAKES`. The same apply restarts the service when the picture changes,
+which is why `named_by` looks at a unit's arguments and not only at the program
+it runs.
 
 So when the background looks wrong on the device, the first question is not
 whether it was drawn wrong. Three steps, in this order, and the answer is

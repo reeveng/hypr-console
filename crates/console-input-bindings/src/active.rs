@@ -44,6 +44,7 @@ use std::path::{Path, PathBuf};
 
 use console_core_never::Never;
 
+use crate::Unbound;
 use crate::bound::Input;
 
 pub const NAMED: &str = "input";
@@ -59,14 +60,16 @@ pub fn path_in(home: &Path) -> Result<PathBuf, Never> {
 pub fn of(said: &str) -> Result<Input, Never> {
     let word = said.trim();
 
-    Ok(crate::bound::EVERY
-        .into_iter()
-        .find(|input| {
-            let Ok(spelt) = input.word();
+    let found = crate::bound::EVERY.into_iter().find(|input| {
+        let Ok(spelt) = input.word();
 
-            spelt == word
-        })
-        .unwrap_or(FIRST))
+        spelt == word
+    });
+
+    Ok(match found {
+        Some(input) => input,
+        None => FIRST,
+    })
 }
 
 pub fn read(home: &Path) -> Result<Input, Never> {
@@ -80,16 +83,20 @@ pub fn read(home: &Path) -> Result<Input, Never> {
     }
 }
 
-pub fn remember(home: &Path, on: Input) -> Result<(), String> {
+pub fn remember(home: &Path, on: Input) -> Result<(), Unbound> {
     let Ok(at) = path_in(home);
 
-    let under = at.parent().ok_or("the remembered input has no directory")?;
+    let under = match at.parent() {
+        Some(under) => under,
+        None => return Err(Unbound::Rootless),
+    };
 
-    std::fs::create_dir_all(under).map_err(|fault| format!("{}: {fault}", under.display()))?;
+    std::fs::create_dir_all(under)
+        .map_err(|fault| Unbound::Holding(under.to_path_buf(), fault))?;
 
     let Ok(word) = on.word();
 
-    console_core_atomic_writes::whole(&at, word.as_bytes())
+    console_core_atomic_writes::whole(&at, word.as_bytes()).map_err(Unbound::Writing)
 }
 
 #[cfg(test)]

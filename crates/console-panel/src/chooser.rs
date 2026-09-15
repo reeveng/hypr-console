@@ -59,12 +59,22 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicI32, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
+const NOBODY_NAMED: &str = "";
+
+
 pub const BREATH: Duration = Duration::from_millis(20);
 
 pub const PATIENCE: Duration = Duration::from_secs(10);
 
 pub const COMING: Duration = Duration::from_secs(2);
 
+#[cfg_attr(
+    dylint_lib = "explicit044_no_ambient_value",
+    allow(
+        explicit044_no_ambient_value,
+        reason = "the process is what holds the screen: the lock is open for exactly as long as this program lives and the kernel drops it however the program ends, so a handle somebody could drop early is a lock released while the chooser is still up"
+    )
+)]
 static HELD: Mutex<Option<Holding>> = Mutex::new(None);
 
 struct Holding {
@@ -72,8 +82,22 @@ struct Holding {
     name: String,
 }
 
+#[cfg_attr(
+    dylint_lib = "explicit044_no_ambient_value",
+    allow(
+        explicit044_no_ambient_value,
+        reason = "a signal handler is handed nothing and can find nothing: the pid it passes on the signal to has to be somewhere the handler can read without a lock and without allocating"
+    )
+)]
 static SHOWING: AtomicI32 = AtomicI32::new(0);
 
+#[cfg_attr(
+    dylint_lib = "explicit044_no_ambient_value",
+    allow(
+        explicit044_no_ambient_value,
+        reason = "the screen is taken before there is a panel or a stopwatch to hold the measurement, and it is read when the panel goes up; `opening`'s own head makes this argument for the four marks after it"
+    )
+)]
 static WAITED: AtomicU64 = AtomicU64::new(0);
 
 pub fn waited_for_screen() -> Result<Duration, Never> {
@@ -127,17 +151,22 @@ extern "C" fn asked(_number: libc::c_int) {
 }
 
 pub fn where_() -> Result<PathBuf, Never> {
-    let runtime = match std::env::var("XDG_RUNTIME_DIR") {
-        Ok(runtime) => Some(runtime),
-        Err(_) => None,
-    };
+    let held = console_core_places::runtime()?;
+    let runtime = held.as_deref().and_then(Path::to_str);
 
+    #[cfg_attr(
+        dylint_lib = "explicit026_env_read_once",
+        allow(
+            explicit026_env_read_once,
+            reason = "WAYLAND_DISPLAY is which screen this process is drawing on, and the lock this names is one per screen. Nothing else here asks which screen it is"
+        )
+    )]
     let screen = match std::env::var("WAYLAND_DISPLAY") {
         Ok(screen) => Some(screen),
         Err(_) => None,
     };
 
-    under(runtime.as_deref(), screen.as_deref())
+    under(runtime, screen.as_deref())
 }
 
 fn under(runtime: Option<&str>, screen: Option<&str>) -> Result<PathBuf, Never> {
@@ -169,7 +198,10 @@ pub fn take(handle: &File) -> Result<Took, Never> {
 }
 
 pub fn holder(said: &str) -> Result<(i32, &str), Never> {
-    let (pid, name) = said.trim().split_once(' ').unwrap_or((said.trim(), ""));
+    let (pid, name) = match said.trim().split_once(' ') {
+        Some(both) => both,
+        None => (said.trim(), NOBODY_NAMED),
+    };
 
     let pid = match pid.parse::<i32>() {
         Ok(pid) => pid,
@@ -243,9 +275,16 @@ pub enum Again {
     Keeps,
 }
 
-pub fn put_away() -> Result<Away, Never> {
+pub fn console_put_away() -> Result<Away, Never> {
     let Ok(where_) = where_();
 
+    #[cfg_attr(
+        dylint_lib = "explicit040_no_torn_write",
+        allow(
+            explicit040_no_torn_write,
+            reason = "the lock, whose whole point is the open file and not its bytes: a rename would give the next process a different file to take the lock on, which is the one thing this must never do"
+        )
+    )]
     let mut handle = match OpenOptions::new().read(true).write(true).open(where_) {
         Ok(handle) => handle,
         Err(_fault) => return Ok(Away::Nothing),
@@ -293,6 +332,13 @@ pub enum Alone {
 }
 
 pub fn alone(name: &str, again: Again) -> Result<Alone, Never> {
+    #[cfg_attr(
+        dylint_lib = "explicit039_no_reading_the_clock",
+        allow(
+            explicit039_no_reading_the_clock,
+            reason = "the stopwatch over taking the screen, which is this function measuring its own waiting rather than deciding anything from the clock; every way out of here is a return and the drop is what makes the measurement whole"
+        )
+    )]
     let _asking = Asking(Instant::now());
     let Ok(name) = door(name);
     let Ok(mut held) = holding();
@@ -303,6 +349,13 @@ pub fn alone(name: &str, again: Again) -> Result<Alone, Never> {
     }
 
     let Ok(path) = where_();
+    #[cfg_attr(
+        dylint_lib = "explicit040_no_torn_write",
+        allow(
+            explicit040_no_torn_write,
+            reason = "the lock, whose whole point is the open file and not its bytes -- `truncate(false)` is what keeps what is already in it -- and a rename would hand the next process a different file to take the lock on"
+        )
+    )]
     let opened = path
         .parent()
         .map(std::fs::create_dir_all)

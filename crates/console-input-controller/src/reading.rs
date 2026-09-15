@@ -6,7 +6,9 @@
 
 use evdev::{AbsoluteAxisCode, EventType, KeyCode};
 
+use console_core_geometry::Point;
 use console_core_never::Never;
+use console_core_words::Words;
 use console_input_gamepad::routing::{self, Hat};
 use console_input_gamepad::vocabulary::spoken_for;
 
@@ -17,7 +19,7 @@ use crate::doing::Doing;
 use crate::means::{Job, Press, Repeats, Table};
 use crate::touch::Axis;
 use crate::mode::{Acts, Mode};
-use crate::scroll::{Wheel, pushed};
+use crate::scroll::{Stick, Wheel, pushed};
 use crate::touch::Finger;
 
 pub const CARRY_HELD: f64 = 0.5;
@@ -31,11 +33,15 @@ const STEP_GATHER: f64 = 0.85;
 
 pub const AT_ONCE: usize = 10;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Words)]
 pub enum From {
+    #[words(said = "pad", called = "CONSOLE_PAD")]
     Pad,
+    #[words(said = "keyboard", called = "CONSOLE_KEYS")]
     Keys,
+    #[words(said = "touchpad", called = "CONSOLE_TOUCHPAD")]
     Touch,
+    #[words(said = "keyboard somebody plugged in", called = "CONSOLE_TYPING")]
     Typing,
 }
 
@@ -52,12 +58,25 @@ enum Meant {
 }
 
 impl From {
-    pub fn said(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            From::Pad => "pad",
-            From::Keys => "keyboard",
-            From::Touch => "touchpad",
-            From::Typing => "keyboard somebody plugged in",
+    #[cfg_attr(
+        dylint_lib = "explicit026_env_read_once",
+        allow(
+            explicit026_env_read_once,
+            reason = "a variable names the device to read instead of finding one, and which variable is on the variant. Two binaries read these before this existed and the second one only knew about the pad"
+        )
+    )]
+    pub fn told(self) -> Result<Option<String>, Never> {
+        let Ok(called) = self.called();
+
+        Ok(match std::env::var(called) {
+            Ok(said) if !said.is_empty() => Some(said),
+            Ok(_) => None,
+            Err(std::env::VarError::NotPresent) => None,
+            Err(fault) => {
+                eprintln!("{called}: {fault}; finding that device instead");
+
+                None
+            }
         })
     }
 
@@ -272,7 +291,7 @@ impl Controller {
             false => {},
         }
 
-        let Ok(pushed) = pushed(value, self.ranges.stick);
+        let Ok(pushed) = pushed(Stick { value, span: self.ranges.stick });
 
         Ok(match pushed.abs() > 0.0 {
             true => Meant::Something,
@@ -313,7 +332,7 @@ impl Controller {
             Hat::NotAnAxis => {},
         }
 
-        let Ok(pushed) = pushed(value, self.ranges.stick);
+        let Ok(pushed) = pushed(Stick { value, span: self.ranges.stick });
 
         match (code == AbsoluteAxisCode::ABS_RX.0, code == AbsoluteAxisCode::ABS_RY.0) {
             (true, _) => self.stick.0 = pushed,
@@ -512,7 +531,8 @@ impl Controller {
 
     pub fn tick(&mut self, seconds: f64) -> Result<Vec<Doing>, Never> {
         let Ok(mut done) = self.stepped(seconds);
-        let Ok(notches) = self.wheel.turned(self.stick.0, self.stick.1, seconds);
+        let by = Point { across: self.stick.0, down: self.stick.1 };
+        let Ok(notches) = self.wheel.turned(by, seconds);
 
         match notches.is_empty() {
             true => {},

@@ -148,9 +148,9 @@
     "on-click": "CONSOLE_FROM=bar music-panel"
   },
 
-  // What the desktop said and nobody has cleared. mako holds a notification
-  // until it runs out of seconds or a thumb takes it down, and this counts
-  // what it is holding.
+  // What the desktop said and nobody has cleared. console-notify holds a
+  // notification until it runs out of seconds or a thumb takes it down, and
+  // this counts what it is holding.
   //
   // Which is nearly always a fault: everything else here raises a notification
   // that takes itself down after five seconds, and console-say raises the one
@@ -174,7 +174,7 @@
     "exec": "bar-notice",
     "restart-interval": 5,
     "tooltip": false,
-    "on-click": "CONSOLE_FROM=bar notices-panel"
+    "on-click": "CONSOLE_FROM=bar notifications-panel"
   },
 
   "tray": { "spacing": 10 }

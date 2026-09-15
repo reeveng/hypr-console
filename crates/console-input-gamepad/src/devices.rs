@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 
 use evdev::EventType;
 
+use crate::Unpressed;
 use crate::capture::{Axis, Descriptor};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,7 +104,7 @@ impl<S: Sink> Devices<S> {
         Ok(())
     }
 
-    pub fn axis(&self, role: &str, code: u16) -> Result<Axis, String> {
+    pub fn axis(&self, role: &str, code: u16) -> Result<Axis, Unpressed> {
         let held = match self.descriptors.get(role) {
             Some(found) => {
                 let Ok(axis) = found.axis(code);
@@ -113,10 +114,10 @@ impl<S: Sink> Devices<S> {
             None => None,
         };
 
-        held.ok_or_else(|| format!("{role} has no axis {code}"))
+        held.ok_or_else(|| Unpressed::NoAxis(role.to_string(), code))
     }
 
-    pub fn absolute(&self, role: &str, code: u16, amount: f64) -> Result<i32, String> {
+    pub fn absolute(&self, role: &str, code: u16, amount: f64) -> Result<i32, Unpressed> {
         let axis = self.axis(role, code)?;
 
         let Ok(span) = axis.span();
@@ -126,7 +127,7 @@ impl<S: Sink> Devices<S> {
         Ok(along)
     }
 
-    pub fn along(&self, role: &str, code: u16, amount: f64) -> Result<i32, String> {
+    pub fn along(&self, role: &str, code: u16, amount: f64) -> Result<i32, Unpressed> {
         let axis = self.axis(role, code)?;
 
         let Ok(along) =
@@ -159,23 +160,26 @@ mod tests {
         let Ok(span) = axis.span();
 
         let span = f64::from(span);
-        assert_eq!(devices.absolute("pad", 0, 1.0), Ok(span as i32));
-        assert_eq!(devices.absolute("pad", 0, 0.0), Ok(0));
-        assert_eq!(devices.absolute("pad", 0, -1.0), Ok(-(span as i32)));
+        assert_eq!(devices.absolute("pad", 0, 1.0).expect("the edge"), span as i32);
+        assert_eq!(devices.absolute("pad", 0, 0.0).expect("the middle"), 0);
+        assert_eq!(devices.absolute("pad", 0, -1.0).expect("the other edge"), -(span as i32));
     }
 
     #[test]
     fn a_stick_pushed_further_than_all_the_way_is_still_all_the_way() {
         let devices = devices();
-        assert_eq!(devices.absolute("pad", 0, 4.0), devices.absolute("pad", 0, 1.0));
+        assert_eq!(
+            devices.absolute("pad", 0, 4.0).expect("further"),
+            devices.absolute("pad", 0, 1.0).expect("all the way")
+        );
     }
 
     #[test]
     fn a_trigger_runs_from_one_end_of_its_range_to_the_other() {
         let devices = devices();
         let axis = devices.axis("pad", 2).expect("ABS_Z");
-        assert_eq!(devices.along("pad", 2, 0.0), Ok(axis.min));
-        assert_eq!(devices.along("pad", 2, 1.0), Ok(axis.max));
+        assert_eq!(devices.along("pad", 2, 0.0).expect("let go"), axis.min);
+        assert_eq!(devices.along("pad", 2, 1.0).expect("pulled"), axis.max);
     }
 
     #[test]

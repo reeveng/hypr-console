@@ -57,6 +57,7 @@
 //! asked slightly too late, and the loop goes round again.
 
 
+use console_core_geometry::Size;
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
 use std::os::fd::{AsFd, OwnedFd};
@@ -75,7 +76,7 @@ use wayland_protocols_wlr::layer_shell::v1::client::{zwlr_layer_shell_v1, zwlr_l
 
 use crate::shared_memory::{Mapped, drawing_buffer};
 
-pub const NAMESPACE: &str = "virtual-keyboard";
+pub const NAMESPACE: &str = "console-keyboard";
 
 const DEEP: u32 = 4;
 
@@ -142,6 +143,22 @@ pub enum Missing {
     Hung,
     Memory(std::io::Error),
 }
+
+impl std::fmt::Display for Missing {
+    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Missing::Compositor(_) => {
+                write!(to, "no compositor answered on WAYLAND_DISPLAY")
+            }
+            Missing::Global(what) => write!(to, "the compositor has no {what}"),
+            Missing::Gone(why) => write!(to, "the compositor went away: {why}"),
+            Missing::Hung => write!(to, "the compositor closed the connection"),
+            Missing::Memory(why) => write!(to, "no memory for a frame: {why}"),
+        }
+    }
+}
+
+impl std::error::Error for Missing {}
 
 impl Screen {
     pub fn connect() -> Result<Screen, Missing> {
@@ -310,7 +327,7 @@ impl Screen {
 
         match stale {
             true => {
-                let frame = Frame::new(&self.board.shm, &hand, across, down)?;
+                let frame = Frame::new(&self.board.shm, &hand, Size { wide: across, tall: down })?;
 
                 self.board.frame = Some(frame);
             }
@@ -439,9 +456,9 @@ impl Frame {
     fn new(
         shm: &wl_shm::WlShm,
         hand: &QueueHandle<Board>,
-        wide: u32,
-        tall: u32,
+        room: Size<u32>,
     ) -> Result<Frame, Missing> {
+        let Size { wide, tall } = room;
         let stride = wide.saturating_mul(DEEP);
         let Ok(long) = fitted::<u32, usize>(stride.saturating_mul(tall));
         let file = drawing_buffer(long).map_err(Missing::Memory)?;

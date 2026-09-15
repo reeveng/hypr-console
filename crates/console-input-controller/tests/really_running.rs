@@ -9,6 +9,7 @@
 
 mod live;
 
+use console_core_geometry::Point;
 use console_core_external_programs::Program;
 use evdev::{AbsoluteAxisCode, EventType, KeyCode, RelativeAxisCode};
 
@@ -32,7 +33,7 @@ fn the_right_stick_really_turns_a_wheel() {
         Some(running) => running,
         None => return,
     };
-    running.go.stick("right-stick", 0.0, -1.0).expect("a stick");
+    running.go.stick("right-stick", Point { across: 0.0, down: -1.0 }).expect("a stick");
     let turned = running.total(EventType::RELATIVE, RelativeAxisCode::REL_WHEEL.0, 1.0);
     running.go.centre("right-stick").expect("a stick");
     assert!(turned > 0, "the wheel did not turn");
@@ -44,7 +45,7 @@ fn a_finger_on_the_pad_really_moves_a_pointer() {
         Some(running) => running,
         None => return,
     };
-    running.go.drag((200, 300), (500, 300), 6, 0.12);
+    running.go.drag(Point { across: 200, down: 300 }, Point { across: 500, down: 300 }, 6, 0.12);
     let moved: Vec<(u16, i32)> = running
         .events(0.4)
         .iter()
@@ -68,7 +69,7 @@ fn a_tap_is_really_a_click() {
         Some(running) => running,
         None => return,
     };
-    running.go.tap(500, 500);
+    running.go.tap(Point { across: 500, down: 500 });
     let clicked: Vec<(u16, i32)> = running
         .events(0.4)
         .iter()

@@ -43,7 +43,11 @@ const SETTING: &str = "dictation";
 
 pub fn chosen() -> Result<String, Never> {
     let told = console_default_applications::setting(SETTING)?;
-    let said = told.unwrap_or_default();
+
+    let said = match told {
+        Some(said) => said,
+        None => String::new(),
+    };
     let known = one(&said)?;
 
     Ok(match known.is_some() {
@@ -57,7 +61,10 @@ pub fn one(key: &str) -> Result<Option<&'static Language>, Never> {
 }
 
 pub fn choose(key: &str) -> Result<(), Never> {
-    console_default_applications::set(SETTING, key)
+    console_default_applications::set(console_default_applications::Setting {
+        key: SETTING,
+        value: key,
+    })
 }
 
 #[cfg(test)]

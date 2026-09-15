@@ -37,6 +37,9 @@ use crate::press::Stir;
 use crate::sun::{Season, Sky};
 use crate::weather::Weather;
 
+const NONE_OF_THEM: u64 = 0;
+
+
 pub const HOLD_SECONDS: f64 = 2.0 * 60.0 * 60.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -192,7 +195,12 @@ pub fn choose<'a>(
 ) -> Result<Option<&'a Picture>, Never> {
     let standing = standing(pictures, outside)?;
     let Ok(count) = fitted::<usize, u64>(standing.len().max(1));
-    let Ok(at) = fitted::<u64, usize>(turn.0.checked_rem(count).unwrap_or(0));
+    let round = match turn.0.checked_rem(count) {
+        Some(round) => round,
+        None => NONE_OF_THEM,
+    };
+
+    let Ok(at) = fitted::<u64, usize>(round);
 
     Ok(standing.get(at).copied())
 }
@@ -214,7 +222,7 @@ impl Set {
         Ok(match toml::from_str(held) {
             Ok(set) => Some(set),
             Err(fault) => {
-                eprintln!("console-sky: the picture table will not parse: {fault}");
+                eprintln!("console-wallpaper: the picture table will not parse: {fault}");
 
                 None
             }
@@ -227,7 +235,7 @@ impl Wanted {
         Ok(match toml::from_str(held) {
             Ok(wanted) => wanted,
             Err(fault) => {
-                eprintln!("console-sky: what was asked of the wallpaper will not parse: {fault}");
+                eprintln!("console-wallpaper: what was asked of the wallpaper will not parse: {fault}");
 
                 Wanted::default()
             }
@@ -248,7 +256,7 @@ impl Wanted {
             Held::Said(held) => Wanted::read(&held),
             Held::Nothing => Ok(Wanted::default()),
             Held::Unreadable(fault) => {
-                eprintln!("console-sky: {}: {fault}", at.display());
+                eprintln!("console-wallpaper: {}: {fault}", at.display());
 
                 Ok(Wanted::default())
             }
@@ -259,7 +267,7 @@ impl Wanted {
         Ok(match toml::to_string(self) {
             Ok(written) => written,
             Err(fault) => {
-                eprintln!("console-sky: writing down what was asked: {fault}");
+                eprintln!("console-wallpaper: writing down what was asked: {fault}");
 
                 String::new()
             }

@@ -25,6 +25,9 @@ use console_core_never::Never;
 use console_program_contract::{Argv, Word};
 use console_program_runtime::Carrying;
 
+const NOTHING_TIMED: u128 = 0;
+
+
 const TRIES: [u8; 3] = [1, 2, 3];
 
 const NAMED: &str = "/proc/sys/kernel/hostname";
@@ -158,7 +161,17 @@ fn timed(argv: &[String]) -> Result<Took, Never> {
         best = Some(best.map_or(took, |best: u128| best.min(took)));
     }
 
-    Ok(Took { first: first.unwrap_or_default(), best: best.unwrap_or_default(), said: heard })
+    let first = match first {
+        Some(first) => first,
+        None => NOTHING_TIMED,
+    };
+
+    let best = match best {
+        Some(best) => best,
+        None => NOTHING_TIMED,
+    };
+
+    Ok(Took { first, best, said: heard })
 }
 
 fn here() -> Result<String, Never> {

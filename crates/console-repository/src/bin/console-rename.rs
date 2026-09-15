@@ -1,6 +1,6 @@
 //! Change a name everywhere this tree writes it.
 //!
-//!     console-rename console-music console-music-panel
+//!     console-rename console-music console-music
 //!
 //! Sweeps both spellings through every tracked file, moves the directories and
 //! files whose own names carry it, and writes a migration claiming any path
@@ -15,12 +15,22 @@
 
 use console_core_external_programs::Program;
 use console_core_never::Never;
-use console_repository::renaming::{Moved, installed, renamed, stub, through, tracked};
+use console_repository::renaming::{Moved, Renaming, installed, renamed, stub, through, tracked};
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 fn main() -> Result<(), Never> {
-    let old = std::env::args().nth(1).unwrap_or_default();
-    let new = std::env::args().nth(2).unwrap_or_default();
+    let mut asked = std::env::args().skip(1);
+
+    let old = match asked.next() {
+        Some(old) => old,
+        None => String::new(),
+    };
+
+    let new = match asked.next() {
+        Some(new) => new,
+        None => String::new(),
+    };
 
     match old.is_empty() || new.is_empty() {
         true => {
@@ -40,8 +50,9 @@ fn main() -> Result<(), Never> {
         },
     };
 
-    let Ok(written) = sweeping(&root, &old, &new);
-    let Ok(moved) = moving(&root, &old, &new);
+    let renaming = Renaming { old: &old, new: &new };
+    let Ok(written) = sweeping(&root, renaming);
+    let Ok(moved) = moving(&root, renaming);
     let Ok(sweeping) = claimed(&root, &moved);
 
     println!("{written} files say the new name");
@@ -56,7 +67,7 @@ fn main() -> Result<(), Never> {
     }
 }
 
-fn sweeping(root: &Path, old: &str, new: &str) -> Result<usize, Never> {
+fn sweeping(root: &Path, renaming: Renaming<'_>) -> Result<usize, Never> {
     let Ok(files) = tracked(root);
     let mut written: usize = 0;
 
@@ -66,14 +77,14 @@ fn sweeping(root: &Path, old: &str, new: &str) -> Result<usize, Never> {
             Err(_it_is_not_text_or_it_is_gone) => continue,
         };
 
-        let Ok(swept) = through(&said, old, new);
+        let Ok(swept) = through(&said, renaming);
 
         match swept == said {
             true => continue,
             false => {},
         }
 
-        match std::fs::write(&at, swept) {
+        match console_core_atomic_writes::whole(&at, swept.as_bytes()) {
             Ok(()) => written = written.saturating_add(1),
             Err(fault) => eprintln!("console-rename: {}: {fault}", at.display()),
         }
@@ -82,23 +93,23 @@ fn sweeping(root: &Path, old: &str, new: &str) -> Result<usize, Never> {
     Ok(written)
 }
 
-fn moving(root: &Path, old: &str, new: &str) -> Result<Vec<Moved>, Never> {
+fn moving(root: &Path, renaming: Renaming<'_>) -> Result<Vec<Moved>, Never> {
     let Ok(files) = tracked(root);
     let mut moved = Vec::new();
-    let mut done: Vec<PathBuf> = Vec::new();
+    let mut done: BTreeSet<PathBuf> = BTreeSet::new();
 
     for at in files {
         for held in at.ancestors() {
-            let Ok(landing) = renamed(held, old, new);
+            let Ok(landing) = renamed(held, renaming);
 
             let landing = match landing {
                 Some(landing) => landing,
                 None => continue,
             };
 
-            match done.contains(&held.to_path_buf()) {
-                true => continue,
-                false => done.push(held.to_path_buf()),
+            match done.insert(held.to_path_buf()) {
+                true => {},
+                false => continue,
             }
 
             let Ok(went) = git_mv(root, held, &landing);
@@ -161,7 +172,7 @@ fn wrote(root: &Path, sweeping: &[String]) -> Result<(), Never> {
     let at = root.join(format!("migrations/{when}.sh"));
     let Ok(said) = stub(sweeping);
 
-    match std::fs::write(&at, said) {
+    match console_core_atomic_writes::whole(&at, said.as_bytes()) {
         Ok(()) => {
             println!("wrote {} -- the reason in it is yours to write", at.display());
 

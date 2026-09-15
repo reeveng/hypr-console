@@ -14,10 +14,19 @@
 //! carrying any seccomp at all, so `NoNewPrivileges=no` and `systemctl show`
 //! both said what was not true of the process. The one place it can be read is
 //! the running daemon on the machine, which is what the device stage asks.
+//!
+//! `pgrep -x` matches on `comm`, which is fifteen bytes, so the daemon is asked
+//! for under the name the kernel will have cut it to. A pattern longer than
+//! that matches nothing and says nothing about why -- which here would have
+//! read as a daemon that cannot become root rather than as a question nobody
+//! answered.
 
 use console_test_stages::checking::{Body, Check, Done, same};
-use console_test_stages::device::Device;
+use console_test_stages::device::{Device, comm};
 use console_test_stages::here::{Here, TURNS};
+
+const NOTHING_SAID: &str = "";
+
 
 pub const GAME_MODE: Check = Check {
     name: "190-game-mode",
@@ -27,20 +36,24 @@ pub const GAME_MODE: Check = Check {
     bodies: &[Body::Here(here), Body::Device(there)],
 };
 
-const DAEMON: &str = "stick-scroll";
+const DAEMON: &str = "controller-desktop";
 
 fn here(stage: &mut Here) -> Done {
     stage.press("legion-left")?;
     let Ok(()) = stage.settle(TURNS);
     let Ok(ran) = stage.names();
 
-    same(&ran, &["game-mode"], || format!("it ran {ran:?}"))
+    same(&ran, &["session-game"], || format!("it ran {ran:?}"))
 }
 
 fn there(stage: &mut Device) -> Done {
+    let Ok(named) = comm(DAEMON);
     let Ok(said) =
-        stage.user(&format!("grep NoNewPrivs /proc/$(pgrep -x {DAEMON})/status || true"));
-    let bit = said.split_whitespace().last().unwrap_or_default();
+        stage.user(&format!("grep NoNewPrivs /proc/$(pgrep -x {named})/status || true"));
+    let bit = match said.split_whitespace().last() {
+        Some(bit) => bit,
+        None => NOTHING_SAID,
+    };
 
     same(bit, "0", || {
         format!(

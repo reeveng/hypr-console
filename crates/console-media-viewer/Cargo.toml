@@ -14,7 +14,10 @@ name = "viewer-panel"
 path = "src/bin/viewer-panel.rs"
 
 [dependencies]
+console-core-geometry.workspace = true
 console-core-never.workspace = true
+console-core-walking.workspace = true
+console-core-words.workspace = true
 console-program-contract.workspace = true
 console-core-external-programs.workspace = true
 console-core-number-conversion.workspace = true

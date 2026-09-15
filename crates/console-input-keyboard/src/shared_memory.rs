@@ -6,7 +6,7 @@
 //! it into Rust's std by now — `OwnedFd`, `UnixListener::pair`, `cvt` — and
 //! the ones that haven't are short enough to write inline.
 //!
-//! What remains is the one thing the Wayland virtual-keyboard protocol
+//! What remains is the one thing the Wayland console-keyboard protocol
 //! actually asks for: a file descriptor pointing at a buffer the compositor
 //! can mmap. The C version built it via `shm_open` + `ftruncate` + `mmap`,
 //! which is fine, but Linux has had `memfd_create` for a decade and it is
@@ -26,7 +26,7 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 
 pub fn keymap_file(text: &str) -> io::Result<(OwnedFd, usize)> {
     let long = text.len().saturating_add(1);
-    let held = made("virtual-keyboard-keymap", long)?;
+    let held = made("console-keyboard-keymap", long)?;
 
     {
         let mut mapped = Mapped::of(&held, long)?;
@@ -69,7 +69,7 @@ pub fn keymap_file(text: &str) -> io::Result<(OwnedFd, usize)> {
 }
 
 pub fn drawing_buffer(len: usize) -> io::Result<OwnedFd> {
-    let held = made("virtual-keyboard-pixels", len)?;
+    let held = made("console-keyboard-pixels", len)?;
     const F_ADD_SEALS: i32 = 1033;
     const SHRINK_AND_GROW: i32 = 0x0002 | 0x0004;
 

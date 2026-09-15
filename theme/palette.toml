@@ -66,9 +66,10 @@ chroma = 0.030
 lightness = 0.310
 spent = "a window, a menu, a card, a key: whatever is in front of the wallpaper"
 
-# The fourth, which is not a depth. mako fills a notification to a proportion
-# in this and writes the sentence straight across it, so it goes under
-# something that has to be read and is therefore a ground like the three above.
+# The fourth, which is not a depth. A notification carrying a reading is filled
+# to a proportion in this with the sentence written straight across it, so it
+# goes under something that has to be read and is therefore a ground like the
+# three above.
 #
 # Pink, because the bar is the volume, the brightness and what is left in the
 # battery. Dark, because `text` is what is written across it: the one colour
@@ -247,9 +248,9 @@ ratio = 7.0
 lc = 75.0
 where = "every secondary label on the device"
 
-# The pair this palette went without. mako draws `progress-color` behind the
-# whole card and the sentence on top of it, so the fill is a ground and the
-# sentence is read on it. It was pink, the ink stayed `text`, and the two met
+# The pair this palette went without. The fill is drawn behind the whole card
+# with the sentence on top of it, so it is a ground and the sentence is read on
+# it. It was pink, the ink stayed `text`, and the two met
 # at 1.23:1 -- legible until the bar reached the words, then gone. Declared
 # here so the report measures it every time rather than trusting a comment.
 [[pair]]

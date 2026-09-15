@@ -47,7 +47,10 @@ fn posing(for_: std::time::Duration) -> Result<(), Never> {
 
 fn main() {
     let asked: Vec<String> = std::env::args().skip(1).collect();
-    let name = asked.get(1).cloned().unwrap_or_default();
+    let name = match asked.get(1).cloned() {
+        Some(name) => name,
+        None => String::new(),
+    };
 
     match asked.first().map(String::as_str) {
         Some("hold") => {

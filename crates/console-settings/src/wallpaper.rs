@@ -6,8 +6,8 @@
 //! no file manager and no terminal means putting a file in a directory and
 //! being told what happened to it.
 //!
-//! Adding is the part worth explaining. `sky-press` does the work, and what it
-//! does is not copying: a picture is decoded, brought into this palette, cut to
+//! Adding is the part worth explaining. `wallpaper-press` does the work, and what
+//! it does is not copying: a picture is decoded, brought into this palette, cut to
 //! the shape of this screen, and written out as something that rests and then
 //! stirs. So the row does not say "copy" and it does not say "import", it says
 //! what is actually going to happen to her picture.
@@ -17,7 +17,7 @@
 //! would show without a machine to ask.
 
 use console_core_never::Never;
-use console_panel::page::{Does, NOW, Row};
+use console_panel::page::{Aside, Does, NOW, Row};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Offered {
@@ -63,10 +63,10 @@ pub fn wallpaper_rows(
     let &Found { pictures, following, up, dropped } = found;
     let Ok(weather) = Row::new(
         "Follow the weather",
-        match following {
+        Aside(match following {
             true => NOW,
             false => "",
-        },
+        }),
         follow(!following),
     );
     let mut rows = vec![weather];
@@ -74,10 +74,10 @@ pub fn wallpaper_rows(
     for picture in pictures {
         let Ok(row) = Row::new(
             &picture.says,
-            match picture.name == up {
+            Aside(match picture.name == up {
                 true => NOW,
                 false => picture.by.as_str(),
-            },
+            }),
             show(&picture.name),
         );
 
@@ -96,10 +96,10 @@ pub fn wallpaper_rows(
     match dropped > 0 {
         true => {
             let Ok(row) = match dropped {
-                1 => Row::new("Add the picture in Pictures/Wallpapers", "", take),
+                1 => Row::new("Add the picture in Pictures/Wallpapers", Aside(""), take),
                 many => Row::new(
                     &format!("Add the {many} pictures in Pictures/Wallpapers"),
-                    "",
+                    Aside(""),
                     take,
                 ),
             };
@@ -109,7 +109,7 @@ pub fn wallpaper_rows(
         false => {},
     }
 
-    let Ok(finding) = Row::new("Find a picture in the files", "", find);
+    let Ok(finding) = Row::new("Find a picture in the files", Aside(""), find);
 
     rows.push(finding);
 

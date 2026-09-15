@@ -2,7 +2,7 @@
 Type=Application
 Name=Buttons
 Comment=Which button plays each part of this desktop, and how to move one
-Exec=/usr/local/bin/layout-panel
+Exec=/usr/local/bin/mapping-panel
 Icon=input-gaming
 Terminal=false
 Categories=System;

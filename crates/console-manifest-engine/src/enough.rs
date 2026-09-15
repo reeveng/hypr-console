@@ -21,7 +21,7 @@
 //! somebody chose, the way everything else in this crate that decides something
 //! is handed what it decides about.
 
-use console_default_applications::battery::{Charge, Filling, Levels, NEVER, Step};
+use console_default_applications::battery::{Cable, Charge, Levels, NEVER, Step};
 use console_core_never::Never;
 
 pub const MARGIN: i32 = 15;
@@ -44,9 +44,11 @@ pub fn wanted(levels: Levels) -> Result<i32, Never> {
 }
 
 pub fn enough(charge: Charge, levels: Levels) -> Result<Enough, Never> {
-    match charge.filling == Filling::Yes {
-        true => return Ok(Enough::Yes),
-        false => {},
+    let Ok(cable) = charge.filling.cable();
+
+    match cable {
+        Cable::In => return Ok(Enough::Yes),
+        Cable::Out => {},
     }
 
     let percent = match charge.percent {
@@ -72,6 +74,7 @@ pub fn enough(charge: Charge, levels: Levels) -> Result<Enough, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use console_default_applications::battery::Filling;
 
     fn on_battery(percent: i32) -> Charge {
         Charge { percent: Some(percent), filling: Filling::No }
@@ -113,6 +116,17 @@ mod tests {
     fn a_machine_that_is_charging_is_never_refused() {
         let filling = Charge { percent: Some(1), filling: Filling::Yes };
         assert_eq!(asking(filling, levels(5)), Enough::Yes);
+    }
+
+    #[test]
+    fn a_machine_on_the_cable_at_its_charge_limit_is_never_refused() {
+        let held = Charge { percent: Some(1), filling: Filling::Held };
+
+        assert_eq!(
+            asking(held, levels(5)),
+            Enough::Yes,
+            "an apply was refused on a device sitting on its charger"
+        );
     }
 
     #[test]

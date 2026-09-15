@@ -12,18 +12,26 @@ use console_core_never::Never;
 use console_core_places::{Base, OURS};
 use std::path::{Path, PathBuf};
 
-pub fn beside(program: &str, note: &str) -> Result<Option<PathBuf>, Never> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Note<'a> {
+    pub program: &'a str,
+    pub called: &'a str,
+}
+
+pub fn beside(note: Note<'_>) -> Result<Option<PathBuf>, Never> {
     let state = Base::State.hers()?;
 
-    under(state.as_deref(), program, note)
+    under(state.as_deref(), note)
 }
 
-fn under(state: Option<&Path>, program: &str, note: &str) -> Result<Option<PathBuf>, Never> {
-    Ok(state.map(|state| state.join(OURS).join("panel").join(format!("{program}.{note}"))))
+fn under(state: Option<&Path>, note: Note<'_>) -> Result<Option<PathBuf>, Never> {
+    let Note { program, called } = note;
+
+    Ok(state.map(|state| state.join(OURS).join("panel").join(format!("{program}.{called}"))))
 }
 
-pub fn write(program: &str, note: &str, said: &str) -> Result<(), Never> {
-    let Ok(beside) = beside(program, note);
+pub fn write(note: Note<'_>, said: &str) -> Result<(), Never> {
+    let Ok(beside) = beside(note);
 
     let path = match beside {
         Some(path) => path,
@@ -44,13 +52,13 @@ pub fn write(program: &str, note: &str, said: &str) -> Result<(), Never> {
         }
     }
 
-    let _ = std::fs::write(path, said);
+    let _ = console_core_atomic_writes::whole(&path, said.as_bytes());
 
     Ok(())
 }
 
-pub fn read(program: &str, note: &str) -> Result<Option<String>, Never> {
-    let Ok(beside) = beside(program, note);
+pub fn read(note: Note<'_>) -> Result<Option<String>, Never> {
+    let Ok(beside) = beside(note);
 
     let path = match beside {
         Some(path) => path,
@@ -72,13 +80,13 @@ mod tests {
     #[test]
     fn a_note_is_named_for_the_panel_and_for_itself() {
         assert_eq!(
-            under(Some(Path::new("/tmp/state")), "settings-panel", "tab"),
+            under(Some(Path::new("/tmp/state")), Note { program: "settings-panel", called: "tab" }),
             Ok(Some(PathBuf::from("/tmp/state/console/panel/settings-panel.tab")))
         );
     }
 
     #[test]
     fn nothing_named_is_nothing_remembered() {
-        assert_eq!(under(None, "settings-panel", "tab"), Ok(None));
+        assert_eq!(under(None, Note { program: "settings-panel", called: "tab" }), Ok(None));
     }
 }

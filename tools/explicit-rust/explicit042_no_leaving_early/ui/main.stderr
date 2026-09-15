@@ -1,0 +1,27 @@
+error: `std::process::exit` ends the process here: the stack is not unwound, so nothing this program is holding is dropped
+  --> $DIR/main.rs:9:5
+   |
+LL |     std::process::exit(1);
+   |     ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: say the fault and hand it back: `main` returns `std::process::ExitCode`, and `ExitCode::FAILURE` ends the run the same way with the stack unwound on the way out. A child started `console_program_lifetime::Lifetime::Alongside` is killed by that drop and by nothing else, so an `exit` under one is a program left running with nobody to stop it
+   = note: `#[deny(explicit042_no_leaving_early)]` on by default
+
+error: `std::process::exit` ends the process here: the stack is not unwound, so nothing this program is holding is dropped
+  --> $DIR/main.rs:17:5
+   |
+LL |     exit(2);
+   |     ^^^^^^^
+   |
+   = help: say the fault and hand it back: `main` returns `std::process::ExitCode`, and `ExitCode::FAILURE` ends the run the same way with the stack unwound on the way out. A child started `console_program_lifetime::Lifetime::Alongside` is killed by that drop and by nothing else, so an `exit` under one is a program left running with nobody to stop it
+
+error: `std::process::abort` ends the process here: the stack is not unwound and the buffers are not flushed either
+  --> $DIR/main.rs:23:5
+   |
+LL |     std::process::abort();
+   |     ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: say the fault and hand it back: `main` returns `std::process::ExitCode`, and `ExitCode::FAILURE` ends the run the same way with the stack unwound on the way out. A child started `console_program_lifetime::Lifetime::Alongside` is killed by that drop and by nothing else, so an `exit` under one is a program left running with nobody to stop it
+
+error: aborting due to 3 previous errors
+

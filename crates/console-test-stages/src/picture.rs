@@ -8,13 +8,23 @@
 //! a plain dark background that nobody went looking. A service being active
 //! proves nothing about whether it is doing its job, and the only thing that
 //! would have caught it is looking at the colour of the screen.
+//!
+//! A place on the screen is said in logical pixels and the picture is in the
+//! panel's own, so [`where_`] is handed the logical size rather than the file
+//! that declares one. The two are not the same number: a nested desktop is cut
+//! to whatever room the machine running it has, so the screen the picture came
+//! off is the device's size at somebody else's scale, and a row worked out from
+//! the declared 2.5 is a third of the way down the wrong thing. What is asked
+//! is the compositor that took the picture; reading the wrong row looks exactly
+//! like a surface that does not paint.
 
 
+use console_core_geometry::{Point, Size};
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, toward_zero_i64, toward_zero_u32};
 use std::path::Path;
 
-use console_screen::Screen;
+use crate::Awry;
 
 pub const PATCH: f64 = 0.02;
 
@@ -25,11 +35,11 @@ pub struct Picture {
 }
 
 impl Picture {
-    pub fn read(path: &Path) -> Result<Self, String> {
+    pub fn read(path: &Path) -> Result<Self, Awry> {
         let mut file = std::fs::File::open(path)
-            .map_err(|fault| format!("{}: {fault}", path.display()))?;
+            .map_err(|fault| Awry::Unreadable(path.to_path_buf(), fault))?;
         let mut surface = cairo::ImageSurface::create_from_png(&mut file)
-            .map_err(|fault| format!("{} is not a picture: {fault}", path.display()))?;
+            .map_err(|fault| Awry::NotAPicture(path.to_path_buf(), fault))?;
         let Ok(width) = fitted::<i32, u32>(surface.width());
         let Ok(height) = fitted::<i32, u32>(surface.height());
         let Ok(stride) = fitted::<i32, usize>(surface.stride());
@@ -37,7 +47,7 @@ impl Picture {
         let Ok(rows) = fitted::<u32, usize>(height);
         let Ok(columns) = fitted::<u32, usize>(width);
 
-        let data = surface.data().map_err(|fault| format!("nothing to read: {fault}"))?;
+        let data = surface.data().map_err(Awry::NothingToRead)?;
         let mut bands = Vec::with_capacity(room);
 
         for down in 0..rows {
@@ -54,9 +64,10 @@ impl Picture {
         Ok(Picture { width, height, bands })
     }
 
-    fn band(&self, across: u32, down: u32) -> Result<[u8; 3], Never> {
-        let Ok(at) =
-            fitted::<u32, usize>(down.saturating_mul(self.width).saturating_add(across).saturating_mul(3));
+    fn band(&self, spot: Point<u32>) -> Result<[u8; 3], Never> {
+        let Ok(at) = fitted::<u32, usize>(
+            spot.down.saturating_mul(self.width).saturating_add(spot.across).saturating_mul(3),
+        );
 
         Ok(match self.bands.get(at..at.saturating_add(3)) {
             Some([red, green, blue]) => [*red, *green, *blue],
@@ -64,9 +75,9 @@ impl Picture {
         })
     }
 
-    pub fn at(&self, across: f64, down: f64) -> Result<String, String> {
-        let Ok(across) = toward_zero_i64(across);
-        let Ok(down) = toward_zero_i64(down);
+    pub fn at(&self, spot: Point<f64>) -> Result<String, Awry> {
+        let Ok(across) = toward_zero_i64(spot.across);
+        let Ok(down) = toward_zero_i64(spot.down);
 
         let inside = (0..i64::from(self.width)).contains(&across)
             && (0..i64::from(self.height)).contains(&down);
@@ -74,25 +85,25 @@ impl Picture {
         match inside {
             true => {},
             false => {
-                return Err(format!(
-                    "{across},{down} is off the edge of a {}x{} picture",
-                    self.width, self.height
+                return Err(Awry::OffTheEdge(
+                    Point { across, down },
+                    Size { wide: self.width, tall: self.height },
                 ));
             }
         }
 
         let Ok(column) = fitted(across);
         let Ok(row) = fitted(down);
-        let Ok(band) = self.band(column, row);
+        let Ok(band) = self.band(Point { across: column, down: row });
         let Ok(said) = said(band);
 
         Ok(said)
     }
 
-    pub fn average(&self, across: f64, down: f64, size: f64) -> Result<String, Never> {
+    pub fn average(&self, spot: Point<f64>, size: f64) -> Result<String, Never> {
         let Ok(side) = toward_zero_u32(f64::from(self.width) * size);
-        let Ok(from_the_left) = toward_zero_u32(f64::from(self.width) * across);
-        let Ok(from_the_top) = toward_zero_u32(f64::from(self.height) * down);
+        let Ok(from_the_left) = toward_zero_u32(f64::from(self.width) * spot.across);
+        let Ok(from_the_top) = toward_zero_u32(f64::from(self.height) * spot.down);
 
         let wide = side.max(1);
         let left = from_the_left
@@ -106,7 +117,7 @@ impl Picture {
 
         for down in top..top.saturating_add(wide).min(self.height) {
             for across in left..left.saturating_add(wide).min(self.width) {
-                let Ok(bands) = self.band(across, down);
+                let Ok(bands) = self.band(Point { across, down });
 
                 for (total, band) in totals.iter_mut().zip(bands) {
                     *total = total.saturating_add(u64::from(band));
@@ -138,7 +149,7 @@ impl Picture {
 
         for down in (0..self.height).step_by(rows) {
             for across in (0..self.width).step_by(columns) {
-                let Ok(band) = self.band(across, down);
+                let Ok(band) = self.band(Point { across, down });
                 let Ok(said) = said(band);
                 let often = seen.entry(said).or_insert(0);
 
@@ -146,11 +157,12 @@ impl Picture {
             }
         }
 
-        Ok(seen
-            .into_iter()
-            .max_by_key(|(_, often)| *often)
-            .map(|(colour, _)| colour)
-            .unwrap_or_default())
+        let most = seen.into_iter().max_by_key(|(_, often)| *often).map(|(colour, _)| colour);
+
+        Ok(match most {
+            Some(colour) => colour,
+            None => String::new(),
+        })
     }
 }
 
@@ -158,11 +170,14 @@ fn said([red, green, blue]: [u8; 3]) -> Result<String, Never> {
     Ok(format!("{red:02x}{green:02x}{blue:02x}"))
 }
 
-pub fn where_(picture: &Picture, across: f64, down: f64, screen: &Screen) -> Result<String, String> {
-    let Ok(logical) = screen.logical();
+pub fn where_(
+    picture: &Picture,
+    spot: Point<f64>,
+    logical: Size<u32>,
+) -> Result<String, Awry> {
+    let each = f64::from(picture.width) / f64::from(logical.wide.max(1));
 
-    let each = f64::from(picture.width) / f64::from(logical.0);
-    picture.at(across * each, down * each)
+    picture.at(Point { across: spot.across * each, down: spot.down * each })
 }
 
 #[cfg(test)]
@@ -194,14 +209,17 @@ mod tests {
     #[test]
     fn a_colour_is_read_as_a_stylesheet_would_write_it() {
         let picture = plain("one-colour", 8, 8, (1.0, 0.0, 0.5));
-        assert_eq!(picture.at(0.0, 0.0), Ok("ff0080".to_string()));
+        assert_eq!(
+            picture.at(Point { across: 0.0, down: 0.0 }).expect("a colour"),
+            "ff0080"
+        );
     }
 
     #[test]
     fn somewhere_off_the_edge_is_said_rather_than_answered() {
         let picture = plain("off-the-edge", 8, 8, (0.0, 0.0, 0.0));
-        assert!(picture.at(8.0, 0.0).is_err());
-        assert!(picture.at(-1.0, 0.0).is_err());
+        assert!(picture.at(Point { across: 8.0, down: 0.0 }).is_err());
+        assert!(picture.at(Point { across: -1.0, down: 0.0 }).is_err());
     }
 
     #[test]
@@ -213,8 +231,8 @@ mod tests {
             context.rectangle(0.0, 0.0, 50.0, 100.0);
             let _ = context.fill();
         });
-        assert_eq!(picture.average(0.25, 0.5, 0.02), Ok("ffffff".to_string()));
-        assert_eq!(picture.average(0.75, 0.5, 0.02), Ok("000000".to_string()));
+        assert_eq!(picture.average(Point { across: 0.25, down: 0.5 }, 0.02), Ok("ffffff".to_string()));
+        assert_eq!(picture.average(Point { across: 0.75, down: 0.5 }, 0.02), Ok("000000".to_string()));
     }
 
     #[test]

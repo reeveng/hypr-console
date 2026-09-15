@@ -128,7 +128,7 @@ mod tests {
 
     #[test]
     fn the_keyboard_being_up_is_the_keyboard() {
-        let said = r#"{"eDP-1":{"levels":{"3":[{"namespace":"virtual-keyboard","h":520}]}}}"#;
+        let said = r#"{"eDP-1":{"levels":{"3":[{"namespace":"console-keyboard","h":520}]}}}"#;
         assert_eq!(Mode::seen(&layers(said), Awake::No), Ok(Mode::Keyboard));
     }
 
@@ -136,7 +136,7 @@ mod tests {
     fn the_keyboard_over_a_panel_is_still_the_keyboard() {
         let said = r#"{"eDP-1":{"levels":{"3":[
             {"namespace":"settings-panel","h":1562},
-            {"namespace":"virtual-keyboard","h":520}]}}}"#;
+            {"namespace":"console-keyboard","h":520}]}}}"#;
         assert_eq!(Mode::seen(&layers(said), Awake::No), Ok(Mode::Keyboard));
     }
 
@@ -144,7 +144,7 @@ mod tests {
     fn a_keyboard_with_no_height_is_not_up() {
         let said = r#"{"eDP-1":{"levels":{
             "2":[{"namespace":"waybar","h":38}],
-            "3":[{"namespace":"virtual-keyboard","h":0}]}}}"#;
+            "3":[{"namespace":"console-keyboard","h":0}]}}}"#;
         assert_eq!(Mode::seen(&layers(said), Awake::No), Ok(Mode::Desktop));
     }
 
@@ -190,7 +190,7 @@ mod tests {
     #[test]
     fn a_question_wins_over_a_keyboard_left_up() {
         let said = r#"{"eDP-1":{"levels":{"3":[
-            {"namespace":"virtual-keyboard","h":520},
+            {"namespace":"console-keyboard","h":520},
             {"namespace":"console-asking","h":300}]}}}"#;
         assert_eq!(Mode::seen(&layers(said), Awake::No), Ok(Mode::Asking));
     }

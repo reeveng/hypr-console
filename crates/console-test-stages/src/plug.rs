@@ -46,6 +46,8 @@ impl Plugged for Plug<'_> {
                     path,
                     name: told.name.clone(),
                     phys: told.phys.clone(),
+                    vendor: told.vendor,
+                    product: told.product,
                     keys: told.capabilities.key.clone(),
                     axes: told.capabilities.abs.iter().map(|axis| axis.code).collect(),
                 })
@@ -97,6 +99,9 @@ impl Plugged for Plug<'_> {
             drained
         });
 
-        Ok(arrived.unwrap_or_default())
+        Ok(match arrived {
+            Some(arrived) => arrived,
+            None => Vec::new(),
+        })
     }
 }

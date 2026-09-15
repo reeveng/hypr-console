@@ -63,6 +63,7 @@
 use console_core_atomic_writes::Held;
 use console_core_never::Never;
 use console_core_number_conversion::whole_u32;
+use console_core_words::Words;
 use std::fmt::Write;
 use std::path::{Path, PathBuf};
 
@@ -98,7 +99,7 @@ pub fn curve() -> Result<Vec<Step>, Never> {
     let falling = DUSK.1.saturating_sub(DUSK.0).saturating_div(STEP);
 
     for part in 0..=falling {
-        let Ok(warmth) = between(DAYLIGHT, WARM, part, falling);
+        let Ok(warmth) = between(Kelvin { from: DAYLIGHT, to: WARM }, Along { part, whole: falling });
 
         steps.push(Step {
             at: DUSK.0.saturating_add(part.saturating_mul(STEP)),
@@ -109,7 +110,7 @@ pub fn curve() -> Result<Vec<Step>, Never> {
     let climbing = DAWN.saturating_div(STEP);
 
     for part in 1..climbing {
-        let Ok(warmth) = between(WARM, DAYLIGHT, part, climbing);
+        let Ok(warmth) = between(Kelvin { from: WARM, to: DAYLIGHT }, Along { part, whole: climbing });
 
         steps.push(Step {
             at: DAY.saturating_sub(DAWN).saturating_add(part.saturating_mul(STEP)),
@@ -159,10 +160,22 @@ fn clock(minutes: u32) -> Result<String, Never> {
     Ok(format!("{:02}:{:02}", minutes.saturating_div(60), minutes.wrapping_rem(60)))
 }
 
-fn between(from: u32, to: u32, part: u32, whole: u32) -> Result<u32, Never> {
-    let Ok(from) = mired(from);
-    let Ok(to) = mired(to);
-    let at = from + (to - from) * f64::from(part) / f64::from(whole);
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Along {
+    part: u32,
+    whole: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Kelvin {
+    from: u32,
+    to: u32,
+}
+
+fn between(kelvin: Kelvin, along: Along) -> Result<u32, Never> {
+    let Ok(from) = mired(kelvin.from);
+    let Ok(to) = mired(kelvin.to);
+    let at = from + (to - from) * f64::from(along.part) / f64::from(along.whole);
     let kelvin = 1_000_000.0 / at;
     let Ok(tens) = whole_u32(kelvin / 10.0);
 
@@ -173,9 +186,11 @@ fn mired(kelvin: u32) -> Result<f64, Never> {
     Ok(1_000_000.0 / f64::from(kelvin))
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Words)]
 pub enum Warmth {
+    #[words(written = "clock\n")]
     Following,
+    #[words(written = "ordinary\n")]
     Ordinary,
 }
 
@@ -197,13 +212,6 @@ impl Warmth {
         Ok(match self {
             Warmth::Following => Warmth::Ordinary,
             Warmth::Ordinary => Warmth::Following,
-        })
-    }
-
-    pub fn written(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Warmth::Following => "clock\n",
-            Warmth::Ordinary => "ordinary\n",
         })
     }
 

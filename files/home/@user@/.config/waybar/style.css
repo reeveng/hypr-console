@@ -154,33 +154,46 @@ window#waybar {
   border-radius: 4px;
 }
 
-/* A fault is waiting under the bell. Coral is what everything on this bar
-   turns when it is wrong, and this is the only icon whose whole job is to say
-   that something is. */
-#custom-notices.urgent {
+/* Four states and four names, whatever the reading is. Each module used to
+   spell its own -- `critical` on the battery and `urgent` on the bell for one
+   colour, `off` and `muted` and `stopped` for another -- which was nine names
+   for four rules and a name that had to be remembered twice, once in Rust and
+   once here. A reading says what it is now and the word is the same word
+   everywhere: `wrong`, `low`, `well`, and `quiet` for a reading with nothing
+   to report. */
+#custom-battery.wrong,
+#custom-bluetooth.wrong,
+#custom-network.wrong,
+#custom-notices.wrong,
+#custom-sound.wrong {
   color: @coral;
 }
 
-#custom-battery.warning {
+#custom-battery.low,
+#custom-bluetooth.low,
+#custom-network.low,
+#custom-notices.low,
+#custom-sound.low {
   color: @butter;
 }
 
-#custom-battery.critical {
-  color: @coral;
-}
-
-#custom-battery.charging {
+#custom-battery.well,
+#custom-bluetooth.well,
+#custom-network.well,
+#custom-notices.well,
+#custom-sound.well {
   color: @leaf;
 }
 
 /* Off, muted, nothing playing and nothing said are one thing to a thumb: this
    reading has nothing to report. The bell is in this state nearly always,
    which is why it is the state it wears rather than the one it is lit in. */
-#custom-bluetooth.off,
-#custom-network.off,
-#custom-sound.muted,
+#custom-battery.quiet,
+#custom-bluetooth.quiet,
 #custom-music.stopped,
-#custom-notices.quiet {
+#custom-network.quiet,
+#custom-notices.quiet,
+#custom-sound.quiet {
   color: @soft;
 }
 

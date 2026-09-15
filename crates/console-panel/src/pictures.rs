@@ -31,6 +31,7 @@
 //! written by an older version of this is slower and never wrong.
 
 
+use console_core_our_programs::Ours;
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
 use console_core_places::Base;
@@ -217,6 +218,13 @@ pub fn read(bytes: &[u8]) -> Result<Option<BTreeMap<String, Where>>, Never> {
 type Held = (Vec<u8>, BTreeMap<String, Where>);
 
 fn held() -> Result<Option<&'static Held>, Never> {
+    #[cfg_attr(
+        dylint_lib = "explicit044_no_ambient_value",
+        allow(
+            explicit044_no_ambient_value,
+            reason = "the store is read once and slices of it are handed to textures that draw for as long as the panel is up, so what holds the bytes has to outlive every row made out of them, and the process is the only thing that does"
+        )
+    )]
     static HELD: OnceLock<Option<Held>> = OnceLock::new();
 
     Ok(HELD
@@ -294,6 +302,13 @@ pub fn missing(wanted: &[String]) -> Result<Vec<String>, Never> {
 }
 
 pub fn make(wanted: &[String]) -> Result<(), Never> {
+    #[cfg_attr(
+        dylint_lib = "explicit044_no_ambient_value",
+        allow(
+            explicit044_no_ambient_value,
+            reason = "what this process has already asked the maker for, so a second row wanting the same picture does not start a second maker; the rows are built in several places with nothing between them, which is the argument `opening`'s head makes about the same panel"
+        )
+    )]
     static ASKED: std::sync::Mutex<Option<std::collections::BTreeSet<String>>> =
         std::sync::Mutex::new(None);
 
@@ -312,7 +327,7 @@ pub fn make(wanted: &[String]) -> Result<(), Never> {
         false => {},
     }
 
-    let mut drawing = std::process::Command::new("panel-pictures");
+    let Ok(mut drawing) = Ours::PanelPictures.command();
     drawing
         .args(wanted)
         .stdout(std::process::Stdio::null())

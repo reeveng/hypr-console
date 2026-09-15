@@ -5,11 +5,18 @@
 //!                                   put it there, and remember it
 //!     console-scale apply           wear what was remembered
 //!
-//! `apply` is the one the session runs. The compositor's own file declares the
-//! size this device is set up as and is this repository's byte for byte, so a
-//! machine standing somewhere else says so in a file of its own and this puts
-//! it back on at every login. A desktop that forgot the size it was set to at
-//! every reboot would be a setting nobody could rely on having made.
+//! `apply` is the one the session runs. What a person chose is in a file of
+//! their own and this puts it back on at every login, because a desktop that
+//! forgot the size it was set to at every reboot would be a setting nobody could
+//! rely on having made.
+//!
+//! The screen it is put on is the one the compositor says it is driving, and not
+//! the one the tree declares. Those were the same thing for as long as there was
+//! one machine: `declared()` reads a block written for a 1600x2560 panel turned
+//! a quarter, and a laptop handed that through `eval` comes up rotated at two
+//! and a half times the size, which is a session nobody can use rather than a
+//! size nobody asked for. A machine with no compositor to ask is told so and
+//! nothing is changed.
 //!
 //! What `hyprctl` is told is `eval`, and that is not a preference. A
 //! Lua-configured compositor answers `hyprctl keyword` with *"keyword can't
@@ -32,7 +39,10 @@ const BAR: &str = "console-bar.service";
 const HOME: &str = "console-home.service";
 
 fn main() -> ExitCode {
-    let word = std::env::args().nth(1).unwrap_or_default();
+    let word = match std::env::args().nth(1) {
+        Some(word) => word,
+        None => String::new(),
+    };
 
     let Ok(said) = console_core_places::home();
 
@@ -80,15 +90,15 @@ fn main() -> ExitCode {
             };
 
             let Ok(standing) = size::standing(&monitors);
-            let Ok(scale) = size::scale_of(&monitors);
+            let Ok(shown) = console_screen::shown(&monitors);
 
-            match (standing, scale) {
+            match (standing, shown) {
                 (Some(size), _) => {
                     let Ok(written) = size.written();
 
                     println!("{written}");
                 }
-                (None, Some(scale)) => println!("{scale}"),
+                (None, Some(screen)) => println!("{}", screen.scale),
                 (None, None) => {
                     eprintln!("console-scale: the compositor said nothing about a screen");
                     return ExitCode::FAILURE;
@@ -110,13 +120,11 @@ fn main() -> ExitCode {
         }
     };
 
-    let screen = match console_screen::declared() {
-        Ok(screen) => screen,
-        Err(_) => {
-            eprintln!("console-scale: this build carries no readable screen to change");
+    let Ok(found) = panel();
 
-            return ExitCode::FAILURE;
-        }
+    let screen = match found {
+        Some(screen) => screen,
+        None => return ExitCode::FAILURE,
     };
 
     match at.parent() {
@@ -135,7 +143,7 @@ fn main() -> ExitCode {
 
             let Ok(written) = wanted.written();
 
-            match std::fs::write(&at, format!("{written}\n")) {
+            match console_core_atomic_writes::whole(&at, format!("{written}\n").as_bytes()) {
                 Ok(()) => {},
                 Err(fault) => {
                     eprintln!("console-scale: {}: {fault}, so nothing was changed", at.display());
@@ -164,16 +172,19 @@ fn main() -> ExitCode {
 }
 
 fn applied(home: &Path, written: Option<Size>) -> Result<ExitCode, Never> {
-    let screen = match console_screen::declared() {
-        Ok(screen) => screen,
-        Err(_) => {
-            eprintln!("console-scale: this build carries no readable screen to put back on");
+    let Ok(found) = panel();
 
-            return Ok(ExitCode::SUCCESS);
-        }
+    let screen = match found {
+        Some(screen) => screen,
+        None => return Ok(ExitCode::SUCCESS),
     };
 
-    let Ok(()) = write_the_bar(home, &screen, written.unwrap_or(Size::Normal));
+    let wearing = match written {
+        Some(size) => size,
+        None => Size::Normal,
+    };
+
+    let Ok(()) = write_the_bar(home, &screen, wearing);
 
     let why = match written {
         Some(size) => {
@@ -192,8 +203,28 @@ fn applied(home: &Path, written: Option<Size>) -> Result<ExitCode, Never> {
     Ok(ExitCode::SUCCESS)
 }
 
+fn panel() -> Result<Option<console_screen::Screen>, Never> {
+    let found = match console_screen::here() {
+        Ok(found) => found,
+        Err(why) => {
+            eprintln!("console-scale: {why}");
+
+            return Ok(None);
+        }
+    };
+
+    match found {
+        Some(screen) => Ok(Some(screen)),
+        None => {
+            eprintln!("console-scale: the compositor is driving no screen to put a size on");
+
+            Ok(None)
+        }
+    }
+}
+
 fn refused(screen: &console_screen::Screen, size: Size) -> Result<Option<String>, Never> {
-    let Ok(scale) = size.scale();
+    let Ok(scale) = size.scale_on(screen);
     let Ok(lua) = size::lua(screen, scale);
     let Ok(done) = console_compositor::told(console_compositor::Told::Eval, &lua);
 
@@ -220,10 +251,10 @@ fn write_the_bar(home: &Path, screen: &console_screen::Screen, size: Size) -> Re
         }
     }
 
-    let Ok(scale) = size.scale();
+    let Ok(scale) = size.scale_on(screen);
     let Ok(css) = console_screen::bar_css(screen, scale);
 
-    match std::fs::write(&at, css) {
+    match console_core_atomic_writes::whole(&at, css.as_bytes()) {
         Ok(()) => {},
         Err(fault) => eprintln!("console-scale: {}: {fault}", at.display()),
     }

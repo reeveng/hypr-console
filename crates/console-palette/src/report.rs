@@ -1,5 +1,6 @@
 //! The numbers, written down where somebody can read them without running this.
 
+use console_core_colour::{Ground, Ink};
 use console_core_colour as col;
 use console_core_never::Never;
 
@@ -94,10 +95,10 @@ pub fn write(
 
         let Ok(bright) = terminal.slot(Shade::Bright, slot);
 
-        let Ok(normal_ratio) = col::contrast(normal, &terminal.background);
-        let Ok(normal_lc) = col::lc(normal, &terminal.background);
-        let Ok(bright_ratio) = col::contrast(bright, &terminal.background);
-        let Ok(bright_lc) = col::lc(bright, &terminal.background);
+        let Ok(normal_ratio) = col::contrast(Ink(normal), Ground(&terminal.background));
+        let Ok(normal_lc) = col::lc(Ink(normal), Ground(&terminal.background));
+        let Ok(bright_ratio) = col::contrast(Ink(bright), Ground(&terminal.background));
+        let Ok(bright_lc) = col::lc(Ink(bright), Ground(&terminal.background));
 
         format!(
             "| {slot} | `#{normal}` | {normal_ratio:.2}:1 | {normal_lc:.1} \

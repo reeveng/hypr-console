@@ -12,6 +12,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
+use console_core_colour::{Ground, Ink};
 use console_core_colour as col;
 
 fn root() -> PathBuf {
@@ -398,11 +399,11 @@ mod the_engine {
     #[test]
     fn it_agrees_with_the_other_implementation() {
         for (lightness, chroma, hue, expected, ratio) in VECTORS {
-            let Ok(got) = col::hexcode(lightness, chroma, hue);
+            let Ok(got) = col::hexcode(col::Oklch { lightness, chroma, hue });
 
             assert_eq!(got, expected, "at oklch({lightness} {chroma} {hue})");
 
-            let Ok(reached) = col::contrast(&got, "2b212e");
+            let Ok(reached) = col::contrast(Ink(&got), Ground("2b212e"));
 
             assert!(
                 (reached - ratio).abs() < 1e-4,
@@ -420,7 +421,7 @@ mod the_engine {
     #[test]
     fn the_apca_numbers_are_the_published_ones() {
         for (ink, ground, expected) in APCA {
-            let Ok(got) = col::lc(ink, ground);
+            let Ok(got) = col::lc(Ink(ink), Ground(ground));
 
             assert!(
                 (got - expected).abs() < 0.01,
@@ -431,10 +432,10 @@ mod the_engine {
 
     #[test]
     fn the_polarity_is_the_whole_point_and_is_not_symmetric() {
-        let Ok(one) = col::contrast("000000", "ffffff");
-        let Ok(other) = col::contrast("ffffff", "000000");
-        let Ok(white_on_black) = col::lc("ffffff", "000000");
-        let Ok(black_on_white) = col::lc("000000", "ffffff");
+        let Ok(one) = col::contrast(Ink("000000"), Ground("ffffff"));
+        let Ok(other) = col::contrast(Ink("ffffff"), Ground("000000"));
+        let Ok(white_on_black) = col::lc(Ink("ffffff"), Ground("000000"));
+        let Ok(black_on_white) = col::lc(Ink("000000"), Ground("ffffff"));
 
         assert_eq!(one, other);
         assert!(white_on_black.abs() != black_on_white.abs());
@@ -442,8 +443,8 @@ mod the_engine {
 
     #[test]
     fn a_colour_on_itself_is_no_contrast_in_either_measure() {
-        let Ok(ratio) = col::contrast("372c3a", "372c3a");
-        let Ok(lc) = col::lc("372c3a", "372c3a");
+        let Ok(ratio) = col::contrast(Ink("372c3a"), Ground("372c3a"));
+        let Ok(lc) = col::lc(Ink("372c3a"), Ground("372c3a"));
 
         assert!((ratio - 1.0).abs() < 1e-12);
         assert_eq!(lc, 0.0);
@@ -451,13 +452,13 @@ mod the_engine {
 
     #[test]
     fn wcag_flatters_a_dark_pair_and_apca_does_not() {
-        let Ok(on_black) = col::contrast("767676", "000000");
-        let Ok(on_white) = col::contrast("767676", "ffffff");
+        let Ok(on_black) = col::contrast(Ink("767676"), Ground("000000"));
+        let Ok(on_white) = col::contrast(Ink("767676"), Ground("ffffff"));
 
         assert!(on_black > on_white, "{on_black} should beat {on_white}");
 
-        let Ok(black) = col::lc("767676", "000000");
-        let Ok(white) = col::lc("767676", "ffffff");
+        let Ok(black) = col::lc(Ink("767676"), Ground("000000"));
+        let Ok(white) = col::lc(Ink("767676"), Ground("ffffff"));
 
         let (lc_black, lc_white) = (black.abs(), white.abs());
         assert!(lc_black < lc_white, "Lc {lc_black} should be under Lc {lc_white}");
@@ -531,9 +532,8 @@ mod the_tree {
     #[test]
     fn only_the_palette_holds_a_colour() {
         let allowed: BTreeSet<&str> = BTreeSet::from([
-            "home/@user@/.config/hypr/hyprland.lua",
+            "home/@user@/.config/console/hypr/hyprland.lua",
             "home/@user@/.config/kdeglobals",
-            "home/@user@/.config/mako/config",
             "home/@user@/.config/console/palette.css",
             "home/@user@/.config/console/palette.toml",
             "home/@user@/.librewolf/console/chrome/palette.css",

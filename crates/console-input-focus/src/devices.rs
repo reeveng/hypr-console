@@ -6,30 +6,27 @@
 //! device than the daemon reads, which is the fault this crate exists to stop,
 //! arrived at from inside.
 
+use std::collections::BTreeMap;
 use std::os::fd::{AsRawFd, RawFd};
 
+use console_core_words::Words;
 use console_input_gamepad::finding::{self, Says};
 use console_core_never::Never;
 use evdev::{AbsoluteAxisCode, Device, InputEvent};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Words)]
 pub enum Which {
+    #[words(said = "gamepad")]
     Pad,
+    #[words(said = "keyboard")]
     Keys,
+    #[words(said = "a keyboard somebody plugged in")]
     Typing,
+    #[words(said = "touchpad")]
     Touch,
 }
 
 impl Which {
-    pub fn said(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Which::Pad => "gamepad",
-            Which::Keys => "keyboard",
-            Which::Typing => "a keyboard somebody plugged in",
-            Which::Touch => "touchpad",
-        })
-    }
-
     fn among(self, said: &[Says]) -> Result<Vec<&Says>, Never> {
         let one = match self {
             Which::Pad => finding::gamepad(said)?,
@@ -92,14 +89,15 @@ impl Claim {
                 says
             })
             .collect();
-        let found: Vec<(Which, String)> = wanted
-            .iter()
-            .flat_map(|which| {
-                let Ok(among) = which.among(&said);
+        let mut found: BTreeMap<String, Which> = BTreeMap::new();
 
-                among.into_iter().map(|says| (*which, says.path.clone())).collect::<Vec<_>>()
-            })
-            .collect();
+        for which in wanted {
+            let Ok(among) = which.among(&said);
+
+            for says in among {
+                let _ = found.entry(says.path.clone()).or_insert(*which);
+            }
+        }
 
         match found.is_empty() {
             true => return Err(Refused::NothingToTake),
@@ -109,7 +107,7 @@ impl Claim {
         let mut held = Vec::new();
 
         for (path, device) in seen {
-            let asked = found.iter().find(|(_, at)| *at == path).map(|(which, _)| *which);
+            let asked = found.get(&path).copied();
 
             let which = match asked {
                 Some(which) => which,
@@ -168,6 +166,13 @@ impl Claim {
             }
         }
 
+        #[cfg_attr(
+            dylint_lib = "explicit028_no_search_in_a_loop",
+            allow(
+                explicit028_no_search_in_a_loop,
+                reason = "what was lost is what went away during one read, and what is held is the devices on the machine: a handful against a handful"
+            )
+        )]
         self.held.retain(|taken| !lost.contains(&taken.path));
 
         Ok(heard)

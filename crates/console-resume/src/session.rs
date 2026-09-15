@@ -80,9 +80,9 @@
 //! `true` and `false`. So the names are turned into the file's words on the way
 //! out and read back into names on the way in, and no caller sees a bare boolean.
 
+use std::collections::BTreeSet;
 use std::collections::HashSet;
-use std::fs::{File, create_dir_all, remove_dir_all};
-use std::io::Write;
+use std::fs::{create_dir_all, remove_dir_all};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -91,11 +91,18 @@ use console_compositor::stirred::Stirred;
 use console_compositor::{Asked, Done, Filling, Floating, Pinned, Window};
 use console_core_atomic_writes::Held;
 use console_core_never::Never;
+use console_core_number_conversion::fitted;
 use console_events::listening::Heard;
 use console_program_contract::Topic;
+use console_program_lifetime::threads;
+use console_response_times::{Wait, Waiting};
 use console_waiting::{Patience, Seen, Waited};
 
+use crate::Unresumed;
 use crate::starting::what_starts_it;
+
+const NO_SCREEN_NAMED: i64 = 0;
+
 
 const EXEC_NAME: &str = "exec.conf";
 const CLIENTS_NAME: &str = "clients.json";
@@ -183,7 +190,7 @@ pub struct Saved {
     pub pid: i64,
 }
 
-fn open_windows() -> Result<Vec<Window>, String> {
+fn open_windows() -> Result<Vec<Window>, Unresumed> {
     let said = console_compositor::asked(Asked::Clients)?;
 
     let Ok(open) = console_compositor::windows_open(&said);
@@ -254,6 +261,13 @@ impl Changes {
         Ok(())
     }
 
+    #[cfg_attr(
+        dylint_lib = "explicit039_no_reading_the_clock",
+        allow(
+            explicit039_no_reading_the_clock,
+            reason = "when a window went, which is what settles: `worth_saving` is handed the other instant and decides from it, and this is a mark made where the compositor said it happened"
+        )
+    )]
     fn lose(&mut self) -> Result<(), Never> {
         self.lost = Some(Instant::now());
 
@@ -356,12 +370,18 @@ fn differs<T: PartialEq>(
     })
 }
 
-fn asked_of_the_compositor(lua: &str, about: &str, window: &str) -> Result<(), Never> {
-    let Ok(done) = crate::lua::dispatch(lua);
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Asking<'a> {
+    lua: &'a str,
+    about: &'a str,
+}
+
+fn asked_of_the_compositor(asking: Asking<'_>, window: &str) -> Result<(), Never> {
+    let Ok(done) = crate::lua::dispatch(asking.lua);
 
     match done {
         Done::Taken => {},
-        Done::Refused(why) => eprintln!("{window}: {about}: {why}"),
+        Done::Refused(why) => eprintln!("{window}: {about}: {why}", about = asking.about),
     }
 
     Ok(())
@@ -372,8 +392,7 @@ fn put<T: PartialEq>(
     saved: &Window,
     of: fn(&Window) -> T,
     really: Really,
-    lua: &str,
-    about: &str,
+    asking: Asking<'_>,
 ) -> Result<(), Never> {
     let Ok(differs) = differs(real, saved, of);
 
@@ -382,14 +401,14 @@ fn put<T: PartialEq>(
         Differs::Yes => {},
     }
 
-    println!("{}: {about}", real.title);
+    println!("{}: {about}", real.title, about = asking.about);
 
     match really {
         Really::Simulated => return Ok(()),
         Really::Truly => {},
     }
 
-    asked_of_the_compositor(lua, about, &real.title)
+    asked_of_the_compositor(asking, &real.title)
 }
 
 fn fill(real: &Window, saved: &Window, really: Really, named: &str) -> Result<(), Never> {
@@ -413,16 +432,21 @@ fn fill(real: &Window, saved: &Window, really: Really, named: &str) -> Result<()
     }
 
     let Ok(()) = asked_of_the_compositor(
-        &format!("hl.dsp.focus({{ window = {named} }})"),
-        "taking the focus first",
+        Asking {
+            lua: &format!("hl.dsp.focus({{ window = {named} }})"),
+            about: "taking the focus first",
+        },
         &real.title,
     );
 
     asked_of_the_compositor(
-        &format!(
-            "hl.dsp.window.fullscreen({{ window = {named}, mode = \"{mode}\", action = \"toggle\" }})"
-        ),
-        "filling the screen",
+        Asking {
+            lua: &format!(
+                "hl.dsp.window.fullscreen({{ window = {named}, mode = \"{mode}\", \
+                 action = \"toggle\" }})"
+            ),
+            about: "filling the screen",
+        },
         &real.title,
     )
 }
@@ -431,45 +455,45 @@ fn adjust(real: &Window, saved: &Window, really: Really) -> Result<(), Never> {
     let Ok(named) = crate::lua::window(&real.address);
     let Ok(workspace) = workspace_selector(saved);
 
-    let Ok(()) = put(
-        real,
-        saved,
-        |window| window.workspace,
-        really,
-        &format!(
+    let Ok(()) = put(real, saved, |window| window.workspace, really, Asking {
+        lua: &format!(
             "hl.dsp.window.move({{ window = {named}, workspace = {workspace}, follow = false }})"
         ),
-        "onto the workspace it was on",
-    );
+        about: "onto the workspace it was on",
+    });
 
-    let Ok(screen) = crate::lua::quote(&saved.monitor.unwrap_or_default().to_string());
+    let on = match saved.monitor {
+        Some(on) => on,
+        None => NO_SCREEN_NAMED,
+    };
 
-    let Ok(()) = put(
-        real,
-        saved,
-        |window| window.monitor.unwrap_or_default(),
-        really,
-        &format!("hl.dsp.workspace.move({{ workspace = {workspace}, monitor = {screen} }})"),
-        "onto the screen it was on",
-    );
+    let Ok(screen) = crate::lua::quote(&on.to_string());
 
     let Ok(()) = put(
         real,
         saved,
-        |window| window.floating,
+        |window| match window.monitor {
+            Some(on) => on,
+            None => NO_SCREEN_NAMED,
+        },
         really,
-        &format!("hl.dsp.window.float({{ window = {named}, action = \"toggle\" }})"),
-        "floating the way it was",
+        Asking {
+            lua: &format!(
+                "hl.dsp.workspace.move({{ workspace = {workspace}, monitor = {screen} }})"
+            ),
+            about: "onto the screen it was on",
+        },
     );
 
-    let Ok(()) = put(
-        real,
-        saved,
-        |window| window.pinned,
-        really,
-        &format!("hl.dsp.window.pin({{ window = {named}, action = \"toggle\" }})"),
-        "pinned the way it was",
-    );
+    let Ok(()) = put(real, saved, |window| window.floating, really, Asking {
+        lua: &format!("hl.dsp.window.float({{ window = {named}, action = \"toggle\" }})"),
+        about: "floating the way it was",
+    });
+
+    let Ok(()) = put(real, saved, |window| window.pinned, really, Asking {
+        lua: &format!("hl.dsp.window.pin({{ window = {named}, action = \"toggle\" }})"),
+        about: "pinned the way it was",
+    });
 
     let Ok(()) = fill(real, saved, really, &named);
 
@@ -480,29 +504,21 @@ fn adjust(real: &Window, saved: &Window, really: Really) -> Result<(), Never> {
         Placing::ByPixels => {},
     }
 
-    let Ok(()) = put(
-        real,
-        saved,
-        |window| window.size,
-        really,
-        &format!(
+    let Ok(()) = put(real, saved, |window| window.size, really, Asking {
+        lua: &format!(
             "hl.dsp.window.resize({{ window = {named}, x = {}, y = {}, relative = false }})",
             saved.size.0, saved.size.1
         ),
-        "the size it was",
-    );
+        about: "the size it was",
+    });
 
-    put(
-        real,
-        saved,
-        |window| window.at,
-        really,
-        &format!(
+    put(real, saved, |window| window.at, really, Asking {
+        lua: &format!(
             "hl.dsp.window.move({{ window = {named}, x = {}, y = {}, relative = false }})",
             saved.at.0, saved.at.1
         ),
-        "back where it was",
-    )
+        about: "back where it was",
+    })
 }
 
 fn window_opened(
@@ -543,7 +559,7 @@ fn window_opened(
     adjust(&real, one, really)
 }
 
-fn saved_windows(at: &Path) -> Result<Vec<Window>, String> {
+fn saved_windows(at: &Path) -> Result<Vec<Window>, Unresumed> {
     let at = at.join(CLIENTS_NAME);
 
     let Ok(held) = console_core_atomic_writes::read(&at);
@@ -551,11 +567,11 @@ fn saved_windows(at: &Path) -> Result<Vec<Window>, String> {
     let said = match held {
         Held::Said(said) => said,
         Held::Nothing => return Ok(Vec::new()),
-        Held::Unreadable(fault) => return Err(format!("{}: reading it: {fault}", at.display())),
+        Held::Unreadable(fault) => return Err(Unresumed::Unreadable(at, fault)),
     };
 
-    let saved: Vec<Saved> = serde_json::from_str(&said)
-        .map_err(|fault| format!("{}: reading it: {fault}", at.display()))?;
+    let saved: Vec<Saved> =
+        serde_json::from_str(&said).map_err(|fault| Unresumed::Unparsed(at, fault))?;
 
     Ok(saved
         .iter()
@@ -567,7 +583,7 @@ fn saved_windows(at: &Path) -> Result<Vec<Window>, String> {
         .collect())
 }
 
-fn what_to_start(at: &Path) -> Result<Vec<String>, String> {
+fn what_to_start(at: &Path) -> Result<Vec<String>, Unresumed> {
     let at = at.join(EXEC_NAME);
 
     let Ok(held) = console_core_atomic_writes::read(&at);
@@ -575,7 +591,7 @@ fn what_to_start(at: &Path) -> Result<Vec<String>, String> {
     let said = match held {
         Held::Said(said) => said,
         Held::Nothing => return Ok(Vec::new()),
-        Held::Unreadable(fault) => return Err(format!("{}: reading it: {fault}", at.display())),
+        Held::Unreadable(fault) => return Err(Unresumed::Unreadable(at, fault)),
     };
 
     Ok(said.lines().filter(|line| !line.trim().is_empty()).map(str::to_string).collect())
@@ -583,14 +599,15 @@ fn what_to_start(at: &Path) -> Result<Vec<String>, String> {
 
 fn start_programs(lines: &[String], really: Really) -> Result<(), Never> {
     for line in lines {
-        let Ok((rules, command)) = crate::lua::split_exec_line(line);
+        let Ok(start) = crate::lua::split_exec_line(line);
+        let command = start.command;
 
         println!("starting {command}");
 
         match really {
             Really::Simulated => {},
             Really::Truly => {
-                let Ok(_started) = crate::lua::exec(command, &rules);
+                let Ok(_started) = crate::lua::exec(&start);
             },
         }
     }
@@ -599,7 +616,7 @@ fn start_programs(lines: &[String], really: Really) -> Result<(), Never> {
 }
 
 impl Sessions {
-    pub fn save(&self, name: &str) -> Result<(), String> {
+    pub fn save(&self, name: &str) -> Result<(), Unresumed> {
         let Ok(at) = under(&self.at, name);
 
         let open = open_windows()?;
@@ -613,12 +630,11 @@ impl Sessions {
             },
         }
 
-        create_dir_all(&at).map_err(|fault| format!("{}: making it: {fault}", at.display()))?;
+        create_dir_all(&at).map_err(|fault| Unresumed::Making(at.clone(), fault))?;
 
-        let mut lines = File::create(at.join(EXEC_NAME))
-            .map_err(|fault| format!("{}: making it: {fault}", at.display()))?;
+        let mut lines = String::new();
 
-        let mut pids: Vec<i64> = Vec::new();
+        let mut pids: BTreeSet<i64> = BTreeSet::new();
         let mut written: Vec<Saved> = Vec::new();
 
         let Ok(known) = crate::starting::from_desktop_files();
@@ -643,21 +659,21 @@ impl Sessions {
                 Err(_nothing_says_what_started_it) => continue,
             };
 
-            pids.push(window.pid);
+            let _ = pids.insert(window.pid);
 
             let Ok(rules) = self.rules_for(window);
 
-            writeln!(lines, "[{rules}] {command}")
-                .map_err(|fault| format!("{}: writing it: {fault}", at.display()))?;
+            lines.push_str(&format!("[{rules}] {command}\n"));
         }
 
-        let json = File::create(at.join(CLIENTS_NAME))
-            .map_err(|fault| format!("{}: making it: {fault}", at.display()))?;
+        console_core_atomic_writes::whole(&at.join(EXEC_NAME), lines.as_bytes())
+            .map_err(Unresumed::Unwritten)?;
 
-        serde_json::to_writer(&json, &written)
-            .map_err(|fault| format!("{}: writing it: {fault}", at.display()))?;
+        let json = serde_json::to_vec(&written)
+            .map_err(|fault| Unresumed::Unparsed(at.clone(), fault))?;
 
-        Ok(())
+        console_core_atomic_writes::whole(&at.join(CLIENTS_NAME), &json)
+            .map_err(Unresumed::Unwritten)
     }
 
     fn rules_for(&self, window: &Window) -> Result<String, Never> {
@@ -685,7 +701,10 @@ impl Sessions {
         };
 
         Ok([
-            Some(format!("monitor {}", window.monitor.unwrap_or_default())),
+            Some(format!("monitor {}", match window.monitor {
+                Some(on) => on,
+                None => NO_SCREEN_NAMED,
+            })),
             Some(workspace),
             floating,
             Some(format!("move {} {}", window.at.0, window.at.1)),
@@ -699,7 +718,7 @@ impl Sessions {
         .join(";"))
     }
 
-    pub fn clear(&self) -> Result<(), String> {
+    pub fn clear(&self) -> Result<(), Unresumed> {
         match self.really {
             Really::Simulated => return Ok(()),
             Really::Truly => {},
@@ -711,8 +730,10 @@ impl Sessions {
             let Ok(named) = crate::lua::window(&window.address);
 
             let Ok(()) = asked_of_the_compositor(
-                &format!("hl.dsp.window.close({{ window = {named} }})"),
-                "closing it",
+                Asking {
+                    lua: &format!("hl.dsp.window.close({{ window = {named} }})"),
+                    about: "closing it",
+                },
                 &window.title,
             );
         }
@@ -731,17 +752,18 @@ impl Sessions {
 
         match waited {
             Waited::Happened => Ok(()),
-            Waited::RanOut => {
-                Err("something would not close, so what was saved is not put back".to_string())
-            },
+            Waited::RanOut => Err(Unresumed::StillOpen),
         }
     }
 
-    pub fn load(&self, name: &str) -> Result<PutBack, String> {
+    pub fn load(&self, name: &str) -> Result<PutBack, Unresumed> {
+        let Ok(mut waiting) = Waiting::here(Wait { who: "resume", what: "putting back" });
         let Ok(at) = under(&self.at, name);
 
         let saved = saved_windows(&at)?;
         let starting = what_to_start(&at)?;
+
+        let Ok(()) = waiting.mark("read");
 
         match self.restoring {
             Restoring::MovingWhatIsOpen => {},
@@ -750,16 +772,28 @@ impl Sessions {
                 Some(_there_is_something_to_put_back) => {
                     self.clear()?;
 
+                    let Ok(()) = waiting.mark("cleared");
                     let Ok(()) = start_programs(&starting, self.really);
+                    let Ok(many) = fitted::<usize, u64>(starting.len());
+                    let Ok(()) = waiting.mark("started");
+                    let Ok(()) = waiting.counted("windows", many);
+                    let Ok(()) = waiting.done();
                 },
             },
         }
 
+        #[cfg_attr(
+            dylint_lib = "explicit039_no_reading_the_clock",
+            allow(
+                explicit039_no_reading_the_clock,
+                reason = "the stretch a session spends being put back, which this is the watcher of; the adjusting is over when it has run that long and nothing else on the machine knows when it started"
+            )
+        )]
         let began = Instant::now();
         let adjusting_for = self.adjusting_for;
         let really = self.really;
 
-        std::thread::spawn(move || {
+        let Ok(()) = threads::let_go(std::thread::spawn(move || {
             let claimed = Mutex::new(HashSet::new());
 
             let Ok(listening) = console_events::listening::listen(&[Topic::Compositor]);
@@ -795,7 +829,7 @@ impl Sessions {
 
                 let Ok(()) = window_opened(&address, &saved, &claimed, really);
             }
-        });
+        }));
 
         let Ok(patience) = Patience::asking_every(self.adjusting_for, TICK);
 
@@ -805,11 +839,18 @@ impl Sessions {
         Ok(PutBack::Windows)
     }
 
-    pub fn watch(&self, name: &str, interval: Duration) -> Result<(), String> {
+    #[cfg_attr(
+        dylint_lib = "explicit039_no_reading_the_clock",
+        allow(
+            explicit039_no_reading_the_clock,
+            reason = "the cadence this loop keeps for itself, which is what a watcher is: `worth_saving` is handed the instant and decides from it, and the marks around it are this loop measuring its own waiting"
+        )
+    )]
+    pub fn watch(&self, name: &str, interval: Duration) -> Result<(), Unresumed> {
         let changes: Noted = Arc::new(Mutex::new(Changes::default()));
         let noticing = Arc::clone(&changes);
 
-        std::thread::spawn(move || {
+        let Ok(()) = threads::let_go(std::thread::spawn(move || {
             let Ok(listening) = console_events::listening::listen(&[Topic::Compositor]);
             let Ok(heard) = listening.heard();
 
@@ -822,7 +863,7 @@ impl Sessions {
                 let Ok(stirred) = console_compositor::stirred::read(&line);
                 let Ok(()) = note(&noticing, &stirred);
             }
-        });
+        }));
 
         let mut saved = Instant::now();
 
@@ -864,10 +905,10 @@ impl Sessions {
             .collect())
     }
 
-    pub fn delete(&self, name: &str) -> Result<(), String> {
+    pub fn delete(&self, name: &str) -> Result<(), Unresumed> {
         let Ok(at) = under(&self.at, name);
 
-        remove_dir_all(&at).map_err(|fault| format!("{}: removing it: {fault}", at.display()))
+        remove_dir_all(&at).map_err(|fault| Unresumed::Removing(at, fault))
     }
 }
 

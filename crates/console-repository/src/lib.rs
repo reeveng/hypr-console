@@ -15,6 +15,7 @@ pub mod pulling;
 pub mod renaming;
 
 use console_core_never::Never;
+use std::fmt;
 use std::path::{Path, PathBuf};
 
 pub const MARK: &str = "desktop.conf";
@@ -23,12 +24,40 @@ pub fn above(here: &Path) -> Result<Option<PathBuf>, Never> {
     Ok(here.ancestors().find(|at| at.join(MARK).is_file()).map(Path::to_path_buf))
 }
 
-pub fn root() -> Result<PathBuf, String> {
-    let here = std::env::current_dir().map_err(|fault| format!("no working directory: {fault}"))?;
+#[derive(Debug)]
+pub enum Unfound {
+    Nowhere(std::io::Error),
+    Outside(PathBuf),
+}
+
+impl fmt::Display for Unfound {
+    fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Unfound::Nowhere(fault) => write!(to, "no working directory: {fault}"),
+            Unfound::Outside(here) => write!(
+                to,
+                "no {MARK} above {}; run this inside the repository",
+                here.display()
+            ),
+        }
+    }
+}
+
+impl std::error::Error for Unfound {}
+
+#[cfg_attr(
+    dylint_lib = "explicit044_no_ambient_value",
+    allow(
+        explicit044_no_ambient_value,
+        reason = "where the program was run from is the question this crate exists to answer: somebody typing inside a checkout means that checkout, and the head above is why the walk is here rather than in each of the four programs that want it"
+    )
+)]
+pub fn root() -> Result<PathBuf, Unfound> {
+    let here = std::env::current_dir().map_err(Unfound::Nowhere)?;
 
     let Ok(above) = above(&here);
 
-    above.ok_or_else(|| format!("no {MARK} above {}; run this inside the repository", here.display()))
+    above.ok_or(Unfound::Outside(here))
 }
 
 #[cfg(test)]

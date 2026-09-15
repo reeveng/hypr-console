@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 use console_settings::warm::config;
 
-const LIVE: &str = "files/home/@user@/.config/hypr/hyprsunset.conf";
+const LIVE: &str = "files/home/@user@/.config/console/hypr/hyprsunset.conf";
 
 fn tree() -> PathBuf {
     {

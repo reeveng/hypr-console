@@ -47,6 +47,19 @@
 //! it along -- and the rest of a tiling desktop's alphabet stays unbound rather
 //! than bound to something that cannot happen here.
 //!
+//! ## HJKL is where the hand already is
+//!
+//! Those four jobs are on the arrows and on HJKL both, which is four jobs
+//! reached two ways rather than eight jobs. Somebody who moves around a file
+//! that way moves around a screen that way and the row is under their fingers
+//! already; the arrows stay because a hand that never learned vim reaches for
+//! them, and Shift with H and L carries the window the way Shift with the
+//! arrows already does.
+//!
+//! That reserves four letters, and it is why the keyboard is on Super and T
+//! rather than Super and K, where it was. T is what a keyboard is for, and a
+//! job that would take one of the four gets another letter instead.
+//!
 //! The power key is in here too, and it is the one row whose being in a table
 //! is a loss as well as a gain. It was the first line of the lua for a reason:
 //! a config that fails to load abandons every line after the failure, and a
@@ -83,7 +96,7 @@ pub enum What {
     Browser,
     Guide,
     Keyboard,
-    SwitchLanguage,
+    Language(i32),
     Terminal,
     Files,
     Music,
@@ -196,7 +209,7 @@ const SUPER: &[&str] = &["super"];
 const SUPER_CTRL: &[&str] = &["super", "ctrl"];
 const SUPER_SHIFT: &[&str] = &["super", "shift"];
 
-pub const JOBS: [Job; 55] = [
+pub const JOBS: [Job; 56] = [
     Job {
         slug: "menu",
         what: What::Menu,
@@ -234,15 +247,21 @@ pub const JOBS: [Job; 55] = [
         bound: &[
             (PAD, ALONE, "x"),
             (PAD, ALONE, "keyboard"),
-            (KEYS, SUPER, "k"),
+            (KEYS, SUPER, "t"),
             (KEYS, ALONE, "calculator"),
         ],
     },
     Job {
-        slug: "switch-language",
-        what: What::SwitchLanguage,
+        slug: "language-next",
+        what: What::Language(1),
         when: When::Anywhere,
         bound: &[(KEYS, SUPER_SHIFT, "space")],
+    },
+    Job {
+        slug: "language-previous",
+        what: What::Language(-1),
+        when: When::Anywhere,
+        bound: &[(KEYS, SUPER_CTRL, "space")],
     },
     Job {
         slug: "screenshot",
@@ -412,25 +431,25 @@ pub const JOBS: [Job; 55] = [
         slug: "focus-left",
         what: What::Focus("left"),
         when: When::OnTheDesktop,
-        bound: &[(KEYS, SUPER, "left")],
+        bound: &[(KEYS, SUPER, "left"), (KEYS, SUPER, "h")],
     },
     Job {
         slug: "focus-right",
         what: What::Focus("right"),
         when: When::OnTheDesktop,
-        bound: &[(KEYS, SUPER, "right")],
+        bound: &[(KEYS, SUPER, "right"), (KEYS, SUPER, "l")],
     },
     Job {
         slug: "focus-up",
         what: What::Focus("up"),
         when: When::OnTheDesktop,
-        bound: &[(KEYS, SUPER, "up")],
+        bound: &[(KEYS, SUPER, "up"), (KEYS, SUPER, "k")],
     },
     Job {
         slug: "focus-down",
         what: What::Focus("down"),
         when: When::OnTheDesktop,
-        bound: &[(KEYS, SUPER, "down")],
+        bound: &[(KEYS, SUPER, "down"), (KEYS, SUPER, "j")],
     },
     Job {
         slug: "workspace-next",
@@ -448,13 +467,13 @@ pub const JOBS: [Job; 55] = [
         slug: "carry-next",
         what: What::Carry(1),
         when: When::OnTheDesktop,
-        bound: &[(PAD, L2, "r1"), (KEYS, SUPER_SHIFT, "right")],
+        bound: &[(PAD, L2, "r1"), (KEYS, SUPER_SHIFT, "right"), (KEYS, SUPER_SHIFT, "l")],
     },
     Job {
         slug: "carry-previous",
         what: What::Carry(-1),
         when: When::OnTheDesktop,
-        bound: &[(PAD, L2, "l1"), (KEYS, SUPER_SHIFT, "left")],
+        bound: &[(PAD, L2, "l1"), (KEYS, SUPER_SHIFT, "left"), (KEYS, SUPER_SHIFT, "h")],
     },
     Job {
         slug: "home-up",
@@ -557,7 +576,8 @@ impl What {
             What::Browser => "the browser",
             What::Guide => "what every button does",
             What::Keyboard => "show or hide the keyboard",
-            What::SwitchLanguage => "the next alphabet",
+            What::Language(-1) => "the alphabet before this one",
+            What::Language(_) => "the alphabet after this one",
             What::Terminal => "a terminal",
             What::Files => "the files",
             What::Music => "the music",
@@ -644,8 +664,8 @@ impl What {
             What::Tell(said) => Ok(Some(Doing::Tell(said))),
             What::ScrollDown => scrolled(),
             What::Menu => started(&["launcher", "--keep"]),
-            What::Dictate => started(&["dictate"]),
-            What::PutAway => started(&["put-away"]),
+            What::Dictate => started(&["console-dictate"]),
+            What::PutAway => started(&["console-put-away"]),
             What::Screenshot => started(&["/usr/local/bin/console-screenshot"]),
             What::Settings => started(&["settings-panel"]),
             What::SettingsAt(tab) => started(&["settings-panel", tab]),
@@ -655,16 +675,19 @@ impl What {
             What::Quieter => started(&["/usr/local/bin/console-volume", "down"]),
             What::Mute => started(&["/usr/local/bin/console-volume", "mute"]),
             What::Wake => started(&["/usr/local/bin/console-brightness", "undim"]),
-            What::GameMode => started(&["game-mode"]),
+            What::GameMode => started(&["session-game"]),
             What::Browser => started(&["/usr/local/bin/console-browser"]),
             What::Guide => started(&["/usr/local/bin/console-buttons", "--menu"]),
             What::Keyboard => started(&["keyboard-toggle"]),
-            What::SwitchLanguage => started(&["switch-language"]),
+            What::Language(-1) => {
+                started(&[console_input_language::NAMED, console_input_language::BACK])
+            }
+            What::Language(_) => started(&[console_input_language::NAMED]),
             What::Terminal => terminal(),
             What::Files => started(&["/usr/local/bin/files-panel"]),
             What::Music => started(&["/usr/local/bin/music-panel"]),
-            What::Downloads => started(&["/usr/local/bin/download-panel"]),
-            What::Notices => started(&["/usr/local/bin/notices-panel"]),
+            What::Downloads => started(&["/usr/local/bin/downloads-panel"]),
+            What::Notices => started(&["/usr/local/bin/notifications-panel"]),
             What::CloseWindow => {
                 let closes = Doing::dispatch("hl.dsp.window.close()")?;
 

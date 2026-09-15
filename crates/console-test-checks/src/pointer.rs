@@ -1,5 +1,6 @@
 //! The right stick and the touchpad, which are the pointer.
 
+use console_core_geometry::Point;
 use evdev::{EventType, KeyCode, RelativeAxisCode};
 use console_test_stages::checking::{Body, Check, Done, cannot, less_than, more_than, same, seen};
 use console_test_stages::device::Device;
@@ -24,14 +25,14 @@ pub const TOUCHPAD: Check = Check {
 };
 
 fn scroll_here(stage: &mut Here) -> Done {
-    stage.stick("right-stick", 0.0, -1.0)?;
+    stage.stick("right-stick", Point { across: 0.0, down: -1.0 })?;
 
     let Ok(()) = stage.settle(HELD);
     let Ok(up) = stage.wrote(EventType::RELATIVE, RelativeAxisCode::REL_WHEEL.0);
 
     more_than(up, 0, || "the wheel did not turn".to_string())?;
 
-    stage.stick("right-stick", 0.0, 1.0)?;
+    stage.stick("right-stick", Point { across: 0.0, down: 1.0 })?;
 
     let Ok(()) = stage.settle(HELD);
     let Ok(back) = stage.wrote(EventType::RELATIVE, RelativeAxisCode::REL_WHEEL.0);
@@ -44,7 +45,7 @@ fn scroll_there(_stage: &mut Device) -> Done {
 }
 
 fn touch_here(stage: &mut Here) -> Done {
-    let Ok(()) = stage.drag((200, 300), (500, 300));
+    let Ok(()) = stage.drag(Point { across: 200, down: 300 }, Point { across: 500, down: 300 });
     let Ok(()) = stage.settle(TURNS);
     let Ok(across) = stage.wrote(EventType::RELATIVE, RelativeAxisCode::REL_X.0);
 
@@ -54,7 +55,7 @@ fn touch_here(stage: &mut Here) -> Done {
 
     same(&down, &0, || "it moved the other way too".to_string())?;
 
-    let Ok(()) = stage.tap(400, 400);
+    let Ok(()) = stage.tap(Point { across: 400, down: 400 });
     let Ok(()) = stage.settle(TURNS);
     let Ok(pressed) = stage.sent(EventType::KEY, KeyCode::BTN_LEFT.0, 1);
 
@@ -66,5 +67,5 @@ fn touch_here(stage: &mut Here) -> Done {
 }
 
 fn touch_there(stage: &mut Device) -> Done {
-    stage.tap(512, 512)
+    stage.tap(Point { across: 512, down: 512 })
 }

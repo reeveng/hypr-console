@@ -8,9 +8,16 @@
 //! `console_input_alphabets::wearing`.
 //!
 //! What is here is the arithmetic: the layout list a compositor is told, which
-//! alphabet comes after the one being worn, and where in the list it sits.
-//! Nothing in this file has seen a machine. `switch-language` is the program
-//! that asks.
+//! alphabet lies either way round from the one being worn, and where in the
+//! list it sits. Nothing in this file has seen a machine. `language-switch` is
+//! the program that asks.
+//!
+//! Both ways round, because a walk of three is a walk somebody overshoots. The
+//! keyboard on the screen has had two shoulders for it since it had a walk at
+//! all -- L1 back, R1 on -- and a keyboard on a desk that could only go
+//! forward made the way back a matter of how many alphabets this machine is
+//! set to type. One step either way is a step, and going round twice to
+//! undo one is not.
 //!
 //! ## Why the list is pushed rather than written
 //!
@@ -23,10 +30,13 @@
 
 use console_core_never::Never;
 use console_input_alphabets::Alphabet;
+use console_core_walking::{Ring, Step};
 
-pub const NAMED: &str = "switch-language";
+pub const NAMED: &str = "language-switch";
 
 pub const SETTLE: &str = "--settle";
+
+pub const BACK: &str = "--back";
 
 pub fn layouts(walk: &[&'static Alphabet]) -> Result<String, Never> {
     let said: Vec<&str> = walk.iter().map(|alphabet| alphabet.xkb).collect();
@@ -42,16 +52,30 @@ pub fn layouts(walk: &[&'static Alphabet]) -> Result<String, Never> {
 }
 
 pub fn at(walk: &[&'static Alphabet], alphabet: &Alphabet) -> Result<usize, Never> {
-    Ok(walk.iter().position(|kept| kept.key == alphabet.key).unwrap_or(0))
+    let found = walk.iter().position(|kept| kept.key == alphabet.key);
+
+    Ok(match found {
+        Some(at) => at,
+        None => THE_FIRST_ONE,
+    })
 }
 
-pub fn after(
+const THE_FIRST_ONE: usize = 0;
+
+pub fn along(
     walk: &[&'static Alphabet],
     alphabet: &Alphabet,
+    step: Step,
 ) -> Result<&'static Alphabet, Never> {
-    let Ok(now) = at(walk, alphabet);
+    let Ok(round) = Ring::of(walk);
 
-    let next = now.saturating_add(1).checked_rem(walk.len().max(1)).unwrap_or(0);
+    let ring = match round {
+        Some(ring) => ring,
+        None => return console_input_alphabets::latin(),
+    };
+
+    let Ok(now) = at(walk, alphabet);
+    let Ok(next) = ring.stepped(now, step);
 
     match walk.get(next) {
         Some(alphabet) => Ok(alphabet),
@@ -93,9 +117,30 @@ mod tests {
     fn the_next_one_comes_after_and_the_last_one_comes_round() {
         let walk = walk("greek,thai");
 
-        assert_eq!(ok(after(&walk, one("latin"))).key, "greek");
-        assert_eq!(ok(after(&walk, one("greek"))).key, "thai");
-        assert_eq!(ok(after(&walk, one("thai"))).key, "latin");
+        assert_eq!(ok(along(&walk, one("latin"), Step::Forward)).key, "greek");
+        assert_eq!(ok(along(&walk, one("greek"), Step::Forward)).key, "thai");
+        assert_eq!(ok(along(&walk, one("thai"), Step::Forward)).key, "latin");
+    }
+
+    #[test]
+    fn the_one_before_comes_back_and_the_first_one_comes_round() {
+        let walk = walk("greek,thai");
+
+        assert_eq!(ok(along(&walk, one("thai"), Step::Back)).key, "greek");
+        assert_eq!(ok(along(&walk, one("greek"), Step::Back)).key, "latin");
+        assert_eq!(ok(along(&walk, one("latin"), Step::Back)).key, "thai");
+    }
+
+    #[test]
+    fn a_step_each_way_is_where_it_started() {
+        let walk = walk("greek,thai");
+
+        for alphabet in &walk {
+            let Ok(on) = along(&walk, alphabet, Step::Forward);
+            let Ok(back) = along(&walk, on, Step::Back);
+
+            assert_eq!(back.key, alphabet.key, "{} does not come back", alphabet.key);
+        }
     }
 
     #[test]
@@ -103,7 +148,7 @@ mod tests {
         let walk = walk("thai");
 
         assert_eq!(
-            ok(after(&walk, one("greek"))).key,
+            ok(along(&walk, one("greek"), Step::Forward)).key,
             "thai",
             "greek is not in the walk, so where it sits is the front and the next is the second"
         );
@@ -122,6 +167,7 @@ mod tests {
     fn a_list_with_one_thing_in_it_stays_where_it_is() {
         let walk = walk("");
 
-        assert_eq!(ok(after(&walk, one("latin"))).key, "latin");
+        assert_eq!(ok(along(&walk, one("latin"), Step::Forward)).key, "latin");
+        assert_eq!(ok(along(&walk, one("latin"), Step::Back)).key, "latin");
     }
 }

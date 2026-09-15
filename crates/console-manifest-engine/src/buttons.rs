@@ -11,7 +11,7 @@
 use std::path::Path;
 
 use console_input_controller::means::Table;
-use console_input_gamepad::front::{DEVICES, Front, asking, loading, one_said, wearing};
+use console_input_gamepad::front::{DEVICES, Front, Read, asking, loading, one_said, wearing};
 use console_input_gamepad::devices::Has;
 use console_input_bindings::bound::{Binding, Input, Played};
 use console_input_bindings::moved::{Jobs, path_in};
@@ -64,7 +64,7 @@ pub fn standing(_root: &Path, home: &str) -> Result<Standing, Never> {
 
     let Ok(asking) = asking();
     let Ok(asked) = machine::run(&asking);
-    let Ok(front) = Front::of(&asked.out, &devices);
+    let Ok(front) = Front::of(Read { said: &asked.out, devices: &devices });
     let Ok(at) = path_in(Path::new(home));
     let told = at.exists();
     let Ok(said) = read(home);
@@ -157,7 +157,7 @@ fn here(front: &Front, binding: &Binding) -> Result<Has, Never> {
 pub fn wrote_router() -> Result<Option<String>, Never> {
     let Ok(asking) = asking();
     let Ok(asked) = machine::run(&asking);
-    let Ok(front) = Front::of(&asked.out, "");
+    let Ok(front) = Front::of(Read { said: &asked.out, devices: "" });
 
     let capabilities = match front.capabilities {
         Some(capabilities) => capabilities,
@@ -180,7 +180,7 @@ pub fn wrote_router() -> Result<Option<String>, Never> {
 
     let Ok(yaml) = router.yaml();
 
-    Ok(match std::fs::write(&live, yaml) {
+    Ok(match console_core_atomic_writes::whole(std::path::Path::new(&live), yaml.as_bytes()) {
         Ok(()) => Some(live),
         Err(fault) => {
             eprintln!("{live}: {fault}");

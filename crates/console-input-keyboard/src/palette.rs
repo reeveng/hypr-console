@@ -16,9 +16,9 @@
 use console_core_never::Never;
 use std::collections::BTreeMap;
 
-pub const NAME: &str = "virtual-keyboard";
+pub const NAME: &str = "console-keyboard";
 
-pub const VIRTUAL_KEYBOARD: &str = "/usr/local/bin/virtual-keyboard";
+pub const VIRTUAL_KEYBOARD: &str = "/usr/local/bin/console-keyboard";
 
 pub const HEIGHT: u32 = 260;
 pub const FONT: &str = "Noto Sans 16";

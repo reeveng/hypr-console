@@ -85,6 +85,7 @@
 //! been a screenshot per look, on a machine somebody else is using, for a fact
 //! the home screen could simply have said.
 
+use console_core_geometry::Point;
 use std::collections::BTreeSet;
 
 use console_home_screen::{Holding, Home, Spot};
@@ -96,6 +97,10 @@ use console_test_stages::desktop::Desktop;
 use console_test_stages::device::{Device, PATIENCE, Seen, Waited};
 use console_test_stages::here::{Here, TURNS};
 use console_test_stages::palette::palette;
+
+use console_test_stages::Awry;
+
+use crate::Unchecked;
 
 const THE_HOME_SCREEN: &str = r#"{"eDP-1":{"levels":{
     "0":[{"namespace":"awww-daemon","h":1600},{"namespace":"console-home","h":1562}],
@@ -300,11 +305,11 @@ fn arranging_there(stage: &mut Device) -> Done {
     let Ok(panes) = before.panes();
 
     let first = Spot::FIRST;
-    let Ok(far) = Spot::new(
-        panes,
-        shape.rows.saturating_sub(1),
-        shape.columns.saturating_sub(1),
-    );
+    let far = Spot {
+        pane: panes,
+        row: shape.rows.saturating_sub(1),
+        column: shape.columns.saturating_sub(1),
+    };
 
     let one = match before.at(first) {
         Ok(Some(one)) => one.to_string(),
@@ -493,15 +498,15 @@ fn settled(
     stage: &mut Device,
     over: (u32, u32, u32, u32),
     spent: &str,
-) -> Result<BTreeSet<u32>, String> {
+) -> Result<BTreeSet<u32>, Unchecked> {
     let mut twice = None;
     let mut now = BTreeSet::new();
 
-    let waited = stage.until::<String>(
+    let waited = stage.until::<Unchecked>(
         |seen| {
             let Ok(()) = seen.again();
 
-            let found = lit(over, spent, |across, down| seen.colour(across, down))?;
+            let found = lit(over, spent, |across, down| seen.colour(Point { across, down }))?;
             let same = twice.as_ref() == Some(&found);
 
             twice = Some(found.clone());
@@ -517,9 +522,7 @@ fn settled(
 
     match waited {
         Waited::Happened => Ok(now),
-        Waited::RanOut => {
-            Err("the home screen went on repainting with the pointer standing still".to_string())
-        },
+        Waited::RanOut => Err(Unchecked::StillRepainting),
     }
 }
 
@@ -529,14 +532,14 @@ fn newly(
     spent: &str,
     before: &BTreeSet<u32>,
     want: Lit,
-) -> Result<BTreeSet<u32>, String> {
+) -> Result<BTreeSet<u32>, Unchecked> {
     let mut found = BTreeSet::new();
 
-    let _waited = stage.until::<String>(
+    let _waited = stage.until::<Unchecked>(
         |seen| {
             let Ok(()) = seen.again();
 
-            let now = lit(over, spent, |across, down| seen.colour(across, down))?;
+            let now = lit(over, spent, |across, down| seen.colour(Point { across, down }))?;
 
             found = now.difference(before).copied().collect();
 
@@ -559,8 +562,8 @@ fn newly(
 fn lit(
     over: (u32, u32, u32, u32),
     spent: &str,
-    colour: impl FnMut(f64, f64) -> Result<String, String>,
-) -> Result<BTreeSet<u32>, String> {
+    colour: impl FnMut(f64, f64) -> Result<String, Awry>,
+) -> Result<BTreeSet<u32>, Unchecked> {
     let found = lit_at(over, spent, colour)?;
 
     Ok(found.into_iter().map(|(across, _down)| across).collect())
@@ -569,13 +572,13 @@ fn lit(
 fn lit_at(
     over: (u32, u32, u32, u32),
     spent: &str,
-    mut colour: impl FnMut(f64, f64) -> Result<String, String>,
-) -> Result<BTreeSet<(u32, u32)>, String> {
+    mut colour: impl FnMut(f64, f64) -> Result<String, Awry>,
+) -> Result<BTreeSet<(u32, u32)>, Unchecked> {
     let Ok(every) = palette();
 
     let plate = match every.get(spent) {
         Some(plate) => plate,
-        None => return Err(format!("the palette spends no {spent} for a square to be read by")),
+        None => return Err(Unchecked::NoPlate(spent.to_string())),
     };
 
     let (left, top, wide, tall) = over;
@@ -642,13 +645,13 @@ fn pointed_here(stage: &mut Desktop) -> Done {
     let screen = console_test_stages::screen()?;
     let Ok(room) = screen.logical();
 
-    let over = (0, 0, room.0, room.1);
-    let at = (room.0.saturating_div(2), room.1.saturating_div(2));
+    let over = (0, 0, room.wide, room.tall);
+    let at = (room.wide.saturating_div(2), room.tall.saturating_div(2));
 
     stage.open("console-home")?;
     stage.point(at)?;
 
-    let found = lit(over, STANDING, |across, down| stage.colour(across, down))?;
+    let found = lit(over, STANDING, |across, down| stage.colour(Point { across, down }))?;
 
     let reached = match reaches(&found) {
         Ok(Some(reached)) => reached,
@@ -659,7 +662,7 @@ fn pointed_here(stage: &mut Desktop) -> Done {
         }
     };
 
-    stood_on(reached, at, room.0)
+    stood_on(reached, at, room.wide)
 }
 
 fn pointed_there(stage: &mut Device) -> Done {

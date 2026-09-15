@@ -10,6 +10,7 @@ name = "console_program_runtime"
 path = "src/lib.rs"
 
 [dependencies]
+console-core-atomic-writes.workspace = true
 # The contract this carries out. Nothing here decides anything; everything it
 # decides is over there.
 console-program-contract.workspace = true

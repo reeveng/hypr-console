@@ -15,4 +15,4 @@ Exec=/usr/local/bin/viewer-panel %f
 Icon=multimedia-photo-viewer
 Terminal=false
 Categories=Graphics;Viewer;AudioVideo;Video;Player;
-MimeType=image/png;image/jpeg;image/webp;image/gif;image/avif;image/heif;image/tiff;video/mp4;video/matroska;video/webm;video/quicktime;video/vnd.avi;video/ogg;
+MimeType=image/png;image/jpeg;image/webp;image/gif;image/avif;image/heif;image/tiff;video/mp4;video/matroska;video/x-matroska;video/webm;video/quicktime;video/vnd.avi;video/ogg;

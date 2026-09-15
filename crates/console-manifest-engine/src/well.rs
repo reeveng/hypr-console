@@ -55,11 +55,14 @@ pub struct Piece {
     pub unit: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Called<'a>(pub &'a str);
+
 impl Piece {
-    pub fn new(unit: &str, said: &str) -> Result<Piece, Never> {
-        let said = match said.trim().is_empty() {
+    pub fn new(unit: &str, said: Called<'_>) -> Result<Piece, Never> {
+        let said = match said.0.trim().is_empty() {
             true => unit.to_string(),
-            false => said.trim().to_string(),
+            false => said.0.trim().to_string(),
         };
 
         Ok(Piece { said, unit: unit.to_string() })
@@ -222,7 +225,7 @@ mod tests {
     use super::*;
 
     fn piece(unit: &str, said: &str) -> Piece {
-        let Ok(piece) = Piece::new(unit, said);
+        let Ok(piece) = Piece::new(unit, Called(said));
 
         piece
     }
@@ -269,13 +272,13 @@ mod tests {
             cramped: None,
             adrift: vec!["/etc/pamac.conf".into()],
             down: vec![piece("console-bar.service", "Status bar")],
-            restarted: vec![(piece("console-sky.service", "Which wallpaper is up"), 4)],
+            restarted: vec![(piece("console-wallpaper.service", "Which wallpaper is up"), 4)],
         };
         let (_, body) = card(&standing);
         assert!(body.contains("/usr/local/bin/launcher"), "{body}");
         assert!(body.contains("/etc/pamac.conf"), "{body}");
         assert!(body.contains("console-bar.service"), "{body}");
-        assert!(body.contains("console-sky.service"), "{body}");
+        assert!(body.contains("console-wallpaper.service"), "{body}");
         assert!(body.contains("4 times"), "{body}");
     }
 
@@ -324,7 +327,7 @@ mod tests {
     #[test]
     fn the_summary_names_the_worst_thing_that_is_wrong() {
         let only_restarts = Standing {
-            restarted: vec![(piece("console-sky.service", "Which wallpaper is up"), 2)],
+            restarted: vec![(piece("console-wallpaper.service", "Which wallpaper is up"), 2)],
             ..Standing::default()
         };
         assert_eq!(card(&only_restarts).0, "Something keeps restarting");
@@ -354,7 +357,7 @@ mod tests {
     #[test]
     fn a_piece_that_came_back_is_worth_saying_even_though_it_is_running() {
         let standing = Standing {
-            restarted: vec![(piece("console-sky.service", "Which wallpaper is up"), 4)],
+            restarted: vec![(piece("console-wallpaper.service", "Which wallpaper is up"), 4)],
             ..Standing::default()
         };
         assert_eq!(standing.well(), Ok(Well::No));
@@ -370,7 +373,7 @@ mod tests {
             cramped: Some(cramped()),
             adrift: vec!["/etc/pamac.conf".into()],
             down: vec![piece("console-bar.service", "Status bar")],
-            restarted: vec![(piece("console-sky.service", "Which wallpaper is up"), 4)],
+            restarted: vec![(piece("console-wallpaper.service", "Which wallpaper is up"), 4)],
         };
         let (summary, body) = card(&standing);
         let said = format!("{summary}\n{body}").to_lowercase();

@@ -17,10 +17,20 @@ path = "src/bin/console-deploy.rs"
 name = "console-migrate"
 path = "src/bin/console-migrate.rs"
 
+# `just pull`, and here rather than beside `console_repository::pulling`
+# because the device is named by `CONSOLE_HOST` and this crate is the one place
+# that reads it. `console-repository` cannot ask this crate -- this one asks
+# that one -- so the bin came to the answer rather than the answer being
+# written out a second time.
+[[bin]]
+name = "console-pull"
+path = "src/bin/console-pull.rs"
+
 [dependencies]
 console-core-external-programs.workspace = true
 console-core-atomic-writes.workspace = true
 console-core-never.workspace = true
+console-core-our-programs.workspace = true
 console-core-places.workspace = true
 console-program-contract.workspace = true
 console-program-runtime.workspace = true

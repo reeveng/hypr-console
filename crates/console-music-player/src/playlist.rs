@@ -33,6 +33,11 @@ use console_core_never::Never;
 use console_core_number_conversion::fitted;
 use std::path::{Path, PathBuf};
 
+const THE_FRONT_OF_THE_LIST: usize = 0;
+
+const NOTHING_TO_CHOOSE_FROM: u64 = 0;
+
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Order {
     Any,
@@ -179,11 +184,15 @@ impl Playlist {
     }
 
     fn holding(&self, song: &Path) -> Result<usize, Never> {
-        Ok(self
+        let found = self
             .order
             .iter()
-            .position(|held| self.songs.get(*held).map(PathBuf::as_path) == Some(song))
-            .unwrap_or_default())
+            .position(|held| self.songs.get(*held).map(PathBuf::as_path) == Some(song));
+
+        Ok(match found {
+            Some(at) => at,
+            None => THE_FRONT_OF_THE_LIST,
+        })
     }
 }
 
@@ -229,7 +238,10 @@ impl Rolling {
     fn under(&mut self, bound: usize) -> Result<usize, Never> {
         let Ok(rolled) = self.rolled();
         let Ok(held) = fitted::<usize, u64>(bound);
-        let under = rolled.checked_rem(held).unwrap_or_default();
+        let under = match rolled.checked_rem(held) {
+            Some(under) => under,
+            None => NOTHING_TO_CHOOSE_FROM,
+        };
 
         fitted::<u64, usize>(under)
     }

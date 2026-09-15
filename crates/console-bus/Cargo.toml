@@ -1,0 +1,23 @@
+[package]
+name = "console-bus"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_bus"
+path = "src/lib.rs"
+
+[dependencies]
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+libc = "0.2"
+
+[dev-dependencies]
+# The one thing the byte arrays cannot say is that a real bus agrees, so the
+# test runs `busctl` -- and a program this tree runs is a program it names.
+console-core-external-programs.workspace = true
+
+[lints]
+workspace = true

@@ -4,8 +4,25 @@
 //! many tabs the strip has room for is `strip`, how tall the card should be is
 //! `fitting`, and what a button means is `keys`. This puts what they answer on
 //! the screen.
+//!
+//! ## The caret belongs to whoever is typing
+//!
+//! Standing on the row that types puts the keyboard focus in the search field
+//! and the caret at the end of what is there, which is what somebody arriving
+//! on that row means. It is not what somebody already typing means, and every
+//! letter redraws the list: narrowing is what the field is for. So the arrival
+//! is asked about before the caret is moved, and the question is whether the
+//! focus is *within* the entry rather than on it. A `gtk4::Entry` is a box
+//! around a `GtkText` and the focus lands on the inner one, so `has_focus` on
+//! the entry answers no while somebody is typing into it -- which made every
+//! keystroke an arrival, and threw the caret to the end of the line after each
+//! one. A letter put in the middle of a word stayed where it was put and the
+//! next letter went to the end; a backspace took the right character out and
+//! left the caret somewhere else.
 
 use console_program_lifetime::{Alongside, alongside};
+use console_response_times::{Wait, Note};
+use console_core_geometry::{Point, Size};
 use console_core_never::Never;
 use console_core_number_conversion::{Float, fitted, toward_zero_i32};
 use std::cell::RefCell;
@@ -23,7 +40,7 @@ use gtk4::prelude::*;
 use gtk4::{
     Align, Box as GtkBox, Button, CssProvider, Entry, EventControllerKey,
     EventControllerMotion, GestureClick, GestureSwipe, Label, ListBox, ListBoxRow, Orientation,
-    Overlay, PolicyType, ProgressBar, PropagationPhase, ScrolledWindow, Window,
+    Overlay, PolicyType, ProgressBar, PropagationPhase, ScrolledWindow, StateFlags, Window,
 };
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 
@@ -31,9 +48,10 @@ use crate::keys::{Driving, Meaning, meaning, swept};
 use crate::marks::{self, named};
 use crate::page::{
     About, Act, Answer, Does, Heading, InEffect, Page, Picture, Row, Same, Set, Showing, Stirred,
-    Taken,
+    Taken, Which,
 };
 use crate::strip::{ANSWER, EDGE, GAP, MARGIN, PICTURE, PRESSED, SLEEVE};
+use crate::tab::Title;
 
 const A_HAIR: f64 = 0.5;
 
@@ -51,6 +69,9 @@ const OVER_ROWS: i32 = 10;
 
 const TIME_WIDE: i32 = 7;
 use crate::{asked, chooser, fitting, opening, running, strip, style, telling};
+
+const NO_CELL: i32 = 0;
+
 
 pub type Build = Arc<dyn Fn() -> Vec<Page> + Send + Sync>;
 
@@ -71,15 +92,18 @@ struct State {
     noted: u64,
     reading: u64,
     landed: u64,
-    asked: Option<(i32, i32)>,
+    asked: Option<Size<i32>>,
     remembered: BTreeMap<usize, Vec<Row>>,
     placed: Vec<Row>,
-    under: i32,
+    under: usize,
     tabs: Vec<Button>,
     watching: Option<Alongside>,
     reshaping: bool,
     due: bool,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Step(i32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Opened {
@@ -148,7 +172,7 @@ impl Showing for Rc<Panel> {
         let Ok(()) = self.asking(question, then, Secret::No);
     }
 
-    fn sure(&self, question: &str, about: &str, does: &[&str], then: Taken) {
+    fn sure(&self, question: &str, about: Which<'_>, does: &[&str], then: Taken) {
         let Ok(()) = self.wondering(question, about, does, then);
     }
 
@@ -190,7 +214,7 @@ impl Panel {
 
         match pages.get(here) {
             Some(page) => {
-                let Ok(()) = crate::tab::keep(&whose, &page.title);
+                let Ok(()) = crate::tab::keep(&whose, Title(&page.title));
             }
             None => {},
         }
@@ -372,7 +396,7 @@ impl Panel {
         let taps = GestureClick::new();
         let panel = Rc::clone(self);
         taps.connect_pressed(move |_, _, x, y| {
-            let Ok(()) = panel.tapped(x, y);
+            let Ok(()) = panel.tapped(Point { across: x, down: y });
         });
         self.window.add_controller(taps);
 
@@ -530,13 +554,13 @@ impl Panel {
         })
     }
 
-    fn on_the_card(&self, x: f64, y: f64) -> Result<On, Never> {
+    fn on_the_card(&self, at: Point<f64>) -> Result<On, Never> {
         let card = self.card.allocation();
         let (left, top) = (f64::from(card.x()), f64::from(card.y()));
-        let inside = x >= left
-            && x < left + f64::from(card.width())
-            && y >= top
-            && y < top + f64::from(card.height());
+        let inside = at.across >= left
+            && at.across < left + f64::from(card.width())
+            && at.down >= top
+            && at.down < top + f64::from(card.height());
 
         Ok(match inside {
             true => On::TheCard,
@@ -544,8 +568,8 @@ impl Panel {
         })
     }
 
-    fn tapped(self: &Rc<Self>, x: f64, y: f64) -> Result<(), Never> {
-        let Ok(on) = self.on_the_card(x, y);
+    fn tapped(self: &Rc<Self>, at: Point<f64>) -> Result<(), Never> {
+        let Ok(on) = self.on_the_card(at);
 
         match on == On::TheDesktop {
             true => {
@@ -739,7 +763,11 @@ impl Panel {
             panel: whose,
             tab: {
                 let state = self.state.borrow();
-                state.pages.get(state.here).map(|page| page.title.clone()).unwrap_or_default()
+
+                match state.pages.get(state.here).map(|page| page.title.clone()) {
+                    Some(tab) => tab,
+                    None => String::new(),
+                }
             },
             out: match self.state.borrow().opened {
                 Opened::Out => telling::Out::Yes,
@@ -753,6 +781,13 @@ impl Panel {
         let Ok(told) = telling::said(&told);
         let said = format!("{told}\n");
 
+        #[cfg_attr(
+            dylint_lib = "explicit040_no_torn_write",
+            allow(
+                explicit040_no_torn_write,
+                reason = "what a panel says about itself, appended a line at a time for whoever is watching the file; losing the last line costs a reading of a screen and a rename over it would take away every line before it"
+            )
+        )]
         match std::fs::OpenOptions::new().create(true).append(true).open(&where_to) {
             Ok(mut file) => {
                 match std::io::Write::write_all(&mut file, said.as_bytes()) {
@@ -790,6 +825,7 @@ impl Panel {
                 }
 
                 let Ok(bare) = bare(row);
+                let Ok(heading) = row.heading();
 
                 telling::Line {
                     at,
@@ -802,6 +838,10 @@ impl Panel {
                     bare: match bare {
                         Bare::Yes => telling::Bare::Yes,
                         Bare::No => telling::Bare::No,
+                    },
+                    heading: match heading {
+                        Heading::Yes => telling::Heading::Yes,
+                        Heading::No => telling::Heading::No,
                     },
                     standing: match (standing == Some(which), beside) {
                         (true, Beside::Yes) => telling::Standing::Beside,
@@ -838,10 +878,13 @@ impl Panel {
                 });
 
                 let allocation = held.allocation();
-                let (at, big) = found.unwrap_or((
-                    (allocation.x(), allocation.y()),
-                    (allocation.width(), allocation.height()),
-                ));
+                let (at, big) = match found {
+                    Some(both) => both,
+                    None => (
+                        (allocation.x(), allocation.y()),
+                        (allocation.width(), allocation.height()),
+                    ),
+                };
 
                 into.push(telling::Spot { name: name.to_string(), at, big, scrolls });
             }
@@ -956,7 +999,7 @@ impl Panel {
         let Ok(()) = self.stand(Beside::No);
 
         let now = self.rows.selected_row().map_or(0, |row| row.index());
-        let Ok(at) = walked(&self.state.borrow().placed, now, step);
+        let Ok(at) = walked(&self.state.borrow().placed, now, Step(step));
 
         let going = match self.rows.row_at_index(at) {
             Some(going) => going,
@@ -1172,7 +1215,7 @@ impl Panel {
         match title {
             Some(title) => {
                 let Ok(whose) = namespace();
-                let Ok(()) = crate::tab::keep(&whose, &title);
+                let Ok(()) = crate::tab::keep(&whose, Title(&title));
             }
             None => {},
         }
@@ -1197,7 +1240,10 @@ impl Panel {
             let meanwhile = state.pages.get(state.here).and_then(|page| page.meanwhile.clone());
             (before, meanwhile)
         };
-        let showing = said_before.or_else(|| meanwhile.map(|at_once| at_once())).unwrap_or_default();
+        let showing = match said_before.or_else(|| meanwhile.map(|at_once| at_once())) {
+            Some(showing) => showing,
+            None => Vec::new(),
+        };
 
         let Ok(()) = self.place(showing);
 
@@ -1234,9 +1280,14 @@ impl Panel {
         let showing = {
             let mut state = self.state.borrow_mut();
             let Ok(cell) = self.measure(&mut state);
-            let Ok(room) = strip::room(state.wide, state.spent);
-            let Ok(fits) = strip::fits(room, cell);
-            let Ok(showing) = strip::showing(state.pages.len(), state.here, state.from_tab, fits);
+            let Ok(room) = strip::room(strip::Card { wide: state.wide, spent: state.spent });
+            let Ok(fits) = strip::fits(room, strip::Cell(cell));
+            let Ok(showing) = strip::showing(strip::Tabs {
+                many: state.pages.len(),
+                here: state.here,
+                from: state.from_tab,
+                fits,
+            });
 
             state.from_tab = showing.start;
 
@@ -1297,8 +1348,12 @@ impl Panel {
 
                 wide
             })
-            .max()
-            .unwrap_or(0);
+            .max();
+
+        let cell = match cell {
+            Some(cell) => cell,
+            None => NO_CELL,
+        };
 
         state.cell = Some(cell);
 
@@ -1311,7 +1366,12 @@ impl Panel {
             state.reading = state.reading.saturating_add(1);
             let rows = state.pages.get(state.here).map(|page| page.rows.clone());
             let tab = state.pages.get(state.here).map(|page| page.title.clone());
-            (state.reading, state.here, rows, tab.unwrap_or_default())
+            let tab = match tab {
+                Some(tab) => tab,
+                None => String::new(),
+            };
+
+            (state.reading, state.here, rows, tab)
         };
 
         let rows = match rows {
@@ -1320,8 +1380,9 @@ impl Panel {
         };
 
         let Ok(whose) = namespace();
-        let Ok(mut waiting) = console_response_times::Waiting::here(&whose, "list");
-        let Ok(()) = waiting.named("tab", &tab);
+        let Ok(mut waiting) =
+            console_response_times::Waiting::here(Wait { who: &whose, what: "list" });
+        let Ok(()) = waiting.named(Note { name: "tab", said: &tab });
 
         let panel = Rc::clone(self);
         glib::spawn_future_local(async move {
@@ -1712,16 +1773,14 @@ impl Panel {
                 line.append(&sleeve);
             }
             Picture::Showing(at) => {
-                let Ok(room) = self.picture_room();
-                let Ok(down) = self.down();
-                let Ok(showing) = showing(at.as_deref(), room, down);
+                let Ok(room) = self.room_for_a_picture();
+                let Ok(showing) = showing(at.as_deref(), room);
 
                 line.append(&showing);
             }
             Picture::Playing(at) => {
-                let Ok(room) = self.picture_room();
-                let Ok(down) = self.down();
-                let Ok(playing) = playing(at.as_deref(), room, down);
+                let Ok(room) = self.room_for_a_picture();
+                let Ok(playing) = playing(at.as_deref(), room);
 
                 line.append(&playing);
             }
@@ -1974,7 +2033,7 @@ impl Panel {
         let level = level.clone();
         let panel = Rc::clone(self);
         swipe.connect_swipe(move |_, across, down| {
-            let Ok(swept) = swept(across, down);
+            let Ok(swept) = swept(Point { across, down });
 
             let step = match swept.step() {
                 Ok(Some(step)) => step,
@@ -2044,7 +2103,7 @@ impl Panel {
     fn wondering(
         self: &Rc<Self>,
         question: &str,
-        about: &str,
+        about: Which<'_>,
         does: &[&str],
         then: Taken,
     ) -> Result<(), Never> {
@@ -2054,7 +2113,7 @@ impl Panel {
         let asked = Label::new(Some(question));
         asked.set_widget_name(named::SURE);
         asked.set_xalign(0.0);
-        let thing = Label::new(Some(about));
+        let thing = Label::new(Some(about.0));
         thing.set_widget_name(named::ABOUT);
         thing.set_xalign(0.0);
         thing.set_ellipsize(EllipsizeMode::Middle);
@@ -2066,7 +2125,7 @@ impl Panel {
         foot.set_halign(Align::Fill);
         let mut answers = Vec::new();
 
-        for (at, says) in std::iter::once(&marks::NO).chain(does.iter()).enumerate() {
+        for (at, says) in std::iter::once(&marks::CANCEL).chain(does.iter()).enumerate() {
             let answer = Button::with_label(says);
             answer.set_widget_name(named::ANSWER);
             answer.set_size_request(ANSWER, -1);
@@ -2254,15 +2313,24 @@ impl Panel {
     }
 
     fn typed_into(&self) -> Result<(), Never> {
-        match self.search.has_focus() {
-            true => return Ok(()),
-            false => {},
+        let Ok(caret) = self.caret();
+
+        match caret {
+            Caret::Theirs => return Ok(()),
+            Caret::Nobodys => {},
         }
 
         self.search.grab_focus();
         self.search.set_position(-1);
 
         Ok(())
+    }
+
+    fn caret(&self) -> Result<Caret, Never> {
+        Ok(match self.search.state_flags().contains(StateFlags::FOCUS_WITHIN) {
+            true => Caret::Theirs,
+            false => Caret::Nobodys,
+        })
     }
 
     fn seen(&self, row: &ListBoxRow) -> Result<(), Never> {
@@ -2359,11 +2427,11 @@ impl Panel {
         let Ok(given) = self.given();
 
         match self.state.borrow().opened {
-            Opened::Out => Ok(given.0),
+            Opened::Out => Ok(given.wide),
             Opened::No => {
                 let Ok(monitor) = self.monitor();
 
-                fitting::across(given.0, monitor.0)
+                fitting::across(fitting::Room { granted: given.wide, monitor: monitor.wide })
             }
         }
     }
@@ -2375,6 +2443,13 @@ impl Panel {
             Opened::Out => across,
             Opened::No => across.saturating_sub(2i32.saturating_mul(MARGIN)),
         })
+    }
+
+    fn room_for_a_picture(&self) -> Result<Size<i32>, Never> {
+        let Ok(wide) = self.picture_room();
+        let Ok(tall) = self.down();
+
+        Ok(Size { wide, tall })
     }
 
     fn down(&self) -> Result<i32, Never> {
@@ -2396,19 +2471,19 @@ impl Panel {
         let Ok(given) = self.given();
 
         match self.state.borrow().opened {
-            Opened::Out => Ok(given.1),
+            Opened::Out => Ok(given.tall),
             Opened::No => {
                 let Ok(monitor) = self.monitor();
 
-                fitting::ceiling(given.1, monitor.1)
+                fitting::ceiling(fitting::Room { granted: given.tall, monitor: monitor.tall })
             }
         }
     }
 
-    fn given(&self) -> Result<(i32, i32), Never> {
-        let granted = (self.window.width(), self.window.height());
+    fn given(&self) -> Result<Size<i32>, Never> {
+        let granted = Size { wide: self.window.width(), tall: self.window.height() };
 
-        match granted.0 > 1 && granted.1 > 1 {
+        match granted.wide > 1 && granted.tall > 1 {
             true => return Ok(granted),
             false => {},
         }
@@ -2417,33 +2492,39 @@ impl Panel {
         let Ok(remembered) = crate::room::last(&whose);
         let Ok(screen) = self.monitor();
 
-        Ok(match screen.0 > 1 && screen.1 > 1 {
-            true => (remembered.0.min(screen.0), remembered.1.min(screen.1)),
+        Ok(match screen.wide > 1 && screen.tall > 1 {
+            true => Size {
+                wide: remembered.wide.min(screen.wide),
+                tall: remembered.tall.min(screen.tall),
+            },
             false => remembered,
         })
     }
 
-    fn monitor(&self) -> Result<(i32, i32), Never> {
+    fn monitor(&self) -> Result<Size<i32>, Never> {
+        const NONE: Size<i32> = Size { wide: 0, tall: 0 };
+
         let display = match gtk4::gdk::Display::default() {
             Some(display) => display,
-            None => return Ok((0, 0)),
+            None => return Ok(NONE),
         };
 
         let monitors = display.monitors();
 
         let first = match monitors.item(0).and_downcast::<gtk4::gdk::Monitor>() {
             Some(first) => first,
-            None => return Ok((0, 0)),
+            None => return Ok(NONE),
         };
 
         let screen = first.geometry();
 
-        Ok((screen.width(), screen.height()))
+        Ok(Size { wide: screen.width(), tall: screen.height() })
     }
 
     pub fn fit(self: &Rc<Self>) -> Result<(), Never> {
         let Ok(whose) = namespace();
-        let Ok(()) = crate::room::keep(&whose, (self.window.width(), self.window.height()));
+        let Ok(()) =
+            crate::room::keep(&whose, Size { wide: self.window.width(), tall: self.window.height() });
         let Ok(wide) = self.across();
 
         let was = self.state.borrow().wide;
@@ -2474,16 +2555,16 @@ impl Panel {
             .saturating_add(self.scroller.margin_top())
             .saturating_add(self.scroller.margin_bottom());
         let Ok(ceiling) = self.tall();
-        let Ok(tall_enough) = fitting::tall_enough(frame, tall, ceiling);
+        let Ok(tall_enough) = fitting::tall_enough(fitting::Tall { frame, row: tall, ceiling });
 
-        let asking = (wide, tall_enough);
+        let asking = Size { wide, tall: tall_enough };
 
         let asked_before = self.state.borrow().asked;
 
         match asked_before != Some(asking) {
             true => {
                 self.state.borrow_mut().asked = Some(asking);
-                self.card.set_size_request(wide, tall_enough);
+                self.card.set_size_request(asking.wide, asking.tall);
 
                 let panel = Rc::clone(self);
                 glib::idle_add_local_once(move || {
@@ -2959,26 +3040,26 @@ fn ends_of(row: &Row) -> Result<(&str, &str), Never> {
     })
 }
 
-fn showing(at: Option<&Path>, room: i32, down: i32) -> Result<gtk4::ScrolledWindow, Never> {
+fn showing(at: Option<&Path>, room: Size<i32>) -> Result<gtk4::ScrolledWindow, Never> {
     let held = gtk4::Picture::new();
     held.set_widget_name(named::SHOWING);
     held.set_can_shrink(true);
     held.set_hexpand(true);
     held.set_vexpand(true);
 
-    let (across, down) = match at {
+    let drawn = match at {
         Some(at) => {
-            let Ok((across, down, want)) = box_for(at, room, down);
+            let Ok((drawn, want)) = box_for(at, room);
             let Ok(()) = fetch(&held, at.to_path_buf(), want);
 
-            (across, down)
+            drawn
         }
-        None => (down, down),
+        None => Size { wide: room.tall, tall: room.tall },
     };
 
     let frame = gtk4::ScrolledWindow::new();
     frame.set_policy(gtk4::PolicyType::External, gtk4::PolicyType::External);
-    frame.set_size_request(across, down);
+    frame.set_size_request(drawn.wide, drawn.tall);
     frame.set_hexpand(false);
     frame.set_halign(gtk4::Align::Center);
     frame.set_valign(gtk4::Align::Center);
@@ -3011,15 +3092,13 @@ fn drawn(rows: &[Row]) -> Result<Drawn, Never> {
     })
 }
 
-fn under(rows: &[Row]) -> Result<i32, Never> {
+fn under(rows: &[Row]) -> Result<usize, Never> {
     let shown = rows
         .iter()
         .any(|row| matches!(row.picture, Picture::Showing(_) | Picture::Playing(_)));
 
-    let Ok(last) = fitted(rows.len().saturating_sub(1));
-
     Ok(match shown {
-        true => last,
+        true => rows.len().saturating_sub(1),
         false => 0,
     })
 }
@@ -3058,10 +3137,10 @@ pub fn films(
     Ok(())
 }
 
-fn playing(at: Option<&Path>, room: i32, down: i32) -> Result<gtk4::ScrolledWindow, Never> {
+fn playing(at: Option<&Path>, room: Size<i32>) -> Result<gtk4::ScrolledWindow, Never> {
     let drawn = at.and_then(|at| FILMS.with_borrow(|films| films.clone()).and_then(|films| films(at)));
 
-    let Ok((across, down)) = film_size(drawn.as_ref(), room, down);
+    let Ok(shown) = film_size(drawn.as_ref(), room);
 
     let held = gtk4::Picture::new();
     held.set_widget_name(named::PLAYING);
@@ -3072,7 +3151,7 @@ fn playing(at: Option<&Path>, room: i32, down: i32) -> Result<gtk4::ScrolledWind
 
     let frame = gtk4::ScrolledWindow::new();
     frame.set_policy(gtk4::PolicyType::External, gtk4::PolicyType::External);
-    frame.set_size_request(across, down);
+    frame.set_size_request(shown.wide, shown.tall);
     frame.set_hexpand(false);
     frame.set_halign(gtk4::Align::Center);
     frame.set_valign(gtk4::Align::Center);
@@ -3083,35 +3162,42 @@ fn playing(at: Option<&Path>, room: i32, down: i32) -> Result<gtk4::ScrolledWind
 
 fn film_size(
     drawn: Option<&gtk4::gdk::Paintable>,
-    room: i32,
-    down: i32,
-) -> Result<(i32, i32), Never> {
-    let (wide, tall) = match drawn {
-        Some(held) => (held.intrinsic_width(), held.intrinsic_height()),
-        None => (0, 0),
+    room: Size<i32>,
+) -> Result<Size<i32>, Never> {
+    let held = match drawn {
+        Some(held) => Size { wide: held.intrinsic_width(), tall: held.intrinsic_height() },
+        None => Size { wide: 0, tall: 0 },
     };
 
-    Ok(match wide > 0 && tall > 0 {
-        true => (
-            room.min(down.saturating_mul(wide).saturating_div(tall)),
-            down.min(room.saturating_mul(tall).saturating_div(wide)),
-        ),
-        false => (room, down),
+    Ok(match held.wide > 0 && held.tall > 0 {
+        true => Size {
+            wide: room.wide.min(room.tall.saturating_mul(held.wide).saturating_div(held.tall)),
+            tall: room.tall.min(room.wide.saturating_mul(held.tall).saturating_div(held.wide)),
+        },
+        false => room,
     })
 }
 
-fn box_for(path: &Path, room: i32, tall_room: i32) -> Result<(i32, i32, i32), Never> {
-    let (wide, tall) = match gtk4::gdk_pixbuf::Pixbuf::file_info(path) {
-        Some((_, wide, tall)) => (wide.max(1), tall.max(1)),
-        None => (room, tall_room),
+fn box_for(path: &Path, room: Size<i32>) -> Result<(Size<i32>, i32), Never> {
+    let held = match gtk4::gdk_pixbuf::Pixbuf::file_info(path) {
+        Some((_, wide, tall)) => Size { wide: wide.max(1), tall: tall.max(1) },
+        None => room,
     };
 
-    let across = wide.min(room).min(tall_room.saturating_mul(wide).saturating_div(tall));
-    let down = tall.min(tall_room).min(room.saturating_mul(tall).saturating_div(wide));
+    let drawn = Size {
+        wide: held
+            .wide
+            .min(room.wide)
+            .min(room.tall.saturating_mul(held.wide).saturating_div(held.tall)),
+        tall: held
+            .tall
+            .min(room.tall)
+            .min(room.wide.saturating_mul(held.tall).saturating_div(held.wide)),
+    };
 
-    let longer = across.max(down);
+    let longer = drawn.wide.max(drawn.tall);
 
-    Ok((across, down, longer.saturating_mul(SHARP).min(wide.max(tall))))
+    Ok((drawn, longer.saturating_mul(SHARP).min(held.wide.max(held.tall))))
 }
 
 type Asked = (PathBuf, i32);
@@ -3295,7 +3381,10 @@ fn middle(path: &Path) -> Result<gtk4::gdk::Texture, gtk4::glib::Error> {
     );
     let want = SLEEVE.saturating_mul(2);
     let drawn = match side > want {
-        true => square.scale_simple(want, want, gtk4::gdk_pixbuf::InterpType::Bilinear).unwrap_or(square),
+        true => match square.scale_simple(want, want, gtk4::gdk_pixbuf::InterpType::Bilinear) {
+            Some(drawn) => drawn,
+            None => square,
+        },
         false => square,
     };
 
@@ -3366,6 +3455,12 @@ enum Typing {
     No,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Caret {
+    Theirs,
+    Nobodys,
+}
+
 fn standing(rows: &[Row], at: usize) -> Result<i32, Never> {
     let fresh = rows.get(at).is_none_or(|row| {
         let Ok(heading) = row.heading();
@@ -3397,13 +3492,13 @@ fn standing(rows: &[Row], at: usize) -> Result<i32, Never> {
     Ok(whole_9)
 }
 
-fn walked(rows: &[Row], at: i32, step: i32) -> Result<i32, Never> {
+fn walked(rows: &[Row], at: i32, step: Step) -> Result<i32, Never> {
     let Ok(whole_10) = fitted::<usize, i32>(rows.len().saturating_sub(1));
     let last = whole_10;
     let mut going = at;
 
     loop {
-        going = going.saturating_add(step);
+        going = going.saturating_add(step.0);
 
         match going < 0 || going > last {
             true => return Ok(at),
@@ -3587,7 +3682,7 @@ pub fn raised(
 
                         match state.pages.get(state.here) {
                             Some(page) => {
-                                let Ok(()) = opening::named("tab", &page.title);
+                                let Ok(()) = opening::named(Note { name: "tab", said: &page.title });
                             }
                             None => {},
                         }
@@ -3618,9 +3713,9 @@ mod tests {
     use console_core_external_programs::Program;
 
     use super::{
-        Beside, Drawn, Holds, Nudged, Wears, along, drawn, nudged, standing, walked, wears,
+        Beside, Drawn, Holds, Nudged, Step, Wears, along, drawn, nudged, standing, walked, wears,
     };
-    use crate::page::{Does, Heading, Picture, Row};
+    use crate::page::{Aside, Does, Ends, Heading, Picture, Row};
 
     #[test]
     fn a_row_that_offers_something_behind_y_wears_the_mark_for_it() {
@@ -3637,7 +3732,7 @@ mod tests {
     #[test]
     fn a_row_that_asked_for_no_marks_wears_none_even_when_it_offers() {
         let Ok(offering) = heading("Beach").offering(|_| false);
-        let Ok(bare) = offering.ended("", "");
+        let Ok(bare) = offering.ended(Ends { less: "", more: "" });
 
         assert_eq!(wears(&bare), Ok(Wears::Nothing));
     }
@@ -3668,7 +3763,7 @@ mod tests {
     }
 
     fn heading(says: &str) -> Row {
-        let Ok(row) = Row::said(says, "");
+        let Ok(row) = Row::said(says, Aside(""));
 
         row
     }
@@ -3676,7 +3771,7 @@ mod tests {
     fn chooseable(says: &str) -> Row {
         let Ok(yes) = Program::True.name();
         let Ok(runs) = Does::run(&[yes]);
-        let Ok(row) = Row::new(says, "", runs);
+        let Ok(row) = Row::new(says, Aside(""), runs);
 
         row
     }
@@ -3700,7 +3795,7 @@ mod tests {
     }
 
     fn naming(says: &str, aside: &str) -> Row {
-        let Ok(row) = Row::naming(says, aside);
+        let Ok(row) = Row::naming(says, Aside(aside));
 
         row
     }
@@ -3786,23 +3881,23 @@ mod tests {
     fn the_dpad_steps_over_the_name_of_what_a_list_is_about() {
         let rows = [chooseable("\u{2039} Pictures"), naming("holiday.jpg", "2.4 MB"),
                     chooseable("Open"), chooseable("Delete")];
-        assert_eq!(walked(&rows, 0, 1), Ok(2));
-        assert_eq!(walked(&rows, 2, -1), Ok(0));
+        assert_eq!(walked(&rows, 0, Step(1)), Ok(2));
+        assert_eq!(walked(&rows, 2, Step(-1)), Ok(0));
     }
 
     #[test]
     fn a_step_past_the_end_of_a_list_stays_where_it_was() {
         let rows = [chooseable("Open"), chooseable("Delete"), heading("Nothing else")];
-        assert_eq!(walked(&rows, 1, 1), Ok(1));
-        assert_eq!(walked(&rows, 0, -1), Ok(0));
+        assert_eq!(walked(&rows, 1, Step(1)), Ok(1));
+        assert_eq!(walked(&rows, 0, Step(-1)), Ok(0));
     }
 
     #[test]
     fn the_dpad_steps_over_the_panel_saying_a_list_is_empty() {
         let rows = [chooseable("\u{2039} Music"), nothing("Nothing in /home/music"),
                     chooseable("Open the folder")];
-        assert_eq!(walked(&rows, 0, 1), Ok(2));
-        assert_eq!(walked(&rows, 2, -1), Ok(0));
+        assert_eq!(walked(&rows, 0, Step(1)), Ok(2));
+        assert_eq!(walked(&rows, 2, Step(-1)), Ok(0));
     }
 
     #[test]

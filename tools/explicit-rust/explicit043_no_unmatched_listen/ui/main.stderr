@@ -1,0 +1,11 @@
+error: `Doing::Listen` is said in this crate and `Doing::Deafen` is not: the topic is listened to for as long as the program runs
+  --> $DIR/main.rs:25:5
+   |
+LL |     Doing::Listen(Wants("sound"))
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: say where it stops. Every event on a topic nobody is reading any more is still a wake, a decode and a walk past, and the cost of it is nowhere near the line that caused it. If the answer really is for the life of the program -- a program that is about the topic and ends when it stops caring -- allow this rule at the listen and let the reason say so
+   = note: `#[deny(explicit043_no_unmatched_listen)]` on by default
+
+error: aborting due to 1 previous error
+

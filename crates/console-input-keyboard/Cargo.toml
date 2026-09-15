@@ -26,7 +26,7 @@ path = "src/lib.rs"
 # see through: the unit named the starter, so a rebuilt keyboard did not restart
 # the unit and the device went on running the one before it.
 [[bin]]
-name = "virtual-keyboard"
+name = "console-keyboard"
 path = "src/bin/keyboard.rs"
 required-features = ["port"]
 
@@ -81,12 +81,15 @@ console-core-colour.workspace = true
 # What a program is, and the loop that carries out what one decided. The two
 # asking programs above are the whole of what this is for here; the keyboard
 # itself has its own loop, because a Wayland client is one.
+console-core-words.workspace = true
 console-program-contract.workspace = true
 console-program-runtime.workspace = true
 # `pkill`, named rather than spelled.
 console-core-external-programs.workspace = true
 # The error of a program that cannot have one of its own.
+console-core-geometry.workspace = true
 console-core-never.workspace = true
+console-core-walking.workspace = true
 
 # Everything below is the port's, and is compiled only with `port`. This
 # workspace is Linux-only, so none of it is written behind a target cfg as

@@ -232,6 +232,9 @@ enum Quiet {
     No,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Under<'a>(&'a str);
+
 struct Card {
     doing: Doing,
     since: Instant,
@@ -289,10 +292,10 @@ impl Card {
         match known {
             Known::Yes => {
                 let Ok((saying, under)) = self.moving(&binding);
-                let Ok(()) = self.said(&saying, &under);
+                let Ok(()) = self.said(&saying, Under(&under));
             }
             Known::No => {
-                let Ok(()) = self.said(NO_WORD, "");
+                let Ok(()) = self.said(NO_WORD, Under(""));
             }
         }
 
@@ -315,7 +318,7 @@ impl Card {
 
         match table::write(&jobs) {
             Ok(()) => {}
-            Err(fault) => return Ok((fault, String::new())),
+            Err(fault) => return Ok((fault.to_string(), String::new())),
         }
 
         let under = match moved {
@@ -338,6 +341,13 @@ impl Card {
     }
 
     fn over(&self, onto: &Binding) -> Result<String, Never> {
+        #[cfg_attr(
+            dylint_lib = "explicit028_no_search_in_a_loop",
+            allow(
+                explicit028_no_search_in_a_loop,
+                reason = "the parts of one controller against the words held down on one binding, which is what fits on a card somebody is looking at"
+            )
+        )]
         let still: Vec<String> = self
             .parts
             .iter()
@@ -368,7 +378,9 @@ impl Card {
             .map_or_else(|| slug.to_string(), |part| part.does.clone()))
     }
 
-    fn said(&mut self, saying: &str, under: &str) -> Result<(), Never> {
+    fn said(&mut self, saying: &str, under: Under<'_>) -> Result<(), Never> {
+        let under = under.0;
+
         self.saying.set_text(saying);
         self.hint.set_text(under);
 

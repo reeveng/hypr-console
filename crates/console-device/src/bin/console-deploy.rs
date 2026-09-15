@@ -44,9 +44,10 @@ impl Carrying for Locking {
             Its::Mine(at) => {
                 let Ok(here) = here();
                 let Ok(today) = today();
-                let Ok(()) = wrote(at, "pid", &std::process::id().to_string());
-                let Ok(()) = wrote(at, "on", &here);
-                let Ok(()) = wrote(at, "since", &today);
+                let pid = std::process::id().to_string();
+                let Ok(()) = wrote(at, Line { called: "pid", said: &pid });
+                let Ok(()) = wrote(at, Line { called: "on", said: &here });
+                let Ok(()) = wrote(at, Line { called: "since", said: &today });
 
                 Vec::new()
             }
@@ -77,8 +78,16 @@ impl Drop for Locking {
     }
 }
 
-fn wrote(at: &Path, called: &str, what: &str) -> Result<(), Never> {
-    let _ = std::fs::write(at.join(called), format!("{what}\n"));
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Line<'a> {
+    called: &'a str,
+    said: &'a str,
+}
+
+fn wrote(at: &Path, line: Line<'_>) -> Result<(), Never> {
+    let Line { called, said } = line;
+
+    let _ = console_core_atomic_writes::whole(&at.join(called), format!("{said}\n").as_bytes());
 
     Ok(())
 }
@@ -133,6 +142,13 @@ fn today() -> Result<String, Never> {
     })
 }
 
+#[cfg_attr(
+    dylint_lib = "explicit044_no_ambient_value",
+    allow(
+        explicit044_no_ambient_value,
+        reason = "the first thing this does, before a relative path has meant anything: what follows is git and cargo, which are run inside a tree rather than handed one, and `console_repository` is what says which tree that is"
+    )
+)]
 fn main() -> ExitCode {
     let host = match device() {
         Ok(host) => host,

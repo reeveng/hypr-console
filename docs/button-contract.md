@@ -204,8 +204,8 @@ until a game gives up is somebody staying in Game Mode rather than leaving it.
 
 Nothing translates it, so there is no mapping to read this off. `game.yaml`
 publishes the same three devices as every other profile and maps nothing at
-all, and `game-return` reads the pad the way the desktop's own daemon does. It
-is a program of its own because the desktop's daemon is not there: Game Mode
+all, and `controller-game` reads the pad the way the desktop's own daemon does.
+It is a program of its own because the desktop's daemon is not there: Game Mode
 stops `console.target` behind it. `console-return.service` is started by the
 Game Mode session itself, through the drop-in at
 `/etc/systemd/user/gamescope-session.service.d/console.conf`, rather than
@@ -431,6 +431,15 @@ the guide could not read the keys out, and the setup screen could not move one.
 So a job's `bound` is a list of bindings and every binding says which input it
 is on. Super and I and the settings button are two lines of one job.
 
+A list rather than a key is also what lets one job answer two hands on the same
+keyboard. Moving between windows is on the arrows and on HJKL, which is four
+jobs reached two ways and not eight jobs: somebody who moves around a file that
+way moves around a screen that way and the row is already under their fingers,
+and the arrows stay for the hand that never learned vim. Shift with H and L
+carries the window, the way Shift with the arrows already did. Four letters go
+out of circulation for it, which is why the keyboard is on Super and T --
+what a keyboard is for -- rather than on Super and K, where it had been.
+
 ### Which program carries it out
 
 Worked out from the input, and never written down. The daemon matches what
@@ -494,10 +503,25 @@ one would be as surprised by the other staying behind as by it coming along,
 and only one of those two can be undone by pressing the key again. Each is
 stepped from wherever it was, so two boards a step apart stay a step apart.
 
-`switch-language` is the program, the daemon runs it with `--settle` when the
-session comes up, and `switch-language` is a row in the table like anything
-else -- on Super, Shift and Space, and on no button, because the keyboard drawn
-on the screen has a language key of its own and a thumb reaches that instead.
+`language-switch` is the program, the daemon runs it with `--settle` when the
+session comes up, and it is two rows in the table like anything else -- Super,
+Shift and Space steps on, Super, Ctrl and Space steps back, and no button,
+because the keyboard drawn on the screen has a language key of its own and a
+thumb reaches that instead.
+
+Both ways round, and that is the half a keyboard on a desk was missing. The one
+on the screen has had two shoulders for it since it had a walk at all, L1 back
+and R1 on, and somebody who types three alphabets and overshoots on a desk had
+to go round the whole walk to come back one.
+
+Space, because that is the key every other desktop wears this on and the hands
+that arrive here arrive from one of them. What does not fit is the pair: Super
+and Space is the menu, which is the most-pressed key on this machine, so the
+walk gets the two chords left over rather than the one everybody knows and its
+shifted twin. Ctrl is the way back here and Shift is the way back everywhere
+else in the table, which is a wrinkle and is written down rather than argued
+away -- the alternative was a letter nothing in either hand associates with an
+alphabet, and a key nobody guesses is worse than a key that is a step off.
 
 ### The way back
 

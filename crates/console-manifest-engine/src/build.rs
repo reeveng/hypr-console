@@ -8,29 +8,25 @@
 use std::path::{Path, PathBuf};
 
 use console_core_never::Never;
+use console_core_words::Words;
 
 use crate::settled::Settled;
 
 pub const BIN: &str = "/usr/local/bin";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
 pub enum State {
+    #[words(name = "ok")]
     Ok,
+    #[words(name = "differs")]
     Differs,
+    #[words(name = "missing")]
     Missing,
+    #[words(name = "not built")]
     Unbuilt,
 }
 
 impl State {
-    pub fn name(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            State::Ok => "ok",
-            State::Differs => "differs",
-            State::Missing => "missing",
-            State::Unbuilt => "not built",
-        })
-    }
-
     pub fn settled(self) -> Result<Settled, Never> {
         Ok(match self == State::Ok {
             true => Settled::Yes,

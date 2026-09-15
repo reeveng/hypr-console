@@ -23,6 +23,7 @@
 use console_core_never::Never;
 
 use console_how_far as how_far;
+use console_how_far::Far;
 
 pub const FETCHING: f64 = 0.5;
 
@@ -88,14 +89,14 @@ fn counted(said: &str) -> Result<Said, Never> {
     })
 }
 
-pub fn fetched(done: usize, many: usize) -> Result<f64, Never> {
-    let Ok(part) = how_far::fraction(done, many);
+pub fn fetched(far: Far) -> Result<f64, Never> {
+    let Ok(part) = how_far::fraction(far);
 
     Ok(part * FETCHING)
 }
 
-pub fn done(done: usize, many: usize) -> Result<f64, Never> {
-    let Ok(part) = how_far::fraction(done, many);
+pub fn done(far: Far) -> Result<f64, Never> {
+    let Ok(part) = how_far::fraction(far);
 
     Ok(FETCHING + part * (1.0 - FETCHING))
 }
@@ -168,15 +169,15 @@ mod tests {
 
     #[test]
     fn fetching_has_the_first_half_and_writing_the_second() {
-        assert_eq!(fetched(0, 4), Ok(0.0));
-        assert_eq!(fetched(4, 4), Ok(FETCHING));
-        assert_eq!(done(0, 4), Ok(FETCHING));
-        assert_eq!(done(4, 4), Ok(1.0));
+        assert_eq!(fetched(Far { done: 0, many: 4 }), Ok(0.0));
+        assert_eq!(fetched(Far { done: 4, many: 4 }), Ok(FETCHING));
+        assert_eq!(done(Far { done: 0, many: 4 }), Ok(FETCHING));
+        assert_eq!(done(Far { done: 4, many: 4 }), Ok(1.0));
     }
 
     #[test]
     fn a_stretch_with_no_packages_in_it_divides_by_nothing_and_says_nothing() {
-        assert_eq!(fetched(0, 0), Ok(0.0));
-        assert_eq!(done(0, 0), Ok(FETCHING));
+        assert_eq!(fetched(Far { done: 0, many: 0 }), Ok(0.0));
+        assert_eq!(done(Far { done: 0, many: 0 }), Ok(FETCHING));
     }
 }

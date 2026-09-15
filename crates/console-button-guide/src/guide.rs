@@ -25,6 +25,8 @@
 //! open this at all, and a guide that had hidden the answer would be a guide
 //! that knew it and would not say.
 
+use std::collections::BTreeSet;
+
 use console_input_controller::doing::Doing;
 use console_input_controller::means::{Job, Press, Table, What, When};
 use console_files::doing::{self, Deed};
@@ -42,12 +44,6 @@ pub struct Line {
     pub button: String,
     pub does: String,
     pub runs: Option<Vec<String>>,
-}
-
-impl Line {
-    pub fn new(button: &str, does: &str) -> Result<Self, Never> {
-        Ok(Line { button: button.to_string(), does: does.to_string(), runs: None })
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -119,7 +115,7 @@ fn line(job: &Job, bound: &[Binding], on: Input, held: &[String]) -> Result<Opti
 
 fn chords(table: &Table, on: Input) -> Result<Vec<Vec<String>>, Never> {
     let Ok(every) = table.every();
-    let mut found: Vec<Vec<String>> = Vec::new();
+    let mut held: BTreeSet<Vec<String>> = BTreeSet::new();
 
     for (_, bound) in every {
         for one in bound.iter().filter(|one| one.on == on) {
@@ -130,12 +126,16 @@ fn chords(table: &Table, on: Input) -> Result<Vec<Vec<String>>, Never> {
                 Played::ByAPress => {},
             }
 
-            match one.held.is_empty() || found.contains(&one.held) {
+            match one.held.is_empty() {
                 true => continue,
-                false => found.push(one.held.clone()),
+                false => {
+                    let _ = held.insert(one.held.clone());
+                },
             }
         }
     }
+
+    let mut found: Vec<Vec<String>> = held.into_iter().collect();
 
     found.sort_by_key(|held| (held.len(), held.join(" + ")));
 
@@ -255,8 +255,8 @@ pub fn sections(table: &Table) -> Result<Vec<Section>, Never> {
     let Ok(rest) = written(&[
         ("D-pad, first press", "show where you are standing"),
         ("D-pad off the side", "the pane before or after"),
-        ("Move it", "under Y; the d-pad carries it, A puts it down"),
-        ("Take it off", "under Y, on the square it is on"),
+        ("Move", "under Y; the d-pad carries it, A puts it down"),
+        ("Remove from the home screen", "under Y, on the square it is on"),
         ("An empty square", "the menu, to put one there"),
         ("Tap an app", "the same as A"),
         ("Hold a finger on one", "pick it up"),
@@ -346,10 +346,10 @@ pub fn sections(table: &Table) -> Result<Vec<Section>, Never> {
 fn written(said: &[(&str, &str)]) -> Result<Vec<Line>, Never> {
     Ok(said
         .iter()
-        .map(|(button, does)| {
-            let Ok(line) = Line::new(button, does);
-
-            line
+        .map(|(button, does)| Line {
+            button: button.to_string(),
+            does: does.to_string(),
+            runs: None,
         })
         .collect())
 }
@@ -452,8 +452,8 @@ mod tests {
 
     #[test]
     fn what_a_button_runs_comes_from_the_table_that_runs_it() {
-        assert_eq!(runs_for(What::PutAway), Ok(Some(vec!["put-away".to_string()])));
-        assert_eq!(runs_for(What::GameMode), Ok(Some(vec!["game-mode".to_string()])));
+        assert_eq!(runs_for(What::PutAway), Ok(Some(vec!["console-put-away".to_string()])));
+        assert_eq!(runs_for(What::GameMode), Ok(Some(vec!["session-game".to_string()])));
         assert_eq!(runs_for(What::Back), Ok(None));
     }
 

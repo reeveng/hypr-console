@@ -1,4 +1,4 @@
-//! Build the public copy of this, with nobody's name in it.
+//! The public copy of this desktop, built with nobody's name in it.
 //!
 //! What comes out is the same desktop with four things changed, and it is
 //! built rather than kept, so it can be built again when this one moves on.

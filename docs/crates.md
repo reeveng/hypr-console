@@ -6,6 +6,31 @@ after the name, and it is the one that goes wrong quietly — when two crates
 want the same knowledge, which of them keeps it, and what does the other one
 ask for.
 
+## Arithmetic nobody owned
+
+`console-core-*` is the family with no machine and no feature in it, and twice
+now a thing has landed there because the alternative was seven crates each
+deciding it privately.
+
+`console-core-walking` is a list you step round. Seven crates had written it,
+and all seven the same wrong way: `position(...).unwrap_or(0)` to find where you
+are, then `checked_rem(len).unwrap_or(0)` to take the step. The first says "not
+in the list" and "at the front of the list" with one number, so a name that has
+gone missing reads as the first alphabet, the first wallpaper, the first speed.
+The second is there only because the list might be empty, and a divisor of
+nothing is the one way `%` fails -- so it asks, is told `None`, and answers with
+a position in a list that has no positions.
+
+Both halves are the same mistake: an empty list is not a list with something at
+the front of it. `Ring::of` is where that is decided, once, and it hands back
+nothing for an empty list. What comes back holds a `NonZeroUsize`, which is what
+`%` wanted all along, so every step after it is a plain remainder that cannot
+fail. `where_it_is` is kept out of `Ring` deliberately: a caller that cannot
+find what it was standing on has a decision to make -- begin again at the front,
+stay where it was, say it is gone -- and those are three different answers. A
+crate in this family will not pick one of those for its callers; deciding that a
+ring of nothing is not a ring is exactly the kind of thing it will.
+
 ## A format is read in one place
 
 `.desktop` files, systemd units and `desktop.conf` are the same shape: a
@@ -32,6 +57,17 @@ owning crate spells the words, and a call site names no strings at all.**
 `DesktopEntry::read` writes `Type`, `Name`, `Exec` and the rest once, in the
 crate that knows why they are spelled that way, and hands back a value. The
 settings tab asks it what the file says instead of reading the file.
+
+What a comment is belongs to the same crate for the same reason, and came later:
+`without_a_comment` is the trailing half of a question `lines` already answered
+about a line that opens with one. Four crates had written
+`line.split('#').next()` themselves -- the manifest's own fold, the machines
+table, the staging copy, the gamepad's script reader -- and the fourth of them
+was what said to move it. It is not applied by `lines`, and that is about values
+rather than comments: a `.desktop` `Exec=` carries a `#` in a URL and a
+stylesheet carries one in front of every colour, so a reader that stripped from
+the first `#` on every line would quietly shorten both. The crates whose own
+files do put a comment after a value ask for it by name.
 
 ## A literal spelled twice means one of them is guessing
 

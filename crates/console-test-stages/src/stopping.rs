@@ -26,6 +26,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use console_core_never::Never;
 
+#[cfg_attr(
+    dylint_lib = "explicit044_no_ambient_value",
+    allow(
+        explicit044_no_ambient_value,
+        reason = "a signal handler is handed nothing and may allocate nothing, and what it has to say -- somebody asked this run to stop -- is read by every wait in the run"
+    )
+)]
 static ASKED: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

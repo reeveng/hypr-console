@@ -1,0 +1,19 @@
+error: this answer can be dropped in the middle of a block and read as a thing being done
+  --> $DIR/main.rs:9:28
+   |
+LL | fn named(of: &[String]) -> String {
+   |                            ^^^^^^
+   |
+   = help: a function that hands back a value and changes nothing is a question. Say `#[must_use]`, so that a caller who throws the answer away writes `let _ = ...` and EXPLICIT009 can see it
+   = note: `#[deny(explicit034_no_unclaimed_answer)]` on by default
+
+error: this answer can be dropped in the middle of a block and read as a thing being done
+  --> $DIR/main.rs:15:21
+   |
+LL | fn wide(of: u32) -> u32 {
+   |                     ^^^
+   |
+   = help: a function that hands back a value and changes nothing is a question. Say `#[must_use]`, so that a caller who throws the answer away writes `let _ = ...` and EXPLICIT009 can see it
+
+error: aborting due to 2 previous errors
+

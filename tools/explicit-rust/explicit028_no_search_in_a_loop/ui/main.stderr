@@ -1,0 +1,35 @@
+error: `contains` walks the whole list, and a loop stands over it: the work here grows with the square
+  --> $DIR/main.rs:13:15
+   |
+LL |         match held.contains(one) {
+   |               ^^^^^^^^^^^^^^^^^^
+   |
+   = help: make the list into a `BTreeSet` or a `HashSet` once, before the loop, and ask that inside it -- or, where the walk is really gathering what belongs together, fill a map with `entry` in one pass and drop the search altogether
+   = note: `#[deny(explicit028_no_search_in_a_loop)]` on by default
+
+error: `any` walks the whole list, and a loop stands over it: the work here grows with the square
+  --> $DIR/main.rs:28:15
+   |
+LL |         match held.iter().any(|other| other == one) {
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: make the list into a `BTreeSet` or a `HashSet` once, before the loop, and ask that inside it -- or, where the walk is really gathering what belongs together, fill a map with `entry` in one pass and drop the search altogether
+
+error: `any` walks the whole list, and a loop stands over it: the work here grows with the square
+  --> $DIR/main.rs:132:19
+   |
+LL |             match long.iter().any(|other| *other == one) {
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: make the list into a `BTreeSet` or a `HashSet` once, before the loop, and ask that inside it -- or, where the walk is really gathering what belongs together, fill a map with `entry` in one pass and drop the search altogether
+
+error: `contains` walks the whole list, and a loop stands over it: the work here grows with the square
+  --> $DIR/main.rs:148:23
+   |
+LL |         .filter(|one| held.contains(one))
+   |                       ^^^^^^^^^^^^^^^^^^
+   |
+   = help: make the list into a `BTreeSet` or a `HashSet` once, before the loop, and ask that inside it -- or, where the walk is really gathering what belongs together, fill a map with `entry` in one pass and drop the search altogether
+
+error: aborting due to 4 previous errors
+

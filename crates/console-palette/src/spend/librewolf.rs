@@ -23,7 +23,7 @@ pub fn stylesheet(palette: &Palette) -> Result<String, Short> {
     Ok(format!(
         "/* Written by console-palette from theme/palette.toml.\n\
          \x20  userChrome.css and userContent.css both import this and neither\n\
-         \x20  holds a colour of its own. */\n\n:root {{\n{body}\n}}\n"
+         \x20  holds a colour of its own. */\n\n:host, :root {{\n{body}\n}}\n"
     ))
 }
 
@@ -62,7 +62,7 @@ mod tests {
     #[test]
     fn the_properties_are_inside_the_root_block() {
         let css = stylesheet(&blossom()).expect("every colour it spends is declared");
-        let (before, inside) = css.split_once(":root {").expect("a root block");
+        let (before, inside) = css.split_once(":host, :root {").expect("a root block");
         assert!(!before.contains("--night"));
         assert!(inside.trim_end().ends_with('}'));
     }

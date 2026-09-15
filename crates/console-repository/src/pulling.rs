@@ -15,8 +15,6 @@ use console_program_contract::{
     Argv, Doing, Ending, Opening, Program, Runs, Turn, Went, Word,
 };
 
-pub const HOST: &str = "CONSOLE_HOST";
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Pulling {
     Opening(Named),
@@ -63,10 +61,11 @@ impl Program for Pull {
         let Ok(turn) = match (state, word) {
             (Pulling::Opening(Named::Nowhere), Word::Opened) => Turn::doing(
                 state.clone(),
-                vec![Doing::Stop(Ending::Badly(format!(
-                    "{HOST} is not set, so there is no device to talk to. Set it to the device, \
-                     as in {HOST}=root@handheld."
-                )))],
+                vec![Doing::Stop(Ending::Badly(
+                    "CONSOLE_HOST is not set, so there is no device to talk to. Set it to the \
+                     device, as in CONSOLE_HOST=root@handheld."
+                        .to_string(),
+                ))],
             ),
 
             (Pulling::Opening(Named::Device(host)), Word::Opened) => {

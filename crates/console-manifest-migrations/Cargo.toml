@@ -10,6 +10,7 @@ name = "console_manifest_migrations"
 path = "src/lib.rs"
 
 [dependencies]
+console-core-atomic-writes.workspace = true
 console-repository.workspace = true
 console-core-external-programs.workspace = true
 console-core-never.workspace = true

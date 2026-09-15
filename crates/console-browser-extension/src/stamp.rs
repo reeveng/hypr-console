@@ -147,7 +147,8 @@ mod tests {
 
     #[test]
     fn the_version_can_be_read_back_out_of_what_was_packed() {
-        let Ok(files) = crate::source::every("1.2.3", ":root { --pink: #ffb5e2; }");
+        let palette = crate::source::Palette(":root { --pink: #ffb5e2; }");
+        let Ok(files) = crate::source::every("1.2.3", palette);
         let Ok(held) = crate::pack::zip(&files);
         assert_eq!(packed(&held).as_deref(), Some("1.2.3"));
     }

@@ -10,8 +10,13 @@ name = "console_notifications"
 path = "src/lib.rs"
 
 [[bin]]
-name = "notices-panel"
-path = "src/bin/notices-panel.rs"
+name = "notifications-panel"
+path = "src/bin/notifications-panel.rs"
+
+# The daemon that owns org.freedesktop.Notifications and draws the card.
+[[bin]]
+name = "console-notify"
+path = "src/bin/console-notify.rs"
 
 [[bin]]
 name = "console-say"
@@ -25,17 +30,24 @@ path = "src/bin/console-fell.rs"
 name = "console-updating"
 path = "src/bin/console-updating.rs"
 
-# The bar's half of the same subject: the card says an apply is running, this
-# says how much longer.
-[[bin]]
-name = "bar-updating"
-path = "src/bin/bar-updating.rs"
-
 [dependencies]
+console-bus.workspace = true
+console-events.workspace = true
+console-core-number-conversion.workspace = true
+console-core-colour.workspace = true
+console-core-geometry.workspace = true
+console-core-shapes.workspace = true
+console-draw-painting.workspace = true
+console-draw-surface.workspace = true
+console-program-lifetime.workspace = true
+console-core-places = { workspace = true }
 console-core-external-programs.workspace = true
 console-core-never.workspace = true
+console-core-words.workspace = true
 console-waiting.workspace = true
 console-panel.workspace = true
+console-onscreen.workspace = true
+console-core-atomic-writes.workspace = true
 console-program-contract.workspace = true
 libc = "0.2"
 serde = { version = "1", features = ["derive"] }

@@ -14,6 +14,7 @@
 
 use console_core_never::Never;
 use console_core_number_conversion::{Float, toward_zero_usize};
+use std::collections::BTreeMap;
 use std::cmp::Reverse;
 use std::time::Duration;
 
@@ -51,7 +52,10 @@ pub fn at_share(sorted: &[Duration], share: f64) -> Result<Duration, Never> {
 
     let at = rank.min(sorted.len()).saturating_sub(1);
 
-    Ok(sorted.get(at).copied().unwrap_or(Duration::ZERO))
+    Ok(match sorted.get(at).copied() {
+        Some(took) => took,
+        None => Duration::ZERO,
+    })
 }
 
 pub fn spread(mut took: Vec<Duration>) -> Result<Spread, Never> {
@@ -67,31 +71,24 @@ pub fn spread(mut took: Vec<Duration>) -> Result<Spread, Never> {
         false => None,
     };
 
-    Ok(Spread {
-        many: took.len(),
-        middle,
-        high,
-        worst: took.last().copied().unwrap_or_default(),
-    })
+    let worst = match took.last().copied() {
+        Some(worst) => worst,
+        None => Duration::ZERO,
+    };
+
+    Ok(Spread { many: took.len(), middle, high, worst })
 }
 
 pub fn about(entries: &[Entry]) -> Result<Vec<About>, Never> {
-    let mut kinds: Vec<(String, String)> = Vec::new();
+    let mut kinds: BTreeMap<(String, String), Vec<&Entry>> = BTreeMap::new();
 
     for entry in entries {
-        let kind = (entry.who.clone(), entry.what.clone());
-
-        match kinds.contains(&kind) {
-            true => {}
-            false => kinds.push(kind),
-        }
+        kinds.entry((entry.who.clone(), entry.what.clone())).or_default().push(entry);
     }
 
     let mut gathered: Vec<About> = kinds
         .into_iter()
-        .map(|(who, what)| {
-            let mine: Vec<&Entry> =
-                entries.iter().filter(|entry| entry.who == who && entry.what == what).collect();
+        .map(|((who, what), mine)| {
             let worst = mine.iter().max_by_key(|entry| entry.waited);
 
             let Ok(waited) = spread(mine.iter().map(|entry| entry.waited).collect());
@@ -112,27 +109,17 @@ pub fn about(entries: &[Entry]) -> Result<Vec<About>, Never> {
 }
 
 fn stretches(entries: &[&Entry]) -> Result<Vec<(String, Spread)>, Never> {
-    let mut named: Vec<String> = Vec::new();
+    let mut named: BTreeMap<String, Vec<Duration>> = BTreeMap::new();
 
     for entry in entries {
-        for (name, _) in &entry.marks {
-            match named.contains(name) {
-                true => {}
-                false => named.push(name.clone()),
-            }
+        for (name, took) in &entry.marks {
+            named.entry(name.clone()).or_default().push(*took);
         }
     }
 
     let mut all: Vec<(String, Spread)> = named
         .into_iter()
-        .map(|name| {
-            let took: Vec<Duration> = entries
-                .iter()
-                .flat_map(|entry| entry.marks.iter())
-                .filter(|(mark, _)| *mark == name)
-                .map(|(_, took)| *took)
-                .collect();
-
+        .map(|(name, took)| {
             let Ok(held) = spread(took);
 
             (name, held)
@@ -249,13 +236,13 @@ mod tests {
         let entries = vec![
             opening("launcher", 400, &[]),
             opening("launcher", 420, &[]),
-            opening("notices-panel", 90, &[]),
-            opening("notices-panel", 3000, &[]),
+            opening("notifications-panel", 90, &[]),
+            opening("notifications-panel", 3000, &[]),
         ];
         let Ok(gathered) = about(&entries);
 
         assert_eq!(gathered[0].who, "launcher");
-        assert_eq!(gathered[1].who, "notices-panel");
+        assert_eq!(gathered[1].who, "notifications-panel");
     }
 
     #[test]

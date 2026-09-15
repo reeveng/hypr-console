@@ -100,7 +100,8 @@ mod tests {
     #[test]
     fn a_section_with_something_in_it_is() {
         let Ok(mut every) = sections(&ours());
-        let Ok(line) = Line::new("Super Q", "close");
+        let line =
+            Line { button: "Super Q".to_string(), does: "close".to_string(), runs: None };
 
         every.last_mut().expect("a section").lines.push(line);
 

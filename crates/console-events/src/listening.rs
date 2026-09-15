@@ -162,6 +162,13 @@ fn started(at: Option<PathBuf>, topics: &[Topic]) -> Result<Listening, Never> {
         Listening { wanted: Arc::new(Mutex::new(Wanted::default())), said, heard, at };
 
     for topic in topics {
+        #[cfg_attr(
+            dylint_lib = "explicit043_no_unmatched_listen",
+            allow(
+                explicit043_no_unmatched_listen,
+                reason = "the topics the connection is opened with, which it is deafened of by being dropped -- the pair this rule is about is a topic added part way through a life that goes on"
+            )
+        )]
         let Ok(()) = listening.also(topic);
     }
 

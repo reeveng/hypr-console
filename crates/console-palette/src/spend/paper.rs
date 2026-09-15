@@ -6,12 +6,12 @@
 //! as the other three.
 //!
 //! What it writes is one colour and not a picture. The daemon comes up before
-//! `console-sky` has chosen anything, and what fills that moment used to be the
-//! cherry blossom garden. It is the deepest ground now: the wallpapers are
+//! `console-wallpaper` has chosen anything, and what fills that moment used to be
+//! the cherry blossom garden. It is the deepest ground now: the wallpapers are
 //! plum and so is this, so the moment reads as the screen still filling rather
-//! than as one picture being replaced by another. It is also what stays up on
-//! a machine where `console-sky` will not start at all, which is the whole
-//! reason the ground is set here rather than by `console-sky` itself.
+//! than as one picture being replaced by another. It is also what stays up on a
+//! machine where `console-wallpaper` will not start at all, which is the whole
+//! reason the ground is set here rather than by `console-wallpaper` itself.
 
 use console_core_colour::Short;
 use crate::palette::Palette;
@@ -34,7 +34,7 @@ pub fn spend(palette: &Palette) -> Result<String, Short> {
          # and exits, and an ExecStartPost that exits fails the unit. On the\n\
          # device that took the whole background down and dependency-failed\n\
          # the unit that says which wallpaper is up -- over a colour that\n\
-         # console-sky covers a second later. Seen during an apply, where the\n\
+         # console-wallpaper covers a second later. Seen during an apply, where the\n\
          # desktop is stopped and started faster than a daemon can find a\n\
          # screen.\n\
          ExecStartPost=-/usr/bin/awww clear {ground}"

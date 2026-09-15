@@ -70,7 +70,7 @@ pub struct Decoder {
     pub because: &'static str,
 }
 
-pub const DECODERS: [Decoder; 13] = [
+pub const DECODERS: [Decoder; 14] = [
     Decoder {
         mime: "image/png",
         package: "glycin",
@@ -115,6 +115,11 @@ pub const DECODERS: [Decoder; 13] = [
         mime: "video/matroska",
         package: "gst-plugins-good",
         because: "the matroska demuxer",
+    },
+    Decoder {
+        mime: "video/x-matroska",
+        package: "gst-plugins-good",
+        because: "the matroska demuxer, under the name half the machine still spells it",
     },
     Decoder { mime: "video/webm", package: "gst-plugins-good", because: "the matroska demuxer" },
     Decoder {

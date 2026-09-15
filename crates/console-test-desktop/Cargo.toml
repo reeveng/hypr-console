@@ -16,9 +16,11 @@ name = "console-desktop"
 path = "src/main.rs"
 
 [dependencies]
+console-core-atomic-writes.workspace = true
 console-compositor.workspace = true
 console-core-external-programs.workspace = true
 console-core-ini-files.workspace = true
+console-core-geometry.workspace = true
 console-core-never.workspace = true
 console-core-places.workspace = true
 console-waiting.workspace = true

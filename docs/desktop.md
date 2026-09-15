@@ -65,6 +65,22 @@ and no colour on it that this repository spends. On the device the two answers
 are the same path, so a program that asks is right in both places and a program
 that knows is right in one.
 
+A path in Rust that cannot be worked out from where the program is has to be
+asked for instead. `/run/console/updating` is the one of those: the engine is
+root and the bar is hers, so the file the strip reads cannot live in either's
+home, and on a laptop it is under a directory nobody is allowed to make.
+`CONSOLE_UPDATING_PATH` is what the staged session is told, the same way it is
+told a home and four XDG directories, and the check that looks at the strip
+fills a file of its own rather than this machine's `/run`.
+
+A place on the screen is a logical pixel of the screen the picture came off,
+which is not the one `hyprland.lua` declares. The nested screen is the device's
+mode at whatever scale leaves room on the machine running it, so a row worked
+out from the device's own 2.5 is a row somewhere else entirely -- and reading
+the wrong row looks exactly like a surface that does not paint. The picture
+comes with what the compositor said about its screen at the moment it was
+taken, and `Desktop::colour` divides by that.
+
 A picture is taken as soon as something reaches the screen, which is before a
 panel that is still reading the machine has drawn its rows. A tab that
 photographs empty is as likely to be one caught early as one that is broken.

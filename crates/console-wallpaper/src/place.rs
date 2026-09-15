@@ -14,27 +14,22 @@ use std::path::{Path, PathBuf};
 
 use console_core_never::Never;
 use console_core_places::Base;
+use console_repository::Unfound;
 
 pub const CAME_WITH: &str = "/usr/share/backgrounds/console";
 
 pub const TREE: &str = "/etc/console";
 
 pub fn tree() -> Result<PathBuf, Never> {
-    let here = match std::env::current_dir() {
-        Ok(here) => Some(here),
-        Err(fault) => {
-            eprintln!("console-sky: where this is running: {fault}");
-            None
-        }
-    };
+    Ok(match console_repository::root() {
+        Ok(root) => root,
+        Err(Unfound::Outside(_this_is_not_a_checkout)) => PathBuf::from(TREE),
+        Err(fault @ Unfound::Nowhere(_)) => {
+            eprintln!("console-wallpaper: {fault}");
 
-    Ok(here
-        .and_then(|here| {
-            here.ancestors()
-                .find(|at| at.join("theme/palette.toml").is_file())
-                .map(Path::to_path_buf)
-        })
-        .unwrap_or_else(|| PathBuf::from(TREE)))
+            PathBuf::from(TREE)
+        }
+    })
 }
 
 pub fn table() -> Result<PathBuf, Never> {
@@ -109,11 +104,10 @@ fn freshen_in(kept: &Path, picture: &Path) -> Result<(), Never> {
         let every = listed(&version)?;
 
         for frames in every {
-            let named = frames
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_string();
+            let named = match frames.file_name() {
+                Some(named) => named.to_string_lossy().to_string(),
+                None => continue,
+            };
             let stale = written(&frames).is_ok_and(|kept| kept < pressed);
 
             match named.starts_with(&name) && stale {
@@ -168,7 +162,7 @@ pub fn every() -> Result<Vec<String>, Never> {
             Ok(found) => found,
             Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => continue,
             Err(fault) => {
-                eprintln!("console-sky: {}: {fault}", at.display());
+                eprintln!("console-wallpaper: {}: {fault}", at.display());
 
                 continue;
             }
@@ -178,7 +172,7 @@ pub fn every() -> Result<Vec<String>, Never> {
             let path = match entry {
                 Ok(entry) => entry.path(),
                 Err(fault) => {
-                    eprintln!("console-sky: {}: reading what is in it: {fault}", at.display());
+                    eprintln!("console-wallpaper: {}: reading what is in it: {fault}", at.display());
 
                     continue;
                 }
@@ -213,15 +207,21 @@ pub fn every() -> Result<Vec<String>, Never> {
 }
 
 pub fn showing(query: &str) -> Result<String, Never> {
-    Ok(query
+    let named = query
         .rsplit_once("image: ")
         .map(|(_, path)| path.trim())
         .and_then(|path| Path::new(path).file_name())
         .and_then(|name| name.to_str())
         .and_then(|name| name.strip_suffix(".webp"))
-        .map(|name| name.strip_suffix(".still").unwrap_or(name))
-        .unwrap_or_default()
-        .to_string())
+        .map(|name| match name.strip_suffix(".still") {
+            Some(moving) => moving,
+            None => name,
+        });
+
+    Ok(match named {
+        Some(named) => named.to_string(),
+        None => String::new(),
+    })
 }
 
 #[cfg(test)]
@@ -278,7 +278,7 @@ mod tests {
 
     #[test]
     fn frames_older_than_the_picture_go_and_frames_newer_than_it_stay() {
-        let here = std::env::temp_dir().join(format!("console-sky-kept-{}", std::process::id()));
+        let here = std::env::temp_dir().join(format!("console-wallpaper-kept-{}", std::process::id()));
         let kept = here.join("awww/0.12.1");
         std::fs::create_dir_all(&kept).expect("somewhere to keep frames");
         let picture = here.join("river.webp");
@@ -311,7 +311,7 @@ mod tests {
 
     #[test]
     fn a_cache_that_is_not_there_is_nothing_to_throw_away() {
-        let here = std::env::temp_dir().join(format!("console-sky-none-{}", std::process::id()));
+        let here = std::env::temp_dir().join(format!("console-wallpaper-none-{}", std::process::id()));
         std::fs::create_dir_all(&here).expect("somewhere");
         let picture = here.join("river.webp");
         std::fs::write(&picture, b"a picture").expect("a picture");

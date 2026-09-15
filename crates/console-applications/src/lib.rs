@@ -1,4 +1,4 @@
-//! The menu.
+//! Every application this machine can open, in the order somebody opens them.
 //!
 //! Applications come out in the order you actually use them: the ones you open
 //! most, most often, and everything else alphabetically after them.

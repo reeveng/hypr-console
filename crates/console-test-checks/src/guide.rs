@@ -4,7 +4,7 @@ use console_test_stages::checking::{Body, Check, Done, same};
 use console_test_stages::device::Device;
 use console_test_stages::here::{Here, TURNS};
 
-use crate::chooser::opens;
+use crate::chooser::{What, opens};
 
 pub const GUIDE: Check = Check {
     name: "050-the-guide",
@@ -24,5 +24,5 @@ fn here(stage: &mut Here) -> Done {
 }
 
 fn there(stage: &mut Device) -> Done {
-    opens(stage, "menu", "guide")
+    opens(stage, "menu", What("guide"))
 }

@@ -30,8 +30,12 @@
 //! painted over the still leaves the rest of the still exactly where it was.
 
 
+use console_core_geometry::Size;
 use console_core_never::Never;
 use console_core_number_conversion::{Float, fitted};
+
+const THE_FIRST_FRAME: usize = 0;
+
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Patch {
@@ -42,8 +46,8 @@ pub struct Patch {
 }
 
 impl Patch {
-    pub fn whole(wide: u32, tall: u32) -> Result<Self, Never> {
-        Ok(Patch { x: 0, y: 0, wide, tall })
+    pub fn whole(size: Size<u32>) -> Result<Self, Never> {
+        Ok(Patch { x: 0, y: 0, wide: size.wide, tall: size.tall })
     }
 
     pub fn area(&self) -> Result<u64, Never> {
@@ -84,9 +88,13 @@ pub fn stir(frames: &[Vec<u8>], want: usize) -> Result<(usize, usize), Never> {
         (Some(_), None) | (None, _) => f64::INFINITY,
     };
 
-    let best = (0..frames.len().saturating_sub(want))
-        .min_by(|one, other| gap(one).total_cmp(&gap(other)))
-        .unwrap_or(0);
+    let closest =
+        (0..frames.len().saturating_sub(want)).min_by(|one, other| gap(one).total_cmp(&gap(other)));
+
+    let best = match closest {
+        Some(best) => best,
+        None => THE_FIRST_FRAME,
+    };
 
     Ok((best, best.saturating_add(want)))
 }

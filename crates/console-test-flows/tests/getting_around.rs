@@ -329,7 +329,7 @@ fn the_right_paddle_leaves_from_wherever_it_is_pressed() {
 
     here.press("right-paddle-top").expect("the paddle that closes");
     here.settle(TURNS);
-    assert_eq!(started(&here), ["put-away"], "deep in a panel, the paddle puts away what is up");
+    assert_eq!(started(&here), ["console-put-away"], "deep in a panel, the paddle puts away what is up");
     assert!(
         dispatches(&here).is_empty(),
         "and it does not close the window behind the panel on the way"
@@ -349,7 +349,7 @@ fn the_right_paddle_leaves_from_wherever_it_is_pressed() {
     here.showing(screens::NOTHING_UP).expect("the desktop");
     here.press("right-paddle-top").expect("the paddle that closes");
     here.settle(TURNS);
-    assert_eq!(started(&here), ["put-away"], "on the desktop it is the same one job");
+    assert_eq!(started(&here), ["console-put-away"], "on the desktop it is the same one job");
 }
 
 #[test]

@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use console_core_ini_files::fields;
+use console_core_ini_files::{Under, fields};
 use console_core_never::Never;
 
 use crate::words::without_field_codes;
@@ -45,7 +45,7 @@ pub struct DesktopEntry<'a> {
 
 impl<'a> DesktopEntry<'a> {
     pub fn read(said: &'a str) -> Result<Self, Never> {
-        let fields = fields(said, GROUP)?;
+        let fields = fields(said, Under(GROUP))?;
         let of = |key| fields.get(key).copied();
 
         Ok(DesktopEntry {
@@ -78,13 +78,12 @@ impl<'a> DesktopEntry<'a> {
     }
 
     pub fn opens(&self) -> Result<Vec<String>, Never> {
-        Ok(self
-            .mime
-            .unwrap_or_default()
-            .split(';')
-            .filter(|kind| !kind.is_empty())
-            .map(str::to_string)
-            .collect())
+        Ok(match self.mime {
+            Some(mime) => {
+                mime.split(';').filter(|kind| !kind.is_empty()).map(str::to_string).collect()
+            }
+            None => Vec::new(),
+        })
     }
 }
 
@@ -127,7 +126,10 @@ pub fn read(
         name: name.to_string(),
         command,
         terminal,
-        icon: entry.icon.unwrap_or_default().to_string(),
+        icon: match entry.icon {
+            Some(icon) => icon.to_string(),
+            None => String::new(),
+        },
     }))
 }
 

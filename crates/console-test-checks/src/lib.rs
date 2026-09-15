@@ -1,4 +1,4 @@
-//! Everything this desktop has grown, in the order it grew.
+//! The checks: one per feature, in the order the desktop grew them.
 //!
 //! A check is one thing, and one feature. It says what somebody did and what
 //! should have happened, and it is edited in place when the feature changes
@@ -39,14 +39,102 @@ pub mod resume;
 pub mod screenshot;
 pub mod services;
 pub mod typing;
+pub mod updating;
 pub mod volume;
 pub mod wallpaper;
 pub mod workspaces;
 
-use console_core_never::Never;
-use console_test_stages::checking::{Check, Named};
+use std::fmt;
+use std::path::PathBuf;
 
-pub const CHECKS: [&Check; 49] = [
+use console_core_never::Never;
+use console_test_stages::Awry;
+use console_test_stages::checking::{Check, Named, Why};
+
+#[derive(Debug)]
+pub enum Unchecked {
+    Stage(Awry),
+    Machine(std::io::Error),
+    Unreadable(PathBuf, std::io::Error),
+    Making(PathBuf, std::io::Error),
+    Unparsed(toml::de::Error),
+    NotTwoBars(usize),
+    NoGround(PathBuf),
+    ShowingInstead(String),
+    NotInTheTable(String, Vec<String>),
+    StillRepainting,
+    NoPlate(String),
+    NoColour(String),
+    NoRuntime,
+    NoSuchCheck,
+    SomebodysMachine,
+}
+
+impl fmt::Display for Unchecked {
+    fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Unchecked::Stage(fault) => write!(to, "{fault}"),
+            Unchecked::Machine(fault) => write!(to, "{fault}"),
+            Unchecked::Unreadable(at, fault) => write!(to, "{}: {fault}", at.display()),
+            Unchecked::Making(at, fault) => {
+                write!(to, "{}: making it: {fault}", at.display())
+            }
+            Unchecked::Unparsed(fault) => write!(to, "{fault}"),
+            Unchecked::NotTwoBars(many) => write!(
+                to,
+                "{} says {many} bars have a height, so which row is the strip is a guess",
+                updating::CONFIG
+            ),
+            Unchecked::NoGround(at) => {
+                write!(to, "{} sets no ground colour", at.display())
+            }
+            Unchecked::ShowingInstead(showing) => {
+                write!(to, "the wallpaper daemon is showing {showing}")
+            }
+            Unchecked::NotInTheTable(path, names) => write!(
+                to,
+                "the wallpaper is {path}, which theme/sky.toml does not name. It names {}",
+                names.join(", ")
+            ),
+            Unchecked::StillRepainting => write!(
+                to,
+                "the home screen went on repainting with the pointer standing still"
+            ),
+            Unchecked::NoPlate(spent) => {
+                write!(to, "the palette spends no {spent} for a square to be read by")
+            }
+            Unchecked::NoColour(name) => {
+                write!(to, "the palette this machine spends has no {name}")
+            }
+            Unchecked::NoRuntime => write!(
+                to,
+                "XDG_RUNTIME_DIR: nothing says where this session keeps its marks"
+            ),
+            Unchecked::NoSuchCheck => write!(to, "no checks by that name"),
+            Unchecked::SomebodysMachine => write!(
+                to,
+                "that is somebody's machine. Add --dry to see what would happen, \
+                 or --yes to do it."
+            ),
+        }
+    }
+}
+
+impl std::error::Error for Unchecked {}
+
+impl From<Awry> for Unchecked {
+    fn from(fault: Awry) -> Self {
+        Unchecked::Stage(fault)
+    }
+}
+
+impl From<Unchecked> for Why {
+    fn from(fault: Unchecked) -> Self {
+        Why::Failed(fault.to_string())
+    }
+}
+
+pub const CHECKS: [&Check; 53] = [
     &workspaces::RIGHT,
     &workspaces::LEFT,
     &carry::CARRY,
@@ -74,6 +162,8 @@ pub const CHECKS: [&Check; 49] = [
     &files::DRAWS,
     &services::STEADY,
     &notices::DRAWS,
+    &notices::CARD,
+    &notices::TOUCHED,
     &download::DRAWS,
     &keyboard::EVERY_TIME,
     &keyboard::IN_A_PAGE,
@@ -81,6 +171,7 @@ pub const CHECKS: [&Check; 49] = [
     &home::PRESSABLE,
     &music::LIBRARY,
     &music::QUIET,
+    &music::AGAIN,
     &home::ARRANGING,
     &icons::ICONS,
     &home::POINTED,
@@ -96,6 +187,7 @@ pub const CHECKS: [&Check; 49] = [
     &typing::A_KEY,
     &typing::LAST_PRESS,
     &bluetooth::LOOKS,
+    &updating::FILLS,
 ];
 
 pub fn chosen(words: &[String]) -> Result<Vec<&'static Check>, Never> {

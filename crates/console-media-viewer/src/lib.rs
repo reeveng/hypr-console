@@ -78,6 +78,7 @@
 pub mod card;
 pub mod decoding;
 pub mod fitting;
+pub mod index;
 pub mod kinds;
 pub mod playing;
 pub mod reel;

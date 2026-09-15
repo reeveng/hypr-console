@@ -1,7 +1,7 @@
 //! What the panel presses, answered where kew used to answer it.
 //!
 //! The interface is not this player's design and is not this desktop's either:
-//! it is MPRIS, spelled the way `console_music_panel::player` already reads it and
+//! it is MPRIS, spelled the way `console_music::player` already reads it and
 //! the way the checks already press it through busctl. So the surface came
 //! first and the player was written to it, which is the opposite of how the
 //! rest of this tree is built and is right here -- a panel that has to be
@@ -20,6 +20,8 @@
 //! panel is welcome to go on asking.
 
 use console_core_never::Never;
+use console_core_number_conversion::fitted;
+use console_response_times::{Wait, Waiting};
 use gio::prelude::*;
 use glib::Variant;
 use std::path::{Path, PathBuf};
@@ -28,6 +30,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use crate::answers::{self, Song, Status, Told};
 use crate::library;
 use crate::playlist::{Moved, Order, Playlist};
+use crate::remembering;
 use crate::sounding::{Sounding, Wanted};
 use crate::{art, tags};
 
@@ -90,11 +93,66 @@ pub struct Held {
 impl Held {
     pub fn new(sounding: Sounding, folder: Option<PathBuf>) -> Result<Held, Never> {
         let Ok(list) = Playlist::of(Vec::new());
+        let mut held = Held { list, sounding, playing: Song::default(), folder, turn: 0 };
 
-        Ok(Held { list, sounding, playing: Song::default(), folder, turn: 0 })
+        let Ok(()) = held.remembered();
+
+        Ok(held)
+    }
+
+    fn remembered(&mut self) -> Result<(), Never> {
+        let Ok(kept) = remembering::read();
+
+        let kept = match kept {
+            Some(kept) => kept,
+            None => return Ok(()),
+        };
+
+        match kept.song.is_file() {
+            true => {},
+            false => return Ok(()),
+        }
+
+        let under = match &self.folder {
+            Some(folder) => folder.clone(),
+            None => match kept.song.parent() {
+                Some(parent) => parent.to_path_buf(),
+                None => return Ok(()),
+            },
+        };
+
+        let Ok(mut waiting) = Waiting::here(Wait { who: "music-player", what: "remembered" });
+        let Ok(songs) = library::songs_under(&under);
+
+        let Ok(()) = waiting.mark("walked");
+        let Ok(many) = fitted::<usize, u64>(songs.len());
+        let Ok(list) = Playlist::opened(songs, &kept.song);
+
+        self.list = list;
+
+        let Ok(()) = waiting.mark("listed");
+        let Ok(()) = self.describing(&kept.song, &mut waiting);
+        let Ok(()) = waiting.counted("songs", many);
+        let Ok(()) = waiting.done_if_felt();
+
+        self.sounding.ready(&kept.song, kept.at)
+    }
+
+    pub fn remember(&self) -> Result<(), Never> {
+        let Ok(song) = self.list.song();
+
+        let song = match song {
+            Some(song) => song.to_path_buf(),
+            None => return Ok(()),
+        };
+
+        let Ok(at) = self.sounding.position();
+
+        remembering::write(&song, at)
     }
 
     pub fn opened(&mut self, at: &Path) -> Result<(), Never> {
+        let Ok(mut waiting) = Waiting::here(Wait { who: "music-player", what: "library" });
         let under = match &self.folder {
             Some(folder) => folder.clone(),
             None => match at.parent() {
@@ -104,9 +162,15 @@ impl Held {
         };
 
         let Ok(songs) = library::songs_under(&under);
+        let Ok(()) = waiting.mark("walked");
+        let Ok(many) = fitted::<usize, u64>(songs.len());
         let Ok(list) = Playlist::opened(songs, at);
 
         self.list = list;
+
+        let Ok(()) = waiting.mark("listed");
+        let Ok(()) = waiting.counted("songs", many);
+        let Ok(()) = waiting.done_if_felt();
 
         self.started()
     }
@@ -119,11 +183,21 @@ impl Held {
             None => return Ok(()),
         };
 
+        let Ok(mut waiting) = Waiting::here(Wait { who: "music-player", what: "song" });
+        let Ok(()) = self.describing(&song, &mut waiting);
+        let Ok(()) = waiting.done_if_felt();
+
+        self.sounding.play(&song, 0.0)
+    }
+
+    fn describing(&mut self, song: &Path, waiting: &mut Waiting) -> Result<(), Never> {
         self.turn = self.turn.saturating_add(1);
 
-        let Ok(said) = tags::playing(&song);
-        let Ok(art) = art::of(&song, self.turn);
-        let Ok(title) = named(&song, &said.title);
+        let Ok(said) = tags::playing(song);
+        let Ok(()) = waiting.mark("tags");
+        let Ok(art) = art::of(song, self.turn);
+        let Ok(()) = waiting.mark("art");
+        let Ok(title) = named(song, &said.title);
 
         self.playing = Song {
             title,
@@ -133,7 +207,7 @@ impl Held {
             length: said.length,
         };
 
-        self.sounding.play(&song, 0.0)
+        Ok(())
     }
 
     pub fn onward(&mut self) -> Result<(), Never> {
@@ -194,7 +268,7 @@ fn named(song: &Path, title: &str) -> Result<String, Never> {
     })
 }
 
-fn locked(held: &Arc<Mutex<Held>>) -> Result<MutexGuard<'_, Held>, Never> {
+pub fn locked(held: &Arc<Mutex<Held>>) -> Result<MutexGuard<'_, Held>, Never> {
     Ok(match held.lock() {
         Ok(held) => held,
         Err(poisoned) => poisoned.into_inner(),
@@ -282,15 +356,19 @@ fn player_told(held: &Arc<Mutex<Held>>, name: &str, value: &Variant) -> Result<(
 
     match name {
         "LoopStatus" => {
-            let said = value.get::<String>().unwrap_or_default();
+            let said = match value.get::<String>() {
+                Some(said) => said,
+                None => String::new(),
+            };
+
             let Ok(over) = answers::over_read(&said);
 
             held.list.repeat(over)
         },
         "Shuffle" => {
-            let order = match value.get::<bool>().unwrap_or_default() {
-                true => Order::Any,
-                false => Order::AsListed,
+            let order = match value.get::<bool>() {
+                Some(true) => Order::Any,
+                Some(false) | None => Order::AsListed,
             };
             let Ok(seed) = seed();
 
@@ -300,6 +378,13 @@ fn player_told(held: &Arc<Mutex<Held>>, name: &str, value: &Variant) -> Result<(
     }
 }
 
+#[cfg_attr(
+    dylint_lib = "explicit039_no_reading_the_clock",
+    allow(
+        explicit039_no_reading_the_clock,
+        reason = "a shuffle asked for twice in one run is meant to answer differently, and the nanoseconds are the only thing on this machine that differ between the two askings; `shuffling` itself takes the seed, so the decision is still one a test can press"
+    )
+)]
 fn seed() -> Result<u64, Never> {
     Ok(match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
         Ok(since) => u64::from(since.subsec_nanos()),
@@ -309,7 +394,12 @@ fn seed() -> Result<u64, Never> {
 
 fn asked(held: &Arc<Mutex<Held>>, method: &str, params: &Variant) -> Result<(), Never> {
     let Ok(mut held) = locked(held);
+    let Ok(()) = doing(&mut held, method, params);
 
+    held.remember()
+}
+
+fn doing(held: &mut Held, method: &str, params: &Variant) -> Result<(), Never> {
     match method {
         "Next" => held.onward(),
         "Previous" => held.back(),
@@ -354,7 +444,10 @@ fn word(params: &Variant, at: usize) -> Result<String, Never> {
         Err(_not_a_word_there) => None,
     };
 
-    Ok(held.unwrap_or_default())
+    Ok(match held {
+        Some(said) => said,
+        None => String::new(),
+    })
 }
 
 fn long(params: &Variant, at: usize) -> Result<i64, Never> {
@@ -363,8 +456,13 @@ fn long(params: &Variant, at: usize) -> Result<i64, Never> {
         Err(_not_a_number_there) => None,
     };
 
-    Ok(held.unwrap_or_default())
+    Ok(match held {
+        Some(number) => number,
+        None => NO_NUMBER_THERE,
+    })
 }
+
+const NO_NUMBER_THERE: i64 = 0;
 
 fn local(said: &str) -> Result<PathBuf, Never> {
     Ok(match said.strip_prefix("file://") {

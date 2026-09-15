@@ -58,7 +58,7 @@ pub fn before(what: &str) -> Result<Vec<Held>, Never> {
     Ok(KEPT
         .into_iter()
         .map(|config| {
-            let Ok(made) = made(config, &["--type", "pre"], what);
+            let Ok(made) = made(config, &["--type", "pre"], What(what));
 
             made
         })
@@ -70,7 +70,7 @@ pub fn after(before: &[Held], what: &str) -> Result<Vec<Held>, Never> {
         .iter()
         .filter_map(|held| match held {
             Held::Made { config, number } => {
-                let Ok(made) = made(config, &["--type", "post", "--pre-number", number], what);
+                let Ok(made) = made(config, &["--type", "post", "--pre-number", number], What(what));
 
                 Some(made)
             }
@@ -79,13 +79,16 @@ pub fn after(before: &[Held], what: &str) -> Result<Vec<Held>, Never> {
         .collect())
 }
 
-fn made(config: &str, kind: &[&str], what: &str) -> Result<Held, Never> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct What<'a>(&'a str);
+
+fn made(config: &str, kind: &[&str], what: What<'_>) -> Result<Held, Never> {
     let Ok(snapper) = Program::Snapper.name();
 
     let argv: Vec<&str> = [snapper, "-c", config, "create"]
         .into_iter()
         .chain(kind.iter().copied())
-        .chain(["--cleanup-algorithm", "number", "--print-number", "--description", what])
+        .chain(["--cleanup-algorithm", "number", "--print-number", "--description", what.0])
         .collect();
 
     let Ok(answered) = machine::answered(&argv);

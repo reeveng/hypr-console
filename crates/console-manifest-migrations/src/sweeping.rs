@@ -33,6 +33,7 @@
 //! crate cannot import that one -- the dependency runs the other way, since a
 //! migration has to be found before it can be read.
 
+use crate::Undone;
 use console_core_never::Never;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -68,17 +69,17 @@ pub fn on_purpose(said: &str) -> Result<BTreeSet<String>, Never> {
         .collect())
 }
 
-pub fn every(at: &Path) -> Result<Vec<Migration>, String> {
+pub fn every(at: &Path) -> Result<Vec<Migration>, Undone> {
     let entries = match std::fs::read_dir(at) {
         Ok(entries) => entries,
         Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(fault) => return Err(format!("{}: {fault}", at.display())),
+        Err(fault) => return Err(Undone::Listing(at.to_path_buf(), fault)),
     };
 
     let mut found = Vec::new();
 
     for entry in entries {
-        let read = entry.map_err(|fault| format!("{}: {fault}", at.display()))?;
+        let read = entry.map_err(|fault| Undone::Listing(at.to_path_buf(), fault))?;
 
         let path = read.path();
 
@@ -89,12 +90,12 @@ pub fn every(at: &Path) -> Result<Vec<Migration>, String> {
         match named {
             true => {
                 let said = std::fs::read_to_string(&path)
-                    .map_err(|fault| format!("{}: {fault}", path.display()))?;
+                    .map_err(|fault| Undone::Reading(path.clone(), fault))?;
 
                 let name = path
                     .file_name()
                     .map(|name| name.to_string_lossy().to_string())
-                    .ok_or_else(|| format!("{} has no name", path.display()))?;
+                    .ok_or_else(|| Undone::Nameless(path.clone()))?;
 
                 let Ok(claimed) = claimed(&said);
 
@@ -129,7 +130,7 @@ enum Named {
     No,
 }
 
-pub fn all_claimed(at: &Path) -> Result<BTreeSet<String>, String> {
+pub fn all_claimed(at: &Path) -> Result<BTreeSet<String>, Undone> {
     let every = every(at)?;
 
     Ok(every.into_iter().flat_map(|one| one.sweeps).collect())

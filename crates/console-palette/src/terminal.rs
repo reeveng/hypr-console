@@ -3,6 +3,7 @@
 use indexmap::IndexMap;
 use console_core_colour as col;
 use console_core_never::Never;
+use console_core_words::Words;
 
 use crate::palette::Palette;
 use crate::spec::Spec;
@@ -21,19 +22,12 @@ pub struct Terminal {
     bright: IndexMap<String, String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
 pub enum Shade {
+    #[words(name = "normal")]
     Normal,
+    #[words(name = "bright")]
     Bright,
-}
-
-impl Shade {
-    pub fn name(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Shade::Normal => "normal",
-            Shade::Bright => "bright",
-        })
-    }
 }
 
 impl Terminal {
@@ -105,6 +99,7 @@ impl Terminal {
 mod tests {
     use super::*;
     use crate::spec::Spec;
+    use console_core_colour::{Ground, Ink};
 
     const PALETTE: &str = include_str!("../../../theme/palette.toml");
 
@@ -149,7 +144,7 @@ mod tests {
             for slot in SLOTS {
                 let Ok(code) = terminal.slot(shade, slot);
 
-                let Ok(got) = col::contrast(code, &terminal.background);
+                let Ok(got) = col::contrast(Ink(code), Ground(&terminal.background));
 
                 let least = match slot {
                     "black" => 4.5,

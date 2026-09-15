@@ -16,8 +16,8 @@ name = "console-confirm"
 path = "src/bin/console-confirm.rs"
 
 [[bin]]
-name = "put-away"
-path = "src/bin/put-away.rs"
+name = "console-put-away"
+path = "src/bin/console-put-away.rs"
 
 # Not a program on the device. The chooser's lock is between processes, so the
 # test that proves it wants a second process to be the other chooser.
@@ -25,19 +25,19 @@ path = "src/bin/put-away.rs"
 name = "second-chooser"
 path = "src/bin/second-chooser.rs"
 
-[[bin]]
-name = "bar-door"
-path = "src/bin/bar-door.rs"
-
 # The pictures every list draws, decoded once into the one file they read.
 [[bin]]
 name = "panel-pictures"
 path = "src/bin/panel-pictures.rs"
 
 [dependencies]
+console-core-atomic-writes.workspace = true
+console-core-words.workspace = true
 console-program-lifetime.workspace = true
 console-core-external-programs.workspace = true
+console-core-geometry.workspace = true
 console-core-never.workspace = true
+console-core-our-programs.workspace = true
 console-core-places.workspace = true
 console-waiting.workspace = true
 console-core-number-conversion.workspace = true

@@ -316,7 +316,10 @@ fn the_file_says_several_buttons_a_chord_or_nothing_at_all() {
 
     let fault = Jobs::read("[jobs]\nmenu = \"a\"\nscreenshot = \"nose + a\"\n")
         .expect_err("nothing on this machine is called nose");
-    assert!(fault.starts_with("screenshot: "), "the fault names the line: {fault}");
+    assert!(
+        fault.to_string().starts_with("screenshot: "),
+        "the fault names the line: {fault}"
+    );
     here.press("left-paddle-top").expect("a paddle");
     here.settle(TURNS);
     assert_eq!(started(&here), ["launcher"], "the table already loaded is left standing");

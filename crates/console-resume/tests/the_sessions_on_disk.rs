@@ -87,7 +87,7 @@ fn throwing_one_away_leaves_the_others_where_they_were() {
 
     let sessions = sessions(&at);
 
-    assert_eq!(sessions.delete("monday"), Ok(()));
+    sessions.delete("monday").expect("thrown away");
     assert_eq!(named(&sessions), ["yesterday"]);
 }
 
@@ -98,8 +98,8 @@ fn a_session_with_nothing_in_it_leaves_the_screen_alone() {
     let said = sessions(&at).load("never-saved");
 
     assert_eq!(
-        said,
-        Ok(PutBack::NothingSaved(at.path().join("never-saved"))),
+        said.expect("nothing to put back"),
+        PutBack::NothingSaved(at.path().join("never-saved")),
         "putting back a session nobody saved is closing every window and starting nothing"
     );
 }
@@ -110,10 +110,10 @@ fn throwing_away_one_nobody_saved_says_so_rather_than_saying_nothing() {
 
     let said = sessions(&at).delete("never-existed");
 
-    assert!(said.is_err(), "a name nobody saved is a thing worth being told about");
-    assert_eq!(
-        said.err().map(|why| why.contains("never-existed")),
-        Some(true),
-        "and the fault should say which name it was"
+    let why = said.expect_err("a name nobody saved is a thing worth being told about");
+
+    assert!(
+        why.to_string().contains("never-existed"),
+        "and the fault should say which name it was: {why}"
     );
 }

@@ -15,7 +15,7 @@
 //! keyboard types and nothing else, and the Thai layer would be forty keys
 //! that all produce latin letters.
 //!
-//! The virtual-keyboard protocol is the one that lets a client say what its
+//! The console-keyboard protocol is the one that lets a client say what its
 //! own keys mean. So the alphabet is uploaded with the layer: switching to
 //! Thai uploads the Thai keymap, and the key under the thumb marked ก sends
 //! the keycode that is ก *in that keymap*. `keymap` composes them out of the
@@ -38,6 +38,10 @@ use crate::keymap::{Keymap, Layer};
 use crate::layout::{Drops, Kind, Layout, Which, mods, of};
 use crate::shared_memory::keymap_file;
 use crate::surface::Board;
+use console_core_walking::{Ring, Step};
+
+const THE_FIRST_ONE: usize = 0;
+
 
 const SPARE: u32 = 127;
 
@@ -69,8 +73,21 @@ pub fn after(walk: &[Which], alphabet: Which) -> Result<Option<Which>, Never> {
         false => {},
     }
 
-    let here = languages.iter().position(|w| *w == alphabet).unwrap_or(0);
-    Ok(languages.get(here.saturating_add(1).checked_rem(languages.len()).unwrap_or(0)).copied())
+    let Ok(round) = Ring::of(&languages);
+
+    let ring = match round {
+        Some(ring) => ring,
+        None => return Ok(None),
+    };
+
+    let here = match languages.iter().position(|w| *w == alphabet) {
+        Some(here) => here,
+        None => THE_FIRST_ONE,
+    };
+
+    let Ok(next) = ring.stepped(here, Step::Forward);
+
+    Ok(languages.get(next).copied())
 }
 
 pub fn symbols(walk: &[Which]) -> Result<Option<Which>, Never> {
@@ -102,18 +119,23 @@ impl Typist {
         alphabets: Vec<Keymap>,
         walk: Vec<Which>,
         opening: Option<Which>,
+        since: Instant,
     ) -> Result<Typist, Never> {
         let keys = manager.create_virtual_keyboard(seat, hand, ());
-        let showing = opening
-            .filter(|which| walk.contains(which))
-            .or_else(|| walk.first().copied())
-            .unwrap_or(Which::Full);
-        let step = walk.iter().position(|which| *which == showing).unwrap_or(0);
+        let showing = match opening.filter(|which| walk.contains(which)).or_else(|| walk.first().copied()) {
+            Some(showing) => showing,
+            None => Which::Full,
+        };
+
+        let step = match walk.iter().position(|which| *which == showing) {
+            Some(step) => step,
+            None => THE_FIRST_ONE,
+        };
         let mut typist = Typist {
             keys,
             alphabets,
             worn: None,
-            since: Instant::now(),
+            since,
             held: mods::NONE,
             composing: false,
             showing,
@@ -251,7 +273,16 @@ impl Typist {
                 };
             }
             (false, false) => {
-                self.step = self.step.saturating_add(1).checked_rem(self.walk.len()).unwrap_or(0);
+                let Ok(round) = Ring::of(&self.walk);
+
+                self.step = match round {
+                    Some(ring) => {
+                        let Ok(went) = ring.stepped(self.step, Step::Forward);
+
+                        went
+                    }
+                    None => THE_FIRST_ONE,
+                };
             }
         }
 

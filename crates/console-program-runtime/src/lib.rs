@@ -39,6 +39,15 @@
 //! and the loop does nothing with it, because what a program wants after a gap
 //! is the replay that is already following it.
 //!
+//! **A round that cannot fall due is not a round.** `Instant::checked_add`
+//! refuses when the answer would be hundreds of years out, so nothing on a
+//! machine reaches it -- but the arm has to say something, and there are only
+//! two things it can say. "Fall due at the instant you already had" is a round
+//! that fires, fires again and never waits, which is a busy loop wearing a
+//! round's name. "This one has stopped" is what is true, so it is dropped: the
+//! program is told the round it was waiting for came, and nothing waits for it
+//! again.
+//!
 //! **An answer arrives on a later turn.** [`Doing::Ask`] is run to completion
 //! here and its [`Word::Answered`] goes on the queue rather than back into the
 //! turn that asked for it, because a program that could see its own answer
@@ -107,10 +116,17 @@ where
     let mut running: Vec<LetGo> = Vec::new();
     let Ok(words) = listening::listen(&[]);
 
+    #[cfg_attr(
+        dylint_lib = "explicit039_no_reading_the_clock",
+        allow(
+            explicit039_no_reading_the_clock,
+            reason = "this is the half that acts: the program it runs decides nothing from the clock, and the moment its rounds are counted from has to be read somewhere"
+        )
+    )]
     let began = Instant::now();
 
     for want in &wants {
-        let Ok(()) = listen(&mut rounds, &words, want, began);
+        let Ok(()) = listen(called, &mut rounds, &words, want, began);
     }
 
     queue.push_back(Word::Opened);
@@ -119,7 +135,7 @@ where
         let word = match queue.pop_front() {
             Some(word) => word,
             None => {
-                let Ok(woke) = woke(&mut rounds, &words);
+                let Ok(woke) = woke(called, &mut rounds, &words);
 
                 match woke {
                     Woke::Came(round) => {
@@ -170,7 +186,14 @@ where
                     running.extend(child);
                 }
                 Doing::Listen(want) => {
-                    let Ok(()) = listen(&mut rounds, &words, want, Instant::now());
+                    #[cfg_attr(
+                        dylint_lib = "explicit039_no_reading_the_clock",
+                        allow(
+                            explicit039_no_reading_the_clock,
+                            reason = "a round asked for part way through a life falls due from when it was asked, and the loop is the only thing that knows when that was"
+                        )
+                    )]
+                    let Ok(()) = listen(called, &mut rounds, &words, want, Instant::now());
                 }
                 Doing::Deafen(want) => {
                     let Ok(()) = deafen(&mut rounds, &words, want);
@@ -181,6 +204,13 @@ where
                 Doing::Say(saying) => {
                     let Ok(()) = say(called, saying);
                 }
+                #[cfg_attr(
+                    dylint_lib = "explicit041_no_unsaid_printing",
+                    allow(
+                        explicit041_no_unsaid_printing,
+                        reason = "this is what carries `Doing::Print` out, so something at the bottom has to be the thing that prints"
+                    )
+                )]
                 Doing::Print(line) => println!("{line}"),
                 Doing::Stop(how) => ending = Some(how.clone()),
                 Doing::Its(its) => queue.extend(carrying.its(its)),
@@ -203,9 +233,9 @@ where
     }
 }
 
-fn woke(rounds: &mut [Waiting], words: &Listening) -> Result<Woke, Never> {
+fn woke(called: &str, rounds: &mut Vec<Waiting>, words: &Listening) -> Result<Woke, Never> {
     loop {
-        let Ok(waited) = waited(rounds, words);
+        let Ok(waited) = waited(called, rounds, words);
 
         match waited {
             Some(woke) => return Ok(woke),
@@ -214,7 +244,7 @@ fn woke(rounds: &mut [Waiting], words: &Listening) -> Result<Woke, Never> {
     }
 }
 
-fn waited(rounds: &mut [Waiting], words: &Listening) -> Result<Option<Woke>, Never> {
+fn waited(called: &str, rounds: &mut Vec<Waiting>, words: &Listening) -> Result<Option<Woke>, Never> {
     let soonest = rounds.iter().map(|waiting| waiting.due).min();
     let Ok(heard) = words.heard();
     let Ok(wanting) = words.wanting();
@@ -227,13 +257,20 @@ fn waited(rounds: &mut [Waiting], words: &Listening) -> Result<Option<Woke>, Nev
             Err(_) => Some(Woke::Nothing),
         }),
         (Some(soonest), Wanting::Something | Wanting::Nothing) => {
+            #[cfg_attr(
+                dylint_lib = "explicit039_no_reading_the_clock",
+                allow(
+                    explicit039_no_reading_the_clock,
+                    reason = "how long is left of the nearest round, which is the one wait this loop makes rather than a decision anything takes from it"
+                )
+            )]
             let waiting = soonest.saturating_duration_since(Instant::now());
 
             match heard.recv_timeout(waiting) {
                 Ok(Heard::Said(changed)) => Ok(Some(Woke::Told(changed))),
                 Ok(Heard::GotIn) => Ok(None),
                 Err(RecvTimeoutError::Timeout) => {
-                    let Ok(came) = came(rounds);
+                    let Ok(came) = came(called, rounds);
 
                     Ok(Some(came))
                 }
@@ -243,7 +280,14 @@ fn waited(rounds: &mut [Waiting], words: &Listening) -> Result<Option<Woke>, Nev
     }
 }
 
-fn came(rounds: &mut [Waiting]) -> Result<Woke, Never> {
+fn came(called: &str, rounds: &mut Vec<Waiting>) -> Result<Woke, Never> {
+    #[cfg_attr(
+        dylint_lib = "explicit039_no_reading_the_clock",
+        allow(
+            explicit039_no_reading_the_clock,
+            reason = "which rounds have fallen due by the moment the loop woke, which is a reading of the machine rather than a decision the program makes"
+        )
+    )]
     let woken = Instant::now();
 
     let waiting = match rounds.iter_mut().find(|waiting| waiting.due <= woken) {
@@ -253,12 +297,23 @@ fn came(rounds: &mut [Waiting]) -> Result<Woke, Never> {
 
     let round = waiting.round;
 
-    waiting.due = woken.checked_add(round.every).unwrap_or(woken);
+    match woken.checked_add(round.every) {
+        Some(due) => waiting.due = due,
+        None => {
+            eprintln!(
+                "{called}: {} cannot fall due again, so it came round for the last time",
+                round.called
+            );
+
+            rounds.retain(|waiting| waiting.round != round);
+        }
+    }
 
     Ok(Woke::Came(round))
 }
 
 fn listen(
+    called: &str,
     rounds: &mut Vec<Waiting>,
     words: &Listening,
     want: &Wants,
@@ -266,9 +321,13 @@ fn listen(
 ) -> Result<(), Never> {
     match want {
         Wants::Round(round) => {
-            let due = now.checked_add(round.every).unwrap_or(now);
-
-            rounds.push(Waiting { round: *round, due });
+            match now.checked_add(round.every) {
+                Some(due) => rounds.push(Waiting { round: *round, due }),
+                None => eprintln!(
+                    "{called}: {} cannot fall due, so nothing is waiting for it",
+                    round.called
+                ),
+            }
         }
         Wants::Words(topic) => {
             let Ok(()) = words.also(topic);
@@ -337,6 +396,13 @@ fn watched(called: &str, runs: &Runs) -> Result<Answer, Never> {
     })
 }
 
+#[cfg_attr(
+    dylint_lib = "explicit041_no_unsaid_printing",
+    allow(
+        explicit041_no_unsaid_printing,
+        reason = "a question asked of whoever is at the terminal, whose answer is read back off stdin on the same line -- there is no doing for the half of a conversation that is waiting for a person"
+    )
+)]
 fn chose(question: &Question) -> Result<Chose, Never> {
     print!("{} ", question.asks);
 
@@ -411,7 +477,7 @@ fn starting(runs: &Runs) -> Result<Command, Never> {
 }
 
 fn wrote(called: &str, writing: &Writing) -> Result<(), Never> {
-    match std::fs::write(&writing.at, &writing.what) {
+    match console_core_atomic_writes::whole(&writing.at, writing.what.as_bytes()) {
         Ok(()) => {},
         Err(fault) => eprintln!("{called}: {}: {fault}", writing.at.display()),
     }

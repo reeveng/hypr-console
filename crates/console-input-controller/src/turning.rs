@@ -14,6 +14,7 @@
 //! arrives an hour later and nothing else would go and find it.
 
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 
 use console_core_never::Never;
 use evdev::InputEvent;
@@ -22,6 +23,9 @@ use crate::doing::Doing;
 use crate::finding::{self, Says};
 use crate::means::Table;
 use crate::reading::{Controller, From, Ranges, Wants};
+
+const NEVER_LOOKED: f64 = f64::NEG_INFINITY;
+
 
 pub struct Gone;
 
@@ -55,7 +59,7 @@ pub trait Plugged {
 pub struct Turning {
     pub held: Controller,
     told: BTreeMap<From, String>,
-    open: Vec<(From, String)>,
+    open: BTreeMap<From, BTreeSet<String>>,
     hunted: BTreeMap<From, f64>,
     last: Option<f64>,
     settling: Option<f64>,
@@ -88,12 +92,10 @@ impl Turning {
         let mut doing: Vec<Doing> = Vec::new();
 
         for which in READ {
-            let paths: Vec<String> = self
-                .open
-                .iter()
-                .filter(|(one, _)| *one == which)
-                .map(|(_, path)| path.clone())
-                .collect();
+            let paths: Vec<String> = match self.open.get(&which) {
+                Some(paths) => paths.iter().cloned().collect(),
+                None => Vec::new(),
+            };
 
             for path in paths {
                 for _ in 0..match deaf {
@@ -158,16 +160,34 @@ impl Turning {
     pub fn missing(&self) -> Result<Vec<From>, Never> {
         Ok(READ
             .into_iter()
-            .filter(|which| !self.open.iter().any(|(one, _)| one == which))
+            .filter(|which| !self.open.contains_key(which))
             .collect())
     }
 
-    pub fn holding(&self) -> Result<&[(From, String)], Never> {
-        Ok(&self.open)
+    pub fn holding(&self) -> Result<Vec<(From, String)>, Never> {
+        Ok(self
+            .open
+            .iter()
+            .flat_map(|(which, paths)| paths.iter().map(|at| (*which, at.clone())))
+            .collect())
     }
 
     fn went(&mut self, which: From, path: &str) -> Result<Vec<Doing>, Never> {
-        self.open.retain(|(_, at)| at != path);
+        let empty = match self.open.get_mut(&which) {
+            Some(paths) => {
+                let _ = paths.remove(path);
+
+                paths.is_empty()
+            },
+            None => false,
+        };
+
+        match empty {
+            true => {
+                let _ = self.open.remove(&which);
+            },
+            false => {},
+        }
 
         match which == From::Pad {
             true => self.held.pad_went(),
@@ -179,7 +199,7 @@ impl Turning {
         for which in READ {
             let Ok(wants) = which.wants();
 
-            let already = self.open.iter().any(|(one, _)| *one == which);
+            let already = self.open.contains_key(&which);
 
             let looking = match wants {
                 Wants::One => !already,
@@ -191,7 +211,10 @@ impl Turning {
                 false => continue,
             }
 
-            let looked = self.hunted.get(&which).copied().unwrap_or(f64::NEG_INFINITY);
+            let looked = match self.hunted.get(&which).copied() {
+                Some(looked) => looked,
+                None => NEVER_LOOKED,
+            };
 
             match now - looked < HUNT_SECONDS {
                 true => continue,
@@ -203,7 +226,7 @@ impl Turning {
             let Ok(found) = self.at(machine, which);
 
             for path in found {
-                match self.open.iter().any(|(_, at)| *at == path) {
+                match self.open.get(&which).is_some_and(|paths| paths.contains(&path)) {
                     true => continue,
                     false => {},
                 }
@@ -220,7 +243,7 @@ impl Turning {
                     From::Keys | From::Touch | From::Typing => {},
                 }
 
-                self.open.push((which, path));
+                let _ = self.open.entry(which).or_default().insert(path);
 
                 match wants {
                     Wants::One => break,

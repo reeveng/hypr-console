@@ -4,6 +4,13 @@
 //! both the drawing and the stylesheet. A part named in one and not the other
 //! is a part that is there and cannot be seen, or one that is styled and does
 //! not exist.
+//!
+//! `CANCEL` is the one word here that a person reads rather than a stylesheet.
+//! It used to be a pair, `Yes` and `No`, and they said nothing: a card asking
+//! whether to bring a machine to what it had been sent drew the same two words
+//! as one asking whether to throw a photograph away, so the button under the
+//! highlight could not be read on its own. Every other answer names what it
+//! does, and the one that undoes the asking is called what it is.
 
 pub const SHUT: &str = "\u{d7}";
 
@@ -17,9 +24,7 @@ pub const MORE: &str = "+";
 
 pub const ELSE: &str = "\u{2026}";
 
-pub const NO: &str = "No";
-
-pub const YES: &str = "Yes";
+pub const CANCEL: &str = "Cancel";
 
 pub mod named {
     pub const ABOUT: &str = "about";

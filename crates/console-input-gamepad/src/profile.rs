@@ -27,42 +27,29 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use console_core_never::Never;
+use console_core_words::Words;
 use evdev::KeyCode;
 #[cfg(feature = "read")]
 use serde::Deserialize;
 
+use crate::Unpressed;
 use crate::devices::Has;
 use crate::vocabulary;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Words)]
 pub enum Kind {
+    #[words(said = "key", needs = "keyboard")]
     Key,
+    #[words(said = "mouse-button", needs = "mouse")]
     MouseButton,
+    #[words(said = "mouse-motion", needs = "mouse")]
     MouseMotion,
+    #[words(said = "gamepad-button", needs = "xbox-elite")]
     GamepadButton,
+    #[words(said = "gamepad-axis", needs = "xbox-elite")]
     GamepadAxis,
+    #[words(said = "gamepad-trigger", needs = "xbox-elite")]
     GamepadTrigger,
-}
-
-impl Kind {
-    pub fn said(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Kind::Key => "key",
-            Kind::MouseButton => "mouse-button",
-            Kind::MouseMotion => "mouse-motion",
-            Kind::GamepadButton => "gamepad-button",
-            Kind::GamepadAxis => "gamepad-axis",
-            Kind::GamepadTrigger => "gamepad-trigger",
-        })
-    }
-
-    pub fn needs(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Kind::Key => "keyboard",
-            Kind::MouseButton | Kind::MouseMotion => "mouse",
-            Kind::GamepadButton | Kind::GamepadAxis | Kind::GamepadTrigger => "xbox-elite",
-        })
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -72,23 +59,22 @@ pub struct Target {
 }
 
 impl Target {
-    pub fn code(&self) -> Result<KeyCode, String> {
+    pub fn code(&self) -> Result<KeyCode, Unpressed> {
         match self.kind {
             Kind::Key => vocabulary::key_code(&self.name),
             Kind::MouseButton => {
                 let Ok(code) = vocabulary::mouse_code(&self.name);
 
-                code.ok_or_else(|| format!("no mouse button called {:?}", self.name))
+                code.ok_or_else(|| Unpressed::NoMouseButton(self.name.clone()))
             }
             Kind::GamepadButton => {
                 let Ok(code) = vocabulary::gamepad_code(&self.name);
 
-                code.ok_or_else(|| format!("no pad button called {:?}", self.name))
+                code.ok_or_else(|| Unpressed::NoPadButton(self.name.clone()))
             }
-            Kind::MouseMotion | Kind::GamepadAxis | Kind::GamepadTrigger => Err(format!(
-                "{:?} does not arrive as one code: {:?}",
-                self.kind, self.name
-            )),
+            Kind::MouseMotion | Kind::GamepadAxis | Kind::GamepadTrigger => {
+                Err(Unpressed::NotOneCode(self.kind, self.name.clone()))
+            }
         }
     }
 }
@@ -137,14 +123,19 @@ pub struct Profile {
 
 #[cfg(feature = "read")]
 impl Profile {
-    pub fn read(path: &Path, yaml: &str) -> Result<Self, String> {
+    pub fn read(path: &Path, yaml: &str) -> Result<Self, Unpressed> {
         let raw: Raw = serde_yaml_ng::from_str(yaml)
-            .map_err(|fault| format!("{} does not parse: {fault}", path.display()))?;
+            .map_err(|fault| Unpressed::Unparsed(path.to_path_buf(), fault))?;
         let stem = path.file_stem().map_or(String::new(), |s| s.to_string_lossy().to_string());
 
         let mut mappings = Vec::new();
 
-        for raw in &raw.mapping.unwrap_or_default() {
+        let told = match raw.mapping {
+            Some(ref told) => told.as_slice(),
+            None => &[],
+        };
+
+        for raw in told {
             let Ok(mapping) = read_mapping(raw);
 
             match mapping {
@@ -155,9 +146,18 @@ impl Profile {
 
         Ok(Profile {
             path: path.to_path_buf(),
-            name: raw.name.unwrap_or(stem),
-            description: raw.description.unwrap_or_default().trim().to_string(),
-            target_devices: raw.target_devices.unwrap_or_default(),
+            name: match raw.name {
+                Some(name) => name,
+                None => stem,
+            },
+            description: match raw.description {
+                Some(ref said) => said.trim().to_string(),
+                None => String::new(),
+            },
+            target_devices: match raw.target_devices {
+                Some(named) => named,
+                None => Vec::new(),
+            },
             mappings,
         })
     }
@@ -171,7 +171,7 @@ impl Profile {
         })
     }
 
-    pub fn for_button(&self, spoken: &str) -> Result<Vec<&Mapping>, String> {
+    pub fn for_button(&self, spoken: &str) -> Result<Vec<&Mapping>, Unpressed> {
         let name = vocabulary::button_name(spoken)?;
         Ok(self
             .mappings
@@ -180,7 +180,7 @@ impl Profile {
             .collect())
     }
 
-    pub fn targets_of(&self, spoken: &str) -> Result<Vec<&Target>, String> {
+    pub fn targets_of(&self, spoken: &str) -> Result<Vec<&Target>, Unpressed> {
         let mappings = self.for_button(spoken)?;
 
         Ok(mappings.iter().flat_map(|mapping| &mapping.targets).collect())
@@ -195,10 +195,10 @@ impl Profile {
 pub const PROFILE_DIR: &str = "files/etc/inputplumber/profiles";
 
 #[cfg(feature = "read")]
-pub fn load_all(root: &Path) -> Result<BTreeMap<String, Profile>, String> {
+pub fn load_all(root: &Path) -> Result<BTreeMap<String, Profile>, Unpressed> {
     let holding = root.join(PROFILE_DIR);
     let listed = std::fs::read_dir(&holding)
-        .map_err(|fault| format!("{} could not be read: {fault}", holding.display()))?;
+        .map_err(|fault| Unpressed::Unreadable(holding.clone(), fault))?;
     let mut found: Vec<PathBuf> = listed
         .filter_map(|entry| match entry {
             Ok(e) => Some(e.path()),
@@ -211,7 +211,7 @@ pub fn load_all(root: &Path) -> Result<BTreeMap<String, Profile>, String> {
         .iter()
         .map(|path| {
             let yaml = std::fs::read_to_string(path)
-                .map_err(|fault| format!("{} could not be read: {fault}", path.display()))?;
+                .map_err(|fault| Unpressed::Unreadable(path.clone(), fault))?;
             let profile = Profile::read(path, &yaml)?;
 
             let Ok(stem) = profile.stem();
@@ -317,7 +317,12 @@ fn read_mapping(raw: &RawMapping) -> Result<Option<Mapping>, Never> {
 
     let mut targets = Vec::new();
 
-    for raw in raw.target_events.as_deref().unwrap_or_default() {
+    let told = match raw.target_events.as_deref() {
+        Some(told) => told,
+        None => &[],
+    };
+
+    for raw in told {
         let target = read_target(raw)?;
 
         match target {
@@ -326,7 +331,12 @@ fn read_mapping(raw: &RawMapping) -> Result<Option<Mapping>, Never> {
         }
     }
 
-    Ok(Some(Mapping { label: raw.name.clone().unwrap_or_default(), source, targets }))
+    let label = match raw.name.clone() {
+        Some(label) => label,
+        None => String::new(),
+    };
+
+    Ok(Some(Mapping { label, source, targets }))
 }
 
 #[cfg(feature = "read")]

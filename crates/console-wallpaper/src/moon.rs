@@ -15,29 +15,25 @@
 //! what is used and the error is written down here rather than corrected for.
 
 use console_core_never::Never;
+use console_core_words::Words;
 
 const A_NEW_MOON: f64 = 947_182_440.0;
 
 const CYCLE: f64 = 29.530_588_853;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Words)]
 pub enum Moon {
+    #[words(word = "full")]
     Full,
+    #[words(word = "new")]
     New,
+    #[words(word = "waning")]
     Waning,
+    #[words(word = "waxing")]
     Waxing,
 }
 
 impl Moon {
-    pub fn word(&self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Moon::Full => "full",
-            Moon::New => "new",
-            Moon::Waning => "waning",
-            Moon::Waxing => "waxing",
-        })
-    }
-
     pub const EVERY: [Moon; 4] = [Moon::Full, Moon::New, Moon::Waning, Moon::Waxing];
 
     pub fn of(word: &str) -> Result<Option<Self>, Never> {

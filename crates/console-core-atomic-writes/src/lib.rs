@@ -56,8 +56,22 @@
 //! caller is handed it rather than a shrug. That is the same rule EXPLICIT006
 //! is written for -- an error is not an absence -- applied to the one place it
 //! was being broken by a convenience method rather than by a cast.
+//!
+//! # Which of the four steps it was
+//!
+//! The write is four things in an order, and for a long time all four failed
+//! the same way: a sentence with the path at the front of it. `Unwritten` names
+//! them apart, because they are not the same fault. A file that will not be
+//! made is a place this desktop may not write; bytes that will not go down is a
+//! disk that is full; a rename that will not happen is the old file still being
+//! the live one, which is a write that did not take; and a directory that will
+//! not sync is a write that did take and may not survive the power going. The
+//! sentence each of them used to print is the `Display` arm, so the journal
+//! reads as it did and a caller that wants to tell the full disk from the
+//! forbidden directory now can.
 
 use console_core_never::Never;
+use std::fmt;
 use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -97,8 +111,38 @@ pub fn read(at: &Path) -> Result<Held, Never> {
     })
 }
 
-pub fn whole(at: &Path, bytes: &[u8]) -> Result<(), String> {
-    let complain = |what: &str, fault: std::io::Error| format!("{}: {what}: {fault}", at.display());
+#[derive(Debug)]
+pub enum Unwritten {
+    Making(PathBuf, std::io::Error),
+    Filling(PathBuf, std::io::Error),
+    Settling(PathBuf, std::io::Error),
+    Moving(PathBuf, std::io::Error),
+    Naming(PathBuf, std::io::Error),
+}
+
+impl fmt::Display for Unwritten {
+    fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Unwritten::Making(at, fault) => write!(to, "{}: making it: {fault}", at.display()),
+            Unwritten::Filling(at, fault) => write!(to, "{}: writing it: {fault}", at.display()),
+            Unwritten::Settling(at, fault) => {
+                write!(to, "{}: putting it on the disk: {fault}", at.display())
+            }
+            Unwritten::Moving(at, fault) => {
+                write!(to, "{}: moving it into place: {fault}", at.display())
+            }
+            Unwritten::Naming(holding, fault) => write!(
+                to,
+                "{}: telling the disk about the new name: {fault}",
+                holding.display()
+            ),
+        }
+    }
+}
+
+impl std::error::Error for Unwritten {}
+
+pub fn whole(at: &Path, bytes: &[u8]) -> Result<(), Unwritten> {
     let Ok(staged) = beside(at);
 
     match settled(&staged, bytes) {
@@ -113,22 +157,31 @@ pub fn whole(at: &Path, bytes: &[u8]) -> Result<(), String> {
         Ok(()) => {}
         Err(fault) => {
             let _ = std::fs::remove_file(&staged);
-            return Err(complain("moving it into place", fault));
+            return Err(Unwritten::Moving(at.to_path_buf(), fault));
         }
     }
 
     named(at)
 }
 
-pub fn settled(at: &Path, bytes: &[u8]) -> Result<(), String> {
-    let complain = |what: &str, fault: std::io::Error| format!("{}: {what}: {fault}", at.display());
+#[cfg_attr(
+    dylint_lib = "explicit040_no_torn_write",
+    allow(
+        explicit040_no_torn_write,
+        reason = "this is the crate that knows how, and this is the half of it for a file read back at once: made, filled and committed in place, with the head above saying when that is the one to reach for"
+    )
+)]
+pub fn settled(at: &Path, bytes: &[u8]) -> Result<(), Unwritten> {
+    let mut file = File::create(at).map_err(|fault| Unwritten::Making(at.to_path_buf(), fault))?;
 
-    let mut file = File::create(at).map_err(|fault| complain("making it", fault))?;
-    file.write_all(bytes).map_err(|fault| complain("writing it", fault))?;
-    file.sync_all().map_err(|fault| complain("putting it on the disk", fault))
+    file.write_all(bytes)
+        .map_err(|fault| Unwritten::Filling(at.to_path_buf(), fault))?;
+
+    file.sync_all()
+        .map_err(|fault| Unwritten::Settling(at.to_path_buf(), fault))
 }
 
-pub fn named(at: &Path) -> Result<(), String> {
+pub fn named(at: &Path) -> Result<(), Unwritten> {
     let holding = match at.parent() {
         Some(holding) => holding,
         None => return Ok(()),
@@ -136,7 +189,7 @@ pub fn named(at: &Path) -> Result<(), String> {
 
     File::open(holding)
         .and_then(|dir| dir.sync_all())
-        .map_err(|fault| format!("{}: telling the disk about the new name: {fault}", holding.display()))
+        .map_err(|fault| Unwritten::Naming(holding.to_path_buf(), fault))
 }
 
 #[cfg(test)]

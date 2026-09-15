@@ -43,3 +43,27 @@ pub mod sources;
 pub mod wire;
 
 pub use pool::{Pool, Who};
+
+#[derive(Debug)]
+pub enum Unserved {
+    Sessionless,
+    Rootless,
+    Holding(std::path::PathBuf, std::io::Error),
+    Unbound(std::path::PathBuf, std::io::Error),
+}
+
+impl std::fmt::Display for Unserved {
+    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Unserved::Sessionless => write!(
+                to,
+                "XDG_RUNTIME_DIR: nothing says where this session keeps its sockets"
+            ),
+            Unserved::Rootless => write!(to, "the socket has no directory"),
+            Unserved::Holding(at, fault) => write!(to, "{}: {fault}", at.display()),
+            Unserved::Unbound(at, fault) => write!(to, "{}: {fault}", at.display()),
+        }
+    }
+}
+
+impl std::error::Error for Unserved {}

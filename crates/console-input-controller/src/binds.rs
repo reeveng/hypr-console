@@ -79,6 +79,32 @@
 //! on-screen keyboard is on Super and K and on the key a board marks
 //! calculator -- and two binds a compositor cannot tell apart are two binds
 //! this cannot put back one at a time.
+//!
+//! ## What the machine holds is the only baseline
+//!
+//! This asked what it had handed over rather than what the machine has, and at
+//! startup it had handed over nothing -- so a daemon coming up beside a
+//! compositor that was already holding every one of these pushed the whole
+//! table on top of itself. A bind does not replace a bind: Hyprland keeps a
+//! vector of them and fires every entry a press matches, so the second copy is
+//! the volume rocker stepping twice and raising two cards, and the hundred and
+//! twenty-fourth is a press nobody can use.
+//!
+//! Nothing said this either. The daemon was up, the table was right, the
+//! rendering was right, and every key did the right thing more times than it
+//! was asked -- the same shape of fault as the refusal above, arrived at from
+//! the other end: the one thing nobody asked was how many.
+//!
+//! What restarts the daemon is the ordinary business of the device. An apply
+//! stops and starts it, and so does every device run of the checks, while the
+//! compositor stays up across all of them -- so this is not a rare state, it is
+//! the state the device is in by the end of an afternoon.
+//!
+//! So the count is what is read. A key held once is left alone, a key held not
+//! at all is bound, and a key held more than once is unbound and bound again.
+//! `hl.unbind` erases every entry on the key rather than the first of them,
+//! which is what makes that last one converge on a machine already holding a
+//! hundred copies rather than merely stopping the next one arriving.
 
 use console_compositor::stirred::Stirred;
 use console_core_never::Never;
@@ -258,34 +284,132 @@ pub fn holding() -> Result<Holding, Never> {
 
             Holding::These(these)
         }
-        Err(fault) => Holding::Unanswered(fault),
+        Err(fault) => Holding::Unanswered(fault.to_string()),
     })
 }
 
-pub fn kept(handed: &[Bind], held: &[console_compositor::Bind]) -> Result<Vec<Bind>, Never> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Holds {
+    NotAtAll,
+    Once,
+    Over,
+}
+
+pub fn holds(one: &Bind, held: &[console_compositor::Bind]) -> Result<Holds, Never> {
+    let many = held
+        .iter()
+        .filter(|there| there.held == one.held && there.about == one.about)
+        .count();
+
+    Ok(match many {
+        0 => Holds::NotAtAll,
+        1 => Holds::Once,
+        _ => Holds::Over,
+    })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Says {
+    Bind(Bind),
+    Unbind(Bind),
+}
+
+impl Says {
+    pub fn said(&self) -> Result<String, Never> {
+        match self {
+            Says::Bind(one) => one.said(),
+            Says::Unbind(one) => one.unsaid(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Standing {
+    pub missing: usize,
+    pub over: usize,
+}
+
+pub fn standing(wanted: &[Bind], holding: &Holding) -> Result<Standing, Never> {
+    let held = match holding {
+        Holding::These(held) => held,
+        Holding::Unanswered(_) => return Ok(Standing { missing: 0, over: 0 }),
+    };
+
+    let mut standing = Standing { missing: 0, over: 0 };
+
+    for one in wanted {
+        let Ok(holds) = holds(one, held);
+
+        match holds {
+            Holds::Once => {},
+            Holds::NotAtAll => standing.missing = standing.missing.saturating_add(1),
+            Holds::Over => standing.over = standing.over.saturating_add(1),
+        }
+    }
+
+    Ok(standing)
+}
+
+pub fn sent(wanted: &[Bind], handed: &[Bind], holding: &Holding) -> Result<Vec<Says>, Never> {
+    let held = match holding {
+        Holding::These(held) => held,
+        Holding::Unanswered(_) => return unasked(wanted, handed),
+    };
+
+    let Ok(mut sent) = gone(wanted, handed);
+
+    for one in wanted {
+        let Ok(holds) = holds(one, held);
+
+        match holds {
+            Holds::Once => {},
+            Holds::NotAtAll => sent.push(Says::Bind(one.clone())),
+            Holds::Over => {
+                sent.push(Says::Unbind(one.clone()));
+                sent.push(Says::Bind(one.clone()));
+            },
+        }
+    }
+
+    Ok(sent)
+}
+
+fn unasked(wanted: &[Bind], handed: &[Bind]) -> Result<Vec<Says>, Never> {
+    let Ok(mut sent) = gone(wanted, handed);
+
+    #[cfg_attr(
+        dylint_lib = "explicit028_no_search_in_a_loop",
+        allow(
+            explicit028_no_search_in_a_loop,
+            reason = "both lists are the binds of one controller profile, which is tens of them and is written out in a file somebody reads"
+        )
+    )]
+    for one in wanted.iter().filter(|one| !handed.contains(one)) {
+        sent.push(Says::Bind(one.clone()));
+    }
+
+    Ok(sent)
+}
+
+#[cfg_attr(
+    dylint_lib = "explicit028_no_search_in_a_loop",
+    allow(
+        explicit028_no_search_in_a_loop,
+        reason = "both lists are the binds of one controller profile, which is tens of them and is written out in a file somebody reads"
+    )
+)]
+fn gone(wanted: &[Bind], handed: &[Bind]) -> Result<Vec<Says>, Never> {
     Ok(handed
         .iter()
-        .filter(|one| held.iter().any(|there| there.held == one.held && there.about == one.about))
-        .cloned()
+        .filter(|one| !wanted.contains(one))
+        .map(|one| Says::Unbind(one.clone()))
         .collect())
 }
 
-pub fn told(wanted: &[Bind], before: &[Bind]) -> Result<Went, Never> {
+pub fn told(sent: &[Says]) -> Result<Went, Never> {
     let mut went = Went::Through;
 
-    for gone in before.iter().filter(|one| !wanted.contains(one)) {
-        let Ok(said) = gone.unsaid();
-        let Ok(done) = console_compositor::told(console_compositor::Told::Eval, &said);
-
-        let Ok(through) = complained(done, &said);
-
-        went = match (went, through) {
-            (Went::Through, Went::Through) => Went::Through,
-            (_, _) => Went::Nowhere,
-        };
-    }
-
-    for one in wanted.iter().filter(|one| !before.contains(one)) {
+    for one in sent {
         let Ok(said) = one.said();
         let Ok(done) = console_compositor::told(console_compositor::Told::Eval, &said);
 
@@ -304,7 +428,7 @@ fn complained(said: console_compositor::Done, about: &str) -> Result<Went, Never
     Ok(match said {
         console_compositor::Done::Taken => Went::Through,
         console_compositor::Done::Refused(why) => {
-            eprintln!("stick-scroll: the compositor would not take {about:?}: {why}");
+            eprintln!("controller-desktop: the compositor would not take {about:?}: {why}");
 
             Went::Nowhere
         }
@@ -357,8 +481,8 @@ mod tests {
         let every = ours();
 
         assert!(
-            !every.iter().any(|bind| bind.runs == "put-away"),
-            "put-away is on the pad alone and has nothing to bind"
+            !every.iter().any(|bind| bind.runs == "console-put-away"),
+            "console-put-away is on the pad alone and has nothing to bind"
         );
     }
 
@@ -448,32 +572,115 @@ mod tests {
         assert_eq!(keyboard.len(), 2, "the keyboard is the job that is on two keys at once");
     }
 
-    #[test]
-    fn a_compositor_that_threw_them_away_is_holding_none_of_them() {
-        let every = ours();
-        let Ok(still) = kept(&every, &[]);
+    fn bound(sent: &[Says]) -> Vec<String> {
+        sent.iter()
+            .filter_map(|says| match says {
+                Says::Bind(one) => Some(one.about.clone()),
+                Says::Unbind(_) => None,
+            })
+            .collect()
+    }
 
-        assert!(still.is_empty(), "nothing held is nothing kept");
+    fn unbound(sent: &[Says]) -> Vec<String> {
+        sent.iter()
+            .filter_map(|says| match says {
+                Says::Unbind(one) => Some(one.about.clone()),
+                Says::Bind(_) => None,
+            })
+            .collect()
+    }
 
-        let all: Vec<console_compositor::Bind> = every.iter().map(held).collect();
-        let Ok(still) = kept(&every, &all);
-
-        assert_eq!(still.len(), every.len(), "what it says it holds is what it kept");
+    fn these(every: &[Bind]) -> Holding {
+        Holding::These(every.iter().map(held).collect())
     }
 
     #[test]
-    fn a_bind_moved_onto_another_key_is_not_the_one_that_is_held() {
+    fn a_compositor_that_threw_them_away_is_handed_every_one_of_them() {
         let every = ours();
-        let settings = one(&every, &keys_of("super", "i")).clone();
+        let Ok(sent) = sent(&every, &[], &Holding::These(Vec::new()));
 
-        let elsewhere = console_compositor::Bind {
-            held: 0,
-            named: String::new(),
-            about: settings.about.clone(),
-        };
+        assert_eq!(bound(&sent).len(), every.len(), "nothing held is everything sent");
+        assert!(unbound(&sent).is_empty(), "there is nothing there to take off");
+    }
 
-        let Ok(still) = kept(&[settings], &[elsewhere]);
+    #[test]
+    fn a_compositor_already_holding_them_is_handed_nothing_at_startup() {
+        let every = ours();
+        let Ok(sent) = sent(&every, &[], &these(&every));
 
-        assert!(still.is_empty(), "the same job on a different chord is a different bind");
+        assert!(
+            sent.is_empty(),
+            "a daemon starting beside a compositor that holds these pushed them again: {sent:?}"
+        );
+    }
+
+    #[test]
+    fn a_key_held_more_than_once_is_taken_off_and_put_back_once() {
+        let every = ours();
+        let twice = one(&every, &tail("volume-up")).clone();
+
+        let mut holding: Vec<console_compositor::Bind> = every.iter().map(held).collect();
+        holding.push(held(&twice));
+
+        let Ok(sent) = sent(&every, &every, &Holding::These(holding));
+
+        assert_eq!(unbound(&sent), vec![twice.about.clone()]);
+        assert_eq!(bound(&sent), vec![twice.about.clone()]);
+
+        let taken = sent.iter().position(|says| says == &Says::Unbind(twice.clone()));
+        let given = sent.iter().position(|says| says == &Says::Bind(twice.clone()));
+
+        assert!(taken < given, "it goes back on after it comes off, not before");
+    }
+
+    #[test]
+    fn how_many_are_missing_and_how_many_are_doubled_is_said_apart() {
+        let every = ours();
+        let twice = one(&every, &tail("volume-up")).clone();
+
+        let mut holding: Vec<console_compositor::Bind> =
+            every.iter().filter(|bind| bind.about != twice.about).map(held).collect();
+
+        holding.push(held(&twice));
+        holding.push(held(&twice));
+
+        let Ok(doubled) = standing(&every, &Holding::These(holding));
+
+        assert_eq!(doubled.over, 1);
+        assert_eq!(doubled.missing, 0);
+
+        let Ok(nothing_held) = standing(&every, &Holding::These(Vec::new()));
+
+        assert_eq!(nothing_held.missing, every.len());
+        assert_eq!(nothing_held.over, 0);
+    }
+
+    #[test]
+    fn a_bind_moved_onto_another_key_is_taken_off_the_key_it_was_on() {
+        let every = ours();
+        let was = one(&every, &keys_of("super", "i")).clone();
+
+        let said = Jobs::read("[jobs]\nsettings = \"keyboard: super + j\"\n").expect("a table");
+        let Ok(table) = Table::of(&said);
+        let Ok(now) = wanted(&table);
+
+        let is = one(&now, &keys_of("super", "j")).clone();
+        let Ok(sent) = sent(&now, &every, &these(&every));
+
+        assert!(unbound(&sent).contains(&was.about), "the key it left is not put back");
+        assert!(bound(&sent).contains(&is.about), "the key it moved onto is not handed over");
+    }
+
+    #[test]
+    fn a_compositor_that_will_not_say_is_taken_at_its_last_word() {
+        let every = ours();
+        let would_not = Holding::Unanswered("no socket".to_string());
+        let Ok(again) = sent(&every, &every, &would_not);
+
+        assert!(again.is_empty(), "what cannot be counted is left where it was: {again:?}");
+
+        let Ok(first) = sent(&every, &[], &would_not);
+
+        assert_eq!(bound(&first).len(), every.len(), "a first push still goes out");
     }
 }

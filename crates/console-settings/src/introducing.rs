@@ -104,8 +104,11 @@ pub fn joined(said: &str) -> Result<Went, Never> {
     })
 }
 
-pub fn would_not(says: &str, said: &str) -> Result<String, Never> {
-    let last = said.lines().map(str::trim).rfind(|line| !line.is_empty());
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Answered<'a>(pub &'a str);
+
+pub fn would_not(says: &str, said: Answered<'_>) -> Result<String, Never> {
+    let last = said.0.lines().map(str::trim).rfind(|line| !line.is_empty());
 
     Ok(match last {
         Some(last) => format!("{says} {last}"),
@@ -175,11 +178,14 @@ mod tests {
     #[test]
     fn what_is_said_afterwards_is_the_last_thing_bluez_said() {
         assert_eq!(
-            would_not("Blue Keys would not pair:", "Attempting to pair\nDevice AA not available\n"),
+            would_not(
+                "Blue Keys would not pair:",
+                Answered("Attempting to pair\nDevice AA not available\n")
+            ),
             Ok("Blue Keys would not pair: Device AA not available".to_string())
         );
         assert_eq!(
-            would_not("Blue Keys would not pair:", "   \n"),
+            would_not("Blue Keys would not pair:", Answered("   \n")),
             Ok("Blue Keys would not pair: and said nothing about why".to_string())
         );
     }

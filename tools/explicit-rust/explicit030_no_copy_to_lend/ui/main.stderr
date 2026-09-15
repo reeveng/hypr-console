@@ -1,0 +1,27 @@
+error: `clone` allocates a copy of a `Held` so that a borrow of the copy can be handed over
+  --> $DIR/main.rs:20:11
+   |
+LL |     takes(&held.clone())
+   |           ^^^^^^^^^^^^^
+   |
+   = help: take the reference to the thing itself. A copy that is kept -- stored, answered with, pushed onto something -- is not written with an `&` in front of it, so nothing that is needed is being asked for here
+   = note: `#[deny(explicit030_no_copy_to_lend)]` on by default
+
+error: `to_owned` allocates a copy of a `Held` so that a borrow of the copy can be handed over
+  --> $DIR/main.rs:26:11
+   |
+LL |     takes(&held.to_owned())
+   |           ^^^^^^^^^^^^^^^^
+   |
+   = help: take the reference to the thing itself. A copy that is kept -- stored, answered with, pushed onto something -- is not written with an `&` in front of it, so nothing that is needed is being asked for here
+
+error: `clone` allocates a copy of a `std::string::String` so that a borrow of the copy can be handed over
+  --> $DIR/main.rs:32:17
+   |
+LL |     takes_words(&said.clone())
+   |                 ^^^^^^^^^^^^^
+   |
+   = help: take the reference to the thing itself. A copy that is kept -- stored, answered with, pushed onto something -- is not written with an `&` in front of it, so nothing that is needed is being asked for here
+
+error: aborting due to 3 previous errors
+

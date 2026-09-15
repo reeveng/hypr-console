@@ -33,7 +33,11 @@
 //! ```
 //!
 //! Attributes are read the same way, so a `#[cfg(...)]` above a function
-//! counts as part of it rather than as the line before it.
+//! counts as part of it rather than as the line before it. One written over
+//! several lines ends on a `)]` that says nothing about what it belongs to,
+//! so the walk upward reads the brackets as well as the words: a line that
+//! closes more than it opens puts the walk inside an attribute, and it stays
+//! there until the `#[` that opened it.
 //!
 //! ## What it asks
 //!
@@ -149,6 +153,19 @@ fn belongs_to_what_follows(line: &str) -> bool {
         || line.ends_with("*/")
 }
 
+/// How much of a bracket a line closes that it did not open.
+///
+/// The upward walk recognises an attribute by its `#[`, which the last line
+/// of a `#[cfg_attr(...)]` written over several lines does not have: it is a
+/// `)]` and nothing else. Counting brackets is what tells the two apart from
+/// the line that is genuinely the one before.
+fn closes_more_than_it_opens(line: &str) -> isize {
+    let closed = isize::try_from(line.matches(']').count()).unwrap_or(0);
+    let opened = isize::try_from(line.matches('[').count()).unwrap_or(0);
+
+    closed - opened
+}
+
 /// Whether the line above already reads as a gap.
 ///
 /// Not only a blank line. An opening brace means the block is the first thing
@@ -198,15 +215,19 @@ fn check_room(cx: &EarlyContext<'_>, span: Span, what: &str) {
     // Upward past whatever belongs to this block, to the first line that is
     // genuinely the one before it.
     let mut above = opens;
+    let mut inside_an_attribute = 0isize;
     while above > 1 {
         let Some(line) = line_at(sm, span, above - 1) else {
             break;
         };
 
-        if !belongs_to_what_follows(&line) {
+        let closes = closes_more_than_it_opens(&line);
+
+        if inside_an_attribute == 0 && closes <= 0 && !belongs_to_what_follows(&line) {
             break;
         }
 
+        inside_an_attribute = (inside_an_attribute + closes).max(0);
         above -= 1;
     }
 

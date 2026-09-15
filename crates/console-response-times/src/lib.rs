@@ -84,11 +84,17 @@ pub mod line;
 pub mod summary;
 pub mod writing;
 
+use std::fmt;
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use console_core_never::Never;
+
+const NOT_SAID: f64 = 0.0;
+
+const LOADAVG: &str = "/proc/loadavg";
+
 
 pub use writing::settled;
 
@@ -100,6 +106,13 @@ pub const FELT: Duration = Duration::from_millis(16);
 
 pub const STALE: Duration = Duration::from_secs(10);
 
+#[cfg_attr(
+    dylint_lib = "explicit026_env_read_once",
+    allow(
+        explicit026_env_read_once,
+        reason = "CONSOLE_PRESSED and CONSOLE_FROM are stamped by this crate and read by this crate, and the two consts above are the only spelling of either"
+    )
+)]
 fn asked(name: &str) -> Result<Option<String>, Never> {
     match std::env::var(name) {
         Ok(said) => Ok(Some(said)),
@@ -118,6 +131,18 @@ pub fn where_() -> Result<Option<PathBuf>, Never> {
     Ok(ours.map(|ours| ours.join("waited.jsonl")))
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Wait<'a> {
+    pub who: &'a str,
+    pub what: &'a str,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Note<'a> {
+    pub name: &'a str,
+    pub said: &'a str,
+}
+
 pub struct Waiting {
     who: String,
     what: String,
@@ -128,14 +153,24 @@ pub struct Waiting {
     before: Duration,
 }
 
+#[cfg_attr(
+    dylint_lib = "explicit039_no_reading_the_clock",
+    allow(
+        explicit039_no_reading_the_clock,
+        reason = "this is the stopwatch: the reading is the measurement rather than a decision made from it, and handing the instant in would put the clock in every panel that asks how long it took"
+    )
+)]
 impl Waiting {
-    pub fn on(who: &str, what: &str) -> Result<Self, Never> {
+    pub fn on(wait: Wait<'_>) -> Result<Self, Never> {
         let now = Instant::now();
 
         let Ok(since) = since_exec();
         let Ok(stamped) = since_press();
 
-        let exec = since.unwrap_or_default();
+        let exec = match since {
+            Some(exec) => exec,
+            None => Duration::ZERO,
+        };
         let press = stamped.map(|waited| waited.saturating_sub(exec));
         let mut marks = Vec::new();
         let mut before = exec;
@@ -159,8 +194,8 @@ impl Waiting {
         }
 
         Ok(Waiting {
-            who: who.to_string(),
-            what: what.to_string(),
+            who: wait.who.to_string(),
+            what: wait.what.to_string(),
             started: now,
             last: now,
             marks,
@@ -170,8 +205,7 @@ impl Waiting {
     }
 
     pub fn asked(
-        who: &str,
-        what: &str,
+        wait: Wait<'_>,
         pressed: Option<&str>,
         from: &str,
         exec: Duration,
@@ -208,8 +242,8 @@ impl Waiting {
         }
 
         Ok(Waiting {
-            who: who.to_string(),
-            what: what.to_string(),
+            who: wait.who.to_string(),
+            what: wait.what.to_string(),
             started: now,
             last: now,
             marks,
@@ -218,12 +252,12 @@ impl Waiting {
         })
     }
 
-    pub fn here(who: &str, what: &str) -> Result<Self, Never> {
+    pub fn here(wait: Wait<'_>) -> Result<Self, Never> {
         let now = Instant::now();
 
         Ok(Waiting {
-            who: who.to_string(),
-            what: what.to_string(),
+            who: wait.who.to_string(),
+            what: wait.what.to_string(),
             started: now,
             last: now,
             marks: Vec::new(),
@@ -264,8 +298,8 @@ impl Waiting {
         Ok(())
     }
 
-    pub fn named(&mut self, name: &str, said: &str) -> Result<(), Never> {
-        self.notes.push((name.to_string(), line::Said::Word(said.to_string())));
+    pub fn named(&mut self, note: Note<'_>) -> Result<(), Never> {
+        self.notes.push((note.name.to_string(), line::Said::Word(note.said.to_string())));
 
         Ok(())
     }
@@ -303,7 +337,10 @@ impl Waiting {
 
         let entry = line::Entry {
             at,
-            up: up.unwrap_or_default().as_secs_f64(),
+            up: match up {
+                Some(up) => up.as_secs_f64(),
+                None => NOT_SAID,
+            },
             load,
             who: self.who,
             what: self.what,
@@ -319,6 +356,13 @@ impl Waiting {
     }
 }
 
+#[cfg_attr(
+    dylint_lib = "explicit039_no_reading_the_clock",
+    allow(
+        explicit039_no_reading_the_clock,
+        reason = "the wall clock is what `at` on a written line means -- when this happened, so a week of them can be read in order -- and no instant handed in would say that"
+    )
+)]
 fn unix_now() -> Result<u64, Never> {
     Ok(SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs()))
 }
@@ -342,16 +386,36 @@ pub fn uptime() -> Result<Option<Duration>, Never> {
     Ok(Some(Duration::from_secs_f64(seconds)))
 }
 
-pub fn load() -> Result<f64, String> {
-    let said = std::fs::read_to_string("/proc/loadavg")
-        .map_err(|fault| format!("/proc/loadavg: {fault}"))?;
+#[derive(Debug)]
+pub enum Unloaded {
+    Unreadable(std::io::Error),
+    Empty,
+    NotANumber(String, std::num::ParseFloatError),
+}
+
+impl fmt::Display for Unloaded {
+    fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Unloaded::Unreadable(fault) => write!(to, "{LOADAVG}: {fault}"),
+            Unloaded::Empty => write!(to, "{LOADAVG}: it said nothing at all"),
+            Unloaded::NotANumber(first, fault) => write!(to, "{LOADAVG}: {first:?}: {fault}"),
+        }
+    }
+}
+
+impl std::error::Error for Unloaded {}
+
+pub fn load() -> Result<f64, Unloaded> {
+    let said = std::fs::read_to_string(LOADAVG).map_err(Unloaded::Unreadable)?;
 
     let first = match said.split_whitespace().next() {
         Some(first) => first,
-        None => return Err("/proc/loadavg: it said nothing at all".to_string()),
+        None => return Err(Unloaded::Empty),
     };
 
-    first.parse().map_err(|fault| format!("/proc/loadavg: {first:?}: {fault}"))
+    first
+        .parse()
+        .map_err(|fault| Unloaded::NotANumber(first.to_string(), fault))
 }
 
 pub fn since_exec() -> Result<Option<Duration>, Never> {
@@ -440,9 +504,11 @@ pub fn started_at(stat: &str) -> Result<Option<f64>, Never> {
 }
 
 fn since_press() -> Result<Option<Duration>, Never> {
-    let raw = match std::env::var(PRESSED) {
-        Ok(s) => s,
-        Err(_) => return Ok(None),
+    let Ok(said) = asked(PRESSED);
+
+    let raw = match said {
+        Some(raw) => raw,
+        None => return Ok(None),
     };
 
     waited_since(&raw)
@@ -457,7 +523,10 @@ pub fn press_said() -> Result<Option<String>, Never> {
 pub fn from_said() -> Result<String, Never> {
     let Ok(came) = came_from();
 
-    Ok(came.unwrap_or_default())
+    Ok(match came {
+        Some(came) => came,
+        None => String::new(),
+    })
 }
 
 pub fn waited_since(raw: &str) -> Result<Option<Duration>, Never> {
@@ -544,9 +613,14 @@ pub fn this_program() -> Result<Option<String>, Never> {
 }
 
 pub fn pressed_here(starting: &mut Command) -> Result<(), Never> {
-    let Ok(named) = this_program();
+    let Ok(told) = this_program();
 
-    let Ok(()) = pressed(starting, &named.unwrap_or_default());
+    let named = match told {
+        Some(named) => named,
+        None => String::new(),
+    };
+
+    let Ok(()) = pressed(starting, &named);
 
     Ok(())
 }
@@ -624,7 +698,7 @@ mod tests {
         match std::env::var(PRESSED) {
             Ok(_) => {}
             Err(_) => {
-                let Ok(waiting) = Waiting::on("a test", "opening");
+                let Ok(waiting) = Waiting::on(Wait { who: "a test", what: "opening" });
 
                 let named: Vec<&str> =
                     waiting.marks.iter().map(|(name, _)| name.as_str()).collect();
@@ -724,7 +798,7 @@ mod tests {
 
     #[test]
     fn a_stretch_before_a_waiting_that_counts_nothing_before_it_is_added() {
-        let Ok(mut waiting) = Waiting::here("a test", "opening");
+        let Ok(mut waiting) = Waiting::here(Wait { who: "a test", what: "opening" });
 
         let Ok(()) = waiting.taking("looking", Duration::from_millis(5));
 
@@ -739,7 +813,7 @@ mod tests {
         let before = store.metadata().map(|about| about.len()).unwrap_or(0);
 
         {
-            let Ok(mut waiting) = Waiting::here("a test", "nothing");
+            let Ok(mut waiting) = Waiting::here(Wait { who: "a test", what: "nothing" });
 
             let Ok(()) = waiting.mark("thinking about it");
         }

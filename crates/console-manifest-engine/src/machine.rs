@@ -12,8 +12,9 @@ use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_core_places::Base;
 
-use crate::install::{self, USER};
+use crate::install::{USER, User, self};
 use crate::laying::{self, Back, Laid};
+use crate::unapplied::Unapplied;
 
 pub struct Said {
     pub out: String,
@@ -127,6 +128,13 @@ pub fn run_watched(argv: &[&str], heard: &mut dyn FnMut(&str)) -> Result<Ran, Ne
 }
 
 pub fn whoever() -> Result<&'static str, Never> {
+    #[cfg_attr(
+        dylint_lib = "explicit044_no_ambient_value",
+        allow(
+            explicit044_no_ambient_value,
+            reason = "who the desktop belongs to is what `@user@` is filled in with, settled by the machine before anything is laid down and the same for every path an apply writes; `docs/crates.md` is why this question stays here rather than going to `console_core_places`"
+        )
+    )]
     static KNOWN: OnceLock<String> = OnceLock::new();
 
     Ok(KNOWN.get_or_init(|| {
@@ -134,7 +142,10 @@ pub fn whoever() -> Result<&'static str, Never> {
         let Ok(already) = the_home_it_is_already_in();
         let Ok(numbered) = the_account_numbered_1000();
 
-        one.or(already).or(numbered).unwrap_or_else(|| USER.to_string())
+        match one.or(already).or(numbered) {
+            Some(whose) => whose,
+            None => USER.to_string(),
+        }
     }))
 }
 
@@ -291,11 +302,12 @@ fn named(argv: &[&str]) -> Result<Vec<String>, Never> {
     Ok(said.out.split_whitespace().map(str::to_owned).collect())
 }
 
-pub fn stage_file(from: &Path, live: &str) -> Result<(), String> {
+pub fn stage_file(from: &Path, live: &str) -> Result<(), Unapplied> {
     let Ok(whoever) = whoever();
-    let Ok(on) = install::on_machine(live, whoever);
+    let Ok(on) = install::on_machine(live, User(whoever));
     let to = Path::new(&on);
-    let complain = |what: &str, fault: std::io::Error| format!("{live}: {what}: {fault}");
+    let complain =
+        |what: &'static str, fault: std::io::Error| Unapplied::Staging(live.to_string(), what, fault);
     let Ok(holds) = install::holding(&on);
 
     for holding in holds {
@@ -306,43 +318,60 @@ pub fn stage_file(from: &Path, live: &str) -> Result<(), String> {
 
         std::fs::create_dir(&holding).map_err(|fault| complain("its directory", fault))?;
 
-        let Ok(owner) = install::owner_of(&holding.to_string_lossy(), whoever);
+        let Ok(owner) = install::owner_of(&holding.to_string_lossy(), User(whoever));
         let Ok(who) = who(&owner);
-        let (uid, gid) = who.ok_or_else(|| format!("{live}: no user called {owner}"))?;
+        let (uid, gid) =
+            who.ok_or_else(|| Unapplied::NoUserFor(live.to_string(), owner.to_string()))?;
 
         std::os::unix::fs::chown(&holding, Some(uid), Some(gid))
             .map_err(|fault| complain("its directory's owner", fault))?;
     }
 
-    let Ok(staged) = laying::staged(to);
-    let held = std::fs::read(from).map_err(|fault| complain("reading it", fault))?;
-    let Ok(content) = install::content_on_machine(&held, whoever, live);
+    let Ok(beside) = laying::staged(to);
 
-    console_core_atomic_writes::settled(&staged, &content).map_err(|fault| format!("{live}: {fault}"))?;
+    let staged = match beside {
+        Some(staged) => staged,
+        None => return Err(Unapplied::NothingBeside(live.to_string(), "stage one beside")),
+    };
+
+    let held = std::fs::read(from).map_err(|fault| complain("reading it", fault))?;
+    let Ok(content) = install::content_on_machine(&held, User(whoever), live);
+
+    console_core_atomic_writes::settled(&staged, &content)
+        .map_err(|fault| Unapplied::Unwritten(live.to_string(), fault))?;
 
     let Ok(mode) = install::mode_of(live, &held);
     let Ok(permissions) = permissions(mode);
 
     std::fs::set_permissions(&staged, permissions).map_err(|fault| complain("its mode", fault))?;
 
-    let Ok(owner) = install::owner_of(live, whoever);
+    let Ok(owner) = install::owner_of(live, User(whoever));
     let Ok(who) = who(&owner);
-    let (uid, gid) = who.ok_or_else(|| format!("{live}: no user called {owner}"))?;
+    let (uid, gid) = who.ok_or_else(|| Unapplied::NoUserFor(live.to_string(), owner.to_string()))?;
 
     std::os::unix::fs::chown(&staged, Some(uid), Some(gid))
         .map_err(|fault| complain("its owner", fault))
 }
 
-pub fn swap_file(live: &str) -> Result<Back, String> {
+pub fn swap_file(live: &str) -> Result<Back, Unapplied> {
     let Ok(whoever) = whoever();
-    let Ok(on) = install::on_machine(live, whoever);
+    let Ok(on) = install::on_machine(live, User(whoever));
     let to = Path::new(&on);
-    let complain = |what: &str, fault: std::io::Error| format!("{live}: {what}: {fault}");
+    let complain =
+        |what: &'static str, fault: std::io::Error| Unapplied::Staging(live.to_string(), what, fault);
 
     let back = match to.exists() {
         false => Back::Gone,
         true => {
-            let Ok(kept) = laying::kept(to);
+            let Ok(beside) = laying::kept(to);
+
+            let kept = match beside {
+                Some(kept) => kept,
+                None => {
+                    return Err(Unapplied::NothingBeside(live.to_string(), "keep one beside"));
+                }
+            };
+
             let _ = std::fs::remove_file(&kept);
 
             std::fs::hard_link(to, &kept).map_err(|fault| complain("keeping what was there", fault))?;
@@ -351,7 +380,17 @@ pub fn swap_file(live: &str) -> Result<Back, String> {
         }
     };
 
-    let Ok(staged) = laying::staged(to);
+    let Ok(beside) = laying::staged(to);
+
+    let staged = match beside {
+        Some(staged) => staged,
+        None => {
+            return Err(Unapplied::NothingBeside(
+                live.to_string(),
+                "move one into place as",
+            ));
+        }
+    };
 
     std::fs::rename(staged, to).map_err(|fault| complain("moving it into place", fault))?;
 
@@ -363,15 +402,24 @@ pub fn swap_file(live: &str) -> Result<Back, String> {
     Ok(back)
 }
 
-pub fn put_back(laid: &Laid) -> Result<(), String> {
+pub fn put_back(laid: &Laid) -> Result<(), Unapplied> {
     let Ok(whoever) = whoever();
-    let Ok(on) = install::on_machine(&laid.at, whoever);
+    let Ok(on) = install::on_machine(&laid.at, User(whoever));
     let to = Path::new(&on);
-    let complain = |what: &str, fault: std::io::Error| format!("{}: {what}: {fault}", laid.at);
+    let complain = |what: &'static str, fault: std::io::Error| {
+        Unapplied::Staging(laid.at.clone(), what, fault)
+    };
 
     match laid.back {
         Back::Kept => {
-            let Ok(kept) = laying::kept(to);
+            let Ok(beside) = laying::kept(to);
+
+            let kept = match beside {
+                Some(kept) => kept,
+                None => {
+                    return Err(Unapplied::NothingKept(laid.at.clone()));
+                }
+            };
 
             std::fs::rename(kept, to).map_err(|fault| complain("putting back what was there", fault))
         }
@@ -382,18 +430,30 @@ pub fn put_back(laid: &Laid) -> Result<(), String> {
 
 pub fn drop_staged(live: &str) -> Result<(), Never> {
     let Ok(whoever) = whoever();
-    let Ok(on) = install::on_machine(live, whoever);
-    let Ok(staged) = laying::staged(Path::new(&on));
-    let _ = std::fs::remove_file(staged);
+    let Ok(on) = install::on_machine(live, User(whoever));
+    let Ok(beside) = laying::staged(Path::new(&on));
+
+    match beside {
+        Some(staged) => {
+            let _ = std::fs::remove_file(staged);
+        }
+        None => {}
+    }
 
     Ok(())
 }
 
 pub fn drop_kept(live: &str) -> Result<(), Never> {
     let Ok(whoever) = whoever();
-    let Ok(on) = install::on_machine(live, whoever);
-    let Ok(kept) = laying::kept(Path::new(&on));
-    let _ = std::fs::remove_file(kept);
+    let Ok(on) = install::on_machine(live, User(whoever));
+    let Ok(beside) = laying::kept(Path::new(&on));
+
+    match beside {
+        Some(kept) => {
+            let _ = std::fs::remove_file(kept);
+        }
+        None => {}
+    }
 
     Ok(())
 }
@@ -402,6 +462,15 @@ fn permissions(mode: u32) -> Result<std::fs::Permissions, Never> {
     use std::os::unix::fs::PermissionsExt;
 
     Ok(std::fs::Permissions::from_mode(mode))
+}
+
+pub fn handed_over(at: &Path) -> Result<(), Unapplied> {
+    let Ok(whoever) = whoever();
+    let Ok(who) = who(whoever);
+    let (uid, gid) = who.ok_or_else(|| Unapplied::NoUser(whoever.to_string()))?;
+
+    std::os::unix::fs::chown(at, Some(uid), Some(gid))
+        .map_err(|fault| Unapplied::Owner(at.to_path_buf(), fault))
 }
 
 fn who(user: &str) -> Result<Option<(u32, u32)>, Never> {
@@ -484,15 +553,15 @@ pub fn uncommitted(root: &Path) -> Result<Vec<String>, Never> {
 pub struct Here;
 
 impl laying::Lays for Here {
-    fn stage(&mut self, from: &Path, live: &str) -> Result<(), String> {
+    fn stage(&mut self, from: &Path, live: &str) -> Result<(), Unapplied> {
         stage_file(from, live)
     }
 
-    fn swap(&mut self, live: &str) -> Result<Back, String> {
+    fn swap(&mut self, live: &str) -> Result<Back, Unapplied> {
         swap_file(live)
     }
 
-    fn put_back(&mut self, laid: &Laid) -> Result<(), String> {
+    fn put_back(&mut self, laid: &Laid) -> Result<(), Unapplied> {
         put_back(laid)
     }
 
@@ -506,7 +575,7 @@ impl laying::Lays for Here {
 
     fn standing(&self, live: &str) -> Back {
         let Ok(whoever) = whoever();
-        let Ok(on) = install::on_machine(live, whoever);
+        let Ok(on) = install::on_machine(live, User(whoever));
 
         match Path::new(&on).exists() {
             true => Back::Kept,
@@ -514,7 +583,7 @@ impl laying::Lays for Here {
         }
     }
 
-    fn note(&mut self, laid: &[Laid]) -> Result<(), String> {
+    fn note(&mut self, laid: &[Laid]) -> Result<(), Unapplied> {
         wrote_plan(Path::new(PLAN), laid)
     }
 
@@ -535,10 +604,10 @@ fn line_of(laid: &Laid) -> Result<String, Never> {
 ", laid.at))
 }
 
-fn wrote_plan(at: &Path, laid: &[Laid]) -> Result<(), String> {
+fn wrote_plan(at: &Path, laid: &[Laid]) -> Result<(), Unapplied> {
     match at.parent() {
         Some(holding) => std::fs::create_dir_all(holding)
-            .map_err(|fault| format!("{}: its directory: {fault}", at.display()))?,
+            .map_err(|fault| Unapplied::Directory(at.to_path_buf(), fault))?,
         None => {},
     }
 
@@ -550,7 +619,7 @@ fn wrote_plan(at: &Path, laid: &[Laid]) -> Result<(), String> {
             line
         })
         .collect();
-    console_core_atomic_writes::whole(at, written.as_bytes())
+    console_core_atomic_writes::whole(at, written.as_bytes()).map_err(Unapplied::Wrote)
 }
 
 fn forget_plan(at: &Path) -> Result<(), Never> {

@@ -45,9 +45,20 @@ pub fn watched() -> Result<(Vec<Watched>, Option<String>), Never> {
     push(building, "whoever is building this");
     push(machine, "what this machine calls itself");
 
-    let missing = match std::env::var("CONSOLE_HOST") {
+    let told = console_device::naming::device();
+
+    let missing = match told {
+        Err(fault) => Some(format!(
+            "{fault}, so the device's own name and the name of whoever it \
+             belongs to were not checked for."
+        )),
         Ok(at) if !at.trim().is_empty() => {
-            push(at.rsplit('@').next().unwrap_or_default().to_string(), "the device");
+            let named = match at.rsplit('@').next() {
+                Some(named) => named,
+                None => at.as_str(),
+            };
+
+            push(named.to_string(), "the device");
             let Ok(asked) = said(Program::Ssh, &[
                 "-o",
                 "BatchMode=yes",
@@ -64,17 +75,17 @@ pub fn watched() -> Result<(Vec<Watched>, Option<String>), Never> {
                      of whoever it belongs to were not checked for."
                 )),
                 false => {
-                    let mut lines = asked.lines();
-                    push(lines.next().unwrap_or_default().to_string(), "the device");
-                    push(
-                        lines.next().unwrap_or_default().to_string(),
-                        "whoever the device belongs to",
-                    );
+                    let asking = ["the device", "whoever the device belongs to"];
+
+                    for (said, what) in asked.lines().zip(asking) {
+                        push(said.to_string(), what);
+                    }
+
                     None
                 }
             }
         }
-        Ok(_) | Err(std::env::VarError::NotPresent | std::env::VarError::NotUnicode(_)) => Some(
+        Ok(_nothing_names_a_device) => Some(
             "CONSOLE_HOST is not set, so the device's own name and the name of \
              whoever it belongs to were not checked for."
                 .to_string(),
@@ -86,13 +97,17 @@ pub fn watched() -> Result<(Vec<Watched>, Option<String>), Never> {
 
 pub fn leaks<'a>(text: &str, names: &'a [Watched]) -> Result<Option<&'a Watched>, Never> {
     Ok(names.iter().find(|watched| {
-        let Ok(says) = says(text, &watched.name);
+        let Ok(says) = says(text, Name(&watched.name));
 
         says == Says::TheName
     }))
 }
 
-fn says(text: &str, name: &str) -> Result<Says, Never> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Name<'a>(&'a str);
+
+fn says(text: &str, name: Name<'_>) -> Result<Says, Never> {
+    let name = name.0;
     let bytes = text.as_bytes();
     let said = text.match_indices(name).any(|(at, _)| {
         let before = at.checked_sub(1).and_then(|before| bytes.get(before).copied());

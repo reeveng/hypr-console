@@ -17,6 +17,7 @@
 //! file, and both were written by whichever program happened to be running.
 //! The compositor is not a second opinion about what is on its own screen.
 
+use std::fmt;
 use std::path::PathBuf;
 
 use console_compositor::stirred::Stirred;
@@ -27,12 +28,60 @@ pub mod homeward;
 
 pub use homeward::{Awake, Hand, Said, carrying, homeward, telling, waking};
 
-fn asked(name: &str) -> Result<String, String> {
-    std::env::var(name).map_err(|fault| format!("{name}: {fault}"))
+#[derive(Debug)]
+pub enum Amiss {
+    Sessionless,
+    Compositorless,
+    Asking(console_compositor::Unanswered),
+    Making(PathBuf, std::io::Error),
+    Writing(console_core_atomic_writes::Unwritten),
+    Removing(PathBuf, std::io::Error),
+    Unreadable(PathBuf, String),
+    Unbound(std::io::Error),
+    Telling(PathBuf, std::io::Error),
 }
 
-pub fn screens() -> Result<serde_json::Value, String> {
-    console_compositor::asked(console_compositor::Asked::Layers)
+impl fmt::Display for Amiss {
+    fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Amiss::Sessionless => write!(
+                to,
+                "XDG_RUNTIME_DIR: nothing says where this session keeps what it is holding"
+            ),
+            Amiss::Compositorless => write!(
+                to,
+                "HYPRLAND_INSTANCE_SIGNATURE: there is no compositor to listen to"
+            ),
+            Amiss::Asking(fault) => write!(to, "{fault}"),
+            Amiss::Making(at, fault) => write!(to, "{}: making it: {fault}", at.display()),
+            Amiss::Writing(fault) => write!(to, "{fault}"),
+            Amiss::Removing(at, fault) => write!(to, "{}: removing it: {fault}", at.display()),
+            Amiss::Unreadable(at, fault) => write!(to, "{}: reading it: {fault}", at.display()),
+            Amiss::Unbound(fault) => write!(to, "no socket to say it on: {fault}"),
+            Amiss::Telling(at, fault) => write!(to, "{}: {fault}", at.display()),
+        }
+    }
+}
+
+impl std::error::Error for Amiss {}
+
+impl From<console_compositor::Unanswered> for Amiss {
+    fn from(fault: console_compositor::Unanswered) -> Self {
+        Amiss::Asking(fault)
+    }
+}
+
+fn runtime() -> Result<PathBuf, Amiss> {
+    let Ok(runtime) = console_core_places::runtime();
+
+    match runtime {
+        Some(runtime) => Ok(runtime),
+        None => Err(Amiss::Sessionless),
+    }
+}
+
+pub fn screens() -> Result<serde_json::Value, Amiss> {
+    console_compositor::asked(console_compositor::Asked::Layers).map_err(Amiss::Asking)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,7 +90,7 @@ pub enum Up {
     NotThere,
 }
 
-pub fn is_open(namespace: &str) -> Result<Up, String> {
+pub fn is_open(namespace: &str) -> Result<Up, Amiss> {
     let screens = screens()?;
 
     let Ok(up) = up(&screens, namespace);
@@ -77,9 +126,12 @@ enum Seen {
 fn seen(surface: &serde_json::Value) -> Result<Seen, Never> {
     let Ok(tall) = console_compositor::tall(surface);
 
-    Ok(match tall.unwrap_or(1) > 0 {
-        true => Seen::Yes,
-        false => Seen::No,
+    Ok(match tall {
+        Some(tall) => match tall > 0 {
+            true => Seen::Yes,
+            false => Seen::No,
+        },
+        None => Seen::Yes,
     })
 }
 
@@ -105,19 +157,24 @@ pub fn standing(screens: &serde_json::Value, namespace: &str) -> Result<Option<S
     console_compositor::corner(surface)
 }
 
-pub const FURNITURE: [&str; 7] = [
+pub const FURNITURE: [&str; 8] = [
     "awww-daemon",
     "waybar",
     "updating",
-    "virtual-keyboard",
+    "console-keyboard",
     "notifications",
-    "mako",
+    BAR,
+    NOTICE,
     HOME,
 ];
 
+pub const BAR: &str = "console-bar";
+
 pub const HOME: &str = "console-home";
 
-pub const KEYBOARD: &str = "virtual-keyboard";
+pub const NOTICE: &str = "console-notify";
+
+pub const KEYBOARD: &str = "console-keyboard";
 
 pub const ASKING: &str = "console-asking";
 
@@ -174,42 +231,48 @@ pub fn worth_asking_after(line: &str) -> Result<Worth, Never> {
     })
 }
 
-pub fn events() -> Result<PathBuf, String> {
-    let run = asked("XDG_RUNTIME_DIR")?;
-    let instance = asked("HYPRLAND_INSTANCE_SIGNATURE")?;
+pub fn events() -> Result<PathBuf, Amiss> {
+    let run = runtime()?;
 
-    Ok(std::path::Path::new(&run).join("hypr").join(instance).join(".socket2.sock"))
+    let Ok(instance) = console_compositor::instance();
+
+    let instance = match instance {
+        Some(instance) => instance,
+        None => return Err(Amiss::Compositorless),
+    };
+
+    Ok(run.join("hypr").join(instance).join(".socket2.sock"))
 }
 
-fn note() -> Result<PathBuf, String> {
-    let runtime = asked("XDG_RUNTIME_DIR")?;
+fn note() -> Result<PathBuf, Amiss> {
+    let runtime = runtime()?;
 
-    Ok(std::path::Path::new(&runtime).join("console").join("tab"))
+    Ok(runtime.join(console_core_places::OURS).join("tab"))
 }
 
-pub fn saying(tab: &str) -> Result<(), String> {
+pub fn saying(tab: &str) -> Result<(), Amiss> {
     let note = note()?;
 
     match note.parent() {
         Some(above) => std::fs::create_dir_all(above)
-            .map_err(|fault| format!("{}: making it: {fault}", above.display()))?,
+            .map_err(|fault| Amiss::Making(above.to_path_buf(), fault))?,
         None => {}
     }
 
-    std::fs::write(&note, tab).map_err(|fault| format!("{}: writing it: {fault}", note.display()))
+    console_core_atomic_writes::whole(&note, tab.as_bytes()).map_err(Amiss::Writing)
 }
 
-pub fn forget() -> Result<(), String> {
+pub fn forget() -> Result<(), Amiss> {
     let note = note()?;
 
     match std::fs::remove_file(&note) {
         Ok(()) => Ok(()),
         Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(fault) => Err(format!("{}: removing it: {fault}", note.display())),
+        Err(fault) => Err(Amiss::Removing(note, fault)),
     }
 }
 
-pub fn tab() -> Result<Option<String>, String> {
+pub fn tab() -> Result<Option<String>, Amiss> {
     let note = note()?;
 
     let Ok(held) = console_core_atomic_writes::read(&note);
@@ -217,11 +280,15 @@ pub fn tab() -> Result<Option<String>, String> {
     match held {
         Held::Said(said) => Ok(Some(said.trim().to_string())),
         Held::Nothing => Ok(None),
-        Held::Unreadable(fault) => Err(format!("{}: reading it: {fault}", note.display())),
+        Held::Unreadable(fault) => Err(Amiss::Unreadable(note, fault)),
     }
 }
 
-pub fn open_on(namespace: &str, tab_: &str) -> Result<Up, String> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Tab<'a>(pub &'a str);
+
+pub fn open_on(namespace: &str, tab_: Tab<'_>) -> Result<Up, Amiss> {
+    let tab_ = tab_.0;
     let surface = is_open(namespace)?;
 
     match surface {
@@ -270,7 +337,7 @@ mod tests {
     #[test]
     fn a_door_nothing_opened_is_shut() {
         assert_eq!(up(&layers(NOTHING_UP), "launcher"), Up::NotThere);
-        assert_eq!(up(&layers(NOTHING_UP), "virtual-keyboard"), Up::NotThere);
+        assert_eq!(up(&layers(NOTHING_UP), "console-keyboard"), Up::NotThere);
     }
 
     #[test]
@@ -279,7 +346,7 @@ mod tests {
             "0":[{"namespace":"awww-daemon","h":1600}],
             "3":[{"namespace":"launcher","h":1562}]}}}"#;
         assert_eq!(up(&layers(said), "launcher"), Up::OnScreen);
-        assert_eq!(up(&layers(said), "virtual-keyboard"), Up::NotThere);
+        assert_eq!(up(&layers(said), "console-keyboard"), Up::NotThere);
     }
 
     #[test]
@@ -296,10 +363,10 @@ mod tests {
 
     #[test]
     fn a_keyboard_with_no_height_is_a_keyboard_nobody_can_see() {
-        let hidden = r#"{"eDP-1":{"levels":{"3":[{"namespace":"virtual-keyboard","h":0}]}}}"#;
-        let up_ = r#"{"eDP-1":{"levels":{"3":[{"namespace":"virtual-keyboard","h":520}]}}}"#;
-        assert_eq!(up(&layers(hidden), "virtual-keyboard"), Up::NotThere);
-        assert_eq!(up(&layers(up_), "virtual-keyboard"), Up::OnScreen);
+        let hidden = r#"{"eDP-1":{"levels":{"3":[{"namespace":"console-keyboard","h":0}]}}}"#;
+        let up_ = r#"{"eDP-1":{"levels":{"3":[{"namespace":"console-keyboard","h":520}]}}}"#;
+        assert_eq!(up(&layers(hidden), "console-keyboard"), Up::NotThere);
+        assert_eq!(up(&layers(up_), "console-keyboard"), Up::OnScreen);
     }
 
     const A_PANEL: &str = r#"{"eDP-1":{"levels":{
@@ -337,7 +404,7 @@ mod tests {
 
     #[test]
     fn only_a_layer_opening_or_closing_is_asked_after() {
-        assert_eq!(worth_asking_after("openlayer>>virtual-keyboard"), Worth::Asking);
+        assert_eq!(worth_asking_after("openlayer>>console-keyboard"), Worth::Asking);
         assert_eq!(worth_asking_after("closelayer>>launcher"), Worth::Asking);
         assert_eq!(worth_asking_after("mousemove>>640,400"), Worth::Ignoring);
         assert_eq!(worth_asking_after("openwindow>>a4f,3,alacritty,Alacritty"), Worth::Ignoring);

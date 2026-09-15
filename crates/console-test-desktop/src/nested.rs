@@ -14,7 +14,8 @@
 //! the flags this stage types with, and neither is written down twice.
 
 
-use console_core_ini_files::field;
+use console_core_geometry::Size;
+use console_core_ini_files::{Key, Under, field};
 use console_core_never::Never;
 use console_core_number_conversion::whole_u32;
 use console_screen::Screen;
@@ -22,7 +23,7 @@ use console_screen::Screen;
 pub const UNIT: &str = "files/etc/systemd/user/console-input-keyboard.service";
 
 pub fn started_by(unit: &str) -> Result<Option<String>, Never> {
-    let started = field(unit, "Service", "ExecStart")?;
+    let started = field(unit, Under("Service"), Key("ExecStart"))?;
 
     Ok(started.filter(|command| command.starts_with('/')).map(str::to_string))
 }
@@ -89,8 +90,16 @@ while [ $asked -lt 32 ]; do
     asked=$((asked + 1))
     sleep 0.25
 done
-[ -x "$(command -v waybar)" ] && waybar &
-# The ground, which is what the device shows before console-sky has chosen a
+# The pool, before the bar, because half of what the bar draws is read through
+# it. `console-events` holds the one subscription to the compositor on this
+# machine and hands out `ask again`; without it `bar-door` and the four readings
+# are up, correct about what they said when they started, and never told
+# anything after that -- which is a bar that looks right in a picture and is
+# not. It comes after nothing and nothing waits for it: whoever wants it
+# reaches for it again for as long as they want an answer.
+[ -x "$(command -v console-events)" ] && console-events &
+[ -x "$(command -v console-bar)" ] && console-bar &
+# The ground, which is what the device shows before console-wallpaper has chosen a
 # picture and all this stage ever shows, because it presses none. The colour is
 # sourced rather than written here: palette.sh exists to be read by shells, and
 # a hex typed into this string would be a colour nothing checks.
@@ -117,13 +126,9 @@ keyboard="@keyboard@"
 exit 0
 "#;
 
-fn monitor(
-    output: &str,
-    wide: u32,
-    tall: u32,
-    screen: &Screen,
-    scale: f64,
-) -> Result<String, Never> {
+fn monitor(output: &str, mode: Size<u32>, screen: &Screen, scale: f64) -> Result<String, Never> {
+    let Size { wide, tall } = mode;
+
     Ok(format!(
         "hl.monitor({{\n    \
          output    = \"{output}\",\n    \
@@ -137,27 +142,28 @@ fn monitor(
 }
 
 pub fn in_a_window(screen: &Screen, scale: f64) -> Result<String, Never> {
-    let (wide, tall) = screen.mode;
+    let (wide, tall) = (screen.mode.wide, screen.mode.tall);
     let shown = |size: u32| {
         let Ok(shown) = whole_u32(f64::from(size) * scale / screen.scale);
 
         shown
     };
 
-    monitor("WAYLAND-1", shown(wide), shown(tall), screen, scale)
+    monitor("WAYLAND-1", Size { wide: shown(wide), tall: shown(tall) }, screen, scale)
 }
 
 pub fn headless(screen: &Screen) -> Result<String, Never> {
-    let (wide, tall) = screen.mode;
-    let Ok(first) = monitor("HEADLESS-1", wide, tall, screen, screen.scale);
-    let Ok(second) = monitor("HEADLESS-2", wide, tall, screen, screen.scale);
-    let Ok(window) = monitor("WAYLAND-1", 320, 200, screen, 1.0);
+    let (wide, tall) = (screen.mode.wide, screen.mode.tall);
+    let mode = Size { wide, tall };
+    let Ok(first) = monitor("HEADLESS-1", mode, screen, screen.scale);
+    let Ok(second) = monitor("HEADLESS-2", mode, screen, screen.scale);
+    let Ok(window) = monitor("WAYLAND-1", Size { wide: 320, tall: 200 }, screen, 1.0);
 
     Ok(format!("{first}\n{second}\n{window}"))
 }
 
 pub fn made_headless(screen: &Screen) -> Result<String, Never> {
-    let (wide, tall) = screen.mode;
+    let (wide, tall) = (screen.mode.wide, screen.mode.tall);
     Ok(format!(
         r#"hl.monitor({{ output = "HEADLESS-1", mode = "{wide}x{tall}@{}", position = "auto", scale = {}, transform = {} }})"#,
         screen.refresh, screen.scale, screen.transform
@@ -178,11 +184,15 @@ const THE_DEVICES_OWN: &str = "\
 -- wallpaper daemon to paint over it and nobody here has to tell a screen the
 -- wallpaper painted from a screen nothing did.";
 
-pub fn config(
-    screen_said: &str,
-    device_config: &str,
-    wallpaper: Wallpaper,
-) -> Result<String, Never> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Said<'a> {
+    pub screen: &'a str,
+    pub device: &'a str,
+}
+
+pub fn config(said: Said<'_>, wallpaper: Wallpaper) -> Result<String, Never> {
+    let Said { screen: screen_said, device: device_config } = said;
+
     let ground = match wallpaper {
         Wallpaper::Started => THE_COLOUR_NOTHING_IS,
         Wallpaper::LeftOut => THE_DEVICES_OWN,
@@ -219,7 +229,7 @@ mod tests {
 
     fn go() -> Screen {
         Screen {
-            mode: (2560, 1600),
+            mode: console_core_geometry::Size { wide: 2560, tall: 1600 },
             refresh: 144,
             scale: 2.5,
             transform: 1,
@@ -242,8 +252,11 @@ mod tests {
 
     #[test]
     fn the_nested_config_reads_the_devices_own() {
-        let said = config("-- a screen", "/somewhere/hyprland.lua", Wallpaper::Started)
-            .expect("the config");
+        let said = config(
+            Said { screen: "-- a screen", device: "/somewhere/hyprland.lua" },
+            Wallpaper::Started,
+        )
+        .expect("the config");
         assert!(said.contains(r#"dofile("/somewhere/hyprland.lua")"#));
         assert!(
             said.contains("rgb(ff00ff)"),
@@ -265,8 +278,11 @@ mod tests {
             "a daemon whose only way out is a core file is started here: {alone}"
         );
 
-        let said = config("-- a screen", "/somewhere/hyprland.lua", Wallpaper::LeftOut)
-            .expect("the config");
+        let said = config(
+            Said { screen: "-- a screen", device: "/somewhere/hyprland.lua" },
+            Wallpaper::LeftOut,
+        )
+        .expect("the config");
         assert!(
             !said.contains("ff00ff"),
             "nothing paints this ground, so a colour nothing is is all anybody would see: {said}"

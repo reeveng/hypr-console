@@ -115,6 +115,7 @@ use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader};
 use std::os::unix::net::{UnixDatagram, UnixStream};
 use std::rc::Rc;
+use std::time::Instant;
 
 use console_applications::entry::Application;
 use console_applications::found;
@@ -125,8 +126,10 @@ use console_home_screen::{
 use console_home_screen::shape::{self, Shape};
 use console_compositor::stirred::Stirred;
 use console_core_atomic_writes::Held;
+use console_core_geometry::Point;
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
+use console_core_reconnect::Between;
 use console_onscreen::{Awake, Hand, Over, Said, over_the_desktop};
 use console_panel::icons::Icon;
 use gtk4::{
@@ -363,8 +366,8 @@ impl Screen {
         }
     }
 
-    fn wandered(self: &Rc<Screen>, x: f64, y: f64) -> Result<(), Never> {
-        let on = self.on_the_squares(x, y)?;
+    fn wandered(self: &Rc<Screen>, at: Point<f64>) -> Result<(), Never> {
+        let on = self.on_the_squares(at)?;
 
         match on {
             On::TheGrid => Ok(()),
@@ -372,17 +375,17 @@ impl Screen {
         }
     }
 
-    fn on_the_squares(&self, x: f64, y: f64) -> Result<On, Never> {
+    fn on_the_squares(&self, at: Point<f64>) -> Result<On, Never> {
         let squares = match self.grid.compute_bounds(&self.window) {
             Some(squares) => squares,
             None => return Ok(On::Nothing),
         };
 
         let (left, top) = (f64::from(squares.x()), f64::from(squares.y()));
-        let inside = x >= left
-            && x < left + f64::from(squares.width())
-            && y >= top
-            && y < top + f64::from(squares.height());
+        let inside = at.across >= left
+            && at.across < left + f64::from(squares.width())
+            && at.down >= top
+            && at.down < top + f64::from(squares.height());
 
         Ok(match inside {
             true => On::TheGrid,
@@ -436,7 +439,7 @@ impl Screen {
         let screen = Rc::clone(self);
 
         pointer.connect_motion(move |_, x, y| {
-            let Ok(()) = screen.wandered(x, y);
+            let Ok(()) = screen.wandered(Point { across: x, down: y });
         });
 
         self.window.add_controller(pointer);
@@ -499,7 +502,7 @@ impl Screen {
 
         for row in 0..shape.rows {
             for column in 0..shape.columns {
-                let spot = Spot::new(here.pane, row, column)?;
+                let spot = Spot { pane: here.pane, row, column };
 
                 let square = self.square(spot)?;
 
@@ -980,7 +983,7 @@ impl Screen {
             None => {},
         }
 
-        match std::fs::write(&at, said) {
+        match console_core_atomic_writes::whole(&at, said.as_bytes()) {
             Ok(()) => {},
             Err(fault) => eprintln!("console-home: {}: {fault}", at.display()),
         }
@@ -1188,7 +1191,11 @@ fn listening(screen: &Rc<Screen>) -> Result<(), Never> {
 fn following(screen: &Rc<Screen>) -> Result<(), Never> {
     let screen = Rc::clone(screen);
     glib::spawn_future_local(async move {
+        let Ok(mut between) = Between::tries();
+
         loop {
+            let began = Instant::now();
+
             let socket = match console_panel::door::events() {
                 Ok(socket) => socket,
                 Err(_fault) => return,
@@ -1196,64 +1203,64 @@ fn following(screen: &Rc<Screen>) -> Result<(), Never> {
 
             let opened = gtk4::gio::spawn_blocking(move || UnixStream::connect(&socket)).await;
 
-            let stream = match opened {
-                Ok(Ok(stream)) => stream,
-                Ok(Err(_)) | Err(_) => {
+            match opened {
+                Ok(Ok(stream)) => {
+                    let mut lines = BufReader::new(stream);
+
                     let Ok(()) = screen.settle();
 
-                    #[cfg_attr(
-                        dylint_lib = "explicit021_no_sleeping",
-                        allow(
-                            explicit021_no_sleeping,
-                            reason = "the door is not open and nothing announces when it will be; this is the wait between two attempts at connecting, which is the same decision `console-core-reconnect` makes for a thread"
-                        )
-                    )]
-                    glib::timeout_future(std::time::Duration::from_secs(2)).await;
+                    loop {
+                        let read = gtk4::gio::spawn_blocking(move || {
+                            let mut said = String::new();
 
-                    continue;
-                }
-            };
+                            let got = match lines.read_line(&mut said) {
+                                Ok(got) => got,
+                                Err(_fault) => return (lines, said, 0),
+                            };
 
-            let mut lines = BufReader::new(stream);
+                            (lines, said, got)
+                        })
+                        .await;
 
-            let Ok(()) = screen.settle();
+                        let (held, said, got) = match read {
+                            Ok((held, said, got)) => (held, said, got),
+                            Err(_fault) => return,
+                        };
 
-            loop {
-                let read = gtk4::gio::spawn_blocking(move || {
-                    let mut said = String::new();
+                        match got {
+                            0 => break,
+                            _ => {},
+                        }
 
-                    let got = match lines.read_line(&mut said) {
-                        Ok(got) => got,
-                        Err(_fault) => return (lines, said, 0),
-                    };
+                        lines = held;
 
-                    (lines, said, got)
-                })
-                .await;
+                        let Ok(worth) = worth_asking_after(&said);
 
-                let (held, said, got) = match read {
-                    Ok((held, said, got)) => (held, said, got),
-                    Err(_fault) => return,
-                };
+                        match worth {
+                            Over::Something => {
+                                let Ok(()) = screen.settle();
 
-                match got {
-                    0 => break,
-                    _ => {},
-                }
-
-                lines = held;
-
-                let Ok(worth) = worth_asking_after(&said);
-
-                match worth {
-                    Over::Something => {
-                        let Ok(()) = screen.settle();
-
-                        let Ok(()) = screen.reread();
+                                let Ok(()) = screen.reread();
+                            }
+                            Over::Nothing => {},
+                        }
                     }
-                    Over::Nothing => {},
+                }
+                Ok(Err(_)) | Err(_) => {
+                    let Ok(()) = screen.settle();
                 }
             }
+
+            let Ok(again) = between.after(began.elapsed());
+
+            #[cfg_attr(
+                dylint_lib = "explicit021_no_sleeping",
+                allow(
+                    explicit021_no_sleeping,
+                    reason = "the door is not open, or it was and has gone, and nothing announces when it will be there; this is the wait between two attempts at connecting and `console-core-reconnect` is the one place that decides how long it is"
+                )
+            )]
+            glib::timeout_future(again).await;
         }
     });
 
@@ -1367,7 +1374,10 @@ fn named(found: found::Found) -> Result<Named, Never> {
         .apps
         .into_iter()
         .map(|(name, app)| {
-            let picture = found.icon.get(&name).cloned().unwrap_or_default();
+            let picture = match found.icon.get(&name) {
+                Some(picture) => picture.clone(),
+                None => String::new(),
+            };
 
             (name, (app, picture))
         })

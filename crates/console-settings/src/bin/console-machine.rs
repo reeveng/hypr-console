@@ -40,7 +40,7 @@ fn main() -> ExitCode {
     let words: Vec<&str> = argv.iter().map(String::as_str).collect();
 
     let done = match words.as_slice() {
-        ["language", name, charset] => language(name, charset),
+        ["language", name, charset] => language(Locale { name, charset }),
         ["hour", zone] => hour(zone),
         ["name", name] => called(name),
         _ => {
@@ -60,41 +60,91 @@ fn main() -> ExitCode {
     }
 }
 
-fn said(program: Program, argv: &[&str]) -> Result<String, String> {
+#[derive(Debug)]
+enum Unset {
+    NoProgram(&'static str),
+    WouldNotRun(&'static str, std::io::Error),
+    SaidNo(&'static str, String),
+    Unreadable(String, String),
+    NotSupported(String),
+    NoSuchZone(String),
+    NotAName(String),
+    Writing(console_core_atomic_writes::Unwritten),
+}
+
+impl std::fmt::Display for Unset {
+    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Unset::NoProgram(name) => write!(to, "there is no {name} on this machine"),
+            Unset::WouldNotRun(name, fault) => write!(to, "{name} would not run: {fault}"),
+            Unset::SaidNo(name, said) => write!(to, "{name} said no: {said}"),
+            Unset::Unreadable(at, fault) => write!(to, "{at} will not be read: {fault}"),
+            Unset::NotSupported(line) => {
+                write!(to, "{line} is not a language {SUPPORTED} names")
+            }
+            Unset::NoSuchZone(zone) => {
+                write!(to, "{zone} is not a zone this machine has heard of")
+            }
+            Unset::NotAName(name) => write!(
+                to,
+                "{name} is not a name a network can look up: letters, digits and hyphens, not \
+                 starting or ending with one"
+            ),
+            Unset::Writing(fault) => write!(to, "{fault}"),
+        }
+    }
+}
+
+impl std::error::Error for Unset {}
+
+impl From<console_core_atomic_writes::Unwritten> for Unset {
+    fn from(fault: console_core_atomic_writes::Unwritten) -> Self {
+        Unset::Writing(fault)
+    }
+}
+
+fn said(program: Program, argv: &[&str]) -> Result<String, Unset> {
     let Ok(name) = program.name();
     let mut command = match program.command() {
         Ok(command) => command,
-        Err(_) => return Err(format!("there is no {name} on this machine")),
+        Err(_) => return Err(Unset::NoProgram(name)),
     };
 
     let out = command
         .args(argv)
         .output()
-        .map_err(|fault| format!("{name} would not run: {fault}"))?;
+        .map_err(|fault| Unset::WouldNotRun(name, fault))?;
 
     match out.status.success() {
         true => Ok(String::from_utf8_lossy(&out.stdout).to_string()),
-        false => Err(format!(
-            "{name} said no: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
+        false => Err(Unset::SaidNo(
+            name,
+            String::from_utf8_lossy(&out.stderr).trim().to_string(),
         )),
     }
 }
 
-fn held(at: &Path) -> Result<String, String> {
+fn held(at: &Path) -> Result<String, Unset> {
     let Ok(read) = console_core_atomic_writes::read(at);
 
     match read {
         Held::Said(said) => Ok(said),
         Held::Nothing => Ok(String::new()),
-        Held::Unreadable(fault) => Err(format!("{} will not be read: {fault}", at.display())),
+        Held::Unreadable(fault) => Err(Unset::Unreadable(at.display().to_string(), fault)),
     }
 }
 
-fn language(name: &str, charset: &str) -> Result<(), String> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Locale<'a> {
+    name: &'a str,
+    charset: &'a str,
+}
+
+fn language(locale: Locale<'_>) -> Result<(), Unset> {
+    let Locale { name, charset } = locale;
     let line = format!("{name} {charset}");
     let listed = std::fs::read_to_string(SUPPORTED)
-        .map_err(|fault| format!("{SUPPORTED} will not be read: {fault}"))?;
+        .map_err(|fault| Unset::Unreadable(SUPPORTED.to_string(), fault.to_string()))?;
 
     let Ok(supported) = tongues::supported(&listed);
 
@@ -106,13 +156,13 @@ fn language(name: &str, charset: &str) -> Result<(), String> {
 
     match known {
         true => {},
-        false => return Err(format!("{line} is not a language {SUPPORTED} names")),
+        false => return Err(Unset::NotSupported(line)),
     }
 
     let recipes = Path::new(LOCALE_GEN);
     let was = held(recipes)?;
 
-    let Ok(written) = tongues::generating(&was, &line);
+    let Ok(written) = tongues::generating(&was, tongues::Line(&line));
 
     match written == was {
         true => {},
@@ -125,7 +175,7 @@ fn language(name: &str, charset: &str) -> Result<(), String> {
         }
     }
 
-    let read = tongues::read(name, charset);
+    let read = tongues::read(tongues::Named { name, charset });
 
     let lang = match read {
         Ok(Some(locale)) => {
@@ -146,7 +196,7 @@ fn language(name: &str, charset: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn hour(zone: &str) -> Result<(), String> {
+fn hour(zone: &str) -> Result<(), Unset> {
     let listed = said(Program::Timedatectl, &["list-timezones"])?;
 
     let Ok(zones) = console_settings::hours::zones(&listed);
@@ -155,7 +205,7 @@ fn hour(zone: &str) -> Result<(), String> {
 
     match known {
         true => {},
-        false => return Err(format!("{zone} is not a zone this machine has heard of")),
+        false => return Err(Unset::NoSuchZone(zone.to_string())),
     }
 
     said(Program::Timedatectl, &["set-timezone", zone])?;
@@ -165,16 +215,13 @@ fn hour(zone: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn called(name: &str) -> Result<(), String> {
+fn called(name: &str) -> Result<(), Unset> {
     let Ok(allowed) = named::allowed(name);
 
     match allowed {
         Allowed::Yes => {},
         Allowed::No => {
-            return Err(format!(
-                "{name} is not a name a network can look up: letters, digits and hyphens, not \
-                 starting or ending with one"
-            ));
+            return Err(Unset::NotAName(name.to_string()));
         }
     }
 

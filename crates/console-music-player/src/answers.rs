@@ -1,6 +1,6 @@
 //! The words MPRIS uses for what this player holds.
 //!
-//! None of this is the crate's own opinion. `console_music_panel::player` already
+//! None of this is the crate's own opinion. `console_music::player` already
 //! parses every one of these strings out of kew's answers, and the checks press
 //! them through busctl, so what is spelled here is what a panel written against
 //! another player expects to read. The names stay; only who answers changes.
@@ -12,13 +12,14 @@
 //!
 //! A path is spelled into a url by putting `file://` in front of it and nothing
 //! else. That is not the encoding the specification asks for, and it is what
-//! `console_music_panel::player::local` reads back: it strips the prefix and takes
+//! `console_music::player::local` reads back: it strips the prefix and takes
 //! what is left as a path, so a song with a space in its name survives this and
 //! would not survive being percent-encoded. The reader and the writer are both
 //! in this repository, which is the only reason that is allowed to be true.
 
 use console_core_never::Never;
 use console_core_number_conversion::{Float, toward_zero_i64};
+use console_core_words::Words;
 use std::path::{Path, PathBuf};
 
 use crate::playlist::Over;
@@ -37,22 +38,15 @@ pub const TRACK: &str = "/org/mpris/MediaPlayer2/Track/one";
 
 const A_SECOND: f64 = 1_000_000.0;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Words)]
 pub enum Status {
+    #[words(said = "Playing")]
     Playing,
+    #[words(said = "Paused")]
     Paused,
     #[default]
+    #[words(said = "Stopped")]
     Stopped,
-}
-
-impl Status {
-    pub fn said(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Status::Playing => "Playing",
-            Status::Paused => "Paused",
-            Status::Stopped => "Stopped",
-        })
-    }
 }
 
 pub fn over_said(over: Over) -> Result<&'static str, Never> {

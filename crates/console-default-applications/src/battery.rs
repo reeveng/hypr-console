@@ -14,6 +14,22 @@
 //! watching, and whatever watches has to decide when a crossing happened
 //! rather than when a number was read.
 //!
+//! **Whether the cable is in is asked of the cable.** The battery's own status
+//! word was the whole of this answer and it cannot carry it: a handheld plugged
+//! in at a charge limit says `Not charging`, which is the truth about the
+//! battery and reads as a machine running itself flat. That was one icon saying
+//! the wrong thing on the bar, and the same mistake refusing an apply on a
+//! device sitting on its charger. So the mains supply is read, where being
+//! plugged in is a fact rather than something inferred from what the chemistry
+//! is doing, and [`Filling`] gained the third state that was always there --
+//! filling, held, or on its own -- with [`Filling::cable`] for the callers whose
+//! question is only whether the machine is on the wall.
+//!
+//! A machine with no mains supply at all is not a machine that is unplugged. It
+//! is a machine that cannot be asked, and the status word decides on its own
+//! there, which is what this did everywhere before there was anything better to
+//! ask.
+//!
 //! Nothing here reads a clock or raises anything. What is decided and what is
 //! done are kept apart as everywhere else here: this says what a reading has
 //! come to, `console-battery` is what does it, and `bar-say battery` is the
@@ -21,25 +37,24 @@
 
 use console_core_atomic_writes::Held;
 use console_core_never::Never;
+use console_core_words::Words;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord)]
+const NOTHING_SAID: &str = "";
+
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord, Words)]
 pub enum Step {
+    #[words(word = "low", key = "battery-low", says = "Say it is getting low")]
     Low,
+    #[words(word = "lower", key = "battery-lower", says = "Say it is getting really low")]
     Lower,
+    #[words(word = "protect", key = "battery-protect", says = "Stop before the battery does")]
     Protect,
 }
 
 pub const EVERY: [Step; 3] = [Step::Low, Step::Lower, Step::Protect];
 
 impl Step {
-    pub fn word(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Step::Low => "low",
-            Step::Lower => "lower",
-            Step::Protect => "protect",
-        })
-    }
-
     pub fn named(word: &str) -> Result<Option<Self>, Never> {
         for step in EVERY {
             let named = step.word()?;
@@ -51,22 +66,6 @@ impl Step {
         }
 
         Ok(None)
-    }
-
-    pub fn key(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Step::Low => "battery-low",
-            Step::Lower => "battery-lower",
-            Step::Protect => "battery-protect",
-        })
-    }
-
-    pub fn says(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Step::Low => "Say it is getting low",
-            Step::Lower => "Say it is getting really low",
-            Step::Protect => "Stop before the battery does",
-        })
     }
 
     pub fn at(self) -> Result<i32, Never> {
@@ -192,10 +191,12 @@ impl Levels {
             Some(Ok(Held::Said(said))) => said,
             Some(Ok(Held::Nothing)) | None => String::new(),
             Some(Ok(Held::Unreadable(fault))) => {
-                eprintln!(
-                    "console-default-applications: {}: {fault}",
-                    at.as_ref().map(|at| at.display().to_string()).unwrap_or_default()
-                );
+                let named = match at.as_ref() {
+                    Some(at) => at.display().to_string(),
+                    None => String::new(),
+                };
+
+                eprintln!("console-default-applications: {named}: {fault}");
 
                 String::new()
             }
@@ -209,7 +210,7 @@ impl Levels {
         let key = step.key()?;
         let at = moved.at(step)?;
 
-        crate::set(key, &at.to_string())?;
+        crate::set(crate::Setting { key, value: &at.to_string() })?;
 
         Ok(moved)
     }
@@ -228,13 +229,79 @@ impl Levels {
     }
 }
 
+pub const SUPPLIES: &str = "/sys/class/power_supply";
+
+pub const MAINS: &str = "Mains";
+
+pub const CHARGING: &str = "Charging";
+
+pub const FULL: &str = "Full";
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Words)]
+pub enum Mains {
+    #[words(word = "plugged")]
+    On,
+    #[words(word = "unplugged")]
+    Off,
+    #[default]
+    #[words(word = "unasked")]
+    NothingToAsk,
+}
+
+impl Mains {
+    pub fn named(word: &str) -> Result<Self, Never> {
+        Ok(match word {
+            "plugged" => Mains::On,
+            "unplugged" => Mains::Off,
+            _nothing_said_about_a_cable => Mains::NothingToAsk,
+        })
+    }
+}
+
+pub fn mains() -> Result<Mains, Never> {
+    let supplies = match std::fs::read_dir(SUPPLIES) {
+        Ok(supplies) => supplies,
+        Err(_this_machine_says_nothing_about_its_supplies) => return Ok(Mains::NothingToAsk),
+    };
+    let mut found = Mains::NothingToAsk;
+
+    for supply in supplies.flatten() {
+        let at = supply.path();
+
+        let kind = match std::fs::read_to_string(at.join("type")) {
+            Ok(kind) => kind,
+            Err(_not_a_supply_that_says_what_it_is) => continue,
+        };
+
+        match kind.trim() == MAINS {
+            true => {},
+            false => continue,
+        }
+
+        let online = match std::fs::read_to_string(at.join("online")) {
+            Ok(online) => online,
+            Err(_a_mains_supply_that_will_not_say) => continue,
+        };
+
+        match online.trim() {
+            "1" => return Ok(Mains::On),
+            _not_this_one => found = Mains::Off,
+        }
+    }
+
+    Ok(found)
+}
+
 pub fn charge() -> Result<String, Never> {
-    let supplies = match std::fs::read_dir("/sys/class/power_supply") {
+    let Ok(mains) = mains();
+    let Ok(cable) = mains.word();
+
+    let supplies = match std::fs::read_dir(SUPPLIES) {
         Ok(supplies) => supplies,
         Err(_fault) => return Ok(String::new()),
     };
 
-    Ok(supplies
+    let found = supplies
         .flatten()
         .map(|supply| supply.path())
         .filter(|at| {
@@ -249,10 +316,14 @@ pub fn charge() -> Result<String, Never> {
                 (Err(_), _) | (_, Err(_)) => return None,
             };
 
-            Some(format!("{} {}", capacity.trim(), status.trim()))
+            Some(format!("{} {cable} {}", capacity.trim(), status.trim()))
         })
-        .next()
-        .unwrap_or_default())
+        .next();
+
+    Ok(match found {
+        Some(said) => said,
+        None => String::new(),
+    })
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -264,8 +335,34 @@ pub struct Charge {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum Filling {
     Yes,
+    Held,
     #[default]
     No,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Cable {
+    In,
+    Out,
+}
+
+impl Filling {
+    pub fn cable(self) -> Result<Cable, Never> {
+        Ok(match self {
+            Filling::Yes | Filling::Held => Cable::In,
+            Filling::No => Cable::Out,
+        })
+    }
+}
+
+pub fn filling(mains: Mains, status: &str) -> Result<Filling, Never> {
+    Ok(match (mains, status) {
+        (_whatever_the_cable_says, CHARGING) => Filling::Yes,
+        (Mains::On, FULL) => Filling::Yes,
+        (Mains::On, _not_filling_but_on_the_cable) => Filling::Held,
+        (Mains::Off | Mains::NothingToAsk, FULL) => Filling::No,
+        (Mains::Off | Mains::NothingToAsk, _on_its_own) => Filling::No,
+    })
 }
 
 impl Charge {
@@ -279,10 +376,15 @@ impl Charge {
                 None
             }
         });
-        let filling = match words.next().is_some_and(|word| word == "Charging" || word == "Full") {
-            true => Filling::Yes,
-            false => Filling::No,
+
+        let cable = match words.next() {
+            Some(cable) => cable,
+            None => NOTHING_SAID,
         };
+
+        let Ok(mains) = Mains::named(cable);
+        let status = words.collect::<Vec<&str>>().join(" ");
+        let Ok(filling) = filling(mains, &status);
 
         Ok(Charge { percent, filling })
     }
@@ -302,9 +404,11 @@ pub fn asked(
     filling: Filling,
     told: Option<Step>,
 ) -> Result<Said, Never> {
-    match filling {
-        Filling::Yes => return Ok(Said { act: None, told: None }),
-        Filling::No => {}
+    let Ok(cable) = filling.cable();
+
+    match cable {
+        Cable::In => return Ok(Said { act: None, told: None }),
+        Cable::Out => {}
     }
 
     let held = match told {
@@ -362,6 +466,56 @@ mod tests {
         let Ok(said) = asked(Levels::default(), 3, Filling::Yes, Some(Step::Lower));
 
         assert_eq!(said, Said { act: None, told: None });
+    }
+
+    #[test]
+    fn nothing_happens_to_a_battery_on_the_cable_that_is_not_filling() {
+        let Ok(said) = asked(Levels::default(), 3, Filling::Held, Some(Step::Lower));
+
+        assert_eq!(
+            said,
+            Said { act: None, told: None },
+            "a machine at its charge limit was told it was about to run out"
+        );
+    }
+
+    #[test]
+    fn a_battery_that_is_not_filling_on_the_cable_is_still_on_the_cable() {
+        assert_eq!(Filling::Held.cable(), Ok(Cable::In));
+        assert_eq!(Filling::Yes.cable(), Ok(Cable::In));
+        assert_eq!(Filling::No.cable(), Ok(Cable::Out));
+    }
+
+    #[test]
+    fn a_charge_limit_reads_as_held_and_not_as_a_machine_running_flat() {
+        let Ok(said) = filling(Mains::On, "Not charging");
+
+        assert_eq!(said, Filling::Held);
+        assert_eq!(Charge::of("78 plugged Not charging"), Ok(Charge { percent: Some(78), filling: Filling::Held }));
+    }
+
+    #[test]
+    fn a_machine_with_no_mains_supply_is_read_the_way_it_always_was() {
+        assert_eq!(filling(Mains::NothingToAsk, "Charging"), Ok(Filling::Yes));
+        assert_eq!(filling(Mains::NothingToAsk, "Discharging"), Ok(Filling::No));
+        assert_eq!(filling(Mains::NothingToAsk, "Not charging"), Ok(Filling::No));
+    }
+
+    #[test]
+    fn a_cable_that_is_out_is_a_battery_on_its_own_whatever_it_is_full_of() {
+        assert_eq!(filling(Mains::Off, "Full"), Ok(Filling::No));
+        assert_eq!(filling(Mains::On, "Full"), Ok(Filling::Yes));
+    }
+
+    #[test]
+    fn what_the_cable_is_called_survives_being_written_down_and_read_back() {
+        for mains in [Mains::On, Mains::Off, Mains::NothingToAsk] {
+            let Ok(word) = mains.word();
+
+            assert_eq!(Mains::named(word), Ok(mains));
+        }
+
+        assert_eq!(Mains::named("something else"), Ok(Mains::NothingToAsk));
     }
 
     #[test]
@@ -424,17 +578,20 @@ mod tests {
     #[test]
     fn a_charge_is_a_number_and_whether_it_is_filling() {
         assert_eq!(
-            Charge::of("72 Discharging"),
+            Charge::of("72 unplugged Discharging"),
             Ok(Charge { percent: Some(72), filling: Filling::No })
         );
-        assert_eq!(Charge::of("100 Full"), Ok(Charge { percent: Some(100), filling: Filling::Yes }));
+        assert_eq!(
+            Charge::of("100 plugged Full"),
+            Ok(Charge { percent: Some(100), filling: Filling::Yes })
+        );
         assert_eq!(Charge::of(""), Ok(Charge { percent: None, filling: Filling::No }));
     }
 
     #[test]
     fn a_machine_with_no_battery_is_not_a_machine_about_to_stop() {
         let Ok(none) = Charge::of("");
-        let Ok(empty) = Charge::of("0 Discharging");
+        let Ok(empty) = Charge::of("0 unplugged Discharging");
 
         assert_eq!(none.percent, None);
         assert_eq!(empty.percent, Some(0));

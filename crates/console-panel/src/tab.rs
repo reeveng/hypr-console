@@ -10,13 +10,13 @@
 //! has since gone is a name nothing answers to, and that already opens the
 //! first tab rather than nothing at all.
 
-use crate::notes;
+use crate::notes::{self, Note};
 use console_core_never::Never;
 
 const TAB: &str = "tab";
 
 pub fn last(program: &str) -> Result<Option<String>, Never> {
-    let Ok(said) = notes::read(program, TAB);
+    let Ok(said) = notes::read(Note { program, called: TAB });
 
     let said = match said {
         Some(said) => said,
@@ -32,15 +32,18 @@ fn read(said: &str) -> Result<Option<String>, Never> {
     Ok((!said.is_empty()).then(|| said.to_string()))
 }
 
-pub fn keep(program: &str, title: &str) -> Result<(), Never> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Title<'a>(pub &'a str);
+
+pub fn keep(program: &str, title: Title<'_>) -> Result<(), Never> {
     let Ok(last) = last(program);
 
-    match title.is_empty() || last.as_deref() == Some(title) {
+    match title.0.is_empty() || last.as_deref() == Some(title.0) {
         true => return Ok(()),
         false => {},
     }
 
-    let Ok(()) = notes::write(program, TAB, &format!("{title}\n"));
+    let Ok(()) = notes::write(Note { program, called: TAB }, &format!("{}\n", title.0));
 
     Ok(())
 }

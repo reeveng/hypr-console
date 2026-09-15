@@ -20,10 +20,8 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use console_browser_extension::{PALETTE, source, stamp};
-use console_core_atomic_writes::Held;
+use console_core_atomic_writes::{Held, Unwritten};
 use console_core_never::Never;
-
-const NEW: &str = "console-new";
 
 fn main() -> ExitCode {
     let always = std::env::args().any(|word| word == "--always");
@@ -83,7 +81,7 @@ fn main() -> ExitCode {
     });
 
     let Ok(version) = stamp::next(was.as_deref());
-    let Ok(files) = source::every(&version, &palette);
+    let Ok(files) = source::every(&version, source::Palette(&palette));
     let Ok(made) = console_browser_extension::pack::zip(&files);
 
     match wrote(&xpi, &made) {
@@ -142,14 +140,13 @@ fn packed_version(at: &Path) -> Result<Option<String>, Never> {
     })
 }
 
-fn wrote(at: &Path, bytes: &[u8]) -> std::io::Result<()> {
+fn wrote(at: &Path, bytes: &[u8]) -> Result<(), Unwritten> {
     match at.parent() {
-        Some(parent) => std::fs::create_dir_all(parent)?,
+        Some(parent) => {
+            std::fs::create_dir_all(parent).map_err(|fault| Unwritten::Making(parent.to_path_buf(), fault))?
+        }
         None => {}
     }
 
-    let name = at.file_name().and_then(|name| name.to_str()).unwrap_or("file");
-    let beside = at.with_file_name(format!("{name}.{NEW}"));
-    std::fs::write(&beside, bytes)?;
-    std::fs::rename(&beside, at)
+    console_core_atomic_writes::whole(at, bytes)
 }

@@ -1,0 +1,11 @@
+error: `println!` prints without saying so: the transcript cannot see this, and the transcript is what presses this program
+  --> $DIR/main.rs:14:5
+   |
+LL |     println!("{what}");
+   |     ^^^^^^^^^^^^^^^^^^
+   |
+   = help: hand it back instead: `Doing::Print` is on the list the program returns, the runtime carries it out, and `transcript` can then assert what the program said. A fault or a usage line is a different question and is not this one -- that goes to stderr, which is the journal, and EXPLICIT038 has already asked it to be a type with a sentence. Where this is the thing that carries a `Doing::Print` out, allow this rule at the site and let the reason say so
+   = note: `#[deny(explicit041_no_unsaid_printing)]` on by default
+
+error: aborting due to 1 previous error
+

@@ -1,0 +1,19 @@
+error: `std::time::Instant::now` reads the clock: this answers differently every time it is asked, and nothing handed it in
+  --> $DIR/main.rs:17:15
+   |
+LL |     let now = Instant::now();
+   |               ^^^^^^^^^^^^^^
+   |
+   = help: take the instant as a parameter and let whoever is at the edge read it, the way `console_cpu_boost`'s `asked(now)` does and its binary does the reading. A decision that reads its own clock is one that cannot be pressed twice and answered the same way, which is the shape `console_input_controller` is written in. Where this crate is the edge -- a binary, or a wait that is measuring itself -- allow this rule here and let the reason say so
+   = note: `#[deny(explicit039_no_reading_the_clock)]` on by default
+
+error: `std::time::SystemTime::now` reads the clock: this is the wall clock, which a machine is free to move in either direction
+  --> $DIR/main.rs:26:5
+   |
+LL |     SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).ok()
+   |     ^^^^^^^^^^^^^^^^^
+   |
+   = help: take the instant as a parameter and let whoever is at the edge read it, the way `console_cpu_boost`'s `asked(now)` does and its binary does the reading. A decision that reads its own clock is one that cannot be pressed twice and answered the same way, which is the shape `console_input_controller` is written in. Where this crate is the edge -- a binary, or a wait that is measuring itself -- allow this rule here and let the reason say so
+
+error: aborting due to 2 previous errors
+

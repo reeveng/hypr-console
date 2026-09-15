@@ -44,7 +44,12 @@ impl Walk {
     }
 
     pub fn above(&self, place: &str) -> Result<Option<String>, Never> {
-        let holding = named(self.at.parent().unwrap_or(&self.top))?;
+        let above = match self.at.parent() {
+            Some(above) => above,
+            None => &self.top,
+        };
+
+        let holding = named(above)?;
 
         Ok(match self.marks.len() {
             0 => None,

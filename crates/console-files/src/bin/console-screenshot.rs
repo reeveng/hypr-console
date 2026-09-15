@@ -18,7 +18,7 @@
 //! Pictures tab arrives at.
 
 use console_core_external_programs::Program;
-use console_files::places::folder;
+use console_files::places::{Named, folder};
 use console_core_never::Never;
 
 pub fn named(when: &str) -> Result<String, Never> {
@@ -51,7 +51,7 @@ fn main() -> std::process::ExitCode {
         }
     };
 
-    let Ok(into) = folder(&home, "XDG_PICTURES_DIR", "Pictures");
+    let Ok(into) = folder(&home, Named("XDG_PICTURES_DIR"), "Pictures");
 
     match std::fs::create_dir_all(&into) {
         Ok(()) => {},

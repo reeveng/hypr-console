@@ -20,6 +20,9 @@ use gtk4::gio;
 use gtk4::glib;
 use gtk4::prelude::*;
 
+const NOTHING_SAYS_WHAT_IT_IS: &str = "";
+
+
 const INTO_IT: &str = "3";
 
 fn main() {
@@ -74,10 +77,10 @@ fn wanting(folder: &Path, store: &Path) -> Result<Vec<(PathBuf, String)>, Never>
     for about in children.flatten() {
         let entry = Entry {
             folder: about.file_type() == gio::FileType::Directory,
-            kind: about
-                .attribute_string("standard::fast-content-type")
-                .map(|kind| kind.to_string())
-                .unwrap_or_default(),
+            kind: match about.attribute_string("standard::fast-content-type") {
+                Some(kind) => kind.to_string(),
+                None => NOTHING_SAYS_WHAT_IT_IS.to_string(),
+            },
             name: String::new(),
             size: 0,
         };

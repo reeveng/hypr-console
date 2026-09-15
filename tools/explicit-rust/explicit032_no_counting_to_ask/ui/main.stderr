@@ -1,0 +1,27 @@
+error: this walks the whole iterator to answer whether it holds anything
+  --> $DIR/main.rs:7:5
+   |
+LL |     held.iter().filter(|one| one.as_str() == wanted).count() > 0
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: `.any(…)` asks the same thing and stops at the first element that answers it. A count is a walk to the end by definition, and the definition is the part that does not show on the line
+   = note: `#[deny(explicit032_no_counting_to_ask)]` on by default
+
+error: this walks the whole iterator to answer whether it holds anything
+  --> $DIR/main.rs:13:5
+   |
+LL |     held.iter().count() == 0
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: `.next().is_some()` and `.next().is_none()` answer this at the first element. A count is a walk to the end by definition, and the definition is the part that does not show on the line
+
+error: this walks the whole iterator to answer whether it holds anything
+  --> $DIR/main.rs:19:5
+   |
+LL |     1 <= held.iter().count()
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: `.next().is_some()` and `.next().is_none()` answer this at the first element. A count is a walk to the end by definition, and the definition is the part that does not show on the line
+
+error: aborting due to 3 previous errors
+

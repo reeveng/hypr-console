@@ -104,7 +104,14 @@ fn back_to(found: Level, now: Level) -> Result<Option<i64>, Never> {
     })
 }
 
-fn back_on(found: &str, now: &str) -> Result<Option<String>, Never> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Then<'a> {
+    found: &'a str,
+    now: &'a str,
+}
+
+fn back_on(then: Then<'_>) -> Result<Option<String>, Never> {
+    let Then { found, now } = then;
     let unsaid = found.trim().is_empty() || now.trim().is_empty();
 
     Ok(match unsaid || found == now {
@@ -137,14 +144,14 @@ pub fn wanted(found: &Found, now: &Found, opened: &[String]) -> Result<Vec<Putti
         None => {},
     }
 
-    let Ok(profile) = back_on(&found.profile, &now.profile);
+    let Ok(profile) = back_on(Then { found: &found.profile, now: &now.profile });
 
     match profile {
         Some(was) => wanted.push(Putting::Profile(was)),
         None => {},
     }
 
-    let Ok(workspace) = back_on(&found.workspace, &now.workspace);
+    let Ok(workspace) = back_on(Then { found: &found.workspace, now: &now.workspace });
 
     match workspace {
         Some(was) => wanted.push(Putting::Workspace(was)),

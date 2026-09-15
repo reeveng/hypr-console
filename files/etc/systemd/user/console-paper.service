@@ -18,18 +18,18 @@ Type=notify
 # covering the screen. What made it look worth paying is that the name of a
 # cache entry says nothing about what is inside the picture, so a picture
 # pressed again at the same path is served out of the old one's frames;
-# `console_sky::place::freshen` throws away exactly those, by their date.
+# `console_wallpaper::place::freshen` throws away exactly those, by their date.
 #
 # --no-cache is about the other half of the cache, which is the picture the
 # daemon would put up by itself: it remembers what was last on each screen, and
 # a daemon that restored that would be a second opinion about the wallpaper.
 ExecStart=/usr/bin/awww-daemon --no-cache
 
-# What is on the screen for the moment before `console-sky` has chosen a
-# picture, and what stays there on a machine where `console-sky` will not start.
-# It is a colour rather than a picture: this unit brings the daemon up and
-# `console-sky` decides what goes on it, and a unit that painted a picture of
-# its own would be a second opinion about the wallpaper.
+# What is on the screen for the moment before `console-wallpaper` has chosen a
+# picture, and what stays there on a machine where it will not start. It is a
+# colour rather than a picture: this unit brings the daemon up and
+# `console-wallpaper` decides what goes on it, and a unit that painted a
+# picture of its own would be a second opinion about the wallpaper.
 #
 # Written by `just theme`, because a unit file can import nothing.
 # console-palette:begin
@@ -45,7 +45,7 @@ ExecStart=/usr/bin/awww-daemon --no-cache
 # and exits, and an ExecStartPost that exits fails the unit. On the
 # device that took the whole background down and dependency-failed
 # the unit that says which wallpaper is up -- over a colour that
-# console-sky covers a second later. Seen during an apply, where the
+# console-wallpaper covers a second later. Seen during an apply, where the
 # desktop is stopped and started faster than a daemon can find a
 # screen.
 ExecStartPost=-/usr/bin/awww clear 110b12

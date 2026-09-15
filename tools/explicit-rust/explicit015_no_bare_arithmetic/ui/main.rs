@@ -39,8 +39,28 @@ fn below_zero() -> i32 {
 // build, which is a failure with a name.
 const WIDTH: usize = 16 * 4;
 
+// GOOD — a `NonZero` divisor is the policy, said in the type. Division's one
+// failure is the divisor being zero, and this is the proof that it is not.
+fn wrapped(at: usize, many: std::num::NonZeroUsize) -> usize {
+    at % many
+}
+
+// GOOD — the same, divided rather than remaindered.
+fn shared(over: usize, whole: std::num::NonZeroUsize) -> usize {
+    over / whole
+}
+
+// BAD EXPLICIT015 — an ordinary divisor proves nothing about itself.
+fn shared_unproven(over: usize, whole: usize) -> usize {
+    //~v EXPLICIT015_NO_BARE_ARITHMETIC
+    over / whole
+}
+
 fn main() {
+    let whole = std::num::NonZeroUsize::new(4);
     let _ = (WIDTH, grows(0), splits(4, 2), grows_named(0), scales(1.0), below_zero());
+    let _ = whole.map(|whole| (wrapped(5, whole), shared(8, whole)));
+    let _ = shared_unproven(8, 4);
 
     let mut sum = 0;
     accumulates(&mut sum, 1);

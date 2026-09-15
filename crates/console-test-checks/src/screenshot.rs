@@ -85,6 +85,13 @@ fn taken_away(
     was: &[String],
     now: &[String],
 ) -> Result<(), Never> {
+    #[cfg_attr(
+        dylint_lib = "explicit028_no_search_in_a_loop",
+        allow(
+            explicit028_no_search_in_a_loop,
+            reason = "the shots a run made against the shots it found, which is tens of files and is walked once at the end of the run"
+        )
+    )]
     for name in now.iter().filter(|name| !was.contains(name)) {
         let Ok(quoted) = quoted(&format!("{shots}/{name}"));
         let Ok(_) = stage.user(&format!("rm -f {quoted}"));

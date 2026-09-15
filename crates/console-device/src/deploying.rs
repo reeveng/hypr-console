@@ -60,6 +60,7 @@ use std::path::PathBuf;
 
 use console_core_external_programs::Program as Theirs;
 use console_core_never::Never;
+use console_core_our_programs::{CONFIRM_DOES, Ours};
 use console_program_contract::{
     Argv, Chose, Doing, Ending, Given, Opening, Program, Question, Runs, Turn, Went, Word,
 };
@@ -71,7 +72,15 @@ pub const TREE: &str = "/etc/console";
 
 pub const LOCK: &str = "console-deploy.lock";
 
-pub const CARD: &str = "console-confirm";
+pub const KNOWN: [&str; 2] = ["--check", "--yes"];
+
+pub fn card() -> Result<&'static str, Never> {
+    Ours::Confirm.name()
+}
+
+pub fn unasked() -> Result<i32, Never> {
+    Ok(i32::from(console_core_our_programs::CONFIRM_UNASKED))
+}
 
 pub const NO_CARD: i32 = 97;
 
@@ -84,6 +93,7 @@ pub const NOT_ASKED: i32 = 2;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Deploying {
     Nowhere,
+    Unknown(String),
     At(Step, Going),
 }
 
@@ -106,7 +116,7 @@ pub enum How {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Whether {
     Send,
-    Press,
+    Check,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -176,11 +186,12 @@ impl Program for Deploy {
 
     fn opening(argv: &Argv) -> Opening<Deploying> {
         let Ok(first) = argv.first();
-        let host = first.unwrap_or_default();
+        let Ok(stranger) = stranger(argv);
 
-        let Ok(opening) = match host.is_empty() {
-            true => Opening::holding(Deploying::Nowhere),
-            false => {
+        let Ok(opening) = match (stranger, first.filter(|host| !host.trim().is_empty())) {
+            (Some(word), _) => Opening::holding(Deploying::Unknown(word)),
+            (None, None) => Opening::holding(Deploying::Nowhere),
+            (None, Some(host)) => {
                 let Ok(said) = asked_for(argv);
 
                 Opening::holding(Deploying::At(
@@ -209,9 +220,18 @@ impl Program for Deploy {
                 ),
             ),
 
+            (Deploying::Unknown(word), Word::Opened) => stopped(
+                state,
+                &format!(
+                    "{word} is not a word console-deploy knows, and a deploy is not the \
+                     thing to learn that on. It takes --check, which sends nothing, and \
+                     --yes, which does not stop to ask."
+                ),
+            ),
+
             (Deploying::At(step, going), word) => at(*step, going, word),
 
-            (Deploying::Nowhere, _) => Turn::nothing(state.clone()),
+            (Deploying::Nowhere | Deploying::Unknown(_), _) => Turn::nothing(state.clone()),
         };
 
         turn
@@ -271,7 +291,7 @@ fn at(step: Step, going: &Going, word: &Word<Heard>) -> Result<Turn<Deploying, I
             false => {
                 let Ok(asked) = out_of_a_clone(
                         "commit them first: what is deployed is what is in the history",
-                        &going.host,
+                        going,
                     );
 
                 Turn::doing(
@@ -289,7 +309,7 @@ fn at(step: Step, going: &Going, word: &Word<Heard>) -> Result<Turn<Deploying, I
 
         (Step::Marking, Word::Answered(answer)) => {
             let going = Going { was: answer.said.trim().to_string(), ..going.clone() };
-            let Ok(runs) = on(&going.host, "console room");
+            let Ok(runs) = on(&going, "console room");
 
             Turn::doing(
                 Deploying::At(Step::Room, going),
@@ -397,7 +417,7 @@ fn at(step: Step, going: &Going, word: &Word<Heard>) -> Result<Turn<Deploying, I
 
             match going.how {
                 How::Check => {
-                    let Ok(runs) = on(&going.host, "console check");
+                    let Ok(runs) = on(going, "console check");
 
                     Turn::doing(
                         Deploying::At(Step::Saying, going.clone()),
@@ -417,7 +437,7 @@ fn at(step: Step, going: &Going, word: &Word<Heard>) -> Result<Turn<Deploying, I
                     )
                 },
                 How::Asked => {
-                    let Ok(runs) = on(&going.host, reaching::OWNER);
+                    let Ok(runs) = on(going, reaching::OWNER);
 
                     Turn::doing(
                         Deploying::At(Step::Finding(Whether::Send), going.clone()),
@@ -489,7 +509,7 @@ fn at(step: Step, going: &Going, word: &Word<Heard>) -> Result<Turn<Deploying, I
                 let Ok(asked) = out_of_a_clone(
                         "nothing sent. What was checked above is no longer what is here. \
                          Commit it and start again",
-                        &going.host,
+                        going,
                     );
 
                 Turn::doing(
@@ -507,8 +527,7 @@ fn at(step: Step, going: &Going, word: &Word<Heard>) -> Result<Turn<Deploying, I
 
         (Step::Moved, Word::Answered(answer)) => match answer.said.trim() == going.was {
             true => {
-                let Ok(runs) = on(
-                    &going.host,
+                let Ok(runs) = on(going,
                     &format!("git -C {TREE} config receive.denyCurrentBranch updateInstead"),
                 );
 
@@ -555,8 +574,7 @@ fn at(step: Step, going: &Going, word: &Word<Heard>) -> Result<Turn<Deploying, I
         (Step::Pushing, Word::Answered(answer)) => match answer.went {
             Went::Badly(_) => stopped_at(step, going, "the push was refused"),
             Went::Well => {
-                let Ok(runs) = on(
-                        &going.host,
+                let Ok(runs) = on(going,
                         &format!(
                             "cargo build --release --locked --manifest-path {TREE}/Cargo.toml \
                              --bin console"
@@ -576,8 +594,7 @@ fn at(step: Step, going: &Going, word: &Word<Heard>) -> Result<Turn<Deploying, I
         (Step::Building, Word::Answered(answer)) => match answer.went {
             Went::Badly(_) => stopped_at(step, going, "the device could not build the engine"),
             Went::Well => {
-                let Ok(runs) = on(
-                    &going.host,
+                let Ok(runs) = on(going,
                     &format!("install -m 755 {TREE}/target/release/console /usr/local/bin/console"),
                 );
 
@@ -591,7 +608,7 @@ fn at(step: Step, going: &Going, word: &Word<Heard>) -> Result<Turn<Deploying, I
         (Step::Installing, Word::Answered(answer)) => match answer.went {
             Went::Badly(_) => stopped_at(step, going, "the new engine could not be put in place"),
             Went::Well => {
-                let Ok(runs) = on(&going.host, "console apply");
+                let Ok(runs) = on(going, "console apply");
 
                 Turn::doing(
                     Deploying::At(Step::Applying, going.clone()),
@@ -627,10 +644,10 @@ fn pressing(going: &Going) -> Result<Turn<Deploying, Its>, Never> {
             )
         },
         How::Asked | How::Check => {
-            let Ok(runs) = carding(going, Whether::Press);
+            let Ok(runs) = carding(going, Whether::Check);
 
             Turn::doing(
-                Deploying::At(Step::Wondering(Whether::Press), going.clone()),
+                Deploying::At(Step::Wondering(Whether::Check), going.clone()),
                 vec![Doing::Ask(runs)],
             )
         },
@@ -653,7 +670,7 @@ fn answered(which: Whether, chose: Chose, going: &Going) -> Result<Turn<Deployin
             )
         },
 
-        (Whether::Press, Chose::No) => Turn::doing(
+        (Whether::Check, Chose::No) => Turn::doing(
             Deploying::At(Step::Wondering(which), going.clone()),
             vec![
                 Doing::Print("not checked; `just check` asks the device later".to_string()),
@@ -661,7 +678,7 @@ fn answered(which: Whether, chose: Chose, going: &Going) -> Result<Turn<Deployin
             ],
         ),
 
-        (Whether::Press, Chose::Yes) => {
+        (Whether::Check, Chose::Yes) => {
             let Ok(runs) = checking();
 
             Turn::doing(
@@ -704,6 +721,12 @@ fn whose(going: &Going, holder: &Holder) -> Result<Turn<Deploying, Its>, Never> 
     }
 }
 
+fn stranger(argv: &Argv) -> Result<Option<String>, Never> {
+    let Ok(words) = argv.words();
+
+    Ok(words.iter().skip(1).find(|word| !KNOWN.contains(&word.as_str())).cloned())
+}
+
 fn asked_for(argv: &Argv) -> Result<How, Never> {
     let check = argv.given("--check")?;
     let yes = argv.given("--yes")?;
@@ -718,33 +741,45 @@ fn asked_for(argv: &Argv) -> Result<How, Never> {
 fn putting(which: Whether, host: &str) -> Result<Question, Never> {
     match which {
         Whether::Send => Question::unless(&format!("\napply this to {host}? [y/N]"), Chose::No),
-        Whether::Press => Question::unless(
-            &format!(
-                "\ncheck the features on {host} now? it takes the screen for a few minutes [Y/n]"
-            ),
+        Whether::Check => Question::unless(
+            &format!("\ntest the update on {host}? it takes its screen for a few minutes [Y/n]"),
             Chose::Yes,
         ),
     }
 }
 
-fn saying(which: Whether, host: &str) -> Result<String, Never> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Asking {
+    pub question: String,
+    pub does: &'static str,
+}
+
+fn saying(which: Whether) -> Result<Asking, Never> {
     Ok(match which {
-        Whether::Send => format!("Bring this machine to what {host} has just been sent?"),
-        Whether::Press => {
-            "Press every feature now? It takes this screen for a few minutes.".to_string()
-        }
+        Whether::Send => Asking {
+            question: "Accept the update sent to this device?".to_string(),
+            does: "Accept",
+        },
+        Whether::Check => Asking {
+            question: "Test the update? This will take a few minutes.".to_string(),
+            does: "Test",
+        },
     })
 }
 
 pub fn carding(going: &Going, which: Whether) -> Result<Runs, Never> {
-    let Ok(said) = saying(which, &going.host);
-    let Ok(quoted) = reaching::quoted(&said);
+    let Ok(asking) = saying(which);
+    let Ok(named) = card();
+    let Ok(quoted) = reaching::quoted(&asking.question);
+    let Ok(does) = reaching::quoted(asking.does);
 
-    let card = format!("command -v {CARD} >/dev/null || exit {NO_CARD}; {CARD} {quoted}");
+    let card = format!(
+        "command -v {named} >/dev/null || exit {NO_CARD}; {CONFIRM_DOES}={does} exec {named} {quoted}"
+    );
 
-    let Ok(in_session) = reaching::in_session(&going.whom, &card);
+    let Ok(in_session) = reaching::in_session(reaching::Whom(&going.whom), &card);
 
-    on(&going.host, &in_session)
+    on(going, &in_session)
 }
 
 pub fn fetching(host: &str) -> Result<Runs, Never> {
@@ -767,15 +802,17 @@ fn logged(range: &str) -> Result<Runs, Never> {
     Runs::theirs(Theirs::Git, &["log", "--oneline", range])
 }
 
-fn on(host: &str, command: &str) -> Result<Runs, Never> {
-    Runs::theirs(Theirs::Ssh, &[host, command])
+fn on(going: &Going, command: &str) -> Result<Runs, Never> {
+    Runs::theirs(Theirs::Ssh, &[going.host.as_str(), command])
 }
 
 fn into(host: &str) -> Result<String, Never> {
     Ok(format!("ssh://{host}{TREE}"))
 }
 
-fn out_of_a_clone(first: &str, host: &str) -> Result<String, Never> {
+fn out_of_a_clone(first: &str, going: &Going) -> Result<String, Never> {
+    let host = &going.host;
+
     Ok(format!(
         "{first}, or send the history alone out of a clone nobody is working in:\n  \
          clone=$(mktemp -d)/console && git clone . \"$clone\" && cd \"$clone\"\n  \
@@ -1158,12 +1195,90 @@ mod tests {
     fn without_a_yes_the_question_goes_to_the_device_and_no_sends_nothing() {
         let said = as_far_as(&[], &[well("someone"), badly(SAID_NO)]);
 
+        let Ok(named) = card();
+
         assert!(
-            asks(&said).iter().any(|runs| runs.argv.iter().any(|word| word.contains(CARD))),
+            asks(&said).iter().any(|runs| runs.argv.iter().any(|word| word.contains(named))),
             "nothing was raised on the device"
         );
         assert_eq!(pushes(&said), 0);
         assert!(badly_at(&said).is_some_and(|why| why == "nothing sent"));
+    }
+
+    #[test]
+    fn a_word_console_deploy_does_not_know_sends_nothing_and_says_so() {
+        let said = heard(&["root@handheld", "--help"], &[Word::Opened]);
+
+        assert_eq!(pushes(&said), 0, "an unknown word reached the machine");
+        assert!(
+            badly_at(&said).is_some_and(|why| why.starts_with("--help is not a word")),
+            "an unknown word was carried rather than refused"
+        );
+    }
+
+    #[test]
+    fn every_card_is_raised_with_the_word_for_going_ahead() {
+        for which in [Whether::Send, Whether::Check] {
+            let Ok(asking) = saying(which);
+
+            assert!(
+                !["Yes", "No", "OK"].contains(&asking.does),
+                "{which:?} asks with {:?}, which names the grammar and not the result",
+                asking.does
+            );
+            assert!(
+                asking.question.to_lowercase().contains(&asking.does.to_lowercase()),
+                "{which:?} offers {:?}, which is not a word of the question it answers: {:?}",
+                asking.does,
+                asking.question
+            );
+        }
+    }
+
+    #[test]
+    fn the_word_for_going_ahead_travels_beside_the_question_and_not_inside_it() {
+        let said = as_far_as(&[], &[well("someone"), badly(SAID_NO)]);
+        let raised: Vec<String> =
+            asks(&said).iter().flat_map(|runs| runs.argv.clone()).collect();
+        let Ok(named) = card();
+
+        let line = match raised.iter().find(|word| word.contains(&format!("exec {named}"))) {
+            Some(line) => line.clone(),
+            None => panic!("nothing raised a card"),
+        };
+
+        assert!(
+            line.contains(&format!("{CONFIRM_DOES}=")),
+            "the verb is not in the environment, so only a copy that knows it reads it: {line}"
+        );
+
+        let after = match line.split(&format!("exec {named} ")).nth(1) {
+            Some(after) => after.to_string(),
+            None => panic!("the card was handed nothing at all: {line}"),
+        };
+
+        assert!(
+            !after.contains("--"),
+            "a copy of the card older than this change draws every word it is handed, and this hands it one it would draw as part of the question: {after}"
+        );
+    }
+
+    #[test]
+    fn the_card_is_what_the_shell_becomes_and_the_word_that_looks_for_it_is_not() {
+        let said = as_far_as(&[], &[well("someone"), badly(SAID_NO)]);
+        let raised: Vec<String> =
+            asks(&said).iter().flat_map(|runs| runs.argv.clone()).collect();
+
+        let Ok(named) = card();
+
+        assert!(
+            raised.iter().any(|word| word.contains(&format!("exec {named}"))),
+            "the card is not what the shell becomes"
+        );
+        assert!(
+            raised.iter().all(|word| !word.contains("exec command")),
+            "exec was handed a builtin, which is how this asked at the terminal every time"
+        );
     }
 
     #[test]
@@ -1173,6 +1288,18 @@ mod tests {
         assert!(
             asked(&said).iter().any(|doing| matches!(doing, Doing::AskWhoever(_))),
             "a device that could not ask left nobody to ask"
+        );
+        assert_eq!(pushes(&said), 0, "it sent something before anybody had answered");
+    }
+
+    #[test]
+    fn a_card_that_could_not_read_its_call_is_asked_here_rather_than_taken_for_a_no() {
+        let Ok(unasked) = unasked();
+        let said = as_far_as(&[], &[well("someone"), badly(unasked)]);
+
+        assert!(
+            asked(&said).iter().any(|doing| matches!(doing, Doing::AskWhoever(_))),
+            "a card that never reached anybody was read as somebody saying no"
         );
         assert_eq!(pushes(&said), 0, "it sent something before anybody had answered");
     }
@@ -1252,11 +1379,12 @@ mod tests {
                 well(""),
             ],
         );
+        let Ok(named) = card();
         let asked = asks(&said);
         let cards: Vec<usize> = asked
             .iter()
             .enumerate()
-            .filter_map(|(at, runs)| match runs.argv.iter().any(|word| word.contains(CARD)) {
+            .filter_map(|(at, runs)| match runs.argv.iter().any(|word| word.contains(named)) {
                 true => Some(at),
                 false => None,
             })
@@ -1268,7 +1396,7 @@ mod tests {
         assert_eq!(cards.len(), 2, "the device was not asked twice");
         assert!(
             cards.last().is_some_and(|last| applied.is_some_and(|applied| applied < *last)),
-            "the device was asked about the checks before it had the release they press"
+            "the device was asked about the checks before it had the release they run against"
         );
     }
 }

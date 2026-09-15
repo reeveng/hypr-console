@@ -20,11 +20,21 @@
 //! installed in, and `beside` is how it is asked. Both answers are the same
 //! file on the device, which is the point: the stage differs from the device in
 //! where it is and in nothing else.
+//!
+//! **Which names a surface wants is the surface's, and what a missing one means
+//! is not.** Two things draw themselves out of this file now and both wanted
+//! the same three lines -- look the name up, read the six digits, say which
+//! name was missing rather than drawing in black. That is here rather than
+//! twice, because a surface that quietly defaults one colour is a surface that
+//! comes up looking nearly right, which is worse than one that says what the
+//! palette does not spend.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use console_core_never::Never;
+
+use crate::{Oklch, Rgba};
 
 pub const SPENT: &str = "usr/local/lib/console/palette.sh";
 
@@ -46,6 +56,42 @@ pub fn read(said: &str) -> Result<BTreeMap<String, String>, Never> {
         .filter(|(_, colour)| colour.len() == 6 && colour.chars().all(|l| l.is_ascii_hexdigit()))
         .map(|(name, colour)| (name.to_string(), colour.to_lowercase()))
         .collect())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Undressed {
+    Absent(&'static str),
+    Unreadable { named: &'static str, said: String },
+}
+
+impl std::fmt::Display for Undressed {
+    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Undressed::Absent(named) => {
+                write!(to, "the palette this desktop spends has no {named}")
+            }
+            Undressed::Unreadable { named, said } => {
+                write!(to, "the palette spends {named} as {said}, which is not a colour")
+            }
+        }
+    }
+}
+
+impl std::error::Error for Undressed {}
+
+pub fn named(
+    spent: &BTreeMap<String, String>,
+    what: &'static str,
+) -> Result<Oklch, Undressed> {
+    let said = match spent.get(what) {
+        Some(said) => said,
+        None => return Err(Undressed::Absent(what)),
+    };
+    let channels = Rgba::of(said)
+        .map_err(|_| Undressed::Unreadable { named: what, said: said.clone() })?;
+    let Ok(oklch) = Oklch::of(channels);
+
+    Ok(oklch)
 }
 
 #[cfg(test)]
@@ -78,7 +124,7 @@ mod tests {
     #[test]
     fn a_program_installed_at_the_root_spends_the_palette_at_the_root() {
         assert_eq!(
-            beside(Path::new("/usr/local/bin/virtual-keyboard")),
+            beside(Path::new("/usr/local/bin/console-keyboard")),
             Ok(PathBuf::from("/usr/local/lib/console/palette.sh"))
         );
     }
@@ -86,7 +132,7 @@ mod tests {
     #[test]
     fn a_program_installed_in_a_staged_tree_spends_that_trees_palette() {
         assert_eq!(
-            beside(Path::new("/s/session-1/usr/local/bin/virtual-keyboard")),
+            beside(Path::new("/s/session-1/usr/local/bin/console-keyboard")),
             Ok(PathBuf::from("/s/session-1/usr/local/lib/console/palette.sh"))
         );
     }
@@ -94,7 +140,7 @@ mod tests {
     #[test]
     fn a_program_nowhere_near_a_tree_falls_back_to_the_root() {
         assert_eq!(
-            beside(Path::new("virtual-keyboard")),
+            beside(Path::new("console-keyboard")),
             Ok(PathBuf::from("/usr/local/lib/console/palette.sh"))
         );
     }

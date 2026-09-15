@@ -28,8 +28,21 @@
 //! makes it where right off a row is pressed: the offer is a button beside the
 //! row now and the highlight can stand on it, and a press that only moves the
 //! highlight is a press nothing else here could see.
+//!
+//! The last two needed no picture at all. A folder with no picture and no film
+//! in it -- a pictures folder on a device nobody has taken a photograph on --
+//! used not to open: the panel exited nought and said why on a stderr nobody
+//! can see, so pressing Viewer on the home screen did nothing whatever, which
+//! is what a program that fell over does too. Nothing in the crate could catch
+//! that, because every test here handed it a picture first.
+//!
+//! Then it opened and said the device was empty while two films sat in Videos,
+//! which is the same fault wearing the fix: the shelf that was added to answer
+//! *what have I got* was behind the road the empty folder did not take. So the
+//! second of them puts the film one folder further in than the one the panel is
+//! handed, and asks for it by name.
 
-use console_panel::telling::{Offers, Standing};
+use console_panel::telling::{Heading, Offers, Standing};
 use console_test_stages::panels::{
     Panel, a_way_out_is_drawn, every_mark_reachable, every_offer_answered, one_mark_for_one_subject,
 };
@@ -67,7 +80,7 @@ fn drawn(args: &[&str]) -> Vec<console_panel::telling::Told> {
 
 fn holds(
     every: &[console_panel::telling::Told],
-    rule: fn(&console_panel::telling::Told) -> Result<(), String>,
+    rule: fn(&console_panel::telling::Told) -> Result<(), console_test_stages::Awry>,
 ) {
     for card in every {
         if let Err(why) = rule(card) {
@@ -78,7 +91,7 @@ fn holds(
 
 fn holds_somewhere(
     every: &[console_panel::telling::Told],
-    rule: fn(&console_panel::telling::Told) -> Result<(), String>,
+    rule: fn(&console_panel::telling::Told) -> Result<(), console_test_stages::Awry>,
 ) {
     let mut why = None;
 
@@ -170,7 +183,9 @@ fn every_row_of_the_media_page_offers_what_else_there_is_to_do_with_it() {
     );
 
     let offered = media.iter().any(|card| {
-        !card.lines.is_empty() && card.lines.iter().all(|line| line.offers == Offers::Yes)
+        let mut stood = card.lines.iter().filter(|line| line.heading == Heading::No).peekable();
+
+        stood.peek().is_some() && stood.all(|line| line.offers == Offers::Yes)
     });
 
     assert!(
@@ -217,6 +232,74 @@ fn right_off_a_row_stands_on_what_else_it_offers() {
     assert!(
         beside,
         "right off a row never reached what else it offers; the card drew {} times",
+        every.len()
+    );
+}
+
+fn a_folder_with_nothing_in_it() -> std::path::PathBuf {
+    let here = std::env::temp_dir().join(format!("console-viewer-nothing-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&here);
+
+    here
+}
+
+#[test]
+fn a_folder_with_nothing_to_show_opens_and_says_so() {
+    let here = a_folder_with_nothing_in_it();
+    let every = drawn(&[&here.to_string_lossy()]);
+
+    assert!(
+        !every.is_empty(),
+        "the viewer drew no card at all for a folder with no picture and no film in it"
+    );
+
+    let said = every
+        .iter()
+        .any(|card| card.lines.iter().any(|line| line.says.contains("no picture and no film")));
+
+    assert!(
+        said,
+        "the card came up with nothing anywhere and in none of its {} draws said so",
+        every.len()
+    );
+
+    holds(&every, every_mark_reachable);
+    holds_somewhere(&every, a_way_out_is_drawn);
+}
+
+fn a_folder_with_the_film_further_in() -> std::path::PathBuf {
+    let here = std::env::temp_dir().join(format!("console-viewer-further-{}", std::process::id()));
+    let deeper = here.join("last summer");
+    let _ = std::fs::create_dir_all(&deeper);
+    let _ = std::fs::write(deeper.join("holiday.mkv"), []);
+
+    here
+}
+
+#[test]
+fn a_folder_holding_nothing_itself_opens_on_what_the_shelf_found() {
+    let here = a_folder_with_the_film_further_in();
+    let every = drawn(&[&here.to_string_lossy()]);
+
+    assert!(!every.is_empty(), "the viewer drew no card at all");
+
+    let gave_up = every
+        .iter()
+        .any(|card| card.lines.iter().any(|line| line.says.contains("no picture and no film")));
+
+    assert!(
+        !gave_up,
+        "the folder it was handed held nothing itself and it said the device had nothing, \
+         with a film one folder further in"
+    );
+
+    let found = every
+        .iter()
+        .any(|card| card.lines.iter().any(|line| line.says.contains("holiday.mkv")));
+
+    assert!(
+        found,
+        "the shelf never named the one film there is; it drew {} times",
         every.len()
     );
 }

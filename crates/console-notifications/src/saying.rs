@@ -26,21 +26,18 @@ use std::time::Instant;
 
 use console_core_external_programs::Program;
 use console_core_never::Never;
+use console_core_words::Words;
 use console_waiting::{Patience, Seen, Waited, until};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Urgency {
-    Normal,
-    Critical,
-}
+const NEVER_SAID_BEFORE: u32 = 0;
 
-impl Urgency {
-    fn said(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Urgency::Normal => "normal",
-            Urgency::Critical => "critical",
-        })
-    }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Words)]
+pub enum Urgency {
+    #[words(said = "normal")]
+    Normal,
+    #[words(said = "critical")]
+    Critical,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -68,13 +65,19 @@ pub struct Notice {
     pub value: Option<i64>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Said<'a> {
+    pub summary: &'a str,
+    pub body: &'a str,
+}
+
 impl Notice {
-    pub fn new(summary: &str, body: &str) -> Result<Self, Never> {
+    pub fn new(said: Said<'_>) -> Result<Self, Never> {
         Ok(Notice {
             urgency: Urgency::Normal,
             expiry: Expiry::Milliseconds(4000),
-            summary: summary.to_string(),
-            body: body.to_string(),
+            summary: said.summary.to_string(),
+            body: said.body.to_string(),
             replacing: None,
             value: None,
         })
@@ -169,38 +172,38 @@ pub fn last_of_them(body: &str) -> Result<String, Never> {
     })
 }
 
-pub fn fault(summary: &str, body: &str, count: u32) -> Result<Option<Notice>, Never> {
+pub fn fault(said: Said<'_>, count: u32) -> Result<Option<Notice>, Never> {
     let Ok(showing) = showing(count);
 
     match showing {
         Showing::Quiet => Ok(None),
 
         Showing::Shown => {
-            let Ok(notice) = alarming(summary, body);
+            let Ok(notice) = alarming(said);
 
             Ok(Some(notice))
         }
 
         Showing::Last => {
-            let Ok(body) = last_of_them(body);
-            let Ok(notice) = alarming(summary, &body);
+            let Ok(body) = last_of_them(said.body);
+            let Ok(notice) = alarming(Said { summary: said.summary, body: &body });
 
             Ok(Some(notice))
         }
     }
 }
 
-fn alarming(summary: &str, body: &str) -> Result<Notice, Never> {
-    let Ok(notice) = Notice::new(summary, body);
+fn alarming(said: Said<'_>) -> Result<Notice, Never> {
+    let Ok(notice) = Notice::new(said);
     let Ok(notice) = notice.urgent();
 
     notice.staying()
 }
 
-pub fn once(summary: &str, body: &str, count: u32) -> Result<Option<Notice>, Never> {
+pub fn once(said: Said<'_>, count: u32) -> Result<Option<Notice>, Never> {
     match count {
         1 => {
-            let Ok(notice) = alarming(summary, body);
+            let Ok(notice) = alarming(said);
 
             Ok(Some(notice))
         }
@@ -208,7 +211,9 @@ pub fn once(summary: &str, body: &str, count: u32) -> Result<Option<Notice>, Nev
     }
 }
 
-pub fn for_the_journal(kind: &str, summary: &str, body: &str) -> Result<String, Never> {
+pub fn for_the_journal(kind: &str, said: Said<'_>) -> Result<String, Never> {
+    let Said { summary, body } = said;
+
     Ok(match body.is_empty() {
         true => format!("{kind}: {summary}"),
         false => format!("{kind}: {summary} - {body}"),
@@ -216,15 +221,17 @@ pub fn for_the_journal(kind: &str, summary: &str, body: &str) -> Result<String, 
 }
 
 pub fn under() -> Result<PathBuf, Never> {
-    // SAFETY: `getuid` reads this process's own real user id out of the
-    let mine = unsafe { libc::getuid() };
-    let run = match std::env::var("XDG_RUNTIME_DIR") {
-        Ok(run) => run,
+    let ours = console_core_places::runtime_ours()?;
 
-        Err(_) => format!("/run/user/{mine}"),
-    };
+    Ok(match ours {
+        Some(ours) => ours,
+        None => {
+            // SAFETY: `getuid` reads this process's own real user id out of the
+            let mine = unsafe { libc::getuid() };
 
-    Ok(PathBuf::from(run).join("console"))
+            PathBuf::from(format!("/run/user/{mine}")).join(console_core_places::OURS)
+        }
+    })
 }
 
 pub struct Kept(PathBuf);
@@ -264,7 +271,7 @@ impl Kept {
             None => {}
         }
 
-        let _ = std::fs::write(&self.0, format!("{number}\n"));
+        let _ = console_core_atomic_writes::whole(&self.0, format!("{number}\n").as_bytes());
 
         Ok(())
     }
@@ -278,7 +285,12 @@ impl Kept {
     pub fn again(&self) -> Result<u32, Never> {
         let Ok(read) = self.read();
 
-        let now = read.unwrap_or(0).saturating_add(1);
+        let before = match read {
+            Some(before) => before,
+            None => NEVER_SAID_BEFORE,
+        };
+
+        let now = before.saturating_add(1);
 
         let Ok(()) = self.write(now);
 
@@ -455,26 +467,27 @@ mod tests {
 
     #[test]
     fn the_last_one_says_it_is_the_last_one() {
-        let Ok(fault) = fault("The picture would not delete", "", LOUD);
+        let Ok(fault) = fault(Said { summary: "The picture would not delete", body: "" }, LOUD);
         let notice = fault.expect("the last");
         assert!(notice.body.contains("Not shown again"));
     }
 
     #[test]
     fn the_last_ones_sentence_comes_after_what_the_fault_said() {
-        let Ok(fault) = fault("Gone wrong", "The folder is read-only.", LOUD);
+        let said = Said { summary: "Gone wrong", body: "The folder is read-only." };
+        let Ok(fault) = fault(said, LOUD);
         let notice = fault.expect("the last");
         assert!(notice.body.starts_with("The folder is read-only."));
     }
 
     #[test]
     fn nothing_is_shown_once_the_screen_has_had_enough() {
-        assert_eq!(fault("Gone wrong", "again", LOUD + 1), Ok(None));
+        assert_eq!(fault(Said { summary: "Gone wrong", body: "again" }, LOUD + 1), Ok(None));
     }
 
     #[test]
     fn a_fault_stays_on_the_screen() {
-        let Ok(fault) = fault("Gone wrong", "", 1);
+        let Ok(fault) = fault(Said { summary: "Gone wrong", body: "" }, 1);
         let notice = fault.expect("the first");
         assert_eq!(notice.expiry, Expiry::Stays);
         assert_eq!(notice.urgency, Urgency::Critical);
@@ -483,18 +496,18 @@ mod tests {
     #[test]
     fn the_journal_is_told_the_kind_as_well_as_what_happened() {
         assert_eq!(
-            for_the_journal("unit-x", "x stopped", "why"),
+            for_the_journal("unit-x", Said { summary: "x stopped", body: "why" }),
             Ok("unit-x: x stopped - why".to_string())
         );
         assert_eq!(
-            for_the_journal("unit-x", "x stopped", ""),
+            for_the_journal("unit-x", Said { summary: "x stopped", body: "" }),
             Ok("unit-x: x stopped".to_string())
         );
     }
 
     #[test]
     fn a_notice_that_replaces_another_says_which() {
-        let Ok(notice) = Notice::new("Volume 40%", "");
+        let Ok(notice) = Notice::new(Said { summary: "Volume 40%", body: "" });
         let Ok(notice) = notice.replacing(Some(17));
         let Ok(argv) = notice.argv();
 
@@ -503,7 +516,7 @@ mod tests {
 
     #[test]
     fn a_notice_that_replaces_nothing_asks_to_replace_nothing() {
-        let Ok(notice) = Notice::new("Volume 40%", "");
+        let Ok(notice) = Notice::new(Said { summary: "Volume 40%", body: "" });
         let Ok(argv) = notice.argv();
 
         assert!(!argv.iter().any(|word| word.starts_with("--replace-id")));
@@ -511,7 +524,7 @@ mod tests {
 
     #[test]
     fn what_was_said_is_held_off_from_the_options() {
-        let Ok(notice) = Notice::new("--urgent", "-h");
+        let Ok(notice) = Notice::new(Said { summary: "--urgent", body: "-h" });
         let Ok(argv) = notice.argv();
         let end = argv.iter().position(|word| word == "--").expect("the end of the options");
         assert_eq!(&argv[end + 1..], ["--urgent", "-h"]);
@@ -519,7 +532,7 @@ mod tests {
 
     #[test]
     fn a_reading_carries_its_number_for_anything_that_can_draw_one() {
-        let Ok(notice) = Notice::new("Volume 40%", "");
+        let Ok(notice) = Notice::new(Said { summary: "Volume 40%", body: "" });
         let Ok(notice) = notice.valued(40);
         let Ok(argv) = notice.argv();
 
@@ -528,7 +541,7 @@ mod tests {
 
     #[test]
     fn how_long_it_stays_is_said_the_way_notify_send_reads_it() {
-        let Ok(notice) = Notice::new("a", "");
+        let Ok(notice) = Notice::new(Said { summary: "a", body: "" });
         let Ok(staying) = notice.clone().staying();
         let Ok(staying) = staying.argv();
         let Ok(lasting) = notice.lasting(1500);

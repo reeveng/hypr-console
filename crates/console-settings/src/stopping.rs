@@ -26,7 +26,7 @@ use std::time::Duration;
 use console_default_applications::battery::Step;
 use console_core_external_programs::Program;
 use console_core_never::Never;
-use console_notifications::saying::Notice;
+use console_notifications::saying::{Notice, Said};
 
 pub const GRACE: Duration = Duration::from_secs(15);
 
@@ -38,10 +38,13 @@ pub enum Stop {
     PowerOff,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Resume<'a>(pub &'a str);
+
 impl Stop {
-    pub fn of(state: &str, resume: &str) -> Result<Self, Never> {
+    pub fn of(state: &str, resume: Resume<'_>) -> Result<Self, Never> {
         let can = state.split_whitespace().any(|word| word == "disk");
-        let somewhere = !matches!(resume.trim(), "" | "0:0");
+        let somewhere = !matches!(resume.0.trim(), "" | "0:0");
 
         Ok(match can && somewhere {
             true => Stop::Hibernate,
@@ -75,7 +78,7 @@ pub fn stop() -> Result<Stop, Never> {
         Err(_) => String::new(),
     };
 
-    Stop::of(&said(STATE), &said(RESUME))
+    Stop::of(&said(STATE), Resume(&said(RESUME)))
 }
 
 pub fn card(step: Step, charge: i32, stop: Stop) -> Result<Notice, Never> {
@@ -83,13 +86,16 @@ pub fn card(step: Step, charge: i32, stop: Stop) -> Result<Notice, Never> {
 
     match step {
         Step::Low => {
-            let Ok(notice) = Notice::new("Battery low", &left);
+            let Ok(notice) = Notice::new(Said { summary: "Battery low", body: &left });
             let Ok(notice) = notice.lasting(6000);
 
             notice.valued(i64::from(charge))
         },
         Step::Lower => {
-            let Ok(notice) = Notice::new("Battery very low", &format!("{left} Plug in soon."));
+            let Ok(notice) = Notice::new(Said {
+                summary: "Battery very low",
+                body: &format!("{left} Plug in soon."),
+            });
             let Ok(notice) = notice.urgent();
             let Ok(notice) = notice.staying();
 
@@ -111,7 +117,7 @@ fn stopping(charge: i32, stop: Stop) -> Result<Notice, Never> {
             format!("{charge}% left. Open work can't be saved. Plug in to carry on."),
         ),
     };
-    let Ok(notice) = Notice::new(&summary, &body);
+    let Ok(notice) = Notice::new(Said { summary: &summary, body: &body });
     let Ok(notice) = notice.urgent();
     let Ok(notice) = notice.staying();
 
@@ -119,7 +125,7 @@ fn stopping(charge: i32, stop: Stop) -> Result<Notice, Never> {
 }
 
 pub fn saved() -> Result<Notice, Never> {
-    let Ok(notice) = Notice::new("Plugged in", "Nothing was stopped.");
+    let Ok(notice) = Notice::new(Said { summary: "Plugged in", body: "Nothing was stopped." });
 
     notice.lasting(4000)
 }
@@ -139,10 +145,10 @@ mod tests {
 
     #[test]
     fn a_kernel_that_can_and_a_machine_with_nowhere_to_write_cannot_hibernate() {
-        assert_eq!(Stop::of("freeze mem disk", "0:0"), Ok(Stop::PowerOff));
-        assert_eq!(Stop::of("freeze mem disk", "259:2"), Ok(Stop::Hibernate));
-        assert_eq!(Stop::of("freeze mem", "259:2"), Ok(Stop::PowerOff));
-        assert_eq!(Stop::of("", ""), Ok(Stop::PowerOff));
+        assert_eq!(Stop::of("freeze mem disk", Resume("0:0")), Ok(Stop::PowerOff));
+        assert_eq!(Stop::of("freeze mem disk", Resume("259:2")), Ok(Stop::Hibernate));
+        assert_eq!(Stop::of("freeze mem", Resume("259:2")), Ok(Stop::PowerOff));
+        assert_eq!(Stop::of("", Resume("")), Ok(Stop::PowerOff));
     }
 
     #[test]

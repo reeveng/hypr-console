@@ -64,7 +64,10 @@ const CARRYING_NO_ADDRESS: [(&str, Stirred); 11] = [
 ];
 
 pub fn addressed(said: &str) -> Result<String, Never> {
-    let first = said.split(',').next().unwrap_or(said).trim();
+    let first = match said.split(',').next() {
+        Some(first) => first.trim(),
+        None => said.trim(),
+    };
 
     Ok(match first.starts_with("0x") {
         true => first.to_string(),

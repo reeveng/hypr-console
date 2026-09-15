@@ -1,20 +1,26 @@
-//! The processors, asked to hurry for as long as somebody is waiting.  This is
-//! a handheld, and most of the time it is right for it to be slow. It sits in a
-//! bag at its lowest clock and the battery lasts the day. But a panel is a
-//! moment's work and then nothing at all, and a processor deciding how fast to
-//! run by watching how busy it has been is always deciding about the wrong
-//! moment: the whole of an opening is over before the load it made has been
-//! noticed.  What that costs is in `console-response-times`, which reads what
-//! every opening on this machine wrote down about itself, and it is not one
-//! slow stretch. It is every stretch: the loader, GTK coming up, the card being
+//! The processors, asked to hurry for as long as somebody is waiting.
+//!
+//! This is a handheld, and most of the time it is right for it to be slow. It
+//! sits in a bag at its lowest clock and the battery lasts the day. But a panel
+//! is a moment's work and then nothing at all, and a processor deciding how
+//! fast to run by watching how busy it has been is always deciding about the
+//! wrong moment: the whole of an opening is over before the load it made has
+//! been noticed.
+//!
+//! What that costs is in `console-response-times`, which reads what every
+//! opening on this machine wrote down about itself, and it is not one slow
+//! stretch. It is every stretch: the loader, GTK coming up, the card being
 //! built, the rows going on it, the first frame. Nothing there is slow. All of
 //! it is being done at a fraction of the clock the machine can run at, because
 //! nothing asked it for more and by the time anything could have, the press was
-//! answered.  So the daemon that reads the pad says so as it starts something:
-//! hurry, for about as long as an opening takes, and then let it be. Run
+//! answered.
+//!
+//! So the daemon that reads the pad says so as it starts something: hurry, for
+//! about as long as an opening takes, and then let it be. Run
 //! `console-response-times` before and after to see what it is worth on the
 //! machine in your hands. What it costs is a moment of ordinary clock speed per
 //! press, on a device that is otherwise asleep between them.
+//!
 //! ## The knob, and why this one
 //!
 //! `amd-pstate-epp` picks the frequency in hardware, from how busy a core has
@@ -22,16 +28,15 @@
 //! under `/sys/devices/system/cpu`. There is no per-task version of it. The
 //! scheduler's own `uclamp` drives `schedutil`, and this machine is not on
 //! `schedutil`, so a hint about the task that is opening the panel is not a
-//! thing this kernel can be given. The hint is the machine's, or it is
-//! nothing.
+//! thing this kernel can be given. The hint is the machine's, or it is nothing.
 //!
 //! Which is why what is written is put back. `power-profiles-daemon` owns this
 //! file -- power-saver writes `power` into it, balanced writes
 //! `balance_performance` -- and a desktop that raised it and walked away would
 //! be a machine quietly ignoring the profile somebody chose, for ever, with
 //! nothing on any screen saying so. So the word that was there is read before
-//! it is changed and written back when the moment is over, and what the
-//! profile says is what the machine does between presses.
+//! it is changed and written back when the moment is over, and what the profile
+//! says is what the machine does between presses.
 //!
 //! `balance_performance` rather than `performance`: measured, they were the
 //! same opening to within noise, and the gentler of two words that do the same
@@ -75,6 +80,7 @@
 
 use console_core_atomic_writes::{Held, read};
 use console_core_never::Never;
+use std::fmt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -147,6 +153,13 @@ impl Hurrying {
         let Ok((words, torn)) = words_in(&held);
 
         for (hint, was) in &words {
+            #[cfg_attr(
+                dylint_lib = "explicit040_no_torn_write",
+                allow(
+                    explicit040_no_torn_write,
+                    reason = "a hint is a kernel knob under `/sys` rather than a file: there is nothing beside it to write and nothing to rename over, and what it holds is the word last written to it"
+                )
+            )]
             match std::fs::write(hint, was) {
                 Ok(()) => {}
                 Err(fault) => eprintln!(
@@ -232,6 +245,13 @@ impl Hurrying {
         let mut wrote = false;
 
         for (hint, was) in taking {
+            #[cfg_attr(
+                dylint_lib = "explicit040_no_torn_write",
+                allow(
+                    explicit040_no_torn_write,
+                    reason = "a hint is a kernel knob under `/sys` rather than a file: there is nothing beside it to write and nothing to rename over, and what it holds is the word last written to it"
+                )
+            )]
             match std::fs::write(&hint, HURRY) {
                 Ok(()) => {
                     self.was.push((hint, was));
@@ -263,6 +283,13 @@ impl Hurrying {
         }
 
         for (hint, was) in std::mem::take(&mut self.was) {
+            #[cfg_attr(
+                dylint_lib = "explicit040_no_torn_write",
+                allow(
+                    explicit040_no_torn_write,
+                    reason = "a hint is a kernel knob under `/sys` rather than a file: there is nothing beside it to write and nothing to rename over, and what it holds is the word last written to it"
+                )
+            )]
             match std::fs::write(&hint, &was) {
                 Ok(()) => {}
                 Err(_fault) => {
@@ -334,18 +361,41 @@ pub enum Left {
 }
 
 pub fn note() -> Result<PathBuf, Never> {
-    let run = match std::env::var_os("XDG_RUNTIME_DIR") {
-        Some(run) => PathBuf::from(run),
-        None => std::env::temp_dir(),
-    };
+    let ours = console_core_places::runtime_ours()?;
 
-    Ok(run.join("console").join("hurried"))
+    Ok(match ours {
+        Some(ours) => ours.join("hurried"),
+        None => std::env::temp_dir().join(console_core_places::OURS).join("hurried"),
+    })
 }
 
-fn wrote_note(at: &Path, words: &[(PathBuf, String)]) -> Result<(), String> {
+#[derive(Debug)]
+pub enum Unnoted {
+    Holding(PathBuf, std::io::Error),
+    Writing(console_core_atomic_writes::Unwritten),
+}
+
+impl fmt::Display for Unnoted {
+    fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Unnoted::Holding(at, fault) => write!(to, "{}: its directory: {fault}", at.display()),
+            Unnoted::Writing(fault) => write!(to, "{fault}"),
+        }
+    }
+}
+
+impl std::error::Error for Unnoted {}
+
+impl From<console_core_atomic_writes::Unwritten> for Unnoted {
+    fn from(fault: console_core_atomic_writes::Unwritten) -> Self {
+        Unnoted::Writing(fault)
+    }
+}
+
+fn wrote_note(at: &Path, words: &[(PathBuf, String)]) -> Result<(), Unnoted> {
     match at.parent() {
         Some(holding) => std::fs::create_dir_all(holding)
-            .map_err(|fault| format!("{}: its directory: {fault}", at.display()))?,
+            .map_err(|fault| Unnoted::Holding(at.to_path_buf(), fault))?,
         None => {}
     }
 
@@ -354,7 +404,7 @@ fn wrote_note(at: &Path, words: &[(PathBuf, String)]) -> Result<(), String> {
         .map(|(hint, was)| format!("{was}\t{}\n", hint.display()))
         .collect();
 
-    console_core_atomic_writes::whole(at, written.as_bytes())
+    console_core_atomic_writes::whole(at, written.as_bytes()).map_err(Unnoted::Writing)
 }
 
 type Words = Vec<(PathBuf, String)>;

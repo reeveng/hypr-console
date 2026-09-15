@@ -1,69 +1,54 @@
-//! What mako is holding, and what it has already let go of.
+//! What the daemon is holding, and what it has already let go of.
 //!
-//! `makoctl list -j` and `makoctl history -j` each print an array of objects,
-//! one per notification, and that is what this reads:
+//! `console-notify` writes one file under the runtime directory whenever what
+//! it holds changes, and this is that file: what is waiting on the screen now,
+//! what has already gone, and whether the cards are being held back.
 //!
 //! ```json
-//! [
-//!   {
-//!     "id": 3,
-//!     "app_name": "Console",
-//!     "app_icon": null,
-//!     "category": null,
-//!     "desktop_entry": null,
-//!     "summary": "Notifications fell over",
-//!     "body": "console-notify.service stopped",
-//!     "urgency": "critical",
-//!     "actions": {}
-//!   }
-//! ]
+//! {
+//!   "waiting": [
+//!     {
+//!       "id": 3,
+//!       "app_name": "Console",
+//!       "summary": "Notifications fell over",
+//!       "body": "console-notify.service stopped",
+//!       "urgency": "critical"
+//!     }
+//!   ],
+//!   "earlier": [],
+//!   "quiet": "coming"
+//! }
 //! ```
 //!
-//! Asked for as JSON because of the body. The form makoctl prints without
-//! `-j` carries the id, the app, the urgency and the summary, and it does not
-//! carry the body -- and the body is the half of a fault worth opening a panel
-//! for: the summary says a thing broke and the body says which. A panel built
-//! on the printed form would be a panel showing back the part somebody had
-//! already read on the card.
+//! A file rather than a question put to the daemon, for the reason the strip
+//! under the bar is a file: the bell reads this every time a notification
+//! moves, and a reading that costs a subprocess and a round trip is a reading
+//! the bar cannot take as often as the thing changes. What the daemon holds is
+//! its own; what is here is a copy of it written where anything can look.
 //!
-//! ## Two shapes, one daemon
+//! Both halves are read in one go, which is the other half of the same
+//! argument. The panel used to ask twice -- once for what was waiting and once
+//! for the history -- and the two answers were two moments; a tab opened
+//! between them showed a notification in neither list or in both.
 //!
-//! `-j` arrived in mako 1.11. In 1.10 the flag is not an error and not
-//! honoured either: `run_list` there takes no options at all and prints the
-//! plain form regardless, which is exactly what this device was seen to do.
-//!
-//! ```text
-//! Notification 3: Notifications fell over
-//!   App name: Console
-//!   Urgency: critical
-//! ```
-//!
-//! So both are read, and which one arrived decides which is used rather than
-//! anything having to know what is installed. On 1.10 the panel lists what is
-//! waiting and shows no bodies, because there are none to show; on 1.11 the
-//! bodies are there. Asking twice, or asking the version first, would be two
-//! more subprocesses on a reading the bar takes every time a notification
-//! moves, to learn something the answer itself already says.
-//!
-//! This is also why the printed form is still read at all. It is the shape the
-//! bell was built on and the only one that has been seen on the device, and a
-//! bell that goes permanently empty is worse than no bell: it is a reading,
-//! and it is wrong.
-//!
-//! Nothing here is required to be there. Every field but the id is `null` when
-//! mako has nothing to put in it, a notification is somebody else's text, and
-//! a mako that is not running answers nothing at all -- which is no
-//! notifications rather than a fault of its own, because the bell has to go
-//! quiet when the daemon dies rather than light up.
+//! Nothing here is required to be there. Every field but the id is allowed to
+//! be missing, because a notification is somebody else's text; and a daemon
+//! that is not running has written no file at all -- which is no notifications
+//! rather than a fault of its own, because the bell has to go quiet when the
+//! daemon dies rather than light up.
 
 use console_core_never::Never;
-use serde::Deserialize;
+use console_core_words::Words;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Words)]
 pub enum Urgency {
+    #[words(says = "", wearing = "soft", sent = "low")]
     Low,
     #[default]
+    #[words(says = "", wearing = "", sent = "normal")]
     Normal,
+    #[words(says = "wrong", wearing = "wrong", sent = "critical")]
     Critical,
 }
 
@@ -73,13 +58,6 @@ impl Urgency {
             Some("low") => Urgency::Low,
             Some("critical") => Urgency::Critical,
             Some(_) | None => Urgency::Normal,
-        })
-    }
-
-    pub fn says(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Urgency::Critical => "wrong",
-            Urgency::Low | Urgency::Normal => "",
         })
     }
 }
@@ -120,7 +98,7 @@ impl Notice {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 struct Said {
     id: u32,
     app_name: Option<String>,
@@ -129,12 +107,78 @@ struct Said {
     urgency: Option<String>,
 }
 
+#[derive(Deserialize, Serialize, Default)]
+struct Kept {
+    waiting: Vec<Said>,
+    earlier: Vec<Said>,
+    quiet: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct Whole {
+    pub waiting: Vec<Notice>,
+    pub earlier: Vec<Notice>,
+    pub quiet: Quiet,
+}
+
+pub fn whole(said: &str) -> Result<Whole, Never> {
+    let kept = match serde_json::from_str::<Kept>(said) {
+        Ok(kept) => kept,
+        Err(_fault) => return Ok(Whole::default()),
+    };
+
+    let Ok(waiting) = every(kept.waiting);
+    let Ok(earlier) = every(kept.earlier);
+
+    let quiet = match kept.quiet.as_deref() {
+        Some("held-back") => Quiet::HeldBack,
+        Some(_) | None => Quiet::Coming,
+    };
+
+    Ok(Whole { waiting, earlier, quiet })
+}
+
+pub fn written(whole: &Whole) -> Result<String, Never> {
+    let Ok(waiting) = spelt(&whole.waiting);
+    let Ok(earlier) = spelt(&whole.earlier);
+    let Ok(quiet) = whole.quiet.said();
+
+    let kept = Kept { waiting, earlier, quiet: Some(quiet.to_string()) };
+
+    Ok(match serde_json::to_string(&kept) {
+        Ok(said) => said,
+        Err(_fault) => String::new(),
+    })
+}
+
+fn spelt(held: &[Notice]) -> Result<Vec<Said>, Never> {
+    let mut every: Vec<Said> = Vec::new();
+
+    for notice in held {
+        let Ok(urgency) = notice.urgency.sent();
+
+        every.push(Said {
+            id: notice.id,
+            app_name: Some(notice.app.clone()),
+            summary: Some(notice.summary.clone()),
+            body: Some(notice.body.clone()),
+            urgency: Some(urgency.to_string()),
+        });
+    }
+
+    Ok(every)
+}
+
 pub fn read(said: &str) -> Result<Vec<Notice>, Never> {
     let held = match serde_json::from_str::<Vec<Said>>(said) {
         Ok(held) => held,
-        Err(_fault) => return printed(said),
+        Err(_fault) => return Ok(Vec::new()),
     };
 
+    every(held)
+}
+
+fn every(held: Vec<Said>) -> Result<Vec<Notice>, Never> {
     let mut every: Vec<Notice> = Vec::new();
 
     for said in held {
@@ -150,78 +194,18 @@ pub fn read(said: &str) -> Result<Vec<Notice>, Never> {
 }
 
 fn word(said: Option<String>) -> Result<String, Never> {
-    Ok(said.unwrap_or_default())
-}
-
-fn printed(said: &str) -> Result<Vec<Notice>, Never> {
-    let mut held: Vec<Notice> = Vec::new();
-
-    for line in said.lines() {
-        let Ok(heads) = heads_one(line);
-
-        match heads {
-            Some((id, summary)) => {
-                held.push(Notice { id, summary: summary.trim().to_string(), ..Notice::default() });
-                continue;
-            }
-            None => {}
-        }
-
-        let notice = match held.last_mut() {
-            Some(notice) => notice,
-            None => continue,
-        };
-
-        match line.strip_prefix("  App name: ") {
-            Some(app) => notice.app = app.trim().to_string(),
-            None => {}
-        }
-
-        match line.strip_prefix("  Urgency: ") {
-            Some(urgency) => {
-                let Ok(named) = Urgency::named(Some(urgency.trim()));
-
-                notice.urgency = named;
-            }
-            None => {}
-        }
-    }
-
-    Ok(held)
-}
-
-fn heads_one(line: &str) -> Result<Option<(u32, &str)>, Never> {
-    let after = match line.strip_prefix("Notification ") {
-        Some(after) => after,
-        None => return Ok(None),
-    };
-
-    let (id, summary) = match after.split_once(':') {
-        Some((id, summary)) => (id, summary),
-        None => return Ok(None),
-    };
-
-    let id = match id.parse::<u32>() {
-        Ok(id) => id,
-        Err(_fault) => return Ok(None),
-    };
-
-    Ok(Some((id, summary)))
-}
-
-pub const QUIET: &str = "do-not-disturb";
-
-pub fn held_back(said: &str) -> Result<Quiet, Never> {
-    Ok(match said.lines().any(|line| line.trim() == QUIET) {
-        true => Quiet::HeldBack,
-        false => Quiet::Coming,
+    Ok(match said {
+        Some(said) => said,
+        None => String::new(),
     })
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Words)]
 pub enum Quiet {
+    #[words(said = "held-back")]
     HeldBack,
     #[default]
+    #[words(said = "coming")]
     Coming,
 }
 
@@ -257,7 +241,7 @@ mod tests {
     const NONE: &str = "[\n]";
 
     #[test]
-    fn what_mako_is_holding_is_read_whole() {
+    fn what_is_being_held_is_read_whole() {
         let Ok(held) = read(TWO);
 
         assert_eq!(held.len(), 2);
@@ -268,7 +252,7 @@ mod tests {
     }
 
     #[test]
-    fn the_order_is_left_as_mako_gave_it() {
+    fn the_order_is_left_as_it_was_written() {
         let Ok(held) = read(TWO);
 
         assert_eq!(held.iter().map(|held| held.id).collect::<Vec<_>>(), [4, 3]);
@@ -316,72 +300,48 @@ mod tests {
         }
     }
 
-    const PLAIN: &str = "\
-Notification 4: Three: a summary with: colons
-  App name: Console
-  Urgency: normal
-Notification 3: Two
-  App name: Console
-  Urgency: critical
-Notification 2: One
-  App name: Console
-  Urgency: low";
-
     #[test]
-    fn the_printed_form_is_read_as_the_same_notifications() {
-        let Ok(held) = read(PLAIN);
+    fn what_the_daemon_is_holding_is_read_whole_and_in_one_go() {
+        let Ok(whole) = whole(
+            r#"{"waiting":[{"id":4,"app_name":"Console","summary":"One","body":"and its body","urgency":"critical"}],
+                "earlier":[{"id":2,"summary":"Two"}],"quiet":"held-back"}"#,
+        );
 
-        assert_eq!(held.len(), 3);
-        assert_eq!(held[0].id, 4);
-        assert_eq!(held[0].summary, "Three: a summary with: colons");
-        assert_eq!(held[0].app, "Console");
-        assert_eq!(held[1].urgency, Urgency::Critical);
-        assert_eq!(held[2].urgency, Urgency::Low);
+        assert_eq!(whole.waiting.len(), 1);
+        assert_eq!(whole.waiting[0].body, "and its body");
+        assert_eq!(whole.earlier.len(), 1);
+        assert_eq!(whole.quiet, Quiet::HeldBack);
     }
 
     #[test]
-    fn the_printed_form_carries_no_body_and_says_so_by_leaving_it_empty() {
-        let Ok(held) = read(PLAIN);
+    fn what_is_written_is_what_is_read_back() {
+        let Ok(held) = read(TWO);
+        let whole = Whole { waiting: held.clone(), earlier: Vec::new(), quiet: Quiet::Coming };
+        let Ok(written) = written(&whole);
+        let Ok(back) = whole_of(&written);
 
-        assert!(held.iter().all(|held| held.body.is_empty()));
+        assert_eq!(back, whole);
+        assert_eq!(back.waiting[0].urgency, Urgency::Critical);
+    }
+
+    fn whole_of(said: &str) -> Result<Whole, Never> {
+        whole(said)
     }
 
     #[test]
-    fn a_summary_is_not_read_as_anything_but_a_summary() {
-        let said = "Notification 1: Notification 2: gone\n  Urgency: low";
-        let Ok(held) = read(said);
+    fn a_file_that_is_not_there_is_no_notifications_and_not_a_fault() {
+        for said in ["", "no", "{}", "[]", "null"] {
+            let Ok(whole) = whole(said);
 
-        assert_eq!(held.len(), 1);
-        assert_eq!(held[0].summary, "Notification 2: gone");
+            assert_eq!(whole, Whole::default(), "{said:?}");
+        }
     }
 
     #[test]
-    fn what_is_written_under_a_notification_is_not_read_as_a_notification() {
-        let said = "\
-Notification 7: A download finished
-  App name: Librewolf
-  Urgency: normal
-  Actions:
-    App name: Open the folder";
-        let Ok(held) = read(said);
+    fn a_daemon_that_is_quiet_says_so_in_the_file() {
+        let quiet = Whole { quiet: Quiet::HeldBack, ..Whole::default() };
+        let Ok(written) = written(&quiet);
 
-        assert_eq!(held.len(), 1);
-        assert_eq!(held[0].app, "Librewolf");
-    }
-
-    #[test]
-    fn a_printed_notification_with_no_summary_is_still_one() {
-        let Ok(held) = read("Notification 5:\n  Urgency: low");
-
-        assert_eq!(held.len(), 1);
-        assert_eq!(held[0].says(), Ok("Notification 5".to_string()));
-    }
-
-    #[test]
-    fn the_mode_that_holds_them_back_is_read_by_name() {
-        assert_eq!(held_back("default\ndo-not-disturb\n"), Ok(Quiet::HeldBack));
-        assert_eq!(held_back("default\n"), Ok(Quiet::Coming));
-        assert_eq!(held_back(""), Ok(Quiet::Coming));
-        assert_eq!(held_back("do-not-disturb-later\n"), Ok(Quiet::Coming));
+        assert!(written.contains("held-back"), "{written}");
     }
 }

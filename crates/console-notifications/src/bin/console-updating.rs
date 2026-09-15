@@ -16,7 +16,7 @@
 //! not say so is an apply that worked.
 
 use console_core_never::Never;
-use console_notifications::saying::{Kept, Notice, raise_kept};
+use console_notifications::saying::{Kept, Notice, Said, raise_kept};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Step {
@@ -39,22 +39,24 @@ impl Step {
 pub fn notice(step: Step) -> Result<Notice, Never> {
     match step {
         Step::Start => {
-            let Ok(notice) = Notice::new("Updating", "This takes a few minutes.");
+            let Ok(notice) =
+                Notice::new(Said { summary: "Updating", body: "This takes a few minutes." });
 
             notice.staying()
         }
 
         Step::Done => {
-            let Ok(notice) = Notice::new("Up to date", "Everything is in place.");
+            let Ok(notice) =
+                Notice::new(Said { summary: "Up to date", body: "Everything is in place." });
 
             notice.lasting(4000)
         }
 
         Step::Failed => {
-            let Ok(notice) = Notice::new(
-                "Update didn't finish",
-                "Some files are new and some are old. Run `console apply` again.",
-            );
+            let Ok(notice) = Notice::new(Said {
+                summary: "Update didn't finish",
+                body: "Some files are new and some are old. Run `console apply` again.",
+            });
             let Ok(notice) = notice.urgent();
 
             notice.staying()
@@ -76,7 +78,11 @@ pub enum Keeps {
 }
 
 fn main() -> std::process::ExitCode {
-    let word = std::env::args().nth(1).unwrap_or_default();
+    let word = match std::env::args().nth(1) {
+        Some(word) => word,
+        None => String::new(),
+    };
+
     let Ok(named) = Step::named(&word);
 
     let step = match named {

@@ -12,5 +12,10 @@ path = "src/lib.rs"
 [dependencies]
 console-core-never = { path = "../console-core-never" }
 
+# `pipe` and `read`, for the half of this crate that is a loop being woken
+# rather than a thread asking again. There is no way to ask for a pipe in the
+# standard library.
+libc = "0.2"
+
 [lints]
 workspace = true

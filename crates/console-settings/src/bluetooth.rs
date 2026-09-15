@@ -19,6 +19,9 @@
 
 use console_core_never::Never;
 
+const NONE_OF_IT: i32 = 0;
+
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Device {
     pub address: String,
@@ -144,7 +147,10 @@ pub fn heard(said: &str) -> Result<Option<i32>, Never> {
 pub fn share(heard: i32) -> Result<i32, Never> {
     let over = heard.saturating_sub(FAINTEST);
     let whole = LOUDEST.saturating_sub(FAINTEST);
-    let share = over.saturating_mul(100).checked_div(whole).unwrap_or(0);
+    let share = match over.saturating_mul(100).checked_div(whole) {
+        Some(share) => share,
+        None => NONE_OF_IT,
+    };
 
     Ok(share.clamp(0, 100))
 }
@@ -169,7 +175,12 @@ pub fn in_order(met: Vec<Met>) -> Result<Vec<Met>, Never> {
 
     met.sort_by_key(|one| {
         let Ok(place) = place(one);
-        let loud = one.heard.unwrap_or(FAINTEST).saturating_neg();
+        let heard = match one.heard {
+            Some(heard) => heard,
+            None => FAINTEST,
+        };
+
+        let loud = heard.saturating_neg();
 
         (place, loud, one.device.name.clone())
     });

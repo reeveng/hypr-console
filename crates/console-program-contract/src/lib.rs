@@ -42,13 +42,13 @@
 //! variant nobody else uses is one program's private business kept in a shared
 //! type, and enough of those and this crate is the shelf `CLAUDE.md` forbids.
 //!
-//! The shape was settled against three real programs -- `stick-scroll`,
-//! `console-sky` and `settings-panel` -- and one of them broke it. Everything
-//! `console-sky` and `settings-panel` do is a kind of effect any program might
-//! ask for: run this and tell me what it said, start this and forget it, write
-//! this file, say this on the screen. `stick-scroll` emits pointer motion on a
-//! virtual device it holds, and no other program on this machine will ever
-//! want to, because the plan is that one program reads the input and the rest
+//! The shape was settled against three real programs -- `controller-desktop`,
+//! `console-wallpaper` and `settings-panel` -- and one of them broke it.
+//! Everything `console-wallpaper` and `settings-panel` do is a kind of effect any
+//! program might ask for: run this and tell me what it said, start this and forget
+//! it, write this file, say this on the screen. `controller-desktop` emits pointer
+//! motion on a virtual device it holds, and no other program on this machine will
+//! ever want to, because the plan is that one program reads the input and the rest
 //! are told.
 //!
 //! So the shared sets stay about kinds of effect, and a program names its own

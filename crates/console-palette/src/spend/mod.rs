@@ -17,7 +17,6 @@ pub mod hyprland;
 pub mod icon;
 pub mod kde;
 pub mod librewolf;
-pub mod mako;
 pub mod paper;
 pub mod shell;
 
@@ -34,8 +33,13 @@ pub const ROLES: [&str; 17] = [
 ];
 
 pub fn widest<const N: usize>(names: [&str; N]) -> Result<usize, Never> {
-    Ok(names.iter().map(|name| name.len()).max().unwrap_or(0))
+    Ok(match names.iter().map(|name| name.len()).max() {
+        Some(widest) => widest,
+        None => NOTHING_TO_LINE_UP,
+    })
 }
+
+const NOTHING_TO_LINE_UP: usize = 0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum How {
@@ -73,7 +77,6 @@ pub fn everywhere(
     let stylesheet = librewolf::stylesheet(palette)?;
     let sh = shell::spend(palette)?;
     let kdeglobals = kde::spend(palette)?;
-    let mako = mako::spend(palette)?;
     let prefs = librewolf::prefs(palette)?;
     let hypr = hyprland::spend(palette)?;
     let paper = paper::spend(palette)?;
@@ -86,9 +89,8 @@ pub fn everywhere(
         whole(chrome.join("palette.css"), stylesheet),
         whole(files.join("usr/local/lib/console/palette.sh"), sh),
         region(home.join(".config/kdeglobals"), kdeglobals),
-        region(home.join(".config/mako/config"), mako),
         region(home.join(".librewolf/console/user.js"), prefs),
-        region(home.join(".config/hypr/hyprland.lua"), hypr),
+        region(ours.join("hypr/hyprland.lua"), hypr),
         region(files.join("etc/systemd/user/console-paper.service"), paper),
         whole(files.join("usr/share/icons/console-placeholder.svg"), icon),
     ])

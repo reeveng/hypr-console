@@ -21,8 +21,8 @@
 
 use console_core_external_programs::Program;
 use console_core_never::Never;
-use console_notifications::saying::{Notice, raise};
-use console_settings::introducing::{self, Asked, INTRODUCE, Went};
+use console_notifications::saying::{Notice, Said, raise};
+use console_settings::introducing::{self, Answered, Asked, INTRODUCE, Went};
 
 fn bluetoothctl(argv: &[String]) -> Result<String, Never> {
     let mut asking = Program::Bluetoothctl.command()?;
@@ -39,9 +39,9 @@ fn bluetoothctl(argv: &[String]) -> Result<String, Never> {
     ))
 }
 
-fn would_not(says: &str, said: &str) -> Result<(), Never> {
+fn would_not(says: &str, said: Answered<'_>) -> Result<(), Never> {
     let words = introducing::would_not(says, said)?;
-    let notice = Notice::new(&words, "")?;
+    let notice = Notice::new(Said { summary: &words, body: "" })?;
     let notice = notice.lasting(6000)?;
     let Ok(_) = raise(&notice);
 
@@ -55,7 +55,7 @@ fn introduce(address: &str) -> Result<Went, Never> {
 
     match paired {
         Went::Not => {
-            let Ok(()) = would_not(&format!("{address} would not pair:"), &said);
+            let Ok(()) = would_not(&format!("{address} would not pair:"), Answered(&said));
 
             return Ok(Went::Not);
         }
@@ -71,7 +71,10 @@ fn introduce(address: &str) -> Result<Went, Never> {
 
     match joined {
         Went::Not => {
-            let Ok(()) = would_not(&format!("{address} paired but would not connect:"), &said);
+            let Ok(()) = would_not(
+                &format!("{address} paired but would not connect:"),
+                Answered(&said),
+            );
         }
         Went::Well => {},
     }

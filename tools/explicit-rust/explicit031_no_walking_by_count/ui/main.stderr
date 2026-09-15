@@ -1,0 +1,19 @@
+error: this loop counts to a list's length instead of walking the list
+  --> $DIR/main.rs:9:15
+   |
+LL |     for at in 0..held.len() {
+   |               ^^^^^^^^^^^^^
+   |
+   = help: walk it with `iter()`, and take `enumerate()` where the position is wanted alongside the item. A hand-written bound can be the wrong list's length or a length from before something was taken out, and EXPLICIT014 then asks for a `None` arm that cannot happen
+   = note: `#[deny(explicit031_no_walking_by_count)]` on by default
+
+error: this loop counts to a list's length instead of walking the list
+  --> $DIR/main.rs:24:15
+   |
+LL |     for at in 0..=held.len() {
+   |               ^^^^^^^^^^^^^^
+   |
+   = help: walk it with `iter()`, and take `enumerate()` where the position is wanted alongside the item. A hand-written bound can be the wrong list's length or a length from before something was taken out, and EXPLICIT014 then asks for a `None` arm that cannot happen
+
+error: aborting due to 2 previous errors
+

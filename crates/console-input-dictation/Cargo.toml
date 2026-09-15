@@ -10,8 +10,8 @@ name = "console_input_dictation"
 path = "src/lib.rs"
 
 [[bin]]
-name = "dictate"
-path = "src/bin/dictate.rs"
+name = "console-dictate"
+path = "src/bin/console-dictate.rs"
 
 [[bin]]
 name = "voice-compare"
@@ -23,8 +23,11 @@ console-default-applications.workspace = true
 console-core-external-programs.workspace = true
 console-core-atomic-writes.workspace = true
 console-core-never.workspace = true
+console-core-our-programs.workspace = true
+console-core-number-conversion.workspace = true
 console-core-places.workspace = true
 console-waiting.workspace = true
+console-response-times.workspace = true
 console-program-contract.workspace = true
 console-program-runtime.workspace = true
 libc = "0.2"

@@ -39,7 +39,7 @@ pub const BUTTON: KeyCode = KeyCode::BTN_MODE;
 
 pub const HELD_SECONDS: f64 = 1.0;
 
-pub const RUNS: [&str; 1] = ["/usr/local/bin/desktop-mode"];
+pub const RUNS: [&str; 1] = ["/usr/local/bin/session-desktop"];
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Returning {
@@ -92,7 +92,7 @@ impl Returning {
 
 pub const LOOK: Round = Round { called: "the pad", every: Duration::from_millis(16) };
 
-pub const DESKTOP_MODE: &str = "/usr/local/bin/desktop-mode";
+pub const DESKTOP_MODE: &str = "/usr/local/bin/session-desktop";
 
 pub const AWAY: Since = Duration::from_millis(250);
 
@@ -202,7 +202,7 @@ mod tests {
     }
 
     fn way_back() -> Option<Doing> {
-        Some(ok(Doing::run(&["/usr/local/bin/desktop-mode"])))
+        Some(ok(Doing::run(&["/usr/local/bin/session-desktop"])))
     }
 
     #[test]

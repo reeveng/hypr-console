@@ -10,18 +10,53 @@
 //! instead it opens on the first thing in it that can be shown, and handed
 //! nothing at all it opens the pictures folder: the same entry is on the home
 //! screen, and a card on the home screen that starts a program which prints a
-//! usage line to a stderr nobody can see is a card that does nothing.  What is
-//! here is the reading of a disk, GStreamer, and the drawing of a card.
+//! usage line to a stderr nobody can see is a card that does nothing.
+//!
+//! That argument was made here and then only half kept. A folder with no
+//! picture and no film in it -- which is what a pictures folder is on a device
+//! nobody has taken a photograph on yet -- took the other road: the panel
+//! decided it was not worth opening, said so on the same stderr nobody can
+//! see, and exited nought. Pressing Viewer on the home screen did nothing at
+//! all, and a press that does nothing at all reads as a program that fell over
+//! rather than as an empty folder. So a folder always opens now, and one with
+//! nothing to show opens on the row the panel already draws for a list with
+//! nothing in it. What is still refused is a *file* that is neither: there the
+//! files panel is on the screen already, and leaving it there is better than
+//! taking the screen to say no.
+//!
+//! What is here is the reading of a disk, GStreamer, and the drawing of a card.
 //! Everything that is a decision -- which things in a folder can be shown,
 //! which one is next, what the row under the picture says, and what a press
 //! forgets about the last thing -- is `console_media_viewer`, where it is
 //! tested without either. `watching` is the composition of the rest of it and
 //! is a `console_program_contract::Program`.
 //!
-//! Two pages: the thing on the screen, and what else is in the folder beside
-//! it. The second is called Media rather than Folder because what a page is
+//! Two pages: the thing on the screen, and everything on the device it could
+//! be. The second is called Media rather than Folder because what a page is
 //! named after is what is on it, the way the music panel's second page is
-//! Music: a folder is where these came from, not what they are.
+//! Music: a folder is where these came from, not what they are. It was the
+//! folder for a while and the name was the argument against it -- `index` is
+//! why it is a shelf of everything now, and what a heading over it stands
+//! for.
+//!
+//! ## Which is why an empty folder cannot be the end of it
+//!
+//! The shelf arrived after the paragraph above and the two were never held
+//! against each other. A pictures folder with nothing in it took the short road
+//! -- one row saying nothing here, and no second page at all -- so a device
+//! with two films in Videos and no photographs said it had nothing on it, from
+//! the panel whose second page exists to answer exactly that. The check that
+//! would have caught it is the one nobody had written: there was no press of
+//! this panel at any stage.
+//!
+//! So the folder the panel opens on is where somebody came in and never the
+//! whole of what there is. When it holds nothing to show, the shelf is walked
+//! and the panel stands on the first thing it found, wherever that was filed;
+//! only a shelf that is empty too is a device with nothing on it, and only then
+//! is there one row and nothing else. Handed nothing at all, the folder it
+//! falls back on is the first of Pictures, Videos and Downloads that exists,
+//! rather than Pictures or nothing -- a machine that has films and has never
+//! been photographed on is the ordinary state of this one.
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -33,8 +68,9 @@ use console_core_never::Never;
 use console_core_number_conversion::fitted;
 use console_panel::icons::Icon;
 use console_panel::card::{Card, Door};
-use console_panel::page::{Bar, Does, InEffect, Page, Picture, Press, Row, Rows, Stirred, Watch};
+use console_panel::page::{Aside, Bar, Does, Ends, InEffect, Page, Picture, Press, Row, Rows, Stirred, Watch, Which};
 use console_program_contract::{Doing, Program as _, Turn, Word};
+use crate::index;
 use crate::kinds::Kind;
 use crate::{playing, saying};
 use crate::playing::Running;
@@ -45,6 +81,7 @@ use crate::watching::{
     Alone, Its, Since, Watch as Watched, Watching, alone, awake, stirred,
 };
 use gstreamer::prelude::*;
+use gtk4::glib::UserDirectory;
 
 fn kind_of(path: &Path) -> Result<String, Never> {
     let name = match path.file_name().and_then(|name| name.to_str()) {
@@ -54,9 +91,10 @@ fn kind_of(path: &Path) -> Result<String, Never> {
 
     let (kind, _) = gtk4::gio::functions::content_type_guess(Some(name), None::<&[u8]>);
 
-    Ok(gtk4::gio::functions::content_type_get_mime_type(&kind)
-        .map(|said| said.to_string())
-        .unwrap_or_default())
+    Ok(match gtk4::gio::functions::content_type_get_mime_type(&kind) {
+        Some(said) => said.to_string(),
+        None => NOTHING_SAYS_WHAT_IT_IS.to_string(),
+    })
 }
 
 fn listing(folder: &Path) -> Result<Vec<(String, String)>, Never> {
@@ -101,10 +139,19 @@ impl Looking {
     fn of(asked: &Path) -> Result<Option<Looking>, Never> {
         let (folder, opened) = match asked.is_dir() {
             true => (asked.to_path_buf(), String::new()),
-            false => (
-                asked.parent().unwrap_or(Path::new(".")).to_path_buf(),
-                asked.file_name().and_then(|name| name.to_str()).unwrap_or_default().to_string(),
-            ),
+            false => {
+                let holding = match asked.parent() {
+                    Some(holding) => holding.to_path_buf(),
+                    None => PathBuf::from(HERE),
+                };
+
+                let opened = match asked.file_name().and_then(|name| name.to_str()) {
+                    Some(opened) => opened.to_string(),
+                    None => String::new(),
+                };
+
+                (holding, opened)
+            }
         };
 
         let Ok(said) = listing(&folder);
@@ -117,6 +164,13 @@ impl Looking {
 
         let Ok(watching) = Watching::of(reel, Since::ZERO);
 
+        #[cfg_attr(
+            dylint_lib = "explicit039_no_reading_the_clock",
+            allow(
+                explicit039_no_reading_the_clock,
+                reason = "`watching` takes every decision from a `Since` handed in and this is the one reading those are counted from, made where the panel goes up rather than anywhere a decision is taken"
+            )
+        )]
         Ok(Some(Looking { folder, watching, began: Instant::now() }))
     }
 
@@ -168,6 +222,11 @@ impl Looking {
 type Held = Arc<Mutex<Looking>>;
 
 use crate::watching::Heard;
+
+const NOTHING_SAYS_WHAT_IT_IS: &str = "";
+
+const HERE: &str = ".";
+
 
 fn press(
     held: &Held,
@@ -427,10 +486,10 @@ fn reeling(held: &Held, at: &Path) -> Result<Option<gtk4::gdk::Paintable>, Never
         match rate == open.rate {
             true => {},
             false => {
-                let at_now = open
-                    .play
-                    .query_position::<gstreamer::ClockTime>()
-                    .unwrap_or(gstreamer::ClockTime::ZERO);
+                let at_now = match open.play.query_position::<gstreamer::ClockTime>() {
+                    Some(at_now) => at_now,
+                    None => gstreamer::ClockTime::ZERO,
+                };
                 let flags = gstreamer::SeekFlags::FLUSH | gstreamer::SeekFlags::ACCURATE;
 
                 match open.play.seek(
@@ -546,7 +605,7 @@ fn rows(held: &Held) -> Result<Vec<Row>, Never> {
         let Ok(by) = fitted(by);
         let Ok(()) = walk(&stepping, by);
     }));
-    let Ok(card) = card.ended("", "");
+    let Ok(card) = card.ended(Ends { less: "", more: "" });
     let Ok(card) = card.chief();
     let mut every = vec![card];
 
@@ -558,7 +617,7 @@ fn rows(held: &Held) -> Result<Vec<Row>, Never> {
     }
 
     let Ok(where_in) = where_in(&looking.watching);
-    let Ok(naming) = Row::naming(&shot.name, &where_in);
+    let Ok(naming) = Row::naming(&shot.name, Aside(&where_in));
     let Ok(naming) = naming.in_the_middle();
 
     every.push(naming);
@@ -585,7 +644,7 @@ fn rows(held: &Held) -> Result<Vec<Row>, Never> {
 
     let facts = match shown.is_some() {
         true => {
-            let Ok(size) = crate::fitting::Size::new(wide, tall);
+            let size = console_core_geometry::Size { wide, tall };
             let Ok(bytes) = looking.bytes();
             let Ok(said) = saying::under(shot.kind, size, bytes, looking.watching.along);
 
@@ -660,13 +719,13 @@ fn what_else(
     match kind {
         Kind::Picture => showing.sure(
             "About this picture",
-            facts,
+            Which(facts),
             &[FULL_SCREEN],
             Arc::new(move |showing, _| showing.open_out()),
         ),
         Kind::Film => showing.sure(
             "About this film",
-            facts,
+            Which(facts),
             &["Speed", "Subtitles", FULL_SCREEN],
             Arc::new(move |showing, which| match which {
                 0 => {
@@ -695,7 +754,7 @@ fn how_fast(
 
     showing.sure(
         "How fast",
-        name,
+        Which(name),
         &says,
         Arc::new(move |_, which| {
             let Ok(at) = now(&setting);
@@ -718,7 +777,7 @@ fn which_words(
 
     showing.sure(
         "Subtitles",
-        name,
+        Which(name),
         &says,
         Arc::new(move |_, which| {
             let Ok(at) = now(&setting);
@@ -802,9 +861,9 @@ fn bar_row(held: &Held, along: playing::Along) -> Result<Row, Never> {
 
     let Ok(at) = playing::clock(along.at);
     let Ok(nothing) = Does::and_stay(|_| {});
-    let Ok(row) = Row::new(&at, &whole, nothing);
+    let Ok(row) = Row::new(&at, Aside(&whole), nothing);
     let Ok(row) = row.picturing(Picture::Bar(Bar { at: along.at, of: along.whole }));
-    let Ok(row) = row.ended("", "");
+    let Ok(row) = row.ended(Ends { less: "", more: "" });
     let Ok(row) = row.levelled(Arc::new(move |by| {
         let Ok(()) = scrub(&stepping, by);
     }));
@@ -847,46 +906,134 @@ fn walk(held: &Held, by: isize) -> Result<(), Never> {
 
 const CARD: usize = 0;
 
-fn folder_rows(held: &Held) -> Result<Vec<Row>, Never> {
-    let looking = match held.lock() {
-        Ok(looking) => looking,
-        Err(_fault) => return Ok(Vec::new()),
-    };
+fn media_folders(here: &Path) -> Result<Vec<PathBuf>, Never> {
+    let mut folders: Vec<PathBuf> = [UserDirectory::Pictures, UserDirectory::Videos, UserDirectory::Downloads]
+        .into_iter()
+        .filter_map(gtk4::glib::user_special_dir)
+        .filter(|at| at.is_dir())
+        .collect();
 
-    let here = looking.watching.reel.which();
+    folders.push(here.to_path_buf());
 
-    let Ok(every) = looking.watching.reel.every();
+    index::kept(&folders)
+}
 
-    Ok(every
-        .iter()
-        .enumerate()
-        .map(|(at, shot)| {
-            let going = Arc::clone(held);
-            let name = shot.name.clone();
-            let picture = match shot.kind {
-                Kind::Picture => Picture::At(looking.folder.join(&shot.name)),
-                Kind::Film => Picture::Named(Icon::Film),
+fn read_for_the_index(at: &Path) -> Result<Vec<index::Read>, Never> {
+    Ok(std::fs::read_dir(at)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| {
+            let name = match entry.file_name().into_string() {
+                Ok(name) => name,
+                Err(_fault) => return None,
+            };
+            let path = entry.path();
+            let folder = path.is_dir();
+
+            let mime = match folder {
+                true => String::new(),
+                false => {
+                    let Ok(mime) = kind_of(&path);
+
+                    mime
+                },
             };
 
-            let Ok(here) = here;
-
-            let aside = match at.saturating_add(1) == here {
-                true => console_panel::page::NOW,
-                false => "",
-            };
-
-            let Ok(stands) = Does::and_stay(move |showing| {
-                let Ok(at) = now(&going);
-                let Ok(()) = press(&going, Heard::StoodOn { name: name.clone(), at }, showing);
-            });
-            let Ok(row) = Row::new(&shot.name, aside, stands);
-            let Ok(row) = row.picturing(picture);
-            let Ok(offering) = shown_in_the_files(held, &looking.folder.join(&shot.name));
-            let Ok(row) = row.offering(offering);
-
-            row
+            Some(index::Read { name, path, folder, mime })
         })
         .collect())
+}
+
+fn indexed(held: &Held) -> Result<Vec<index::Found>, Never> {
+    let here = match held.lock() {
+        Ok(looking) => looking.folder.clone(),
+        Err(_the_lock_is_poisoned) => return Ok(Vec::new()),
+    };
+
+    let Ok(folders) = media_folders(&here);
+
+    index::under(&folders, &read_for_the_index)
+}
+
+fn media_rows(held: &Held) -> Result<Vec<Row>, Never> {
+    let standing = match held.lock() {
+        Ok(looking) => looking.folder.join(&{
+            let Ok(showing) = looking.watching.reel.showing();
+
+            showing.name.clone()
+        }),
+        Err(_the_lock_is_poisoned) => PathBuf::new(),
+    };
+
+    let Ok(found) = indexed(held);
+
+    let mut rows: Vec<Row> = Vec::new();
+
+    for thing in found {
+        let going = Arc::clone(held);
+        let at = thing.path.clone();
+        let picture = match thing.kind {
+            Kind::Picture => Picture::At(thing.path.clone()),
+            Kind::Film => Picture::Named(Icon::Film),
+        };
+
+        let aside = match thing.path == standing {
+            true => console_panel::page::NOW,
+            false => "",
+        };
+
+        let Ok(stands) = Does::and_stay(move |showing| {
+            let Ok(()) = looked_at(&going, &at, showing);
+        });
+        let Ok(row) = Row::new(&thing.name, Aside(aside), stands);
+        let Ok(row) = row.picturing(picture);
+        let Ok(offering) = shown_in_the_files(held, &thing.path);
+        let Ok(row) = row.offering(offering);
+
+        rows.push(row);
+    }
+
+    console_panel::page::lettered(rows)
+}
+
+fn looked_at(held: &Held, at: &Path, showing: &dyn console_panel::page::Showing) -> Result<(), Never> {
+    let here = match held.lock() {
+        Ok(looking) => looking.folder.clone(),
+        Err(_the_lock_is_poisoned) => return Ok(()),
+    };
+
+    let name = match at.file_name().and_then(|name| name.to_str()) {
+        Some(name) => name.to_string(),
+        None => String::new(),
+    };
+
+    match at.parent() == Some(here.as_path()) {
+        true => {
+            let Ok(now) = now(held);
+
+            return press(held, Heard::StoodOn { name, at: now }, showing);
+        },
+        false => {},
+    }
+
+    let found = match Looking::of(at) {
+        Ok(Some(found)) => found,
+        Ok(None) | Err(_) => return Ok(()),
+    };
+
+    match held.lock() {
+        Ok(mut looking) => {
+            looking.folder = found.folder;
+            looking.watching = found.watching;
+        },
+        Err(_the_lock_is_poisoned) => return Ok(()),
+    }
+
+    showing.turn_to(CARD);
+    showing.refresh();
+
+    Ok(())
 }
 
 fn stir(held: &Held) -> Result<Stirred, Never> {
@@ -928,7 +1075,7 @@ fn pages(held: &Held) -> Result<Vec<Page>, Never> {
         stirred
     });
     let Ok(asked) = Rows::asked(move || {
-        let Ok(rows) = folder_rows(&listing);
+        let Ok(rows) = media_rows(&listing);
 
         rows
     });
@@ -938,8 +1085,29 @@ fn pages(held: &Held) -> Result<Vec<Page>, Never> {
 }
 
 fn by_default() -> Result<Option<PathBuf>, Never> {
-    Ok(gtk4::glib::user_special_dir(gtk4::glib::UserDirectory::Pictures)
-        .filter(|folder| folder.is_dir()))
+    Ok([UserDirectory::Pictures, UserDirectory::Videos, UserDirectory::Downloads]
+        .into_iter()
+        .filter_map(gtk4::glib::user_special_dir)
+        .find(|folder| folder.is_dir()))
+}
+
+fn standing_on(asked: &Path) -> Result<Option<Looking>, Never> {
+    let Ok(here) = Looking::of(asked);
+
+    match here {
+        Some(looking) => return Ok(Some(looking)),
+        None => {},
+    }
+
+    let Ok(folders) = media_folders(asked);
+    let Ok(found) = index::under(&folders, &read_for_the_index);
+
+    let first = match found.first() {
+        Some(first) => first.path.clone(),
+        None => return Ok(None),
+    };
+
+    Looking::of(&first)
 }
 
 
@@ -962,15 +1130,20 @@ pub fn worth_opening(argv: &[String]) -> Result<Worth, Never> {
 
     let asked = match asked {
         Some(asked) => asked,
-        None => return Ok(Worth::Nothing),
+        None => return Ok(Worth::Opening),
     };
+
+    match asked.is_dir() {
+        true => return Ok(Worth::Opening),
+        false => {},
+    }
 
     let Ok(found) = Looking::of(&asked);
 
     match found {
         Some(_) => Ok(Worth::Opening),
         None => {
-            eprintln!("viewer-panel: {}: nothing here is a picture or a film", asked.display());
+            eprintln!("viewer-panel: {}: this is neither a picture nor a film", asked.display());
 
             Ok(Worth::Nothing)
         }
@@ -987,11 +1160,7 @@ fn asked_for(argv: &[String]) -> Result<Option<PathBuf>, Never> {
 
             let folder = match folder {
                 Some(folder) => folder,
-                None => {
-                    eprintln!("usage: viewer-panel FILE-OR-FOLDER");
-
-                    return Ok(None);
-                }
+                None => return Ok(None),
             };
 
             Ok(Some(folder))
@@ -999,19 +1168,36 @@ fn asked_for(argv: &[String]) -> Result<Option<PathBuf>, Never> {
     }
 }
 
+const NOTHING_HERE: &str = "There is no picture and no film on this device";
+
+const NO_FOLDER: &str = "There is no pictures folder";
+
+fn saying_only(says: &'static str) -> Result<Card, Never> {
+    Card::new(Arc::new(move || {
+        let Ok(asked) = Rows::asked(move || {
+            let Ok(row) = Row::nothing(says);
+
+            vec![row]
+        });
+        let Ok(page) = Page::new("Media", asked);
+
+        vec![page]
+    }))
+}
+
 pub fn card(argv: &[String]) -> Result<Card, Never> {
     let Ok(asked) = asked_for(argv);
 
     let asked = match asked {
         Some(asked) => asked,
-        None => return Card::new(Arc::new(Vec::new)),
+        None => return saying_only(NO_FOLDER),
     };
 
-    let Ok(found) = Looking::of(&asked);
+    let Ok(found) = standing_on(&asked);
 
     let looking = match found {
         Some(looking) => looking,
-        None => return Card::new(Arc::new(Vec::new)),
+        None => return saying_only(NOTHING_HERE),
     };
 
     match gstreamer::init() {

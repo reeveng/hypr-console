@@ -1,5 +1,8 @@
 //! What the machine talks to, as nmcli reports it.
 
+use std::collections::BTreeMap;
+use std::collections::btree_map::Entry;
+
 use console_core_never::Never;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,7 +23,7 @@ fn signal_of(said: &str) -> Result<i32, Never> {
 }
 
 pub fn networks(said: &str) -> Result<Vec<Network>, Never> {
-    let mut seen: Vec<Network> = Vec::new();
+    let mut strongest: BTreeMap<String, Network> = BTreeMap::new();
 
     for line in said.lines() {
         let parts: Vec<&str> = line.split(':').collect();
@@ -49,12 +52,20 @@ pub fn networks(said: &str) -> Result<Vec<Network>, Never> {
             locked: !locked.join(":").is_empty(),
         };
 
-        match seen.iter_mut().find(|network| network.name == found.name) {
-            Some(already) if already.signal < found.signal => *already = found,
-            Some(_) => (),
-            None => seen.push(found),
+        match strongest.entry(found.name.clone()) {
+            Entry::Occupied(mut already) => match already.get().signal < found.signal {
+                true => {
+                    let _ = already.insert(found);
+                },
+                false => {},
+            },
+            Entry::Vacant(nothing) => {
+                let _ = nothing.insert(found);
+            },
         }
     }
+
+    let mut seen: Vec<Network> = strongest.into_values().collect();
 
     seen.sort_by_key(|network| network.signal.saturating_neg());
 

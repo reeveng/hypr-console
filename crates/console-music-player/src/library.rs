@@ -1,6 +1,6 @@
 //! What counts as a song, and what songs are under a folder.
 //!
-//! The list of kinds was `console_music_panel::library`'s and both crates need it
+//! The list of kinds was `console_music::library`'s and both crates need it
 //! now: the panel to decide what to draw a row for, the player to decide what
 //! goes in a playlist when a song is opened. It is one list here and the panel
 //! reads it from here, because a kind that plays and cannot be listed -- or is

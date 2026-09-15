@@ -57,7 +57,7 @@ use console_test_stages::checking::{Body, Check, Done, failed, happened};
 use console_test_stages::device::{Device, Seen, Waited};
 
 use console_input_bindings::bound::{Binding, Input};
-use console_input_controller::binds::wanted;
+use console_input_controller::binds::{self, Bind, wanted};
 use console_input_controller::means::Table;
 
 const PATIENCE: f64 = 4.0;
@@ -66,7 +66,7 @@ const THE_SETTINGS: &str = "settings";
 
 pub const HANDED: Check = Check {
     name: "400-the-keys-the-compositor-was-handed",
-    about: "Every job on a key is a bind the compositor is actually holding.",
+    about: "Every job on a key is a bind the compositor is holding, and is holding once.",
     feature: "typing",
     since: "2026-09-08",
     bodies: &[Body::Device(handed)],
@@ -88,11 +88,10 @@ pub const LAST_PRESS: Check = Check {
     bodies: &[Body::Device(last_press)],
 };
 
-fn ours() -> Result<Vec<String>, Never> {
+fn ours() -> Result<Vec<Bind>, Never> {
     let Ok(table) = Table::ours();
-    let Ok(every) = wanted(&table);
 
-    Ok(every.into_iter().map(|bind| bind.about).collect())
+    wanted(&table)
 }
 
 fn handed(stage: &mut Device) -> Done {
@@ -100,22 +99,33 @@ fn handed(stage: &mut Device) -> Done {
 
     let held = match console_compositor::read(&said) {
         Ok(held) => held,
-        Err(fault) => return failed(fault),
+        Err(fault) => return failed(fault.to_string()),
     };
 
     let Ok(holding) = console_compositor::binds(&held);
     let Ok(wanted) = ours();
+    let Ok(standing) = binds::standing(&wanted, &binds::Holding::These(holding.clone()));
 
-    let missing: Vec<&String> = wanted
-        .iter()
-        .filter(|about| !holding.iter().any(|one| one.about == **about))
-        .collect();
+    match standing.missing {
+        0 => {},
+        many => {
+            return failed(format!(
+                "the table says {} keys and the compositor is holding {}, {many} of ours among \
+                 them reaching it from nowhere. Is the daemon up, and did the compositor take \
+                 what it was sent?",
+                wanted.len(),
+                holding.len()
+            ));
+        }
+    }
 
-    match missing.is_empty() {
-        true => Ok(()),
-        false => failed(format!(
-            "the table says {} keys and the compositor is holding {}: {missing:?} reached it \
-             from nowhere. Is the daemon up, and did the compositor take what it was sent?",
+    match standing.over {
+        0 => Ok(()),
+        many => failed(format!(
+            "{many} of the {} keys are bound more than once, out of {} the compositor holds \
+             altogether: every copy fires on one press, so the rocker steps twice and the card \
+             comes up twice. The daemon pushed the table on top of a compositor already holding \
+             it -- which is what a restart under a live session used to do.",
             wanted.len(),
             holding.len()
         )),
@@ -141,7 +151,7 @@ fn away(seen: &mut Device) -> Result<Seen, Never> {
     up.flipped()
 }
 
-fn put_away(stage: &mut Device) -> Result<Waited, Never> {
+fn console_put_away(stage: &mut Device) -> Result<Waited, Never> {
     let Ok(()) = stage.press("b");
 
     stage.until(away, PATIENCE)
@@ -152,7 +162,7 @@ fn a_key(stage: &mut Device) -> Done {
 
     match already {
         Seen::Yes => {
-            let Ok(_) = put_away(stage);
+            let Ok(_) = console_put_away(stage);
         },
         Seen::NotYet => {},
     }
@@ -187,7 +197,7 @@ fn a_key(stage: &mut Device) -> Done {
         },
     }
 
-    let Ok(gone) = put_away(stage);
+    let Ok(gone) = console_put_away(stage);
 
     happened(gone, || "the settings would not close again".to_string())
 }

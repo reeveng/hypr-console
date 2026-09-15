@@ -16,6 +16,14 @@
 //! button held say they cannot rather than sending something the daemon drops on
 //! the floor. todos.md is the rest, and this comes back the day it is fixed.
 //!
+//! A name asked of the kernel is not always the name in `[build]`. `comm` is
+//! sixteen bytes with the terminator, so anything longer arrives cut to
+//! fifteen: `controller-desktop` reads as `controller-desk`, and `pgrep -x`
+//! matches on the same field and finds nothing at all for a pattern past that
+//! length. It was `stick-scroll` and it fitted, which is why nothing here knew.
+//! So a check that holds a program's name against what a machine reports asks
+//! for it through `comm` rather than writing the name twice.
+//!
 //! A chord also lets go in its own time, and the call comes back before it does.
 //! Asking for one puts the button down, answers, and lets go eighty milliseconds
 //! later; a second chord inside that window is not a second press, because the
@@ -37,25 +45,41 @@
 
 
 use console_core_external_programs::Program;
-use console_core_number_conversion::{fitted, toward_zero_u32, whole_u32};
+use console_core_number_conversion::{fitted, toward_zero_u32};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use console_core_geometry::Point;
 use console_core_never::Never;
 use console_input_gamepad::profile::{Kind, Profile};
 use console_input_gamepad::router::every_profile;
 use console_input_gamepad::vocabulary;
 
+use crate::Awry;
 use crate::checking::{Done, cannot, failed};
 use crate::picture::{Picture, where_};
 
-pub fn host() -> Result<String, String> {
-    match std::env::var("CONSOLE_HOST") {
-        Ok(said) if !said.trim().is_empty() => Ok(said),
-        Ok(_) | Err(_) => Err("CONSOLE_HOST is not set, so there is no device to talk to. \
-                  Set it to the device, as in CONSOLE_HOST=root@handheld."
-            .to_string()),
+const NOTHING_SAID: &str = "";
+
+const NO_WINDOWS: i64 = 0;
+
+
+pub const COMM: usize = 15;
+
+pub fn comm(named: &str) -> Result<&str, Never> {
+    Ok(match named.get(..COMM) {
+        Some(cut) => cut,
+        None => named,
+    })
+}
+
+pub fn host() -> Result<String, Awry> {
+    let said = console_device::naming::device()?;
+
+    match said.trim().is_empty() {
+        true => Err(Awry::Hostless),
+        false => Ok(said),
     }
 }
 
@@ -70,7 +94,7 @@ const PIECES: [&str; 14] = [
     "console-polkit",
     "console-session",
     "console-paper",
-    "console-sky",
+    "console-wallpaper",
     "console-events",
     "console-home",
     "console-idle",
@@ -132,6 +156,9 @@ fn spoken_as(kind: Kind, name: &str) -> Result<Option<String>, Never> {
         Kind::MouseMotion | Kind::GamepadAxis | Kind::GamepadTrigger => None,
     })
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Value<'a>(&'a str);
 
 pub struct Device {
     pub host: String,
@@ -226,7 +253,7 @@ fn volume_in(said: &str) -> Result<Level, Never> {
 }
 
 impl Device {
-    pub fn new(host: &str, dry: Dry) -> Result<Self, String> {
+    pub fn new(host: &str, dry: Dry) -> Result<Self, Awry> {
         let Ok(root) = crate::root();
         let profiles = every_profile(&root)?;
 
@@ -251,6 +278,13 @@ impl Device {
             None => {},
         }
 
+        #[cfg_attr(
+            dylint_lib = "explicit026_env_read_once",
+            allow(
+                explicit026_env_read_once,
+                reason = "CONSOLE_USER says whose the device is when the device cannot be asked, and asking the device is what this file does"
+            )
+        )]
         let said = match std::env::var("CONSOLE_USER") {
             Ok(said) if !said.trim().is_empty() => said.trim().to_string(),
             Ok(_) | Err(_) => {
@@ -430,10 +464,10 @@ impl Device {
 
         let Ok(()) = self.pushed(amount);
 
-        self.axis(&format!("Gamepad:Trigger:{named}"), &format!("d {amount:.3}"))
+        self.axis(&format!("Gamepad:Trigger:{named}"), Value(&format!("d {amount:.3}")))
     }
 
-    pub fn stick(&mut self, which: &str, across: f64, down: f64) -> Done {
+    pub fn stick(&mut self, which: &str, to: Point<f64>) -> Done {
         let Ok(found) = named(&vocabulary::AXES, which);
 
         let named = match found {
@@ -445,23 +479,28 @@ impl Device {
             }
         };
 
-        for amount in [across, down] {
+        for amount in [to.across, to.down] {
             match (-1.0..=1.0).contains(&amount) {
                 true => {},
                 false => return failed(format!("a stick is pushed between -1 and 1, not {amount}")),
             }
         }
 
-        let Ok(()) = self.pushed(across.abs().max(down.abs()));
+        let Ok(()) = self.pushed(to.across.abs().max(to.down.abs()));
 
-        self.axis(&format!("Gamepad:Axis:{named}"), &format!("\"(dd)\" {across:.3} {down:.3}"))
+        let (across, down) = (to.across, to.down);
+
+        self.axis(
+            &format!("Gamepad:Axis:{named}"),
+            Value(&format!("\"(dd)\" {across:.3} {down:.3}")),
+        )
     }
 
     pub fn let_go(&mut self) -> Done {
         self.pushed = Pushed::Nothing;
 
         for (spoken, _) in vocabulary::AXES {
-            self.stick(spoken, 0.0, 0.0)?;
+            self.stick(spoken, Point { across: 0.0, down: 0.0 })?;
         }
 
         for (spoken, _) in vocabulary::TRIGGERS {
@@ -482,8 +521,9 @@ impl Device {
         Ok(())
     }
 
-    fn axis(&mut self, capability: &str, value: &str) -> Done {
+    fn axis(&mut self, capability: &str, value: Value<'_>) -> Done {
         let Ok(quoted) = quoted(capability);
+        let value = value.0;
         let asked = format!(
             "busctl --system call {} {} {} SendEvent sv {quoted} {value} 2>&1",
             BUS.0, BUS.1, BUS.2,
@@ -496,7 +536,7 @@ impl Device {
         }
     }
 
-    pub fn tap(&mut self, _across: i32, _down: i32) -> Done {
+    pub fn tap(&mut self, _at: Point<i32>) -> Done {
         cannot(
             "InputPlumber will not parse its own Touchpad: capabilities back, \
              so the trackpad cannot be sent; point or touch instead",
@@ -641,6 +681,13 @@ impl Device {
             .collect())
     }
 
+    #[cfg_attr(
+        dylint_lib = "explicit028_no_search_in_a_loop",
+        allow(
+            explicit028_no_search_in_a_loop,
+            reason = "the windows a check opened against the windows the compositor says are up, which is tens of either"
+        )
+    )]
     pub fn opened(&mut self) -> Result<Vec<String>, Never> {
         let Ok(open) = self.addresses();
 
@@ -758,13 +805,19 @@ impl Device {
 
                 let Ok(found) = address(new);
 
-                which = found.unwrap_or_default();
-                where_ = new
+                which = match found {
+                    Some(found) => found,
+                    None => String::new(),
+                };
+
+                where_ = match new
                     .get("workspace")
                     .and_then(|workspace| workspace.get("name"))
                     .and_then(|name| name.as_str())
-                    .unwrap_or_default()
-                    .to_string();
+                {
+                    Some(named) => named.to_string(),
+                    None => String::new(),
+                };
 
                 Ok(Seen::Yes)
             },
@@ -815,7 +868,10 @@ impl Device {
 
         let Ok(named) = console_compositor::workspace(&found);
 
-        Ok(named.unwrap_or_default().to_string())
+        Ok(match named {
+            Some(named) => named.to_string(),
+            None => String::new(),
+        })
     }
 
     fn clients(&mut self) -> Result<Vec<serde_json::Value>, Never> {
@@ -836,12 +892,9 @@ impl Device {
         let Ok(clients) = self.clients();
         let mut named: Vec<String> = clients
             .iter()
-            .map(|client| {
-                client
-                    .get("class")
-                    .and_then(|class| class.as_str())
-                    .unwrap_or_default()
-                    .to_string()
+            .map(|client| match client.get("class").and_then(|class| class.as_str()) {
+                Some(class) => class.to_string(),
+                None => String::new(),
             })
             .collect();
 
@@ -855,12 +908,9 @@ impl Device {
 
         Ok(clients
             .iter()
-            .map(|client| {
-                client
-                    .get("title")
-                    .and_then(|title| title.as_str())
-                    .unwrap_or_default()
-                    .to_string()
+            .map(|client| match client.get("title").and_then(|title| title.as_str()) {
+                Some(title) => title.to_string(),
+                None => String::new(),
             })
             .collect())
     }
@@ -904,13 +954,16 @@ impl Device {
 
         let Ok(held) = console_compositor::windows(&found);
 
-        Ok(held.unwrap_or(0))
+        Ok(match held {
+            Some(held) => held,
+            None => NO_WINDOWS,
+        })
     }
 
     pub fn keyboard(&mut self) -> Result<Seen, Never> {
         let Ok(said) = self.hypr("layers -j");
 
-        Ok(match said.contains("virtual-keyboard") {
+        Ok(match said.contains("console-keyboard") {
             true => Seen::Yes,
             false => Seen::NotYet,
         })
@@ -928,7 +981,10 @@ impl Device {
         );
         let Ok(said) = self.ssh(&asked);
 
-        Ok(said.split('"').rev().nth(1).unwrap_or_default().to_string())
+        Ok(match said.split('"').rev().nth(1) {
+            Some(inside) => inside.to_string(),
+            None => String::new(),
+        })
     }
 
     pub fn brightness(&mut self) -> Result<Level, Never> {
@@ -1044,7 +1100,10 @@ impl Device {
 
         for layer in surfaces {
             let Ok(said) = console_compositor::namespace(layer);
-            let namespace = said.unwrap_or_default();
+            let namespace = match said {
+                Some(namespace) => namespace,
+                None => NOTHING_SAID,
+            };
 
             match FURNITURE.contains(&namespace) {
                 true => {},
@@ -1136,7 +1195,12 @@ impl Device {
         let last = |half: Option<&str>| {
             let mut found = None;
 
-            for word in half.unwrap_or_default().split_whitespace() {
+            let said = match half {
+                Some(said) => said,
+                None => NOTHING_SAID,
+            };
+
+            for word in said.split_whitespace() {
                 match word.parse::<i64>() {
                     Ok(number) => found = Some(number),
                     Err(_not_a_number) => {},
@@ -1156,7 +1220,7 @@ impl Device {
         self.user(&format!("{session} && awww query"))
     }
 
-    fn picture(&mut self) -> Result<&Picture, String> {
+    fn picture(&mut self) -> Result<&Picture, Awry> {
         match self.taken.is_none() {
             true => {
                 let Ok(_) = self.exec_cmd("grim /tmp/console-check.png");
@@ -1176,14 +1240,12 @@ impl Device {
 
                 match written {
                     Waited::Happened => {},
-                    Waited::RanOut => {
-                        return Err("the device never wrote a picture to /tmp".to_string());
-                    }
+                    Waited::RanOut => return Err(Awry::DeviceWroteNoPicture),
                 }
 
                 let here =
                     std::env::temp_dir().join(format!("console-shot-{}", std::process::id()));
-                std::fs::create_dir_all(&here).map_err(|fault| fault.to_string())?;
+                std::fs::create_dir_all(&here).map_err(Awry::Machine)?;
                 let shot = here.join("screen.png");
                 let Ok(mut fetching) = Program::Scp.command();
 
@@ -1200,24 +1262,25 @@ impl Device {
             false => {},
         }
 
-        self.taken.as_ref().ok_or_else(|| "the device took a picture and then had none".to_string())
+        self.taken.as_ref().ok_or(Awry::DevicePictureGone)
     }
 
-    pub fn background(&mut self) -> Result<String, String> {
+    pub fn background(&mut self) -> Result<String, Awry> {
         let picture = self.picture()?;
         let Ok(commonest) = picture.commonest();
 
         Ok(commonest)
     }
 
-    pub fn colour(&mut self, across: f64, down: f64) -> Result<String, String> {
+    pub fn colour(&mut self, at: Point<f64>) -> Result<String, Awry> {
         let screen = self.showing()?;
+        let Ok(logical) = screen.logical();
         let picture = self.picture()?;
 
-        where_(picture, across, down, &screen)
+        where_(picture, at, logical)
     }
 
-    fn showing(&mut self) -> Result<console_screen::Screen, String> {
+    fn showing(&mut self) -> Result<console_screen::Screen, Awry> {
         match self.screen {
             Some(known) => Ok(known),
             None => {
@@ -1244,49 +1307,12 @@ impl Device {
             None => return Ok(None),
         };
 
-        let Ok(monitors) = console_compositor::monitors(&found);
-
-        let first = match monitors.first() {
-            Some(first) => first,
-            None => return Ok(None),
-        };
-
-        let (wide, tall) = match first.size {
-            Some(size) => size,
-            None => return Ok(None),
-        };
-
-        let refresh = match first.refresh {
-            Some(refresh) => refresh,
-            None => return Ok(None),
-        };
-
-        let scale = match first.scale {
-            Some(scale) => scale,
-            None => return Ok(None),
-        };
-
-        let turn = match first.transform {
-            Some(turn) => turn,
-            None => return Ok(None),
-        };
-
-        let Ok(across) = fitted::<i64, u32>(wide);
-        let Ok(down) = fitted::<i64, u32>(tall);
-        let Ok(refresh) = whole_u32(refresh);
-        let Ok(transform) = fitted::<i64, u32>(turn);
-
-        Ok(Some(console_screen::Screen {
-            mode: (across, down),
-            refresh,
-            scale,
-            transform,
-        }))
+        console_screen::shown(&found)
     }
 
-    pub fn patch(&mut self, across: f64, down: f64) -> Result<String, String> {
+    pub fn patch(&mut self, at: Point<f64>) -> Result<String, Awry> {
         let picture = self.picture()?;
-        let Ok(average) = picture.average(across, down, crate::picture::PATCH);
+        let Ok(average) = picture.average(at, crate::picture::PATCH);
 
         Ok(average)
     }
@@ -1465,7 +1491,8 @@ mod tests {
         let held = std::fs::read_to_string(root().join("desktop.conf"))
             .expect("the manifest");
 
-        let Ok(services) = console_core_ini_files::lines(&held, "services");
+        let Ok(services) =
+            console_core_ini_files::lines(&held, console_core_ini_files::Under("services"));
 
         let mut named: Vec<String> = services
             .into_iter()
@@ -1548,6 +1575,14 @@ mod tests {
         assert_eq!(volume_in(said), Ok(Level::At(40)));
         assert_eq!(volume_in(""), Ok(Level::Unsaid));
         assert_eq!(volume_in("Volume: unknown"), Ok(Level::Unsaid));
+    }
+
+    #[test]
+    fn a_name_past_fifteen_bytes_is_what_the_kernel_would_have_cut_it_to() {
+        assert_eq!(comm("controller-desktop"), Ok("controller-desk"));
+        assert_eq!(comm("controller-profile"), Ok("controller-prof"));
+        assert_eq!(comm("console-panels"), Ok("console-panels"));
+        assert_eq!(comm("Hyprland"), Ok("Hyprland"));
     }
 
     #[test]

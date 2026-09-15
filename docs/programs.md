@@ -112,16 +112,16 @@ that draws implements a second trait, in the crate whose vocabulary a page is.
 on two programs asking; a registry in the trait before then is the piece most
 likely to be built bigger than anything needs.
 
-**`Hears` and `Does` are new, and the reason is stick-scroll.** `Word` and
-`Doing` are closed sets shared by every program, which is what makes them worth
-having and is also how this crate becomes the shelf `CLAUDE.md` forbids: a
-variant nobody else uses is one program's private business kept in a shared
-type. The sets were settled against three real programs -- `stick-scroll`,
-`console-sky` and `settings-panel` -- and one of them broke the shape.
-Everything the other two do is a kind of effect anybody might ask for.
-`stick-scroll` emits pointer motion on a virtual device it holds, and no other
-program here will ever want to, because the whole plan is that one program reads
-the input and the rest are told.
+**`Hears` and `Does` are new, and the reason is controller-desktop.** `Word`
+and `Doing` are closed sets shared by every program, which is what makes them
+worth having and is also how this crate becomes the shelf `CLAUDE.md` forbids:
+a variant nobody else uses is one program's private business kept in a shared
+type. The sets were settled against three real programs --
+`controller-desktop`, `console-wallpaper` and `settings-panel` -- and one of
+them broke the shape. Everything the other two do is a kind of effect anybody
+might ask for. `controller-desktop` emits pointer motion on a virtual device it
+holds, and no other program here will ever want to, because the whole plan is
+that one program reads the input and the rest are told.
 
 So the shared sets stay about *kinds* of effect and a program names its own.
 What is not given up is the transcript: a private doing is still a value that
@@ -191,8 +191,9 @@ rule is what keeps it out.
 ## One pool, `console-events`
 
 A daemon that holds one subscription per source and hands the words to everyone:
-the compositor's socket, `pactl subscribe`, `nmcli monitor`, the bus name mako
-owns, systemd's unit changes, the player, and a path being watched. It speaks
+the compositor's socket, `pactl subscribe`, `nmcli monitor`, the bus a
+notification is raised on, systemd's unit changes, the player, and a path being
+watched. It speaks
 over a socket in the runtime directory, and `console-core-reconnect` is what
 reconnects to it.
 
@@ -240,8 +241,8 @@ wallpaper's copy went with the subscription it was for, and the pool asks
 `console_onscreen`.
 
 **Four watches on that socket are one.** `music-bar`, `bar-door`,
-`stick-scroll` and the status bar's `watch` each opened it to learn the same
-thing, and all four ask the pool now through `console_events::layers`.
+`controller-desktop` and the status bar's `watch` each opened it to learn the
+same thing, and all four ask the pool now through `console_events::layers`.
 `console_onscreen::watching_layers` is gone rather than left standing beside
 them, which is the rule this crate only earns by being kept: a source with two
 observers is a source nobody has moved off.
@@ -747,12 +748,13 @@ daemon reads it off the compositor, which is what `Mode::seen` is.
 
 ## What is not reworked
 
-Some of these programs run, decide, and exit: `console-buttons`, `put-away`,
-`one-format`, `download-find`, `download-get`, `files-thumbs`, `music-index`,
-`sky-press`, `dictate`, `cover-ascii`, `console-palette`, `console`,
-`console-engine`, `console-battery`. They are already pure functions with a
-`main` around them. A state machine holding one state is ceremony, and
-ceremony is the thing this document is against.
+Some of these programs run, decide, and exit: `console-buttons`,
+`console-put-away`, `downloads-format`, `downloads-find`, `downloads-get`,
+`files-thumbs`, `music-index`, `wallpaper-press`, `console-dictate`,
+`music-cover`, `console-palette`, `console`, `console-engine`,
+`console-battery`. They are already pure functions with a `main` around them. A
+state machine holding one state is ceremony, and ceremony is the thing this
+document is against.
 
 Five more are laptop-only — `capture-devices`, `console-check`,
 `console-desktop`, `console-emulate`, `console-manifest-publish` — and a tool
@@ -771,7 +773,7 @@ until the last one is off it.
 | --- | --- | --- |
 | **0** | ~~Find the restart fault~~ | done, and it is the argument below |
 | **1** | ~~`console-program-contract`: the contract, tested alone~~ | done, with the transcript harness and three programs on it |
-| **2** | `console-events`: the pool, one source at a time | **begun: the compositor, `console-sky` on it, and the runtime asking it** |
+| **2** | `console-events`: the pool, one source at a time | **begun: the compositor, `console-wallpaper` on it, and the runtime asking it** |
 | **3** | ~~The shell scripts, into Rust~~ | done: none of ours is left |
 | **4** | One input reader, then seven daemons | **begun: the mode and the table are in** |
 | **5** | Seven panels | ~1 day each |
@@ -841,8 +843,8 @@ So the pad is a resource two programs use and neither owns, and they are started
 with nothing said about the order:
 
 - `console-input-keyboard.service` and `console-input-controller.service` are both only
-  `WantedBy=console.target`. Of the nine units here, `console-sky` is the only
-  one that declares an ordering at all.
+  `WantedBy=console.target`. Of the nine units here, `console-wallpaper` is the
+  only one that declares an ordering at all.
 - `console-input-controller.service` runs `controller-profile desktop` from
   `ExecStartPost`, and a profile switch destroys the pad and builds a new one.
   Its own unit file says so.

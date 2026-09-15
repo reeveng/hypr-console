@@ -27,16 +27,53 @@
 //! anywhere was on somebody's actual handheld: a check for what the pointer
 //! does could be written only for a machine that has to be plugged in, awake
 //! and reachable, so mostly it was not written at all.
+//!
+//! The same run writes what `hyprctl monitors` said, for the same reason, and
+//! [`Desktop::colour`] divides by that rather than by the scale the device's
+//! own config declares. This screen is the device's mode at whatever scale
+//! leaves room on the machine running it, so the two numbers part company the
+//! moment the window is cut down -- and a place worked out from the wrong one
+//! is a row somewhere else on the screen, which reads exactly like a surface
+//! that does not paint.
+//!
+//! [`Desktop::filling`] is the one thing here that puts something into the
+//! session rather than taking something out of it. The strip under the bar
+//! reads how far along a long thing is out of a file under `/run`, which is a
+//! path the staging cannot rewrite and a directory nobody may make on a laptop,
+//! so the file is written here and the session is told where it is. It goes
+//! where the picture goes and leaves with it.
+//!
+//! [`Desktop::notifying`] is the same idea and a firmer version of it. A
+//! notification daemon is a program that takes a name on the session bus, and
+//! the session bus a check inherits is the one this laptop's own desktop is
+//! using: a daemon started in the nested session would take
+//! `org.freedesktop.Notifications` away from whatever is holding it out here,
+//! and the run would end with the machine it ran on unable to say anything. So
+//! the nested session is given a bus of its own -- a `dbus-daemon` on a socket
+//! beside the picture, dying with the check that started it -- and a notices
+//! file of its own beside it. A check may take away what it made and may not
+//! take away what it found, and a bus name is the largest thing on this machine
+//! that could be taken.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::time::Duration;
 
 use console_compositor::Window;
 use console_core_external_programs::Program;
+use console_core_geometry::{Point, Size};
 use console_core_never::Never;
 use console_core_number_conversion::{Float, fitted};
+use console_notifications::updating::{self, Far};
+use console_notifications::serving;
+use console_program_lifetime::{Alongside, alongside};
+use console_waiting::{Patience, Seen, Waited, until};
 
+use crate::Awry;
 use crate::picture::{Picture, where_};
+
+const NESTING: &str = "console-desktop";
+
 
 pub const PATIENCE: u64 = 180;
 
@@ -48,17 +85,14 @@ const BETWEEN: f64 = 0.5;
 
 const AFTER: f64 = 1.5;
 
-fn pressing_hand() -> Result<(), String> {
+fn pressing_hand() -> Result<(), Awry> {
     let Ok(nesting) = nesting_program();
     let beside = nesting.parent().map(|at| at.join("console-point"));
 
     match beside {
         Some(at) if at.is_file() => Ok(()),
-        Some(at) => Err(format!(
-            "{} is not there, so nothing would be pressed: cargo build -p console-input-pointer",
-            at.display()
-        )),
-        None => Err("console-point is not beside console-desktop".to_string()),
+        Some(at) => Err(Awry::NoPointer(at)),
+        None => Err(Awry::PointerNotBeside),
     }
 }
 
@@ -72,15 +106,48 @@ fn nesting_program() -> Result<PathBuf, Never> {
         }
     };
 
-    Ok(beside.filter(|at| at.exists()).unwrap_or_else(|| PathBuf::from("console-desktop")))
+    Ok(match beside.filter(|at| at.exists()) {
+        Some(beside) => beside,
+        None => PathBuf::from(NESTING),
+    })
 }
 
 const SEEN: &str = "clients.json";
+
+const SCREEN: &str = "monitors.json";
+
+const FILLING: &str = "updating";
+
+const NOTICES: &str = "notices.json";
+
+const BUS: &str = "bus";
+
+const SESSION: &str = "session.conf";
+
+const ADDRESS: &str = "DBUS_SESSION_BUS_ADDRESS";
+
+const LISTENING: Duration = Duration::from_secs(10);
+
+const CONFIG: &str = r#"<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
+<busconfig>
+  <type>session</type>
+  <listen>@address@</listen>
+  <auth>EXTERNAL</auth>
+  <policy context="default">
+    <allow send_destination="*" eavesdrop="true"/>
+    <allow eavesdrop="true"/>
+    <allow own="*"/>
+  </policy>
+</busconfig>
+"#;
 
 pub struct Desktop {
     open_these: Vec<String>,
     press_these: Vec<String>,
     not_before: Option<PathBuf>,
+    filling: Option<Far>,
+    talking: Option<Alongside>,
     here: PathBuf,
     taken: Option<Picture>,
 }
@@ -107,6 +174,8 @@ impl Desktop {
             open_these: Vec::new(),
             press_these: Vec::new(),
             not_before: None,
+            filling: None,
+            talking: None,
             here,
             taken: None,
         })
@@ -116,16 +185,76 @@ impl Desktop {
         self.open_these.clear();
         self.press_these.clear();
         self.not_before = None;
+        self.filling = None;
+        self.talking = None;
         self.taken = None;
 
         Ok(())
     }
 
-    pub fn not_before(&mut self, at: &Path) -> Result<(), String> {
+    pub fn notices(&self) -> Result<PathBuf, Never> {
+        Ok(self.here.join(NOTICES))
+    }
+
+    pub fn notifying(&mut self) -> Result<(), Awry> {
         match self.taken.is_some() {
-            true => {
-                Err("the picture has already been taken; say this before looking".to_string())
+            true => return Err(Awry::AlreadyTaken("start the bus")),
+            false => {},
+        }
+
+        match self.talking.is_some() {
+            true => return Ok(()),
+            false => {},
+        }
+
+        std::fs::create_dir_all(&self.here).map_err(Awry::Machine)?;
+
+        let socket = self.here.join(BUS);
+        let _ = std::fs::remove_file(&socket);
+        let address = format!("unix:path={}", socket.display());
+        let at = self.here.join(SESSION);
+
+        console_core_atomic_writes::whole(&at, CONFIG.replace("@address@", &address).as_bytes())
+            .map_err(Awry::Unwritten)?;
+
+        let Ok(mut asking) = Program::DbusDaemon.command();
+
+        asking.arg(format!("--config-file={}", at.display())).arg("--nofork");
+        asking.stdout(Stdio::null()).stderr(Stdio::null());
+
+        let talking = alongside(&mut asking).map_err(Awry::Machine)?;
+        let Ok(patience) = Patience::of(LISTENING);
+        let Ok(listening) = until(patience, || {
+            Ok(match socket.exists() {
+                true => Seen::Yes,
+                false => Seen::NotYet,
+            })
+        });
+
+        match listening {
+            Waited::Happened => {
+                self.talking = Some(talking);
+
+                Ok(())
+            }
+            Waited::RanOut => Err(Awry::NoBus(socket)),
+        }
+    }
+
+    pub fn filling(&mut self, far: &Far) -> Result<(), Awry> {
+        match self.taken.is_some() {
+            true => Err(Awry::AlreadyTaken("fill the strip")),
+            false => {
+                self.filling = Some(far.clone());
+
+                Ok(())
             },
+        }
+    }
+
+    pub fn not_before(&mut self, at: &Path) -> Result<(), Awry> {
+        match self.taken.is_some() {
+            true => Err(Awry::AlreadyTaken("say this")),
             false => {
                 self.not_before = Some(at.to_path_buf());
 
@@ -134,11 +263,9 @@ impl Desktop {
         }
     }
 
-    pub fn open(&mut self, command: &str) -> Result<(), String> {
+    pub fn open(&mut self, command: &str) -> Result<(), Awry> {
         match self.taken.is_some() {
-            true => {
-                return Err("the picture has already been taken; open before looking".to_string());
-            }
+            true => return Err(Awry::AlreadyTaken("open")),
             false => {},
         }
 
@@ -146,23 +273,23 @@ impl Desktop {
         Ok(())
     }
 
-    pub fn point(&mut self, at: (u32, u32)) -> Result<(), String> {
+    pub fn point(&mut self, at: (u32, u32)) -> Result<(), Awry> {
         self.pointing(None, at, "")
     }
 
-    pub fn click(&mut self, at: (u32, u32)) -> Result<(), String> {
+    pub fn click(&mut self, at: (u32, u32)) -> Result<(), Awry> {
         self.pointing(None, at, " --click")
     }
 
-    pub fn scroll(&mut self, at: (u32, u32), notches: i32) -> Result<(), String> {
+    pub fn scroll(&mut self, at: (u32, u32), notches: i32) -> Result<(), Awry> {
         self.pointing(None, at, &format!(" --scroll {notches}"))
     }
 
-    pub fn point_in(&mut self, namespace: &str, at: (u32, u32)) -> Result<(), String> {
+    pub fn point_in(&mut self, namespace: &str, at: (u32, u32)) -> Result<(), Awry> {
         self.pointing(Some(namespace), at, "")
     }
 
-    pub fn click_in(&mut self, namespace: &str, at: (u32, u32)) -> Result<(), String> {
+    pub fn click_in(&mut self, namespace: &str, at: (u32, u32)) -> Result<(), Awry> {
         self.pointing(Some(namespace), at, " --click")
     }
 
@@ -171,7 +298,7 @@ impl Desktop {
         namespace: &str,
         at: (u32, u32),
         notches: i32,
-    ) -> Result<(), String> {
+    ) -> Result<(), Awry> {
         self.pointing(Some(namespace), at, &format!(" --scroll {notches}"))
     }
 
@@ -180,7 +307,7 @@ impl Desktop {
         inside: Option<&str>,
         at: (u32, u32),
         doing: &str,
-    ) -> Result<(), String> {
+    ) -> Result<(), Awry> {
         let within = match inside {
             Some(namespace) => format!("--in {namespace} "),
             None => String::new(),
@@ -189,9 +316,9 @@ impl Desktop {
         self.press(format!("console-point {within}{} {}{doing}", at.0, at.1))
     }
 
-    fn press(&mut self, command: String) -> Result<(), String> {
+    fn press(&mut self, command: String) -> Result<(), Awry> {
         match self.taken {
-            Some(_) => Err("the picture has already been taken; press before looking".to_string()),
+            Some(_) => Err(Awry::AlreadyTaken("press")),
             None => {
                 self.press_these.push(command);
 
@@ -220,16 +347,38 @@ impl Desktop {
         Ok(Some((script, waited)))
     }
 
-    fn picture(&mut self) -> Result<&Picture, String> {
+    fn picture(&mut self) -> Result<&Picture, Awry> {
         match self.taken.is_none() {
             true => {
-                std::fs::create_dir_all(&self.here).map_err(|fault| fault.to_string())?;
+                std::fs::create_dir_all(&self.here).map_err(Awry::Machine)?;
                 let _ = std::fs::remove_file(self.here.join(SEEN));
+                let _ = std::fs::remove_file(self.here.join(SCREEN));
                 let shot = self.here.join("screen.png");
                 let Ok(program) = nesting_program();
                 let mut nesting = Command::new(program);
                 nesting.arg("shot").arg(&shot);
                 nesting.arg("--clients").arg(self.here.join(SEEN));
+                nesting.arg("--monitors").arg(self.here.join(SCREEN));
+
+                match &self.filling {
+                    Some(far) => {
+                        let at = self.here.join(FILLING);
+                        let Ok(written) = updating::written(far);
+
+                        console_core_atomic_writes::whole(&at, written.as_bytes())
+                            .map_err(Awry::Unwritten)?;
+                        nesting.env(updating::WHERE, &at);
+                    }
+                    None => {},
+                }
+
+                match &self.talking {
+                    Some(_talking) => {
+                        nesting.env(ADDRESS, format!("unix:path={}", self.here.join(BUS).display()));
+                        nesting.env(serving::WHERE, self.here.join(NOTICES));
+                    }
+                    None => {},
+                }
 
                 match &self.not_before {
                     Some(at) => {
@@ -254,15 +403,17 @@ impl Desktop {
                     None => {},
                 }
 
-                let said = nesting.output().map_err(|fault| fault.to_string())?;
+                let said = nesting.output().map_err(Awry::Machine)?;
 
                 match shot.exists() {
                     true => {},
                     false => {
                         let why = String::from_utf8_lossy(&said.stderr);
-                        let last =
-                            why.trim().lines().next_back().unwrap_or_default().to_string();
-                        return Err(format!("the nested desktop took no picture: {last}"));
+                        let last = match why.trim().lines().next_back() {
+                            Some(last) => last.to_string(),
+                            None => String::new(),
+                        };
+                        return Err(Awry::TookNoPicture(last));
                     }
                 }
 
@@ -273,7 +424,7 @@ impl Desktop {
             false => {},
         }
 
-        self.taken.as_ref().ok_or_else(|| "the nested desktop took a picture and then had none".to_string())
+        self.taken.as_ref().ok_or(Awry::NestedPictureGone)
     }
 
     pub fn installed(&self, program: &str) -> Result<Installed, Never> {
@@ -291,34 +442,49 @@ impl Desktop {
         })
     }
 
-    pub fn colour(&mut self, across: f64, down: f64) -> Result<String, String> {
-        let screen = crate::screen()?;
+    pub fn colour(&mut self, at: Point<f64>) -> Result<String, Awry> {
+        let logical = self.logical()?;
         let picture = self.picture()?;
 
-        where_(picture, across, down, &screen)
+        where_(picture, at, logical)
     }
 
-    pub fn patch(&mut self, across: f64, down: f64) -> Result<String, String> {
+    pub fn logical(&mut self) -> Result<Size<u32>, Awry> {
+        self.picture()?;
+
+        let at = self.here.join(SCREEN);
+        let said = std::fs::read_to_string(&at)
+            .map_err(|fault| Awry::NoScreenSaid(at.clone(), fault))?;
+        let read = console_compositor::read(&said)?;
+        let Ok(monitors) = console_compositor::monitors(&read);
+
+        let first = monitors.first().ok_or_else(|| Awry::NoScreenAtAll(at.clone()))?;
+        let Ok(logical) = first.logical();
+
+        logical.ok_or_else(|| Awry::NoSize(at.clone(), first.named.clone()))
+    }
+
+    pub fn patch(&mut self, at: Point<f64>) -> Result<String, Awry> {
         let picture = self.picture()?;
-        let Ok(average) = picture.average(across, down, crate::picture::PATCH);
+        let Ok(average) = picture.average(at, crate::picture::PATCH);
 
         Ok(average)
     }
 
-    pub fn background(&mut self) -> Result<String, String> {
+    pub fn background(&mut self) -> Result<String, Awry> {
         let picture = self.picture()?;
         let Ok(commonest) = picture.commonest();
 
         Ok(commonest)
     }
 
-    pub fn windows(&mut self) -> Result<Vec<Window>, String> {
+    pub fn windows(&mut self) -> Result<Vec<Window>, Awry> {
         self.picture()?;
 
         let at = self.here.join(SEEN);
 
         let said = std::fs::read_to_string(&at)
-            .map_err(|fault| format!("{}: the nested desktop said no windows: {fault}", at.display()))?;
+            .map_err(|fault| Awry::NoWindowsSaid(at.clone(), fault))?;
 
         let clients = console_compositor::read(&said)?;
         let Ok(open) = console_compositor::windows_open(&clients);

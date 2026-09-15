@@ -20,6 +20,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use console_core_colour::{Ground, Ink};
 use console_core_colour::spent::{SPENT, read};
 use console_input_keyboard::palette::{self, BACKGROUNDS, COLOURS, INK};
 
@@ -95,7 +96,7 @@ fn pressed_and_selected_keys_are_seen() {
             None => "",
         };
         assert!(!background.is_empty(), "--{option} has no colour in the palette");
-        let Ok(apart) = console_core_colour::contrast(background, dark_ink);
+        let Ok(apart) = console_core_colour::contrast(Ink(dark_ink), Ground(background));
 
         assert!(
             apart >= 7.0,
@@ -119,9 +120,9 @@ fn a_pressed_key_is_not_the_key_under_the_stick() {
     let (press, sel) = (colour("press"), colour("sel"));
     assert_ne!(press, sel, "--press and --sel are the same colour, so a key never looks typed");
 
-    let Ok((_, _, one)) = console_core_colour::to_oklch(&press);
-    let Ok((_, _, other)) = console_core_colour::to_oklch(&sel);
-    let round = (one - other).abs();
+    let Ok(pressed) = console_core_colour::to_oklch(&press);
+    let Ok(under) = console_core_colour::to_oklch(&sel);
+    let round = (pressed.hue - under.hue).abs();
     let apart = round.min(360.0 - round);
     assert!(
         apart >= APART,

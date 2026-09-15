@@ -15,39 +15,42 @@
 //! None of this is required to work. A file that cannot be read or written is
 //! a panel that opens the way it did before there was one.
 
-use crate::notes;
+use crate::notes::{self, Note};
+use console_core_geometry::Size;
 use console_core_never::Never;
 
 const ROOM: &str = "room";
 
-pub fn last(program: &str) -> Result<(i32, i32), Never> {
-    let Ok(held) = notes::read(program, ROOM);
+const NONE: Size<i32> = Size { wide: 0, tall: 0 };
+
+pub fn last(program: &str) -> Result<Size<i32>, Never> {
+    let Ok(held) = notes::read(Note { program, called: ROOM });
 
     match held {
         Some(held) => read(&held),
-        None => Ok((0, 0)),
+        None => Ok(NONE),
     }
 }
 
-pub fn keep(program: &str, room: (i32, i32)) -> Result<(), Never> {
+pub fn keep(program: &str, room: Size<i32>) -> Result<(), Never> {
     let Ok(before) = last(program);
 
-    let room = (room.0.max(before.0), room.1.max(before.1));
+    let room = Size { wide: room.wide.max(before.wide), tall: room.tall.max(before.tall) };
 
-    match room.0 <= 1 || room.1 <= 1 || before == room {
+    match room.wide <= 1 || room.tall <= 1 || before == room {
         true => return Ok(()),
         false => {},
     }
 
     let Ok(said) = said(room);
 
-    let Ok(()) = notes::write(program, ROOM, &said);
+    let Ok(()) = notes::write(Note { program, called: ROOM }, &said);
 
     Ok(())
 }
 
-fn said(room: (i32, i32)) -> Result<String, Never> {
-    Ok(format!("{} {}\n", room.0, room.1))
+fn said(room: Size<i32>) -> Result<String, Never> {
+    Ok(format!("{} {}\n", room.wide, room.tall))
 }
 
 fn number(word: Option<&str>) -> Result<i32, Never> {
@@ -64,14 +67,14 @@ fn number(word: Option<&str>) -> Result<i32, Never> {
     Ok(number)
 }
 
-fn read(held: &str) -> Result<(i32, i32), Never> {
+fn read(held: &str) -> Result<Size<i32>, Never> {
     let mut words = held.split_whitespace();
     let Ok(wide) = number(words.next());
     let Ok(tall) = number(words.next());
 
     Ok(match wide > 1 && tall > 1 {
-        true => (wide, tall),
-        false => (0, 0),
+        true => Size { wide, tall },
+        false => NONE,
     })
 }
 
@@ -81,33 +84,36 @@ mod tests {
 
     #[test]
     fn what_was_written_is_what_is_read() {
-        let Ok(said) = said((1600, 2400));
+        let Ok(said) = said(Size { wide: 1600, tall: 2400 });
 
-        assert_eq!(read(&said), Ok((1600, 2400)));
+        assert_eq!(read(&said), Ok(Size { wide: 1600, tall: 2400 }));
     }
 
     #[test]
     fn a_file_saying_anything_else_is_a_panel_that_has_not_been_up() {
-        assert_eq!(read(""), Ok((0, 0)));
-        assert_eq!(read("wide tall"), Ok((0, 0)));
-        assert_eq!(read("1600"), Ok((0, 0)));
-        assert_eq!(read("0 0"), Ok((0, 0)));
-        assert_eq!(read("-1600 -2400"), Ok((0, 0)));
+        assert_eq!(read(""), Ok(NONE));
+        assert_eq!(read("wide tall"), Ok(NONE));
+        assert_eq!(read("1600"), Ok(NONE));
+        assert_eq!(read("0 0"), Ok(NONE));
+        assert_eq!(read("-1600 -2400"), Ok(NONE));
     }
 
     #[test]
     fn a_room_too_small_to_be_real_is_not_remembered() {
-        assert_eq!(read("1 1"), Ok((0, 0)));
+        assert_eq!(read("1 1"), Ok(NONE));
     }
 
     #[test]
     fn the_largest_room_beats_the_last_one() {
-        assert_eq!(largest((1024, 300), (1024, 602)), (1024, 602));
-        assert_eq!(largest((1024, 602), (1024, 300)), (1024, 602));
-        assert_eq!(largest((1024, 602), (0, 0)), (1024, 602), "nothing remembered yet");
+        let short = Size { wide: 1024, tall: 300 };
+        let tall = Size { wide: 1024, tall: 602 };
+
+        assert_eq!(largest(short, tall), tall);
+        assert_eq!(largest(tall, short), tall);
+        assert_eq!(largest(tall, NONE), tall, "nothing remembered yet");
     }
 
-    fn largest(room: (i32, i32), before: (i32, i32)) -> (i32, i32) {
-        (room.0.max(before.0), room.1.max(before.1))
+    fn largest(room: Size<i32>, before: Size<i32>) -> Size<i32> {
+        Size { wide: room.wide.max(before.wide), tall: room.tall.max(before.tall) }
     }
 }

@@ -67,7 +67,7 @@ fn walk(stage: &mut Device, down: usize) -> Result<(), Never> {
     stage.press("a")
 }
 
-fn put_away(stage: &mut Device) -> Result<(), Never> {
+fn console_put_away(stage: &mut Device) -> Result<(), Never> {
     let Ok(()) = stage.press("b");
     let Ok(_) = stage.gone(PATIENCE);
 
@@ -134,7 +134,7 @@ fn there(stage: &mut Device) -> Done {
 
     match opened {
         Waited::RanOut => {
-            let Ok(()) = put_away(stage);
+            let Ok(()) = console_put_away(stage);
         },
         Waited::Happened => {},
     }
@@ -156,7 +156,7 @@ fn there(stage: &mut Device) -> Done {
 
     let Ok(moved) = stage.until(there, ANSWERS);
 
-    let Ok(()) = put_away(stage);
+    let Ok(()) = console_put_away(stage);
     let Ok(()) = put_back(stage, &was);
 
     happened(moved, || {

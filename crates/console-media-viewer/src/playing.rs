@@ -54,10 +54,6 @@ pub struct Along {
 }
 
 impl Along {
-    pub fn new(at: u64, whole: u64) -> Result<Self, Never> {
-        Ok(Along { at, whole })
-    }
-
     pub fn moved(self, by: i64) -> Result<Along, Never> {
         let at = match by >= 0 {
             true => self.at.saturating_add(by.unsigned_abs()),
@@ -112,17 +108,23 @@ pub const SPEEDS: [(&str, f64); 4] =
     [("Half speed", 0.5), ("Normal", 1.0), ("Half again", 1.5), ("Twice", 2.0)];
 
 pub fn ordinary() -> Result<usize, Never> {
-    Ok(SPEEDS.iter().position(|(_, rate)| *rate == 1.0).unwrap_or(0))
+    Ok(match SPEEDS.iter().position(|(_, rate)| *rate == ORDINARY.1) {
+        Some(at) => at,
+        None => THE_FIRST_SPEED,
+    })
 }
+
+const THE_FIRST_SPEED: usize = 0;
+
+pub const ORDINARY: (&str, f64) = ("Normal", 1.0);
 
 pub fn speed(at: usize) -> Result<(&'static str, f64), Never> {
     let Ok(ordinary) = ordinary();
 
-    Ok(SPEEDS
-        .get(at)
-        .or_else(|| SPEEDS.get(ordinary))
-        .copied()
-        .unwrap_or(("normal", 1.0)))
+    Ok(match SPEEDS.get(at).or_else(|| SPEEDS.get(ordinary)).copied() {
+        Some(speed) => speed,
+        None => ORDINARY,
+    })
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -210,9 +212,7 @@ mod tests {
     use super::*;
 
     fn along(at: u64, whole: u64) -> Along {
-        let Ok(along) = Along::new(at, whole);
-
-        along
+        Along { at, whole }
     }
 
     fn moved(along: Along, by: i64) -> Along {

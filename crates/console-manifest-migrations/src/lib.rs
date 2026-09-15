@@ -45,6 +45,31 @@ pub mod sweeping;
 
 use console_core_never::Never;
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt;
+use std::path::PathBuf;
+
+#[derive(Debug)]
+pub enum Undone {
+    Listing(PathBuf, std::io::Error),
+    Reading(PathBuf, std::io::Error),
+    Nameless(PathBuf),
+    Holding(PathBuf, std::io::Error),
+    Marking(console_core_atomic_writes::Unwritten),
+}
+
+impl fmt::Display for Undone {
+    fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Undone::Listing(at, fault) => write!(to, "{}: {fault}", at.display()),
+            Undone::Reading(at, fault) => write!(to, "{}: {fault}", at.display()),
+            Undone::Nameless(at) => write!(to, "{} has no name", at.display()),
+            Undone::Holding(at, fault) => write!(to, "{}: {fault}", at.display()),
+            Undone::Marking(fault) => write!(to, "{fault}"),
+        }
+    }
+}
+
+impl std::error::Error for Undone {}
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Unswept {
@@ -68,8 +93,11 @@ pub fn unswept(
         .collect())
 }
 
-pub fn holds(section: &str, entry: &str) -> Result<Option<String>, Never> {
-    Ok(match section {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Section<'a>(pub &'a str);
+
+pub fn holds(section: Section<'_>, entry: &str) -> Result<Option<String>, Never> {
+    Ok(match section.0 {
         "[build]" => Some(format!("/usr/local/bin/{entry}")),
         "[files]" => {
             let Ok(whoevers) = whoevers(entry);
@@ -121,7 +149,7 @@ mod tests {
         entries
             .iter()
             .filter_map(|(section, entry)| {
-                let Ok(holds) = holds(section, entry);
+                let Ok(holds) = holds(Section(section), entry);
 
                 holds.map(|holds| (holds, (*section).to_string()))
             })
@@ -132,7 +160,7 @@ mod tests {
         entries
             .iter()
             .filter_map(|(section, entry)| {
-                let Ok(holds) = holds(section, entry);
+                let Ok(holds) = holds(Section(section), entry);
 
                 holds
             })
@@ -175,8 +203,8 @@ mod tests {
 
     #[test]
     fn a_rename_is_the_old_name_and_not_the_new_one() {
-        let ever = ever(&[("[build]", "legion-sky"), ("[build]", "console-sky")]);
-        let now = now(&[("[build]", "console-sky")]);
+        let ever = ever(&[("[build]", "legion-sky"), ("[build]", "console-wallpaper")]);
+        let now = now(&[("[build]", "console-wallpaper")]);
         let Ok(left) = unswept(&ever, &now, &names(&[]), &names(&[]));
 
         assert_eq!(left.first().map(|one| one.holds.as_str()), Some("/usr/local/bin/legion-sky"));
@@ -203,8 +231,8 @@ mod tests {
 
     #[test]
     fn a_path_under_a_home_is_the_same_file_whoever_the_home_belongs_to() {
-        let Ok(theirs) = holds("[files]", "/home/ada/.config/waybar/style.css");
-        let Ok(whoevers) = holds("[files]", "/home/@user@/.config/waybar/style.css");
+        let Ok(theirs) = holds(Section("[files]"), "/home/ada/.config/waybar/style.css");
+        let Ok(whoevers) = holds(Section("[files]"), "/home/@user@/.config/waybar/style.css");
 
         assert_eq!(theirs, whoevers);
     }
@@ -220,8 +248,8 @@ mod tests {
 
     #[test]
     fn a_unit_enabled_and_a_unit_masked_are_two_things_to_hold() {
-        let Ok(enabled) = holds("[services]", "mako.service");
-        let Ok(masked) = holds("[masked]", "mako.service");
+        let Ok(enabled) = holds(Section("[services]"), "mako.service");
+        let Ok(masked) = holds(Section("[masked]"), "mako.service");
 
         assert_ne!(enabled, masked);
     }
@@ -230,7 +258,7 @@ mod tests {
     fn what_pacman_already_collects_is_not_swept_here() {
         let Ok(built) = outlives("[build]");
         let Ok(packaged) = outlives("[packages]");
-        let Ok(nothing) = holds("[packages]", "grim");
+        let Ok(nothing) = holds(Section("[packages]"), "grim");
 
         assert_eq!(built, Outlives::TheManifest);
         assert_eq!(packaged, Outlives::Nothing);

@@ -23,7 +23,10 @@ pub fn wanted_at(home: &Path, said: &[(&str, Option<PathBuf>)]) -> Result<Vec<Pl
     let mut places: Vec<Place> = Vec::new();
 
     for (title, path) in said {
-        let path = path.clone().unwrap_or_else(|| home.join(title));
+        let path = match path.clone() {
+            Some(path) => path,
+            None => home.join(title),
+        };
         let place = Place::new(title, path)?;
 
         places.push(place);
@@ -95,8 +98,11 @@ pub fn kept(places: Vec<Place>, there: impl Fn(&Path) -> bool) -> Result<Vec<Pla
     Ok(places.into_iter().filter(|place| there(&place.path)).collect())
 }
 
-pub fn said_at(held: &str, name: &str, home: &Path) -> Result<Option<PathBuf>, Never> {
-    let wanted = format!("{name}=");
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Named<'a>(pub &'a str);
+
+pub fn said_at(held: &str, name: Named<'_>, home: &Path) -> Result<Option<PathBuf>, Never> {
+    let wanted = format!("{}=", name.0);
 
     let found = held
         .lines()
@@ -128,7 +134,7 @@ pub fn user_dirs(home: &Path) -> Result<PathBuf, Never> {
     Ok(config.join(USER_DIRS))
 }
 
-pub fn folder(home: &Path, name: &str, plain: &str) -> Result<PathBuf, Never> {
+pub fn folder(home: &Path, name: Named<'_>, plain: &str) -> Result<PathBuf, Never> {
     let at = user_dirs(home)?;
 
     let Ok(said) = console_core_atomic_writes::read(&at);
@@ -146,7 +152,10 @@ pub fn folder(home: &Path, name: &str, plain: &str) -> Result<PathBuf, Never> {
 
     let said = said_at(&held, name, home)?;
 
-    Ok(said.unwrap_or_else(|| home.join(plain)))
+    Ok(match said {
+        Some(said) => said,
+        None => home.join(plain),
+    })
 }
 
 #[cfg(test)]
@@ -274,7 +283,7 @@ mod tests {
     fn where_the_home_directory_says_its_pictures_are() {
         let held = "XDG_PICTURES_DIR=\"$HOME/Bilder\"\n";
         assert_eq!(
-            said_at(held, "XDG_PICTURES_DIR", Path::new("/home/ada")),
+            said_at(held, Named("XDG_PICTURES_DIR"), Path::new("/home/ada")),
             Ok(Some(PathBuf::from("/home/ada/Bilder")))
         );
     }
@@ -283,7 +292,7 @@ mod tests {
     fn a_path_that_is_not_under_the_home_directory_is_taken_as_it_is() {
         let held = "XDG_PICTURES_DIR=\"/data/pictures\"\n";
         assert_eq!(
-            said_at(held, "XDG_PICTURES_DIR", Path::new("/home/ada")),
+            said_at(held, Named("XDG_PICTURES_DIR"), Path::new("/home/ada")),
             Ok(Some(PathBuf::from("/data/pictures")))
         );
     }
@@ -291,15 +300,15 @@ mod tests {
     #[test]
     fn a_folder_the_file_says_nothing_about_is_nothing() {
         let held = "XDG_MUSIC_DIR=\"$HOME/Music\"\n";
-        assert_eq!(said_at(held, "XDG_PICTURES_DIR", Path::new("/home/ada")), Ok(None));
-        assert_eq!(said_at("", "XDG_PICTURES_DIR", Path::new("/home/ada")), Ok(None));
+        assert_eq!(said_at(held, Named("XDG_PICTURES_DIR"), Path::new("/home/ada")), Ok(None));
+        assert_eq!(said_at("", Named("XDG_PICTURES_DIR"), Path::new("/home/ada")), Ok(None));
     }
 
     #[test]
     fn what_is_commented_out_is_not_read() {
         let held = "# XDG_PICTURES_DIR=\"$HOME/Wrong\"\nXDG_PICTURES_DIR=\"$HOME/Right\"\n";
         assert_eq!(
-            said_at(held, "XDG_PICTURES_DIR", Path::new("/home/ada")),
+            said_at(held, Named("XDG_PICTURES_DIR"), Path::new("/home/ada")),
             Ok(Some(PathBuf::from("/home/ada/Right")))
         );
     }
@@ -307,7 +316,7 @@ mod tests {
     #[test]
     fn a_folder_said_to_be_nothing_is_nothing() {
         assert_eq!(
-            said_at("XDG_PICTURES_DIR=\"\"", "XDG_PICTURES_DIR", Path::new("/home/ada")),
+            said_at("XDG_PICTURES_DIR=\"\"", Named("XDG_PICTURES_DIR"), Path::new("/home/ada")),
             Ok(None),
         );
     }

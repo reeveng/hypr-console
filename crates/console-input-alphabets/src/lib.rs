@@ -134,7 +134,10 @@ pub fn choose(keys: &[&str]) -> Result<(), Never> {
 
     let said: Vec<&str> = kept.iter().map(|alphabet| alphabet.key).collect();
 
-    console_default_applications::set(SETTING, &said.join(","))
+    console_default_applications::set(console_default_applications::Setting {
+        key: SETTING,
+        value: &said.join(","),
+    })
 }
 
 pub fn turned(now: &[&'static Alphabet], key: &str) -> Result<Vec<&'static str>, Never> {

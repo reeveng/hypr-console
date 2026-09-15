@@ -1,0 +1,27 @@
+error: `std::env::var` reads one name, answered here and possibly answered differently somewhere else
+  --> $DIR/main.rs:8:5
+   |
+LL |     std::env::var("HOME").ok()
+   |     ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: a name from the environment is read in one crate -- the one that knows what the name means and what an absent one implies -- and handed on from there. `console_core_places` is that crate for `HOME`, and its `home` is an `Option` because the alternative was two crates answering `/root`. Where this crate is the owner, allow this rule here and let the reason name the variable
+   = note: `#[deny(explicit026_env_read_once)]` on by default
+
+error: `std::env::var_os` reads one name, answered here and possibly answered differently somewhere else
+  --> $DIR/main.rs:17:5
+   |
+LL |     var_os("CONSOLE_HOST")
+   |     ^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: a name from the environment is read in one crate -- the one that knows what the name means and what an absent one implies -- and handed on from there. `console_core_places` is that crate for `HOME`, and its `home` is an `Option` because the alternative was two crates answering `/root`. Where this crate is the owner, allow this rule here and let the reason name the variable
+
+error: `std::env::vars` reads every name at once, which is every one of them read in a place that owns none
+  --> $DIR/main.rs:23:5
+   |
+LL |     std::env::vars().count()
+   |     ^^^^^^^^^^^^^^^^
+   |
+   = help: a name from the environment is read in one crate -- the one that knows what the name means and what an absent one implies -- and handed on from there. `console_core_places` is that crate for `HOME`, and its `home` is an `Option` because the alternative was two crates answering `/root`. Where this crate is the owner, allow this rule here and let the reason name the variable
+
+error: aborting due to 3 previous errors
+

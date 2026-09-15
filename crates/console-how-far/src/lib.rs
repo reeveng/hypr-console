@@ -50,6 +50,8 @@ use std::io::Write;
 
 pub const CELLS: usize = 22;
 
+const NONE_OF_IT: usize = 0;
+
 pub const AROUND: usize = 9;
 
 pub const WHOLE: u16 = 100;
@@ -110,11 +112,17 @@ pub fn plain(line: &str) -> Result<String, Never> {
     Ok(said)
 }
 
-pub fn fraction(done: usize, many: usize) -> Result<f64, Never> {
-    Ok(match many {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Far {
+    pub done: usize,
+    pub many: usize,
+}
+
+pub fn fraction(far: Far) -> Result<f64, Never> {
+    Ok(match far.many {
         0 => 0.0,
         many => {
-            let Ok(done) = done.float();
+            let Ok(done) = far.done.float();
             let Ok(many) = many.float();
 
             done / many
@@ -128,21 +136,25 @@ pub fn percent(part: f64) -> Result<u16, Never> {
     Ok(percent.min(WHOLE))
 }
 
-pub fn counted(at: usize, many: usize) -> Result<String, Never> {
+pub fn counted(far: Far) -> Result<String, Never> {
+    let Far { done, many } = far;
     let wide = format!("{many}").chars().count();
 
-    Ok(format!("({at:>wide$}/{many})"))
+    Ok(format!("({done:>wide$}/{many})"))
 }
 
-pub fn caption(doing: &str, now: &str) -> Result<String, Never> {
-    Ok(match now.is_empty() {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Now<'a>(pub &'a str);
+
+pub fn caption(doing: &str, now: Now<'_>) -> Result<String, Never> {
+    Ok(match now.0.is_empty() {
         true => doing.to_string(),
-        false => format!("{doing} {now}"),
+        false => format!("{doing} {}", now.0),
     })
 }
 
 pub fn room(many: usize) -> Result<usize, Never> {
-    let Ok(widest) = counted(many, many);
+    let Ok(widest) = counted(Far { done: many, many });
 
     Ok(ROOM
         .saturating_sub(widest.chars().count())
@@ -163,14 +175,14 @@ pub fn fitted(said: &str, room: usize) -> Result<String, Never> {
     })
 }
 
-pub fn line(at: usize, many: usize, said: &str, into: u16) -> Result<String, Never> {
-    let Ok(counted) = counted(at, many);
-    let Ok(room) = room(many);
+pub fn line(far: Far, said: &str, into: u16) -> Result<String, Never> {
+    let Ok(counted) = counted(far);
+    let Ok(room) = room(far.many);
     let Ok(said) = fitted(said, room);
-    let full = usize::from(into.min(WHOLE))
-        .saturating_mul(CELLS)
-        .checked_div(usize::from(WHOLE))
-        .unwrap_or(0);
+    let full = match std::num::NonZeroUsize::new(usize::from(WHOLE)) {
+        Some(whole) => usize::from(into.min(WHOLE)).saturating_mul(CELLS) / whole,
+        None => NONE_OF_IT,
+    };
     let empty = CELLS.saturating_sub(full);
 
     Ok(format!(
@@ -289,9 +301,9 @@ impl Bar {
     }
 
     pub fn line(&self) -> Result<String, Never> {
-        let Ok(said) = caption(&self.doing, &self.now);
+        let Ok(said) = caption(&self.doing, Now(&self.now));
 
-        line(self.at, self.many, &said, self.into)
+        line(Far { done: self.at, many: self.many }, &said, self.into)
     }
 
     fn moved(&self) -> Result<(), Never> {
@@ -308,8 +320,8 @@ impl Bar {
             (Watched::Screen, Ending::Stays) => writeln!(out, "\r{ERASE}{drawn}"),
             (Watched::Screen, Ending::Again) => write!(out, "\r{ERASE}{drawn}"),
             (Watched::Not, Ending::Stays) => {
-                let Ok(said) = caption(&self.doing, &self.now);
-                let Ok(counted) = counted(self.at, self.many);
+                let Ok(said) = caption(&self.doing, Now(&self.now));
+                let Ok(counted) = counted(Far { done: self.at, many: self.many });
 
                 writeln!(out, "  {counted} {said}")
             }
@@ -339,15 +351,15 @@ mod tests {
 
     #[test]
     fn the_counter_is_padded_to_the_width_of_its_total_so_it_does_not_jitter() {
-        assert_eq!(counted(1, 14), Ok("( 1/14)".to_string()));
-        assert_eq!(counted(14, 14), Ok("(14/14)".to_string()));
-        assert_eq!(counted(3, 9), Ok("(3/9)".to_string()));
-        assert_eq!(counted(7, 120), Ok("(  7/120)".to_string()));
+        assert_eq!(counted(Far { done: 1, many: 14 }), Ok("( 1/14)".to_string()));
+        assert_eq!(counted(Far { done: 14, many: 14 }), Ok("(14/14)".to_string()));
+        assert_eq!(counted(Far { done: 3, many: 9 }), Ok("(3/9)".to_string()));
+        assert_eq!(counted(Far { done: 7, many: 120 }), Ok("(  7/120)".to_string()));
     }
 
     #[test]
     fn a_line_is_the_counter_the_name_the_bar_and_the_number() {
-        let Ok(said) = line(2, 14, "installing console-fonts", 50);
+        let Ok(said) = line(Far { done: 2, many: 14 }, "installing console-fonts", 50);
 
         assert!(said.starts_with("( 2/14) installing console-fonts"), "{said}");
         assert!(said.contains(&"#".repeat(11)), "{said}");
@@ -361,8 +373,8 @@ mod tests {
             [(1_usize, 9_usize, 0_u16), (14, 14, 100), (120, 120, 7), (7, 1000, 50)]
         {
             let Ok(said) =
-                caption("keeping the release", "home/@user@/.config/waybar/style.css");
-            let Ok(drawn) = line(at, many, &said, into);
+                caption("keeping the release", Now("home/@user@/.config/waybar/style.css"));
+            let Ok(drawn) = line(Far { done: at, many }, &said, into);
             let wide = drawn.chars().count();
 
             assert_eq!(wide, ROOM, "{wide} columns rather than {ROOM}: {drawn}");
@@ -371,8 +383,8 @@ mod tests {
 
     #[test]
     fn a_short_name_is_padded_so_the_bar_stands_in_the_same_column_all_run() {
-        let Ok(one) = line(1, 14, "sweeping", 0);
-        let Ok(other) = line(2, 14, "installing console-fonts", 50);
+        let Ok(one) = line(Far { done: 1, many: 14 }, "sweeping", 0);
+        let Ok(other) = line(Far { done: 2, many: 14 }, "installing console-fonts", 50);
 
         assert_eq!(one.find('['), other.find('['), "{one}\n{other}");
     }
@@ -389,7 +401,7 @@ mod tests {
 
     #[test]
     fn a_thing_with_nothing_to_say_about_itself_is_named_by_its_own_name() {
-        assert_eq!(caption("sweeping", ""), Ok("sweeping".to_string()));
+        assert_eq!(caption("sweeping", Now("")), Ok("sweeping".to_string()));
     }
 
     #[test]
@@ -437,7 +449,7 @@ mod tests {
 
     #[test]
     fn a_number_past_the_end_fills_the_bar_and_no_further() {
-        let Ok(said) = line(1, 1, "done", 400);
+        let Ok(said) = line(Far { done: 1, many: 1 }, "done", 400);
 
         assert!(said.ends_with("] 100%"), "{said}");
         assert_eq!(said.chars().filter(|one| *one == '#').count(), CELLS);
@@ -456,9 +468,9 @@ mod tests {
 
     #[test]
     fn nothing_is_divided_by_a_total_of_nothing() {
-        assert_eq!(fraction(0, 0), Ok(0.0));
-        assert_eq!(fraction(1, 4), Ok(0.25));
-        assert_eq!(fraction(4, 4), Ok(1.0));
+        assert_eq!(fraction(Far { done: 0, many: 0 }), Ok(0.0));
+        assert_eq!(fraction(Far { done: 1, many: 4 }), Ok(0.25));
+        assert_eq!(fraction(Far { done: 4, many: 4 }), Ok(1.0));
     }
 
     #[test]

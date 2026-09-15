@@ -1,11 +1,10 @@
 //! The command line, read once and handed in.
 //!
-//! A program's `main` is the only part of it allowed to ask the process what
-//! it was started with, and everything after that is handed this. It matters
-//! more than it looks: `console-sky --now` and `console-sky` are two
-//! behaviours of one program, and today that fork is a call to
-//! `std::env::args` in the middle of the deciding, where no test can put a
-//! different answer.
+//! A program's `main` is the only part of it allowed to ask the process what it
+//! was started with, and everything after that is handed this. It matters more
+//! than it looks: `console-wallpaper --now` and `console-wallpaper` are two
+//! behaviours of one program, and today that fork is a call to `std::env::args` in
+//! the middle of the deciding, where no test can put a different answer.
 
 use console_core_never::Never;
 

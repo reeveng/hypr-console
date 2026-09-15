@@ -14,12 +14,12 @@ name = "session-start"
 path = "src/bin/session-start.rs"
 
 [[bin]]
-name = "game-mode"
-path = "src/bin/game-mode.rs"
+name = "session-game"
+path = "src/bin/session-game.rs"
 
 [[bin]]
-name = "desktop-mode"
-path = "src/bin/desktop-mode.rs"
+name = "session-desktop"
+path = "src/bin/session-desktop.rs"
 
 [dependencies]
 # The longest wait on the machine is going to Game Mode and coming back, and
@@ -29,6 +29,7 @@ path = "src/bin/desktop-mode.rs"
 # up -- is the one that always lands.
 console-core-external-programs.workspace = true
 console-core-never.workspace = true
+console-core-words.workspace = true
 console-response-times.workspace = true
 
 [lints]

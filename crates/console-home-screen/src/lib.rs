@@ -23,6 +23,10 @@
 use std::collections::BTreeMap;
 
 use console_core_never::Never;
+use console_core_walking::Ring;
+
+const ONE_EMPTY_PANE: usize = 1;
+
 
 pub mod shape;
 
@@ -47,10 +51,6 @@ pub struct Spot {
 
 impl Spot {
     pub const FIRST: Spot = Spot { pane: 0, row: 0, column: 0 };
-
-    pub fn new(pane: usize, row: usize, column: usize) -> Result<Spot, Never> {
-        Ok(Spot { pane, row, column })
-    }
 
     pub fn on_the_grid(self, shape: Shape) -> Result<On, Never> {
         Ok(match self.row < shape.rows && self.column < shape.columns {
@@ -80,7 +80,7 @@ impl Spot {
                 (Err(_), _, _) | (_, Err(_), _) | (_, _, Err(_)) => return Ok(None),
             };
 
-        let spot = Spot::new(pane, row, column)?;
+        let spot = Spot { pane, row, column };
 
         Ok(Some(spot))
     }
@@ -218,7 +218,7 @@ impl Home {
                 (Err(_), _, _) | (_, Err(_), _) | (_, _, Err(_)) => continue,
             };
 
-            let spot = Spot::new(pane, row, column)?;
+            let spot = Spot { pane, row, column };
 
             let name = name.trim();
 
@@ -294,14 +294,29 @@ impl Home {
         let mut home = Home::default();
         let ours = OURS.iter().map(|said| said.to_string());
         let rest = order.iter().filter(|name| !OURS.contains(&name.as_str())).cloned();
+        #[cfg_attr(
+            dylint_lib = "explicit028_no_search_in_a_loop",
+            allow(
+                explicit028_no_search_in_a_loop,
+                reason = "what is walked is `OURS`, which is this desktop's own programs and is written out above; the `let` is what hides that from the rule rather than anything about the length"
+            )
+        )]
         let names = ours.filter(|name| order.contains(name)).chain(rest);
-        let columns = shape.columns.max(1);
+        let Ok(round) = Ring::round(shape.columns);
+
+        let ring = match round {
+            Some(ring) => ring,
+            None => return Ok(home),
+        };
+
+        let Ok(columns) = ring.many();
 
         let squares = shape.squares()?;
 
         for (at, name) in names.take(squares).enumerate() {
-            let spot =
-                Spot::new(0, at.saturating_div(columns), at.checked_rem(columns).unwrap_or(0))?;
+            let Ok(column) = ring.at(at);
+
+            let spot = Spot { pane: 0, row: at.saturating_div(columns), column };
 
             home.place(spot, &name)?;
         }
@@ -310,7 +325,10 @@ impl Home {
     }
 
     pub fn panes(&self) -> Result<usize, Never> {
-        Ok(self.placed.keys().map(|spot| spot.pane.saturating_add(1)).max().unwrap_or(1))
+        Ok(match self.placed.keys().map(|spot| spot.pane.saturating_add(1)).max() {
+            Some(panes) => panes,
+            None => ONE_EMPTY_PANE,
+        })
     }
 
     pub fn first_free(&self, shape: Shape) -> Result<Spot, Never> {
@@ -321,7 +339,7 @@ impl Home {
         for pane in 0..panes {
             for row in 0..rows {
                 for column in 0..columns {
-                    let spot = Spot::new(pane, row, column)?;
+                    let spot = Spot { pane, row, column };
 
                     let held = self.at(spot)?;
 
@@ -333,7 +351,7 @@ impl Home {
             }
         }
 
-        Spot::new(panes, 0, 0)
+        Ok(Spot { pane: panes, row: 0, column: 0 })
     }
 
     pub fn where_(&self, name: &str) -> Result<Option<Spot>, Never> {
@@ -380,7 +398,13 @@ mod tests {
 
     #[test]
     fn a_square_survives_being_handed_to_another_program() {
-        for spot in [Spot::FIRST, ok(Spot::new(2, 1, 4)), ok(Spot::new(0, 0, 11))] {
+        let squares = [
+            Spot::FIRST,
+            Spot { pane: 2, row: 1, column: 4 },
+            Spot { pane: 0, row: 0, column: 11 },
+        ];
+
+        for spot in squares {
             assert_eq!(ok(Spot::read(&ok(spot.said()))), Some(spot), "{spot:?}");
         }
 
@@ -395,39 +419,45 @@ mod tests {
 
     #[test]
     fn the_dpad_walks_the_squares_and_falls_off_neither_end() {
-        let middle = ok(Spot::new(1, 1, 2));
-        assert_eq!(ok(moved(middle, Way::Up, 3, GRID)), ok(Spot::new(1, 0, 2)));
-        assert_eq!(ok(moved(middle, Way::Down, 3, GRID)), ok(Spot::new(1, 2, 2)));
-        assert_eq!(ok(moved(middle, Way::Left, 3, GRID)), ok(Spot::new(1, 1, 1)));
-        assert_eq!(ok(moved(middle, Way::Right, 3, GRID)), ok(Spot::new(1, 1, 3)));
+        let middle = Spot { pane: 1, row: 1, column: 2 };
+        assert_eq!(ok(moved(middle, Way::Up, 3, GRID)), Spot { pane: 1, row: 0, column: 2 });
+        assert_eq!(ok(moved(middle, Way::Down, 3, GRID)), Spot { pane: 1, row: 2, column: 2 });
+        assert_eq!(ok(moved(middle, Way::Left, 3, GRID)), Spot { pane: 1, row: 1, column: 1 });
+        assert_eq!(ok(moved(middle, Way::Right, 3, GRID)), Spot { pane: 1, row: 1, column: 3 });
 
-        let top = ok(Spot::new(0, 0, 0));
+        let top = Spot { pane: 0, row: 0, column: 0 };
         assert_eq!(ok(moved(top, Way::Up, 3, GRID)), top, "there is nothing above the first row");
         assert_eq!(ok(moved(top, Way::Left, 3, GRID)), top, "nor before the first pane");
 
-        let last = ok(Spot::new(2, ROWS - 1, COLUMNS - 1));
+        let last = Spot { pane: 2, row: ROWS - 1, column: COLUMNS - 1 };
         assert_eq!(ok(moved(last, Way::Down, 3, GRID)), last);
         assert_eq!(ok(moved(last, Way::Right, 3, GRID)), last, "the panes end where the caller said");
     }
 
     #[test]
     fn walking_off_the_side_of_a_pane_is_how_the_next_one_is_reached() {
-        assert_eq!(ok(moved(ok(Spot::new(0, 1, COLUMNS - 1)), Way::Right, 2, GRID)), ok(Spot::new(1, 1, 0)));
-        assert_eq!(ok(moved(ok(Spot::new(1, 1, 0)), Way::Left, 2, GRID)), ok(Spot::new(0, 1, COLUMNS - 1)));
+        let last = Spot { pane: 0, row: 1, column: COLUMNS - 1 };
+        let first = Spot { pane: 1, row: 1, column: 0 };
+
+        assert_eq!(ok(moved(last, Way::Right, 2, GRID)), first);
+        assert_eq!(ok(moved(first, Way::Left, 2, GRID)), last);
     }
 
     #[test]
     fn a_full_hand_is_offered_the_pane_past_the_end_and_an_empty_one_is_not() {
-        let edge = ok(Spot::new(1, 0, COLUMNS - 1));
+        let edge = Spot { pane: 1, row: 0, column: COLUMNS - 1 };
         assert_eq!(ok(moved(edge, Way::Right, 2, GRID)), edge);
-        assert_eq!(ok(moved(edge, Way::Right, 3, GRID)), ok(Spot::new(2, 0, 0)));
+        assert_eq!(ok(moved(edge, Way::Right, 3, GRID)), Spot { pane: 2, row: 0, column: 0 });
     }
 
     #[test]
     fn a_swipe_moves_a_whole_pane_and_stops_at_the_ends() {
-        assert_eq!(ok(paned(ok(Spot::new(0, 2, 3)), Along::After, 2)), ok(Spot::new(1, 2, 3)));
-        assert_eq!(ok(paned(ok(Spot::new(0, 2, 3)), Along::Before, 2)), ok(Spot::new(0, 2, 3)));
-        assert_eq!(ok(paned(ok(Spot::new(1, 0, 0)), Along::After, 2)), ok(Spot::new(1, 0, 0)));
+        let third = Spot { pane: 0, row: 2, column: 3 };
+        let last = Spot { pane: 1, row: 0, column: 0 };
+
+        assert_eq!(ok(paned(third, Along::After, 2)), Spot { pane: 1, row: 2, column: 3 });
+        assert_eq!(ok(paned(third, Along::Before, 2)), third);
+        assert_eq!(ok(paned(last, Along::After, 2)), last);
     }
 
     #[test]
@@ -449,19 +479,19 @@ mod tests {
     #[test]
     fn what_is_placed_is_what_is_written_down_and_read_back() {
         let mut home = Home::default();
-        ok(home.place(ok(Spot::new(0, 0, 0)), "Files"));
-        ok(home.place(ok(Spot::new(2, 1, 4)), "Steam"));
+        ok(home.place(Spot { pane: 0, row: 0, column: 0 }, "Files"));
+        ok(home.place(Spot { pane: 2, row: 1, column: 4 }, "Steam"));
 
         assert_eq!(ok(home.written()), "0\t0\t0\tFiles\n2\t1\t4\tSteam\n");
         assert_eq!(ok(Home::read(&ok(home.written()))), home);
-        assert_eq!(ok(home.at(ok(Spot::new(2, 1, 4)))), Some("Steam"));
-        assert_eq!(ok(home.at(ok(Spot::new(2, 1, 3)))), None);
+        assert_eq!(ok(home.at(Spot { pane: 2, row: 1, column: 4 })), Some("Steam"));
+        assert_eq!(ok(home.at(Spot { pane: 2, row: 1, column: 3 })), None);
     }
 
     #[test]
     fn a_name_with_spaces_in_it_survives_the_writing_down() {
         let home = ok(Home::read("1\t0\t2\tText Editor\n"));
-        assert_eq!(ok(home.at(ok(Spot::new(1, 0, 2)))), Some("Text Editor"));
+        assert_eq!(ok(home.at(Spot { pane: 1, row: 0, column: 2 })), Some("Text Editor"));
     }
 
     #[test]
@@ -494,7 +524,7 @@ mod tests {
 
         for row in 0..GRID.rows {
             for column in 0..GRID.columns {
-                ok(home.place(ok(Spot::new(0, row, column)), &format!("{row}-{column}")));
+                ok(home.place(Spot { pane: 0, row, column }, &format!("{row}-{column}")));
             }
         }
 
@@ -509,8 +539,8 @@ mod tests {
     #[test]
     fn a_grid_nothing_is_off_leaves_every_square_where_it_was() {
         let mut home = Home::default();
-        ok(home.place(ok(Spot::new(0, 0, 0)), "Files"));
-        ok(home.place(ok(Spot::new(1, 2, 4)), "Steam"));
+        ok(home.place(Spot { pane: 0, row: 0, column: 0 }, "Files"));
+        ok(home.place(Spot { pane: 1, row: 2, column: 4 }, "Steam"));
 
         assert_eq!(ok(home.fitted(GRID)), home);
     }
@@ -518,7 +548,7 @@ mod tests {
     #[test]
     fn a_far_pane_in_the_file_is_a_home_screen_with_that_many_panes() {
         let home = ok(Home::read("7\t0\t0\tSteam\n"));
-        assert_eq!(ok(home.at(ok(Spot::new(7, 0, 0)))), Some("Steam"));
+        assert_eq!(ok(home.at(Spot { pane: 7, row: 0, column: 0 })), Some("Steam"));
         assert_eq!(ok(home.panes()), 8);
     }
 
@@ -527,8 +557,8 @@ mod tests {
         let mut home = Home::default();
         assert_eq!(ok(home.panes()), 1, "an empty home screen is one pane of room");
 
-        ok(home.place(ok(Spot::new(2, 1, 1)), "Steam"));
-        ok(home.place(ok(Spot::new(0, 0, 0)), "Files"));
+        ok(home.place(Spot { pane: 2, row: 1, column: 1 }, "Steam"));
+        ok(home.place(Spot { pane: 0, row: 0, column: 0 }, "Files"));
         assert_eq!(ok(home.panes()), 3);
 
         ok(home.forget("Files"));
@@ -545,9 +575,11 @@ mod tests {
         let home = ok(Home::first(&order, GRID));
 
         assert_eq!(ok(home.at(Spot::FIRST)), Some("Files"), "the desktop's own come first");
-        assert_eq!(ok(home.at(ok(Spot::new(0, 0, 1)))), Some("Music"));
-        assert_eq!(ok(home.at(ok(Spot::new(0, 0, 2)))), Some("Aether"), "and the rest in their own order");
-        assert_eq!(ok(home.at(ok(Spot::new(0, 0, 3)))), Some("Steam"));
+        assert_eq!(ok(home.at(Spot { pane: 0, row: 0, column: 1 })), Some("Music"));
+        let third = Spot { pane: 0, row: 0, column: 2 };
+
+        assert_eq!(ok(home.at(third)), Some("Aether"), "and the rest in their own order");
+        assert_eq!(ok(home.at(Spot { pane: 0, row: 0, column: 3 })), Some("Steam"));
         assert_eq!(ok(home.every()).count(), 4);
     }
 
@@ -557,7 +589,7 @@ mod tests {
         let home = ok(Home::first(&order, GRID));
 
         assert_eq!(ok(home.at(Spot::FIRST)), Some("Music"));
-        assert_eq!(ok(home.at(ok(Spot::new(0, 0, 1)))), Some("Steam"));
+        assert_eq!(ok(home.at(Spot { pane: 0, row: 0, column: 1 })), Some("Steam"));
         assert_eq!(ok(home.every()).count(), 2);
     }
 
@@ -584,17 +616,17 @@ mod tests {
         assert_eq!(ok(home.first_free(GRID)), Spot::FIRST);
 
         ok(home.place(Spot::FIRST, "Files"));
-        assert_eq!(ok(home.first_free(GRID)), ok(Spot::new(0, 0, 1)));
+        assert_eq!(ok(home.first_free(GRID)), Spot { pane: 0, row: 0, column: 1 });
 
         for (at, name) in (0..2 * ROWS * COLUMNS).map(|at| (at, format!("App {at}"))) {
             let pane = at / (ROWS * COLUMNS);
             let left = at % (ROWS * COLUMNS);
-            ok(home.place(ok(Spot::new(pane, left / COLUMNS, left % COLUMNS)), &name));
+            ok(home.place(Spot { pane, row: left / COLUMNS, column: left % COLUMNS }, &name));
         }
 
         assert_eq!(
             ok(home.first_free(GRID)),
-            ok(Spot::new(2, 0, 0)),
+            Spot { pane: 2, row: 0, column: 0 },
             "every pane full is answered with a fresh one"
         );
     }
@@ -602,9 +634,9 @@ mod tests {
     #[test]
     fn an_application_is_found_by_name_and_taken_off_by_name() {
         let mut home = Home::default();
-        ok(home.place(ok(Spot::new(1, 2, 3)), "Steam"));
+        ok(home.place(Spot { pane: 1, row: 2, column: 3 }, "Steam"));
 
-        assert_eq!(ok(home.where_("Steam")), Some(ok(Spot::new(1, 2, 3))));
+        assert_eq!(ok(home.where_("Steam")), Some(Spot { pane: 1, row: 2, column: 3 }));
         assert_eq!(ok(home.where_("Files")), None);
 
         ok(home.forget("Steam"));

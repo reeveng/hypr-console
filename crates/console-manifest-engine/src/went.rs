@@ -30,6 +30,13 @@ pub enum Asked {
     No,
 }
 
+#[cfg_attr(
+    dylint_lib = "explicit026_env_read_once",
+    allow(
+        explicit026_env_read_once,
+        reason = "the variable that turns this on, read in the module that is what it turns on"
+    )
+)]
 pub fn asked() -> Result<Asked, Never> {
     Ok(match std::env::var(ASKED) {
         Err(_) => Asked::No,

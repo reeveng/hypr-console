@@ -29,6 +29,7 @@ path = "src/bin/console-screenshot.rs"
 console-core-atomic-writes.workspace = true
 console-core-never.workspace = true
 console-core-places.workspace = true
+console-core-words.workspace = true
 console-program-contract.workspace = true
 console-core-external-programs.workspace = true
 console-core-number-conversion.workspace = true

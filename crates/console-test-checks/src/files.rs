@@ -134,6 +134,13 @@ enum Ran {
 }
 
 fn nobody_elses(root: &Path) -> Result<PathBuf, Never> {
+    #[cfg_attr(
+        dylint_lib = "explicit044_no_ambient_value",
+        allow(
+            explicit044_no_ambient_value,
+            reason = "each unzipping needs a directory no other one in this process is in, and the checks that make them run beside each other with nothing above them to do the counting"
+        )
+    )]
     static RUNS: AtomicUsize = AtomicUsize::new(0);
 
     let run = RUNS.fetch_add(1, Ordering::Relaxed);
@@ -155,7 +162,7 @@ fn made(at: &Path, wrapper: &Path) -> Result<(), Never> {
     }
 
     for name in HOLDS {
-        let _ = std::fs::write(wrapper.join(name), []);
+        let _ = console_core_atomic_writes::whole(&wrapper.join(name), &[]);
     }
 
     Ok(())

@@ -48,14 +48,20 @@ fn beside(note: &str) -> Result<Option<PathBuf>, Never> {
 }
 
 fn whose() -> Result<String, Never> {
-    Ok(std::env::args()
+    let argv0 = std::env::args()
         .next()
         .and_then(|argv0| {
             std::path::Path::new(&argv0).file_name().and_then(|name| name.to_str()).map(str::to_string)
         })
-        .filter(|name| !name.is_empty())
-        .unwrap_or_else(|| "console-panel".to_string()))
+        .filter(|name| !name.is_empty());
+
+    Ok(match argv0 {
+        Some(whose) => whose,
+        None => WHAT_THIS_CRATE_IS_CALLED.to_string(),
+    })
 }
+
+const WHAT_THIS_CRATE_IS_CALLED: &str = "console-panel";
 
 fn filed(note: &str) -> Result<String, Never> {
     let filed: String = note
@@ -88,17 +94,20 @@ pub fn last(note: &str) -> Result<String, Never> {
     Ok(said)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Said<'a>(&'a str);
+
 pub fn said(note: &str, program: Program, rest: &[&str]) -> Result<String, Never> {
     let Ok(said) = running::said(program, rest);
-    let Ok(()) = keep(note, &said);
+    let Ok(()) = keep(note, Said(&said));
 
     Ok(said)
 }
 
-fn keep(note: &str, said: &str) -> Result<(), Never> {
+fn keep(note: &str, said: Said<'_>) -> Result<(), Never> {
     let Ok(last) = last(note);
 
-    match last == said {
+    match last == said.0 {
         true => return Ok(()),
         false => {},
     }
@@ -124,7 +133,7 @@ fn keep(note: &str, said: &str) -> Result<(), Never> {
         }
     }
 
-    let _ = std::fs::write(path, said);
+    let _ = console_core_atomic_writes::whole(&path, said.0.as_bytes());
 
     Ok(())
 }

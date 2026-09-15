@@ -37,25 +37,15 @@
 //! is the one this panel is for.
 
 use console_core_never::Never;
+use console_core_geometry::{Point, Size};
 use console_core_number_conversion::{Float, toward_zero_i32, toward_zero_u32};
+use console_core_words::Words;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Size {
-    pub wide: u32,
-    pub tall: u32,
-}
-
-impl Size {
-    pub fn new(wide: u32, tall: u32) -> Result<Self, Never> {
-        Ok(Size { wide, tall })
-    }
-
-    pub fn area(self) -> Result<Area, Never> {
-        Ok(match self.wide > 0 && self.tall > 0 {
-            true => Area::Some,
-            false => Area::None,
-        })
-    }
+pub fn area(of: Size<u32>) -> Result<Area, Never> {
+    Ok(match of.wide > 0 && of.tall > 0 {
+        true => Area::Some,
+        false => Area::None,
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,9 +54,9 @@ pub enum Area {
     None,
 }
 
-pub fn contain(of: Size, room: Size) -> Result<f64, Never> {
-    let Ok(theirs) = of.area();
-    let Ok(ours) = room.area();
+pub fn contain(of: Size<u32>, room: Size<u32>) -> Result<f64, Never> {
+    let Ok(theirs) = area(of);
+    let Ok(ours) = area(room);
 
     match theirs == Area::None || ours == Area::None {
         true => return Ok(1.0),
@@ -79,12 +69,16 @@ pub fn contain(of: Size, room: Size) -> Result<f64, Never> {
     Ok(across.min(down).min(1.0))
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Words)]
 pub enum Zoom {
     #[default]
+    #[words(says = "the whole of it")]
     Whole,
+    #[words(says = "its own size")]
     Actual,
+    #[words(says = "twice")]
     Twice,
+    #[words(says = "four times")]
     Four,
 }
 
@@ -107,16 +101,7 @@ impl Zoom {
         })
     }
 
-    pub fn says(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Zoom::Whole => "the whole of it",
-            Zoom::Actual => "its own size",
-            Zoom::Twice => "twice",
-            Zoom::Four => "four times",
-        })
-    }
-
-    pub fn scale(self, of: Size, room: Size) -> Result<f64, Never> {
+    pub fn scale(self, of: Size<u32>, room: Size<u32>) -> Result<f64, Never> {
         match self {
             Zoom::Whole => contain(of, room),
             Zoom::Actual => Ok(1.0),
@@ -125,7 +110,7 @@ impl Zoom {
         }
     }
 
-    pub fn hangs_over(self, of: Size, room: Size) -> Result<Hangs, Never> {
+    pub fn hangs_over(self, of: Size<u32>, room: Size<u32>) -> Result<Hangs, Never> {
         let Ok(scale) = self.scale(of, room);
         let Ok(drawn) = drawn_at(of, scale);
 
@@ -142,7 +127,7 @@ pub enum Hangs {
     Inside,
 }
 
-pub fn drawn_at(of: Size, scale: f64) -> Result<Size, Never> {
+pub fn drawn_at(of: Size<u32>, scale: f64) -> Result<Size<u32>, Never> {
     let Ok(wide) = toward_zero_u32(f64::from(of.wide) * scale);
     let Ok(tall) = toward_zero_u32(f64::from(of.tall) * scale);
 
@@ -162,30 +147,41 @@ impl Default for Looking {
 }
 
 impl Looking {
-    pub fn moved(self, across: f64, down: f64) -> Result<Looking, Never> {
+    pub fn moved(self, by: Point<f64>) -> Result<Looking, Never> {
         Ok(Looking {
-            across: (self.across + across).clamp(0.0, 1.0),
-            down: (self.down + down).clamp(0.0, 1.0),
+            across: (self.across + by.across).clamp(0.0, 1.0),
+            down: (self.down + by.down).clamp(0.0, 1.0),
         })
     }
 }
 
 pub const STEP: f64 = 0.2;
 
-pub fn corner(of: Size, room: Size, zoom: Zoom, looking: Looking) -> Result<(i32, i32), Never> {
+pub fn corner(
+    of: Size<u32>,
+    room: Size<u32>,
+    zoom: Zoom,
+    looking: Looking,
+) -> Result<(i32, i32), Never> {
     let Ok(scale) = zoom.scale(of, room);
     let Ok(drawn) = drawn_at(of, scale);
-    let Ok(across) = along(drawn.wide, room.wide, looking.across);
-    let Ok(down) = along(drawn.tall, room.tall, looking.down);
+    let Ok(across) = along(Across { drawn: drawn.wide, room: room.wide }, looking.across);
+    let Ok(down) = along(Across { drawn: drawn.tall, room: room.tall }, looking.down);
 
     Ok((across, down))
 }
 
-fn along(drawn: u32, room: u32, looking: f64) -> Result<i32, Never> {
-    let drawn_wide = f64::from(drawn);
-    let room_wide = f64::from(room);
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Across {
+    drawn: u32,
+    room: u32,
+}
 
-    match drawn <= room {
+fn along(across: Across, looking: f64) -> Result<i32, Never> {
+    let drawn_wide = f64::from(across.drawn);
+    let room_wide = f64::from(across.room);
+
+    match across.drawn <= across.room {
         true => return toward_zero_i32((room_wide - drawn_wide) / 2.0),
         false => {},
     }
@@ -197,7 +193,7 @@ fn along(drawn: u32, room: u32, looking: f64) -> Result<i32, Never> {
     Ok(from_the_left.saturating_neg())
 }
 
-pub fn showing(of: Size, room: Size, zoom: Zoom) -> Result<f64, Never> {
+pub fn showing(of: Size<u32>, room: Size<u32>, zoom: Zoom) -> Result<f64, Never> {
     let Ok(scale) = zoom.scale(of, room);
     let Ok(drawn) = drawn_at(of, scale);
     let across = (f64::from(room.wide) / f64::from(drawn.wide)).min(1.0);
@@ -212,19 +208,19 @@ pub fn percent(scale: f64) -> Result<u32, Never> {
     Ok(percent.max(1))
 }
 
-pub fn room(card: Size, taken: u32) -> Result<Size, Never> {
+pub fn room(card: Size<u32>, taken: u32) -> Result<Size<u32>, Never> {
     Ok(Size { wide: card.wide, tall: card.tall.saturating_sub(taken).max(1) })
 }
 
-pub fn said(of: Size) -> Result<String, Never> {
+pub fn said(of: Size<u32>) -> Result<String, Never> {
     Ok(format!("{} x {}", of.wide, of.tall))
 }
 
-pub fn pixels(of: Size) -> Result<u64, Never> {
+pub fn pixels(of: Size<u32>) -> Result<u64, Never> {
     Ok(u64::from(of.wide).saturating_mul(u64::from(of.tall)))
 }
 
-pub fn megapixels(of: Size) -> Result<f64, Never> {
+pub fn megapixels(of: Size<u32>) -> Result<f64, Never> {
     let Ok(pixels) = pixels(of);
     let Ok(many) = pixels.float();
 
@@ -235,19 +231,17 @@ pub fn megapixels(of: Size) -> Result<f64, Never> {
 mod tests {
     use super::*;
 
-    const CARD: Size = Size { wide: 1180, tall: 700 };
+    const CARD: Size<u32> = Size { wide: 1180, tall: 700 };
 
-    fn sized(wide: u32, tall: u32) -> Size {
-        let Ok(size) = Size::new(wide, tall);
-
-        size
+    fn sized(wide: u32, tall: u32) -> Size<u32> {
+        Size { wide, tall }
     }
 
-    fn photograph() -> Size {
+    fn photograph() -> Size<u32> {
         sized(4000, 3000)
     }
 
-    fn icon() -> Size {
+    fn icon() -> Size<u32> {
         sized(32, 32)
     }
 
@@ -384,12 +378,12 @@ mod tests {
 
     #[test]
     fn looking_is_kept_inside_the_picture() {
-        let Ok(looking) = Looking::default().moved(9.0, -9.0);
+        let Ok(looking) = Looking::default().moved(Point { across: 9.0, down: -9.0 });
 
         assert_eq!(looking.across, 1.0);
         assert_eq!(looking.down, 0.0);
 
-        let Ok(stepped) = Looking::default().moved(STEP, 0.0);
+        let Ok(stepped) = Looking::default().moved(Point { across: STEP, down: 0.0 });
 
         assert_eq!(stepped.across, 0.5 + STEP);
     }
@@ -399,7 +393,7 @@ mod tests {
         let mut looking = Looking { across: 0.0, down: 0.5 };
 
         for _ in 0..5 {
-            let Ok(moved) = looking.moved(STEP, 0.0);
+            let Ok(moved) = looking.moved(Point { across: STEP, down: 0.0 });
 
             looking = moved;
         }

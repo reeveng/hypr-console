@@ -23,7 +23,9 @@
 
 use console_core_never::Never;
 use console_core_number_conversion::{Float, whole_u8};
-use console_core_colour::{fit, oklch_to_rgb, to_oklch};
+use console_core_colour::{Oklch, fit, oklch_to_rgb, to_oklch};
+
+use crate::Unpainted;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Lab {
@@ -34,15 +36,19 @@ pub struct Lab {
 
 impl Lab {
     pub fn of(code: &str) -> Result<Self, Never> {
-        let Ok((lightness, chroma, hue)) = to_oklch(code);
+        let Ok(colour) = to_oklch(code);
 
-        Lab::polar(lightness, chroma, hue)
+        Lab::polar(colour)
     }
 
-    pub fn polar(lightness: f64, chroma: f64, hue: f64) -> Result<Self, Never> {
-        let radians = hue.to_radians();
+    pub fn polar(colour: Oklch) -> Result<Self, Never> {
+        let radians = colour.hue.to_radians();
 
-        Ok(Lab { lightness, a: chroma * radians.cos(), b: chroma * radians.sin() })
+        Ok(Lab {
+            lightness: colour.lightness,
+            a: colour.chroma * radians.cos(),
+            b: colour.chroma * radians.sin(),
+        })
     }
 
     pub fn chroma(&self) -> Result<f64, Never> {
@@ -68,8 +74,11 @@ impl Lab {
 
         let hue = self.hue()?;
 
-        let Ok(held) = fit(self.lightness, chroma, hue);
-        let Ok(rgb) = oklch_to_rgb(self.lightness, held, hue);
+        let asked = Oklch { lightness: self.lightness, chroma, hue };
+
+        let Ok(held) = fit(asked);
+        let Ok(narrowed) = asked.with(held);
+        let Ok(rgb) = oklch_to_rgb(narrowed);
 
         Ok(rgb.map(|channel| channel.clamp(0.0, 1.0)))
     }
@@ -82,13 +91,13 @@ pub struct Ramp {
 }
 
 impl Ramp {
-    pub fn read(colours: &dyn Fn(&str) -> Option<String>) -> Result<Self, String> {
+    pub fn read(colours: &dyn Fn(&str) -> Option<String>) -> Result<Self, Unpainted> {
         let mut read: Vec<Lab> = Vec::new();
 
         for name in RAMP {
             let code = match colours(name) {
                 Some(code) => code,
-                None => return Err(format!("the palette names no {name}")),
+                None => return Err(Unpainted::NoColour(name.to_string())),
             };
 
             let Ok(lab) = Lab::of(&code);
@@ -98,7 +107,7 @@ impl Ramp {
 
         let mut stops: [Lab; RAMP.len()] = read
             .try_into()
-            .map_err(|_| "the ramp is not the colours it is made of".to_string())?;
+            .map_err(|_| Unpainted::NotTheRamp)?;
 
         stops.sort_by(|one, other| one.lightness.total_cmp(&other.lightness));
 
@@ -136,7 +145,7 @@ impl Ramp {
 
         match found {
             Some(found) => Ok(found),
-            None => Lab::polar(lightness, 0.0, 0.0),
+            None => Lab::polar(Oklch { lightness, chroma: 0.0, hue: 0.0 }),
         }
     }
 }

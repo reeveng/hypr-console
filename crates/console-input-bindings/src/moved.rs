@@ -19,6 +19,7 @@ use serde::Deserialize;
 
 use console_core_never::Never;
 
+use crate::Unbound;
 use crate::bound::Binding;
 
 pub const NAMED: &str = "buttons.toml";
@@ -70,9 +71,8 @@ impl Said {
 }
 
 impl Jobs {
-    pub fn read(said: &str) -> Result<Self, String> {
-        let written: Written = toml::from_str(said)
-            .map_err(|fault| format!("the button table does not parse: {fault}"))?;
+    pub fn read(said: &str) -> Result<Self, Unbound> {
+        let written: Written = toml::from_str(said).map_err(Unbound::Untabled)?;
         let mut moved: BTreeMap<String, Vec<Binding>> = BTreeMap::new();
 
         for (job, said) in written.jobs {
@@ -81,7 +81,8 @@ impl Jobs {
             let Ok(every) = said.every();
 
             for one in every {
-                let binding = Binding::read(&one).map_err(|fault| format!("{job}: {fault}"))?;
+                let binding = Binding::read(&one)
+                    .map_err(|fault| Unbound::UnderAJob(job.clone(), Box::new(fault)))?;
 
                 bound.push(binding);
             }
@@ -114,6 +115,13 @@ impl Jobs {
         onto: &Binding,
     ) -> Result<Moved, Never> {
         let already = every.get(job).is_some_and(|bound| bound.contains(onto));
+        #[cfg_attr(
+            dylint_lib = "explicit028_no_search_in_a_loop",
+            allow(
+                explicit028_no_search_in_a_loop,
+                reason = "every job that could hold a binding, against the bindings one job holds: a screen of them at the very most"
+            )
+        )]
         let taken: Vec<String> = every
             .iter()
             .filter(|(named, _)| named.as_str() != job)
@@ -122,10 +130,10 @@ impl Jobs {
             .collect();
 
         for lost in &taken {
-            let left: Vec<Binding> = every
-                .get(lost)
-                .map(|bound| bound.iter().filter(|one| *one != onto).cloned().collect())
-                .unwrap_or_default();
+            let left: Vec<Binding> = match every.get(lost) {
+                Some(bound) => bound.iter().filter(|one| *one != onto).cloned().collect(),
+                None => Vec::new(),
+            };
 
             let standing = match left.is_empty() {
                 true => {
@@ -139,12 +147,10 @@ impl Jobs {
             self.moved.insert(lost.clone(), standing);
         }
 
-        let mut ours: Vec<Binding> = every
-            .get(job)
-            .map(|bound| {
-                bound.iter().filter(|one| one.on != onto.on).cloned().collect()
-            })
-            .unwrap_or_default();
+        let mut ours: Vec<Binding> = match every.get(job) {
+            Some(bound) => bound.iter().filter(|one| one.on != onto.on).cloned().collect(),
+            None => Vec::new(),
+        };
 
         ours.push(onto.clone());
         ours.sort();
@@ -250,7 +256,10 @@ mod tests {
         let fault = Jobs::read("[jobs]\nmenu = \"a\"\nscreenshot = \"nose + a\"\n")
             .expect_err("nose is nothing");
 
-        assert!(fault.starts_with("screenshot: "), "{fault}");
+        assert!(
+            matches!(fault, Unbound::UnderAJob(ref job, _) if job == "screenshot"),
+            "{fault}"
+        );
     }
 
     fn every() -> BTreeMap<String, Vec<Binding>> {

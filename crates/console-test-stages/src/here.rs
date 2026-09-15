@@ -8,6 +8,7 @@
 //! arithmetic, and arithmetic has one right answer; reading the machine's clock
 //! would make it a race instead.
 
+use console_core_geometry::Point;
 use evdev::EventType;
 use console_input_controller::doing::{Doing, Out};
 use console_input_controller::means::Table;
@@ -22,6 +23,7 @@ use console_input_gamepad::router::every_profile;
 use console_input_gamepad::world::World;
 use console_core_never::Never;
 
+use crate::Awry;
 use crate::device::Seen;
 use crate::plug::Plug;
 
@@ -42,7 +44,7 @@ pub struct Here {
 }
 
 impl Here {
-    pub fn new() -> Result<Self, String> {
+    pub fn new() -> Result<Self, Awry> {
         let seen = captured()?;
         let world = captured()?;
         let Ok(world) = World::of(world);
@@ -64,39 +66,39 @@ impl Here {
         })
     }
 
-    pub fn press(&mut self, button: &str) -> Result<(), String> {
-        self.go.press(button)
+    pub fn press(&mut self, button: &str) -> Result<(), Awry> {
+        self.go.press(button).map_err(Awry::Pressing)
     }
 
-    pub fn hold(&mut self, button: &str) -> Result<(), String> {
-        self.go.hold(button)
+    pub fn hold(&mut self, button: &str) -> Result<(), Awry> {
+        self.go.hold(button).map_err(Awry::Pressing)
     }
 
-    pub fn release(&mut self, button: Option<&str>) -> Result<(), String> {
+    pub fn release(&mut self, button: Option<&str>) -> Result<(), Awry> {
         match button {
-            Some(button) => self.go.release(button),
-            None => self.go.release_all(),
+            Some(button) => self.go.release(button).map_err(Awry::Pressing),
+            None => self.go.release_all().map_err(Awry::Pressing),
         }
     }
 
-    pub fn stick(&mut self, which: &str, across: f64, down: f64) -> Result<(), String> {
-        self.go.stick(which, across, down)
+    pub fn stick(&mut self, which: &str, to: Point<f64>) -> Result<(), Awry> {
+        self.go.stick(which, to).map_err(Awry::Pressing)
     }
 
-    pub fn trigger(&mut self, which: &str, amount: f64) -> Result<(), String> {
-        self.go.trigger(which, amount)
+    pub fn trigger(&mut self, which: &str, amount: f64) -> Result<(), Awry> {
+        self.go.trigger(which, amount).map_err(Awry::Pressing)
     }
 
-    pub fn tap(&mut self, across: i32, down: i32) -> Result<(), Never> {
-        self.go.tap(across, down)
+    pub fn tap(&mut self, at: Point<i32>) -> Result<(), Never> {
+        self.go.tap(at)
     }
 
-    pub fn drag(&mut self, from: (i32, i32), to: (i32, i32)) -> Result<(), Never> {
+    pub fn drag(&mut self, from: Point<i32>, to: Point<i32>) -> Result<(), Never> {
         self.go.drag(from, to, 8, 0.0)
     }
 
-    pub fn load_profile(&mut self, name: &str) -> Result<(), String> {
-        self.go.load_profile(name)
+    pub fn load_profile(&mut self, name: &str) -> Result<(), Awry> {
+        self.go.load_profile(name).map_err(Awry::Pressing)
     }
 
     pub fn bound_by(&mut self, table: Table) -> Result<(), Never> {
@@ -105,8 +107,8 @@ impl Here {
         Ok(())
     }
 
-    pub fn showing(&mut self, layers: &str) -> Result<(), String> {
-        let said = serde_json::from_str(layers).map_err(|fault| format!("layers: {fault}"))?;
+    pub fn showing(&mut self, layers: &str) -> Result<(), Awry> {
+        let said = serde_json::from_str(layers).map_err(Awry::Layers)?;
         self.layers = Some(said);
 
         let Ok(()) = self.reckons();
@@ -211,7 +213,10 @@ impl Here {
             .commands
             .iter()
             .filter_map(|argv| argv.first())
-            .map(|program| program.rsplit('/').next().unwrap_or(program).to_string())
+            .map(|program| match program.rsplit('/').next() {
+                Some(named) => named.to_string(),
+                None => program.clone(),
+            })
             .collect())
     }
 
@@ -287,7 +292,7 @@ mod tests {
     #[test]
     fn a_stick_held_over_turns_of_the_loop_turns_the_wheel() {
         let mut here = Here::new().expect("a stage");
-        here.stick("right-stick", 0.0, -1.0).expect("a stick");
+        here.stick("right-stick", Point { across: 0.0, down: -1.0 }).expect("a stick");
         here.settle(12);
         assert!(wrote(&here, EventType::RELATIVE, RelativeAxisCode::REL_WHEEL.0) > 0);
     }

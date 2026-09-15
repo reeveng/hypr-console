@@ -33,6 +33,8 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use console_compositor::Window;
+
+use crate::Unresumed;
 use console_core_never::Never;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,9 +63,11 @@ pub fn on_path(command: &str) -> Result<OnPath, Never> {
         None => return Ok(OnPath::No),
     };
 
-    let said = match std::env::var("PATH") {
-        Ok(said) => said,
-        Err(_nothing_says_where_to_look) => return Ok(OnPath::No),
+    let Ok(path) = console_core_external_programs::path();
+
+    let said = match path {
+        Some(said) => said,
+        None => return Ok(OnPath::No),
     };
 
     let found = said.split(':').filter(|at| !at.is_empty()).any(|at| {
@@ -89,7 +93,7 @@ pub fn quote_word(word: &str) -> Result<String, Never> {
 
 fn separate_words(argv: &[String]) -> Result<Vec<String>, Never> {
     Ok(match argv {
-        [only] if only.split_whitespace().count() > 1 => {
+        [only] if only.split_whitespace().nth(1).is_some() => {
             only.split_whitespace().map(str::to_string).collect()
         },
         every => every.to_vec(),
@@ -104,7 +108,10 @@ fn command_from_argv(argv: &[String]) -> Result<String, Never> {
         None => return Ok(String::new()),
     };
 
-    let binary = first.rsplit('/').next().unwrap_or(first).to_string();
+    let binary = match first.rsplit('/').next() {
+        Some(binary) => binary.to_string(),
+        None => first.to_string(),
+    };
 
     Ok(std::iter::once(binary)
         .chain(rest.iter().cloned())
@@ -117,17 +124,18 @@ fn command_from_argv(argv: &[String]) -> Result<String, Never> {
         .join(" "))
 }
 
-fn from_its_command_line(window: &Window) -> Result<String, String> {
+fn from_its_command_line(window: &Window) -> Result<String, Unresumed> {
     let at = format!("/proc/{}/cmdline", window.pid);
 
-    let said = std::fs::read_to_string(&at).map_err(|fault| format!("{at}: {fault}"))?;
+    let said = std::fs::read_to_string(&at)
+        .map_err(|fault| Unresumed::Unsaid(at.clone(), fault))?;
 
     let argv: Vec<String> =
         said.split('\0').filter(|argument| !argument.is_empty()).map(str::to_string).collect();
 
     match argv.first() {
         Some(_it_said_something) => {},
-        None => return Err(format!("{at}: it is empty")),
+        None => return Err(Unresumed::SaidNothing(at)),
     }
 
     let Ok(pid) = console_core_number_conversion::fitted::<i64, i32>(window.pid);
@@ -143,26 +151,27 @@ fn from_its_command_line(window: &Window) -> Result<String, String> {
     Ok(command)
 }
 
-fn from_its_executable(window: &Window) -> Result<String, String> {
+fn from_its_executable(window: &Window) -> Result<String, Unresumed> {
     let at = format!("/proc/{}/exe", window.pid);
 
-    let target = std::fs::read_link(&at).map_err(|fault| format!("{at}: {fault}"))?;
+    let target =
+        std::fs::read_link(&at).map_err(|fault| Unresumed::Unsaid(at.clone(), fault))?;
 
     match target.file_name() {
         Some(named) => Ok(named.to_string_lossy().to_string()),
-        None => Err(format!("{at}: it points at nothing with a name")),
+        None => Err(Unresumed::Nameless(at)),
     }
 }
 
-fn from_what_it_called_itself(window: &Window) -> Result<String, String> {
+fn from_what_it_called_itself(window: &Window) -> Result<String, Unresumed> {
     Ok(window.first_class.to_lowercase())
 }
 
-fn from_what_it_titled_itself(window: &Window) -> Result<String, String> {
+fn from_what_it_titled_itself(window: &Window) -> Result<String, Unresumed> {
     Ok(window.first_title.to_lowercase())
 }
 
-type Asking = fn(&Window) -> Result<String, String>;
+type Asking = fn(&Window) -> Result<String, Unresumed>;
 
 const ASKING: [Asking; 4] = [
     from_its_command_line,
@@ -180,7 +189,7 @@ pub fn from_desktop_files() -> Result<HashMap<String, String>, Never> {
 pub fn what_starts_it(
     window: &Window,
     known: &HashMap<String, String>,
-) -> Result<String, String> {
+) -> Result<String, Unresumed> {
     for asking in ASKING {
         let command = match asking(window) {
             Ok(command) => command,

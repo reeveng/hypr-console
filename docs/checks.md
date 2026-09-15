@@ -384,7 +384,7 @@ found:
 - `280` stands down when the machine is already playing something. It would
   have to stop the player to press this, and a song cannot be put back where it
   was in somebody's afternoon.
-- The home checks clear the screen with `fresh` rather than with `put-away`,
+- The home checks clear the screen with `fresh` rather than with `console-put-away`,
   which closes the focused window when no chooser is up.
 
 Ctrl-C is answered rather than fatal, because a run somebody stops halfway is

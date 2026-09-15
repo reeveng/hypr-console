@@ -8,6 +8,15 @@
 //! lands. Two of the tests read the history of `desktop.conf` -- the gate that
 //! catches a name leaving the manifest with nothing sweeping it -- and in a
 //! directory that is not a checkout they can only say that they could not look.
+//!
+//! What is kept is also what the name check does not read. It used to skip
+//! `.git` alone, which is the same list written twice and one of them short:
+//! cargo writes an absolute path into every `.d` file it makes, so a person
+//! who ran the suite in the copy by hand could never publish into it again --
+//! forty files nobody carries and nobody pushes, each of them saying whose
+//! machine built them. The build this does redirects `CARGO_TARGET_DIR` into
+//! the private tree and leaves no `target` there at all, which is why that
+//! went unseen for as long as it did.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -28,10 +37,66 @@ fn main() -> ExitCode {
     }
 }
 
-fn run() -> Result<ExitCode, String> {
+#[derive(Debug)]
+enum Unpublished {
+    NotOnePath,
+    Rootless(console_repository::Unfound),
+    Unreadable(PathBuf, std::io::Error),
+    Listing(std::io::Error),
+    Uncleared(PathBuf, std::io::Error),
+    Holding(PathBuf, std::io::Error),
+    Unwritten(console_core_atomic_writes::Unwritten),
+    Unset(PathBuf, std::io::Error),
+    NotAName(PathBuf),
+    NoGit(std::io::Error),
+    GitRefused,
+}
+
+impl std::fmt::Display for Unpublished {
+    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Unpublished::NotOnePath => write!(
+                to,
+                "console-manifest-publish takes one path to build the copy at"
+            ),
+            Unpublished::Rootless(fault) => write!(to, "{fault}"),
+            Unpublished::Unreadable(at, fault) => {
+                write!(to, "{} could not be read: {fault}", at.display())
+            }
+            Unpublished::Listing(fault) => write!(to, "{fault}"),
+            Unpublished::Uncleared(at, fault) => {
+                write!(to, "{} could not be cleared: {fault}", at.display())
+            }
+            Unpublished::Holding(at, fault) => {
+                write!(to, "{} could not be made: {fault}", at.display())
+            }
+            Unpublished::Unwritten(fault) => write!(to, "{fault}"),
+            Unpublished::Unset(at, fault) => {
+                write!(to, "{} could not be set: {fault}", at.display())
+            }
+            Unpublished::NotAName(at) => {
+                write!(to, "{} is not a name git can be given", at.display())
+            }
+            Unpublished::NoGit(fault) => write!(to, "git would not run: {fault}"),
+            Unpublished::GitRefused => {
+                write!(to, "git ls-files failed; is this a repository?")
+            }
+        }
+    }
+}
+
+impl std::error::Error for Unpublished {}
+
+impl From<console_repository::Unfound> for Unpublished {
+    fn from(fault: console_repository::Unfound) -> Self {
+        Unpublished::Rootless(fault)
+    }
+}
+
+fn run() -> Result<ExitCode, Unpublished> {
     let where_ = match std::env::args().skip(1).collect::<Vec<_>>().as_slice() {
         [path] if !path.starts_with('-') => PathBuf::from(path),
-        _ => return Err("console-manifest-publish takes one path to build the copy at".to_string()),
+        _ => return Err(Unpublished::NotOnePath),
     };
     let repo = console_repository::root()?;
 
@@ -42,14 +107,15 @@ fn run() -> Result<ExitCode, String> {
 
 const KEPT: [&str; 2] = [".git", "target"];
 
-fn cleared(where_: &Path) -> Result<(), String> {
+fn cleared(where_: &Path) -> Result<(), Unpublished> {
     let held = match std::fs::read_dir(where_) {
         Ok(held) => held,
         Err(_) => return Ok(()),
     };
 
     for entry in held {
-        let entry = entry.map_err(|fault| format!("{} could not be read: {fault}", where_.display()))?;
+        let entry = entry
+            .map_err(|fault| Unpublished::Unreadable(where_.to_path_buf(), fault))?;
         let name = entry.file_name();
         let kept = KEPT.iter().any(|keep| std::ffi::OsStr::new(keep) == name);
 
@@ -61,23 +127,23 @@ fn cleared(where_: &Path) -> Result<(), String> {
         let path = entry.path();
         let what = entry
             .file_type()
-            .map_err(|fault| format!("{} could not be read: {fault}", path.display()))?;
+            .map_err(|fault| Unpublished::Unreadable(path.clone(), fault))?;
 
         match what.is_dir() {
             true => std::fs::remove_dir_all(&path),
             false => std::fs::remove_file(&path),
         }
-        .map_err(|fault| format!("{} could not be cleared: {fault}", path.display()))?;
+        .map_err(|fault| Unpublished::Uncleared(path.clone(), fault))?;
     }
 
     Ok(())
 }
 
-fn publish(repo: &Path, where_: &Path) -> Result<(), String> {
+fn publish(repo: &Path, where_: &Path) -> Result<(), Unpublished> {
     cleared(where_)?;
 
     std::fs::create_dir_all(where_)
-        .map_err(|fault| format!("{} could not be made: {fault}", where_.display()))?;
+        .map_err(|fault| Unpublished::Holding(where_.to_path_buf(), fault))?;
 
     let tracked = tracked(repo)?;
 
@@ -96,25 +162,27 @@ fn publish(repo: &Path, where_: &Path) -> Result<(), String> {
     write(&where_.join("README.md"), papers::README)
 }
 
-fn carry(source: &Path, target: &Path) -> Result<(), String> {
+fn carry(source: &Path, target: &Path) -> Result<(), Unpublished> {
     match target.parent() {
         Some(holding) => std::fs::create_dir_all(holding)
-            .map_err(|fault| format!("{} could not be made: {fault}", holding.display()))?,
+            .map_err(|fault| Unpublished::Holding(holding.to_path_buf(), fault))?,
         None => {}
     }
 
     let held = std::fs::read(source)
-        .map_err(|fault| format!("{} could not be read: {fault}", source.display()))?;
-    std::fs::write(target, &held)
-        .map_err(|fault| format!("{} could not be written: {fault}", target.display()))?;
+        .map_err(|fault| Unpublished::Unreadable(source.to_path_buf(), fault))?;
+
+    console_core_atomic_writes::whole(target, &held).map_err(Unpublished::Unwritten)?;
+
     let about = std::fs::metadata(source)
-        .map_err(|fault| format!("{} could not be read: {fault}", source.display()))?;
+        .map_err(|fault| Unpublished::Unreadable(source.to_path_buf(), fault))?;
     let how = about.permissions();
+
     std::fs::set_permissions(target, how)
-        .map_err(|fault| format!("{} could not be set: {fault}", target.display()))
+        .map_err(|fault| Unpublished::Unset(target.to_path_buf(), fault))
 }
 
-fn checked(repo: &Path, where_: &Path) -> Result<ExitCode, String> {
+fn checked(repo: &Path, where_: &Path) -> Result<ExitCode, Unpublished> {
     let Ok((names, missing)) = names::watched();
 
     match missing {
@@ -197,20 +265,24 @@ fn ran(where_: &Path, program: Program, args: &[&str], told: &[(&str, String)]) 
 fn talking<'a>(
     where_: &Path,
     names: &'a [Watched],
-) -> Result<Vec<(PathBuf, &'a Watched)>, String> {
+) -> Result<Vec<(PathBuf, &'a Watched)>, Unpublished> {
     let mut said = Vec::new();
     let mut asking = vec![where_.to_path_buf()];
 
     while let Some(holding) = asking.pop() {
         let inside = std::fs::read_dir(&holding)
-            .map_err(|fault| format!("{} could not be read: {fault}", holding.display()))?;
+            .map_err(|fault| Unpublished::Unreadable(holding.clone(), fault))?;
 
         for found in inside {
-            let found = found.map_err(|fault| format!("{fault}"))?;
+            let found = found.map_err(Unpublished::Listing)?;
             let path = found.path();
 
+            let kept = path
+                .file_name()
+                .is_some_and(|name| KEPT.iter().any(|keep| std::ffi::OsStr::new(keep) == name));
+
             match path.is_dir() {
-                true if path.file_name().is_some_and(|name| name == ".git") => (),
+                true if kept => (),
                 true => asking.push(path),
                 false => match std::fs::read(&path).map(String::from_utf8) {
                     Ok(Ok(text)) => {
@@ -231,16 +303,18 @@ fn talking<'a>(
     Ok(said)
 }
 
-fn tracked(repo: &Path) -> Result<Vec<String>, String> {
-    let at = repo.to_str().ok_or_else(|| format!("{} is not a name git can be given", repo.display()))?;
+fn tracked(repo: &Path) -> Result<Vec<String>, Unpublished> {
+    let at = repo
+        .to_str()
+        .ok_or_else(|| Unpublished::NotAName(repo.to_path_buf()))?;
     let Ok(mut git) = Program::Git.command();
     let out = git
         .args(["-C", at, "ls-files"])
         .output()
-        .map_err(|fault| format!("git would not run: {fault}"))?;
+        .map_err(Unpublished::NoGit)?;
 
     match out.status.success() {
-        false => Err("git ls-files failed; is this a repository?".to_string()),
+        false => Err(Unpublished::GitRefused),
         true => Ok(String::from_utf8_lossy(&out.stdout)
             .lines()
             .filter(|line| !line.is_empty())
@@ -249,13 +323,12 @@ fn tracked(repo: &Path) -> Result<Vec<String>, String> {
     }
 }
 
-fn read(path: &Path) -> Result<String, String> {
+fn read(path: &Path) -> Result<String, Unpublished> {
     std::fs::read_to_string(path)
-        .map_err(|fault| format!("{} could not be read: {fault}", path.display()))
+        .map_err(|fault| Unpublished::Unreadable(path.to_path_buf(), fault))
 }
 
-fn write(path: &Path, body: &str) -> Result<(), String> {
-    std::fs::write(path, body)
-        .map_err(|fault| format!("{} could not be written: {fault}", path.display()))
+fn write(path: &Path, body: &str) -> Result<(), Unpublished> {
+    console_core_atomic_writes::whole(path, body.as_bytes()).map_err(Unpublished::Unwritten)
 }
 

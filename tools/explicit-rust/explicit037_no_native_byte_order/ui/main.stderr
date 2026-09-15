@@ -1,0 +1,19 @@
+error: `to_ne_bytes` lays a number out in whatever order this machine happens to use
+  --> $DIR/main.rs:6:5
+   |
+LL |     said.to_ne_bytes()
+   |     ^^^^^^^^^^^^^^^^^^
+   |
+   = help: say which end it starts at: `to_le_bytes` and `to_be_bytes`, and their `from_` pair. Where something else declares the order -- a D-Bus header says `l` or `B` in its first byte -- it is what that says that decides, not what the compiler was run on
+   = note: `#[deny(explicit037_no_native_byte_order)]` on by default
+
+error: `from_ne_bytes` lays a number out in whatever order this machine happens to use
+  --> $DIR/main.rs:12:5
+   |
+LL |     u32::from_ne_bytes(of)
+   |     ^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: say which end it starts at: `to_le_bytes` and `to_be_bytes`, and their `from_` pair. Where something else declares the order -- a D-Bus header says `l` or `B` in its first byte -- it is what that says that decides, not what the compiler was run on
+
+error: aborting due to 2 previous errors
+

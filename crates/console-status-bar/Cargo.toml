@@ -16,6 +16,13 @@ path = "src/lib.rs"
 name = "bar-clock"
 path = "src/bin/bar-clock.rs"
 
+# Whether the menu or the keyboard is on the screen, for the icon that opens
+# it to say so. It was built by console-panel, which is where the question is
+# asked; what it produces is a line of waybar's JSON, and that is this crate.
+[[bin]]
+name = "bar-door"
+path = "src/bin/bar-door.rs"
+
 [[bin]]
 name = "bar-notice"
 path = "src/bin/bar-notice.rs"
@@ -24,7 +31,41 @@ path = "src/bin/bar-notice.rs"
 name = "bar-say"
 path = "src/bin/bar-say.rs"
 
+# The bar's half of an apply: console-updating raises the card that says one is
+# running, and this fills the strip that says how much longer.
+[[bin]]
+name = "bar-updating"
+path = "src/bin/bar-updating.rs"
+
+# The bar itself: one process, one layer surface, and every word on it drawn
+# out of the readings this crate already returned.
+[[bin]]
+name = "console-bar"
+path = "src/bin/console-bar.rs"
+
 [dependencies]
+console-core-words.workspace = true
+# The palette, in the space it was decided in, and the one reader that says
+# which name it does not spend rather than drawing in black.
+console-core-colour.workspace = true
+console-core-geometry.workspace = true
+# What workspaces there are and which one you are on, which is the one module
+# on this bar that was waybar's own.
+console-compositor.workspace = true
+# The list of what this desktop can draw. The bar is a ground, a slab under
+# whatever is lit, and a run of words in each.
+console-core-shapes.workspace = true
+# The layer-shell namespace this surface answers to, which is the same name
+# every other surface here is found by.
+console-onscreen.workspace = true
+# A piece of the screen, and shapes put into it. This is the whole of what
+# waybar was contributing.
+console-draw-surface.workspace = true
+console-draw-painting.workspace = true
+# What is playing, for the note beside the sound.
+console-music.workspace = true
+# The panels a tap on this bar opens, named rather than spelled.
+console-core-our-programs.workspace = true
 console-program-lifetime.workspace = true
 console-core-external-programs.workspace = true
 console-core-never.workspace = true
@@ -38,6 +79,9 @@ console-panel.workspace = true
 # The one subscription per source on this machine. What used to be this
 # program's own connection to the compositor is a line down the pool's socket.
 console-events.workspace = true
+# What the door cost between the compositor saying so and the line being
+# printed, which is the only half of that stretch this repository compiles.
+console-response-times.workspace = true
 # `Topic`, so a reading that has a source in the pool names it rather than
 # spelling out somebody else's program.
 console-program-contract.workspace = true

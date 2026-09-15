@@ -87,6 +87,13 @@ pub fn manifest(held: &str) -> Result<String, Never> {
 }
 
 fn written(forks: &[&str], held: &str) -> Result<String, Never> {
+    #[cfg_attr(
+        dylint_lib = "explicit028_no_search_in_a_loop",
+        allow(
+            explicit028_no_search_in_a_loop,
+            reason = "the forks are the paths carried as binaries rather than source, which is a list short enough to read in one screen"
+        )
+    )]
     let kept: Vec<&str> = held
         .lines()
         .filter(|line| !forks.contains(&line.trim()))
@@ -114,7 +121,7 @@ mod tests {
     #[test]
     fn nothing_this_tree_holds_is_somebody_elses_build_today() {
         let Ok(kew) = is_fork("files/usr/local/bin/kew");
-        let Ok(keyboard) = is_fork("files/usr/local/bin/virtual-keyboard");
+        let Ok(keyboard) = is_fork("files/usr/local/bin/console-keyboard");
 
         assert_eq!(kew, Fork::No, "kew is a crate now and the list should be empty");
         assert_eq!(keyboard, Fork::No);
@@ -122,15 +129,15 @@ mod tests {
 
     #[test]
     fn the_crate_that_talks_to_the_player_is_not_the_player() {
-        let Ok(source) = is_fork("crates/console-music-panel/src/player.rs");
+        let Ok(source) = is_fork("crates/console-music/src/player.rs");
 
         assert_eq!(source, Fork::No);
     }
 
     #[test]
     fn the_keyboard_is_not_a_fork_on_either_half() {
-        let Ok(under_files) = is_fork("files/usr/local/bin/virtual-keyboard");
-        let Ok(installed) = is_fork("usr/local/bin/virtual-keyboard");
+        let Ok(under_files) = is_fork("files/usr/local/bin/console-keyboard");
+        let Ok(installed) = is_fork("usr/local/bin/console-keyboard");
         let Ok(source) = is_fork("crates/console-input-keyboard/src/palette.rs");
         let Ok(manifest) = is_fork("crates/console-input-keyboard/Cargo.toml");
 
@@ -190,9 +197,9 @@ mod tests {
 
     #[test]
     fn a_program_the_copy_builds_for_itself_is_left_where_it_is() {
-        let held = "[build]\nlauncher\nvirtual-keyboard\n\n[files]\n/usr/local/bin/launcher\n";
+        let held = "[build]\nlauncher\nconsole-keyboard\n\n[files]\n/usr/local/bin/launcher\n";
         let Ok(written) = manifest(held);
-        assert!(written.contains("[build]\nlauncher\nvirtual-keyboard"));
+        assert!(written.contains("[build]\nlauncher\nconsole-keyboard"));
         assert!(!written.contains("not carried"), "nothing here is a fork:\n{written}");
     }
 }

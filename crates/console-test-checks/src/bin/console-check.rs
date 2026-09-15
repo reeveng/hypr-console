@@ -36,6 +36,7 @@ use std::io::IsTerminal;
 use std::time::Instant;
 
 use console_test_checks::chosen;
+use console_test_checks::Unchecked;
 use console_core_never::Never;
 use console_test_stages::checking::{self, Check, How, Stage};
 use console_test_stages::desktop::Desktop;
@@ -45,6 +46,11 @@ use console_test_stages::putting_back;
 use console_test_stages::stopping::{self, Stop};
 use console_test_stages::watching;
 use console_test_stages::here::Here;
+
+const NONE_OF_THEM: usize = 0;
+
+const HERE: &str = "here";
+
 
 struct Asked {
     only: Vec<String>,
@@ -71,7 +77,10 @@ fn asked(words: Vec<String>) -> Result<Asked, Never> {
             .filter(|word| Some(word.to_string()) != after("--stage"))
             .cloned()
             .collect(),
-        stage: after("--stage").unwrap_or_else(|| "here".to_string()),
+        stage: match after("--stage") {
+            Some(stage) => stage,
+            None => HERE.to_string(),
+        },
         list: said("--list"),
         dry: said("--dry"),
         yes: said("--yes"),
@@ -142,7 +151,7 @@ fn on_the_device(
     checks: Vec<&'static Check>,
     ink: &Ink,
     said: &mut dyn FnMut(&Check, How),
-) -> Result<(), String> {
+) -> Result<(), Unchecked> {
     let touching = match asked.dry {
         true => Dry::Pretend,
         false => Dry::Really,
@@ -279,11 +288,11 @@ fn on_the_device(
     Ok(())
 }
 
-fn run(asked: Asked, ink: &Ink) -> Result<std::process::ExitCode, String> {
+fn run(asked: Asked, ink: &Ink) -> Result<std::process::ExitCode, Unchecked> {
     let Ok(checks) = chosen(&asked.only);
 
     match checks.is_empty() {
-        true => return Err("no checks by that name".to_string()),
+        true => return Err(Unchecked::NoSuchCheck),
         false => {}
     }
 
@@ -302,9 +311,7 @@ fn run(asked: Asked, ink: &Ink) -> Result<std::process::ExitCode, String> {
 
     match somebodys_machine {
         true => {
-            return Err("that is somebody's machine. Add --dry to see what would happen, \
-                        or --yes to do it."
-                .to_string());
+            return Err(Unchecked::SomebodysMachine);
         }
         false => {}
     }
@@ -352,7 +359,10 @@ fn run(asked: Asked, ink: &Ink) -> Result<std::process::ExitCode, String> {
         }
     }
 
-    let many = |how: &str| counted.get(how).copied().unwrap_or_default();
+    let many = |how: &str| match counted.get(how).copied() {
+        Some(many) => many,
+        None => NONE_OF_THEM,
+    };
     let would = match many("would") {
         0 => String::new(),
         would => format!(", {would} would run"),

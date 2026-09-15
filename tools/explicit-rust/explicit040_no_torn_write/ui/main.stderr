@@ -1,0 +1,27 @@
+error: `std::fs::write` changes a file in place: this truncates the live file and then fills it, so there is a window in which the file is half of itself
+  --> $DIR/main.rs:11:13
+   |
+LL |     let _ = std::fs::write(at, bytes);
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: `console_core_atomic_writes::whole` writes the bytes beside the file, commits them, renames over the name and commits the directory, so a machine that stops has either the old file or the new one; `settled` is the same for a file that is read back immediately. Where this crate is the one that knows how, or where the file is a log being appended to and its loss costs nothing, allow this rule here and let the reason say which
+   = note: `#[deny(explicit040_no_torn_write)]` on by default
+
+error: `std::fs::File::create` changes a file in place: this opens the live file and empties it before anything has been written
+  --> $DIR/main.rs:17:13
+   |
+LL |     let _ = File::create(at);
+   |             ^^^^^^^^^^^^^^^^
+   |
+   = help: `console_core_atomic_writes::whole` writes the bytes beside the file, commits them, renames over the name and commits the directory, so a machine that stops has either the old file or the new one; `settled` is the same for a file that is read back immediately. Where this crate is the one that knows how, or where the file is a log being appended to and its loss costs nothing, allow this rule here and let the reason say which
+
+error: `std::fs::OpenOptions::append` changes a file in place: this opens the live file to be changed, and nothing here commits it
+  --> $DIR/main.rs:23:13
+   |
+LL |     let _ = OpenOptions::new().append(true).open(at);
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: `console_core_atomic_writes::whole` writes the bytes beside the file, commits them, renames over the name and commits the directory, so a machine that stops has either the old file or the new one; `settled` is the same for a file that is read back immediately. Where this crate is the one that knows how, or where the file is a log being appended to and its loss costs nothing, allow this rule here and let the reason say which
+
+error: aborting due to 3 previous errors
+

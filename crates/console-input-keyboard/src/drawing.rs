@@ -21,6 +21,7 @@
 //! whole strip be painted first and drawn over.
 
 
+use console_core_geometry::{Point, Size};
 use console_core_never::Never;
 use console_core_number_conversion::toward_zero_i32;
 use cairo::{Context, Format, ImageSurface};
@@ -35,8 +36,8 @@ pub struct Rect {
 }
 
 impl Rect {
-    pub const fn new(x: f64, y: f64, w: f64, h: f64) -> Result<Self, Never> {
-        Ok(Self { x, y, w, h })
+    pub const fn new(at: Point<f64>, size: Size<f64>) -> Result<Self, Never> {
+        Ok(Self { x: at.across, y: at.down, w: size.wide, h: size.tall })
     }
 
     pub fn inset(self, border: f64) -> Result<Self, Never> {
@@ -48,6 +49,9 @@ impl Rect {
         })
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Stride(pub i32);
 
 pub struct Surface {
     pub cairo: Context,
@@ -61,17 +65,23 @@ pub struct Color(pub [u8; 4]);
 impl Color {
     pub const fn from_hex(six: &str) -> Result<Self, Never> {
         let bytes = six.as_bytes();
-        let Ok(r) = band(bytes[0], bytes[1]);
-        let Ok(g) = band(bytes[2], bytes[3]);
-        let Ok(b) = band(bytes[4], bytes[5]);
+        let Ok(r) = band(Digits { high: bytes[0], low: bytes[1] });
+        let Ok(g) = band(Digits { high: bytes[2], low: bytes[3] });
+        let Ok(b) = band(Digits { high: bytes[4], low: bytes[5] });
 
         Ok(Color([b, g, r, 0xff]))
     }
 }
 
-const fn band(high: u8, low: u8) -> Result<u8, Never> {
-    let Ok(high) = hex(high);
-    let Ok(low) = hex(low);
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Digits {
+    high: u8,
+    low: u8,
+}
+
+const fn band(digits: Digits) -> Result<u8, Never> {
+    let Ok(high) = hex(digits.high);
+    let Ok(low) = hex(digits.low);
 
     Ok(high * 16 + low)
 }
@@ -86,15 +96,20 @@ const fn hex(byte: u8) -> Result<u8, Never> {
 }
 
 impl Surface {
-    pub fn new(pixels: &mut [u8], stride: i32, height: i32, scale: f64) -> Result<Option<Self>, Never> {
+    pub fn new(
+        pixels: &mut [u8],
+        stride: Stride,
+        height: i32,
+        scale: f64,
+    ) -> Result<Option<Self>, Never> {
         // SAFETY: Cairo does not mutate `pixels` until we draw into the
         let made = unsafe {
             ImageSurface::create_for_data_unsafe(
                 pixels.as_mut_ptr(),
                 Format::ARgb32,
-                stride.saturating_div(4),
+                stride.0.saturating_div(4),
                 height,
-                stride,
+                stride.0,
             )
         };
         let image = match made {
@@ -221,12 +236,12 @@ mod tests {
         let buf = buffer(20, 20);
         {
             let mut bytes = buf.borrow_mut();
-            let surface = match Surface::new(&mut bytes, 20 * 4, 20, 1.0) {
+            let surface = match Surface::new(&mut bytes, Stride(20 * 4), 20, 1.0) {
                 Ok(Some(surface)) => surface,
                 Ok(None) | Err(_) => panic!("a surface over the test buffer"),
             };
             let Ok(red) = Color::from_hex("ff0000");
-            let Ok(at) = Rect::new(5.0, 5.0, 10.0, 10.0);
+            let Ok(at) = Rect::new(Point { across: 5.0, down: 5.0 }, Size { wide: 10.0, tall: 10.0 });
             let Ok(()) = surface.fill_rectangle(red, at, 0);
         }
         let bytes = buf.borrow();
@@ -241,12 +256,12 @@ mod tests {
         let buf = buffer(10, 10);
         {
             let mut bytes = buf.borrow_mut();
-            let surface = match Surface::new(&mut bytes, 10 * 4, 10, 1.0) {
+            let surface = match Surface::new(&mut bytes, Stride(10 * 4), 10, 1.0) {
                 Ok(Some(surface)) => surface,
                 Ok(None) | Err(_) => panic!("a surface over the test buffer"),
             };
             let Ok(white) = Color::from_hex("ffffff");
-            let Ok(at) = Rect::new(0.0, 0.0, 10.0, 10.0);
+            let Ok(at) = Rect::new(Point { across: 0.0, down: 0.0 }, Size { wide: 10.0, tall: 10.0 });
             let Ok(()) = surface.fill_rectangle(white, at, 0);
             let Ok(()) = surface.clear(at);
         }
@@ -258,7 +273,7 @@ mod tests {
 
     #[test]
     fn insetting_past_the_middle_gives_nothing_rather_than_a_backwards_rectangle() {
-        let Ok(cell) = Rect::new(10.0, 10.0, 8.0, 4.0);
+        let Ok(cell) = Rect::new(Point { across: 10.0, down: 10.0 }, Size { wide: 8.0, tall: 4.0 });
         let Ok(inner) = cell.inset(6.0);
         assert_eq!(inner.w, 0.0, "the width went backwards: {inner:?}");
         assert_eq!(inner.h, 0.0, "the height went backwards: {inner:?}");
@@ -267,9 +282,9 @@ mod tests {
 
     #[test]
     fn an_inset_comes_off_both_sides() {
-        let Ok(rect) = Rect::new(0.0, 0.0, 10.0, 6.0);
+        let Ok(rect) = Rect::new(Point { across: 0.0, down: 0.0 }, Size { wide: 10.0, tall: 6.0 });
         let Ok(inner) = rect.inset(1.0);
-        assert_eq!(Ok(inner), Rect::new(1.0, 1.0, 8.0, 4.0));
+        assert_eq!(Ok(inner), Rect::new(Point { across: 1.0, down: 1.0 }, Size { wide: 8.0, tall: 4.0 }));
     }
 
     #[test]

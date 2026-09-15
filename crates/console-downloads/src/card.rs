@@ -1,8 +1,8 @@
 //! Music and video off the net, drawn.
 //!
 //! ```text
-//!     download-panel
-//!     download-panel Video
+//!     downloads-panel
+//!     downloads-panel Video
 //! ```
 //!
 //! Two tabs over one search. What is typed is the same question either way, and
@@ -13,8 +13,8 @@
 //! the one everybody means -- and why they are two tabs of one panel rather
 //! than two programs.
 //!
-//! Nothing slow happens here. Looking is `download-find` and fetching is
-//! `download-get`, both handed to `later`, and this draws whatever the first of
+//! Nothing slow happens here. Looking is `downloads-find` and fetching is
+//! `downloads-get`, both handed to `later`, and this draws whatever the first of
 //! them wrote down.
 //!
 //! What is here is the machine: the folders, the pictures on the disk, and
@@ -37,7 +37,7 @@ use crate::standing::{
 use crate::store::{self, Kind};
 use console_core_never::Never;
 use console_panel::actor::{self, Addr, Answer};
-use console_panel::page::{Does, Page, Picture, Row, Rows, Showing};
+use console_panel::page::{Aside, Does, Page, Picture, Row, Rows, Showing};
 use console_panel::card::{Card, Door};
 use console_program_contract::{Argv, Doing, Named, Program, Turn, Word};
 
@@ -75,7 +75,7 @@ fn at(held: &Panel, tab: usize) -> Result<Tab, Never> {
     Ok(match held.ask(|answer| Msg::At { tab, answer }) {
         Ok(tab) => tab,
         Err(_) => {
-            eprintln!("download-panel: the panel's own state has gone, so it drew as it opened");
+            eprintln!("downloads-panel: the panel's own state has gone, so it drew as it opened");
 
             Tab::default()
         }
@@ -86,7 +86,7 @@ fn decided(held: &Panel, heard: Heard) -> Result<Vec<Doing<Its>>, Never> {
     Ok(match held.ask(|answer| Msg::Heard(heard, answer)) {
         Ok(doings) => doings,
         Err(_) => {
-            eprintln!("download-panel: the panel's own state has gone, so the press did nothing");
+            eprintln!("downloads-panel: the panel's own state has gone, so the press did nothing");
 
             Vec::new()
         }
@@ -148,9 +148,10 @@ fn looked(kind: Kind) -> Result<Looked, Never> {
 fn folder(kind: Kind) -> Result<String, Never> {
     let Ok(into) = getting::into(kind);
 
-    Ok(into.file_name()
-        .map(|name| name.to_string_lossy().to_string())
-        .unwrap_or_else(|| into.display().to_string()))
+    Ok(match into.file_name() {
+        Some(named) => named.to_string_lossy().to_string(),
+        None => into.display().to_string(),
+    })
 }
 
 fn rows_of(held: &Panel, tab: usize, kind: Kind) -> Result<Vec<Row>, Never> {
@@ -166,7 +167,7 @@ fn rows_of(held: &Panel, tab: usize, kind: Kind) -> Result<Vec<Row>, Never> {
             let Ok(looking_for) = looking_for(held, tab, kind);
 
             rows::rows(&typed, asking.as_deref(), &looked, looking_for, &|at, found| {
-                let Ok(thing) = thing(held, tab, kind, at, found, &cache, &into);
+                let Ok(thing) = thing(held, tab, kind, Line(at), found, &cache, &into);
 
                 thing
             })
@@ -174,11 +175,14 @@ fn rows_of(held: &Panel, tab: usize, kind: Kind) -> Result<Vec<Row>, Never> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Line(usize);
+
 fn thing(
     held: &Panel,
     tab: usize,
     kind: Kind,
-    at: usize,
+    at: Line,
     found: &Found,
     cache: &Path,
     into: &Path,
@@ -189,7 +193,7 @@ fn thing(
     let Ok(picture) = picture(cache, found);
     let Ok(offers) = offers(held, tab, found, at);
 
-    let Ok(row) = Row::new(&found.title, &aside, chose);
+    let Ok(row) = Row::new(&found.title, Aside(&aside), chose);
     let Ok(pictured) = row.picturing(picture);
 
     pictured.offering(offers)
@@ -218,10 +222,11 @@ fn offers(
     held: &Panel,
     tab: usize,
     found: &Found,
-    from: usize,
+    from: Line,
 ) -> Result<impl Fn(&dyn Showing) -> bool + Send + Sync + 'static, Never> {
     let held = held.clone();
     let found = found.clone();
+    let from = from.0;
 
     Ok(move |showing: &dyn Showing| {
         let Ok(()) = press(&held, Heard::Offered { tab, found: found.clone(), from }, showing);
@@ -312,7 +317,7 @@ fn page(held: &Panel, tab: usize, kind: Kind) -> Result<Page, Never> {
 }
 
 
-pub const WHO: &str = "download-panel";
+pub const WHO: &str = "downloads-panel";
 
 const DOOR: &str = "download";
 

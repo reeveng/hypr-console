@@ -22,20 +22,24 @@
 
 use console_core_never::Never;
 use console_core_number_conversion::whole_i32;
-pub const PART: i32 = 93;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Share(pub i32);
+
+pub const PART: Share = Share(93);
 
 pub fn part_of(room: i32) -> Result<i32, Never> {
     share(room, PART)
 }
 
-pub const TALL: i32 = 80;
+pub const TALL: Share = Share(80);
 
 pub fn tall_part_of(screen: i32) -> Result<i32, Never> {
     share(screen, TALL)
 }
 
-fn share(room: i32, part: i32) -> Result<i32, Never> {
-    whole_i32(f64::from(room) * f64::from(part) / 100.0)
+fn share(room: i32, of: Share) -> Result<i32, Never> {
+    whole_i32(f64::from(room) * f64::from(of.0) / 100.0)
 }
 
 #[cfg(test)]

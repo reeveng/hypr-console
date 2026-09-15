@@ -21,7 +21,7 @@ use console_input_gamepad::front::Front;
 use console_input_gamepad::vocabulary::{self, Names, button_name, spoken_for};
 use console_input_bindings::bound::{Binding, Input, Played};
 use console_core_never::Never;
-use console_panel::page::{Does, Row};
+use console_panel::page::{Aside, Does, Row};
 
 pub const NOWHERE: &str = "not on this device";
 
@@ -33,7 +33,7 @@ pub const PUT_BACK: &str = "Put every button back";
 
 pub const PUT_BACK_ASIDE: &str = "undoes every move";
 pub const PUT_BACK_SURE: &str = "Put every button back where it started?";
-pub const PUT_BACK_YES: &str = "Put them back";
+pub const PUT_BACK_YES: &str = "Put back";
 
 pub const WAITING_ON_THE_PAD: &str =
     "hold anything you want held first, or wait and nothing moves";
@@ -149,11 +149,14 @@ pub fn parts(table: &Table, front: &Front, on: Input) -> Result<Vec<Part>, Never
         .map(|(job, bound)| {
             let Ok(defaults) = ours(job);
             let mine: Vec<&Binding> = bound.iter().filter(|one| one.on == on).collect();
-            let theirs: Vec<&Binding> = defaults.iter().filter(|one| one.on == on).collect();
             let Ok(says) = job.what.says();
             let Ok(does) = capitalised(says);
             let moved = mine.iter().map(|one| (*one).clone()).collect::<Vec<Binding>>()
-                != theirs.iter().map(|one| (*one).clone()).collect::<Vec<Binding>>();
+                != defaults
+                    .iter()
+                    .filter(|one| one.on == on)
+                    .cloned()
+                    .collect::<Vec<Binding>>();
 
             Part {
                 slug: job.slug.to_string(),
@@ -255,7 +258,7 @@ pub fn rows(parts: &[Part], moving: impl Fn(&Part) -> Does, putting_back: Does) 
 
     match parts.iter().any(|part| part.moved) {
         true => {
-            let Ok(back) = Row::new(PUT_BACK, PUT_BACK_ASIDE, putting_back);
+            let Ok(back) = Row::new(PUT_BACK, Aside(PUT_BACK_ASIDE), putting_back);
 
             rows.push(back);
         }
@@ -264,7 +267,7 @@ pub fn rows(parts: &[Part], moving: impl Fn(&Part) -> Does, putting_back: Does) 
 
     rows.extend(parts.iter().map(|part| {
         let Ok(aside) = part.aside();
-        let Ok(row) = Row::new(&part.does, &aside, moving(part));
+        let Ok(row) = Row::new(&part.does, Aside(&aside), moving(part));
 
         row
     }));
@@ -570,5 +573,19 @@ mod tests {
             every.get("settings").is_some_and(|bound| bound.contains(&key)),
             "a key taken by a move has to be findable to be taken"
         );
+    }
+
+    #[test]
+    fn the_word_for_going_ahead_is_short_and_stands_for_nothing() {
+        let words: Vec<&str> = PUT_BACK_YES.split_whitespace().collect();
+
+        assert!(words.len() <= 2, "{PUT_BACK_YES:?} is a sentence where a verb was wanted");
+
+        for standing in ["it", "them", "this", "that", "these", "those"] {
+            assert!(
+                !words.iter().any(|word| word.to_lowercase() == standing),
+                "{PUT_BACK_YES:?} says {standing:?} where the question already said the thing"
+            );
+        }
     }
 }

@@ -10,10 +10,17 @@
 //!
 //! Two had gone stale before anything looked. `console-music.desktop` named a
 //! crate that had been renamed, and `console-dictate.desktop` named nothing on
-//! the machine at all -- the crate is `console-input-dictation`, the binary is
-//! `dictate`, and `console-dictate` lived in that filename and nowhere else.
+//! the machine at all -- the crate was `console-input-dictation`, the binary
+//! was `dictate`, and that filename was the only place the third name existed.
 //! Neither was a fault anybody could see, and that is the argument for reading
 //! it here rather than noticing it.
+//!
+//! Both of those names have since come round: the crate is `console-music`
+//! again and the binary a person runs is `console-dictate`, so the two entries
+//! this test was written about are the two it now passes. That is the shape of
+//! the thing rather than a coincidence. A filename is right for as long as
+//! something crosses it against what the tree says today, and a rename that
+//! moves the other half is exactly how it stops being.
 //!
 //! What counts as still used is deliberately wide: a crate, a binary the
 //! manifest builds, or a package it installs. All three are names somebody can

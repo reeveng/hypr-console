@@ -25,7 +25,7 @@ use console_core_external_programs::Program;
 use console_files::places::Is;
 use console_files::unzipping::{self, Lift};
 use console_core_never::Never;
-use console_panel::running::say;
+use console_panel::running::{Said, say};
 
 const KIND: &str = "files-unzip";
 
@@ -50,10 +50,14 @@ fn main() -> ExitCode {
         }
     };
 
-    let named = archive
-        .file_name()
-        .map(|name| name.to_string_lossy().to_string())
-        .unwrap_or_default();
+    let named = match archive.file_name() {
+        Some(named) => named.to_string_lossy().to_string(),
+        None => {
+            eprintln!("files-unzip: {}: this names no archive", archive.display());
+
+            return ExitCode::FAILURE;
+        }
+    };
 
     let Ok(into) = unzipping::named_for(&named);
 
@@ -62,7 +66,7 @@ fn main() -> ExitCode {
     let into = match free {
         Some(into) => into,
         None => {
-            let Ok(()) = say(KIND, &named, FULL);
+            let Ok(()) = say(KIND, Said { summary: &named, body: FULL });
 
             return ExitCode::FAILURE;
         }
@@ -87,7 +91,7 @@ fn unpacked(
     match std::fs::create_dir_all(unpacking) {
         Ok(()) => {},
         Err(fault) => {
-            let Ok(()) = told(named, &format!("{}: {fault}", unpacking.display()));
+            let Ok(()) = told(named, Why(&format!("{}: {fault}", unpacking.display())));
 
             return Ok(ExitCode::FAILURE);
         }
@@ -99,7 +103,7 @@ fn unpacked(
         Ran::Badly(why) => {
             let _ = std::fs::remove_dir_all(unpacking);
 
-            let Ok(()) = told(named, &why);
+            let Ok(()) = told(named, Why(&why));
 
             return Ok(ExitCode::FAILURE);
         }
@@ -118,7 +122,7 @@ fn unpacked(
     match std::fs::rename(&out_of, into) {
         Ok(()) => {},
         Err(fault) => {
-            let Ok(()) = told(named, &format!("{}: {fault}", into.display()));
+            let Ok(()) = told(named, Why(&format!("{}: {fault}", into.display())));
 
             return Ok(ExitCode::FAILURE);
         }
@@ -181,6 +185,9 @@ fn inside(unpacking: &Path) -> Result<Vec<(String, Is)>, Never> {
         .collect())
 }
 
-fn told(named: &str, why: &str) -> Result<(), Never> {
-    say(KIND, &format!("{named} was not unzipped"), why)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Why<'a>(&'a str);
+
+fn told(named: &str, why: Why<'_>) -> Result<(), Never> {
+    say(KIND, Said { summary: &format!("{named} was not unzipped"), body: why.0 })
 }

@@ -31,6 +31,8 @@ use std::str::FromStr;
 use console_core_never::Never;
 use evdev::{AbsoluteAxisCode, KeyCode};
 
+use crate::Unpressed;
+
 pub const BUTTON: &str = "Gamepad:Button:";
 pub const AXIS: &str = "Gamepad:Axis:";
 pub const TRIGGER: &str = "Gamepad:Trigger:";
@@ -173,13 +175,19 @@ pub fn trigger_button(name: &str) -> Result<Option<KeyCode>, Never> {
 pub fn axis_named(spoken: &str) -> Result<&str, Never> {
     let named = found(&AXES, spoken)?;
 
-    Ok(named.unwrap_or(spoken))
+    Ok(match named {
+        Some(named) => named,
+        None => spoken,
+    })
 }
 
 pub fn trigger_named(spoken: &str) -> Result<&str, Never> {
     let named = found(&TRIGGERS, spoken)?;
 
-    Ok(named.unwrap_or(spoken))
+    Ok(match named {
+        Some(named) => named,
+        None => spoken,
+    })
 }
 
 pub fn is_trigger(spoken: &str) -> Result<Names, Never> {
@@ -197,20 +205,19 @@ pub enum Names {
     AButton,
 }
 
-pub fn key_code(name: &str) -> Result<KeyCode, String> {
-    let tail = name.strip_prefix("Key").ok_or_else(|| format!("not a key name: {name:?}"))?;
+pub fn key_code(name: &str) -> Result<KeyCode, Unpressed> {
+    let tail = name
+        .strip_prefix("Key")
+        .ok_or_else(|| Unpressed::NotAKeyName(name.to_string()))?;
+
     KeyCode::from_str(&format!("KEY_{}", tail.to_uppercase()))
-        .map_err(|_| format!("no such key: {name:?}"))
+        .map_err(|_| Unpressed::NoSuchKey(name.to_string()))
 }
 
-pub fn button_name(spoken: &str) -> Result<&'static str, String> {
+pub fn button_name(spoken: &str) -> Result<&'static str, Unpressed> {
     let Ok(found) = found(&BUTTONS, spoken);
 
-    found.ok_or_else(|| {
-        let mut every: Vec<&str> = BUTTONS.iter().map(|(said, _)| *said).collect();
-        every.sort_unstable();
-        format!("no button called {spoken:?}; try one of {}", every.join(", "))
-    })
+    found.ok_or_else(|| Unpressed::NoSuchButton(spoken.to_string()))
 }
 
 pub fn spoken_for(profile_name: &str) -> Result<&str, Never> {
@@ -246,14 +253,16 @@ mod tests {
 
     #[test]
     fn a_button_crosses_both_ways() {
-        assert_eq!(button_name("legion-right"), Ok("QuickAccess"));
+        assert_eq!(button_name("legion-right").expect("a button"), "QuickAccess");
         assert_eq!(spoken_for("QuickAccess"), Ok("legion-right"));
     }
 
     #[test]
     fn a_name_nothing_calls_a_button_says_what_the_buttons_are() {
         let fault = button_name("triangle").expect_err("no such button");
-        assert!(fault.contains("triangle") && fault.contains("dpad-up"), "{fault}");
+        let said = fault.to_string();
+
+        assert!(said.contains("triangle") && said.contains("dpad-up"), "{said}");
     }
 
     #[test]
@@ -263,8 +272,8 @@ mod tests {
 
     #[test]
     fn a_key_is_the_same_name_in_capitals() {
-        assert_eq!(key_code("KeyPageUp"), Ok(KeyCode::KEY_PAGEUP));
-        assert_eq!(key_code("KeyF13"), Ok(KeyCode::KEY_F13));
+        assert_eq!(key_code("KeyPageUp").expect("a key"), KeyCode::KEY_PAGEUP);
+        assert_eq!(key_code("KeyF13").expect("a key"), KeyCode::KEY_F13);
     }
 
     #[test]

@@ -3,36 +3,32 @@
 use std::path::PathBuf;
 
 use console_core_never::Never;
+use console_core_words::Words;
 
 use crate::listing::{Entry, Still};
 use crate::unzipping::Packed;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Words)]
 pub enum Deed {
+    #[words(says = "Copy")]
     Copy,
+    #[words(says = "Delete")]
     Delete,
+    #[words(says = "Move")]
     Move,
+    #[words(says = "Open")]
     Open,
+    #[words(says = "Open with")]
     OpenWith,
+    #[words(says = "Rename")]
     Rename,
+    #[words(says = "Unzip")]
     Unzip,
+    #[words(says = "Use as wallpaper")]
     Wallpaper,
 }
 
 impl Deed {
-    pub fn says(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Deed::Copy => "Copy",
-            Deed::Delete => "Delete",
-            Deed::Move => "Move",
-            Deed::Open => "Open",
-            Deed::OpenWith => "Open with",
-            Deed::Rename => "Rename",
-            Deed::Unzip => "Unzip",
-            Deed::Wallpaper => "Use as wallpaper",
-        })
-    }
-
     pub fn wants(self) -> Result<Wants, Never> {
         Ok(match self {
             Deed::Wallpaper => Wants::APicture,
@@ -130,7 +126,7 @@ pub fn a_name(word: &str) -> Result<Option<String>, Never> {
     Ok(usable.then(|| word.to_string()))
 }
 
-pub const SURE: &str = "Throw this away?";
+pub const SURE: &str = "Delete this?";
 
 #[cfg(test)]
 mod tests {
@@ -272,5 +268,15 @@ mod tests {
     fn the_question_is_a_sentence_and_carries_no_name() {
         assert!(SURE.ends_with('?'));
         assert!(!SURE.contains('{'));
+    }
+
+    #[test]
+    fn the_question_asks_in_the_word_the_row_that_raised_it_said() {
+        let Ok(says) = Deed::Delete.says();
+
+        assert!(
+            SURE.to_lowercase().contains(&says.to_lowercase()),
+            "{SURE:?} asks about something the row called {says:?}"
+        );
     }
 }

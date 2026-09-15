@@ -2,6 +2,8 @@
 #![warn(unused_extern_crates)]
 
 extern crate rustc_hir;
+extern crate rustc_middle;
+extern crate rustc_span;
 
 use clippy_utils::diagnostics::span_lint_and_help;
 use clippy_utils::is_in_const_context;
@@ -20,6 +22,18 @@ dylint_linting::declare_late_lint! {
     /// the build, which is a failure with a name, at the right time. A negated
     /// literal is left alone for the same reason -- `-1` is how a negative
     /// number is written, not a subtraction anybody performs.
+    ///
+    /// `/` and `%` by a `NonZero` are left alone as well, and they are the one
+    /// case where the policy is a type rather than a method. Division has
+    /// exactly one failure, the divisor being zero, and a `NonZeroUsize` is the
+    /// proof that it is not -- so `at % many` over one cannot fail, and `core`
+    /// says so in the same words. What this buys is the other half of the rule
+    /// working: `checked_rem(many).unwrap_or(0)` used to be the only spelling
+    /// available, and the `unwrap_or(0)` on the end of it is an absence answered
+    /// by a sentinel -- EXPLICIT033's fault, reached by obeying this one. Where
+    /// the divisor really might be zero the decision is still made out loud: it
+    /// is made once, where the `NonZero` is built, instead of at every division
+    /// downstream of it.
     pub EXPLICIT015_NO_BARE_ARITHMETIC,
     Deny,
     "bare integer arithmetic is forbidden; name the policy with `checked_*`, `saturating_*`, or `wrapping_*`"
@@ -53,6 +67,24 @@ fn is_integral(cx: &LateContext<'_>, expr: &Expr<'_>) -> bool {
     cx.typeck_results().expr_ty(expr).peel_refs().is_integral()
 }
 
+// A `NonZero`, which is the whole of what `/` and `%` can go wrong about, said
+// in the type. Asked of the type rather than the spelling, so an alias answers
+// the same as `core`'s own.
+fn is_non_zero(cx: &LateContext<'_>, expr: &Expr<'_>) -> bool {
+    match cx.typeck_results().expr_ty(expr).peel_refs().kind() {
+        rustc_middle::ty::Adt(adt, _) => {
+            cx.tcx.is_diagnostic_item(rustc_span::sym::NonZero, adt.did())
+        }
+        _ => false,
+    }
+}
+
+// Division is the one operator whose only failure a type can rule out, so it is
+// the one place a policy may be a `NonZero` instead of a named method.
+fn is_divided_by_proof(cx: &LateContext<'_>, op: BinOpKind, rhs: &Expr<'_>) -> bool {
+    matches!(op, BinOpKind::Div | BinOpKind::Rem) && is_non_zero(cx, rhs)
+}
+
 // `-1` is a negative number written down, not a subtraction anybody performs.
 // The compiler evaluates it, and a literal too large for its own type fails the
 // build -- which is the same reason const contexts are left alone above, said
@@ -77,9 +109,15 @@ impl<'tcx> LateLintPass<'tcx> for Explicit015NoBareArithmetic {
         }
 
         let offending = match expr.kind {
-            ExprKind::Binary(op, lhs, _) => can_misbehave(op.node) && is_integral(cx, lhs),
-            ExprKind::AssignOp(op, lhs, _) => {
-                can_misbehave(op.node.into()) && is_integral(cx, lhs)
+            ExprKind::Binary(op, lhs, rhs) => {
+                can_misbehave(op.node)
+                    && is_integral(cx, lhs)
+                    && !is_divided_by_proof(cx, op.node, rhs)
+            }
+            ExprKind::AssignOp(op, lhs, rhs) => {
+                can_misbehave(op.node.into())
+                    && is_integral(cx, lhs)
+                    && !is_divided_by_proof(cx, op.node.into(), rhs)
             }
             ExprKind::Unary(UnOp::Neg, operand) => {
                 !is_written_number(operand) && is_integral(cx, operand)

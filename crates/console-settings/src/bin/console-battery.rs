@@ -17,11 +17,14 @@
 
 use std::process::{Command, ExitCode};
 
-use console_default_applications::battery::{Charge, Filling, Step, charge};
+use console_default_applications::battery::{Cable, Charge, Step, charge};
 use console_core_never::Never;
 use console_waiting::{Patience, Seen, Waited, until};
-use console_notifications::saying::{Kept, journal, raise, raise_kept};
+use console_notifications::saying::{Kept, Said, journal, raise, raise_kept};
 use console_settings::stopping::{GRACE, LOOKING, Stop, card, for_the_journal, saved, stop};
+
+const NOTHING_SAID: i32 = 0;
+
 
 const USAGE: &str = "usage: console-battery [low|lower|protect]";
 
@@ -111,7 +114,10 @@ fn stopping(percent: i32, stop: Stop) -> Result<ExitCode, Never> {
     }
 
     let said = "The battery is nearly gone and this machine won't stop by itself. Plug it in.";
-    let Ok(notice) = console_notifications::saying::Notice::new("Couldn't shut down", said);
+    let Ok(notice) = console_notifications::saying::Notice::new(Said {
+        summary: "Couldn't shut down",
+        body: said,
+    });
     let Ok(notice) = notice.urgent();
     let Ok(notice) = notice.staying();
 
@@ -128,13 +134,18 @@ fn plugged_in_within(waiting: std::time::Duration) -> Result<Option<i32>, Never>
         let said = charge()?;
         let now = Charge::of(&said)?;
 
-        Ok(match now.filling {
-            Filling::Yes => {
-                percent = Some(now.percent.unwrap_or_default());
+        let Ok(cable) = now.filling.cable();
+
+        Ok(match cable {
+            Cable::In => {
+                percent = Some(match now.percent {
+                    Some(percent) => percent,
+                    None => NOTHING_SAID,
+                });
 
                 Seen::Yes
             }
-            Filling::No => Seen::NotYet,
+            Cable::Out => Seen::NotYet,
         })
     });
 

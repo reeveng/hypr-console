@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+console-core-places = { workspace = true }
 # Reading a file without turning a fault into an absence, and writing the note
 # whole. Both of those are one decision this workspace makes in one place.
 console-core-atomic-writes.workspace = true

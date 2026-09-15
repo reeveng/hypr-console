@@ -9,6 +9,18 @@ PartOf=console.target
 
 [Service]
 Type=simple
+# Where this desktop's own hypr directory is. hypridle reads hypridle.conf out
+# of $XDG_CONFIG_HOME/hypr, and ~/.config/hypr belongs to whatever desktop the
+# machine already had -- on a laptop with omarchy on it, a hypridle.conf of its
+# own is already there. Told this, the daemon finds ours and leaves theirs
+# alone. The same line is in console-warm.service, for hyprsunset, which has no
+# flag to be told a path with and so decided the shape for both.
+#
+# It reaches the two hypr daemons and nothing else: what this unit runs on a
+# timeout asks `console_core_places` for a home and builds `.config/console`
+# out of that rather than reading this variable. A program here that did read
+# it would look for its own settings one directory too deep.
+Environment=XDG_CONFIG_HOME=%h/.config/console
 # Start against a screen that is on, whoever turned it off.
 #
 # The dim is remembered and the blank is not: hypridle sends `dpms disable` on

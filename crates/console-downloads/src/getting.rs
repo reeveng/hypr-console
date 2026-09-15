@@ -24,6 +24,9 @@ use gtk4::glib::{self, UserDirectory};
 
 use crate::store::Kind;
 
+const FILMS: &str = "Videos";
+
+
 pub const TALL: &str = "1080";
 
 pub const SOUND: &str = "opus";
@@ -34,9 +37,11 @@ pub const NAMED: &str = "%(title)s [%(id)s].%(ext)s";
 
 pub fn into(kind: Kind) -> Result<PathBuf, Never> {
     Ok(match kind {
-        Kind::Sound => console_music_panel::library::folder()?,
-        Kind::Film => glib::user_special_dir(UserDirectory::Videos)
-            .unwrap_or_else(|| glib::home_dir().join("Videos")),
+        Kind::Sound => console_music::library::folder()?,
+        Kind::Film => match glib::user_special_dir(UserDirectory::Videos) {
+            Some(into) => into,
+            None => glib::home_dir().join(FILMS),
+        },
     })
 }
 
@@ -95,7 +100,12 @@ pub fn id_in(url: &str) -> Result<Option<String>, Never> {
 
     let end = |letter: char| letter == '&' || letter == '?' || letter == '/' || letter == '#';
 
-    crate::store::named(said.split(end).next().unwrap_or_default())
+    let before = match said.split(end).next() {
+        Some(before) => before,
+        None => said,
+    };
+
+    crate::store::named(before)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -197,7 +207,7 @@ mod tests {
     fn a_fetched_song_is_named_the_way_the_music_library_reads_a_name() {
         assert_eq!(after(&words(Kind::Sound), "--output"), NAMED);
         assert_eq!(
-            console_music_panel::library::named("Africa [FTQbiNvZqaY].opus"),
+            console_music::library::named("Africa [FTQbiNvZqaY].opus"),
             Ok("Africa".to_string()),
         );
     }

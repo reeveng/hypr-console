@@ -30,6 +30,14 @@ use crate::listing::Entry;
 use crate::places::Place;
 use crate::walk::{self, Walk};
 
+const NOTHING_TYPED: &str = "";
+
+const THE_FIRST_ROW: usize = 0;
+
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Line(pub usize);
+
 pub const LINE: usize = 1;
 
 pub const HERE_START: usize = 1;
@@ -154,7 +162,7 @@ impl Program for Files {
             Heard::Entered { tab, name, at } => {
                 let Ok(row) = first_thing(state, *tab);
 
-                let Ok(held) = walked(state, *tab, std::slice::from_ref(name), *at);
+                let Ok(held) = walked(state, *tab, std::slice::from_ref(name), Line(*at));
 
                 let Ok(here) = here(&held, *tab);
 
@@ -167,7 +175,7 @@ impl Program for Files {
             Heard::Walked { tab, steps } => {
                 let Ok(row) = first_thing(state, *tab);
 
-                let Ok(held) = walked(state, *tab, steps, row);
+                let Ok(held) = walked(state, *tab, steps, Line(row));
 
                 let Ok(here) = here(&held, *tab);
 
@@ -275,7 +283,7 @@ fn walked(
     state: &Standing,
     tab: usize,
     steps: &[String],
-    from: usize,
+    from: Line,
 ) -> Result<Standing, Never> {
     let mut walks = state.walks.clone();
 
@@ -285,7 +293,7 @@ fn walked(
     };
 
     for step in steps {
-        walk.enter(step, from)?;
+        walk.enter(step, from.0)?;
     }
 
     Ok(Standing { walks, ..state.clone() })
@@ -331,11 +339,17 @@ pub fn here(state: &Standing, tab: usize) -> Result<PathBuf, Never> {
 }
 
 pub fn onto(state: &Standing, tab: usize) -> Result<Onto, Never> {
-    Ok(state.onto.get(tab).cloned().unwrap_or(Onto::Folder))
+    Ok(match state.onto.get(tab).cloned() {
+        Some(onto) => onto,
+        None => Onto::Folder,
+    })
 }
 
 pub fn typed(state: &Standing, tab: usize) -> Result<String, Never> {
-    Ok(state.typed.get(tab).cloned().unwrap_or_default())
+    Ok(match state.typed.get(tab).cloned() {
+        Some(typed) => typed,
+        None => NOTHING_TYPED.to_string(),
+    })
 }
 
 pub fn called(state: &Standing, tab: usize) -> Result<String, Never> {
@@ -396,9 +410,12 @@ pub fn row_of(
     names: &[String],
 ) -> Result<usize, Never> {
     let first = first_thing(state, tab)?;
-    let at = names.iter().position(|held| held == name);
+    let at = match names.iter().position(|held| held == name) {
+        Some(at) => at,
+        None => THE_FIRST_ROW,
+    };
 
-    Ok(first.saturating_add(at.unwrap_or_default()))
+    Ok(first.saturating_add(at))
 }
 
 pub fn closes(state: &Standing, tab: usize) -> Result<Closes, Never> {

@@ -1,19 +1,19 @@
 # The wallpapers
 
 The picture on the screen changes with the hour, the weather and the time of
-year. `crates/console-wallpaper` is all of it: the press that makes a picture, and the
-daemon that decides which one is up.
+year. `crates/console-wallpaper` is all of it: the press that makes a picture,
+and the daemon that decides which one is up.
 
 `theme/sky.toml` is the whole of what a person edits.
 
 ## What is on the screen
 
-    console-sky              keep the right picture up
-    console-sky --now        put the right one up and stop
-    sky-press               press what the table names and is not here yet
-    sky-press --again       press all of them
-    sky-press --dropped     press what is in Pictures/Wallpapers
-    sky-press --take PATH   press this, wherever it came from
+    console-wallpaper              keep the right picture up
+    console-wallpaper --now        put the right one up and stop
+    wallpaper-press               press what the table names and is not here yet
+    wallpaper-press --again       press all of them
+    wallpaper-press --dropped     press what is in Pictures/Wallpapers
+    wallpaper-press --take PATH   press this, wherever it came from
 
 Settings has a **Wallpaper** tab. It turns following the weather off, picks one
 picture and leaves it, and takes up whatever is in `~/Pictures/Wallpapers`.
@@ -42,13 +42,13 @@ the next of the same standing takes it from there: two pictures for a clear day
 are a morning and an afternoon, and the pair of them comes round again tomorrow.
 
 Nothing is remembered between one turn and the next. The turn is the clock
-divided by two hours and nothing else, so the daemon, `console-sky --now` and a
-test all say the same thing about the same moment without any of them keeping a
-place, and a machine that was turned off for an hour comes back to the picture
-the hour asks for rather than to the one it was showing. The two hours are
-counted from the epoch rather than from midnight, so where they fall in the
-local day depends on the offset, and the daemon looks again every five minutes,
-so a picture changes over within five minutes of its turn ending.
+divided by two hours and nothing else, so the daemon, `console-wallpaper --now`
+and a test all say the same thing about the same moment without any of them
+keeping a place, and a machine that was turned off for an hour comes back to
+the picture the hour asks for rather than to the one it was showing. The two
+hours are counted from the epoch rather than from midnight, so where they fall
+in the local day depends on the offset, and the daemon looks again every five
+minutes, so a picture changes over within five minutes of its turn ending.
 
 Which of them goes first is the order they are written down in, which is
 arbitrary and is arbitrary somewhere a person can see it and reorder it.
@@ -106,9 +106,9 @@ water, falling snow and a candle-lit room are a new painting every frame, the
 rectangle is the whole screen, and the daemon can be carrying the better part of
 a gigabyte.
 
-`sky-press` says which is which as it presses, picture by picture, so what any
-one of them costs is a press away rather than a number written down here to go
-stale.
+`wallpaper-press` says which is which as it presses, picture by picture, so
+what any one of them costs is a press away rather than a number written down
+here to go stale.
 
 Two things make the dear ones affordable. It is given back in full the moment
 the still goes up, measured: swapping a dear picture for a cheap one took the
@@ -124,11 +124,11 @@ The device presses at 2560x1600, which is the panel through the quarter turn the
 compositor gives it, so nothing is ever resampled. `console-screen` reads that
 out of `hyprland.lua` rather than anybody writing it down twice.
 
-Pressing the whole set takes minutes and one core, and grows with the set, which
-is why it happens at `console apply` and never on the machine while it is in
-use. A picture already pressed is left alone, so an apply that changes nothing
-about the wallpapers costs nothing; `sky-press --again` is what presses them all
-over.
+Pressing the whole set takes minutes and one core, and grows with the set,
+which is why it happens at `console apply` and never on the machine while it is
+in use. A picture already pressed is left alone, so an apply that changes
+nothing about the wallpapers costs nothing; `wallpaper-press --again` is what
+presses them all over.
 
 ## Not moving where nobody can see it
 
@@ -166,14 +166,15 @@ wallpaper, and the bar, which is up for as long as the machine is on and would
 otherwise mean the picture never moved at all. A panel written next year is
 counted the day it is written, without anybody remembering to add it.
 
-`journalctl --user -u console-sky -f` and open the settings: it should say so.
+`journalctl --user -u console-wallpaper -f` and open the settings: it should
+say so.
 
 ## Pressing a picture on the Wallpaper tab
 
 The tab writes `~/.config/console/sky.toml` and nothing else, which is a file
-being written and is instant. Then it asks `console-sky --now` for one pass of
-what the daemon does every five minutes anyway, because five minutes after
-choosing a wallpaper is not choosing a wallpaper.
+being written and is instant. Then it asks `console-wallpaper --now` for one
+pass of what the daemon does every five minutes anyway, because five minutes
+after choosing a wallpaper is not choosing a wallpaper.
 
 That pass is the slow half, and it used to be waited for where the panel is
 drawn: the settings answered no button between the press and the picture, which
@@ -236,7 +237,7 @@ repository's rules at ffmpeg's speed.
 
 Try one before writing it down:
 
-    sky-press --try SOURCE 0.35,0.70,0.0,0.68 /tmp/look-at-this.webp
+    wallpaper-press --try SOURCE 0.35,0.70,0.0,0.68 /tmp/look-at-this.webp
 
 A green daylight picture takes the pull worst, because a bright green scene in a
 dark plum theme is a contradiction and pulling it hard turns it grey. Those keep
@@ -264,12 +265,12 @@ replace, and are looked in before the set the machine came with.
 
 ## What is behind them
 
-Not the garden. `console-paper.service` brings the wallpaper daemon up and fills
-the screen with `night`, the deepest ground, and `console-sky` paints a picture
-over that once it has chosen one. So the ground is a colour: it is what a
-machine with no pressed pictures shows, what stays up if `console-sky` will not
-start at all, and what is on the screen for the fraction of a second before the
-first picture arrives.
+Not the garden. `console-paper.service` brings the wallpaper daemon up and
+fills the screen with `night`, the deepest ground, and `console-wallpaper`
+paints a picture over that once it has chosen one. So the ground is a colour:
+it is what a machine with no pressed pictures shows, what stays up if
+`console-wallpaper` will not start at all, and what is on the screen for the
+fraction of a second before the first picture arrives.
 
 The colour is written into the unit by `just theme`, because a systemd unit is
 a list of literals and can import nothing. It is the fourth file to be written
@@ -281,25 +282,26 @@ chose, in front of everybody, for a moment at every boot. It stopped being
 that, and then it was a program drawing a picture nothing put up. The program
 is gone -- `git log -- crates/console-garden` -- and what is left of it is the
 two things something else was using: the WebP muxer that presses every picture
-here is `console_sky::webp` now, and the solved palette is read by
-`console_sky::palette`. The picture itself still ships at
+here is `console_wallpaper::webp` now, and the solved palette is read by
+`console_wallpaper::palette`. The picture itself still ships at
 `/usr/share/backgrounds/console.webp` and `awww img` still paints it, as a
 fixed file that no longer follows the palette.
 
 ## When it is wrong
 
 `docs/theme.md` has the three rungs for a wallpaper that looks wrong, and the
-first one is still the answer most of the time: awww names a cache entry after a
-picture's path and after nothing inside the file, so a picture pressed again at
-the same path is served out of the old one's frames. `sky-press` throws that
-cache away after it writes anything, which is the moment before it would matter.
+first one is still the answer most of the time: awww names a cache entry after
+a picture's path and after nothing inside the file, so a picture pressed again
+at the same path is served out of the old one's frames. `wallpaper-press`
+throws that cache away after it writes anything, which is the moment before it
+would matter.
 
 Past that:
 
 1. `awww query` says which file it thinks it is showing. The Wallpaper tab
    reads the same line, which is why it reports what is up rather than working
    out what ought to be.
-2. `journalctl --user -u console-sky -f`, and open and close a window. A daemon
+2. `journalctl --user -u console-wallpaper -f`, and open and close a window. A daemon
    that says nothing when a window opens is not reading the compositor's socket.
-3. `console-sky --now` in a terminal, which does one pass and prints what went
+3. `console-wallpaper --now` in a terminal, which does one pass and prints what went
    wrong rather than restarting around it.

@@ -7,19 +7,19 @@
 
 use std::sync::Arc;
 
-use console_panel::page::{Page, Row, Rows};
+use console_panel::page::{Aside, Page, Row, Rows, Which};
 use console_panel::panel;
 
 fn main() {
     let build = Arc::new(|| {
         let Ok(asked) = Rows::asked(|| {
-            let Ok(row) = Row::said("holiday.jpg", "");
+            let Ok(row) = Row::said("holiday.jpg", Aside(""));
 
             vec![row]
         });
         let Ok(page) = Page::new("Pictures", asked);
         let Ok(page) = page.on_arriving(|showing| {
-            showing.sure("Throw this away?", "holiday.jpg", &["Delete"], Arc::new(|_, _| ()));
+            showing.sure("Delete this?", Which("holiday.jpg"), &["Delete"], Arc::new(|_, _| ()));
         });
 
         vec![page]

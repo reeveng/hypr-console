@@ -16,7 +16,11 @@ use console_test_stages::device::{Device, PATIENCE};
 
 pub const WORN: &str = "Router";
 
-pub fn opens(stage: &mut Device, button: &str, what: &str) -> Done {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct What<'a>(pub &'a str);
+
+pub fn opens(stage: &mut Device, button: &str, what: What<'_>) -> Done {
+    let what = what.0;
     let Ok(()) = stage.press(button);
     let Ok(drawn) = stage.drawn(PATIENCE);
 

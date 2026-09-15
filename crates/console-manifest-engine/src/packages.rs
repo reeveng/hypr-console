@@ -17,26 +17,24 @@
 //! `Held::Borrowed` is that state said out loud, and `console apply` settles it
 //! by telling pacman the desktop asked for the package too, which is true.
 
+use std::collections::HashSet;
+
 use console_core_never::Never;
+use console_core_words::Words;
 
 use crate::settled::Settled;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
 pub enum Held {
+    #[words(name = "ok")]
     Ok,
+    #[words(name = "held as a dependency")]
     Borrowed,
+    #[words(name = "missing")]
     Missing,
 }
 
 impl Held {
-    pub fn name(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Held::Ok => "ok",
-            Held::Borrowed => "held as a dependency",
-            Held::Missing => "missing",
-        })
-    }
-
     pub fn settled(self) -> Result<Settled, Never> {
         Ok(match self == Held::Ok {
             true => Settled::Yes,
@@ -72,9 +70,11 @@ pub fn borrowed<'a>(
 }
 
 pub fn missing<'a>(named: &'a [String], installed: &[String]) -> Result<Vec<&'a str>, Never> {
+    let known: HashSet<&str> = installed.iter().map(String::as_str).collect();
+
     Ok(named
         .iter()
-        .filter(|package| !installed.iter().any(|name| name == *package))
+        .filter(|package| !known.contains(package.as_str()))
         .map(String::as_str)
         .collect())
 }

@@ -18,8 +18,8 @@
 //! whole path has by definition stopped asking.
 //!
 //! The four are looked for with `console` on the end. A base on its own is a
-//! word this tree has every right to say -- `.config/hypr` and `.config/mako`
-//! are other programs' directories, `files/home/@user@/.config/...` is a path
+//! word this tree has every right to say -- `.config/hypr` and
+//! `.config/waybar` are other programs' directories, `files/home/@user@/.config/...` is a path
 //! in this repository rather than on a machine -- and it is the desktop's own
 //! directory under a base that had drifted. Both ways of ending it are looked
 //! for, the directory that goes on and the directory that stops, so that
@@ -68,14 +68,14 @@ const BASES_OF_A_TOOLKIT: [&str; 4] =
     ["user_config_dir", "user_state_dir", "user_data_dir", "user_cache_dir"];
 
 const ASKING_A_TOOLKIT: &[&str] = &[
-    "crates/console-downloads/src/bin/download-find.rs",
-    "crates/console-downloads/src/bin/one-format.rs",
+    "crates/console-downloads/src/bin/downloads-find.rs",
+    "crates/console-downloads/src/bin/downloads-format.rs",
     "crates/console-downloads/src/card.rs",
     "crates/console-files/src/bin/files-thumbs.rs",
     "crates/console-files/src/card.rs",
-    "crates/console-music-panel/src/bin/music-index.rs",
-    "crates/console-music-panel/src/card.rs",
-    "crates/console-music-panel/src/library.rs",
+    "crates/console-music/src/bin/music-index.rs",
+    "crates/console-music/src/card.rs",
+    "crates/console-music/src/library.rs",
     "crates/console-panel/src/style.rs",
 ];
 

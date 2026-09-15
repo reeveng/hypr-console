@@ -15,10 +15,12 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use console_input_controller::means::Table;
-use console_input_gamepad::front::{DEVICES, Front, asking};
+use console_input_gamepad::front::{DEVICES, Front, Read, asking};
 use console_input_bindings::moved::{Jobs, path_in};
 use console_core_atomic_writes::Held;
 use console_core_never::Never;
+
+use crate::Unmapped;
 
 pub fn at() -> Result<Option<PathBuf>, Never> {
     let Ok(home) = console_core_places::home();
@@ -63,23 +65,23 @@ pub fn read() -> Result<Jobs, Never> {
     })
 }
 
-pub fn write(jobs: &Jobs) -> Result<(), String> {
+pub fn write(jobs: &Jobs) -> Result<(), Unmapped> {
     let Ok(at) = at();
 
     let at = match at {
         Some(at) => at,
-        None => return Err("this machine will not say whose buttons these are".to_string()),
+        None => return Err(Unmapped::Nobodys),
     };
 
     match at.parent() {
         Some(holding) => std::fs::create_dir_all(holding)
-            .map_err(|fault| format!("{}: {fault}", holding.display()))?,
+            .map_err(|fault| Unmapped::Holding(holding.to_path_buf(), fault))?,
         None => {}
     }
 
     let Ok(written) = jobs.written();
 
-    std::fs::write(&at, written).map_err(|fault| format!("{}: {fault}", at.display()))
+    console_core_atomic_writes::whole(&at, written.as_bytes()).map_err(Unmapped::Writing)
 }
 
 pub fn table() -> Result<Table, Never> {
@@ -93,7 +95,7 @@ pub fn front() -> Result<Front, Never> {
     let Ok(asked) = said(&asking);
     let Ok(devices) = devices();
 
-    Front::of(&asked, &devices)
+    Front::of(Read { said: &asked, devices: &devices })
 }
 
 fn devices() -> Result<String, Never> {

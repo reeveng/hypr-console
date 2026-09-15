@@ -41,8 +41,11 @@ impl Found {
     }
 }
 
-pub fn answers(name: &str, word: &str) -> Result<Answers, Never> {
-    Ok(match name.to_lowercase().contains(word.trim().to_lowercase().as_str()) {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Word<'a>(pub &'a str);
+
+pub fn answers(name: &str, word: Word<'_>) -> Result<Answers, Never> {
+    Ok(match name.to_lowercase().contains(word.0.trim().to_lowercase().as_str()) {
         true => Answers::Yes,
         false => Answers::No,
     })
@@ -91,7 +94,7 @@ pub fn under(
                 false => {},
             }
 
-            let answers = answers(&thing.name, word)?;
+            let answers = answers(&thing.name, Word(word))?;
 
             match answers {
                 Answers::Yes => found.push(Found { thing, within: within.clone() }),

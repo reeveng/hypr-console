@@ -34,13 +34,14 @@
 
 use console_core_external_programs::Program as Theirs;
 use console_core_never::Never;
+use console_core_our_programs::CONFIRM_DOES;
 use console_core_places::{Base, OURS};
 use console_program_contract::{
     Argv, Chose, Doing, Ending, Given, Opening, Program, Question, Runs, Turn, Went, Word,
 };
 use console_session::reaching;
 
-use crate::deploying::{CARD, NO_CARD, SAID_NO, TREE};
+use crate::deploying::{NO_CARD, SAID_NO, TREE, card};
 use crate::naming::HOST;
 
 pub const WAS: &str = "/etc/legion";
@@ -166,11 +167,10 @@ impl Program for Migrate {
 
     fn opening(argv: &Argv) -> Opening<Migrating> {
         let Ok(first) = argv.first();
-        let host = first.unwrap_or_default();
 
-        let Ok(opening) = match host.is_empty() {
-            true => Opening::holding(Migrating::Nowhere),
-            false => {
+        let Ok(opening) = match first.filter(|host| !host.trim().is_empty()) {
+            None => Opening::holding(Migrating::Nowhere),
+            Some(host) => {
                 let Ok(said) = asked_for(argv);
 
                 Opening::holding(Migrating::At(
@@ -222,7 +222,7 @@ fn at(
 
     match (step, word) {
         (Step::Owning, Word::Opened) => {
-            let Ok(runs) = on(&going.host, reaching::OWNER);
+            let Ok(runs) = on(going, reaching::OWNER);
 
             Turn::doing(at.clone(), vec![Doing::Ask(runs)])
         }
@@ -235,7 +235,7 @@ fn at(
                 false => {
                     let going = Going { whom: whom.clone(), ..going.clone() };
 
-                    let Ok(runs) = on(&going.host, &format!("id -u {whom}"));
+                    let Ok(runs) = on(&going, &format!("id -u {whom}"));
                     Turn::doing(
                         Migrating::At(Step::Numbering, going.clone()),
                         vec![Doing::Ask(runs)],
@@ -247,8 +247,7 @@ fn at(
         (Step::Numbering, Word::Answered(answer)) => {
             let going = Going { uid: answer.said.trim().to_string(), ..going.clone() };
 
-            let Ok(runs) = on(
-                        &going.host,
+            let Ok(runs) = on(&going,
                         &format!("test -d {TREE} && echo now; test -d {WAS} && echo was; true"),
                     );
             Turn::doing(
@@ -276,13 +275,13 @@ fn at(
         }
 
         (Step::Listing, Word::Answered(answer)) => {
-            let Ok(old) = named(&answer.said, "legion");
-            let Ok(new) = named(&answer.said, "console");
+            let Ok(old) = named(&answer.said, Like("legion"));
+            let Ok(new) = named(&answer.said, Like("console"));
             let going = Going { old: old.clone(), ..going.clone() };
 
             let Ok(said) = looking_in_a_home();
-            let Ok(as_them) = reaching::as_them(&going.whom, &said);
-            let Ok(runs) = on(&going.host, &as_them);
+            let Ok(as_them) = reaching::as_them(reaching::Whom(&going.whom), &said);
+            let Ok(runs) = on(&going, &as_them);
             let Ok(was) = listed(&old);
             let Ok(now) = listed(&new);
 
@@ -297,7 +296,8 @@ fn at(
         }
 
         (Step::Homing, Word::Answered(answer)) => {
-            let Ok(runs) = on(&going.host, "ls -d /usr/local/bin/legion* /usr/local/lib/legion 2>/dev/null");
+            let Ok(runs) =
+                on(going, "ls -d /usr/local/bin/legion* /usr/local/lib/legion 2>/dev/null");
 
             let Ok(asked) = lines(&answer.said);
             let Ok(said) = listed(&asked);
@@ -381,7 +381,7 @@ fn at(
                 How::Yes => {
                     let Ok(said) = making_an_attic();
 
-                    let Ok(runs) = on(&going.host, &said);
+                    let Ok(runs) = on(going, &said);
                     Turn::doing(
                         Migrating::At(Step::Atticking, going.clone()),
                         vec![Doing::Ask(runs)],
@@ -468,7 +468,7 @@ fn at(
                         )
                     },
                     true => {
-                        let Ok(runs) = on(&going.host, "console check");
+                        let Ok(runs) = on(going, "console check");
 
                         Turn::doing(
                             Migrating::At(Step::Saying, going.clone()),
@@ -514,18 +514,16 @@ fn at(
 pub fn plan(going: &Going) -> Result<Vec<Piece>, Never> {
     let Ok(tree) = where_(going.tree);
     let Ok(runs) =
-        on(&going.host, &format!("git -C {tree} config receive.denyCurrentBranch updateInstead"));
+        on(going, &format!("git -C {tree} config receive.denyCurrentBranch updateInstead"));
     let Ok(history) = told("\n== the history", runs, Matters::Yes);
     let Ok(pushes) =
         Runs::theirs(Theirs::Git, &["push", &format!("ssh://{}{tree}", going.host), "HEAD:master"]);
     let Ok(pushing) = piece(pushes, Shown::Screen, Matters::Yes);
-    let Ok(runs) = on(
-        &going.host,
+    let Ok(runs) = on(going,
         &format!("cargo build --release --locked --manifest-path {tree}/Cargo.toml --bin console"),
     );
     let Ok(engine) = told("\n== the engine", runs, Matters::Yes);
-    let Ok(runs) = on(
-        &going.host,
+    let Ok(runs) = on(going,
         &format!("install -m 755 {tree}/target/release/console /usr/local/bin/console"),
     );
     let Ok(installing) = piece(runs, Shown::Screen, Matters::Yes);
@@ -557,7 +555,7 @@ pub fn plan(going: &Going) -> Result<Vec<Piece>, Never> {
 
     match going.tree {
         Tree::Was => {
-            let Ok(runs) = on(&going.host, &format!("mv {WAS} {TREE}"));
+            let Ok(runs) = on(going, &format!("mv {WAS} {TREE}"));
             let Ok(next) = piece(runs, Shown::Back, Matters::Yes);
 
             every.push(next)
@@ -568,20 +566,20 @@ pub fn plan(going: &Going) -> Result<Vec<Piece>, Never> {
     let Ok(homes) = homes();
 
     for (was, now) in homes {
-        let Ok(said) = moving_a_home(&was, &now);
-        let Ok(as_them) = reaching::as_them(&going.whom, &said);
-        let Ok(runs) = on(&going.host, &as_them);
+        let Ok(said) = moving_a_home(Home { was: &was, now: &now });
+        let Ok(as_them) = reaching::as_them(reaching::Whom(&going.whom), &said);
+        let Ok(runs) = on(going, &as_them);
         let Ok(next) = letting(runs);
 
         every.push(next);
     }
 
     let Ok(said) = moving_the_pictures();
-    let Ok(runs) = on(&going.host, &said);
+    let Ok(runs) = on(going, &said);
     let Ok(next) = letting(runs);
     every.push(next);
 
-    let Ok(runs) = on(&going.host, "console apply");
+    let Ok(runs) = on(going, "console apply");
     let Ok(next) = told("\n== the apply", runs, Matters::Yes);
     every.push(next);
 
@@ -589,14 +587,14 @@ pub fn plan(going: &Going) -> Result<Vec<Piece>, Never> {
     every.push(next);
 
     for (into, patterns) in SWEPT {
-        let Ok(said) = sweeping(&going.attic, into, patterns);
-        let Ok(runs) = on(&going.host, &said);
+        let Ok(said) = sweeping(Sweep { attic: &going.attic, into, patterns });
+        let Ok(runs) = on(going, &said);
         let Ok(next) = letting(runs);
 
         every.push(next);
     }
 
-    let Ok(runs) = on(&going.host, "udevadm control --reload");
+    let Ok(runs) = on(going, "udevadm control --reload");
     let Ok(next) = letting(runs);
     every.push(next);
 
@@ -640,7 +638,7 @@ fn sending(left: &[Piece]) -> Result<Vec<Doing<console_core_never::Never>>, Neve
 
 fn taking(going: &Going) -> Result<Turn<Migrating, console_core_never::Never>, Never> {
     let Ok(said) = making_an_attic();
-    let Ok(runs) = on(&going.host, &said);
+    let Ok(runs) = on(going, &said);
     Turn::doing(
         Migrating::At(Step::Atticking, going.clone()),
         vec![Doing::Ask(runs)],
@@ -676,10 +674,13 @@ pub fn where_(tree: Tree) -> Result<&'static str, Never> {
     })
 }
 
-fn named(said: &str, like: &str) -> Result<Vec<String>, Never> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Like<'a>(&'a str);
+
+fn named(said: &str, like: Like<'_>) -> Result<Vec<String>, Never> {
     Ok(said.lines()
         .filter_map(|line| line.split_whitespace().next())
-        .filter(|name| name.starts_with(like))
+        .filter(|name| name.starts_with(like.0))
         .map(str::to_string)
         .collect())
 }
@@ -703,7 +704,15 @@ fn looking_in_a_home() -> Result<String, Never> {
     Ok(format!("ls -d {} 2>/dev/null", every.join(" ")))
 }
 
-fn moving_a_home(was: &str, now: &str) -> Result<String, Never> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Home<'a> {
+    was: &'a str,
+    now: &'a str,
+}
+
+fn moving_a_home(home: Home<'_>) -> Result<String, Never> {
+    let Home { was, now } = home;
+
     Ok(format!(
         "[ -e \"$HOME/{was}\" ] || exit 0; [ -e \"$HOME/{now}\" ] && exit 0; \
          mkdir -p \"$(dirname \"$HOME/{now}\")\" && mv \"$HOME/{was}\" \"$HOME/{now}\" && \
@@ -720,17 +729,28 @@ fn moving_the_pictures() -> Result<String, Never> {
 }
 
 fn making_an_attic() -> Result<String, Never> {
-    let every: Vec<&str> =
-        SWEPT.iter().map(|(into, _)| *into).filter(|into| !into.is_empty()).collect();
-
     Ok(format!(
         "attic=/var/tmp/console-migration-$(date +%Y%m%d-%H%M%S); \
          mkdir -p{}; echo $attic",
-        every.iter().map(|into| format!(" $attic/{into}")).collect::<String>()
+        SWEPT
+            .iter()
+            .map(|(into, _)| *into)
+            .filter(|into| !into.is_empty())
+            .map(|into| format!(" $attic/{into}"))
+            .collect::<String>()
     ))
 }
 
-fn sweeping(attic: &str, into: &str, patterns: &str) -> Result<String, Never> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Sweep<'a> {
+    attic: &'a str,
+    into: &'a str,
+    patterns: &'a str,
+}
+
+fn sweeping(sweep: Sweep<'_>) -> Result<String, Never> {
+    let Sweep { attic, into, patterns } = sweep;
+
     let where_ = match into.is_empty() {
         true => attic.to_string(),
         false => format!("{attic}/{into}"),
@@ -739,15 +759,22 @@ fn sweeping(attic: &str, into: &str, patterns: &str) -> Result<String, Never> {
     Ok(format!("for at in {patterns}; do [ -e \"$at\" ] && mv \"$at\" {where_}/; done; true"))
 }
 
+const ASKS: &str = "Rename what is installed on this device? The desktop closes and comes back.";
+
+const DOES: &str = "Rename";
+
 fn carding(going: &Going) -> Result<Runs, Never> {
-    let asks = format!("Bring {} over to the console names? The desktop goes down for it.", going.host);
-    let Ok(quoted) = reaching::quoted(&asks);
+    let Ok(named) = card();
+    let Ok(quoted) = reaching::quoted(ASKS);
+    let Ok(does) = reaching::quoted(DOES);
 
-    let card = format!("command -v {CARD} >/dev/null || exit {NO_CARD}; {CARD} {quoted}");
+    let card = format!(
+        "command -v {named} >/dev/null || exit {NO_CARD}; {CONFIRM_DOES}={does} exec {named} {quoted}"
+    );
 
-    let Ok(in_session) = reaching::in_session(&going.whom, &card);
+    let Ok(in_session) = reaching::in_session(reaching::Whom(&going.whom), &card);
 
-    on(&going.host, &in_session)
+    on(going, &in_session)
 }
 
 fn theirs(going: &Going, command: &str) -> Result<Runs, Never> {
@@ -755,7 +782,7 @@ fn theirs(going: &Going, command: &str) -> Result<Runs, Never> {
     let Ok(env) = Theirs::Env.name();
 
     on(
-        &going.host,
+        going,
         &format!(
             "{runuser} -u {} -- {env} XDG_RUNTIME_DIR=/run/user/{} {command}",
             going.whom, going.uid
@@ -763,8 +790,8 @@ fn theirs(going: &Going, command: &str) -> Result<Runs, Never> {
     )
 }
 
-fn on(host: &str, command: &str) -> Result<Runs, Never> {
-    Runs::theirs(Theirs::Ssh, &[host, command])
+fn on(going: &Going, command: &str) -> Result<Runs, Never> {
+    Runs::theirs(Theirs::Ssh, &[going.host.as_str(), command])
 }
 
 fn piece(runs: Runs, shown: Shown, matters: Matters) -> Result<Piece, Never> {
@@ -861,7 +888,7 @@ mod tests {
     }
 
     fn well(said: &str) -> Word<console_core_never::Never> {
-        let Ok(runs) = on("root@handheld", "true");
+        let Ok(runs) = Runs::theirs(Theirs::Ssh, &["root@handheld", "true"]);
         Word::Answered(Answer {
             ran: runs,
             said: said.to_string(),
@@ -870,7 +897,7 @@ mod tests {
     }
 
     fn badly(code: i32) -> Word<console_core_never::Never> {
-        let Ok(runs) = on("root@handheld", "true");
+        let Ok(runs) = Runs::theirs(Theirs::Ssh, &["root@handheld", "true"]);
         Word::Answered(Answer {
             ran: runs,
             said: String::new(),

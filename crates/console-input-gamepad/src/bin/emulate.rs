@@ -21,6 +21,7 @@ use console_input_gamepad::go::{LegionGo, Passing};
 use console_input_gamepad::profile::Profile;
 use console_input_gamepad::router::every_profile;
 use console_input_gamepad::script::{self, VERBS};
+use console_input_gamepad::Unpressed;
 use console_input_gamepad::uinput::Uinput;
 use console_core_never::Never;
 
@@ -49,7 +50,58 @@ fn main() -> ExitCode {
     }
 }
 
-fn run() -> Result<ExitCode, String> {
+#[derive(Debug)]
+enum Unemulated {
+    NoProfileName,
+    NoRootPath,
+    NoScenario,
+    NoSuchCommand(String),
+    Rootless(console_repository::Unfound),
+    Unreadable(PathBuf, std::io::Error),
+    NoDevices(Unpressed),
+    NoUinput(Unpressed),
+    Pressing(Unpressed),
+}
+
+impl std::fmt::Display for Unemulated {
+    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Unemulated::NoProfileName => write!(to, "--profile takes a name"),
+            Unemulated::NoRootPath => write!(to, "--root takes a path"),
+            Unemulated::NoScenario => write!(to, "run takes a scenario to play"),
+            Unemulated::NoSuchCommand(other) => {
+                write!(to, "no such command as {other:?}\n{HELP}")
+            }
+            Unemulated::Rootless(fault) => write!(to, "{fault}"),
+            Unemulated::Unreadable(at, fault) => {
+                write!(to, "{} could not be read: {fault}", at.display())
+            }
+            Unemulated::NoDevices(fault) => write!(to, "console-emulate: {fault}"),
+            Unemulated::NoUinput(fault) => write!(
+                to,
+                "console-emulate: {fault}. Tests that need no devices at all are \
+                 `just test`; see docs/emulator.md for the one rule that grants this."
+            ),
+            Unemulated::Pressing(fault) => write!(to, "{fault}"),
+        }
+    }
+}
+
+impl std::error::Error for Unemulated {}
+
+impl From<console_repository::Unfound> for Unemulated {
+    fn from(fault: console_repository::Unfound) -> Self {
+        Unemulated::Rootless(fault)
+    }
+}
+
+impl From<Unpressed> for Unemulated {
+    fn from(fault: Unpressed) -> Self {
+        Unemulated::Pressing(fault)
+    }
+}
+
+fn run() -> Result<ExitCode, Unemulated> {
     let said = read(std::env::args().skip(1).collect())?;
     let asked = match said {
         None => {
@@ -75,13 +127,8 @@ fn run() -> Result<ExitCode, String> {
         Doing::Interactive | Doing::Press(_) | Doing::Run(_) => (),
     }
 
-    let descriptors = captured().map_err(|why| format!("console-emulate: {why}"))?;
-    let sink = Uinput::of(&descriptors).map_err(|fault| {
-        format!(
-            "console-emulate: {fault}. Tests that need no devices at all are \
-             `just test`; see docs/emulator.md for the one rule that grants this."
-        )
-    })?;
+    let descriptors = captured().map_err(Unemulated::NoDevices)?;
+    let sink = Uinput::of(&descriptors).map_err(Unemulated::NoUinput)?;
     let profiles = every_profile(&asked.root)?;
     let Ok(devices) = Devices::new(descriptors, sink);
 
@@ -91,7 +138,7 @@ fn run() -> Result<ExitCode, String> {
         Doing::Press(buttons) => buttons.iter().try_for_each(|button| go.press(button))?,
         Doing::Run(scenario) => {
             let text = std::fs::read_to_string(scenario)
-                .map_err(|fault| format!("{} could not be read: {fault}", scenario.display()))?;
+                .map_err(|fault| Unemulated::Unreadable(scenario.clone(), fault))?;
             script::play(&mut go, &text)?;
         }
         Doing::Interactive | Doing::What(_) | Doing::Devices => {
@@ -104,7 +151,7 @@ fn run() -> Result<ExitCode, String> {
     Ok(ExitCode::SUCCESS)
 }
 
-fn read(args: Vec<String>) -> Result<Option<Asked>, String> {
+fn read(args: Vec<String>) -> Result<Option<Asked>, Unemulated> {
     let mut profile = console_input_gamepad::router::NAME.to_string();
     let mut root = PathBuf::from(".");
     let mut rest: Vec<String> = Vec::new();
@@ -114,12 +161,12 @@ fn read(args: Vec<String>) -> Result<Option<Asked>, String> {
         match word.as_str() {
             "--help" | "-h" => return Ok(None),
             "--profile" => {
-                let name = waiting.next().ok_or("--profile takes a name")?;
+                let name = waiting.next().ok_or(Unemulated::NoProfileName)?;
 
                 profile = name;
             }
             "--root" => {
-                let path = waiting.next().ok_or("--root takes a path")?;
+                let path = waiting.next().ok_or(Unemulated::NoRootPath)?;
 
                 root = path.into();
             }
@@ -131,18 +178,21 @@ fn read(args: Vec<String>) -> Result<Option<Asked>, String> {
         true => console_repository::root()?,
         false => root,
     };
-    let named = |rest: &[String]| rest.get(1..).unwrap_or_default().to_vec();
+    let named = |rest: &[String]| match rest.get(1..) {
+        Some(after) => after.to_vec(),
+        None => Vec::new(),
+    };
     let doing = match rest.first().map(String::as_str) {
         None => Doing::Interactive,
         Some("press") => Doing::Press(named(&rest)),
         Some("what") => Doing::What(named(&rest)),
         Some("devices") => Doing::Devices,
         Some("run") => {
-            let scenario = rest.get(1).ok_or("run takes a scenario to play")?;
+            let scenario = rest.get(1).ok_or(Unemulated::NoScenario)?;
 
             Doing::Run(scenario.into())
         }
-        Some(other) => return Err(format!("no such command as {other:?}\n{HELP}")),
+        Some(other) => return Err(Unemulated::NoSuchCommand(other.to_string())),
     };
     Ok(Some(Asked { doing, profile, root }))
 }

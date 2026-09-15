@@ -24,9 +24,9 @@ use crate::looking::Found;
 use crate::rows::{LINE, WAYS_START};
 use crate::store::Kind;
 
-pub const FIND: &str = "download-find";
+pub const FIND: &str = "downloads-find";
 
-pub const GET: &str = "download-get";
+pub const GET: &str = "downloads-get";
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum Onto {
@@ -56,7 +56,10 @@ impl Default for Standing {
 impl Standing {
 
     pub fn at(&self, tab: usize) -> Result<Tab, Never> {
-        Ok(self.tabs.get(tab).cloned().unwrap_or_default())
+        Ok(match self.tabs.get(tab).cloned() {
+            Some(tab) => tab,
+            None => Tab::default(),
+        })
     }
 
     fn with(&self, tab: usize, held: Tab) -> Result<Self, Never> {

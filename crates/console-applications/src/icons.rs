@@ -16,6 +16,10 @@ use console_core_never::Never;
 
 pub const THEMES: [&str; 5] = ["Papirus-Dark", "Papirus", "hicolor", "breeze-dark", "breeze"];
 
+const BEHIND_EVERY_THEME_WE_KNOW: usize = THEMES.len();
+
+const WHEN_NO_SIZE_IS_SAID: &str = "48";
+
 pub const WANTED: i64 = 64;
 
 pub const SMALLEST: i64 = 24;
@@ -26,8 +30,19 @@ type Score = (usize, u8, i64);
 
 type Best = (Score, String);
 
-pub fn rank(theme: &str, size: &str, suffix: &str) -> Result<Option<Score>, Never> {
-    let theme = THEMES.iter().position(|known| *known == theme).unwrap_or(THEMES.len());
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Icon<'a> {
+    pub theme: &'a str,
+    pub size: &'a str,
+    pub suffix: &'a str,
+}
+
+pub fn rank(icon: Icon<'_>) -> Result<Option<Score>, Never> {
+    let Icon { theme, size, suffix } = icon;
+    let theme = match THEMES.iter().position(|known| *known == theme) {
+        Some(at) => at,
+        None => BEHIND_EVERY_THEME_WE_KNOW,
+    };
 
     let said = digits(size)?;
 
@@ -59,13 +74,16 @@ fn digits(said: &str) -> Result<Option<i64>, Never> {
 }
 
 pub fn said_size(parts: &[String]) -> Result<String, Never> {
-    Ok(parts
+    let found = parts
         .iter()
         .take(3)
         .skip(1)
-        .find(|part| part == &"scalable" || part.starts_with(|first: char| first.is_ascii_digit()))
-        .cloned()
-        .unwrap_or_else(|| "48".to_string()))
+        .find(|part| part == &"scalable" || part.starts_with(|first: char| first.is_ascii_digit()));
+
+    Ok(match found {
+        Some(said) => said.clone(),
+        None => WHEN_NO_SIZE_IS_SAID.to_string(),
+    })
 }
 
 pub fn written(index: &BTreeMap<String, String>) -> Result<String, Never> {
@@ -81,14 +99,23 @@ pub fn read(said: &str) -> Result<BTreeMap<String, String>, Never> {
 }
 
 fn indexed(root: &Path, path: &Path) -> Result<Option<(String, Best)>, Never> {
-    let inside = match path.parent().unwrap_or(root).strip_prefix(root) {
+    let holding = match path.parent() {
+        Some(holding) => holding,
+        None => root,
+    };
+
+    let inside = match holding.strip_prefix(root) {
         Ok(inside) => inside,
         Err(_fault) => return Ok(None),
     };
 
     let parts: Vec<String> =
         inside.components().map(|part| part.as_os_str().to_string_lossy().to_string()).collect();
-    let theme = parts.first().cloned().unwrap_or_default();
+
+    let theme = match parts.first() {
+        Some(theme) => theme.clone(),
+        None => String::new(),
+    };
 
     let suffix = match path.extension().map(|kind| kind.to_string_lossy().to_string()) {
         Some(suffix) => suffix,
@@ -102,7 +129,7 @@ fn indexed(root: &Path, path: &Path) -> Result<Option<(String, Best)>, Never> {
 
     let size = said_size(&parts)?;
 
-    let score = rank(&theme, &size, &suffix)?;
+    let score = rank(Icon { theme: &theme, size: &size, suffix: &suffix })?;
 
     let score = match score {
         Some(score) => score,
@@ -189,27 +216,39 @@ mod tests {
 
     #[test]
     fn the_theme_this_machine_is_dressed_in_wins() {
-        let papirus = ok(rank("Papirus-Dark", "64", "svg")).expect("a rank");
-        let breeze = ok(rank("breeze", "64", "svg")).expect("a rank");
+        let dressed = Icon { theme: "Papirus-Dark", size: "64", suffix: "svg" };
+        let other = Icon { theme: "breeze", size: "64", suffix: "svg" };
+
+        let papirus = ok(rank(dressed)).expect("a rank");
+        let breeze = ok(rank(other)).expect("a rank");
         assert!(papirus < breeze);
     }
 
     #[test]
     fn something_drawn_beats_something_pixelated() {
-        assert!(ok(rank("hicolor", "64", "svg")) < ok(rank("hicolor", "64", "png")));
+        let drawn = Icon { theme: "hicolor", size: "64", suffix: "svg" };
+        let pixelated = Icon { theme: "hicolor", size: "64", suffix: "png" };
+
+        assert!(ok(rank(drawn)) < ok(rank(pixelated)));
     }
 
     #[test]
     fn the_nearest_to_the_size_a_row_is_wins() {
-        assert!(ok(rank("hicolor", "64", "png")) < ok(rank("hicolor", "128", "png")));
-        assert!(ok(rank("hicolor", "48", "png")) < ok(rank("hicolor", "256", "png")));
-        assert_eq!(ok(rank("hicolor", "scalable", "svg")), ok(rank("hicolor", "64", "svg")));
+        let sized = |size| Icon { theme: "hicolor", size, suffix: "png" };
+        let drawn = |size| Icon { theme: "hicolor", size, suffix: "svg" };
+
+        assert!(ok(rank(sized("64"))) < ok(rank(sized("128"))));
+        assert!(ok(rank(sized("48"))) < ok(rank(sized("256"))));
+        assert_eq!(ok(rank(drawn("scalable"))), ok(rank(drawn("64"))));
     }
 
     #[test]
     fn something_too_small_or_saying_nothing_is_no_use() {
-        assert_eq!(ok(rank("hicolor", "16", "png")), None);
-        assert_eq!(ok(rank("hicolor", "symbolic", "svg")), None);
+        let tiny = Icon { theme: "hicolor", size: "16", suffix: "png" };
+        let unsaid = Icon { theme: "hicolor", size: "symbolic", suffix: "svg" };
+
+        assert_eq!(ok(rank(tiny)), None);
+        assert_eq!(ok(rank(unsaid)), None);
     }
 
     #[test]

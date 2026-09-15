@@ -126,6 +126,7 @@ use std::time::Duration;
 use console_core_number_conversion::{Float, toward_zero_u16};
 
 use console_core_never::Never;
+use console_how_far::Far;
 
 use crate::checking::Check;
 use crate::device::{Device, quoted};
@@ -167,9 +168,12 @@ impl Lengths {
 
         every.sort_unstable();
 
-        let at = every.len().checked_div(2).unwrap_or_default();
+        let at = every.len() / HALVED;
 
-        Ok(every.get(at).copied().unwrap_or_default())
+        Ok(match every.get(at).copied() {
+            Some(took) => took,
+            None => Duration::ZERO,
+        })
     }
 
     pub fn longest_first<'a>(&self, checks: &[&'a Check]) -> Result<Vec<&'a Check>, Never> {
@@ -179,7 +183,10 @@ impl Lengths {
         ordered.sort_by_key(|check| {
             let Ok(took) = self.of(check.name);
 
-            Reverse(took.unwrap_or(middle))
+            Reverse(match took {
+                Some(took) => took,
+                None => middle,
+            })
         });
 
         Ok(ordered)
@@ -323,7 +330,7 @@ impl Ahead {
 
     pub fn percent(&self) -> Result<u16, Never> {
         match self.whole.is_zero() {
-            true => counted(self.done, self.many),
+            true => counted(Far { done: self.done, many: self.many }),
             false => {
                 let Ok(leaning) =
                     leaning(self.passed.as_secs_f64() / self.whole.as_secs_f64());
@@ -336,7 +343,7 @@ impl Ahead {
 
     pub fn along(&self, gone: Duration) -> Result<u16, Never> {
         match self.whole.is_zero() {
-            true => counted(self.done, self.many),
+            true => counted(Far { done: self.done, many: self.many }),
             false => {
                 let Ok(inside) = self.inside(gone);
                 let at = self.passed.saturating_add(inside);
@@ -383,13 +390,16 @@ impl Ahead {
     }
 
     pub fn expecting(&self) -> Result<Duration, Never> {
-        Ok(self.expecting.last().copied().unwrap_or_default())
+        Ok(match self.expecting.last().copied() {
+            Some(expecting) => expecting,
+            None => Duration::ZERO,
+        })
     }
 
     pub fn span(&self) -> Result<u16, Never> {
         match self.whole.is_zero() {
             true => {
-                let Ok(one) = counted(1, self.many);
+                let Ok(one) = counted(Far { done: 1, many: self.many });
 
                 Ok(one)
             }
@@ -405,7 +415,10 @@ impl Ahead {
     }
 
     pub fn finished(&mut self, took: Duration) -> Result<(), Never> {
-        let one = self.expecting.pop().unwrap_or_default();
+        let one = match self.expecting.pop() {
+            Some(one) => one,
+            None => Duration::ZERO,
+        };
 
         self.passed = self.passed.saturating_add(one);
         self.took = self.took.saturating_add(took);
@@ -450,7 +463,9 @@ pub fn crept(gone: Duration, expecting: Duration) -> Result<f64, Never> {
     }
 }
 
-fn counted(done: usize, many: usize) -> Result<u16, Never> {
+fn counted(far: Far) -> Result<u16, Never> {
+    let Far { done, many } = far;
+
     Ok(match many {
         0 => 0,
         many => {
@@ -463,11 +478,19 @@ fn counted(done: usize, many: usize) -> Result<u16, Never> {
     })
 }
 
-const A_MINUTE: u64 = 60;
+const A_MINUTE: std::num::NonZeroU64 = match std::num::NonZeroU64::new(60) {
+    Some(minute) => minute,
+    None => std::num::NonZeroU64::MIN,
+};
+
+const HALVED: std::num::NonZeroUsize = match std::num::NonZeroUsize::new(2) {
+    Some(half) => half,
+    None => std::num::NonZeroUsize::MIN,
+};
 
 pub fn about(long: Duration) -> Result<String, Never> {
     let seconds = long.as_secs();
-    let minutes = seconds.checked_div(A_MINUTE).unwrap_or_default();
+    let minutes = seconds / A_MINUTE;
 
     Ok(match minutes {
         0 => format!("{seconds} seconds"),

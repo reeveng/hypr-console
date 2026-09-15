@@ -22,15 +22,19 @@
 //! read directly. It is left alone here too.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::OnceLock;
 use std::time::Duration;
 
+use console_core_geometry::Point;
 use console_core_never::Never;
 use evdev::{EventType, KeyCode};
 
+use crate::Unpressed;
 use crate::devices::{Devices, Has, Report, Sink};
 use crate::profile::{Kind, Profile, Target};
 use crate::vocabulary::{self, Names};
+
+const NO_DISTANCE: i32 = 0;
+
 
 pub const PRESS_SECONDS: f64 = 0.02;
 
@@ -79,6 +83,7 @@ pub struct LegionGo<S: Sink, C: Clock> {
     pub clock: C,
     profile: String,
     held: BTreeSet<String>,
+    nothing: Profile,
 }
 
 impl<S: Sink, C: Clock> LegionGo<S, C> {
@@ -87,19 +92,26 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
         devices: Devices<S>,
         clock: C,
         profile: &str,
-    ) -> Result<Self, String> {
-        let mut go =
-            LegionGo { profiles, devices, clock, profile: String::new(), held: BTreeSet::new() };
+    ) -> Result<Self, Unpressed> {
+        let mut go = LegionGo {
+            profiles,
+            devices,
+            clock,
+            profile: String::new(),
+            held: BTreeSet::new(),
+            nothing: Profile::default(),
+        };
         go.load_profile(profile)?;
         Ok(go)
     }
 
-    pub fn load_profile(&mut self, name: &str) -> Result<(), String> {
+    pub fn load_profile(&mut self, name: &str) -> Result<(), Unpressed> {
         match self.profiles.contains_key(name) {
             true => {},
             false => {
-                let every: Vec<&str> = self.profiles.keys().map(String::as_str).collect();
-                return Err(format!("no profile called {name:?}; there is {}", every.join(", ")));
+                let every: Vec<String> = self.profiles.keys().cloned().collect();
+
+                return Err(Unpressed::NoSuchProfile(name.to_string(), every));
             }
         }
 
@@ -112,11 +124,9 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
     }
 
     pub fn profile(&self) -> Result<&Profile, Never> {
-        static NOTHING: OnceLock<Profile> = OnceLock::new();
-
         Ok(match self.profiles.get(&self.profile) {
             Some(profile) => profile,
-            None => NOTHING.get_or_init(Profile::default),
+            None => &self.nothing,
         })
     }
 
@@ -124,36 +134,44 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
         Ok(self.held.iter().map(String::as_str).collect())
     }
 
-    pub fn down(&mut self, spoken: &str) -> Result<(), String> {
+    pub fn down(&mut self, spoken: &str) -> Result<(), Unpressed> {
         self.held.insert(spoken.to_string());
         self.button(spoken, 1)
     }
 
-    pub fn up(&mut self, spoken: &str) -> Result<(), String> {
+    pub fn up(&mut self, spoken: &str) -> Result<(), Unpressed> {
         self.held.remove(spoken);
         self.button(spoken, 0)
     }
 
-    pub fn press(&mut self, spoken: &str) -> Result<(), String> {
+    pub fn press(&mut self, spoken: &str) -> Result<(), Unpressed> {
         self.down(spoken)?;
         self.clock.wait(PRESS_SECONDS);
         self.up(spoken)
     }
 
-    pub fn hold(&mut self, spoken: &str) -> Result<(), String> {
+    pub fn hold(&mut self, spoken: &str) -> Result<(), Unpressed> {
         self.down(spoken)
     }
 
-    pub fn release(&mut self, spoken: &str) -> Result<(), String> {
+    pub fn release(&mut self, spoken: &str) -> Result<(), Unpressed> {
         self.up(spoken)
     }
 
-    pub fn release_all(&mut self) -> Result<(), String> {
+    pub fn release_all(&mut self) -> Result<(), Unpressed> {
+        #[cfg_attr(
+            dylint_lib = "explicit027_no_needless_collection",
+            allow(
+                explicit027_no_needless_collection,
+                reason = "`up` takes `&mut self` and `self.held` is what would be walked, so the list is what ends the borrow before the first release changes it"
+            )
+        )]
         let held: Vec<String> = self.held.iter().cloned().collect();
+
         held.iter().try_for_each(|spoken| self.up(spoken))
     }
 
-    fn button(&mut self, spoken: &str, value: i32) -> Result<(), String> {
+    fn button(&mut self, spoken: &str, value: i32) -> Result<(), Unpressed> {
         let Ok(names) = vocabulary::is_trigger(spoken);
 
         match names {
@@ -181,7 +199,7 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
         }
     }
 
-    fn passthrough(&mut self, name: &str, value: i32) -> Result<(), String> {
+    fn passthrough(&mut self, name: &str, value: i32) -> Result<(), Unpressed> {
         let Ok(profile) = self.profile();
 
         let Ok(publishes) = profile.publishes("xbox-elite");
@@ -192,7 +210,7 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
         }
     }
 
-    fn send(&mut self, target: &Target, value: i32) -> Result<(), String> {
+    fn send(&mut self, target: &Target, value: i32) -> Result<(), Unpressed> {
         let Ok(needs) = target.kind.needs();
 
         let Ok(named) = role_of(needs);
@@ -225,7 +243,7 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
         }
     }
 
-    fn on_the_pad(&mut self, name: &str, value: i32) -> Result<(), String> {
+    fn on_the_pad(&mut self, name: &str, value: i32) -> Result<(), Unpressed> {
         let Ok(hat) = vocabulary::hat_code(name);
 
         match hat {
@@ -250,18 +268,18 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
         }
     }
 
-    fn emit_key(&mut self, role: &str, code: KeyCode, value: i32) -> Result<(), String> {
+    fn emit_key(&mut self, role: &str, code: KeyCode, value: i32) -> Result<(), Unpressed> {
         let Ok(()) = self.devices.emit(role, EventType::KEY, code.0, value, Report::Now);
 
         Ok(())
     }
 
-    pub fn stick(&mut self, which: &str, x: f64, y: f64) -> Result<(), String> {
+    pub fn stick(&mut self, which: &str, to: Point<f64>) -> Result<(), Unpressed> {
         let Ok(name) = vocabulary::axis_named(which);
 
         let Ok(found) = vocabulary::axis_codes(name);
 
-        let codes = found.ok_or_else(|| format!("no stick called {which:?}"))?;
+        let codes = found.ok_or_else(|| Unpressed::NoStick(which.to_string()))?;
 
         let Ok(profile) = self.profile();
 
@@ -272,7 +290,7 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
             Has::Yes => {},
         }
 
-        for (code, amount) in [(codes.0, x), (codes.1, y)] {
+        for (code, amount) in [(codes.0, to.across), (codes.1, to.down)] {
             let at = self.devices.absolute("pad", code.0, amount)?;
 
             let Ok(()) = self.devices.emit("pad", EventType::ABSOLUTE, code.0, at, Report::Later);
@@ -283,16 +301,16 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
         Ok(())
     }
 
-    pub fn centre(&mut self, which: &str) -> Result<(), String> {
-        self.stick(which, 0.0, 0.0)
+    pub fn centre(&mut self, which: &str) -> Result<(), Unpressed> {
+        self.stick(which, Point { across: 0.0, down: 0.0 })
     }
 
-    pub fn trigger(&mut self, which: &str, amount: f64) -> Result<(), String> {
+    pub fn trigger(&mut self, which: &str, amount: f64) -> Result<(), Unpressed> {
         let Ok(name) = vocabulary::trigger_named(which);
 
         let Ok(found) = vocabulary::trigger_code(name);
 
-        let code = found.ok_or_else(|| format!("no trigger called {which:?}"))?;
+        let code = found.ok_or_else(|| Unpressed::NoTrigger(which.to_string()))?;
 
         let Ok(profile) = self.profile();
 
@@ -310,14 +328,14 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
         Ok(())
     }
 
-    pub fn touch_down(&mut self, x: i32, y: i32) -> Result<(), Never> {
+    pub fn touch_down(&mut self, at: Point<i32>) -> Result<(), Never> {
         self.devices.emit("touchpad", EventType::KEY, KeyCode::BTN_TOUCH.0, 1, Report::Later)?;
 
-        self.touch_at(x, y)
+        self.touch_at(at)
     }
 
-    pub fn touch_move(&mut self, x: i32, y: i32) -> Result<(), Never> {
-        self.touch_at(x, y)
+    pub fn touch_move(&mut self, at: Point<i32>) -> Result<(), Never> {
+        self.touch_at(at)
     }
 
     pub fn touch_up(&mut self) -> Result<(), Never> {
@@ -328,30 +346,37 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
         self.devices.emit("touchpad", EventType::KEY, KeyCode::BTN_0.0, value, Report::Now)
     }
 
-    pub fn tap(&mut self, x: i32, y: i32) -> Result<(), Never> {
-        self.touch_down(x, y)?;
+    pub fn tap(&mut self, at: Point<i32>) -> Result<(), Never> {
+        self.touch_down(at)?;
 
         self.touch_up()
     }
 
     pub fn drag(
         &mut self,
-        from: (i32, i32),
-        to: (i32, i32),
+        from: Point<i32>,
+        to: Point<i32>,
         steps: i32,
         seconds: f64,
     ) -> Result<(), Never> {
-        self.touch_down(from.0, from.1)?;
+        self.touch_down(from)?;
+
+        let part = |from: i32, to: i32, step: i32| {
+            let across = to.saturating_sub(from).saturating_mul(step);
+
+            let part = match across.checked_div(steps) {
+                Some(part) => part,
+                None => NO_DISTANCE,
+            };
+
+            from.saturating_add(part)
+        };
 
         for step in 1..=steps {
-            self.touch_move(
-                from.0.saturating_add(
-                    to.0.saturating_sub(from.0).saturating_mul(step).checked_div(steps).unwrap_or(0),
-                ),
-                from.1.saturating_add(
-                    to.1.saturating_sub(from.1).saturating_mul(step).checked_div(steps).unwrap_or(0),
-                ),
-            )?;
+            self.touch_move(Point {
+                across: part(from.across, to.across, step),
+                down: part(from.down, to.down, step),
+            })?;
 
             match seconds > 0.0 {
                 true => self.clock.wait(seconds / f64::from(steps)),
@@ -362,10 +387,10 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
         self.touch_up()
     }
 
-    fn touch_at(&mut self, x: i32, y: i32) -> Result<(), Never> {
-        self.devices.emit("touchpad", EventType::ABSOLUTE, 0, x, Report::Later)?;
+    fn touch_at(&mut self, at: Point<i32>) -> Result<(), Never> {
+        self.devices.emit("touchpad", EventType::ABSOLUTE, 0, at.across, Report::Later)?;
 
-        self.devices.emit("touchpad", EventType::ABSOLUTE, 1, y, Report::Later)?;
+        self.devices.emit("touchpad", EventType::ABSOLUTE, 1, at.down, Report::Later)?;
 
         self.devices.syn("touchpad")
     }

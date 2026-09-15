@@ -24,8 +24,8 @@ pub struct Message<'a> {
 }
 
 pub fn message(line: &str) -> Result<Option<Message<'_>>, Never> {
-    let Ok(interface) = after(line, "Interface=");
-    let Ok(member) = after(line, "Member=");
+    let Ok(interface) = after(line, Key("Interface="));
+    let Ok(member) = after(line, Key("Member="));
 
     Ok(match (interface, member) {
         (Some(interface), Some(member)) => Some(Message { interface, member }),
@@ -33,8 +33,11 @@ pub fn message(line: &str) -> Result<Option<Message<'_>>, Never> {
     })
 }
 
-fn after<'a>(line: &'a str, key: &str) -> Result<Option<&'a str>, Never> {
-    let said = match line.split_once(key) {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Key<'a>(&'a str);
+
+fn after<'a>(line: &'a str, key: Key<'_>) -> Result<Option<&'a str>, Never> {
+    let said = match line.split_once(key.0) {
         Some((_before, said)) => said,
         None => return Ok(None),
     };

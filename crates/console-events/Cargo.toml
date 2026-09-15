@@ -15,6 +15,7 @@ name = "console-events"
 path = "src/bin/console-events.rs"
 
 [dependencies]
+console-core-places = { workspace = true }
 # The words. `Topic` and `Changed` are the contract's, not this crate's: what a
 # program is told has one spelling, and a pool that invented a second one would
 # be a translation layer between two halves of the same idea.

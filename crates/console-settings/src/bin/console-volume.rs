@@ -12,7 +12,7 @@
 
 use console_core_external_programs::Program;
 use console_core_never::Never;
-use console_notifications::saying::{Kept, Notice, raise_kept};
+use console_notifications::saying::{Kept, Notice, Said, raise_kept};
 use console_settings::rocker::{self, Press};
 
 fn pactl(argv: &[String]) -> Result<String, Never> {
@@ -33,7 +33,7 @@ fn said() -> Result<(), Never> {
     let level = rocker::level(&level)?;
     let words = rocker::said(level, muted)?;
 
-    let notice = Notice::new(&words, "")?;
+    let notice = Notice::new(Said { summary: &words, body: "" })?;
     let mut notice = notice.lasting(1500)?;
 
     let value = rocker::value(level)?;

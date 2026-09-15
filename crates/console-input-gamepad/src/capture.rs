@@ -18,6 +18,8 @@ use std::collections::BTreeMap;
 use console_core_never::Never;
 use serde::{Deserialize, Serialize};
 
+use crate::Unpressed;
+
 pub const CAPTURED: &str = include_str!("../fixtures/devices.json");
 
 pub const ROLES: [(&str, &str); 4] = [
@@ -76,9 +78,9 @@ impl Descriptor {
     }
 }
 
-pub fn descriptors(json: &str) -> Result<BTreeMap<String, Descriptor>, String> {
+pub fn descriptors(json: &str) -> Result<BTreeMap<String, Descriptor>, Unpressed> {
     let captured: Vec<Descriptor> =
-        serde_json::from_str(json).map_err(|fault| format!("the capture does not parse: {fault}"))?;
+        serde_json::from_str(json).map_err(Unpressed::Uncaptured)?;
     let mut found = BTreeMap::new();
 
     for device in captured {
@@ -95,7 +97,7 @@ pub fn descriptors(json: &str) -> Result<BTreeMap<String, Descriptor>, String> {
     Ok(found)
 }
 
-pub fn captured() -> Result<BTreeMap<String, Descriptor>, String> {
+pub fn captured() -> Result<BTreeMap<String, Descriptor>, Unpressed> {
     descriptors(CAPTURED)
 }
 

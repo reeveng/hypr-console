@@ -3,16 +3,21 @@
 //! All three of these are asked of a list rather than of the machine, so the
 //! rules can be held to a capture of the real devices without a device in the
 //! room.
+//!
+//! What a device InputPlumber made says about itself is in `targets.rs`, and it
+//! is two numbers rather than the absence of a physical path: an empty path is
+//! every uinput device on the machine, somebody else's virtual pad included.
 
 
 use crate::devices::Has;
+use crate::targets::{Identity, Target};
 use console_core_never::Never;
 use evdev::{AbsoluteAxisCode, Device, KeyCode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Made {
-    ByInputPlumber,
-    ByHand,
+    Virtual,
+    Plugged,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -20,6 +25,8 @@ pub struct Says {
     pub path: String,
     pub name: String,
     pub phys: String,
+    pub vendor: u16,
+    pub product: u16,
     pub keys: Vec<u16>,
     pub axes: Vec<u16>,
 }
@@ -41,37 +48,74 @@ impl Says {
 
     fn made(&self) -> Result<Made, Never> {
         Ok(match self.phys.is_empty() {
-            true => Made::ByInputPlumber,
-            false => Made::ByHand,
+            true => Made::Virtual,
+            false => Made::Plugged,
+        })
+    }
+
+    fn wearing(&self, identity: Identity) -> Result<Has, Never> {
+        Ok(match self.vendor == identity.vendor && self.product == identity.product {
+            true => Has::Yes,
+            false => Has::No,
         })
     }
 }
 
+pub const UNNAMED: &str = "";
+
+pub fn named(device: &Device) -> Result<String, Never> {
+    Ok(match device.name() {
+        Some(name) => name.to_string(),
+        None => UNNAMED.to_string(),
+    })
+}
+
+pub fn wired(device: &Device) -> Result<String, Never> {
+    Ok(match device.physical_path() {
+        Some(phys) => phys.to_string(),
+        None => UNNAMED.to_string(),
+    })
+}
+
 pub fn says(path: &str, device: &Device) -> Result<Says, Never> {
+    let Ok(name) = named(device);
+    let Ok(phys) = wired(device);
+
+    let told = device.input_id();
+
+    let keys = match device.supported_keys() {
+        Some(keys) => keys.iter().map(|key| key.0).collect(),
+        None => Vec::new(),
+    };
+
+    let axes = match device.supported_absolute_axes() {
+        Some(axes) => axes.iter().map(|axis| axis.0).collect(),
+        None => Vec::new(),
+    };
+
     Ok(Says {
         path: path.to_string(),
-        name: device.name().unwrap_or_default().to_string(),
-        phys: device.physical_path().unwrap_or_default().to_string(),
-        keys: device
-            .supported_keys()
-            .map(|keys| keys.iter().map(|key| key.0).collect())
-            .unwrap_or_default(),
-        axes: device
-            .supported_absolute_axes()
-            .map(|axes| axes.iter().map(|axis| axis.0).collect())
-            .unwrap_or_default(),
+        name,
+        phys,
+        vendor: told.vendor(),
+        product: told.product(),
+        keys,
+        axes,
     })
 }
 
 pub fn gamepad(among: &[Says]) -> Result<Option<&Says>, Never> {
+    let Ok(identity) = Target::Pad.identity();
+
     for says in among {
         let across = says.has_axis(AbsoluteAxisCode::ABS_RX)?;
         let down = says.has_axis(AbsoluteAxisCode::ABS_RY)?;
         let sticks = across == Has::Yes && down == Has::Yes;
 
         let made = says.made()?;
+        let wearing = says.wearing(identity)?;
 
-        match sticks && made == Made::ByInputPlumber {
+        match sticks && made == Made::Virtual && wearing == Has::Yes {
             true => return Ok(Some(says)),
             false => {},
         }
@@ -81,14 +125,17 @@ pub fn gamepad(among: &[Says]) -> Result<Option<&Says>, Never> {
 }
 
 pub fn keyboard(among: &[Says]) -> Result<Option<&Says>, Never> {
+    let Ok(identity) = Target::Keyboard.identity();
+
     for says in among {
         let paddle = says.has_key(KeyCode::KEY_F13)?;
         let escape = says.has_key(KeyCode::KEY_ESC)?;
         let keys = paddle == Has::Yes && escape == Has::Yes;
 
         let made = says.made()?;
+        let wearing = says.wearing(identity)?;
 
-        match keys && made == Made::ByInputPlumber {
+        match keys && made == Made::Virtual && wearing == Has::Yes {
             true => return Ok(Some(says)),
             false => {},
         }
@@ -108,7 +155,7 @@ pub fn typing(among: &[Says]) -> Result<Vec<&Says>, Never> {
 
         let made = says.made()?;
 
-        match letters && made == Made::ByHand {
+        match letters && made == Made::Plugged {
             true => found.push(says),
             false => {},
         }
@@ -137,20 +184,40 @@ mod tests {
     use super::*;
 
     fn pad(phys: &str) -> Says {
+        let Ok(identity) = Target::Pad.identity();
+
         Says {
             path: "/dev/input/event0".into(),
             name: "Microsoft X-Box One Elite 2 pad".into(),
             phys: phys.into(),
+            vendor: identity.vendor,
+            product: identity.product,
+            keys: vec![KeyCode::BTN_SOUTH.0],
+            axes: vec![AbsoluteAxisCode::ABS_RX.0, AbsoluteAxisCode::ABS_RY.0],
+        }
+    }
+
+    fn steams_pad() -> Says {
+        Says {
+            path: "/dev/input/event17".into(),
+            name: "Microsoft X-Box 360 pad 0".into(),
+            phys: String::new(),
+            vendor: 0x28de,
+            product: 0x11ff,
             keys: vec![KeyCode::BTN_SOUTH.0],
             axes: vec![AbsoluteAxisCode::ABS_RX.0, AbsoluteAxisCode::ABS_RY.0],
         }
     }
 
     fn keys() -> Says {
+        let Ok(identity) = Target::Keyboard.identity();
+
         Says {
             path: "/dev/input/event1".into(),
             name: "InputPlumber Keyboard".into(),
             phys: String::new(),
+            vendor: identity.vendor,
+            product: identity.product,
             keys: vec![KeyCode::KEY_F13.0, KeyCode::KEY_ESC.0],
             axes: vec![],
         }
@@ -161,6 +228,8 @@ mod tests {
             path: "/dev/input/event2".into(),
             name: "  Legion Controller  Touchpad".into(),
             phys: "usb-0000:c2:00.3-3/input1".into(),
+            vendor: 0x17ef,
+            product: 0x61eb,
             keys: vec![KeyCode::BTN_TOUCH.0],
             axes: vec![AbsoluteAxisCode::ABS_X.0, AbsoluteAxisCode::ABS_Y.0],
         }
@@ -177,6 +246,29 @@ mod tests {
     #[test]
     fn a_physical_pad_on_its_own_is_not_the_one() {
         assert_eq!(gamepad(&[pad("usb-0000:c2:00.3-3/input0")]), Ok(None));
+    }
+
+    #[test]
+    fn a_pad_steam_published_is_not_the_one_the_profile_asked_for() {
+        let both = [steams_pad(), pad("")];
+        let Ok(found) = gamepad(&both);
+
+        assert_eq!(
+            found.map(|says| says.path.as_str()),
+            Some("/dev/input/event0"),
+            "the pad InputPlumber made is the one this desktop reads, whatever else \
+             is publishing a gamepad beside it"
+        );
+    }
+
+    #[test]
+    fn steams_pad_on_its_own_is_nothing_to_read() {
+        assert_eq!(
+            gamepad(&[steams_pad()]),
+            Ok(None),
+            "a machine whose only virtual pad is somebody else's has no pad of ours on it, \
+             and saying so is what stops the daemon reading a device nothing emits on"
+        );
     }
 
     #[test]
@@ -206,6 +298,8 @@ mod tests {
             path: "/dev/input/event3".into(),
             name: name.into(),
             phys: "usb-0000:c2:00.3-4/input0".into(),
+            vendor: 0x046d,
+            product: 0xb342,
             keys: vec![KeyCode::KEY_A.0, KeyCode::KEY_Z.0, KeyCode::KEY_ESC.0],
             axes: vec![],
         }
@@ -236,6 +330,8 @@ mod tests {
             path: "/dev/input/event4".into(),
             name: "Legion Go Volume".into(),
             phys: "isa0060/serio0/input0".into(),
+            vendor: 0x17ef,
+            product: 0x6182,
             keys: vec![KeyCode::KEY_VOLUMEUP.0, KeyCode::KEY_VOLUMEDOWN.0],
             axes: vec![],
         };

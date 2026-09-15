@@ -31,11 +31,11 @@ use console_input_gamepad::uinput::Uinput;
 
 pub const READS: [&str; 3] = ["keyboard", "pad", "touchpad"];
 
-const PUBLISHED: &str = "stick-scroll";
+const PUBLISHED: &str = "controller-desktop";
 
 const INSTEAD: [&str; 8] = [
     "controller-profile",
-    "game-mode",
+    "session-game",
     "hyprctl",
     "launcher",
     "console-brightness",
@@ -110,17 +110,20 @@ impl Running {
         let ran_at = here.join("ran");
         std::fs::File::create(&ran_at).map_err(|fault| fault.to_string())?;
 
-        let uinput = Uinput::of(&captured().expect("the capture carried in this program parses"))?;
+        let uinput = Uinput::of(&captured().expect("the capture carried in this program parses"))
+            .map_err(|fault| fault.to_string())?;
 
         let Ok(devices) =
             Devices::new(captured().expect("the capture carried in this program parses"), uinput);
 
         let Ok(paths) = devices.paths();
-        let go = LegionGo::new(every_profile(&root)?, devices, Held::default(), console_input_gamepad::router::NAME)?;
+        let profiles = every_profile(&root).map_err(|fault| fault.to_string())?;
+        let go = LegionGo::new(profiles, devices, Held::default(), console_input_gamepad::router::NAME)
+            .map_err(|fault| fault.to_string())?;
 
         let was = every_device();
         let path = std::env::var("PATH").unwrap_or_default();
-        let mut process = Command::new(env!("CARGO_BIN_EXE_stick-scroll"))
+        let mut process = Command::new(env!("CARGO_BIN_EXE_controller-desktop"))
             .env("PATH", format!("{}:{path}", instead_of_the_desktop(&here).display()))
             .env("CONSOLE_RAN", &ran_at)
             .env("CONSOLE_PAD", paths.get("pad").cloned().unwrap_or_default())

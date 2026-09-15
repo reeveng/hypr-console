@@ -17,30 +17,25 @@
 use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
-use std::sync::atomic::{AtomicBool, Ordering};
+use console_core_words::Words;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Words)]
 pub enum Weather {
+    #[words(word = "clear")]
     Clear,
+    #[words(word = "cloud")]
     Cloud,
+    #[words(word = "fog")]
     Fog,
+    #[words(word = "rain")]
     Rain,
+    #[words(word = "snow")]
     Snow,
+    #[words(word = "storm")]
     Storm,
 }
 
 impl Weather {
-    pub fn word(&self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Weather::Clear => "clear",
-            Weather::Cloud => "cloud",
-            Weather::Fog => "fog",
-            Weather::Rain => "rain",
-            Weather::Snow => "snow",
-            Weather::Storm => "storm",
-        })
-    }
-
     pub const EVERY: [Weather; 6] = [
         Weather::Clear,
         Weather::Cloud,
@@ -91,7 +86,7 @@ pub fn read(answer: &str) -> Result<Option<Weather>, Never> {
     let parsed: serde_json::Value = match serde_json::from_str(answer) {
         Ok(parsed) => parsed,
         Err(fault) => {
-            eprintln!("console-sky: the weather service answered with something that is not JSON: {fault}");
+            eprintln!("console-wallpaper: the weather service answered with something that is not JSON: {fault}");
 
             return Ok(None);
         }
@@ -119,7 +114,14 @@ pub fn read(answer: &str) -> Result<Option<Weather>, Never> {
     Ok(Some(weather))
 }
 
-pub fn now(at: &crate::sun::Where) -> Result<Option<Weather>, Never> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Told {
+    #[default]
+    NotYet,
+    Already,
+}
+
+pub fn now(at: &crate::sun::Where, told: &mut Told) -> Result<Option<Weather>, Never> {
     let asked = asking(at)?;
 
     let Ok(mut asking) = Program::Curl.command();
@@ -134,29 +136,32 @@ pub fn now(at: &crate::sun::Where) -> Result<Option<Weather>, Never> {
 
             match read {
                 found @ Some(_) => found,
-                None => complain("open-meteo answered with something this cannot read")?,
+                None => complain(told, "open-meteo answered with something this cannot read")?,
             }
         }
-        Ok(said) => complain(&format!(
+        Ok(said) => complain(told, &format!(
             "open-meteo would not answer: curl {}",
             said.status
         ))?,
-        Err(fault) => complain(&format!("the weather could not be asked for: {fault}"))?,
+        Err(fault) => complain(told, &format!("the weather could not be asked for: {fault}"))?,
     };
 
-    ANSWERED.store(said.is_some(), Ordering::Relaxed);
+    match said {
+        Some(_) => *told = Told::NotYet,
+        None => {},
+    }
 
     Ok(said)
 }
 
-static ANSWERED: AtomicBool = AtomicBool::new(true);
+fn complain(told: &mut Told, said: &str) -> Result<Option<Weather>, Never> {
+    match *told {
+        Told::NotYet => {
+            *told = Told::Already;
 
-fn complain(said: &str) -> Result<Option<Weather>, Never> {
-    match ANSWERED.swap(false, Ordering::Relaxed) {
-        true => {
             eprintln!("{said}");
         }
-        false => {},
+        Told::Already => {},
     }
 
     Ok(None)

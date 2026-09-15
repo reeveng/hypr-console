@@ -12,7 +12,8 @@
 use console_core_never::Never;
 use console_core_number_conversion::Float;
 
-use crate::fitting::{self, Size};
+use crate::fitting;
+use console_core_geometry::Size;
 use crate::kinds::Kind;
 use crate::playing::Along;
 
@@ -33,7 +34,7 @@ pub fn size(bytes: u64) -> Result<String, Never> {
     Ok(format!("{bytes} bytes"))
 }
 
-pub fn about(of: Size, bytes: u64) -> Result<String, Never> {
+pub fn about(of: Size<u32>, bytes: u64) -> Result<String, Never> {
     let Ok(shape) = fitting::said(of);
     let Ok(held) = size(bytes);
     let Ok(megapixels) = fitting::megapixels(of);
@@ -44,7 +45,7 @@ pub fn about(of: Size, bytes: u64) -> Result<String, Never> {
     })
 }
 
-pub fn under(kind: Kind, of: Size, bytes: u64, along: Along) -> Result<String, Never> {
+pub fn under(kind: Kind, of: Size<u32>, bytes: u64, along: Along) -> Result<String, Never> {
     let Ok(pixels) = fitting::pixels(of);
 
     match (kind, pixels > 0) {
@@ -88,19 +89,15 @@ pub fn wont_open(name: &str) -> Result<String, Never> {
 mod tests {
     use super::*;
 
-    fn sized(wide: u32, tall: u32) -> Size {
-        let Ok(size) = Size::new(wide, tall);
-
-        size
+    fn sized(wide: u32, tall: u32) -> Size<u32> {
+        Size { wide, tall }
     }
 
     fn along(at: u64, whole: u64) -> Along {
-        let Ok(along) = Along::new(at, whole);
-
-        along
+        Along { at, whole }
     }
 
-    fn said_of(kind: Kind, of: Size, bytes: u64, along: Along) -> String {
+    fn said_of(kind: Kind, of: Size<u32>, bytes: u64, along: Along) -> String {
         let Ok(said) = under(kind, of, bytes, along);
 
         said

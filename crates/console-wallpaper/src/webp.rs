@@ -5,7 +5,10 @@
 //! ffmpeg's muxer nor any tool packaged here will write the durations this
 //! needs, so the container is written out here. It is a header and a loop.
 
+use console_core_geometry::Size;
 use console_core_never::Never;
+
+use crate::Unpainted;
 
 pub struct Frame {
     pub x: i32,
@@ -22,15 +25,15 @@ fn three(value: u32) -> Result<[u8; 3], Never> {
     Ok([first, second, third])
 }
 
-fn riff_length(bytes: usize) -> Result<u32, String> {
-    u32::try_from(bytes).map_err(|_| format!("a chunk of {bytes} bytes is too big for a WebP"))
+fn riff_length(bytes: usize) -> Result<u32, Unpainted> {
+    u32::try_from(bytes).map_err(|_| Unpainted::ChunkTooBig(bytes))
 }
 
-fn side(pixels: i32) -> Result<u32, String> {
-    u32::try_from(pixels).map_err(|_| format!("{pixels} is not a size a WebP can hold"))
+fn side(pixels: i32) -> Result<u32, Unpainted> {
+    u32::try_from(pixels).map_err(|_| Unpainted::NotASide(pixels))
 }
 
-fn chunk(tag: &[u8; 4], body: &[u8]) -> Result<Vec<u8>, String> {
+fn chunk(tag: &[u8; 4], body: &[u8]) -> Result<Vec<u8>, Unpainted> {
     let measured = riff_length(body.len())?;
     let mut out = Vec::with_capacity(body.len().saturating_add(9));
     out.extend_from_slice(tag);
@@ -45,32 +48,30 @@ fn chunk(tag: &[u8; 4], body: &[u8]) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
-pub fn image_of(single: &[u8]) -> Result<&[u8], String> {
+pub fn image_of(single: &[u8]) -> Result<&[u8], Unpainted> {
     let mut at: usize = 12;
 
     while at.saturating_add(8) <= single.len() {
         let tag = match single.get(at..at.saturating_add(4)) {
             Some(tag) => tag,
-            None => return Err("that WebP is cut short".to_string()),
+            None => return Err(Unpainted::CutShort),
         };
 
         let said = match single.get(at.saturating_add(4)..at.saturating_add(8)) {
             Some(said) => said,
-            None => return Err("that WebP is cut short".to_string()),
+            None => return Err(Unpainted::CutShort),
         };
 
-        let four: [u8; 4] =
-            said.try_into().map_err(|_| "that WebP is cut short".to_string())?;
+        let four: [u8; 4] = said.try_into().map_err(|_| Unpainted::CutShort)?;
         let size = u32::from_le_bytes(four);
-        let counted = usize::try_from(size)
-            .map_err(|_| "that WebP holds a chunk longer than this machine can address")?;
+        let counted = usize::try_from(size).map_err(|_| Unpainted::ChunkTooLong)?;
         let whole = counted.saturating_add(counted & 1).saturating_add(8);
 
         match tag == b"VP8 " || tag == b"VP8L" {
             true => {
                 return single
                     .get(at..at.saturating_add(whole))
-                    .ok_or_else(|| "that WebP is cut short".to_string());
+                    .ok_or(Unpainted::CutShort);
             }
             false => {},
         }
@@ -78,12 +79,12 @@ pub fn image_of(single: &[u8]) -> Result<&[u8], String> {
         at = at.saturating_add(whole);
     }
 
-    Err("that WebP holds no picture".to_string())
+    Err(Unpainted::NoPicture)
 }
 
-pub fn animation(width: i32, height: i32, frames: &[Frame]) -> Result<Vec<u8>, String> {
-    let across = side(width)?;
-    let down = side(height)?;
+pub fn animation(size: Size<i32>, frames: &[Frame]) -> Result<Vec<u8>, Unpainted> {
+    let across = side(size.wide)?;
+    let down = side(size.tall)?;
 
     let Ok(wide) = three(across.saturating_sub(1));
 

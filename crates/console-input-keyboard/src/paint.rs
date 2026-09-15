@@ -16,6 +16,9 @@ use crate::config::{Config, Scheme};
 use crate::drawing::{Color, Rect, Surface};
 use crate::layout::{Key, Kind, Layout, Placed, mods};
 
+const NO_LANGUAGE_NAMED: &str = "";
+
+
 const EDGE: f64 = 2.0;
 
 pub struct Look<'a> {
@@ -95,7 +98,10 @@ fn one(onto: &Surface, key: &Key, placed: &Placed, ink: &Ink) -> Result<(), Neve
 
     let shifted = held & (mods::SHIFT | mods::CAPS) != 0;
     let label = match key.kind {
-        Kind::Language => language.unwrap_or(""),
+        Kind::Language => match language {
+            Some(language) => language,
+            None => NO_LANGUAGE_NAMED,
+        },
         Kind::Pad
         | Kind::Code { .. }
         | Kind::Mod(_)
@@ -134,13 +140,14 @@ fn colour(from: crate::config::Colour) -> Result<Color, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use console_core_geometry::Size;
     use crate::layout::{named, of, placed};
 
     #[test]
     fn what_is_drawn_is_inside_the_keyboard() {
         let Ok(name) = named("full");
         let Ok(layout) = of(name.expect("full"));
-        let Ok(keys) = placed(layout, 1024.0, 260.0);
+        let Ok(keys) = placed(layout, Size { wide: 1024.0, tall: 260.0 });
         for key in &keys {
             let Ok(cell) = Rect { x: key.x, y: key.y, w: key.wide, h: key.tall }.inset(EDGE);
             assert!(cell.w > 0.0 && cell.h > 0.0, "a key with no face left after its border");

@@ -40,6 +40,10 @@
 //! `stopping` is the same promise kept when a run is interrupted, which is the
 //! moment it matters most.
 
+use console_core_geometry::{Point, Size};
+use std::fmt;
+use std::path::PathBuf;
+
 pub mod baseline;
 pub mod checking;
 pub mod desktop;
@@ -53,6 +57,199 @@ pub mod plug;
 pub mod putting_back;
 pub mod stopping;
 pub mod watching;
+
+#[derive(Debug)]
+pub enum Awry {
+    Machine(std::io::Error),
+    Unwritten(console_core_atomic_writes::Unwritten),
+    NoPointer(PathBuf),
+    PointerNotBeside,
+    AlreadyTaken(&'static str),
+    NoBus(PathBuf),
+    TookNoPicture(String),
+    NestedPictureGone,
+    NoScreenSaid(PathBuf, std::io::Error),
+    NoScreenAtAll(PathBuf),
+    NoSize(PathBuf, String),
+    NoWindowsSaid(PathBuf, std::io::Error),
+    Asking(console_compositor::Unanswered),
+    Pressing(console_input_gamepad::Unpressed),
+    Layers(serde_json::Error),
+    Unreadable(PathBuf, std::io::Error),
+    NotAPicture(PathBuf, cairo::IoError),
+    NothingToRead(cairo::BorrowError),
+    OffTheEdge(Point<i64>, Size<u32>),
+    Hostless,
+    Unnamed(console_device::naming::Unnamed),
+    DeviceWroteNoPicture,
+    DevicePictureGone,
+    Undeclared(console_screen::Undeclared),
+    NotInside(Point<i32>, String),
+    NamelessKey,
+    NotBuilt(PathBuf),
+    Stale(PathBuf),
+    SaidNothingDrawn(String, std::io::Error, String),
+    Untold(console_panel::telling::Untold),
+    DrewNothing(String),
+    OfferUnanswered(String, Vec<String>),
+    MarkWithoutOffer(String),
+    TooManyMarks(String, usize),
+    OutOfReach(String, (i32, i32), Vec<String>),
+    NoWayOut(String, String),
+}
+
+impl fmt::Display for Awry {
+    fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Awry::Machine(fault) => write!(to, "{fault}"),
+            Awry::Unwritten(fault) => write!(to, "{fault}"),
+            Awry::NoPointer(at) => write!(
+                to,
+                "{} is not there, so nothing would be pressed: cargo build -p console-input-pointer",
+                at.display()
+            ),
+            Awry::PointerNotBeside => {
+                write!(to, "console-point is not beside console-desktop")
+            }
+            Awry::AlreadyTaken(what) => {
+                write!(to, "the picture has already been taken; {what} before looking")
+            }
+            Awry::NoBus(at) => write!(
+                to,
+                "a bus of this check's own never listened on {}",
+                at.display()
+            ),
+            Awry::TookNoPicture(last) => {
+                write!(to, "the nested desktop took no picture: {last}")
+            }
+            Awry::NestedPictureGone => {
+                write!(to, "the nested desktop took a picture and then had none")
+            }
+            Awry::NoScreenSaid(at, fault) => write!(
+                to,
+                "{}: the nested desktop said nothing about its screen: {fault}",
+                at.display()
+            ),
+            Awry::NoScreenAtAll(at) => write!(
+                to,
+                "{}: the nested desktop had no screen at all",
+                at.display()
+            ),
+            Awry::NoSize(at, named) => write!(
+                to,
+                "{} says nothing about how big {named} is",
+                at.display()
+            ),
+            Awry::NoWindowsSaid(at, fault) => write!(
+                to,
+                "{}: the nested desktop said no windows: {fault}",
+                at.display()
+            ),
+            Awry::Asking(fault) => write!(to, "{fault}"),
+            Awry::Pressing(fault) => write!(to, "{fault}"),
+            Awry::Layers(fault) => write!(to, "layers: {fault}"),
+            Awry::Unreadable(at, fault) => write!(to, "{}: {fault}", at.display()),
+            Awry::NotAPicture(at, fault) => {
+                write!(to, "{} is not a picture: {fault}", at.display())
+            }
+            Awry::NothingToRead(fault) => write!(to, "nothing to read: {fault}"),
+            Awry::OffTheEdge(spot, room) => write!(
+                to,
+                "{},{} is off the edge of a {}x{} picture",
+                spot.across, spot.down, room.wide, room.tall
+            ),
+            Awry::Hostless => write!(
+                to,
+                "CONSOLE_HOST is not set, so there is no device to talk to. \
+                  Set it to the device, as in CONSOLE_HOST=root@handheld."
+            ),
+            Awry::Unnamed(fault) => write!(to, "{fault}"),
+            Awry::DeviceWroteNoPicture => {
+                write!(to, "the device never wrote a picture to /tmp")
+            }
+            Awry::DevicePictureGone => {
+                write!(to, "the device took a picture and then had none")
+            }
+            Awry::Undeclared(fault) => write!(to, "{fault}"),
+            Awry::NotInside(spot, panel) => write!(
+                to,
+                "({}, {}) is not a place inside {panel}",
+                spot.across, spot.down
+            ),
+            Awry::NamelessKey => write!(to, "a key with no name"),
+            Awry::NotBuilt(at) => write!(
+                to,
+                "{} is not in target/debug, so there would be nothing to open: \
+                 cargo build --workspace",
+                at.display()
+            ),
+            Awry::Stale(at) => write!(
+                to,
+                "{} was built before console-panel was last edited, so this would hold \
+                 today's rules against yesterday's panel: cargo build --workspace",
+                at.display()
+            ),
+            Awry::SaidNothingDrawn(program, fault, why) => write!(
+                to,
+                "{program} said nothing about what it drew ({fault}):\n{why}"
+            ),
+            Awry::Untold(fault) => write!(to, "{fault}"),
+            Awry::DrewNothing(program) => write!(to, "{program} drew nothing at all"),
+            Awry::OfferUnanswered(panel, missing) => write!(
+                to,
+                "{panel} offers something behind Y that no finger can reach: {}",
+                missing.join(", ")
+            ),
+            Awry::MarkWithoutOffer(panel) => {
+                write!(to, "{panel} draws a mark for an offer it does not make")
+            }
+            Awry::TooManyMarks(panel, marks) => write!(
+                to,
+                "{panel} draws {marks} marks for Y where a card with one subject wants one"
+            ),
+            Awry::OutOfReach(panel, room, off) => write!(
+                to,
+                "{panel} draws these where a hand cannot land, in a room of {room:?}: {}",
+                off.join(", ")
+            ),
+            Awry::NoWayOut(panel, tab) => {
+                write!(to, "{panel} draws no way out, on the {tab} tab")
+            }
+        }
+    }
+}
+
+impl std::error::Error for Awry {}
+
+impl From<console_compositor::Unanswered> for Awry {
+    fn from(fault: console_compositor::Unanswered) -> Self {
+        Awry::Asking(fault)
+    }
+}
+
+impl From<console_input_gamepad::Unpressed> for Awry {
+    fn from(fault: console_input_gamepad::Unpressed) -> Self {
+        Awry::Pressing(fault)
+    }
+}
+
+impl From<console_device::naming::Unnamed> for Awry {
+    fn from(fault: console_device::naming::Unnamed) -> Self {
+        Awry::Unnamed(fault)
+    }
+}
+
+impl From<console_screen::Undeclared> for Awry {
+    fn from(fault: console_screen::Undeclared) -> Self {
+        Awry::Undeclared(fault)
+    }
+}
+
+impl From<console_panel::telling::Untold> for Awry {
+    fn from(fault: console_panel::telling::Untold) -> Self {
+        Awry::Untold(fault)
+    }
+}
 
 pub fn beside(program: &str) -> Result<std::path::PathBuf, console_core_never::Never> {
     let running = match std::env::current_exe() {
@@ -69,15 +266,18 @@ pub fn beside(program: &str) -> Result<std::path::PathBuf, console_core_never::N
         .map(|at| at.join(program))
         .find(|at| at.is_file());
 
-    Ok(built.unwrap_or_else(|| std::path::PathBuf::from(program)))
+    Ok(match built {
+        Some(built) => built,
+        None => std::path::PathBuf::from(program),
+    })
 }
 
-pub fn screen() -> Result<console_screen::Screen, String> {
+pub fn screen() -> Result<console_screen::Screen, Awry> {
     let Ok(root) = root();
-    let written = std::fs::read_to_string(root.join(console_screen::CONFIG))
-        .map_err(|fault| fault.to_string())?;
+    let written =
+        std::fs::read_to_string(root.join(console_screen::CONFIG)).map_err(Awry::Machine)?;
 
-    console_screen::Screen::read(&written)
+    console_screen::Screen::read(&written).map_err(Awry::Undeclared)
 }
 
 pub fn root() -> Result<std::path::PathBuf, console_core_never::Never> {

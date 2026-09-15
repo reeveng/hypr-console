@@ -30,6 +30,8 @@ use std::str::FromStr;
 use console_core_never::Never;
 use evdev::KeyCode;
 
+use crate::Unbound;
+
 const X11: u16 = 8;
 
 const PREFIX: &str = "KEY_";
@@ -174,10 +176,10 @@ pub fn spoken(code: KeyCode) -> Result<Option<String>, Never> {
     }))
 }
 
-pub fn key_named(word: &str) -> Result<KeyCode, String> {
+pub fn key_named(word: &str) -> Result<KeyCode, Unbound> {
     let Ok(found) = code(word);
 
-    found.ok_or_else(|| format!("no key called {word:?}"))
+    found.ok_or_else(|| Unbound::NoSuchKey(word.to_string()))
 }
 
 pub fn bind(held: &[String], pressed: &str) -> Result<Option<String>, Never> {

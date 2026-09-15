@@ -29,11 +29,11 @@ use std::sync::{Arc, OnceLock};
 
 use console_core_never::Never;
 use console_onscreen::Said;
-use console_panel::page::{Does, Page, Row, Rows};
+use console_panel::page::{Aside, Does, Page, Row, Rows};
 use console_panel::{chooser, panel};
 
-const MOVE: &str = "Move it";
-const OFF: &str = "Take it off the home screen";
+const MOVE: &str = "Move";
+const OFF: &str = "Remove from the home screen";
 
 const THEN: &str = "then A puts it down";
 
@@ -51,8 +51,8 @@ fn rows(chosen: &Arc<OnceLock<Said>>) -> Result<Vec<Row>, Never> {
 
         true
     });
-    let Ok(moves) = Row::new(MOVE, THEN, carries);
-    let Ok(off) = Row::new(OFF, "", takes);
+    let Ok(moves) = Row::new(MOVE, Aside(THEN), carries);
+    let Ok(off) = Row::new(OFF, Aside(""), takes);
 
     Ok(vec![moves, off])
 }

@@ -72,7 +72,7 @@ fn the_paper_service_sets_a_ground_and_paints_no_picture_of_its_own() {
     assert!(
         sets.iter().any(|line| line.contains("awww clear ")),
         "the paper service sets no ground colour, so the screen is black until \
-         console-sky paints: {sets:?}"
+         console-wallpaper paints: {sets:?}"
     );
     assert!(
         !sets.iter().any(|line| line.contains(".webp")),
@@ -246,7 +246,23 @@ fn carried_or_declared(held: &str) -> BTreeSet<String> {
 }
 
 fn manifest() -> String {
-    std::fs::read_to_string(root().join("desktop.conf")).expect("desktop.conf")
+    let held = std::fs::read_to_string(root().join("desktop.conf")).expect("desktop.conf");
+    let machines = std::fs::read_to_string(root().join("machines.conf")).expect("machines.conf");
+
+    format!("{held}\n{}", every_machines(&machines))
+}
+
+fn every_machines(held: &str) -> String {
+    held.lines()
+        .map(|line| match line.strip_prefix('[').and_then(|rest| rest.strip_suffix(']')) {
+            Some(named) => match named.split_once('.') {
+                Some((_whichever_machine, section)) => format!("[{section}]"),
+                None => "[whichever-machine]".to_string(),
+            },
+            None => line.to_string(),
+        })
+        .collect::<Vec<String>>()
+        .join("\n")
 }
 
 fn every(under: &str, ending: &str) -> Vec<PathBuf> {
@@ -384,7 +400,7 @@ fn every_json_file_parses() {
     }
 }
 
-const OUTSIDE: [&str; 3] = ["activate", "makoctl", "wpctl"];
+const OUTSIDE: [&str; 2] = ["activate", "wpctl"];
 
 fn bar_modules() -> Vec<(String, serde_json::Map<String, serde_json::Value>)> {
     let config = root().join("files/home/@user@/.config/waybar/config.jsonc");
@@ -584,7 +600,7 @@ fn every_module_reads_from_a_program_the_manifest_builds() {
 
 #[test]
 fn the_strip_is_as_wide_as_the_screen() {
-    let screen = std::fs::read_to_string(root().join("files/home/@user@/.config/hypr/hyprland.lua"))
+    let screen = std::fs::read_to_string(root().join("files/home/@user@/.config/console/hypr/hyprland.lua"))
         .expect("the compositor's config");
     let field = |name: &str| {
         screen
@@ -624,7 +640,7 @@ fn the_strip_is_as_wide_as_the_screen() {
 
 #[test]
 fn the_compositors_file_binds_nothing() {
-    let lua = std::fs::read_to_string(root().join("files/home/@user@/.config/hypr/hyprland.lua"))
+    let lua = std::fs::read_to_string(root().join("files/home/@user@/.config/console/hypr/hyprland.lua"))
         .expect("the compositor's config");
 
     let bound: Vec<&str> = lua.lines().filter(|line| line.contains("hl.bind(")).collect();
@@ -657,7 +673,7 @@ fn putting_the_screen_back_puts_the_panel_on_before_it_reads_the_note() {
 #[test]
 fn one_thing_puts_the_panel_back_on_when_the_machine_wakes() {
     let held =
-        std::fs::read_to_string(root().join("files/home/@user@/.config/hypr/hypridle.conf"))
+        std::fs::read_to_string(root().join("files/home/@user@/.config/console/hypr/hypridle.conf"))
             .expect("hypridle.conf");
 
     let waking: Vec<&str> = held

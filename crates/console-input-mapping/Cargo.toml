@@ -6,8 +6,8 @@ rust-version.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "layout-panel"
-path = "src/bin/layout-panel.rs"
+name = "mapping-panel"
+path = "src/bin/mapping-panel.rs"
 
 # The name is the layer's name. A panel is listed by the compositor under the
 # program that drew it, and `Mode::Asking` is read off exactly this word: the

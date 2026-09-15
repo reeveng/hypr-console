@@ -2,7 +2,7 @@
    userChrome.css and userContent.css both import this and neither
    holds a colour of its own. */
 
-:root {
+:host, :root {
   --night : #110b12;
   --ground: #231b26;
   --panel : #372c3a;

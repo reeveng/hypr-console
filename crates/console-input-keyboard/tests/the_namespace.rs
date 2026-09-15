@@ -6,7 +6,7 @@
 //! it sees it, the script that raises it, and the manifest that installs it.
 //!
 //! All of them have disagreed. The crate was renamed on the way to a Rust port
-//! and `mode::KEYBOARD` moved to `virtual-keyboard` with it, while the program
+//! and `mode::KEYBOARD` moved to `console-keyboard` with it, while the program
 //! went on publishing `wvkbd`. Nothing failed. The daemon simply never saw a
 //! keyboard again: it went on reading the pad while the keyboard read the same
 //! pad, which is the flicker on the right stick that `Mode::Keyboard` exists to

@@ -44,21 +44,23 @@ fn still_there(pid: i32) -> Result<There, Never> {
     })
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Instance<'a> {
+    pub socket: &'a str,
+    pub signature: &'a str,
+}
+
 pub struct Inside {
     pub environment: Vec<(String, String)>,
 }
 
 impl Inside {
-    pub fn new(
-        environment: Vec<(String, String)>,
-        socket: &str,
-        signature: &str,
-    ) -> Result<Self, Never> {
+    pub fn new(environment: Vec<(String, String)>, at: Instance<'_>) -> Result<Self, Never> {
         let mut environment = environment;
-        environment.push(("WAYLAND_DISPLAY".to_string(), socket.to_string()));
+        environment.push(("WAYLAND_DISPLAY".to_string(), at.socket.to_string()));
         environment.push((
             "HYPRLAND_INSTANCE_SIGNATURE".to_string(),
-            signature.to_string(),
+            at.signature.to_string(),
         ));
         Ok(Inside { environment })
     }
@@ -186,7 +188,7 @@ impl Inside {
     }
 
     fn wait_for_mode(&self, screen: &Screen) -> Result<Waited, Never> {
-        let (wide, tall) = screen.mode;
+        let (wide, tall) = (screen.mode.wide, screen.mode.tall);
         let Ok(patience) = Patience::asking_every(A_MONITOR, Duration::from_millis(50));
 
         until(patience, || {

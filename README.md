@@ -84,7 +84,7 @@ can be tried on a laptop in a second rather than over ssh.
 - [`console-manifest-migrations`](crates/console-manifest-migrations) -- what a machine has to be told, because the manifest cannot say it
 - [`console-manifest-publish`](crates/console-manifest-publish) -- builds this copy
 - [`console-media-viewer`](crates/console-media-viewer) -- a photograph and a film, on the machine that holds them
-- [`console-music-panel`](crates/console-music-panel) -- the music: what it draws, what it lists, what it presses
+- [`console-music`](crates/console-music) -- the music: what it draws, what it lists, what it presses
 - [`console-music-player`](crates/console-music-player) -- and what makes the sound: ffmpeg into pw-cat, answering on MPRIS
 - [`console-notifications`](crates/console-notifications) -- what the desktop has said, kept where somebody can look
 - [`console-onscreen`](crates/console-onscreen) -- whether something is on the screen, asked of the compositor

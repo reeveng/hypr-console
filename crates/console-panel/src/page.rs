@@ -9,11 +9,28 @@
 //! writing them under it, which is the head of a card about one thing: the
 //! sleeve on the left, what it is and whose it is beside it, and the whole of
 //! it one row tall instead of three.
+//!
+//! ## The letter a row stands under
+//!
+//! `lettered` puts a heading over every run of rows beginning with the same
+//! letter, the way a shelf of anything long enough to scroll is arranged. It
+//! is here rather than in either panel that wants it because what letter a row
+//! stands under is a question about a list on a screen and not about media or
+//! about music, and two crates answering it separately is where the two lists
+//! would start disagreeing about where a file called `_draft` belongs. A
+//! heading the caller wrote already is left alone and starts the letters
+//! again, so a list that is sections of its own can still have letters inside
+//! them. `standing` is the same answer as a number, for a caller sorting
+//! before it draws: digits first, then letters, then everything that begins
+//! with neither.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 use crate::icons::Icon;
 use console_core_never::Never;
+
+const THE_FIRST_PAGE: usize = 0;
+
 
 pub trait Showing {
     fn refresh(&self);
@@ -24,7 +41,7 @@ pub trait Showing {
 
     fn ask(&self, question: &str, then: Answer);
 
-    fn sure(&self, question: &str, about: &str, does: &[&str], then: Taken);
+    fn sure(&self, question: &str, about: Which<'_>, does: &[&str], then: Taken);
 
     fn ask_aloud(&self, question: &str, then: Answer);
 
@@ -157,24 +174,36 @@ pub struct Across {
     pub at: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Aside<'a>(pub &'a str);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Which<'a>(pub &'a str);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Ends<'a> {
+    pub less: &'a str,
+    pub more: &'a str,
+}
+
 impl Row {
-    pub fn said(says: &str, aside: &str) -> Result<Self, Never> {
-        Ok(Row { says: says.to_string(), aside: aside.to_string(), ..Row::default() })
+    pub fn said(says: &str, aside: Aside<'_>) -> Result<Self, Never> {
+        Ok(Row { says: says.to_string(), aside: aside.0.to_string(), ..Row::default() })
     }
 
     pub fn nothing(says: &str) -> Result<Self, Never> {
-        let Ok(said) = Row::said(says, "");
+        let Ok(said) = Row::said(says, Aside(""));
 
         Ok(Row { nothing: true, ..said })
     }
 
-    pub fn naming(says: &str, aside: &str) -> Result<Self, Never> {
+    pub fn naming(says: &str, aside: Aside<'_>) -> Result<Self, Never> {
         let Ok(said) = Row::said(says, aside);
 
         Ok(Row { naming: true, ..said })
     }
 
-    pub fn new(says: &str, aside: &str, does: Does) -> Result<Self, Never> {
+    pub fn new(says: &str, aside: Aside<'_>, does: Does) -> Result<Self, Never> {
         let Ok(said) = Row::said(says, aside);
 
         Ok(Row { does: Some(does), ..said })
@@ -186,15 +215,15 @@ impl Row {
     ) -> Result<Self, Never> {
         let Ok(does) = Does::and_stay(then);
 
-        Row::new(&format!("{} {says}", crate::marks::BEFORE), "", does)
+        Row::new(&format!("{} {says}", crate::marks::BEFORE), Aside(""), does)
     }
 
     pub(crate) fn line_to_type_in() -> Result<Self, Never> {
         Ok(Row { typing: true, ..Row::default() })
     }
 
-    pub fn ended(mut self, less: &str, more: &str) -> Result<Self, Never> {
-        self.ends = Some((less.to_string(), more.to_string()));
+    pub fn ended(mut self, ends: Ends<'_>) -> Result<Self, Never> {
+        self.ends = Some((ends.less.to_string(), ends.more.to_string()));
 
         Ok(self)
     }
@@ -245,7 +274,7 @@ impl Row {
         Ok(Row { picture, naming: true, middle: true, ..Row::default() })
     }
 
-    pub fn stacked(picture: Picture, says: &str, aside: &str) -> Result<Self, Never> {
+    pub fn stacked(picture: Picture, says: &str, aside: Aside<'_>) -> Result<Self, Never> {
         let Ok(said) = Row::said(says, aside);
 
         Ok(Row { picture, naming: true, stacked: true, ..said })
@@ -382,6 +411,67 @@ pub enum InEffect {
 pub enum Acts {
     Yes,
     Nothing,
+}
+
+pub const NUMBERS: &str = "0-9";
+
+pub const REST: &str = "Other";
+
+pub fn under(says: &str) -> Result<String, Never> {
+    let letter = match says.chars().next() {
+        Some(letter) => letter,
+        None => return Ok(REST.to_string()),
+    };
+
+    Ok(match (letter.is_alphabetic(), letter.is_numeric()) {
+        (true, _) => letter.to_uppercase().to_string(),
+        (false, true) => NUMBERS.to_string(),
+        (false, false) => REST.to_string(),
+    })
+}
+
+pub fn standing(says: &str) -> Result<u8, Never> {
+    let Ok(under) = under(says);
+
+    Ok(match under.as_str() {
+        NUMBERS => 0,
+        REST => 2,
+        _letter => 1,
+    })
+}
+
+pub fn lettered(rows: Vec<Row>) -> Result<Vec<Row>, Never> {
+    let mut lettered: Vec<Row> = Vec::new();
+    let mut standing: Option<String> = None;
+
+    for row in rows {
+        let Ok(heading) = row.heading();
+
+        match heading {
+            Heading::Yes => {
+                standing = None;
+                lettered.push(row);
+                continue;
+            },
+            Heading::No => {},
+        }
+
+        let Ok(under) = under(&row.says);
+
+        match standing.as_deref() == Some(under.as_str()) {
+            true => {},
+            false => {
+                let Ok(naming) = Row::naming(&under, Aside(""));
+
+                lettered.push(naming);
+                standing = Some(under);
+            },
+        }
+
+        lettered.push(row);
+    }
+
+    Ok(lettered)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -560,26 +650,69 @@ pub fn find(pages: &[Page], name: Option<&str>) -> Result<usize, Never> {
         None => return Ok(0),
     };
 
-    Ok(pages.iter().position(|page| page.title.to_lowercase() == wanted).unwrap_or(0))
+    Ok(match pages.iter().position(|page| page.title.to_lowercase() == wanted) {
+        Some(at) => at,
+        None => THE_FIRST_PAGE,
+    })
 }
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_heading_stands_over_every_run_of_one_letter_and_only_over_the_first_of_it() {
+        let Ok(apple) = Row::new("Apple.png", Aside(""), Does::and_stay(|_| {}).expect("does"));
+        let Ok(apricot) = Row::new("apricot.png", Aside(""), Does::and_stay(|_| {}).expect("does"));
+        let Ok(boat) = Row::new("boat.png", Aside(""), Does::and_stay(|_| {}).expect("does"));
+
+        let Ok(lettered) = lettered(vec![apple, apricot, boat]);
+        let says: Vec<&str> = lettered.iter().map(|row| row.says.as_str()).collect();
+
+        assert_eq!(says, ["A", "Apple.png", "apricot.png", "B", "boat.png"]);
+    }
+
+    #[test]
+    fn a_heading_somebody_else_wrote_is_left_where_it_is_and_starts_the_letters_again() {
+        let Ok(album) = Row::naming("Albums", Aside(""));
+        let Ok(apple) = Row::new("Apple.png", Aside(""), Does::and_stay(|_| {}).expect("does"));
+
+        let Ok(lettered) = lettered(vec![album, apple]);
+        let says: Vec<&str> = lettered.iter().map(|row| row.says.as_str()).collect();
+
+        assert_eq!(says, ["Albums", "A", "Apple.png"]);
+    }
+
+    #[test]
+    fn what_does_not_begin_with_a_letter_still_stands_under_something() {
+        assert_eq!(under("beach.jpg"), Ok("B".to_string()));
+        assert_eq!(under("Beach.jpg"), Ok("B".to_string()));
+        assert_eq!(under("2019-07-04.jpg"), Ok(NUMBERS.to_string()));
+        assert_eq!(under("_draft.png"), Ok(REST.to_string()));
+        assert_eq!(under(""), Ok(REST.to_string()));
+        assert_eq!(under("ไทย.jpg"), Ok("ไ".to_string()));
+    }
+
+    #[test]
+    fn the_numbers_stand_before_the_letters_and_the_rest_after_them() {
+        assert_eq!(standing("2019.png"), Ok(0));
+        assert_eq!(standing("boat.png"), Ok(1));
+        assert_eq!(standing("_draft.png"), Ok(2));
+    }
     use super::*;
 
     #[test]
     fn two_rows_that_do_different_things_and_read_the_same_look_the_same() {
         let Ok(runs) = Does::run(&["firefox"]);
         let Ok(calls) = Does::call(|_| true);
-        let Ok(one) = Row::new("Firefox", "", runs);
-        let Ok(two) = Row::new("Firefox", "", calls);
+        let Ok(one) = Row::new("Firefox", Aside(""), runs);
+        let Ok(two) = Row::new("Firefox", Aside(""), calls);
 
         assert_eq!(one.looks_like(&two), Ok(Same::Yes));
     }
 
     fn runs(says: &str, aside: &str) -> Row {
         let Ok(does) = Does::run(&["firefox"]);
-        let Ok(row) = Row::new(says, aside, does);
+        let Ok(row) = Row::new(says, Aside(aside), does);
 
         row
     }
@@ -587,10 +720,10 @@ mod tests {
     #[test]
     fn anything_that_is_drawn_differently_is_a_row_that_must_be_drawn_again() {
         let row = runs("Firefox", "");
-        let Ok(said) = Row::said("Firefox", "");
+        let Ok(said) = Row::said("Firefox", Aside(""));
         let Ok(opened) = row.clone().opening();
         let Ok(pictured) = row.clone().picturing(Picture::Space);
-        let Ok(naming) = Row::naming("Firefox", "");
+        let Ok(naming) = Row::naming("Firefox", Aside(""));
         let Ok(chief) = row.clone().chief();
         let Ok(nothing) = Row::nothing("Firefox");
 
@@ -605,7 +738,7 @@ mod tests {
     }
 
     fn levelled(says: &str, aside: &str) -> Row {
-        let Ok(said) = Row::said(says, aside);
+        let Ok(said) = Row::said(says, Aside(aside));
         let Ok(row) = said.levelled(Arc::new(|_| ()));
 
         row
@@ -697,7 +830,7 @@ mod tests {
         fn replace(&self, _standing_on: usize) {}
         fn forget_typing(&self) {}
         fn ask(&self, _question: &str, _then: Answer) {}
-        fn sure(&self, _question: &str, _about: &str, _does: &[&str], _then: Taken) {}
+        fn sure(&self, _question: &str, _about: Which<'_>, _does: &[&str], _then: Taken) {}
         fn ask_aloud(&self, _question: &str, _then: Answer) {}
         fn note(&self, _said: &str) {}
         fn later(&self, _argv: Vec<String>) {}
@@ -730,8 +863,8 @@ mod tests {
 
     #[test]
     fn a_row_that_says_now_is_the_one_in_effect() {
-        let Ok(marked) = Row::said("Balanced", NOW);
-        let Ok(plain) = Row::said("Balanced", "");
+        let Ok(marked) = Row::said("Balanced", Aside(NOW));
+        let Ok(plain) = Row::said("Balanced", Aside(""));
 
         assert_eq!(marked.now(), Ok(InEffect::Yes));
         assert_eq!(plain.now(), Ok(InEffect::No));
@@ -740,7 +873,7 @@ mod tests {
     #[test]
     fn rows_are_asked_for_at_the_moment_they_are_drawn() {
         let Ok(rows) = Rows::asked(|| {
-            let Ok(row) = Row::said("Speakers", "half");
+            let Ok(row) = Row::said("Speakers", Aside("half"));
 
             vec![row]
         });

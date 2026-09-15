@@ -16,7 +16,7 @@
 
 use console_applications::entry::{DesktopEntry, Worth};
 use console_core_never::Never;
-use console_panel::page::{Does, NOW, Row, Showing, YET};
+use console_panel::page::{Aside, Does, NOW, Row, Showing, YET};
 
 use crate::rows::configuration;
 
@@ -42,7 +42,14 @@ pub const KINDS: [Kind; 6] = [
     Kind {
         says: "Video",
         mime: "video/mp4",
-        and: &["video/matroska", "video/webm", "video/quicktime", "video/vnd.avi", "video/ogg"],
+        and: &[
+            "video/matroska",
+            "video/x-matroska",
+            "video/webm",
+            "video/quicktime",
+            "video/vnd.avi",
+            "video/ogg",
+        ],
     },
     Kind {
         says: "Music",
@@ -84,8 +91,11 @@ impl Application {
     }
 }
 
-pub fn application(id: &str, held: &str) -> Result<Option<Application>, Never> {
-    let entry = DesktopEntry::read(held)?;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Held<'a>(pub &'a str);
+
+pub fn application(id: &str, held: Held<'_>) -> Result<Option<Application>, Never> {
+    let entry = DesktopEntry::read(held.0)?;
 
     let worth = entry.worth()?;
 
@@ -118,7 +128,7 @@ pub fn defaults_rows(
             let Ok(opening) = now(kind.mime);
             let Ok(said) = in_effect(applications, &opening);
             let Ok(opens) = open(at);
-            let Ok(row) = Row::new(kind.says, &said, opens);
+            let Ok(row) = Row::new(kind.says, Aside(&said), opens);
             let Ok(opens) = row.opening();
 
             opens
@@ -132,7 +142,7 @@ pub fn meanwhile_rows(open: impl Fn(usize) -> Result<Does, Never>) -> Result<Vec
         .enumerate()
         .map(|(at, kind)| {
             let Ok(opens) = open(at);
-            let Ok(row) = Row::new(kind.says, YET, opens);
+            let Ok(row) = Row::new(kind.says, Aside(YET), opens);
             let Ok(opens) = row.opening();
 
             opens
@@ -141,11 +151,13 @@ pub fn meanwhile_rows(open: impl Fn(usize) -> Result<Does, Never>) -> Result<Vec
 }
 
 fn in_effect(applications: &[Application], id: &str) -> Result<String, Never> {
-    Ok(applications
-        .iter()
-        .find(|application| application.id == id)
-        .map(|application| application.says.clone())
-        .unwrap_or_default())
+    let found =
+        applications.iter().find(|application| application.id == id).map(|one| one.says.clone());
+
+    Ok(match found {
+        Some(says) => says,
+        None => String::new(),
+    })
 }
 
 pub fn choice_rows(
@@ -157,7 +169,7 @@ pub fn choice_rows(
 ) -> Result<Vec<Row>, Never> {
     let Ok(configuration) = configuration();
     let Ok(way_back) = Row::back(&configuration, back);
-    let Ok(naming) = Row::naming(kind.says, "");
+    let Ok(naming) = Row::naming(kind.says, Aside(""));
     let mut rows = vec![way_back, naming];
     let Ok(default) = now(kind.mime);
     let mut opening: Vec<&Application> = applications
@@ -185,10 +197,10 @@ pub fn choice_rows(
         let Ok(uses) = use_(kind, application);
         let Ok(row) = Row::new(
             &application.says,
-            match application.id == default {
+            Aside(match application.id == default {
                 true => NOW,
                 false => "",
-            },
+            }),
             uses,
         );
 
@@ -259,7 +271,10 @@ mod tests {
     fn a_desktop_file_gives_its_name_and_what_it_opens() {
         let read = application(
             "librewolf.desktop",
-            "[Desktop Entry]\nType=Application\nName=LibreWolf\nMimeType=text/html;image/png;\n",
+            Held(
+                "[Desktop Entry]\nType=Application\nName=LibreWolf\n\
+                 MimeType=text/html;image/png;\n",
+            ),
         )
         .expect("the reading")
         .expect("an application");
@@ -272,8 +287,8 @@ mod tests {
     fn only_the_first_group_of_a_desktop_file_is_read() {
         let read = application(
             "librewolf.desktop",
-            "[Desktop Entry]\nType=Application\nName=LibreWolf\n\
-             [Desktop Action new-private-window]\nName=New Private Window\n",
+            Held("[Desktop Entry]\nType=Application\nName=LibreWolf\n\
+             [Desktop Action new-private-window]\nName=New Private Window\n"),
         )
         .expect("the reading")
         .expect("an application");
@@ -283,15 +298,18 @@ mod tests {
     #[test]
     fn a_file_that_asks_not_to_be_shown_is_not_offered() {
         let hidden = "[Desktop Entry]\nType=Application\nName=A helper\nNoDisplay=true\n";
-        assert_eq!(application("helper.desktop", hidden), Ok(None));
+        assert_eq!(application("helper.desktop", Held(hidden)), Ok(None));
     }
 
     #[test]
     fn a_file_that_is_not_a_program_is_not_offered() {
-        assert_eq!(application("a.desktop", "[Desktop Entry]\nType=Link\nName=A site\n"), Ok(None));
-        assert_eq!(application("b.desktop", "[Desktop Entry]\nName=Nameless\n"), Ok(None));
         assert_eq!(
-            application("c.desktop", "[Desktop Entry]\nType=Application\nName=\n"),
+            application("a.desktop", Held("[Desktop Entry]\nType=Link\nName=A site\n")),
+            Ok(None)
+        );
+        assert_eq!(application("b.desktop", Held("[Desktop Entry]\nName=Nameless\n")), Ok(None));
+        assert_eq!(
+            application("c.desktop", Held("[Desktop Entry]\nType=Application\nName=\n")),
             Ok(None)
         );
     }

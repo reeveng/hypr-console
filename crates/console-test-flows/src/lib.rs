@@ -1,4 +1,4 @@
-//! The long way round, on purpose.
+//! Walks across the desktop, taken the long way round on purpose.
 //!
 //! A check asks one question about one feature. A flow walks the desktop the
 //! way a person does -- across programs, across crates -- and asks at every
@@ -32,5 +32,5 @@ pub mod screens {
     pub const THE_KEYBOARD: &str = r#"{"eDP-1":{"levels":{
         "0":[{"namespace":"awww-daemon","h":1600}],
         "2":[{"namespace":"waybar","h":38}],
-        "3":[{"namespace":"virtual-keyboard","h":520}]}}}"#;
+        "3":[{"namespace":"console-keyboard","h":520}]}}}"#;
 }

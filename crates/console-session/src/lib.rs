@@ -19,9 +19,11 @@
 
 pub mod reaching;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Words)]
 pub enum Session {
+    #[words(word = "plasma", going = "back to the desktop")]
     Desktop,
+    #[words(word = "gamescope", going = "to game mode")]
     Game,
 }
 
@@ -30,20 +32,6 @@ pub const GAME_TARGET: &str = "gamescope-session.target";
 pub const SWITCHER: &str = "/usr/local/bin/steamos-session-select";
 
 impl Session {
-    pub fn word(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Session::Desktop => "plasma",
-            Session::Game => "gamescope",
-        })
-    }
-
-    pub fn going(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Session::Desktop => "back to the desktop",
-            Session::Game => "to game mode",
-        })
-    }
-
     pub fn buttons(self) -> Result<Option<&'static str>, Never> {
         Ok(match self {
             Session::Desktop => None,
@@ -122,7 +110,9 @@ const SIZE: &str = "/usr/local/bin/console-scale";
 use std::process::Command;
 
 use console_core_external_programs::Program;
+use console_response_times::Wait;
 use console_core_never::Never;
+use console_core_words::Words;
 
 pub fn here(target: &str) -> Result<Session, Never> {
     let Ok(mut systemctl) = Program::Systemctl.command();
@@ -136,8 +126,16 @@ pub fn here(target: &str) -> Result<Session, Never> {
     })
 }
 
+#[cfg_attr(
+    dylint_lib = "explicit029_no_asking_per_item",
+    allow(
+        explicit029_no_asking_per_item,
+        reason = "the list is programs: each step is a different argv and the whole of what this does is run them in order, stopping at the first that says no"
+    )
+)]
 pub fn run_each(what: &str, steps: &[Vec<String>]) -> Result<(), Never> {
-    let Ok(mut waiting) = console_response_times::Waiting::on("session", what);
+    let Ok(mut waiting) =
+        console_response_times::Waiting::on(Wait { who: "session", what });
 
     for argv in steps {
         let (program, rest) = match argv.split_first() {

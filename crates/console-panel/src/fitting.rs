@@ -9,6 +9,7 @@
 
 use crate::shape;
 use console_core_never::Never;
+use console_core_number_conversion::fitted;
 
 pub const BREATH: i32 = 16;
 
@@ -26,39 +27,54 @@ pub enum Strip {
     Hidden,
 }
 
-pub fn showing(card: i32, strip: Strip, under: i32) -> Result<i32, Never> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Room {
+    pub granted: i32,
+    pub monitor: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Tall {
+    pub frame: i32,
+    pub row: i32,
+    pub ceiling: i32,
+}
+
+pub fn showing(card: i32, strip: Strip, under: usize) -> Result<i32, Never> {
     let band = match strip {
         Strip::Shown => STRIP,
         Strip::Hidden => 0,
     };
 
+    let Ok(rows) = fitted::<usize, i32>(under);
+
     Ok(card
         .saturating_sub(band)
         .saturating_sub(EDGES)
-        .saturating_sub(under.max(0).saturating_mul(ROW))
+        .saturating_sub(rows.saturating_mul(ROW))
         .max(SMALLEST))
 }
 
 const SMALLEST: i32 = 64;
 
-pub fn across(given: i32, monitor: i32) -> Result<i32, Never> {
-    shape::part_of(match given > 1 {
-        true => given,
-        false => monitor,
+pub fn across(room: Room) -> Result<i32, Never> {
+    shape::part_of(match room.granted > 1 {
+        true => room.granted,
+        false => room.monitor,
     })
 }
 
-pub fn ceiling(given: i32, screen: i32) -> Result<i32, Never> {
-    let Ok(wanted) = shape::tall_part_of(screen);
+pub fn ceiling(room: Room) -> Result<i32, Never> {
+    let Ok(wanted) = shape::tall_part_of(room.monitor);
 
-    Ok(match given > 1 {
-        true => wanted.min(given.saturating_sub(2i32.saturating_mul(BREATH))),
+    Ok(match room.granted > 1 {
+        true => wanted.min(room.granted.saturating_sub(2i32.saturating_mul(BREATH))),
         false => wanted,
     })
 }
 
-pub fn tall_enough(frame: i32, row: i32, ceiling: i32) -> Result<i32, Never> {
-    Ok(frame.saturating_add(row.max(ceiling.saturating_sub(frame))))
+pub fn tall_enough(tall: Tall) -> Result<i32, Never> {
+    Ok(tall.frame.saturating_add(tall.row.max(tall.ceiling.saturating_sub(tall.frame))))
 }
 
 #[cfg(test)]
@@ -101,27 +117,35 @@ mod tests {
 
     #[test]
     fn the_room_the_compositor_granted_beats_the_monitor() {
-        assert_eq!(across(800, 1024), shape::part_of(800));
-        assert_eq!(across(0, 1024), shape::part_of(1024), "nothing granted yet");
+        assert_eq!(across(Room { granted: 800, monitor: 1024 }), shape::part_of(800));
+        assert_eq!(
+            across(Room { granted: 0, monitor: 1024 }),
+            shape::part_of(1024),
+            "nothing granted yet"
+        );
     }
 
     #[test]
     fn a_keyboard_taking_the_screen_takes_it_from_the_panel_too() {
         let Ok(share) = shape::tall_part_of(640);
 
-        assert_eq!(ceiling(300, 640), Ok(300 - 2 * BREATH));
-        assert_eq!(ceiling(900, 640), Ok(share), "its share, where there is room");
-        assert_eq!(ceiling(0, 640), Ok(share), "nothing granted yet");
+        assert_eq!(ceiling(Room { granted: 300, monitor: 640 }), Ok(300 - 2 * BREATH));
+        assert_eq!(
+            ceiling(Room { granted: 900, monitor: 640 }),
+            Ok(share),
+            "its share, where there is room"
+        );
+        assert_eq!(ceiling(Room { granted: 0, monitor: 640 }), Ok(share), "nothing granted yet");
     }
 
     #[test]
     fn the_ceiling_is_the_height_whatever_the_rows_are() {
-        assert_eq!(tall_enough(100, 60, 400), Ok(400));
-        assert_eq!(tall_enough(100, 44, 400), Ok(400));
+        assert_eq!(tall_enough(Tall { frame: 100, row: 60, ceiling: 400 }), Ok(400));
+        assert_eq!(tall_enough(Tall { frame: 100, row: 44, ceiling: 400 }), Ok(400));
     }
 
     #[test]
     fn there_is_room_for_one_row_however_little_room_there_is() {
-        assert_eq!(tall_enough(100, 60, 0), Ok(160));
+        assert_eq!(tall_enough(Tall { frame: 100, row: 60, ceiling: 0 }), Ok(160));
     }
 }

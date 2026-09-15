@@ -1,4 +1,4 @@
-//! The menu.
+//! The menu: the surface every application on this machine is opened from.
 //!
 //! Applications come out in the order you actually use them: the ones you open
 //! most, most often, and everything else alphabetically after them.
@@ -59,7 +59,7 @@ use console_core_never::Never;
 use console_panel::actor::{self, Addr, Answer};
 use console_panel::card::{Card, Door};
 use console_panel::chooser::Again;
-use console_panel::page::{Does, Page, Picture, Row, Rows};
+use console_panel::page::{Aside, Does, Page, Picture, Row, Rows};
 
 
 
@@ -235,7 +235,7 @@ fn keep(home: &Home) -> Result<(), Never> {
 
     let said = home.written()?;
 
-    match std::fs::write(&at, said) {
+    match console_core_atomic_writes::whole(&at, said.as_bytes()) {
         Ok(()) => {},
         Err(fault) => eprintln!("launcher: {}: {fault}", at.display()),
     }
@@ -325,7 +325,7 @@ fn app_row(all: &Everything, name: &str, going: For, on: &Home) -> Result<Row, N
                 let Ok(()) = placed(spot, &named);
                 true
             });
-            let Ok(row) = Row::new(name, "", places);
+            let Ok(row) = Row::new(name, Aside(""), places);
 
             row.picturing(picture)
         }
@@ -343,7 +343,7 @@ fn app_row(all: &Everything, name: &str, going: For, on: &Home) -> Result<Row, N
                 let Ok(()) = start(app.as_ref(), &named);
                 true
             });
-            let Ok(row) = Row::new(name, aside, starts);
+            let Ok(row) = Row::new(name, Aside(aside), starts);
             let Ok(pictured) = row.picturing(picture);
 
             pictured.offering(move |showing| {
@@ -362,7 +362,7 @@ fn looking_up_row(said: &str) -> Result<Row, Never> {
         let Ok(()) = looked_up(&word);
         true
     });
-    let Ok(row) = Row::new(&format!("Look up {said:?}"), "", looks);
+    let Ok(row) = Row::new(&format!("Look up {said:?}"), Aside(""), looks);
 
     row.picturing(Picture::Space)
 }
@@ -460,7 +460,10 @@ fn asked_for(asked: &[String]) -> Result<For, Never> {
         None => return Ok(For::Opening),
     };
 
-    let said = asked.get(at.saturating_add(1)).map(String::as_str).unwrap_or_default();
+    let said = match asked.get(at.saturating_add(1)) {
+        Some(said) => said.as_str(),
+        None => return Ok(For::Opening),
+    };
 
     let read = Spot::read(said)?;
 
@@ -527,16 +530,20 @@ mod tests {
 
     fn taken() -> Home {
         let mut home = Home::default();
-        ok(home.place(ok(Spot::new(0, 0, 0)), "Files"));
-        ok(home.place(ok(Spot::new(0, 0, 1)), "Music"));
+        ok(home.place(Spot { pane: 0, row: 0, column: 0 }, "Files"));
+        ok(home.place(Spot { pane: 0, row: 0, column: 1 }, "Music"));
         home
     }
 
     #[test]
     fn y_is_a_switch() {
         let Ok(on) = turning(taken(), GRID, "Download");
-        assert_eq!(ok(on.where_("Download")), Some(ok(Spot::new(0, 0, 2))), "the first free square");
-        assert_eq!(ok(on.at(ok(Spot::new(0, 0, 0)))), Some("Files"), "and nothing else moved");
+        let first = Spot { pane: 0, row: 0, column: 0 };
+
+        let free = Spot { pane: 0, row: 0, column: 2 };
+
+        assert_eq!(ok(on.where_("Download")), Some(free), "the first free square");
+        assert_eq!(ok(on.at(first)), Some("Files"), "and nothing else moved");
 
         let Ok(off) = turning(on, GRID, "Download");
         assert_eq!(ok(off.where_("Download")), None, "pressed again, it is off");
@@ -545,7 +552,7 @@ mod tests {
 
     #[test]
     fn a_square_that_was_asked_for_is_the_square_it_lands_on() {
-        let asked = ok(Spot::new(2, 1, 3));
+        let asked = Spot { pane: 2, row: 1, column: 3 };
         let Ok(placed) = placing(taken(), asked, "Download");
 
         assert_eq!(ok(placed.where_("Download")), Some(asked));
@@ -554,11 +561,13 @@ mod tests {
 
     #[test]
     fn one_that_is_already_on_it_is_moved() {
-        let asked = ok(Spot::new(1, 0, 0));
+        let asked = Spot { pane: 1, row: 0, column: 0 };
         let Ok(placed) = placing(taken(), asked, "Files");
 
         assert_eq!(ok(placed.where_("Files")), Some(asked));
-        assert_eq!(ok(placed.at(ok(Spot::new(0, 0, 0)))), None, "and it left the square it was on");
+        let first = Spot { pane: 0, row: 0, column: 0 };
+
+        assert_eq!(ok(placed.at(first)), None, "and it left the square it was on");
     }
 
     #[test]
@@ -567,7 +576,9 @@ mod tests {
             asked_for(&words.iter().map(|word| (*word).to_string()).collect::<Vec<String>>())
         };
 
-        assert_eq!(asked(&["--place", "2.1.3"]), Ok(For::Placing(ok(Spot::new(2, 1, 3)))));
+        let spot = Spot { pane: 2, row: 1, column: 3 };
+
+        assert_eq!(asked(&["--place", "2.1.3"]), Ok(For::Placing(spot)));
         assert_eq!(asked(&[]), Ok(For::Opening), "the menu, opened the way it usually is");
         assert_eq!(asked(&["--keep"]), Ok(For::Opening), "the paddles, which only open it");
         assert_eq!(asked(&["--place"]), Ok(For::Opening), "a square that was not said");

@@ -13,7 +13,7 @@
 
 use console_core_external_programs::Program;
 use console_core_never::Never;
-use console_panel::page::{Does, Row, Showing, YET};
+use console_panel::page::{Aside, Does, Row, Showing, YET};
 
 use crate::looking::{Found, Looked};
 use crate::store::Kind;
@@ -26,7 +26,7 @@ pub const LOOKING: &str = "Looking for";
 pub const NOTHING_YET: &str = "Nothing has been looked for yet";
 pub const NOTHING_CAME_BACK: &str = "Nothing came back for";
 
-pub const IN_A_BROWSER: &str = "Watch it in the browser";
+pub const IN_A_BROWSER: &str = "Watch in the browser";
 
 pub const LINE: usize = 1;
 
@@ -44,12 +44,12 @@ pub fn rows(
 
     match asking {
         Some(out) => {
-            let Ok(row) = Row::said(&format!("{LOOKING} {out}"), YET);
+            let Ok(row) = Row::said(&format!("{LOOKING} {out}"), Aside(YET));
 
             rows.push(row);
         }
         None if !word.is_empty() && word != looked.asked => {
-            let Ok(row) = Row::new(&format!("{LOOK_FOR} {word}"), "", look);
+            let Ok(row) = Row::new(&format!("{LOOK_FOR} {word}"), Aside(""), look);
 
             rows.push(row);
         }
@@ -59,7 +59,7 @@ pub fn rows(
     match looked.found.is_empty() {
         true => {},
         false => {
-            let Ok(naming) = Row::naming(&looked.asked, "");
+            let Ok(naming) = Row::naming(&looked.asked, Aside(""));
 
             rows.push(naming);
 
@@ -102,18 +102,18 @@ pub fn ways(
 ) -> Result<Vec<Row>, Never> {
     let Ok(as_well) = as_well(other);
     let Ok(way_back) = Row::back(&found.title, back);
-    let Ok(getting) = Row::new(as_well, "", get);
+    let Ok(getting) = Row::new(as_well, Aside(""), get);
     let Ok(in_a_browser) = Program::XdgOpen.name();
     let Ok(opens) = Does::run(&[in_a_browser, &found.url]);
-    let Ok(browser) = Row::new(IN_A_BROWSER, "", opens);
+    let Ok(browser) = Row::new(IN_A_BROWSER, Aside(""), opens);
 
     Ok(vec![way_back, getting, browser])
 }
 
 pub fn as_well(other: Kind) -> Result<&'static str, Never> {
     Ok(match other {
-        Kind::Sound => "Get the sound of it as well",
-        Kind::Film => "Get the whole video as well",
+        Kind::Sound => "Get the sound as well",
+        Kind::Film => "Get the video as well",
     })
 }
 
@@ -141,7 +141,7 @@ mod tests {
     }
 
     fn plain(at: usize, found: &Found) -> Row {
-        let Ok(row) = Row::said(&found.title, &at.to_string());
+        let Ok(row) = Row::said(&found.title, Aside(&at.to_string()));
 
         row
     }

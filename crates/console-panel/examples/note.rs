@@ -9,14 +9,14 @@
 
 use std::sync::Arc;
 
-use console_panel::page::{Page, Row, Rows};
+use console_panel::page::{Aside, Page, Row, Rows};
 use console_panel::panel;
 
 fn main() {
     let build = Arc::new(|| {
         let Ok(asked) = Rows::asked(|| {
-            let Ok(weather) = Row::said("Follow the weather", "");
-            let Ok(picture) = Row::said("Star Ride", "Abi Toads");
+            let Ok(weather) = Row::said("Follow the weather", Aside(""));
+            let Ok(picture) = Row::said("Star Ride", Aside("Abi Toads"));
 
             vec![weather, picture]
         });

@@ -10,6 +10,7 @@ name = "console-point"
 path = "src/bin/point.rs"
 
 [dependencies]
+console-core-geometry.workspace = true
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true
 # Where a surface is standing, for `--in`. The same walk over `hyprctl layers`

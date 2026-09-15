@@ -11,6 +11,8 @@ use std::collections::BTreeMap;
 
 use console_core_never::Never;
 
+use crate::Unpainted;
+
 fn row(line: &str) -> Result<Option<(String, String)>, Never> {
     let row = match line.strip_prefix("| ") {
         Some(row) => row,
@@ -45,7 +47,7 @@ fn row(line: &str) -> Result<Option<(String, String)>, Never> {
     Ok((named && coloured).then(|| (name.to_string(), code.to_string())))
 }
 
-pub fn read(report: &str) -> Result<BTreeMap<String, String>, String> {
+pub fn read(report: &str) -> Result<BTreeMap<String, String>, Unpainted> {
     let mut colours: BTreeMap<String, String> = BTreeMap::new();
 
     for line in report.lines() {
@@ -60,7 +62,7 @@ pub fn read(report: &str) -> Result<BTreeMap<String, String>, String> {
     }
 
     match colours.is_empty() {
-        true => Err("theme/report.md holds no colours; run `just theme`".to_string()),
+        true => Err(Unpainted::NoColours),
         false => Ok(colours),
     }
 }

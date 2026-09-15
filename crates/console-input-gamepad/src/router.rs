@@ -88,6 +88,14 @@ impl Router {
     }
 
     pub fn yaml(&self) -> Result<String, Never> {
+        let mut asked = String::new();
+
+        for target in crate::targets::ASKED {
+            let Ok(name) = target.asked();
+
+            asked.push_str(&format!("  - {name}\n"));
+        }
+
         let mut said = String::from(
             "# Written by `console apply`, out of what this device says it can send.\n\
              #\n\
@@ -102,9 +110,10 @@ impl Router {
              kind: DeviceProfile\n\
              name: Router\n\
              description: Every button, said as itself, for the daemon to read.\n\
-             target_devices:\n  - mouse\n  - keyboard\n  - xbox-elite\n\
-             \nmapping:\n",
+             target_devices:\n",
         );
+        said.push_str(&asked);
+        said.push_str("\nmapping:\n");
         said.push_str(&format!(
             "  - name: Left stick - move the pointer, and reach the pad as itself\n\
              \x20   source_event:\n      gamepad:\n        axis:\n          name: LeftStick\n\
@@ -155,7 +164,7 @@ pub fn legion_go() -> Result<BTreeSet<String>, Never> {
 
 #[cfg(feature = "read")]
 impl Router {
-    pub fn profile(&self) -> Result<crate::profile::Profile, String> {
+    pub fn profile(&self) -> Result<crate::profile::Profile, crate::Unpressed> {
         let Ok(yaml) = self.yaml();
 
         crate::profile::Profile::read(std::path::Path::new(FILE), &yaml)
@@ -165,7 +174,7 @@ impl Router {
 #[cfg(feature = "read")]
 pub fn every_profile(
     root: &std::path::Path,
-) -> Result<std::collections::BTreeMap<String, crate::profile::Profile>, String> {
+) -> Result<std::collections::BTreeMap<String, crate::profile::Profile>, crate::Unpressed> {
     let mut profiles = crate::profile::load_all(root)?;
 
     let Ok(every) = legion_go();

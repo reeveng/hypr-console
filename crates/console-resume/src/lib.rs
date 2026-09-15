@@ -36,3 +36,51 @@ pub mod starting;
 pub mod terminal;
 
 pub const OURS: &str = "resume";
+
+#[derive(Debug)]
+pub enum Unresumed {
+    Making(std::path::PathBuf, std::io::Error),
+    Unwritten(console_core_atomic_writes::Unwritten),
+    Unreadable(std::path::PathBuf, String),
+    Unparsed(std::path::PathBuf, serde_json::Error),
+    Removing(std::path::PathBuf, std::io::Error),
+    Asking(console_compositor::Unanswered),
+    Unsaid(String, std::io::Error),
+    SaidNothing(String),
+    Nameless(String),
+    StillOpen,
+}
+
+impl std::fmt::Display for Unresumed {
+    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Unresumed::Making(at, fault) => write!(to, "{}: making it: {fault}", at.display()),
+            Unresumed::Unwritten(fault) => write!(to, "{fault}"),
+            Unresumed::Unreadable(at, fault) => {
+                write!(to, "{}: reading it: {fault}", at.display())
+            }
+            Unresumed::Unparsed(at, fault) => {
+                write!(to, "{}: reading it: {fault}", at.display())
+            }
+            Unresumed::Removing(at, fault) => {
+                write!(to, "{}: removing it: {fault}", at.display())
+            }
+            Unresumed::Asking(fault) => write!(to, "{fault}"),
+            Unresumed::Unsaid(at, fault) => write!(to, "{at}: {fault}"),
+            Unresumed::SaidNothing(at) => write!(to, "{at}: it is empty"),
+            Unresumed::Nameless(at) => write!(to, "{at}: it points at nothing with a name"),
+            Unresumed::StillOpen => write!(
+                to,
+                "something would not close, so what was saved is not put back"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for Unresumed {}
+
+impl From<console_compositor::Unanswered> for Unresumed {
+    fn from(fault: console_compositor::Unanswered) -> Self {
+        Unresumed::Asking(fault)
+    }
+}

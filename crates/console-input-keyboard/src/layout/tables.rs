@@ -7,6 +7,22 @@
 //! `layout.rs` is the shape of all this and the reading of it. The alphabets
 //! are `keymap`'s: an arrangement names one, and what its keys produce is
 //! whatever the system's xkb symbols say that alphabet is.
+//!
+//! ## The arrows are this desktop's, and wvkbd's arrangements did not have them
+//!
+//! wvkbd put the arrows on the latin boards and left every other script
+//! without: from Thai or Greek or Hebrew the way to move a caret was `?123` to
+//! the shelf of symbols, an arrow, and the layer key back, for each press. On a
+//! phone that is a thumb reaching past a keyboard to a text field it can see.
+//! This device has no such reach -- the caret is only ever where a key put it
+//! -- so a sentence written in Thai could be corrected at its end and nowhere
+//! else. So every arrangement that carries an alphabet somebody chooses now
+//! carries the four, in the place the latin landscape board already keeps them:
+//! up and down at the left of the home row, left and right at the left of the
+//! row below it. `tests/the_alphabets.rs` asks it of each alphabet in
+//! `console_input_alphabets` rather than of a list here, so a script added
+//! there without them is a red test rather than a keyboard somebody finds out
+//! about while writing in it.
 
 use console_core_never::Never;
 use super::{Key, Kind, Layout, key, mods};
@@ -459,6 +475,8 @@ static CYRILLIC: &[Key] = &[
     Key { label: "х", shift: "Х", width: 1.0, kind: Kind::Code { code: key::LEFTBRACE, held: None }, ..Key::PLAIN },
     Key { label: "ъ", shift: "Ъ", width: 0.5, kind: Kind::Code { code: key::RIGHTBRACE, held: None }, ..Key::PLAIN },
     Key { label: "", shift: "", width: 0.0, kind: Kind::EndRow, ..Key::PLAIN },
+    Key { label: "↑", shift: "↑", width: 0.75, kind: Kind::Code { code: key::UP, held: None }, scheme: 1, ..Key::PLAIN },
+    Key { label: "↓", shift: "↓", width: 0.75, kind: Kind::Code { code: key::DOWN, held: None }, scheme: 1, ..Key::PLAIN },
     Key { label: "ф", shift: "Ф", width: 1.0, kind: Kind::Code { code: key::A, held: None }, ..Key::PLAIN },
     Key { label: "ы", shift: "Ы", width: 1.0, kind: Kind::Code { code: key::S, held: Some(Which::ComposeCyrI) }, ..Key::PLAIN },
     Key { label: "в", shift: "В", width: 1.0, kind: Kind::Code { code: key::D, held: None }, ..Key::PLAIN },
@@ -470,6 +488,8 @@ static CYRILLIC: &[Key] = &[
     Key { label: "д", shift: "Д", width: 1.0, kind: Kind::Code { code: key::L, held: None }, ..Key::PLAIN },
     Key { label: "ж", shift: "Ж", width: 1.0, kind: Kind::Code { code: key::SEMICOLON, held: None }, ..Key::PLAIN },
     Key { label: "", shift: "", width: 0.0, kind: Kind::EndRow, ..Key::PLAIN },
+    Key { label: "←", shift: "←", width: 0.75, kind: Kind::Code { code: key::LEFT, held: None }, scheme: 1, ..Key::PLAIN },
+    Key { label: "→", shift: "→", width: 0.75, kind: Kind::Code { code: key::RIGHT, held: None }, scheme: 1, ..Key::PLAIN },
     Key { label: "⇧", shift: "⇫", width: 1.5, kind: Kind::Mod(mods::SHIFT), scheme: 1, ..Key::PLAIN },
     Key { label: "я", shift: "Я", width: 1.0, kind: Kind::Code { code: key::Z, held: None }, ..Key::PLAIN },
     Key { label: "ч", shift: "Ч", width: 1.0, kind: Kind::Code { code: key::X, held: Some(Which::ComposeCyrChe) }, ..Key::PLAIN },
@@ -513,6 +533,8 @@ static ARABIC: &[Key] = &[
     Key { label: "ح", shift: "", width: 1.0, kind: Kind::Code { code: key::P, held: None }, ..Key::PLAIN },
     Key { label: "ج", shift: "<", width: 1.0, kind: Kind::Code { code: key::LEFTBRACE, held: None }, ..Key::PLAIN },
     Key { label: "", shift: "", width: 0.0, kind: Kind::EndRow, ..Key::PLAIN },
+    Key { label: "↑", shift: "↑", width: 0.75, kind: Kind::Code { code: key::UP, held: None }, scheme: 1, ..Key::PLAIN },
+    Key { label: "↓", shift: "↓", width: 0.75, kind: Kind::Code { code: key::DOWN, held: None }, scheme: 1, ..Key::PLAIN },
     Key { label: "ش", shift: "ـِ", width: 1.0, kind: Kind::Code { code: key::A, held: None }, ..Key::PLAIN },
     Key { label: "س", shift: "ـٍ", width: 1.0, kind: Kind::Code { code: key::S, held: None }, ..Key::PLAIN },
     Key { label: "ي", shift: "]", width: 1.0, kind: Kind::Code { code: key::D, held: None }, ..Key::PLAIN },
@@ -525,6 +547,8 @@ static ARABIC: &[Key] = &[
     Key { label: "ك", shift: ":", width: 1.0, kind: Kind::Code { code: key::SEMICOLON, held: None }, ..Key::PLAIN },
     Key { label: "ط", shift: "\"", width: 1.0, kind: Kind::Code { code: key::APOSTROPHE, held: None }, ..Key::PLAIN },
     Key { label: "", shift: "", width: 0.0, kind: Kind::EndRow, ..Key::PLAIN },
+    Key { label: "←", shift: "←", width: 0.75, kind: Kind::Code { code: key::LEFT, held: None }, scheme: 1, ..Key::PLAIN },
+    Key { label: "→", shift: "→", width: 0.75, kind: Kind::Code { code: key::RIGHT, held: None }, scheme: 1, ..Key::PLAIN },
     Key { label: "ذ", shift: "~", width: 1.0, kind: Kind::Code { code: key::Z, held: None }, ..Key::PLAIN },
     Key { label: "ء", shift: "ـْ", width: 1.0, kind: Kind::Code { code: key::X, held: None }, ..Key::PLAIN },
     Key { label: "ؤ", shift: "}", width: 1.0, kind: Kind::Code { code: key::C, held: None }, ..Key::PLAIN },
@@ -567,6 +591,8 @@ static GEORGIAN: &[Key] = &[
     Key { label: "ო", shift: "O", width: 1.0, kind: Kind::Code { code: key::O, held: None }, ..Key::PLAIN },
     Key { label: "პ", shift: "P", width: 1.0, kind: Kind::Code { code: key::P, held: None }, ..Key::PLAIN },
     Key { label: "", shift: "", width: 0.0, kind: Kind::EndRow, ..Key::PLAIN },
+    Key { label: "↑", shift: "↑", width: 0.75, kind: Kind::Code { code: key::UP, held: None }, scheme: 1, ..Key::PLAIN },
+    Key { label: "↓", shift: "↓", width: 0.75, kind: Kind::Code { code: key::DOWN, held: None }, scheme: 1, ..Key::PLAIN },
     Key { label: "ა", shift: "A", width: 1.0, kind: Kind::Code { code: key::A, held: None }, ..Key::PLAIN },
     Key { label: "ს", shift: "შ", width: 1.0, kind: Kind::Code { code: key::S, held: None }, ..Key::PLAIN },
     Key { label: "დ", shift: "D", width: 1.0, kind: Kind::Code { code: key::D, held: None }, ..Key::PLAIN },
@@ -578,6 +604,8 @@ static GEORGIAN: &[Key] = &[
     Key { label: "ლ", shift: "L", width: 1.0, kind: Kind::Code { code: key::L, held: None }, ..Key::PLAIN },
     Key { label: ";", shift: ":", width: 1.0, kind: Kind::Code { code: key::SEMICOLON, held: Some(Which::ComposePunctuation) }, ..Key::PLAIN },
     Key { label: "", shift: "", width: 0.0, kind: Kind::EndRow, ..Key::PLAIN },
+    Key { label: "←", shift: "←", width: 0.75, kind: Kind::Code { code: key::LEFT, held: None }, scheme: 1, ..Key::PLAIN },
+    Key { label: "→", shift: "→", width: 0.75, kind: Kind::Code { code: key::RIGHT, held: None }, scheme: 1, ..Key::PLAIN },
     Key { label: "ზ", shift: "ძ", width: 1.0, kind: Kind::Code { code: key::Z, held: None }, ..Key::PLAIN },
     Key { label: "ხ", shift: "X", width: 1.0, kind: Kind::Code { code: key::X, held: None }, ..Key::PLAIN },
     Key { label: "ც", shift: "ჩ", width: 1.0, kind: Kind::Code { code: key::C, held: None }, ..Key::PLAIN },
@@ -623,6 +651,8 @@ static PERSIAN: &[Key] = &[
     Key { label: "ج", shift: "}", width: 1.0, kind: Kind::Code { code: key::LEFTBRACE, held: None }, ..Key::PLAIN },
     Key { label: "چ", shift: "{", width: 1.0, kind: Kind::Code { code: key::RIGHTBRACE, held: None }, ..Key::PLAIN },
     Key { label: "", shift: "", width: 0.0, kind: Kind::EndRow, ..Key::PLAIN },
+    Key { label: "↑", shift: "↑", width: 0.75, kind: Kind::Code { code: key::UP, held: None }, scheme: 1, ..Key::PLAIN },
+    Key { label: "↓", shift: "↓", width: 0.75, kind: Kind::Code { code: key::DOWN, held: None }, scheme: 1, ..Key::PLAIN },
     Key { label: "ش", shift: "ؤ", width: 1.0, kind: Kind::Code { code: key::A, held: None }, ..Key::PLAIN },
     Key { label: "س", shift: "ئ", width: 1.0, kind: Kind::Code { code: key::S, held: None }, ..Key::PLAIN },
     Key { label: "ی", shift: "ي", width: 1.0, kind: Kind::Code { code: key::D, held: None }, ..Key::PLAIN },
@@ -635,6 +665,8 @@ static PERSIAN: &[Key] = &[
     Key { label: "ک", shift: ":", width: 1.0, kind: Kind::Code { code: key::SEMICOLON, held: None }, ..Key::PLAIN },
     Key { label: "گ", shift: "؛", width: 1.0, kind: Kind::Code { code: key::APOSTROPHE, held: None }, ..Key::PLAIN },
     Key { label: "", shift: "", width: 0.0, kind: Kind::EndRow, ..Key::PLAIN },
+    Key { label: "←", shift: "←", width: 0.75, kind: Kind::Code { code: key::LEFT, held: None }, scheme: 1, ..Key::PLAIN },
+    Key { label: "→", shift: "→", width: 0.75, kind: Kind::Code { code: key::RIGHT, held: None }, scheme: 1, ..Key::PLAIN },
     Key { label: "⇧", shift: "⇫", width: 1.5, kind: Kind::Mod(mods::SHIFT), scheme: 1, ..Key::PLAIN },
     Key { label: "ظ", shift: "ك", width: 1.0, kind: Kind::Code { code: key::Z, held: None }, ..Key::PLAIN },
     Key { label: "ط", shift: "ـٓ", width: 1.0, kind: Kind::Code { code: key::X, held: None }, ..Key::PLAIN },
@@ -681,6 +713,8 @@ static GREEK: &[Key] = &[
     Key { label: "ο", shift: "Ο", width: 1.0, kind: Kind::Code { code: key::O, held: None }, ..Key::PLAIN },
     Key { label: "π", shift: "Π", width: 1.0, kind: Kind::Code { code: key::P, held: None }, ..Key::PLAIN },
     Key { label: "", shift: "", width: 0.0, kind: Kind::EndRow, ..Key::PLAIN },
+    Key { label: "↑", shift: "↑", width: 0.75, kind: Kind::Code { code: key::UP, held: None }, scheme: 1, ..Key::PLAIN },
+    Key { label: "↓", shift: "↓", width: 0.75, kind: Kind::Code { code: key::DOWN, held: None }, scheme: 1, ..Key::PLAIN },
     Key { label: "α", shift: "A", width: 1.0, kind: Kind::Code { code: key::A, held: None }, ..Key::PLAIN },
     Key { label: "σ", shift: "Σ", width: 1.0, kind: Kind::Code { code: key::S, held: None }, ..Key::PLAIN },
     Key { label: "δ", shift: "Δ", width: 1.0, kind: Kind::Code { code: key::D, held: None }, ..Key::PLAIN },
@@ -692,6 +726,8 @@ static GREEK: &[Key] = &[
     Key { label: "λ", shift: "Λ", width: 1.0, kind: Kind::Code { code: key::L, held: None }, ..Key::PLAIN },
     Key { label: "΄", shift: "¨", width: 1.0, kind: Kind::Code { code: key::SEMICOLON, held: Some(Which::ComposeBracket) }, ..Key::PLAIN },
     Key { label: "", shift: "", width: 0.0, kind: Kind::EndRow, ..Key::PLAIN },
+    Key { label: "←", shift: "←", width: 0.75, kind: Kind::Code { code: key::LEFT, held: None }, scheme: 1, ..Key::PLAIN },
+    Key { label: "→", shift: "→", width: 0.75, kind: Kind::Code { code: key::RIGHT, held: None }, scheme: 1, ..Key::PLAIN },
     Key { label: "⇧", shift: "⇫", width: 1.5, kind: Kind::Mod(mods::SHIFT), scheme: 1, ..Key::PLAIN },
     Key { label: "ζ", shift: "Ζ", width: 1.0, kind: Kind::Code { code: key::Z, held: None }, ..Key::PLAIN },
     Key { label: "χ", shift: "Χ", width: 1.0, kind: Kind::Code { code: key::X, held: None }, ..Key::PLAIN },
@@ -722,6 +758,8 @@ static HEBREW: &[Key] = &[
     Key { label: "ם", shift: "ם", width: 1.0, kind: Kind::Code { code: key::O, held: None }, ..Key::PLAIN },
     Key { label: "פ", shift: "פ", width: 1.0, kind: Kind::Code { code: key::P, held: None }, ..Key::PLAIN },
     Key { label: "", shift: "", width: 0.0, kind: Kind::EndRow, ..Key::PLAIN },
+    Key { label: "↑", shift: "↑", width: 0.75, kind: Kind::Code { code: key::UP, held: None }, scheme: 1, ..Key::PLAIN },
+    Key { label: "↓", shift: "↓", width: 0.75, kind: Kind::Code { code: key::DOWN, held: None }, scheme: 1, ..Key::PLAIN },
     Key { label: "ש", shift: "ש", width: 1.0, kind: Kind::Code { code: key::A, held: None }, ..Key::PLAIN },
     Key { label: "ד", shift: "ד", width: 1.0, kind: Kind::Code { code: key::S, held: None }, ..Key::PLAIN },
     Key { label: "ג", shift: "ג", width: 1.0, kind: Kind::Code { code: key::D, held: None }, ..Key::PLAIN },
@@ -733,6 +771,8 @@ static HEBREW: &[Key] = &[
     Key { label: "ך", shift: "ך", width: 1.0, kind: Kind::Code { code: key::L, held: None }, ..Key::PLAIN },
     Key { label: "ף", shift: "ף", width: 1.0, kind: Kind::Code { code: key::SEMICOLON, held: None }, ..Key::PLAIN },
     Key { label: "", shift: "", width: 0.0, kind: Kind::EndRow, ..Key::PLAIN },
+    Key { label: "←", shift: "←", width: 0.75, kind: Kind::Code { code: key::LEFT, held: None }, scheme: 1, ..Key::PLAIN },
+    Key { label: "→", shift: "→", width: 0.75, kind: Kind::Code { code: key::RIGHT, held: None }, scheme: 1, ..Key::PLAIN },
     Key { label: "ז", shift: "ז", width: 1.0, kind: Kind::Code { code: key::Z, held: None }, ..Key::PLAIN },
     Key { label: "ס", shift: "ס", width: 1.0, kind: Kind::Code { code: key::X, held: None }, ..Key::PLAIN },
     Key { label: "ב", shift: "ב", width: 1.0, kind: Kind::Code { code: key::C, held: None }, ..Key::PLAIN },
@@ -909,6 +949,8 @@ static THAI: &[Key] = &[
     Key { label: "บ", shift: "ฐ", width: 1.0, kind: Kind::Code { code: key::LEFTBRACE, held: None }, ..Key::PLAIN },
     Key { label: "ล", shift: ",", width: 1.0, kind: Kind::Code { code: key::RIGHTBRACE, held: None }, ..Key::PLAIN },
     Key { label: "", shift: "", width: 0.0, kind: Kind::EndRow, ..Key::PLAIN },
+    Key { label: "↑", shift: "↑", width: 0.75, kind: Kind::Code { code: key::UP, held: None }, scheme: 1, ..Key::PLAIN },
+    Key { label: "↓", shift: "↓", width: 0.75, kind: Kind::Code { code: key::DOWN, held: None }, scheme: 1, ..Key::PLAIN },
     Key { label: "ฟ", shift: "ฤ", width: 1.0, kind: Kind::Code { code: key::A, held: None }, ..Key::PLAIN },
     Key { label: "ห", shift: "ฆ", width: 1.0, kind: Kind::Code { code: key::S, held: None }, ..Key::PLAIN },
     Key { label: "ก", shift: "ฏ", width: 1.0, kind: Kind::Code { code: key::D, held: None }, ..Key::PLAIN },
@@ -922,6 +964,8 @@ static THAI: &[Key] = &[
     Key { label: "ง", shift: ".", width: 1.0, kind: Kind::Code { code: key::APOSTROPHE, held: None }, ..Key::PLAIN },
     Key { label: "ฃ", shift: "ฅ", width: 1.0, kind: Kind::Code { code: key::BACKSLASH, held: None }, ..Key::PLAIN },
     Key { label: "", shift: "", width: 0.0, kind: Kind::EndRow, ..Key::PLAIN },
+    Key { label: "←", shift: "←", width: 0.75, kind: Kind::Code { code: key::LEFT, held: None }, scheme: 1, ..Key::PLAIN },
+    Key { label: "→", shift: "→", width: 0.75, kind: Kind::Code { code: key::RIGHT, held: None }, scheme: 1, ..Key::PLAIN },
     Key { label: "⇧", shift: "⇫", width: 1.0, kind: Kind::Mod(mods::SHIFT), scheme: 1, ..Key::PLAIN },
     Key { label: "ผ", shift: "(", width: 1.0, kind: Kind::Code { code: key::Z, held: None }, ..Key::PLAIN },
     Key { label: "ป", shift: ")", width: 1.0, kind: Kind::Code { code: key::X, held: None }, ..Key::PLAIN },

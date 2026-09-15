@@ -15,6 +15,13 @@
 //! one are looked for whole instead, a directory that goes on and a directory
 //! that stops.
 //!
+//! A line that names a path under `files/home/@user@` is not read by `saying`,
+//! because what is under `files/` is a path in this repository and these rules
+//! are about paths on a machine. `include_str!` is the case that forced it: the
+//! one crate that reads the compositor's file out of the tree has to spell the
+//! whole name, a macro cannot be handed a directory somebody asked for, and the
+//! alternative was excusing a crate from a rule it keeps everywhere else.
+//!
 //! `tests/` is deliberately not read. What these rules are about is a program
 //! that stays up for days on a handheld with nobody watching it; a test is
 //! bounded by the `cargo test` run that started it, and stands a fixture up on
@@ -40,12 +47,20 @@ pub fn root() -> PathBuf {
     from.canonicalize().unwrap_or(from)
 }
 
+pub const TREE: &str = "files/home/@user@";
+
 pub fn saying(said: &str, excused: &[&str]) -> Vec<String> {
     sources(excused)
         .into_iter()
-        .filter(|(_, held)| without_comments(&without_tests(held)).contains(said))
+        .filter(|(_, held)| {
+            without_the_tree(&without_comments(&without_tests(held))).contains(said)
+        })
         .map(|(at, _)| at.display().to_string())
         .collect()
+}
+
+fn without_the_tree(said: &str) -> String {
+    said.lines().filter(|line| !line.contains(TREE)).collect::<Vec<&str>>().join("\n")
 }
 
 pub fn naming(word: &str, excused: &[&str]) -> Vec<String> {

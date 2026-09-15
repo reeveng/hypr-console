@@ -32,12 +32,12 @@ pub const RATE: &str = "16000";
 pub const THREADS: &str = "12";
 
 fn runtime() -> Result<PathBuf, Never> {
-    let at = match std::env::var("XDG_RUNTIME_DIR") {
-        Ok(said) if !said.is_empty() => said,
-        Ok(_) | Err(_) => "/tmp".to_string(),
-    };
+    let ours = console_core_places::runtime_ours()?;
 
-    Ok(Path::new(&at).join("console").join("voice"))
+    Ok(match ours {
+        Some(ours) => ours.join("voice"),
+        None => Path::new("/tmp").join(console_core_places::OURS).join("voice"),
+    })
 }
 
 pub fn kept() -> Result<Option<PathBuf>, Never> {
@@ -58,7 +58,15 @@ pub fn taking() -> Result<PathBuf, Never> {
     Ok(runtime.join("taking.pid"))
 }
 
-pub fn taken(recorder: u32, press: u32) -> Result<String, Never> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Note {
+    pub recorder: u32,
+    pub press: u32,
+}
+
+pub fn taken(note: Note) -> Result<String, Never> {
+    let Note { recorder, press } = note;
+
     Ok(format!("{recorder} {press}"))
 }
 
@@ -556,8 +564,8 @@ mod tests {
         taking
     }
 
-    fn taken(recorder: u32, press: u32) -> String {
-        let Ok(taken) = super::taken(recorder, press);
+    fn taken(note: Note) -> String {
+        let Ok(taken) = super::taken(note);
 
         taken
     }
@@ -836,7 +844,7 @@ mod tests {
 
     #[test]
     fn the_note_says_who_to_stop_and_what_to_read() {
-        assert_eq!(taken(1234, 99), "1234 99");
+        assert_eq!(taken(Note { recorder: 1234, press: 99 }), "1234 99");
         assert_eq!(told_by("1234 99"), Some((1234, 99)));
         assert_eq!(told_by(" 1234  99 \n"), Some((1234, 99)));
     }

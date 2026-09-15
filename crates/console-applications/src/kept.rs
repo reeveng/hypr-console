@@ -29,6 +29,9 @@ use console_core_never::Never;
 
 use crate::entry::Application;
 
+const NO_PICTURE: &str = "";
+
+
 pub struct Kept {
     pub app: Application,
     pub picture: String,
@@ -49,7 +52,10 @@ pub fn written(
             true => "terminal",
             false => "",
         };
-        let picture = icon.get(&app.name).map(String::as_str).unwrap_or_default();
+        let picture = match icon.get(&app.name) {
+            Some(picture) => picture.as_str(),
+            None => NO_PICTURE,
+        };
 
         let name = field(&app.name)?;
 

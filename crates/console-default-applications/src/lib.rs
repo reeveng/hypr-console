@@ -15,18 +15,33 @@ pub mod clock;
 pub mod engines;
 pub mod policies;
 
+use std::fmt;
 use std::path::PathBuf;
 
 use console_core_atomic_writes::Held;
 use console_core_never::Never;
 
-fn held(at: &std::path::Path) -> Result<String, String> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Unread {
+    pub at: PathBuf,
+    pub fault: String,
+}
+
+impl fmt::Display for Unread {
+    fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(to, "{}: {}", self.at.display(), self.fault)
+    }
+}
+
+impl std::error::Error for Unread {}
+
+fn held(at: &std::path::Path) -> Result<String, Unread> {
     let Ok(held) = console_core_atomic_writes::read(at);
 
     match held {
         Held::Said(said) => Ok(said),
         Held::Nothing => Ok(String::new()),
-        Held::Unreadable(fault) => Err(format!("{}: {fault}", at.display())),
+        Held::Unreadable(fault) => Err(Unread { at: at.to_path_buf(), fault }),
     }
 }
 
@@ -55,7 +70,14 @@ pub fn read(said: &str) -> Result<Vec<(String, String)>, Never> {
         .collect())
 }
 
-pub fn written(said: &str, key: &str, value: &str) -> Result<String, Never> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Setting<'a> {
+    pub key: &'a str,
+    pub value: &'a str,
+}
+
+pub fn written(said: &str, setting: Setting<'_>) -> Result<String, Never> {
+    let Setting { key, value } = setting;
     let mut settings = read(said)?;
 
     match settings.iter_mut().find(|(named, _)| named == key) {
@@ -82,7 +104,8 @@ pub fn setting(key: &str) -> Result<Option<String>, Never> {
     Ok(settings.into_iter().find(|(named, _)| named == key).map(|(_, value)| value))
 }
 
-pub fn set(key: &str, value: &str) -> Result<(), Never> {
+pub fn set(setting: Setting<'_>) -> Result<(), Never> {
+    let Setting { key, value } = setting;
     let keeping = where_()?;
 
     let at = match keeping {
@@ -110,9 +133,9 @@ pub fn set(key: &str, value: &str) -> Result<(), Never> {
         }
     };
 
-    let written = written(&said, key, value)?;
+    let written = written(&said, Setting { key, value })?;
 
-    match std::fs::write(&at, written) {
+    match console_core_atomic_writes::whole(&at, written.as_bytes()) {
         Ok(()) => {}
         Err(fault) => eprintln!("console-default-applications: {}: {fault}", at.display()),
     }
@@ -144,13 +167,16 @@ mod tests {
         let said = "browser=librewolf.desktop\nsearch=duckduckgo\n";
 
         assert_eq!(
-            written(said, "search", "startpage"),
+            written(said, Setting { key: "search", value: "startpage" }),
             Ok("browser=librewolf.desktop\nsearch=startpage\n".to_string())
         );
     }
 
     #[test]
     fn setting_one_that_was_never_there_writes_it() {
-        assert_eq!(written("", "search", "wikipedia"), Ok("search=wikipedia\n".to_string()));
+        assert_eq!(
+            written("", Setting { key: "search", value: "wikipedia" }),
+            Ok("search=wikipedia\n".to_string())
+        );
     }
 }

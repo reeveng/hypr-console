@@ -5,7 +5,7 @@ and the row taken is fetched into a folder this device already plays out of.
 Two tabs: **Audio** puts the sound of a thing into Music, **Video** puts the
 whole of it into Videos.
 
-`download-panel` is the card, and it is the same card as everything else here.
+`downloads-panel` is the card, and it is the same card as everything else here.
 [`docs/panels.md`](panels.md) is how one is built; this is what is decided
 inside this one.
 
@@ -102,7 +102,7 @@ second one ends in an extension the music panel lists, so the folder quietly
 grows a broken second copy of the song.
 
 So the folder is asked first, where the answer is one look at a listing.
-`download-get` asks it too rather than trusting the panel, because a link typed
+`downloads-get` asks it too rather than trusting the panel, because a link typed
 into the line is one nothing has looked up yet, and it says so in a
 notification: the panel is a layer over everything on this screen, so a
 notification raised while it is up would be drawn behind it, and the corner is
@@ -114,15 +114,15 @@ something else.
 
 ## Three programs, because two of them are slow
 
-`download-panel` draws and holds nothing but where each tab is standing.
+`downloads-panel` draws and holds nothing but where each tab is standing.
 
-`download-find` does the looking: one call to yt-dlp with `--flat-playlist`,
+`downloads-find` does the looking: one call to yt-dlp with `--flat-playlist`,
 which is the whole of why a search takes a second rather than a minute, then the
 pictures with curl, and then it writes what came back into the cache. The panel
 starts it with `later`, goes on answering the buttons, and reads the file when
 it ends.
 
-`download-get` does the fetching, and says so when it lands. A film is minutes,
+`downloads-get` does the fetching, and says so when it lands. A film is minutes,
 by which time the card that started it has probably been closed, so the arrival
 is a notification rather than a row: the panel's word in the corner says it was
 set going, and this says it is done. A fetch that fails says so through
@@ -137,14 +137,14 @@ away.
 
 ## Making what is already there one format
 
-`one-format` is the same decision applied backwards: to what is in the folder
-already rather than to what is arriving. Everything that plays becomes opus,
-every film becomes mkv, and what it replaces goes to the wastebasket. It is
-under Y in the Files panel, on the row that is the folder you are standing in,
-and it asks before it starts.
+`downloads-format` is the same decision applied backwards: to what is in the
+folder already rather than to what is arriving. Everything that plays becomes
+opus, every film becomes mkv, and what it replaces goes to the wastebasket. It
+is under Y in the Files panel, on the row that is the folder you are standing
+in, and it asks before it starts.
 
-    one-format                     the music folder and the videos folder
-    one-format /run/media/stick    whatever is in there
+    downloads-format                     the music folder and the videos folder
+    downloads-format /run/media/stick    whatever is in there
 
 It is there because the panel is not the only way a file arrives. Things come
 off a laptop, out of localsend, down from syncthing, and a folder of nine

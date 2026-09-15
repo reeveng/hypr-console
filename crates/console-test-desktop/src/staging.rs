@@ -1,13 +1,15 @@
 //! Every file the desktop reads, in one place, pointing at each other.
 
 
+use console_core_ini_files::Under;
+use console_core_geometry::Size;
 use console_core_never::Never;
 use console_core_number_conversion::{Float, toward_zero_u32};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use crate::nested::Wallpaper;
-use crate::{HOME, nested, root, screen, stage};
+use crate::{HOME, Unnested, nested, root, screen, stage};
 
 pub const ROOM: f64 = 0.9;
 
@@ -96,7 +98,7 @@ pub fn built() -> Result<Vec<(String, PathBuf)>, Never> {
         }
     };
 
-    let Ok(named) = section(&held, "build");
+    let Ok(named) = section(&held, Under("build"));
 
     Ok(named
         .into_iter()
@@ -105,20 +107,25 @@ pub fn built() -> Result<Vec<(String, PathBuf)>, Never> {
         .collect())
 }
 
-fn section(held: &str, wanted: &str) -> Result<Vec<String>, Never> {
+fn section(held: &str, wanted: Under<'_>) -> Result<Vec<String>, Never> {
     Ok(held
         .lines()
-        .map(|line| line.split('#').next().unwrap_or_default().trim())
+        .map(|line| {
+            let Ok(said) = console_core_ini_files::without_a_comment(line);
+
+            said
+        })
         .filter(|line| !line.is_empty())
         .fold((Vec::new(), String::new()), |(mut out, at), line| {
             match line.strip_prefix('[').and_then(|rest| rest.strip_suffix(']')) {
                 Some(name) => (out, name.to_string()),
                 None => {
-                    match at == wanted {
+                    match at == wanted.0 {
                         true => {
-                            let name = line.split_whitespace().next().unwrap_or_default();
-
-                            out.push(name.to_string());
+                            match line.split_whitespace().next() {
+                                Some(name) => out.push(name.to_string()),
+                                None => {},
+                            }
                         }
                         false => {},
                     }
@@ -130,14 +137,19 @@ fn section(held: &str, wanted: &str) -> Result<Vec<String>, Never> {
         .0)
 }
 
-fn rewritten(said: &str, here: &str) -> Result<String, Never> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Here<'a>(&'a str);
+
+fn rewritten(said: &str, here: Here<'_>) -> Result<String, Never> {
+    let here = here.0;
+
     Ok(said
         .replace(HOME, &format!("{here}/home"))
         .replace("/usr/local", &format!("{here}/usr/local"))
         .replace("/usr/share", &format!("{here}/usr/share")))
 }
 
-pub fn room_here(go: &console_screen::Screen) -> Result<(u32, u32), Never> {
+pub fn room_here(go: &console_screen::Screen) -> Result<Size<u32>, Never> {
     let said = match console_compositor::asked(console_compositor::Asked::Monitors) {
         Ok(said) => said,
         Err(_no_compositor_here) => {
@@ -167,7 +179,7 @@ pub fn room_here(go: &console_screen::Screen) -> Result<(u32, u32), Never> {
             let Ok(wide) = toward_zero_u32(wide * ROOM);
             let Ok(tall) = toward_zero_u32(tall * ROOM);
 
-            (wide, tall)
+            Size { wide, tall }
         }
         _ => {
             let Ok(pixels) = go.pixels();
@@ -189,10 +201,12 @@ pub enum Screen {
     InAWindow,
 }
 
-pub fn staged(told: Told, headless: Screen, wallpaper: Wallpaper) -> Result<PathBuf, String> {
+pub fn staged(told: Told, headless: Screen, wallpaper: Wallpaper) -> Result<PathBuf, Unnested> {
     let Ok(here) = stage();
 
-    let fault = |what: &'static str| move |e: std::io::Error| format!("{what}: {e}");
+    let fault = |what: &'static str| move |e: std::io::Error| Unnested::Staging(what, e);
+    let unwritten =
+        |what: &'static str| move |e: console_core_atomic_writes::Unwritten| Unnested::Unwritten(what, e);
     let _ = std::fs::remove_dir_all(&here);
     std::fs::create_dir_all(&here).map_err(fault("the stage"))?;
     let Ok(root) = root();
@@ -215,11 +229,12 @@ pub fn staged(told: Told, headless: Screen, wallpaper: Wallpaper) -> Result<Path
             Err(_fault) => continue,
         };
 
-        let Ok(now) = rewritten(&was, &said_here);
+        let Ok(now) = rewritten(&was, Here(&said_here));
 
         match now == was {
             true => {},
-            false => std::fs::write(&path, now).map_err(fault("a staged file"))?,
+            false => console_core_atomic_writes::whole(&path, now.as_bytes())
+                .map_err(unwritten("a staged file"))?,
         }
     }
 
@@ -233,18 +248,13 @@ pub fn staged(told: Told, headless: Screen, wallpaper: Wallpaper) -> Result<Path
     let held = std::fs::read_to_string(&unit).map_err(fault("the keyboard's unit"))?;
     let Ok(started_by) = nested::started_by(&held);
 
-    let keyboard = started_by.ok_or_else(|| {
-        format!(
-            "{} names no absolute ExecStart, so the stage would start a keyboard nothing \
-             could raise",
-            unit.display()
-        )
-    })?;
+    let keyboard = started_by.ok_or_else(|| Unnested::NoExecStart(unit.clone()))?;
     let start = here.join("usr/local/bin/session-start");
     let Ok(start_said) = nested::session_start(&keyboard, wallpaper);
-    let Ok(session) = rewritten(&start_said, &said_here);
+    let Ok(session) = rewritten(&start_said, Here(&said_here));
 
-    std::fs::write(&start, session).map_err(fault("session-start"))?;
+    console_core_atomic_writes::whole(&start, session.as_bytes())
+        .map_err(unwritten("session-start"))?;
     let Ok(staged) = walk(&here);
 
     for path in staged {
@@ -264,7 +274,32 @@ pub fn staged(told: Told, headless: Screen, wallpaper: Wallpaper) -> Result<Path
     }
 
     let go = screen()?;
-    let device_config = here.join("home/.config/hypr/hyprland.lua");
+    let Ok(ours) = console_core_places::Base::Config.ours_under(&here.join("home"));
+
+    let device_config = ours.join("hypr/hyprland.lua");
+    let at_scale = match headless {
+        Screen::Headless => go.scale,
+        Screen::InAWindow => {
+            let Ok(room) = room_here(&go);
+            let Ok(cut) = go.cut_to(room);
+
+            match told == Told::Aloud && (cut - go.scale).abs() > f64::EPSILON {
+                true => {
+                    let Ok(pixels) = go.pixels();
+                    let (wide, tall) = (pixels.wide, pixels.tall);
+
+                    eprintln!(
+                        "this screen cannot hold {wide}x{tall}, so the window is at a scale of \
+                         {cut:.2} rather than the device's {}",
+                        go.scale
+                    );
+                }
+                false => {},
+            }
+
+            cut
+        }
+    };
     let said = match headless {
         Screen::Headless => {
             let Ok(said) = nested::headless(&go);
@@ -272,29 +307,11 @@ pub fn staged(told: Told, headless: Screen, wallpaper: Wallpaper) -> Result<Path
             said
         }
         Screen::InAWindow => {
-            let Ok(room) = room_here(&go);
-            let Ok(scale) = go.cut_to(room);
-
-            match told == Told::Aloud && (scale - go.scale).abs() > f64::EPSILON {
-                true => {
-                    let Ok((wide, tall)) = go.pixels();
-
-                    eprintln!(
-                        "this screen cannot hold {wide}x{tall}, so the window is at a scale of \
-                         {scale:.2} rather than the device's {}",
-                        go.scale
-                    );
-                }
-                false => {},
-            }
-
-            let Ok(said) = nested::in_a_window(&go, scale);
+            let Ok(said) = nested::in_a_window(&go, at_scale);
 
             said
         }
     };
-    let Ok(ours) = console_core_places::Base::Config.ours_under(&here.join("home"));
-
     let bar = ours.join("bar.css");
 
     match bar.parent() {
@@ -304,14 +321,19 @@ pub fn staged(told: Told, headless: Screen, wallpaper: Wallpaper) -> Result<Path
         None => {},
     }
 
-    let Ok(css) = console_screen::bar_css(&go, go.scale);
+    let Ok(css) = console_screen::bar_css(&go, at_scale);
 
-    std::fs::write(&bar, css).map_err(fault("the bar's width"))?;
+    console_core_atomic_writes::whole(&bar, css.as_bytes())
+        .map_err(unwritten("the bar's width"))?;
 
-    let config = here.join("home/.config/hypr/nested.lua");
-    let Ok(nested) = nested::config(&said, &device_config.display().to_string(), wallpaper);
+    let config = ours.join("hypr/nested.lua");
+    let Ok(nested) = nested::config(
+        nested::Said { screen: &said, device: &device_config.display().to_string() },
+        wallpaper,
+    );
 
-    std::fs::write(&config, nested).map_err(fault("the nested config"))?;
+    console_core_atomic_writes::whole(&config, nested.as_bytes())
+        .map_err(unwritten("the nested config"))?;
 
     match told {
         Told::Aloud => println!("staged in {}", here.display()),
@@ -325,8 +347,12 @@ pub fn environment() -> Result<Vec<(String, String)>, Never> {
     let Ok(here) = stage();
 
     let at = |what: &str| here.join(what).display().to_string();
-    let Ok(said) = crate::said("PATH");
-    let path = said.unwrap_or_default();
+    let Ok(said) = console_core_external_programs::path();
+
+    let path = match said {
+        Some(path) => path,
+        None => String::new(),
+    };
 
     Ok(vec![
         ("HOME".into(), at("home")),
@@ -347,7 +373,7 @@ mod tests {
     fn anything_under_bin_is_staged_able_to_run() {
         assert_eq!(mode_of("/usr/local/bin/launcher", b"#!/b"), Ok(0o755));
         assert_eq!(mode_of("/usr/local/lib/console/palette.sh", b"#!/b"), Ok(0o755));
-        assert_eq!(mode_of("/home/@user@/.config/hypr/hyprland.lua", b"-- a"), Ok(0o644));
+        assert_eq!(mode_of("/home/@user@/.config/console/hypr/hyprland.lua", b"-- a"), Ok(0o644));
     }
 
     #[test]
@@ -358,13 +384,13 @@ mod tests {
         let keyboard = started.split(' ').next().expect("a word").to_string();
         let start =
             nested::session_start(&keyboard, Wallpaper::Started).expect("the session's start");
-        let said = rewritten(&start, "/s").expect("the rewriting");
+        let said = rewritten(&start, Here("/s")).expect("the rewriting");
         assert!(
-            said.contains(r#"keyboard="/s/usr/local/bin/virtual-keyboard"#),
+            said.contains(r#"keyboard="/s/usr/local/bin/console-keyboard"#),
             "the staged session starts a keyboard the staged toggle cannot signal: {said}"
         );
 
-        let Ok(wanted) = rewritten(&keyboard, "/s");
+        let Ok(wanted) = rewritten(&keyboard, Here("/s"));
 
         assert!(
             said.contains(&format!("keyboard=\"{wanted}\"")),
@@ -379,16 +405,17 @@ mod tests {
 
     #[test]
     fn a_unit_that_starts_nothing_absolute_is_not_a_keyboard_the_stage_can_raise() {
-        assert_eq!(nested::started_by("[Service]\nExecStart=virtual-keyboard\n"), Ok(None));
+        assert_eq!(nested::started_by("[Service]\nExecStart=console-keyboard\n"), Ok(None));
         assert_eq!(
-            nested::started_by("[Service]\nExecStart=/usr/local/bin/virtual-keyboard -l x\n"),
-            Ok(Some("/usr/local/bin/virtual-keyboard -l x".to_string()))
+            nested::started_by("[Service]\nExecStart=/usr/local/bin/console-keyboard -l x\n"),
+            Ok(Some("/usr/local/bin/console-keyboard -l x".to_string()))
         );
     }
 
     #[test]
     fn every_absolute_path_points_back_into_the_stage() {
-        let said = rewritten("url(/usr/share/backgrounds/console.webp)\n/home/@user@/.cache", "/s");
+        let said =
+            rewritten("url(/usr/share/backgrounds/console.webp)\n/home/@user@/.cache", Here("/s"));
         assert_eq!(said, Ok("url(/s/usr/share/backgrounds/console.webp)\n/s/home/.cache".to_string()));
     }
 
@@ -396,7 +423,7 @@ mod tests {
     fn the_programs_the_device_builds_are_staged_too() {
         let root = root().expect("the tree");
         let held = std::fs::read_to_string(root.join("desktop.conf")).expect("desktop.conf");
-        let built = section(&held, "build").expect("the build section");
+        let built = section(&held, Under("build")).expect("the build section");
         assert!(built.contains(&"launcher".to_string()));
     }
 

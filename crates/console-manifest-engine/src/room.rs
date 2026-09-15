@@ -120,6 +120,13 @@ pub fn free_in(said: &str) -> Result<Left, Never> {
     })
 }
 
+#[cfg_attr(
+    dylint_lib = "explicit028_no_search_in_a_loop",
+    allow(
+        explicit028_no_search_in_a_loop,
+        reason = "the roots are the few places a folder can be measured against, and the lines are what `du` said about one of them"
+    )
+)]
 pub fn places_in(said: &str, roots: &[String]) -> Result<Vec<Place>, Never> {
     Ok(said
         .lines()

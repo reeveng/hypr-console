@@ -12,6 +12,7 @@
 use std::path::{Path, PathBuf};
 
 use console_core_never::Never;
+use console_core_words::Words;
 
 use crate::manifest::Whose;
 use crate::settled::Settled;
@@ -19,12 +20,15 @@ use crate::settled::Settled;
 
 pub const USER: &str = "@user@";
 
-fn home_of(user: &str) -> Result<String, Never> {
-    Ok(format!("/home/{user}/"))
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct User<'a>(pub &'a str);
+
+fn home_of(user: User<'_>) -> Result<String, Never> {
+    Ok(format!("/home/{}/", user.0))
 }
 
-pub fn on_machine(live: &str, user: &str) -> Result<String, Never> {
-    let Ok(marked) = home_of(USER);
+pub fn on_machine(live: &str, user: User<'_>) -> Result<String, Never> {
+    let Ok(marked) = home_of(User(USER));
     let Ok(theirs) = home_of(user);
 
     Ok(match live.strip_prefix(&marked) {
@@ -33,9 +37,9 @@ pub fn on_machine(live: &str, user: &str) -> Result<String, Never> {
     })
 }
 
-pub fn as_declared(live: &str, user: &str) -> Result<String, Never> {
+pub fn as_declared(live: &str, user: User<'_>) -> Result<String, Never> {
     let Ok(theirs) = home_of(user);
-    let Ok(marked) = home_of(USER);
+    let Ok(marked) = home_of(User(USER));
 
     Ok(match live.strip_prefix(&theirs) {
         Some(rest) => format!("{marked}{rest}"),
@@ -43,28 +47,23 @@ pub fn as_declared(live: &str, user: &str) -> Result<String, Never> {
     })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
 pub enum State {
+    #[words(name = "ok")]
     Ok,
+    #[words(name = "theirs")]
     Theirs,
+    #[words(name = "differs")]
     Differs,
+    #[words(name = "missing")]
     Missing,
+    #[words(name = "cannot read")]
     Unreadable,
+    #[words(name = "unsourced")]
     Unsourced,
 }
 
 impl State {
-    pub fn name(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            State::Ok => "ok",
-            State::Theirs => "theirs",
-            State::Differs => "differs",
-            State::Missing => "missing",
-            State::Unreadable => "cannot read",
-            State::Unsourced => "unsourced",
-        })
-    }
-
     pub fn settled(self) -> Result<Settled, Never> {
         Ok(match self {
             State::Ok | State::Theirs => Settled::Yes,
@@ -77,26 +76,26 @@ pub fn source_of(source: &Path, live: &str) -> Result<PathBuf, Never> {
     Ok(source.join(live.trim_start_matches('/')))
 }
 
-pub fn content_on_machine(held: &[u8], user: &str, _live: &str) -> Result<Vec<u8>, Never> {
+pub fn content_on_machine(held: &[u8], user: User<'_>, _live: &str) -> Result<Vec<u8>, Never> {
     let text = match std::str::from_utf8(held) {
         Ok(text) => text,
         Err(_fault) => return Ok(held.to_vec()),
     };
 
     Ok(match text.contains(USER) {
-        true => text.replace(USER, user).into_bytes(),
+        true => text.replace(USER, user.0).into_bytes(),
         false => held.to_vec(),
     })
 }
 
-pub fn content_as_declared(held: &[u8], user: &str) -> Result<Vec<u8>, Never> {
+pub fn content_as_declared(held: &[u8], user: User<'_>) -> Result<Vec<u8>, Never> {
     Ok(match std::str::from_utf8(held) {
-        Ok(text) if text.contains(user) => text.replace(user, USER).into_bytes(),
+        Ok(text) if text.contains(user.0) => text.replace(user.0, USER).into_bytes(),
         Ok(_) | Err(_) => held.to_vec(),
     })
 }
 
-pub fn state(source: &Path, live: &str, user: &str, whose: Whose) -> Result<State, Never> {
+pub fn state(source: &Path, live: &str, user: User<'_>, whose: Whose) -> Result<State, Never> {
     let Ok(on) = on_machine(live, user);
     let Ok(from) = source_of(source, live);
     let to = Path::new(&on);
@@ -124,12 +123,12 @@ pub fn state(source: &Path, live: &str, user: &str, whose: Whose) -> Result<Stat
     })
 }
 
-pub fn owner_of(live: &str, user: &str) -> Result<String, Never> {
-    let Ok(marked) = home_of(USER);
+pub fn owner_of(live: &str, user: User<'_>) -> Result<String, Never> {
+    let Ok(marked) = home_of(User(USER));
     let Ok(theirs) = home_of(user);
 
     Ok(match live.starts_with(&marked) || live.starts_with(&theirs) {
-        true => user.to_string(),
+        true => user.0.to_string(),
         false => "root".to_string(),
     })
 }
@@ -169,37 +168,37 @@ mod tests {
     }
 
     fn state(source: &Path, live: &str, user: &str, whose: Whose) -> State {
-        let Ok(state) = super::state(source, live, user, whose);
+        let Ok(state) = super::state(source, live, User(user), whose);
 
         state
     }
 
     fn owner_of(live: &str, user: &str) -> String {
-        let Ok(owner) = super::owner_of(live, user);
+        let Ok(owner) = super::owner_of(live, User(user));
 
         owner
     }
 
     fn on_machine(live: &str, user: &str) -> String {
-        let Ok(on) = super::on_machine(live, user);
+        let Ok(on) = super::on_machine(live, User(user));
 
         on
     }
 
     fn as_declared(live: &str, user: &str) -> String {
-        let Ok(declared) = super::as_declared(live, user);
+        let Ok(declared) = super::as_declared(live, User(user));
 
         declared
     }
 
     fn content_on_machine(held: &[u8], user: &str, live: &str) -> Vec<u8> {
-        let Ok(content) = super::content_on_machine(held, user, live);
+        let Ok(content) = super::content_on_machine(held, User(user), live);
 
         content
     }
 
     fn content_as_declared(held: &[u8], user: &str) -> Vec<u8> {
-        let Ok(content) = super::content_as_declared(held, user);
+        let Ok(content) = super::content_as_declared(held, User(user));
 
         content
     }
@@ -301,8 +300,8 @@ mod tests {
 
     #[test]
     fn a_file_in_a_home_belongs_to_whoever_lives_there() {
-        assert_eq!(owner_of("/home/@user@/.config/hypr/hyprland.lua", SOMEBODY), SOMEBODY);
-        assert_eq!(owner_of("/home/ada/.config/hypr/hyprland.lua", SOMEBODY), SOMEBODY);
+        assert_eq!(owner_of("/home/@user@/.config/console/hypr/hyprland.lua", SOMEBODY), SOMEBODY);
+        assert_eq!(owner_of("/home/ada/.config/console/hypr/hyprland.lua", SOMEBODY), SOMEBODY);
         assert_eq!(owner_of("/etc/systemd/user/console.target", SOMEBODY), "root");
         assert_eq!(owner_of("/home/adam/.bashrc", SOMEBODY), "root");
         assert_eq!(owner_of("/home/someone/.bashrc", SOMEBODY), "root");
@@ -311,8 +310,8 @@ mod tests {
     #[test]
     fn the_mark_is_filled_in_when_a_path_reaches_the_machine() {
         assert_eq!(
-            on_machine("/home/@user@/.config/hypr/hyprland.lua", SOMEBODY),
-            "/home/ada/.config/hypr/hyprland.lua"
+            on_machine("/home/@user@/.config/console/hypr/hyprland.lua", SOMEBODY),
+            "/home/ada/.config/console/hypr/hyprland.lua"
         );
         assert_eq!(on_machine("/etc/pamac.conf", SOMEBODY), "/etc/pamac.conf");
     }
@@ -320,8 +319,8 @@ mod tests {
     #[test]
     fn a_path_somebody_typed_is_taken_back_to_the_mark() {
         assert_eq!(
-            as_declared("/home/ada/.config/hypr/hyprland.lua", SOMEBODY),
-            "/home/@user@/.config/hypr/hyprland.lua"
+            as_declared("/home/ada/.config/console/hypr/hyprland.lua", SOMEBODY),
+            "/home/@user@/.config/console/hypr/hyprland.lua"
         );
         assert_eq!(as_declared("/etc/pamac.conf", SOMEBODY), "/etc/pamac.conf");
     }

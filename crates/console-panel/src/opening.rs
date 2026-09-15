@@ -21,27 +21,31 @@ use std::cell::RefCell;
 use std::time::Duration;
 
 use console_core_never::Never;
-use console_response_times::Waiting;
+use console_response_times::{Wait, Note, Waiting};
 
 thread_local! {
     static OPENING: RefCell<Option<Waiting>> = const { RefCell::new(None) };
 }
 
 pub fn started(who: &str) -> Result<(), Never> {
-    let Ok(waiting) = Waiting::on(who, "opening");
+    let Ok(waiting) = Waiting::on(Wait { who, what: "opening" });
 
     OPENING.with(|held| *held.borrow_mut() = Some(waiting));
 
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Came<'a>(pub &'a str);
+
 pub fn asked(
     who: &str,
     pressed: Option<&str>,
-    from: &str,
+    from: Came<'_>,
     exec: Duration,
 ) -> Result<(), Never> {
-    let Ok(waiting) = Waiting::asked(who, "opening", pressed, from, exec);
+    let wait = Wait { who, what: "opening" };
+    let Ok(waiting) = Waiting::asked(wait, pressed, from.0, exec);
 
     OPENING.with(|held| *held.borrow_mut() = Some(waiting));
 
@@ -60,8 +64,8 @@ pub fn counted(name: &str, many: u64) -> Result<(), Never> {
     with(|waiting| waiting.counted(name, many))
 }
 
-pub fn named(name: &str, said: &str) -> Result<(), Never> {
-    with(|waiting| waiting.named(name, said))
+pub fn named(note: Note<'_>) -> Result<(), Never> {
+    with(|waiting| waiting.named(note))
 }
 
 pub fn running() -> Result<Running, Never> {
@@ -119,7 +123,7 @@ mod tests {
     fn stamping_an_opening_that_was_never_started_does_nothing() {
         let Ok(()) = mark("gtk");
         let Ok(()) = counted("rows", 4);
-        let Ok(()) = named("door", "menu");
+        let Ok(()) = named(Note { name: "door", said: "menu" });
         let Ok(()) = taking("screen", Duration::from_millis(20));
         let Ok(()) = done();
     }

@@ -1,6 +1,6 @@
 //! What a song says about itself.
 //!
-//! This was `console-music-panel`'s until the player stopped being kew's. Both need
+//! This was `console-music`'s until the player stopped being kew's. Both need
 //! it now -- the panel to list a library it is not playing, the player to say
 //! on the bus what is playing -- and a second reading of one file is the thing
 //! `CLAUDE.md` warns drifts quietly. So the reading is here and the running is
@@ -19,6 +19,7 @@
 //! then the streams that are sound, and the first answer to a name is the one
 //! kept.
 
+use std::collections::BTreeSet;
 use std::path::Path;
 
 use console_core_external_programs::Program;
@@ -130,7 +131,10 @@ pub fn played(said: &str) -> Result<Playing, Never> {
     Ok(Playing {
         title: tags.title,
         artist: tags.artist,
-        album: first("album").unwrap_or_default(),
+        album: match first("album") {
+            Some(album) => album,
+            None => String::new(),
+        },
         length,
     })
 }
@@ -185,14 +189,28 @@ pub fn every(said: &str) -> Result<Vec<(String, String)>, Never> {
 pub fn read(said: &str) -> Result<Tags, Never> {
     let Ok(all) = every(said);
 
+    #[cfg_attr(
+        dylint_lib = "explicit028_no_search_in_a_loop",
+        allow(
+            explicit028_no_search_in_a_loop,
+            reason = "the tags of one song, searched for the few names that mean a title: neither list grows with anything"
+        )
+    )]
     let first = |wanted: &[&str]| {
         wanted.iter().find_map(|want| {
             all.iter().find(|(name, _)| name == want).map(|(_, said)| said.clone())
         })
     };
-    let title = first(&["title"]).unwrap_or_default();
-    let artist = first(&["artist", "album_artist"]).unwrap_or_default();
-    let rest = rest(&all, &title, &artist)?;
+    let title = match first(&["title"]) {
+        Some(title) => title,
+        None => String::new(),
+    };
+
+    let artist = match first(&["artist", "album_artist"]) {
+        Some(artist) => artist,
+        None => String::new(),
+    };
+    let rest = rest(&all, Song { title: &title, artist: &artist })?;
 
     Ok(Tags { rest, title, artist })
 }
@@ -203,6 +221,8 @@ fn gathered(tags: &Value, into: &mut Vec<(String, String)>) -> Result<(), Never>
         None => return Ok(()),
     };
 
+    let mut had: BTreeSet<String> = into.iter().map(|(name, _)| name.clone()).collect();
+
     for (name, value) in held {
         let said = match value.as_str() {
             Some(said) => said,
@@ -212,7 +232,7 @@ fn gathered(tags: &Value, into: &mut Vec<(String, String)>) -> Result<(), Never>
         let said = said.split_whitespace().collect::<Vec<&str>>().join(" ");
         let name = name.trim().to_lowercase();
 
-        match said.is_empty() || into.iter().any(|(had, _)| *had == name) {
+        match said.is_empty() || !had.insert(name.clone()) {
             true => continue,
             false => {},
         }
@@ -223,18 +243,29 @@ fn gathered(tags: &Value, into: &mut Vec<(String, String)>) -> Result<(), Never>
     Ok(())
 }
 
-fn rest(all: &[(String, String)], title: &str, artist: &str) -> Result<String, Never> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Song<'a> {
+    title: &'a str,
+    artist: &'a str,
+}
+
+fn rest(all: &[(String, String)], song: Song<'_>) -> Result<String, Never> {
+    let Song { title, artist } = song;
     let mut rest: Vec<&str> = Vec::new();
+    let mut already: BTreeSet<&str> = BTreeSet::new();
 
     for (name, said) in all {
-        let known = said == title || said == artist || rest.contains(&said.as_str());
+        let known = said == title || said == artist;
 
         match known || NOT_THE_MUSIC.contains(&name.as_str()) {
             true => continue,
             false => {},
         }
 
-        rest.push(said);
+        match already.insert(said.as_str()) {
+            true => rest.push(said),
+            false => {},
+        }
     }
 
     cut(&rest.join(BETWEEN), AS_MUCH)

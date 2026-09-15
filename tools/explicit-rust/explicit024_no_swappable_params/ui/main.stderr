@@ -1,0 +1,27 @@
+error: a second parameter of type `u32`: the compiler takes these two in either order and says nothing
+  --> $DIR/main.rs:13:28
+   |
+LL | fn draw(across: u32, down: u32) -> u32 {
+   |                            ^^^
+   |
+   = help: give each quantity a type of its own -- a newtype, not an alias, since an alias resolves to the same type and is taken in either order as well. Then the wrong order is a compile error rather than a wrong answer somewhere else
+   = note: `#[deny(explicit024_no_swappable_params)]` on by default
+
+error: a second parameter of type `u32`: the compiler takes these two in either order and says nothing
+  --> $DIR/main.rs:19:39
+   |
+LL | fn wait(patience: Milliseconds, step: Milliseconds) -> Milliseconds {
+   |                                       ^^^^^^^^^^^^
+   |
+   = help: give each quantity a type of its own -- a newtype, not an alias, since an alias resolves to the same type and is taken in either order as well. Then the wrong order is a compile error rather than a wrong answer somewhere else
+
+error: a second parameter of type `str`: the compiler takes these two in either order and says nothing
+  --> $DIR/main.rs:25:30
+   |
+LL | fn under(folder: &str, name: &str) -> String {
+   |                              ^^^^
+   |
+   = help: give each quantity a type of its own -- a newtype, not an alias, since an alias resolves to the same type and is taken in either order as well. Then the wrong order is a compile error rather than a wrong answer somewhere else
+
+error: aborting due to 3 previous errors
+

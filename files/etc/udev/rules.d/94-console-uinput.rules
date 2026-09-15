@@ -1,0 +1,24 @@
+# Let the session make an input device of its own.
+#
+# The daemon that reads the pad publishes a pointer through /dev/uinput -- that
+# is how a thumb on the stick moves the cursor and how the on-screen keyboard
+# types -- and it cannot start without one. The node belongs to root and the
+# input group, so on a machine where the person is not in that group the daemon
+# exits the moment it starts, which takes the keyboard with it: every key on
+# this desktop is a bind that same process hands to the compositor.
+#
+# uaccess is the usual answer and it does not work for this one. It hands a
+# seat's devices to whoever is logged in, and /dev/uinput belongs to no seat --
+# it is a misc device, and the builtin finds no seat to ask about. The tag is set
+# anyway, for the day that changes, and the permission is granted outright
+# beside it, which is the same pair and the same reason as the controller's
+# touchpad next door. `@user@` is the mark the manifest writes for whoever the
+# desktop belongs to.
+#
+# This acts on the add event, so the module has to be loaded for there to be
+# one: /etc/modules-load.d/console-uinput.conf is that, and without it the node
+# is the static one udev makes from modules.devname, which carries the mode and
+# the group and never runs a rule.
+KERNEL=="uinput", SUBSYSTEM=="misc", OPTIONS+="static_node=uinput", \
+  TAG+="uaccess", GROUP="input", MODE="0660", \
+  RUN+="/usr/bin/setfacl -m u:@user@:rw /dev/uinput"

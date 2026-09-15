@@ -12,6 +12,7 @@
 //! both ways, which is the only thing anybody actually wants to compare.
 
 use console_core_never::Never;
+use console_core_words::Words;
 
 const SETTING: &str = "clock";
 
@@ -19,9 +20,11 @@ const TWENTY_FOUR: &str = "24";
 
 const TWELVE: &str = "12";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
 pub enum Clock {
+    #[words(says = "14:30", shape = "%a %d %b  %H:%M")]
     TwentyFour,
+    #[words(says = "2:30 pm", shape = "%a %d %b  %-I:%M %P")]
     Twelve,
 }
 
@@ -32,20 +35,6 @@ impl Clock {
         Ok(match self {
             Clock::TwentyFour => TWENTY_FOUR,
             Clock::Twelve => TWELVE,
-        })
-    }
-
-    pub fn says(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Clock::TwentyFour => "14:30",
-            Clock::Twelve => "2:30 pm",
-        })
-    }
-
-    pub fn shape(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Clock::TwentyFour => "%a %d %b  %H:%M",
-            Clock::Twelve => "%a %d %b  %-I:%M %P",
         })
     }
 }
@@ -60,13 +49,18 @@ pub fn read(said: &str) -> Result<Clock, Never> {
 pub fn clock() -> Result<Clock, Never> {
     let told = crate::setting(SETTING)?;
 
-    read(&told.unwrap_or_default())
+    let said = match told {
+        Some(said) => said,
+        None => String::new(),
+    };
+
+    read(&said)
 }
 
 pub fn choose(clock: Clock) -> Result<(), Never> {
     let Ok(key) = clock.key();
 
-    crate::set(SETTING, key)
+    crate::set(crate::Setting { key: SETTING, value: key })
 }
 
 

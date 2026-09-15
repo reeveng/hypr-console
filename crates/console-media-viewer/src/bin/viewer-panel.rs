@@ -4,11 +4,15 @@
 //!  What it shows and how it is driven is `console_media_viewer::card`'s own
 //! head. This is the program the files panel opens and a `.desktop` file names.
 //! It is the one panel that can answer a press by not opening at all, because
-//! what it was handed may be neither a picture nor a film -- and that has to be
-//! decided here rather than in the host, before the screen is taken. Whoever is
-//! looking gets the folder read twice for it, once to find out there is
-//! something to show and once to show it, which is the cheapest of the three
+//! the file it was handed may be neither a picture nor a film -- and that has
+//! to be decided here rather than in the host, before the screen is taken.
+//! Whoever is looking gets the folder read twice for it, once to find out there
+//! is something to show and once to show it, which is the cheapest of the three
 //! panels to open and the rarest.
+//!
+//! A folder is not one of those and never was. An empty one opens and says it
+//! is empty, because the entry that opens the pictures folder is on the home
+//! screen, and a press there that draws nothing cannot be told from a crash.
 
 use console_core_never::Never;
 use console_panel::chooser::{self, Alone};

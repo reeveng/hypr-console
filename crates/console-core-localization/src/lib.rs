@@ -16,12 +16,12 @@
 //! ```ignore
 //! use console_core_localization::{Said, say};
 //!
-//! pub enum Word { NightColoursOn, WarnWhenLow }
+//! pub enum Word { NightColours, WarnWhenLow }
 //!
 //! impl Said for Word {
 //!     fn english(&self) -> String {
 //!         match self {
-//!             Word::NightColoursOn => "Turn night colours on".to_string(),
+//!             Word::NightColours => "Night colours".to_string(),
 //!             Word::WarnWhenLow => "Warn me when the battery gets low".to_string(),
 //!         }
 //!     }
@@ -45,26 +45,45 @@
 //! that says what is missing, which is the only checker anybody here has to
 //! remember to run.
 //!
+//! ## Asked again every time
+//!
+//! What language somebody reads was once read once and kept for the life of the
+//! process, which is what a memo is and is the reason it went: the first
+//! caller's answer becomes every later caller's, and a check meaning to press
+//! the other language has nowhere to stand. Three environment reads cost less
+//! than a row costs to draw, so the question is asked again at every `say`.
+//!
 //! ## The house style
 //! Written for somebody who has never read a manual and is not going to. It is
 //! a handheld console: the person holding it may be five, or eighty, or reading
-//! their third language.  **Say what it does, not what it is.** A row is
-//! something you press. *Turn night colours on*, not *Warm colours*. **Short.**
-//! A row is one line on a small screen held at arm's length. If it does not
-//! fit, the sentence is wrong, not the screen.  **Ordinary words.** Nothing a
-//! person would not say out loud. No *dismiss*, no *configuration*, no
-//! *authenticate*, no *unsupported*.  **Never clever.** *It has gone* and
-//! *Nothing here answers to that* are writing. *Deleted* and *Nothing matched
-//! that* are answers.  **Say what to do about it.** A message that reports a
-//! problem and stops is a dead end. *There is no yt-dlp on this machine* tells
-//! somebody a word they have never seen; *This needs a program the machine does
-//! not have yet* tells them what happened.  **No jargon and no names of
-//! programs**, unless the person chose that program themselves. `hyprsunset`,
-//! `nmcli`, `powerprofilesctl` and `polkit` are this desktop's business, not
-//! theirs.  `crates/console-core-localization/tests/the_house_style.rs` keeps
-//! the parts of that a machine can check.
-
-use std::sync::OnceLock;
+//! their third language.  **A row that does something says what it does.**
+//! *Clear all*, *Forget*, *Convert* -- the verb, and what it happens to if the
+//! row does not already sit under it.  **A row that shows a setting names the
+//! setting, and its state stands beside it.** *Wi-Fi* with *Off* to the right,
+//! never *Turn Wi-Fi on*: the label is what a person looks for and it has to
+//! stay the same when they change the thing, or the row they just pressed is
+//! not the row they are looking at. Everything worth copying is written that
+//! way, and so is every switch here.  **Short.** A row is one line on a small
+//! screen held at arm's length. If it does not fit, the sentence is wrong, not
+//! the screen. A word for going ahead is one or two, and no longer.  **One act,
+//! one word.** The menu row, the question it raises and the answer under it say
+//! the same verb. *Delete* under *Throw this away?* was three surfaces and two
+//! vocabularies for one press.  **Nothing stands for the thing already on the
+//! screen.** A card titled with a device does not offer *Pair with Blue Keys*,
+//! and a question that names what it is about does not answer *Put them back*.
+//! **Ordinary words.** Nothing a person would not say out loud. No *dismiss*,
+//! no *configuration*, no *authenticate*, no *unsupported*.  **Never clever.**
+//! *It has gone* and *Nothing here answers to that* are writing. *Deleted* and
+//! *Nothing matched that* are answers.  **Say what to do about it.** A message
+//! that reports a problem and stops is a dead end. *There is no yt-dlp on this
+//! machine* tells somebody a word they have never seen; *This needs a program
+//! the machine does not have yet* tells them what happened.  **No jargon and no
+//! names of programs**, unless the person chose that program themselves.
+//! `hyprsunset`, `nmcli`, `powerprofilesctl` and `polkit` are this desktop's
+//! business, not theirs.  The part of that a machine can check is a test in
+//! each crate that has words: `every_word_fits_a_row_and_names_no_program`,
+//! `a_switch_names_the_thing_and_its_two_states_are_told_apart`, and
+//! `the_word_for_going_ahead_is_short_and_stands_for_nothing`.
 
 use console_core_never::Never;
 
@@ -86,16 +105,18 @@ pub fn say(what: &impl Said) -> Result<String, Never> {
 }
 
 pub fn tongue() -> Result<Tongue, Never> {
-    static ASKED: OnceLock<Tongue> = OnceLock::new();
+    let Ok(asked) = asked();
 
-    Ok(*ASKED.get_or_init(|| {
-        let Ok(asked) = asked();
-        let Ok(read) = read(&asked);
-
-        read
-    }))
+    read(&asked)
 }
 
+#[cfg_attr(
+    dylint_lib = "explicit026_env_read_once",
+    allow(
+        explicit026_env_read_once,
+        reason = "the three names the standard gives for what language somebody reads, in the crate that is what reading them means"
+    )
+)]
 fn asked() -> Result<String, Never> {
     for name in ["LC_ALL", "LC_MESSAGES", "LANG"] {
         let said = match std::env::var(name) {
@@ -112,9 +133,7 @@ fn asked() -> Result<String, Never> {
     Ok(String::new())
 }
 
-pub fn read(locale: &str) -> Result<Tongue, Never> {
-    let _language = locale.split(['_', '.', '@']).next().unwrap_or_default().to_lowercase();
-
+pub fn read(_locale: &str) -> Result<Tongue, Never> {
     Ok(Tongue::English)
 }
 

@@ -19,7 +19,7 @@
 //!
 //! ## It used to live in `console-manifest-engine` and skip
 //!  This was `crates/console-manifest-engine/tests/the_keyboard.rs`, which ran
-//! the keyboard the tree carried at `files/usr/local/bin/virtual-keyboard` and
+//! the keyboard the tree carried at `files/usr/local/bin/console-keyboard` and
 //! said "skipped: no keyboard in this tree" when there was none. That was right
 //! while the keyboard was a compiled C binary committed to the tree and absent
 //! from the public copy.  The device builds its own keyboard now and nothing is
@@ -27,16 +27,17 @@
 //! stopped running altogether -- silently, in the way it was written to be
 //! silent for a different reason. Thai was the argument the whole keyboard
 //! rests on, and it was the one thing nothing was asking any more.  Here rather
-//! than there because `env!("CARGO_BIN_EXE_virtual-keyboard")` is the path to
+//! than there because `env!("CARGO_BIN_EXE_console-keyboard")` is the path to
 //! the program this workspace just built, and it is only spelled that way
 //! inside the crate that builds it. The other half of the old file -- whether
 //! this machine has fonts that draw Thai -- stayed with the manifest, which is
 //! where `[packages]` is.
 
+use console_input_keyboard::layout::Kind;
 use std::process::Command;
 
 fn layers() -> Vec<String> {
-    let listed = Command::new(env!("CARGO_BIN_EXE_virtual-keyboard"))
+    let listed = Command::new(env!("CARGO_BIN_EXE_console-keyboard"))
         .arg("--list-layers")
         .output()
         .expect("the keyboard answers --list-layers");
@@ -95,6 +96,46 @@ fn the_shelf_of_symbols_is_reachable_from_either_way_up() {
                 layers.iter().any(|layer| layer == one),
                 "the walk this machine types with asks for {one}, and the keyboard has {layers:?}"
             );
+        }
+    }
+}
+
+#[test]
+fn every_alphabet_somebody_can_choose_can_put_the_caret_where_they_want_it() {
+    let arrows = [
+        (console_input_keyboard::layout::key::UP, "up"),
+        (console_input_keyboard::layout::key::DOWN, "down"),
+        (console_input_keyboard::layout::key::LEFT, "left"),
+        (console_input_keyboard::layout::key::RIGHT, "right"),
+    ];
+
+    for alphabet in &console_input_alphabets::EVERY {
+        for wanted in [alphabet.upright, alphabet.across] {
+            let Ok(named) = console_input_keyboard::layout::named(wanted);
+            let which = named.unwrap_or_else(|| panic!("no arrangement called {wanted}"));
+            let Ok(layout) = console_input_keyboard::layout::of(which);
+
+            for (code, arrow) in arrows {
+                assert!(
+                    layout.keys.iter().any(|key| match key.kind {
+                        Kind::Code { code: on, .. } => on == code,
+                        Kind::Pad
+                        | Kind::EndRow
+                        | Kind::Mod(_)
+                        | Kind::Copy { .. }
+                        | Kind::Layout(_)
+                        | Kind::Back
+                        | Kind::Next
+                        | Kind::Language
+                        | Kind::Symbols
+                        | Kind::Compose => false,
+                    }),
+                    "{} walks the {wanted} arrangement, which has no {arrow} key. The caret can \
+                     then only be where the last letter left it, and putting one right takes a \
+                     trip through the shelf of symbols and back.",
+                    alphabet.says
+                );
+            }
         }
     }
 }

@@ -18,6 +18,8 @@
 //! only offers it, so `console_default_applications::clock` is where it lives
 //! and both of them read the one answer.
 
+use std::collections::BTreeSet;
+
 use console_core_never::Never;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,26 +33,27 @@ pub fn zones(said: &str) -> Result<Vec<String>, Never> {
 }
 
 pub fn part_of(zone: &str) -> Result<String, Never> {
-    Ok(zone.split('/').next().unwrap_or_default().to_string())
+    Ok(match zone.split('/').next() {
+        Some(part) => part.to_string(),
+        None => zone.to_string(),
+    })
 }
 
 pub fn regions(zones: &[String]) -> Result<Vec<String>, Never> {
-    let mut parts: Vec<String> = Vec::new();
+    let mut parts: BTreeSet<String> = BTreeSet::new();
 
     for zone in zones {
         let Ok(part) = part_of(zone);
 
-        let already = parts.contains(&part);
-
-        match already || part.is_empty() {
+        match part.is_empty() {
             true => {},
-            false => parts.push(part),
+            false => {
+                let _ = parts.insert(part);
+            },
         }
     }
 
-    parts.sort();
-
-    Ok(parts)
+    Ok(parts.into_iter().collect())
 }
 
 pub fn says(zone: &str) -> Result<String, Never> {

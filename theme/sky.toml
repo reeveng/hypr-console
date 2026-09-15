@@ -2,7 +2,7 @@
 #
 # A picture is chosen by two things: what part of the day it is, worked out
 # from the sun, and what the weather is, asked of a service that wants no
-# account. `console-sky` does the choosing and `sky-press` writes the pictures.
+# account. `console-wallpaper` does the choosing and `wallpaper-press` writes the pictures.
 #
 # The rule for choosing is that the most particular picture wins. A picture
 # that names a part of the day and a weather beats one that names only a part

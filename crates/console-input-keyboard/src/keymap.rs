@@ -20,70 +20,36 @@
 //! keymap as its only customisation; everything else is the system default.
 
 use console_core_never::Never;
+use console_core_words::Words;
 use std::path::Path;
 
 use xkbcommon::xkb::{Context, Keymap as XkbKeymap};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
 pub enum Layer {
+    #[words(tag = "us", name = "latin", written = "ABC")]
     Latin,
+    #[words(tag = "th", name = "thai", written = "ไทย")]
     Thai,
+    #[words(tag = "fr", name = "french", written = "FR")]
     French,
+    #[words(tag = "de", name = "german", written = "DE")]
     German,
+    #[words(tag = "ru", name = "russian", written = "Рус")]
     Russian,
+    #[words(tag = "gr", name = "greek", written = "Ελλ")]
     Greek,
+    #[words(tag = "ara", name = "arabic", written = "عربي")]
     Arabic,
+    #[words(tag = "il", name = "hebrew", written = "עברית")]
     Hebrew,
+    #[words(tag = "ir", name = "persian", written = "فارسی")]
     Persian,
+    #[words(tag = "ge", name = "georgian", written = "ქარ")]
     Georgian,
 }
 
 impl Layer {
-    pub fn tag(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Layer::Latin => "us",
-            Layer::Thai => "th",
-            Layer::French => "fr",
-            Layer::German => "de",
-            Layer::Russian => "ru",
-            Layer::Greek => "gr",
-            Layer::Arabic => "ara",
-            Layer::Hebrew => "il",
-            Layer::Persian => "ir",
-            Layer::Georgian => "ge",
-        })
-    }
-
-    pub fn name(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Layer::Latin => "latin",
-            Layer::Thai => "thai",
-            Layer::French => "french",
-            Layer::German => "german",
-            Layer::Russian => "russian",
-            Layer::Greek => "greek",
-            Layer::Arabic => "arabic",
-            Layer::Hebrew => "hebrew",
-            Layer::Persian => "persian",
-            Layer::Georgian => "georgian",
-        })
-    }
-
-    pub fn written(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Layer::Latin => "ABC",
-            Layer::Thai => "ไทย",
-            Layer::French => "FR",
-            Layer::German => "DE",
-            Layer::Russian => "Рус",
-            Layer::Greek => "Ελλ",
-            Layer::Arabic => "عربي",
-            Layer::Hebrew => "עברית",
-            Layer::Persian => "فارسی",
-            Layer::Georgian => "ქარ",
-        })
-    }
-
     pub const ALL: &'static [Layer] = &[
         Layer::Latin,
         Layer::French,

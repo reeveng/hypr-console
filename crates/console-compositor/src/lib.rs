@@ -56,21 +56,34 @@
 //! apart, which is what a literal in two places does when nobody has decided
 //! twice.
 
+use std::fmt;
 use std::process::Command;
 
 use console_core_external_programs::Program;
+use console_core_geometry::Size;
 use console_core_never::Never;
+use console_core_number_conversion::{Float, toward_zero_u32};
+use console_core_words::Words;
 
 pub mod stirred;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
 pub enum Asked {
+    #[words(about = "what is on the screen")]
     Layers,
+    #[words(about = "the workspace in front")]
     ActiveWorkspace,
+    #[words(about = "the workspaces there are")]
+    Workspaces,
+    #[words(about = "what the screens are")]
     Monitors,
+    #[words(about = "every screen it has")]
     EveryMonitor,
+    #[words(about = "the windows that are open")]
     Clients,
+    #[words(about = "what is plugged in")]
     Devices,
+    #[words(about = "the keys it is holding")]
     Binds,
 }
 
@@ -79,6 +92,7 @@ impl Asked {
         Ok(match self {
             Asked::Layers => &["layers", "-j"],
             Asked::ActiveWorkspace => &["activeworkspace", "-j"],
+            Asked::Workspaces => &["workspaces", "-j"],
             Asked::Monitors => &["monitors", "-j"],
             Asked::EveryMonitor => &["monitors", "all", "-j"],
             Asked::Clients => &["clients", "-j"],
@@ -86,66 +100,78 @@ impl Asked {
             Asked::Binds => &["binds", "-j"],
         })
     }
+}
 
-    pub fn about(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Asked::Layers => "what is on the screen",
-            Asked::ActiveWorkspace => "the workspace in front",
-            Asked::Monitors => "what the screens are",
-            Asked::EveryMonitor => "every screen it has",
-            Asked::Clients => "the windows that are open",
-            Asked::Devices => "what is plugged in",
-            Asked::Binds => "the keys it is holding",
-        })
+#[derive(Debug)]
+pub enum Unanswered {
+    Asking(Asked, std::io::Error),
+    Refused(Asked, String),
+    Unreadable(Asked, serde_json::Error),
+    Garbled(serde_json::Error),
+}
+
+impl fmt::Display for Unanswered {
+    fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Unanswered::Asking(question, fault) => {
+                let Ok(about) = question.about();
+
+                write!(to, "asking hyprctl {about}: {fault}")
+            }
+            Unanswered::Refused(question, said) => {
+                let Ok(about) = question.about();
+
+                write!(to, "hyprctl would not say {about}: {said}")
+            }
+            Unanswered::Unreadable(question, fault) => {
+                let Ok(about) = question.about();
+
+                write!(to, "reading hyprctl's answer about {about}: {fault}")
+            }
+            Unanswered::Garbled(fault) => write!(to, "reading what hyprctl said: {fault}"),
+        }
     }
 }
 
-pub fn asked(question: Asked) -> Result<serde_json::Value, String> {
+impl std::error::Error for Unanswered {}
+
+pub fn asked(question: Asked) -> Result<serde_json::Value, Unanswered> {
     let Ok(asking) = Program::Hyprctl.command();
 
     answered(asking, question)
 }
 
-pub fn answered(mut asking: Command, question: Asked) -> Result<serde_json::Value, String> {
+pub fn answered(mut asking: Command, question: Asked) -> Result<serde_json::Value, Unanswered> {
     let Ok(words) = question.words();
-    let Ok(about) = question.about();
 
     let said = asking
         .args(words)
         .output()
-        .map_err(|fault| format!("asking hyprctl {about}: {fault}"))?;
+        .map_err(|fault| Unanswered::Asking(question, fault))?;
 
     let printed = match said.status.success() {
         true => said.stdout,
         false => {
-            return Err(format!(
-                "hyprctl would not say {about}: {}",
-                String::from_utf8_lossy(&said.stderr).trim()
+            return Err(Unanswered::Refused(
+                question,
+                String::from_utf8_lossy(&said.stderr).trim().to_string(),
             ));
         }
     };
 
-    serde_json::from_slice(&printed)
-        .map_err(|fault| format!("reading hyprctl's answer about {about}: {fault}"))
+    serde_json::from_slice(&printed).map_err(|fault| Unanswered::Unreadable(question, fault))
 }
 
-pub fn read(said: &str) -> Result<serde_json::Value, String> {
-    serde_json::from_str(said).map_err(|fault| format!("reading what hyprctl said: {fault}"))
+pub fn read(said: &str) -> Result<serde_json::Value, Unanswered> {
+    serde_json::from_str(said).map_err(Unanswered::Garbled)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
 pub enum Told {
+    #[words(word = "dispatch")]
     Dispatch,
+    #[words(word = "eval")]
     Eval,
-}
-
-impl Told {
-    pub fn word(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Told::Dispatch => "dispatch",
-            Told::Eval => "eval",
-        })
-    }
 }
 
 const SWITCH: &str = "switchxkblayout";
@@ -167,15 +193,15 @@ pub fn keyboards(devices: &serde_json::Value) -> Result<Vec<Keyboard>, Never> {
         .iter()
         .filter_map(|one| {
             let name = one.get("name").and_then(serde_json::Value::as_str)?;
-            let layouts = one
-                .get("layout")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or_default()
-                .split(',')
-                .map(str::trim)
-                .filter(|said| !said.is_empty())
-                .map(str::to_string)
-                .collect();
+            let layouts = match one.get("layout").and_then(serde_json::Value::as_str) {
+                Some(said) => said
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|said| !said.is_empty())
+                    .map(str::to_string)
+                    .collect(),
+                None => Vec::new(),
+            };
             let wearing = one
                 .get("active_keymap")
                 .and_then(serde_json::Value::as_str)
@@ -200,9 +226,8 @@ pub fn binds(said: &serde_json::Value) -> Result<Vec<Bind>, Never> {
         .flatten()
         .filter_map(|one| {
             let held = one.get("modmask").and_then(serde_json::Value::as_u64)?;
-            let named = one.get("key").and_then(serde_json::Value::as_str).unwrap_or_default();
-            let about =
-                one.get("description").and_then(serde_json::Value::as_str).unwrap_or_default();
+            let Ok(named) = word_in(one, "key");
+            let Ok(about) = word_in(one, "description");
 
             Some(Bind {
                 held,
@@ -261,15 +286,18 @@ fn took(said: &std::process::Output) -> Result<Done, Never> {
     )
 }
 
-pub fn offers(name: &str, layouts: &str) -> Result<Done, Never> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Layouts<'a>(pub &'a str);
+
+pub fn offers(name: &str, layouts: Layouts<'_>) -> Result<Done, Never> {
     let Ok(telling) = Program::Hyprctl.command();
 
     laying_out(telling, name, layouts)
 }
 
-pub fn laying_out(telling: Command, name: &str, layouts: &str) -> Result<Done, Never> {
+pub fn laying_out(telling: Command, name: &str, layouts: Layouts<'_>) -> Result<Done, Never> {
     let Ok(said) = quoted(name);
-    let Ok(offered) = quoted(layouts);
+    let Ok(offered) = quoted(layouts.0);
 
     doing(
         telling,
@@ -351,6 +379,43 @@ pub fn workspace(workspace: &serde_json::Value) -> Result<Option<&str>, Never> {
     Ok(workspace.get("name").and_then(serde_json::Value::as_str))
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Workspace {
+    pub id: i64,
+    pub named: String,
+}
+
+pub fn in_front(said: &serde_json::Value) -> Result<Option<Workspace>, Never> {
+    let id = match said.get("id").and_then(serde_json::Value::as_i64) {
+        Some(id) => id,
+        None => return Ok(None),
+    };
+    let Ok(named) = workspace(said);
+    let named = match named {
+        Some(named) => named.to_string(),
+        None => id.to_string(),
+    };
+
+    Ok(Some(Workspace { id, named }))
+}
+
+pub fn workspaces(said: &serde_json::Value) -> Result<Vec<Workspace>, Never> {
+    let mut found = Vec::new();
+
+    for one in said.as_array().into_iter().flatten() {
+        let Ok(workspace) = in_front(one);
+
+        match workspace {
+            Some(workspace) => found.push(workspace),
+            None => {},
+        }
+    }
+
+    found.sort_by_key(|workspace| workspace.id);
+
+    Ok(found)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Corner {
     pub across: i64,
@@ -392,6 +457,31 @@ pub struct Monitor {
     pub scale: Option<f64>,
     pub refresh: Option<f64>,
     pub transform: Option<i64>,
+}
+
+impl Monitor {
+    pub fn logical(&self) -> Result<Option<Size<u32>>, Never> {
+        let ((wide, tall), scale) = match self.size.zip(self.scale) {
+            Some(both) => both,
+            None => return Ok(None),
+        };
+
+        let (wide, tall) = match self.transform {
+            Some(transform) => match transform & 1 == 1 {
+                true => (tall, wide),
+                false => (wide, tall),
+            },
+            None => (wide, tall),
+        };
+
+        let Ok(wide) = wide.float();
+        let Ok(tall) = tall.float();
+
+        let Ok(across) = toward_zero_u32(wide / scale.max(f64::EPSILON));
+        let Ok(down) = toward_zero_u32(tall / scale.max(f64::EPSILON));
+
+        Ok(Some(Size { wide: across, tall: down }))
+    }
 }
 
 pub fn monitors(monitors: &serde_json::Value) -> Result<Vec<Monitor>, Never> {
@@ -451,6 +541,24 @@ pub struct Window {
     pub pid: i64,
 }
 
+const SAID_NOTHING: &str = "";
+
+const SAID_NO_NUMBER: i64 = 0;
+
+fn word_in(of: &serde_json::Value, name: &str) -> Result<String, Never> {
+    Ok(match of.get(name).and_then(serde_json::Value::as_str) {
+        Some(said) => said.to_string(),
+        None => SAID_NOTHING.to_string(),
+    })
+}
+
+fn numbered(of: &serde_json::Value, name: &str) -> Result<i64, Never> {
+    Ok(match of.get(name).and_then(serde_json::Value::as_i64) {
+        Some(number) => number,
+        None => SAID_NO_NUMBER,
+    })
+}
+
 fn pair(window: &serde_json::Value, name: &str) -> Result<(i64, i64), Never> {
     let said = window.get(name);
 
@@ -470,6 +578,12 @@ pub fn windows_open(clients: &serde_json::Value) -> Result<Vec<Window>, Never> {
         let word = |name: &str| window.get(name).and_then(serde_json::Value::as_str);
         let whether = |name: &str| window.get(name).and_then(serde_json::Value::as_bool);
 
+        let said_in = |name: &str| {
+            let Ok(said) = word_in(window, name);
+
+            said
+        };
+
         let address = match word("address") {
             Some(address) => address,
             None => continue,
@@ -481,18 +595,25 @@ pub fn windows_open(clients: &serde_json::Value) -> Result<Vec<Window>, Never> {
 
         open.push(Window {
             address: address.to_string(),
-            title: word("title").unwrap_or_default().to_string(),
-            first_class: word("initialClass").unwrap_or_default().to_string(),
-            first_title: word("initialTitle").unwrap_or_default().to_string(),
-            workspace: workspace
-                .and_then(|workspace| workspace.get("id"))
-                .and_then(serde_json::Value::as_i64)
-                .unwrap_or_default(),
-            workspace_named: workspace
-                .and_then(|workspace| workspace.get("name"))
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
+            title: said_in("title"),
+            first_class: said_in("initialClass"),
+            first_title: said_in("initialTitle"),
+            workspace: match workspace {
+                Some(workspace) => {
+                    let Ok(id) = numbered(workspace, "id");
+
+                    id
+                }
+                None => SAID_NO_NUMBER,
+            },
+            workspace_named: match workspace {
+                Some(workspace) => {
+                    let Ok(named) = word_in(workspace, "name");
+
+                    named
+                }
+                None => SAID_NOTHING.to_string(),
+            },
             monitor: window.get("monitor").and_then(serde_json::Value::as_i64),
             floating: match whether("floating") {
                 Some(true) => Floating::Yes,
@@ -512,11 +633,29 @@ pub fn windows_open(clients: &serde_json::Value) -> Result<Vec<Window>, Never> {
             },
             at,
             size,
-            pid: window.get("pid").and_then(serde_json::Value::as_i64).unwrap_or_default(),
+            pid: {
+                let Ok(pid) = numbered(window, "pid");
+
+                pid
+            },
         });
     }
 
     Ok(open)
+}
+
+#[cfg_attr(
+    dylint_lib = "explicit026_env_read_once",
+    allow(
+        explicit026_env_read_once,
+        reason = "HYPRLAND_INSTANCE_SIGNATURE names the compositor this session is talking to, and this crate is what talking to it means. Three crates read it before this existed and two of them disagreed about what an empty one was"
+    )
+)]
+pub fn instance() -> Result<Option<String>, Never> {
+    Ok(match std::env::var("HYPRLAND_INSTANCE_SIGNATURE") {
+        Ok(said) if !said.is_empty() => Some(said),
+        Ok(_) | Err(_) => None,
+    })
 }
 
 #[cfg(test)]
@@ -577,6 +716,36 @@ mod tests {
                 transform: None,
             })
         );
+    }
+
+    #[test]
+    fn a_turned_screen_is_as_wide_as_it_looks_rather_than_as_wide_as_its_mode() {
+        let Ok(monitors) = monitors(&said(
+            r#"[{"name":"HEADLESS-1","width":1600,"height":2560,"scale":2.5,"transform":1}]"#,
+        ));
+        let turned = monitors.first().expect("a screen");
+        let Ok(logical) = turned.logical();
+
+        assert_eq!(logical, Some(Size { wide: 1024, tall: 640 }));
+    }
+
+    #[test]
+    fn a_screen_standing_upright_is_its_mode_over_its_scale() {
+        let Ok(monitors) = monitors(&said(
+            r#"[{"name":"HEADLESS-2","width":2560,"height":1600,"scale":2.0,"transform":0}]"#,
+        ));
+        let upright = monitors.first().expect("a screen");
+        let Ok(logical) = upright.logical();
+
+        assert_eq!(logical, Some(Size { wide: 1280, tall: 800 }));
+    }
+
+    #[test]
+    fn a_screen_that_will_not_say_how_big_it_is_says_nothing_rather_than_nought_by_nought() {
+        let Ok(monitors) = monitors(&said(r#"[{"name":"HEADLESS-2"}]"#));
+        let unmeasured = monitors.first().expect("a screen");
+
+        assert_eq!(unmeasured.logical(), Ok(None));
     }
 
     #[test]
@@ -770,5 +939,55 @@ mod tests {
         let first = open.first().map(|window| (window.at, window.size));
 
         assert_eq!(first, Some(((10, 20), (800, 600))));
+    }
+
+    #[test]
+    fn the_workspaces_come_back_in_the_order_a_bar_draws_them() {
+        let said = serde_json::json!([
+            {"id": 3, "name": "3", "windows": 1},
+            {"id": 1, "name": "1", "windows": 2},
+            {"id": 2, "name": "2", "windows": 0}
+        ]);
+        let Ok(found) = workspaces(&said);
+        let numbered: Vec<i64> = found.iter().map(|one| one.id).collect();
+
+        assert_eq!(numbered, [1, 2, 3]);
+    }
+
+    #[test]
+    fn a_workspace_with_a_name_of_its_own_keeps_it() {
+        let said = serde_json::json!([{"id": -98, "name": "special:magic"}]);
+        let Ok(found) = workspaces(&said);
+
+        assert_eq!(
+            found.first().map(|one| one.named.as_str()),
+            Some("special:magic"),
+            "{found:?}"
+        );
+    }
+
+    #[test]
+    fn a_workspace_nothing_numbered_is_not_a_workspace() {
+        let said = serde_json::json!([{"name": "3"}, {"id": 4, "name": "4"}]);
+        let Ok(found) = workspaces(&said);
+
+        assert_eq!(found.len(), 1, "{found:?}");
+    }
+
+    #[test]
+    fn the_workspace_in_front_is_read_the_same_way_one_in_the_list_is() {
+        let said = serde_json::json!({"id": 2, "name": "2", "windows": 1});
+        let Ok(front) = in_front(&said);
+
+        assert_eq!(front, Some(Workspace { id: 2, named: "2".to_string() }));
+    }
+
+    #[test]
+    fn a_compositor_that_answered_nothing_is_no_workspaces_rather_than_one() {
+        let Ok(none) = workspaces(&serde_json::json!({}));
+        let Ok(nobody) = in_front(&serde_json::json!({}));
+
+        assert!(none.is_empty());
+        assert_eq!(nobody, None);
     }
 }

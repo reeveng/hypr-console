@@ -12,6 +12,7 @@
 //! by pushing the one in front of them out of the way. So a swipe across a row
 //! *is* that row's level, and nothing else has to be taught to it.
 
+use console_core_geometry::Point;
 use console_core_never::Never;
 use gtk4::gdk::Key;
 
@@ -46,10 +47,10 @@ pub enum Sweep {
 
 const MEANT_IT: f64 = 120.0;
 
-pub fn swept(across: f64, down: f64) -> Result<Sweep, Never> {
-    let sideways = across.abs() > down.abs() && across.abs() >= MEANT_IT;
+pub fn swept(by: Point<f64>) -> Result<Sweep, Never> {
+    let sideways = by.across.abs() > by.down.abs() && by.across.abs() >= MEANT_IT;
 
-    Ok(match (sideways, across < 0.0) {
+    Ok(match (sideways, by.across < 0.0) {
         (false, _) => Sweep::Nothing,
         (true, true) => Sweep::On,
         (true, false) => Sweep::Back,
@@ -187,24 +188,24 @@ mod tests {
 
     #[test]
     fn a_hand_pushing_the_picture_aside_brings_the_next_one_in() {
-        assert_eq!(swept(-400.0, 0.0), Ok(Sweep::On));
-        assert_eq!(swept(400.0, 0.0), Ok(Sweep::Back));
+        assert_eq!(swept(Point { across: -400.0, down: 0.0 }), Ok(Sweep::On));
+        assert_eq!(swept(Point { across: 400.0, down: 0.0 }), Ok(Sweep::Back));
         assert_eq!(Sweep::On.step(), Ok(Some(1)));
         assert_eq!(Sweep::Back.step(), Ok(Some(-1)));
     }
 
     #[test]
     fn a_finger_scrolling_the_list_is_not_stepping_a_row() {
-        assert_eq!(swept(30.0, -800.0), Ok(Sweep::Nothing));
-        assert_eq!(swept(-200.0, 900.0), Ok(Sweep::Nothing));
+        assert_eq!(swept(Point { across: 30.0, down: -800.0 }), Ok(Sweep::Nothing));
+        assert_eq!(swept(Point { across: -200.0, down: 900.0 }), Ok(Sweep::Nothing));
         assert_eq!(Sweep::Nothing.step(), Ok(None));
     }
 
     #[test]
     fn a_thumb_resting_on_a_row_has_not_asked_for_anything() {
-        assert_eq!(swept(0.0, 0.0), Ok(Sweep::Nothing));
-        assert_eq!(swept(MEANT_IT - 1.0, 0.0), Ok(Sweep::Nothing));
-        assert_eq!(swept(MEANT_IT, 0.0), Ok(Sweep::Back));
+        assert_eq!(swept(Point { across: 0.0, down: 0.0 }), Ok(Sweep::Nothing));
+        assert_eq!(swept(Point { across: MEANT_IT - 1.0, down: 0.0 }), Ok(Sweep::Nothing));
+        assert_eq!(swept(Point { across: MEANT_IT, down: 0.0 }), Ok(Sweep::Back));
     }
 
     #[test]

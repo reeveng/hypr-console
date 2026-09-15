@@ -13,6 +13,13 @@ use console_device::naming::device;
 use console_program_contract::Argv;
 use console_program_runtime::Nothing;
 
+#[cfg_attr(
+    dylint_lib = "explicit044_no_ambient_value",
+    allow(
+        explicit044_no_ambient_value,
+        reason = "the first thing this does, before a relative path has meant anything: what follows is git and cargo, which are run inside a tree rather than handed one, and `console_repository` is what says which tree that is"
+    )
+)]
 fn main() -> ExitCode {
     let host = match device() {
         Ok(host) => host,

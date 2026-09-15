@@ -17,6 +17,9 @@ use console_core_never::Never;
 
 use crate::level::Muted;
 
+const NOTHING_HEARD: &str = "?";
+
+
 pub const SINK: &str = "@DEFAULT_SINK@";
 
 pub const STEP: &str = "5%";
@@ -55,7 +58,10 @@ pub fn asks(press: Press) -> Result<Vec<Vec<String>>, Never> {
 pub fn said(level: Option<&str>, muted: Muted) -> Result<String, Never> {
     match muted {
         Muted::Yes => Ok("Silent".to_string()),
-        Muted::No => Ok(format!("Volume {}", level.unwrap_or("?"))),
+        Muted::No => Ok(format!("Volume {}", match level {
+            Some(level) => level,
+            None => NOTHING_HEARD,
+        })),
     }
 }
 

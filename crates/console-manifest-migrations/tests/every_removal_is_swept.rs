@@ -30,7 +30,37 @@ use std::process::Command;
 use console_core_external_programs::Program;
 use console_manifest_migrations::sweeping::{self, ON_PURPOSE};
 use console_repository::renaming::UNSAID;
-use console_manifest_migrations::{Outlives, holds, outlives, unswept};
+use console_manifest_migrations::{Outlives, Section, holds, outlives, unswept};
+
+const MANIFEST: &str = "desktop.conf";
+
+const MACHINES: &str = "machines.conf";
+
+const FILES: [&str; 2] = [MANIFEST, MACHINES];
+
+fn read_as(file: &str, said: &str) -> String {
+    match file == MACHINES {
+        true => as_sections(said),
+        false => said.to_string(),
+    }
+}
+
+fn as_sections(said: &str) -> String {
+    said.lines()
+        .map(|line| {
+            let trimmed = line.trim();
+
+            match trimmed.strip_prefix('[').and_then(|rest| rest.strip_suffix(']')) {
+                Some(named) => match named.split_once('.') {
+                    Some((_whichever_machine, section)) => format!("[{section}]"),
+                    None => "[whichever-machine]".to_string(),
+                },
+                None => line.to_string(),
+            }
+        })
+        .collect::<Vec<String>>()
+        .join("\n")
+}
 
 fn carried(said: &str) -> BTreeMap<String, String> {
     let mut found = BTreeMap::new();
@@ -55,7 +85,7 @@ fn carried(said: &str) -> BTreeMap<String, String> {
         match (named, outlives) {
             (true, Outlives::TheManifest) => {
                 let name = line.split_whitespace().next().unwrap_or("");
-                let Ok(holds) = holds(&section, name);
+                let Ok(holds) = holds(Section(&section), name);
 
                 match holds {
                     Some(holds) => {
@@ -90,16 +120,35 @@ fn git(root: &Path, args: &[&str]) -> Result<String, String> {
 }
 
 fn ever(root: &Path) -> Result<BTreeMap<String, String>, String> {
-    let revisions = git(root, &["rev-list", "HEAD", "--", "desktop.conf"])?;
+    let mut asked: Vec<&str> = vec!["rev-list", "HEAD", "--"];
+
+    asked.extend(FILES);
+
+    let revisions = git(root, &asked)?;
     let mut found = BTreeMap::new();
 
     for revision in revisions.split_whitespace() {
-        let said = git(root, &["show", &format!("{revision}:desktop.conf")])?;
+        for file in FILES {
+            let said = match git(root, &["show", &format!("{revision}:{file}")]) {
+                Ok(said) => said,
+                Err(_it_was_not_in_the_tree_that_far_back) => continue,
+            };
 
-        found.extend(carried(&said));
+            found.extend(carried(&read_as(file, &said)));
+        }
     }
 
     Ok(found)
+}
+
+fn now(root: &Path) -> BTreeSet<String> {
+    FILES
+        .into_iter()
+        .flat_map(|file| match std::fs::read_to_string(root.join(file)) {
+            Ok(said) => carried(&read_as(file, &said)).into_keys().collect::<Vec<String>>(),
+            Err(fault) => panic!("{file}: {fault}"),
+        })
+        .collect()
 }
 
 #[test]
@@ -109,10 +158,7 @@ fn nothing_has_left_the_manifest_with_no_migration_and_no_reason() {
         Err(why) => panic!("the top of the tree: {why}"),
     };
 
-    let now = match std::fs::read_to_string(root.join("desktop.conf")) {
-        Ok(said) => carried(&said).into_keys().collect(),
-        Err(fault) => panic!("desktop.conf: {fault}"),
-    };
+    let now = now(&root);
 
     let ever = match ever(&root) {
         Ok(ever) => ever,
@@ -162,12 +208,9 @@ fn the_manifest_has_a_history_to_read() {
         Err(why) => panic!("what the manifest has carried: {why}"),
     };
 
-    let now = match std::fs::read_to_string(root.join("desktop.conf")) {
-        Ok(said) => carried(&said),
-        Err(fault) => panic!("desktop.conf: {fault}"),
-    };
+    let now = now(&root);
 
-    assert!(!now.is_empty(), "desktop.conf carries nothing, so this checked nothing");
+    assert!(!now.is_empty(), "the manifest carries nothing, so this checked nothing");
     assert!(
         ever.len() > now.len(),
         "the manifest's history carries no more than it does today, which means the \
@@ -201,8 +244,8 @@ mod tests {
 
     #[test]
     fn a_program_declared_either_way_is_the_same_thing_on_the_machine() {
-        let Ok(built) = holds("[build]", "launcher");
-        let Ok(carried) = holds("[files]", "/usr/local/bin/launcher");
+        let Ok(built) = holds(Section("[build]"), "launcher");
+        let Ok(carried) = holds(Section("[files]"), "/usr/local/bin/launcher");
 
         assert_eq!(built, carried);
     }

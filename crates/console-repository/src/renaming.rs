@@ -12,7 +12,7 @@
 //! remembered.
 //!
 //! The first is that names contain names. Sweeping `console-music` into
-//! `console-music-panel` across the tree turns `console-music-player` into
+//! `console-music` across the tree turns `console-music-player` into
 //! `console-music-panel-player`, and the damage reads like a typo somebody made
 //! on purpose. So a match only counts when what follows it cannot continue a
 //! name: a letter, a digit, `-` and `_` all stop it, and everything else --
@@ -63,14 +63,33 @@ pub fn continues(after: Option<char>) -> Result<Continues, Never> {
     })
 }
 
-pub fn swept(said: &str, old: &str, new: &str) -> Result<String, Never> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Renaming<'a> {
+    pub old: &'a str,
+    pub new: &'a str,
+}
+
+const NOTHING_BEFORE_IT: &str = "";
+
+const NOTHING_AFTER_IT: &str = "";
+
+pub fn swept(said: &str, renaming: Renaming<'_>) -> Result<String, Never> {
+    let Renaming { old, new } = renaming;
     let mut out = String::new();
     let mut rest = said;
 
     while let Some(at) = rest.find(old) {
-        let before = rest.get(..at).unwrap_or("");
+        let before = match rest.get(..at) {
+            Some(before) => before,
+            None => NOTHING_BEFORE_IT,
+        };
+
         let from = at.saturating_add(old.len());
-        let after = rest.get(from..).unwrap_or("");
+
+        let after = match rest.get(from..) {
+            Some(after) => after,
+            None => NOTHING_AFTER_IT,
+        };
         let Ok(continues) = continues(after.chars().next());
 
         out.push_str(before);
@@ -88,7 +107,8 @@ pub fn swept(said: &str, old: &str, new: &str) -> Result<String, Never> {
     Ok(out)
 }
 
-pub fn spellings(old: &str, new: &str) -> Result<Vec<(String, String)>, Never> {
+pub fn spellings(renaming: Renaming<'_>) -> Result<Vec<(String, String)>, Never> {
+    let Renaming { old, new } = renaming;
     let under = old.replace('-', "_");
     let mut held = vec![(old.to_string(), new.to_string())];
 
@@ -100,12 +120,12 @@ pub fn spellings(old: &str, new: &str) -> Result<Vec<(String, String)>, Never> {
     Ok(held)
 }
 
-pub fn through(said: &str, old: &str, new: &str) -> Result<String, Never> {
-    let Ok(spellings) = spellings(old, new);
+pub fn through(said: &str, renaming: Renaming<'_>) -> Result<String, Never> {
+    let Ok(spellings) = spellings(renaming);
     let mut held = said.to_string();
 
     for (old, new) in spellings {
-        let Ok(swept) = swept(&held, &old, &new);
+        let Ok(swept) = swept(&held, Renaming { old: &old, new: &new });
 
         held = swept;
     }
@@ -136,13 +156,13 @@ pub fn tracked(root: &Path) -> Result<Vec<PathBuf>, Never> {
         .collect())
 }
 
-pub fn renamed(at: &Path, old: &str, new: &str) -> Result<Option<PathBuf>, Never> {
+pub fn renamed(at: &Path, renaming: Renaming<'_>) -> Result<Option<PathBuf>, Never> {
     let name = match at.file_name().and_then(|name| name.to_str()) {
         Some(name) => name,
         None => return Ok(None),
     };
 
-    let Ok(swept) = through(name, old, new);
+    let Ok(swept) = through(name, renaming);
 
     Ok(match swept == name {
         true => None,
@@ -183,49 +203,48 @@ pub fn stub(sweeping: &[String]) -> Result<String, Never> {
 
 #[cfg(test)]
 mod tests {
+    const MUSIC: Renaming<'static> =
+        Renaming { old: "console-music", new: "console-music" };
+
     use super::*;
 
     #[test]
     fn a_name_inside_a_longer_name_is_left_alone() {
-        let Ok(said) = swept("console-music-player", "console-music", "console-music-panel");
+        let Ok(said) = swept("console-music-player", MUSIC);
 
         assert_eq!(said, "console-music-player");
     }
 
     #[test]
     fn a_name_that_ends_is_swept_however_it_ends() {
-        let Ok(file) = swept("console-music.desktop", "console-music", "console-music-panel");
-        let Ok(path) = swept("crates/console-music/src", "console-music", "console-music-panel");
-        let Ok(quoted) = swept("\"console-music\"", "console-music", "console-music-panel");
-        let Ok(ends) = swept("uses console-music", "console-music", "console-music-panel");
+        let Ok(file) = swept("console-music.desktop", MUSIC);
+        let Ok(path) = swept("crates/console-music/src", MUSIC);
+        let Ok(quoted) = swept("\"console-music\"", MUSIC);
+        let Ok(ends) = swept("uses console-music", MUSIC);
 
-        assert_eq!(file, "console-music-panel.desktop");
-        assert_eq!(path, "crates/console-music-panel/src");
-        assert_eq!(quoted, "\"console-music-panel\"");
-        assert_eq!(ends, "uses console-music-panel");
+        assert_eq!(file, "console-music.desktop");
+        assert_eq!(path, "crates/console-music/src");
+        assert_eq!(quoted, "\"console-music\"");
+        assert_eq!(ends, "uses console-music");
     }
 
     #[test]
     fn both_spellings_of_a_name_move_together() {
-        let Ok(said) = through(
-            "use console_music::player; // console-music",
-            "console-music",
-            "console-music-panel",
-        );
+        let Ok(said) = through("use console_music::player; // console-music", MUSIC);
 
-        assert_eq!(said, "use console_music_panel::player; // console-music-panel");
+        assert_eq!(said, "use console_music::player; // console-music");
     }
 
     #[test]
     fn the_underscore_spelling_of_a_longer_name_is_left_alone_too() {
-        let Ok(said) = through("console_music_player", "console-music", "console-music-panel");
+        let Ok(said) = through("console_music_player", MUSIC);
 
         assert_eq!(said, "console_music_player");
     }
 
     #[test]
     fn a_name_with_no_underscore_spelling_is_swept_once() {
-        let Ok(spellings) = spellings("kew", "music-player");
+        let Ok(spellings) = spellings(Renaming { old: "kew", new: "music-player" });
 
         assert_eq!(spellings.len(), 1);
     }

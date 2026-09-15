@@ -28,20 +28,32 @@
 //! itself would be worse than one that did it quietly.
 
 use console_core_never::Never;
-use console_notifications::saying::{Kept, Notice, raise_kept};
-use console_settings::screen::{
-    self, DIMMED, Moved, Way, as_points, now, remembered, set, stepped, undimming,
-};
+use console_notifications::saying::{Kept, Notice, Said, raise_kept};
+use console_settings::screen::{self, Moved, Panel, Was, Way, remembered};
 
 fn main() -> std::process::ExitCode {
-    let word = std::env::args().nth(1).unwrap_or_default();
+    let word = match std::env::args().nth(1) {
+        Some(word) => word,
+        None => String::new(),
+    };
 
-    let Ok(reading) = now();
+    let Ok(found) = screen::here();
+
+    let panel = match found {
+        Some(panel) => panel,
+        None => {
+            eprintln!("console-brightness: no backlight under {}", screen::UNDER);
+
+            return std::process::ExitCode::FAILURE;
+        }
+    };
+
+    let Ok(reading) = panel.now();
 
     let now = match reading {
         Some(now) => now,
         None => {
-            eprintln!("console-brightness: no backlight at {}", screen::DEVICE);
+            eprintln!("console-brightness: {} would not say how bright it is", panel.at.display());
 
             return std::process::ExitCode::FAILURE;
         }
@@ -49,7 +61,7 @@ fn main() -> std::process::ExitCode {
 
     match word == "get" {
         true => {
-            let Ok(points) = as_points(now);
+            let Ok(points) = panel.as_points(now);
 
             println!("{points}");
             return std::process::ExitCode::SUCCESS;
@@ -60,8 +72,8 @@ fn main() -> std::process::ExitCode {
     match word == "dim" || word == "undim" {
         true => {
             let Ok(done) = match word.as_str() {
-                "dim" => dim(now),
-                _ => undim(now),
+                "dim" => dim(&panel, now),
+                _not_dim_so_undim => undim(&panel, now),
             };
 
             return done;
@@ -80,9 +92,9 @@ fn main() -> std::process::ExitCode {
         }
     };
 
-    let Ok(going) = stepped(now, way);
+    let Ok(going) = panel.stepped(now, way);
 
-    let Ok(moved) = set(going);
+    let Ok(moved) = panel.set(going);
 
     match moved {
         Moved::No => {
@@ -92,15 +104,15 @@ fn main() -> std::process::ExitCode {
         Moved::Yes => {},
     }
 
-    let Ok(()) = said(going);
+    let Ok(()) = said(&panel, going);
 
     std::process::ExitCode::SUCCESS
 }
 
-fn said(going: i64) -> Result<(), Never> {
-    let points = as_points(going)?;
+fn said(panel: &Panel, going: i64) -> Result<(), Never> {
+    let points = panel.as_points(going)?;
     let words = screen::said(points)?;
-    let notice = Notice::new(&words, "")?;
+    let notice = Notice::new(Said { summary: &words, body: "" })?;
     let notice = notice.lasting(1500)?;
     let notice = notice.valued(points)?;
     let kept = Kept::named("brightness")?;
@@ -109,7 +121,7 @@ fn said(going: i64) -> Result<(), Never> {
     Ok(())
 }
 
-fn dim(now: i64) -> Result<std::process::ExitCode, Never> {
+fn dim(panel: &Panel, now: i64) -> Result<std::process::ExitCode, Never> {
     let remembered = remembered()?;
 
     let kept = match remembered {
@@ -126,7 +138,7 @@ fn dim(now: i64) -> Result<std::process::ExitCode, Never> {
         false => {},
     }
 
-    match std::fs::write(&kept, format!("{now}\n")) {
+    match console_core_atomic_writes::whole(&kept, format!("{now}\n").as_bytes()) {
         Ok(()) => {},
         Err(fault) => {
             eprintln!("console-brightness: could not write {}: {fault}", kept.display());
@@ -135,7 +147,8 @@ fn dim(now: i64) -> Result<std::process::ExitCode, Never> {
         }
     }
 
-    let moved = set(DIMMED)?;
+    let dimmed = panel.dimmed()?;
+    let moved = panel.set(dimmed)?;
 
     Ok(match moved {
         Moved::Yes => std::process::ExitCode::SUCCESS,
@@ -173,7 +186,7 @@ fn panel_on() -> Result<(), Never> {
     Ok(())
 }
 
-fn undim(now: i64) -> Result<std::process::ExitCode, Never> {
+fn undim(panel: &Panel, now: i64) -> Result<std::process::ExitCode, Never> {
     panel_on()?;
 
     let remembered = remembered()?;
@@ -187,13 +200,13 @@ fn undim(now: i64) -> Result<std::process::ExitCode, Never> {
     let _ = std::fs::remove_file(&kept);
 
     let back = match was {
-        Some(was) => undimming(now, was)?,
+        Some(was) => panel.undimming(now, Was(was))?,
         None => None,
     };
 
     match back {
         Some(back) => {
-            let moved = set(back)?;
+            let moved = panel.set(back)?;
 
             Ok(match moved {
                 Moved::Yes => std::process::ExitCode::SUCCESS,

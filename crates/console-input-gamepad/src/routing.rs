@@ -216,7 +216,7 @@ mod tests {
                 Arrives::Pad(_) | Arrives::Hat(_, _) => continue,
             };
             let said = ok(key_named(key)).expect("a name");
-            assert_eq!(key_code(&said), Ok(key), "{said}");
+            assert_eq!(key_code(&said).expect("a key"), key, "{said}");
         }
     }
 

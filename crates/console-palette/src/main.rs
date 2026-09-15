@@ -1,4 +1,4 @@
-//! Spend the palette.
+//! The palette, written into every file that spends a colour.
 //!
 //!     console-palette          write the palette out of theme/palette.toml
 //!     console-palette --check  say what it would change, change nothing
@@ -34,6 +34,66 @@ enum Doing {
     Check,
 }
 
+#[derive(Debug)]
+enum Unspent {
+    Arguments(Vec<String>),
+    Rootless(console_repository::Unfound),
+    Undeclared(std::io::Error),
+    Unparsed(toml::de::Error),
+    Colour(Short),
+    FallsShort(String),
+    Unreadable(PathBuf, std::io::Error),
+    NoRegion(PathBuf),
+    Holding(PathBuf, std::io::Error),
+    Writing(console_core_atomic_writes::Unwritten),
+}
+
+impl std::fmt::Display for Unspent {
+    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Unspent::Arguments(other) => write!(
+                to,
+                "console-palette takes --check and nothing else, not {other:?}"
+            ),
+            Unspent::Rootless(fault) => write!(to, "{fault}"),
+            Unspent::Undeclared(fault) => {
+                write!(to, "theme/palette.toml could not be read: {fault}")
+            }
+            Unspent::Unparsed(fault) => write!(to, "theme/palette.toml does not parse: {fault}"),
+            Unspent::Colour(fault) => write!(to, "{fault}"),
+            Unspent::FallsShort(complaint) => write!(to, "{complaint}"),
+            Unspent::Unreadable(at, fault) => {
+                write!(to, "{} could not be read: {fault}", at.display())
+            }
+            Unspent::NoRegion(at) => write!(
+                to,
+                "{} has no single {}..{} to write into",
+                at.display(),
+                region::BEGIN,
+                region::END
+            ),
+            Unspent::Holding(at, fault) => {
+                write!(to, "{} could not be made: {fault}", at.display())
+            }
+            Unspent::Writing(fault) => write!(to, "{fault}"),
+        }
+    }
+}
+
+impl std::error::Error for Unspent {}
+
+impl From<console_repository::Unfound> for Unspent {
+    fn from(fault: console_repository::Unfound) -> Self {
+        Unspent::Rootless(fault)
+    }
+}
+
+impl From<Short> for Unspent {
+    fn from(fault: Short) -> Self {
+        Unspent::Colour(fault)
+    }
+}
+
 fn main() -> ExitCode {
     match run() {
         Ok(code) => code,
@@ -44,7 +104,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn run() -> Result<ExitCode, String> {
+fn run() -> Result<ExitCode, Unspent> {
     let doing = match std::env::args().skip(1).collect::<Vec<_>>().as_slice() {
         [] => Doing::Write,
         [flag] if flag == "--check" => Doing::Check,
@@ -52,35 +112,28 @@ fn run() -> Result<ExitCode, String> {
             println!("{}", HELP);
             return Ok(ExitCode::SUCCESS);
         }
-        other => {
-            return Err(format!(
-                "console-palette takes --check and nothing else, not {other:?}"
-            ));
-        }
+        other => return Err(Unspent::Arguments(other.to_vec())),
     };
 
     let root = console_repository::root()?;
     let declared = std::fs::read_to_string(root.join("theme/palette.toml"))
-        .map_err(|fault| format!("theme/palette.toml could not be read: {fault}"))?;
-    let spec: spec::Spec = toml::from_str(&declared)
-        .map_err(|fault| format!("theme/palette.toml does not parse: {fault}"))?;
+        .map_err(Unspent::Undeclared)?;
+    let spec: spec::Spec = toml::from_str(&declared).map_err(Unspent::Unparsed)?;
 
-    let said = |fault: Short| fault.0;
-    let palette = palette::resolve(&spec.colour).map_err(said)?;
-    let rows = measure(&spec, &palette).map_err(said)?;
+    let palette = palette::resolve(&spec.colour)?;
+    let rows = measure(&spec, &palette)?;
 
     let Ok(short) = falls_short(&rows);
 
     match short {
-        Some(complaint) => return Err(complaint),
+        Some(complaint) => return Err(Unspent::FallsShort(complaint)),
         None => {},
     }
 
-    let terminal = Terminal::of(&spec, &palette).map_err(said)?;
+    let terminal = Terminal::of(&spec, &palette)?;
     let work = {
-        let mut work =
-            spend::everywhere(&root.join("files"), &palette, &terminal).map_err(said)?;
-        let body = report::write(&spec, &palette, &rows, &terminal).map_err(said)?;
+        let mut work = spend::everywhere(&root.join("files"), &palette, &terminal)?;
+        let body = report::write(&spec, &palette, &rows, &terminal)?;
 
         work.push(Written {
             path: root.join("theme/report.md"),
@@ -94,7 +147,7 @@ fn run() -> Result<ExitCode, String> {
     let asked = work
         .iter()
         .map(|written| wanted(written).map(|body| (written, body)))
-        .collect::<Result<Vec<_>, String>>()?;
+        .collect::<Result<Vec<_>, Unspent>>()?;
     let changed = asked
         .into_iter()
         .filter(|(written, body)| match std::fs::read(&written.path) {
@@ -105,7 +158,7 @@ fn run() -> Result<ExitCode, String> {
             Doing::Check => Ok(written.path.clone()),
             Doing::Write => put(&written.path, &body).map(|()| written.path.clone()),
         })
-        .collect::<Result<Vec<PathBuf>, String>>()?;
+        .collect::<Result<Vec<PathBuf>, Unspent>>()?;
 
     let Ok(()) = say(&spec, &rows);
 
@@ -138,36 +191,27 @@ const HELP: &str = "\
 console-palette          write the palette out of theme/palette.toml
 console-palette --check  say what it would change, change nothing";
 
-fn wanted(written: &Written) -> Result<String, String> {
+fn wanted(written: &Written) -> Result<String, Unspent> {
     match written.how {
         How::Whole => Ok(written.body.clone()),
         How::Region => {
-            let held = std::fs::read_to_string(&written.path).map_err(|fault| {
-                format!("{} could not be read: {fault}", written.path.display())
-            })?;
-            let Ok(spliced) = region::spliced(&held, &written.body);
+            let held = std::fs::read_to_string(&written.path)
+                .map_err(|fault| Unspent::Unreadable(written.path.clone(), fault))?;
+            let Ok(spliced) = region::spliced(&held, region::Body(&written.body));
 
-            spliced.ok_or_else(|| {
-                format!(
-                    "{} has no single {}..{} to write into",
-                    written.path.display(),
-                    region::BEGIN,
-                    region::END
-                )
-            })
+            spliced.ok_or_else(|| Unspent::NoRegion(written.path.clone()))
         }
     }
 }
 
-fn put(path: &Path, body: &str) -> Result<(), String> {
+fn put(path: &Path, body: &str) -> Result<(), Unspent> {
     match path.parent() {
         Some(holding) => std::fs::create_dir_all(holding)
-            .map_err(|fault| format!("{} could not be made: {fault}", holding.display()))?,
+            .map_err(|fault| Unspent::Holding(holding.to_path_buf(), fault))?,
         None => {},
     }
 
-    std::fs::write(path, body)
-        .map_err(|fault| format!("{} could not be written: {fault}", path.display()))
+    console_core_atomic_writes::whole(path, body.as_bytes()).map_err(Unspent::Writing)
 }
 
 fn falls_short(rows: &[Row]) -> Result<Option<String>, Never> {

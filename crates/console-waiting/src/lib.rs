@@ -30,6 +30,8 @@
 //! ended -- and `Waited` is that answer said out loud, so a caller that runs
 //! out of patience cannot mistake it for one that got what it came for.
 
+pub mod woken;
+
 use console_core_never::Never;
 use std::time::{Duration, Instant};
 
@@ -72,6 +74,13 @@ impl Patience {
     }
 }
 
+#[cfg_attr(
+    dylint_lib = "explicit039_no_reading_the_clock",
+    allow(
+        explicit039_no_reading_the_clock,
+        reason = "the elapsing is what was asked for here: this crate is the one that waits, and a patience with no clock under it is a loop that never ends"
+    )
+)]
 pub fn until(
     patience: Patience,
     mut ask: impl FnMut() -> Result<Seen, Never>,
@@ -95,6 +104,13 @@ pub fn until(
     }
 }
 
+#[cfg_attr(
+    dylint_lib = "explicit039_no_reading_the_clock",
+    allow(
+        explicit039_no_reading_the_clock,
+        reason = "the elapsing is what was asked for here: this crate is the one that waits, and a patience with no clock under it is a loop that never ends"
+    )
+)]
 pub fn found<T>(
     patience: Patience,
     mut look: impl FnMut() -> Result<Option<T>, Never>,

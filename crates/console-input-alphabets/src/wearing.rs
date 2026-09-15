@@ -29,6 +29,7 @@
 //! first time anyway.
 
 use std::collections::BTreeMap;
+use std::fmt;
 use std::path::{Path, PathBuf};
 
 use console_core_never::Never;
@@ -120,18 +121,47 @@ pub fn read(home: &Path, whose: &str) -> Result<&'static Alphabet, Never> {
     among(&every, whose, &walk)
 }
 
-pub fn remember(home: &Path, whose: &str, alphabet: &Alphabet) -> Result<(), String> {
+#[derive(Debug)]
+pub enum Unremembered {
+    Rootless,
+    Holding(PathBuf, std::io::Error),
+    Writing(console_core_atomic_writes::Unwritten),
+}
+
+impl fmt::Display for Unremembered {
+    fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Unremembered::Rootless => write!(to, "what the keyboards wear has no directory"),
+            Unremembered::Holding(under, fault) => write!(to, "{}: {fault}", under.display()),
+            Unremembered::Writing(fault) => write!(to, "{fault}"),
+        }
+    }
+}
+
+impl std::error::Error for Unremembered {}
+
+impl From<console_core_atomic_writes::Unwritten> for Unremembered {
+    fn from(fault: console_core_atomic_writes::Unwritten) -> Self {
+        Unremembered::Writing(fault)
+    }
+}
+
+pub fn remember(home: &Path, whose: &str, alphabet: &Alphabet) -> Result<(), Unremembered> {
     let Ok(mut every) = every(home);
     let _ = every.insert(whose.to_string(), alphabet.key.to_string());
 
     let Ok(said) = written(&every);
     let Ok(at) = path_in(home);
 
-    let under = at.parent().ok_or("what the keyboards wear has no directory")?;
+    let under = match at.parent() {
+        Some(under) => under,
+        None => return Err(Unremembered::Rootless),
+    };
 
-    std::fs::create_dir_all(under).map_err(|fault| format!("{}: {fault}", under.display()))?;
+    std::fs::create_dir_all(under)
+        .map_err(|fault| Unremembered::Holding(under.to_path_buf(), fault))?;
 
-    console_core_atomic_writes::whole(&at, said.as_bytes())
+    console_core_atomic_writes::whole(&at, said.as_bytes()).map_err(Unremembered::Writing)
 }
 
 #[cfg(test)]

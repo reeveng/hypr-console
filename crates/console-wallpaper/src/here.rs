@@ -23,7 +23,6 @@
 //! takes to be noticed, and the season is the thing a picture would be most
 //! obviously wrong about.
 
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use console_core_atomic_writes::Held;
@@ -40,32 +39,34 @@ pub const ZONES: [&str; 2] = [
 
 const KEEP_FOR: Duration = Duration::from_secs(12 * 60 * 60);
 
-static KEPT: Mutex<Option<(Instant, Where)>> = Mutex::new(None);
-
 pub const NOWHERE: Where = Where {
     latitude: 51.48,
     longitude: 0.0,
 };
 
-pub fn here() -> Result<Where, Never> {
-    let mut kept = match KEPT.lock() {
-        Ok(kept) => kept,
-        Err(held) => held.into_inner(),
-    };
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Kept(Option<(Instant, Where)>);
 
-    match *kept {
-        Some((asked, at)) => match asked.elapsed() < KEEP_FOR {
-            true => return Ok(at),
-            false => {},
-        },
-        None => {},
+impl Kept {
+    pub fn none() -> Result<Kept, Never> {
+        Ok(Kept(None))
     }
 
-    let at = asking()?;
+    pub fn here(&mut self, now: Instant) -> Result<Where, Never> {
+        match self.0 {
+            Some((asked, at)) => match now.saturating_duration_since(asked) < KEEP_FOR {
+                true => return Ok(at),
+                false => {},
+            },
+            None => {},
+        }
 
-    *kept = Some((Instant::now(), at));
+        let at = asking()?;
 
-    Ok(at)
+        self.0 = Some((now, at));
+
+        Ok(at)
+    }
 }
 
 fn asking() -> Result<Where, Never> {
@@ -83,13 +84,13 @@ fn asking() -> Result<Where, Never> {
             Held::Said(table) => table,
             Held::Nothing => continue,
             Held::Unreadable(fault) => {
-                eprintln!("console-sky: {named}: {fault}");
+                eprintln!("console-wallpaper: {named}: {fault}");
 
                 continue;
             }
         };
 
-        let found = at(&zone, &table)?;
+        let found = at(Zone(&zone), &table)?;
 
         match found {
             Some(found) => return Ok(found),
@@ -112,7 +113,7 @@ pub fn zone() -> Result<Option<String>, Never> {
             return Ok(None);
         }
         Err(fault) => {
-            eprintln!("console-sky: {CLOCK}: {fault}");
+            eprintln!("console-wallpaper: {CLOCK}: {fault}");
 
             return Ok(None);
         }
@@ -126,7 +127,10 @@ pub fn zone() -> Result<Option<String>, Never> {
     Ok(said.split_once("zoneinfo/").map(|(_, zone)| zone.to_string()))
 }
 
-pub fn at(zone: &str, table: &str) -> Result<Option<Where>, Never> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Zone<'a>(pub &'a str);
+
+pub fn at(zone: Zone<'_>, table: &str) -> Result<Option<Where>, Never> {
     for line in table.lines() {
         match line.starts_with('#') {
             true => continue,
@@ -145,7 +149,7 @@ pub fn at(zone: &str, table: &str) -> Result<Option<Where>, Never> {
             None => continue,
         };
 
-        match said == zone {
+        match said == zone.0 {
             true => {},
             false => continue,
         }
@@ -272,7 +276,7 @@ mod tests {
 
     #[test]
     fn a_zone_is_looked_up_by_its_name_and_not_by_its_country() {
-        let Ok(andorra) = at("Europe/Andorra", TABLE);
+        let Ok(andorra) = at(Zone("Europe/Andorra"), TABLE);
 
         let andorra = andorra.expect("a place");
         assert!((andorra.latitude - 42.5).abs() < 0.001, "{andorra:?}");
@@ -281,13 +285,13 @@ mod tests {
 
     #[test]
     fn a_place_south_or_west_is_a_negative_number() {
-        let Ok(west) = at("America/Halifax", TABLE);
+        let Ok(west) = at(Zone("America/Halifax"), TABLE);
 
         let west = west.expect("a place");
 
         assert!(west.latitude > 0.0 && west.longitude < 0.0, "{west:?}");
 
-        let Ok(south) = at("Pacific/Auckland", TABLE);
+        let Ok(south) = at(Zone("Pacific/Auckland"), TABLE);
 
         let south = south.expect("a place");
         assert!(south.latitude < 0.0 && south.longitude > 0.0, "{south:?}");
@@ -295,7 +299,7 @@ mod tests {
 
     #[test]
     fn a_row_written_to_the_second_is_read_to_the_second() {
-        let Ok(troll) = at("Antarctica/Troll", TABLE);
+        let Ok(troll) = at(Zone("Antarctica/Troll"), TABLE);
 
         let troll = troll.expect("a place");
         assert!((troll.latitude + 72.0114).abs() < 0.001, "{troll:?}");
@@ -304,15 +308,15 @@ mod tests {
 
     #[test]
     fn a_zone_the_table_does_not_hold_is_no_place() {
-        assert_eq!(at("Mars/Olympus", TABLE), Ok(None));
+        assert_eq!(at(Zone("Mars/Olympus"), TABLE), Ok(None));
     }
 
     #[test]
     fn nothing_readable_is_no_place() {
-        assert_eq!(at("Europe/Andorra", ""), Ok(None));
-        assert_eq!(at("Europe/Andorra", "not a row at all"), Ok(None));
+        assert_eq!(at(Zone("Europe/Andorra"), ""), Ok(None));
+        assert_eq!(at(Zone("Europe/Andorra"), "not a row at all"), Ok(None));
         assert_eq!(
-            at("Europe/Andorra", "AD\tnot a place\tEurope/Andorra"),
+            at(Zone("Europe/Andorra"), "AD\tnot a place\tEurope/Andorra"),
             Ok(None)
         );
     }
@@ -327,6 +331,23 @@ mod tests {
 
     #[test]
     fn an_answer_is_kept_rather_than_asked_for_twice() {
-        assert_eq!(here(), here());
+        let Ok(mut kept) = Kept::none();
+        let now = Instant::now();
+
+        assert_eq!(kept.here(now), kept.here(now));
+    }
+
+    #[test]
+    fn an_answer_old_enough_is_asked_for_again() {
+        let Ok(mut kept) = Kept::none();
+        let now = Instant::now();
+        let Ok(first) = kept.here(now);
+
+        let later = match now.checked_add(KEEP_FOR) {
+            Some(later) => later,
+            None => now,
+        };
+
+        assert_eq!(kept.here(later), Ok(first));
     }
 }

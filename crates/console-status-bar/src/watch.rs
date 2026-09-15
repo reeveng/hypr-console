@@ -29,25 +29,37 @@
 //! on the device it stood at forty-seven readings a second with nobody
 //! touching the machine, and the sound server answering those connections was
 //! most of what the desktop did while it was idle. The bell had the same shape
-//! and only its settle kept it off the same cliff, because `busctl monitor`
-//! shows `makoctl` connecting to ask what is waiting.
+//! and only its settle kept it off the same cliff, back when what it read was
+//! a program it had to run: `busctl monitor` showed that asking as traffic on
+//! the bus, which is what it was woken by. It reads a file now and the shape
+//! is gone, and the filtering below is what would have saved it either way.
 //!
-//! So no source's line is a reason to look until somebody says it is. Each
-//! watch carries what its own reading comes from, decided on this side of the
-//! socket the way `console-sky` decides what is worth waking for, and the two
-//! that want every line say `anything` rather than say nothing. The tick
-//! underneath is what makes this safe to get wrong in the careful direction: a
-//! line nobody recognised costs one cadence, where a line nobody filtered costs
-//! the machine.
+//! So no source's line is a reason to look until somebody says it is. Each watch
+//! carries what its own reading comes from, decided on this side of the socket the
+//! way `console-wallpaper` decides what is worth waking for, and the two that want
+//! every line say `anything` rather than say nothing. The tick underneath is what
+//! makes this safe to get wrong in the careful direction: a line nobody recognised
+//! costs one cadence, where a line nobody filtered costs the machine.
+//!
+//! **The bar keeps a wider list of compositor lines than anything else does.**
+//! `console_onscreen::worth_asking_after` answers the question the doors ask --
+//! did a layer open or close -- and says no to a workspace changing and to a
+//! window opening, because neither moves a surface. Both move the bar: the
+//! workspaces along the left are a row of what there is and which one you are
+//! on, and on this desktop a window opening is a workspace appearing. So
+//! [`surface_worth_asking_after`] is the bar's own reading of the same lines,
+//! which is what `again`'s head says a subscriber that disagrees should write
+//! rather than widening the one the wallpaper is also standing on.
 
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Duration;
 
+use console_compositor::stirred::Stirred;
 use console_events::again::{Worth, Worthwhile, about, anything, layers};
 use console_events::bus;
-use console_events::sources::{MAKO, NOTICES};
+use console_events::sources::{NOTICES, OURS};
 use console_program_lifetime::alongside;
 use console_core_external_programs::Program;
 use console_core_never::Never;
@@ -87,20 +99,20 @@ fn teller(what: What) -> Result<Told, Never> {
     })
 }
 
-pub fn watching(what: What) -> Result<Receiver<()>, Never> {
-    let (say, heard) = channel();
-    let Ok(()) = layers(say.clone());
+pub fn telling(what: What, say: Sender<()>) -> Result<(), Never> {
     let Ok(telling) = teller(what);
 
     match telling {
-        Told::ThePool(topic, worth) => {
-            let Ok(()) = about(&topic, worth, say);
-        }
-        Told::Ours(argv, worth) => {
-            let Ok(()) = lines(argv, worth, say);
-        }
-        Told::Nothing => {},
+        Told::ThePool(topic, worth) => about(&topic, worth, say),
+        Told::Ours(argv, worth) => lines(argv, worth, say),
+        Told::Nothing => Ok(()),
     }
+}
+
+pub fn watching(what: What) -> Result<Receiver<()>, Never> {
+    let (say, heard) = channel();
+    let Ok(()) = layers(say.clone());
+    let Ok(()) = telling(what, say);
 
     Ok(heard)
 }
@@ -124,18 +136,45 @@ pub fn notice_worth_asking_after(line: &str) -> Result<Worth, Never> {
     };
 
     Ok(match (said.interface, said.member) {
-        (MAKO, "ListNotifications" | "ListModes") => Worth::Ignoring,
-        (MAKO | NOTICES, _something_happened) => Worth::Asking,
+        (OURS | NOTICES, _something_happened) => Worth::Asking,
         (_somebody_elses_conversation, _member) => Worth::Ignoring,
     })
+}
+
+pub fn telling_notices(say: Sender<()>) -> Result<(), Never> {
+    about(&Topic::Notices, notice_worth_asking_after, say)
 }
 
 pub fn watching_notices() -> Result<Receiver<()>, Never> {
     let (say, heard) = channel();
     let Ok(()) = layers(say.clone());
-    let Ok(()) = about(&Topic::Notices, notice_worth_asking_after, say);
+    let Ok(()) = telling_notices(say);
 
     Ok(heard)
+}
+
+pub fn surface_worth_asking_after(line: &str) -> Result<Worth, Never> {
+    let Ok(stirred) = console_compositor::stirred::read(line);
+
+    Ok(match stirred {
+        Stirred::LayerOpened
+        | Stirred::LayerClosed
+        | Stirred::WorkspaceChanged
+        | Stirred::WindowOpened(_)
+        | Stirred::WindowClosed(_)
+        | Stirred::ScreenFocused => Worth::Asking,
+        Stirred::WindowRenamed(_)
+        | Stirred::WindowMoved
+        | Stirred::WindowFloated
+        | Stirred::WindowPinned
+        | Stirred::WindowFilled
+        | Stirred::ConfigReloaded
+        | Stirred::Nothing => Worth::Ignoring,
+    })
+}
+
+pub fn telling_surfaces(say: Sender<()>) -> Result<(), Never> {
+    about(&Topic::Compositor, surface_worth_asking_after, say)
 }
 
 pub fn lines(
@@ -296,27 +335,10 @@ mod tests {
     }
 
     #[test]
-    fn asking_what_is_waiting_does_not_ask_what_is_waiting() {
-        let listed = concat!(
-            "  Sender=:1.92 Destination=org.freedesktop.Notifications ",
-            "Path=/fr/emersion/Mako Interface=fr.emersion.Mako  Member=ListNotifications"
-        );
-        let modes = concat!(
-            "  Sender=:1.92 Destination=org.freedesktop.Notifications ",
-            "Path=/fr/emersion/Mako Interface=fr.emersion.Mako  Member=ListModes"
-        );
-        let Ok(listed) = notice_worth_asking_after(listed);
-        let Ok(modes) = notice_worth_asking_after(modes);
-
-        assert_eq!(listed, Worth::Ignoring);
-        assert_eq!(modes, Worth::Ignoring);
-    }
-
-    #[test]
     fn the_mode_changing_rings_the_bell() {
         let set = concat!(
             "  Sender=:1.92 Destination=org.freedesktop.Notifications ",
-            "Path=/fr/emersion/Mako Interface=fr.emersion.Mako  Member=SetMode"
+            "Path=/org/freedesktop/Notifications Interface=console.Notices  Member=Quieten"
         );
         let Ok(set) = notice_worth_asking_after(set);
 

@@ -13,14 +13,14 @@
 //! keyboard and taking one instead. So the half that only ever shows is its own
 //! program, and `docs/browser.md` is where that was settled.  **Why the path
 //! and not the name.** `pkill -x` compares against the kernel's `comm`, which
-//! is fifteen characters, and `virtual-keyboard` is sixteen: `pkill -x
-//! virtual-keyboard` matches nothing at all, silently, and what that looks like
+//! is fifteen characters, and `console-keyboard` is sixteen: `pkill -x
+//! console-keyboard` matches nothing at all, silently, and what that looks like
 //! is X doing nothing for ever. `-f` matches the whole command line, which
 //! begins with the path the unit started it as, and the anchor keeps it from
 //! finding anything that merely mentions the keyboard.
 //! `crates/console-manifest-engine/tests/the_tree.rs` holds the rule that hid
 //! it.  **Why the path is found and not written down.** It was
-//! `/usr/local/bin/virtual-keyboard`, compiled in, and on the device that is
+//! `/usr/local/bin/console-keyboard`, compiled in, and on the device that is
 //! the right answer and the only one. The nested desktop is the same desktop
 //! somewhere else: every file it reads is staged under a directory of this
 //! session's own, so the keyboard runs from there and the toggle runs from
@@ -39,6 +39,7 @@ use std::path::{Path, PathBuf};
 
 use console_core_external_programs::Program as Theirs;
 use console_core_never::Never;
+use console_core_words::Words;
 use console_program_contract::{
     Argv, Doing, Ending, Opening, Program, Runs, Turn, Went, Word,
 };
@@ -90,19 +91,12 @@ pub fn matching() -> Result<String, Never> {
     asking(&keyboard)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
 pub enum Asks {
+    #[words(signal = "-RTMIN")]
     Either,
+    #[words(signal = "-USR2")]
     Up,
-}
-
-impl Asks {
-    pub const fn signal(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Asks::Either => "-RTMIN",
-            Asks::Up => "-USR2",
-        })
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -248,7 +242,7 @@ mod tests {
         );
         assert_eq!(
             asking(Path::new(VIRTUAL_KEYBOARD)),
-            Ok("^/usr/local/bin/virtual-keyboard( |$)".to_string())
+            Ok("^/usr/local/bin/console-keyboard( |$)".to_string())
         );
     }
 
@@ -264,7 +258,7 @@ mod tests {
     fn a_dot_in_the_path_stands_for_a_dot_and_not_for_any_letter_at_all() {
         assert_eq!(
             asking(&Path::new(STAGED).join(NAME)),
-            Ok(r"^/here/\.stage/session-1/usr/local/bin/virtual-keyboard( |$)".to_string())
+            Ok(r"^/here/\.stage/session-1/usr/local/bin/console-keyboard( |$)".to_string())
         );
     }
 }

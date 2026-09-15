@@ -16,19 +16,29 @@
 //! device tier, because the theme is a package the device installs and a laptop
 //! that has not got it cannot answer.
 
-use console_core_never::Never;
+use console_core_words::Words;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Words)]
 pub enum Icon {
+    #[words(name = "folder-symbolic")]
     Folder,
+    #[words(name = "camera-video-symbolic")]
     Film,
+    #[words(name = "application-x-executable")]
     AnyApplication,
+    #[words(name = "media-playlist-shuffle-symbolic")]
     Shuffle,
+    #[words(name = "media-skip-backward-symbolic")]
     Previous,
+    #[words(name = "media-playback-start-symbolic")]
     Play,
+    #[words(name = "media-playback-pause-symbolic")]
     Pause,
+    #[words(name = "media-skip-forward-symbolic")]
     Next,
+    #[words(name = "media-playlist-repeat-song-symbolic")]
     RepeatSong,
+    #[words(name = "media-playlist-repeat-symbolic")]
     Repeat,
 }
 
@@ -44,23 +54,6 @@ pub const EVERY: &[Icon] = &[
     Icon::RepeatSong,
     Icon::Repeat,
 ];
-
-impl Icon {
-    pub const fn name(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Icon::Folder => "folder-symbolic",
-            Icon::Film => "camera-video-symbolic",
-            Icon::AnyApplication => "application-x-executable",
-            Icon::Shuffle => "media-playlist-shuffle-symbolic",
-            Icon::Previous => "media-skip-backward-symbolic",
-            Icon::Play => "media-playback-start-symbolic",
-            Icon::Pause => "media-playback-pause-symbolic",
-            Icon::Next => "media-skip-forward-symbolic",
-            Icon::RepeatSong => "media-playlist-repeat-song-symbolic",
-            Icon::Repeat => "media-playlist-repeat-symbolic",
-        })
-    }
-}
 
 #[cfg(test)]
 mod tests {

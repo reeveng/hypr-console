@@ -1,21 +1,26 @@
-//! What the panel holds, as a function of what mako said.
+//! What the panel holds, as a function of what is held.
 //!
-//! Reading mako is one thing and knowing what to draw from it is another.
-//! Everything here is the second, so the shape of both tabs can be asked
-//! without a mako to ask.
+//! Reading what the daemon wrote is one thing and knowing what to draw from it
+//! is another. Everything here is the second, so the shape of both tabs can be
+//! asked with no daemon running and no screen to draw on.
 
 use std::sync::Arc;
 
 use console_core_never::Never;
-use console_panel::page::{Does, Row, Showing};
+use console_panel::page::{Aside, Does, Row, Showing};
 
 use crate::reading::Notice;
 
 pub const TABS: [&str; 2] = ["Waiting", "Earlier"];
 
 pub fn tab(at: usize) -> Result<&'static str, Never> {
-    Ok(TABS.get(at).copied().unwrap_or(""))
+    Ok(match TABS.get(at).copied() {
+        Some(tab) => tab,
+        None => NO_SUCH_TAB,
+    })
 }
+
+const NO_SUCH_TAB: &str = "";
 
 pub type Chosen = Arc<dyn Fn(&dyn Showing) + Send + Sync>;
 
@@ -38,7 +43,7 @@ pub fn waiting_rows(
         .map(|notice| {
             let Ok(said) = aside(notice);
             let Ok(says) = notice.says();
-            let Ok(row) = Row::new(&says, &said, open(notice));
+            let Ok(row) = Row::new(&says, Aside(&said), open(notice));
             let Ok(opens) = row.opening();
 
             opens
@@ -52,7 +57,7 @@ pub fn waiting_rows(
             rows.push(row);
         }
         false => {
-            let Ok(row) = Row::new("Clear them all", "", clear);
+            let Ok(row) = Row::new("Clear all", Aside(""), clear);
 
             rows.push(row);
         }
@@ -67,21 +72,21 @@ pub fn one_rows(notice: &Notice, back: &Chosen, dismiss: Does) -> Result<Vec<Row
     let Ok(way_back) = Row::back(first, move |showing| going(showing));
     let Ok(by) = said_by(notice);
     let Ok(says) = notice.says();
-    let Ok(heading) = Row::said(&by, &says);
+    let Ok(heading) = Row::said(&by, Aside(&says));
     let mut rows = vec![way_back, heading];
 
     let worth_a_row = !notice.body.trim().is_empty() && notice.body.trim() != says;
 
     match worth_a_row {
         true => {
-            let Ok(body) = Row::said("", notice.body.trim());
+            let Ok(body) = Row::said("", Aside(notice.body.trim()));
 
             rows.push(body);
         }
         false => {}
     }
 
-    let Ok(row) = Row::new("Dismiss", "", dismiss);
+    let Ok(row) = Row::new("Clear", Aside(""), dismiss);
 
     rows.push(row);
 
@@ -119,7 +124,7 @@ pub fn earlier_rows(held: &[Notice]) -> Result<Vec<Row>, Never> {
         .map(|notice| {
             let Ok(said) = earlier_aside(notice);
             let Ok(says) = notice.says();
-            let Ok(row) = Row::said(&says, &said);
+            let Ok(row) = Row::said(&says, Aside(&said));
 
             row
         })
@@ -236,14 +241,14 @@ mod tests {
     #[test]
     fn there_is_nothing_to_clear_when_nothing_is_waiting() {
         let rows = waiting(&[]);
-        assert!(!rows.iter().any(|row| row.says == "Clear them all"));
+        assert!(!rows.iter().any(|row| row.says == "Clear all"));
         assert_eq!(rows[0].says, "Nothing is waiting");
     }
 
     #[test]
     fn what_is_waiting_can_be_cleared_in_one_press() {
         let rows = waiting(&[fault(), ordinary()]);
-        assert!(rows.iter().any(|row| row.says == "Clear them all" && acts(row) == Acts::Yes));
+        assert!(rows.iter().any(|row| row.says == "Clear all" && acts(row) == Acts::Yes));
     }
 
     #[test]
@@ -291,7 +296,7 @@ mod tests {
     #[test]
     fn a_notification_can_be_dismissed_where_it_is_read() {
         let rows = one(&fault());
-        assert!(rows.iter().any(|row| row.says == "Dismiss" && acts(row) == Acts::Yes));
+        assert!(rows.iter().any(|row| row.says == "Clear" && acts(row) == Acts::Yes));
     }
 
     #[test]

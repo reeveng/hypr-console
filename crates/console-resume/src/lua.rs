@@ -29,8 +29,15 @@ pub fn dispatch(dispatcher: &str) -> Result<Done, Never> {
     eval(&format!("hl.dispatch({dispatcher})"))
 }
 
-pub fn exec(command: &str, rules: &str) -> Result<Done, Never> {
-    let Ok(quoted) = quote(command);
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Start<'a> {
+    pub rules: String,
+    pub command: &'a str,
+}
+
+pub fn exec(start: &Start<'_>) -> Result<Done, Never> {
+    let Ok(quoted) = quote(start.command);
+    let rules = &start.rules;
 
     eval(&format!("hl.exec_cmd({quoted}, {{{rules}}})"))
 }
@@ -101,7 +108,7 @@ fn effect_name(legacy: &str) -> Result<String, Never> {
     })
 }
 
-pub fn split_exec_line(line: &str) -> Result<(String, &str), Never> {
+pub fn split_exec_line(line: &str) -> Result<Start<'_>, Never> {
     let line = line.trim();
 
     let inside = match line.strip_prefix('[') {
@@ -113,9 +120,9 @@ pub fn split_exec_line(line: &str) -> Result<(String, &str), Never> {
         Some((prefix, command)) => {
             let Ok(rules) = rules_table(prefix);
 
-            Ok((rules, command.trim()))
+            Ok(Start { rules, command: command.trim() })
         },
-        None => Ok((String::new(), line)),
+        None => Ok(Start { rules: String::new(), command: line }),
     }
 }
 
@@ -152,9 +159,12 @@ mod tests {
     fn splits_a_line_into_rules_and_command() {
         assert_eq!(
             split_exec_line("[workspace 2 silent] foot --working-directory=/home"),
-            Ok((r#"["workspace"] = "2 silent""#.to_string(), "foot --working-directory=/home"))
+            Ok(Start {
+                rules: r#"["workspace"] = "2 silent""#.to_string(),
+                command: "foot --working-directory=/home"
+            })
         );
-        assert_eq!(split_exec_line("foot"), Ok((String::new(), "foot")));
+        assert_eq!(split_exec_line("foot"), Ok(Start { rules: String::new(), command: "foot" }));
     }
 
     #[test]

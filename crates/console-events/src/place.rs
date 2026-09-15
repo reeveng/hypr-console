@@ -2,9 +2,15 @@
 
 use std::path::PathBuf;
 
-pub fn socket() -> Result<PathBuf, String> {
-    let run = std::env::var("XDG_RUNTIME_DIR")
-        .map_err(|fault| format!("XDG_RUNTIME_DIR: {fault}"))?;
+use crate::Unserved;
 
-    Ok(PathBuf::from(run).join("console").join("events.sock"))
+pub fn socket() -> Result<PathBuf, Unserved> {
+    let Ok(ours) = console_core_places::runtime_ours();
+
+    let ours = match ours {
+        Some(ours) => ours,
+        None => return Err(Unserved::Sessionless),
+    };
+
+    Ok(ours.join("events.sock"))
 }

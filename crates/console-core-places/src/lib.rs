@@ -51,13 +51,30 @@
 //! base directories, and `applications`, because the desktop entry
 //! specification is what names that directory rather than this desktop. What a
 //! `.desktop` file *means* is `console-applications`, and it is a caller.
-//! `XDG_RUNTIME_DIR` is deliberately not one of these: it is not under a home,
-//! it is not what a home is missing when `HOME` is unset, and the one crate
-//! that wants a socket path is not asking this question.
+//!
+//! `XDG_RUNTIME_DIR` was deliberately not one of these, on the grounds that it
+//! is not under a home, it is not what a home is missing when `HOME` is unset,
+//! and only one crate wanted a socket path. The first of those is still true
+//! and the third was never checked. Nine crates read it, and they had five
+//! different answers for an unset one: a hard error, `/tmp`,
+//! `/run/user/{whoever}`, whatever `TMPDIR` says, and nothing at all. That is
+//! the drift the top of this file is about, arrived at a fourth time, and the
+//! worst of the five is the one that matches the `/root` story exactly --
+//! recordings of somebody's voice written to a directory anybody can stand in
+//! front of, because a variable was unset.
+//!
+//! So [`runtime`] is here now, and it answers the way [`home`] does: absent
+//! stays absent, and it is the caller that says what it does without one. The
+//! standard's own rule about a base applies to it as well -- a value that is
+//! not an absolute path is not a directory -- because an empty one had already
+//! been read two different ways. What it does not do is pick a fallback: the
+//! five disagreements are still five, they are just all on the screen now,
+//! each one written at the site that holds the opinion.
 
 use std::path::{Path, PathBuf};
 
 use console_core_never::Never;
+use console_core_words::Words;
 
 pub const DATA: &str = "/usr/local/share:/usr/share";
 
@@ -65,6 +82,13 @@ pub const APPLICATIONS: &str = "applications";
 
 pub const OURS: &str = "console";
 
+#[cfg_attr(
+    dylint_lib = "explicit026_env_read_once",
+    allow(
+        explicit026_env_read_once,
+        reason = "this crate is the one place HOME, the four XDG bases and the runtime directory are read, which is the whole of what the file above argues for"
+    )
+)]
 fn said(name: &str) -> Result<Option<String>, Never> {
     Ok(match std::env::var(name) {
         Ok(said) => Some(said),
@@ -83,34 +107,32 @@ pub fn home() -> Result<Option<PathBuf>, Never> {
     Ok(said.map(PathBuf::from))
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub fn runtime() -> Result<Option<PathBuf>, Never> {
+    let said = said("XDG_RUNTIME_DIR")?;
+
+    Ok(said.map(PathBuf::from).filter(|at| at.is_absolute()))
+}
+
+pub fn runtime_ours() -> Result<Option<PathBuf>, Never> {
+    let runtime = runtime()?;
+
+    Ok(runtime.map(|at| at.join(OURS)))
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Words)]
 pub enum Base {
+    #[words(called = "XDG_CONFIG_HOME", usual = ".config")]
     Config,
+    #[words(called = "XDG_STATE_HOME", usual = ".local/state")]
     State,
+    #[words(called = "XDG_DATA_HOME", usual = ".local/share")]
     Share,
+    #[words(called = "XDG_CACHE_HOME", usual = ".cache")]
     Cache,
 }
 
 impl Base {
     pub const EVERY: [Base; 4] = [Base::Config, Base::State, Base::Share, Base::Cache];
-
-    pub fn called(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Base::Config => "XDG_CONFIG_HOME",
-            Base::State => "XDG_STATE_HOME",
-            Base::Share => "XDG_DATA_HOME",
-            Base::Cache => "XDG_CACHE_HOME",
-        })
-    }
-
-    pub fn usual(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Base::Config => ".config",
-            Base::State => ".local/state",
-            Base::Share => ".local/share",
-            Base::Cache => ".cache",
-        })
-    }
 
     pub fn told(self, home: Option<&Path>, said: Option<&str>) -> Result<Option<PathBuf>, Never> {
         let told = said.map(Path::new).filter(|at| at.is_absolute());
@@ -161,7 +183,10 @@ pub fn data_under(
 
     let mut every: Vec<PathBuf> = mine.into_iter().collect();
 
-    let shared = shared.filter(|said| !said.is_empty()).unwrap_or(DATA);
+    let shared = match shared.filter(|said| !said.is_empty()) {
+        Some(said) => said,
+        None => DATA,
+    };
 
     every.extend(shared.split(':').filter(|at| !at.is_empty()).map(PathBuf::from));
 

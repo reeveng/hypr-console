@@ -1,5 +1,6 @@
 //! What was asked of each pairing, and what it actually reached.
 
+use console_core_colour::{Ground, Ink};
 use console_core_colour::{self as col, Short};
 use console_core_never::Never;
 
@@ -133,8 +134,8 @@ pub fn measure(spec: &Spec, palette: &Palette) -> Result<Vec<Row>, Short> {
                     let ink = palette.must(front)?;
                     let ground = palette.must(back)?;
 
-                    let Ok(got) = col::contrast(ink, ground);
-                    let Ok(got_lc) = col::lc(ink, ground);
+                    let Ok(got) = col::contrast(Ink(ink), Ground(ground));
+                    let Ok(got_lc) = col::lc(Ink(ink), Ground(ground));
 
                     Ok(Row {
                         front: front.clone(),

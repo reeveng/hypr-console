@@ -7,6 +7,7 @@
 //! ```
 
 use std::io::IsTerminal;
+use std::process::ExitCode;
 use std::sync::Arc;
 
 use evdev::{EventType, KeyCode};
@@ -15,7 +16,7 @@ use console_button_guide::guide::{DOABLE, Line, Section, opens_on, sections};
 use console_button_guide::printed::{COLOURED, PLAIN, guide};
 use console_core_atomic_writes::Held;
 use console_core_never::Never;
-use console_panel::page::{Does, Page, Row, Rows};
+use console_panel::page::{Aside, Does, Page, Row, Rows};
 use console_panel::{chooser, panel};
 use console_input_bindings::moved::{Jobs, path_in};
 use console_input_gamepad::vocabulary::{TRIGGERS, spoken_for};
@@ -62,16 +63,23 @@ fn table() -> Result<Table, Never> {
     }
 }
 
-fn main() {
+fn main() -> ExitCode {
     let asked: Vec<String> = std::env::args().skip(1).collect();
     let asked_for = |what: &str| asked.iter().any(|word| word == what);
 
     match (asked_for("--identify"), asked_for("--menu")) {
-        (true, _) => {
-            let Ok(()) = identify();
+        (true, _) => match identify() {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(fault) => {
+                eprintln!("console-buttons: {fault}");
+
+                ExitCode::FAILURE
+            },
         },
         (_, true) => {
             let Ok(()) = on_screen();
+
+            ExitCode::SUCCESS
         },
         _ => {
             let Ok(read) = read();
@@ -79,7 +87,22 @@ fn main() {
             let Ok(guide) = guide(&read, ink);
 
             print!("{guide}");
+
+            ExitCode::SUCCESS
         },
+    }
+}
+
+#[derive(Debug)]
+enum Unidentified {
+    NoController(String),
+}
+
+impl std::fmt::Display for Unidentified {
+    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Unidentified::NoController(said) => write!(to, "{said}"),
+        }
     }
 }
 
@@ -153,14 +176,14 @@ fn pages() -> Result<Vec<Page>, Never> {
 fn doable(line: &Line) -> Result<Row, Never> {
     let Ok(says) = capitalised(&line.does);
 
-    row(&says, &line.button, line)
+    row(&says, Aside(&line.button), line)
 }
 
 fn named(line: &Line) -> Result<Row, Never> {
-    row(&line.button, &line.does, line)
+    row(&line.button, Aside(&line.does), line)
 }
 
-fn row(says: &str, aside: &str, line: &Line) -> Result<Row, Never> {
+fn row(says: &str, aside: Aside<'_>, line: &Line) -> Result<Row, Never> {
     match &line.runs {
         None => Row::said(says, aside),
         Some(argv) => Row::new(says, aside, Does::Run(argv.clone())),
@@ -176,14 +199,13 @@ fn capitalised(said: &str) -> Result<String, Never> {
     })
 }
 
-fn identify() -> Result<(), Never> {
+fn identify() -> Result<(), Unidentified> {
     let mut claim = match Claim::of(&CONTROLLER) {
         Ok(claim) => claim,
         Err(refused) => {
             let Ok(said) = refused.said();
 
-            eprintln!("console-buttons: {said}");
-            std::process::exit(1);
+            return Err(Unidentified::NoController(said));
         }
     };
 

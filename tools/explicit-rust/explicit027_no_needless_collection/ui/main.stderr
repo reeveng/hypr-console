@@ -1,0 +1,30 @@
+error: this collection is allocated and then `into_iter` is asked of it straight away
+  --> $DIR/main.rs:7:5
+   |
+LL | /     held.iter()
+LL | |         .map(|one| one.len())
+LL | |         .collect::<Vec<usize>>()
+LL | |         .into_iter()
+   | |____________________^
+   |
+   = help: walking it is what the iterator was already doing. Where the collection is what forces the work to happen -- a borrow that has to end, an order that has to be settled, a side effect that has to be finished by here -- allow this rule at the site and let the reason say which
+   = note: `#[deny(explicit027_no_needless_collection)]` on by default
+
+error: this collection is allocated and then `len` is asked of it straight away
+  --> $DIR/main.rs:18:5
+   |
+LL |     held.iter().map(|one| one.len()).collect::<Vec<usize>>().len()
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: `.count()` answers this without the list. Where the collection is what forces the work to happen -- a borrow that has to end, an order that has to be settled, a side effect that has to be finished by here -- allow this rule at the site and let the reason say which
+
+error: this collection is allocated and then it is walked once and dropped, and nothing else ever looks at it
+  --> $DIR/main.rs:25:31
+   |
+LL |     let lengths: Vec<usize> = held.iter().map(|one| one.len()).collect();
+   |                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: hand the iterator on rather than the list: the chain that made this can be the chain that walks it. Where the collection is what forces the work to happen -- a borrow that has to end, an order that has to be settled, a side effect that has to be finished by here -- allow this rule at the site and let the reason say which
+
+error: aborting due to 3 previous errors
+

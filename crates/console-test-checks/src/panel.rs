@@ -1,5 +1,6 @@
 //! The settings panel: it opens, it draws, and it lets go.
 
+use console_core_geometry::Point;
 use std::collections::BTreeSet;
 
 use console_test_stages::checking::{Body, Check, Done, empty, happened, more_than, not_empty, same, seen};
@@ -8,7 +9,7 @@ use console_test_stages::here::{Acts, Here, TURNS};
 use console_test_stages::device::{Device, PATIENCE, Seen};
 use console_test_stages::palette::palette;
 
-use crate::chooser::opens;
+use crate::chooser::{What, opens};
 
 pub const PANEL: Check = Check {
     name: "080-the-panel",
@@ -37,7 +38,7 @@ pub const WITH_THE_KEYBOARD: Check = Check {
 const OVER_A_PANEL: &str = r#"{"eDP-1":{"levels":{
     "0":[{"namespace":"awww-daemon","h":1600}],
     "2":[{"namespace":"waybar","h":38},{"namespace":"updating","h":2}],
-    "3":[{"namespace":"settings-panel","h":1562},{"namespace":"virtual-keyboard","h":520}]}}}"#;
+    "3":[{"namespace":"settings-panel","h":1562},{"namespace":"console-keyboard","h":520}]}}}"#;
 
 const THE_PANEL_ALONE: &str = r#"{"eDP-1":{"levels":{
     "0":[{"namespace":"awww-daemon","h":1600}],
@@ -95,7 +96,7 @@ pub fn drew(stage: &mut Desktop) -> Done {
     let Ok(wanted) = palette();
     let down: BTreeSet<String> = DOWN
         .step_by(EVERY)
-        .map(|y| stage.colour(ACROSS, f64::from(y)))
+        .map(|y| stage.colour(Point { across: ACROSS, down: f64::from(y) }))
         .collect::<Result<_, _>>()?;
 
     let any_of = |names: &[&str]| {
@@ -127,7 +128,7 @@ fn here(stage: &mut Here) -> Done {
 }
 
 fn there(stage: &mut Device) -> Done {
-    opens(stage, "legion-right", "panel")
+    opens(stage, "legion-right", What("panel"))
 }
 
 fn draws(stage: &mut Desktop) -> Done {

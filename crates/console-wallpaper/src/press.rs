@@ -16,12 +16,14 @@
 
 
 use console_core_external_programs::Program;
+use console_core_geometry::Size;
 use console_core_never::Never;
 use console_core_number_conversion::{Float, fitted, whole_u32, whole_usize};
 use std::io::{Read, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+use crate::Unpainted;
 use crate::webp::{self, Frame};
 
 use crate::loops::{self, Patch};
@@ -89,15 +91,15 @@ pub struct Pressed {
 fn decoding(
     source: &Path,
     cube: &Path,
-    size: (u32, u32),
+    size: Size<u32>,
     stir: &Stir,
     slice: Option<(usize, usize)>,
 ) -> Result<Command, Never> {
     let filter = format!(
         "fps={fps},scale={wide}:{tall}:force_original_aspect_ratio=increase,crop={wide}:{tall},lut3d='{cube}'",
         fps = stir.frames_per_second,
-        wide = size.0,
-        tall = size.1,
+        wide = size.wide,
+        tall = size.tall,
         cube = cube.display()
     );
     let filter = match slice {
@@ -119,21 +121,21 @@ fn decoding(
 fn each_frame(
     source: &Path,
     cube: &Path,
-    size: (u32, u32),
+    size: Size<u32>,
     stir: &Stir,
     slice: Option<(usize, usize)>,
-    mut take: impl FnMut(&[u8]) -> Result<(), String>,
-) -> Result<usize, String> {
+    mut take: impl FnMut(&[u8]) -> Result<(), Unpainted>,
+) -> Result<usize, Unpainted> {
     let Ok(mut decoding) = decoding(source, cube, size, stir, slice);
 
     let mut ffmpeg = decoding
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|fault| format!("ffmpeg would not run: {fault}"))?;
-    let mut pipe = ffmpeg.stdout.take().ok_or("ffmpeg gave no pipe")?;
+        .map_err(Unpainted::NoFfmpeg)?;
+    let mut pipe = ffmpeg.stdout.take().ok_or(Unpainted::NoPipeOut)?;
 
-    let Ok(room) = fitted(size.0.saturating_mul(size.1).saturating_mul(3));
+    let Ok(room) = fitted(size.wide.saturating_mul(size.tall).saturating_mul(3));
 
     let mut frame = vec![0u8; room];
     let mut count: usize = 0;
@@ -145,32 +147,31 @@ fn each_frame(
                 count = count.saturating_add(1);
             }
             Err(fault) if fault.kind() == std::io::ErrorKind::UnexpectedEof => break,
-            Err(fault) => return Err(format!("ffmpeg stopped talking: {fault}")),
+            Err(fault) => return Err(Unpainted::Stopped(fault)),
         }
     }
 
     let done = ffmpeg
         .wait_with_output()
-        .map_err(|fault| format!("ffmpeg would not finish: {fault}"))?;
+        .map_err(Unpainted::Unfinished)?;
 
     match done.status.success() {
         true => {},
         false => {
-            return Err(format!(
-                "ffmpeg refused {}: {}",
-                source.display(),
-                String::from_utf8_lossy(&done.stderr).trim()
+            return Err(Unpainted::Refused(
+                source.to_path_buf(),
+                String::from_utf8_lossy(&done.stderr).trim().to_string(),
             ));
         }
     }
 
     match count {
-        0 => Err(format!("{} decoded to nothing", source.display())),
+        0 => Err(Unpainted::DecodedToNothing(source.to_path_buf())),
         _ => Ok(count),
     }
 }
 
-fn encode(pixels: &[u8], size: (u32, u32), quality: u32) -> Result<Vec<u8>, String> {
+fn encode(pixels: &[u8], size: Size<u32>, quality: u32) -> Result<Vec<u8>, Unpainted> {
     let Ok(mut starting) = Program::Ffmpeg.command();
 
     let mut ffmpeg = starting
@@ -183,7 +184,7 @@ fn encode(pixels: &[u8], size: (u32, u32), quality: u32) -> Result<Vec<u8>, Stri
             "-pix_fmt",
             "rgb24",
             "-s",
-            &format!("{}x{}", size.0, size.1),
+            &format!("{}x{}", size.wide, size.tall),
             "-i",
             "pipe:0",
             "-c:v",
@@ -198,27 +199,25 @@ fn encode(pixels: &[u8], size: (u32, u32), quality: u32) -> Result<Vec<u8>, Stri
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|fault| format!("ffmpeg would not run: {fault}"))?;
-    let mut taking = ffmpeg.stdin.take().ok_or("ffmpeg took no pipe")?;
+        .map_err(Unpainted::NoFfmpeg)?;
+    let mut taking = ffmpeg.stdin.take().ok_or(Unpainted::NoPipeIn)?;
 
-    taking
-        .write_all(pixels)
-        .map_err(|fault| format!("ffmpeg would not take the picture: {fault}"))?;
+    taking.write_all(pixels).map_err(Unpainted::Untaken)?;
+
     let done = ffmpeg
         .wait_with_output()
-        .map_err(|fault| format!("ffmpeg would not finish: {fault}"))?;
+        .map_err(Unpainted::Unfinished)?;
 
     match done.status.success() {
         true => Ok(done.stdout),
-        false => Err(format!(
-            "ffmpeg refused a frame: {}",
-            String::from_utf8_lossy(&done.stderr).trim()
+        false => Err(Unpainted::RefusedAFrame(
+            String::from_utf8_lossy(&done.stderr).trim().to_string(),
         )),
     }
 }
 
-fn slice(source: &Path, cube: &Path, stir: &Stir) -> Result<(usize, usize), String> {
-    const LOOKING: (u32, u32) = (240, 150);
+fn slice(source: &Path, cube: &Path, stir: &Stir) -> Result<(usize, usize), Unpainted> {
+    const LOOKING: Size<u32> = Size { wide: 240, tall: 150 };
 
     let mut small = Vec::new();
     let count = each_frame(source, cube, LOOKING, stir, None, |frame| {
@@ -243,9 +242,9 @@ fn slice(source: &Path, cube: &Path, stir: &Stir) -> Result<(usize, usize), Stri
 pub fn press(
     source: &Path,
     cube: &Path,
-    size: (u32, u32),
+    size: Size<u32>,
     stir: &Stir,
-) -> Result<Pressed, String> {
+) -> Result<Pressed, Unpainted> {
     let slice = slice(source, cube, stir)?;
 
     let mut written: Vec<Frame> = Vec::new();
@@ -260,8 +259,8 @@ pub fn press(
 
                 let Ok(opening) = stir.opening_milliseconds();
 
-                let Ok(width) = fitted(size.0);
-                let Ok(height) = fitted(size.1);
+                let Ok(width) = fitted(size.wide);
+                let Ok(height) = fitted(size.tall);
 
                 written.push(Frame {
                     x: 0,
@@ -274,14 +273,15 @@ pub fn press(
                 true
             }
             Some(was) => {
-                let Ok(moved) = loops::changed(was, frame, size.0, stir.tolerance);
+                let Ok(moved) = loops::changed(was, frame, size.wide, stir.tolerance);
 
                 match moved {
                     None => false,
                     Some(patch) => {
-                        let Ok(cut) = loops::cut(frame, size.0, &patch);
+                        let Ok(cut) = loops::cut(frame, size.wide, &patch);
 
-                        let picture = encode(&cut, (patch.wide, patch.tall), stir.quality)?;
+                        let picture =
+                            encode(&cut, Size { wide: patch.wide, tall: patch.tall }, stir.quality)?;
 
                         let Ok(area) = patch.area();
 
@@ -323,16 +323,16 @@ pub fn press(
         None => {},
     }
 
-    let Ok(wide) = fitted(size.0);
-    let Ok(tall) = fitted(size.1);
+    let Ok(wide) = fitted(size.wide);
+    let Ok(tall) = fitted(size.tall);
 
-    let animation = webp::animation(wide, tall, &written)?;
+    let animation = webp::animation(Size { wide, tall }, &written)?;
     let still = written
         .first()
         .map(|frame| frame.picture.clone())
-        .ok_or("nothing was pressed")?;
+        .ok_or(Unpainted::NothingPressed)?;
 
-    let Ok(whole) = Patch::whole(size.0, size.1);
+    let Ok(whole) = Patch::whole(size);
 
     let Ok(area) = whole.area();
 

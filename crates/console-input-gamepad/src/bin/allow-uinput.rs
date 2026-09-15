@@ -35,6 +35,13 @@ fn whoami() -> Result<String, Never> {
     Ok(uid.to_string())
 }
 
+#[cfg_attr(
+    dylint_lib = "explicit026_env_read_once",
+    allow(
+        explicit026_env_read_once,
+        reason = "SUDO_USER and USER are how a program run under sudo finds out whose desktop it is fixing, and this binary is the only one here that runs that way"
+    )
+)]
 fn sudoer() -> Result<Option<String>, Never> {
     match std::env::var("SUDO_USER") {
         Ok(whom) if !whom.is_empty() => return Ok(Some(whom)),

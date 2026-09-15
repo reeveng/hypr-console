@@ -10,12 +10,18 @@ name = "console_test_stages"
 path = "src/lib.rs"
 
 [dependencies]
+console-core-atomic-writes.workspace = true
+console-device.workspace = true
 console-compositor.workspace = true
 console-core-external-programs.workspace = true
 console-core-ini-files.workspace = true
+console-core-geometry.workspace = true
 console-core-never.workspace = true
+console-core-walking.workspace = true
 console-core-places.workspace = true
+console-core-words.workspace = true
 console-waiting.workspace = true
+console-program-lifetime.workspace = true
 console-onscreen.workspace = true
 console-core-number-conversion.workspace = true
 console-how-far.workspace = true

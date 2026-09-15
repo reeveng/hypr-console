@@ -26,10 +26,18 @@ use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::time::Duration;
 
+use console_core_our_programs::Ours;
 use console_program_lifetime::{LetGo, Still, let_go};
 use console_core_external_programs::Program;
 use console_core_never::Never;
 
+#[cfg_attr(
+    dylint_lib = "explicit044_no_ambient_value",
+    allow(
+        explicit044_no_ambient_value,
+        reason = "a press is a callback and then nothing, so there is no loop here to hold what was started and no sweep to run from; the head above is the whole of that argument"
+    )
+)]
 static STARTED: Mutex<Vec<LetGo>> = Mutex::new(Vec::new());
 
 pub fn kept(started: LetGo) -> Result<(), Never> {
@@ -76,9 +84,15 @@ pub fn said(program: Program, rest: &[&str]) -> Result<String, Never> {
     Ok(String::from_utf8_lossy(&done.stdout).trim().to_string())
 }
 
-pub fn say(kind: &str, summary: &str, body: &str) -> Result<(), Never> {
-    let mut saying = Command::new("console-say");
-    saying.args([kind, summary, body]).stdout(Stdio::null()).stderr(Stdio::null());
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Said<'a> {
+    pub summary: &'a str,
+    pub body: &'a str,
+}
+
+pub fn say(kind: &str, said: Said<'_>) -> Result<(), Never> {
+    let Ok(mut saying) = Ours::ConsoleSay.command();
+    saying.args([kind, said.summary, said.body]).stdout(Stdio::null()).stderr(Stdio::null());
     let Ok(()) = console_response_times::not_a_press(&mut saying);
 
     let started = let_go(&mut saying);
@@ -89,7 +103,7 @@ pub fn say(kind: &str, summary: &str, body: &str) -> Result<(), Never> {
         },
         Err(fault) => {
             eprintln!("console-say: {fault}");
-            eprintln!("{kind}: {summary} - {body}");
+            eprintln!("{kind}: {} - {}", said.summary, said.body);
         }
     }
 
@@ -183,9 +197,11 @@ enum Has {
 }
 
 fn has_systemd_run() -> Result<Has, Never> {
-    let path = match std::env::var("PATH") {
-        Ok(path) => path,
-        Err(_fault) => return Ok(Has::No),
+    let Ok(said) = console_core_external_programs::path();
+
+    let path = match said {
+        Some(path) => path,
+        None => return Ok(Has::No),
     };
 
     let Ok(systemd_run) = Program::SystemdRun.name();

@@ -51,17 +51,23 @@ pub struct Colour(pub [u8; 4]);
 impl Colour {
     pub const fn from_hex(six: &str) -> Result<Self, Never> {
         let bytes = six.as_bytes();
-        let Ok(r) = band(bytes[0], bytes[1]);
-        let Ok(g) = band(bytes[2], bytes[3]);
-        let Ok(b) = band(bytes[4], bytes[5]);
+        let Ok(r) = band(Digits { high: bytes[0], low: bytes[1] });
+        let Ok(g) = band(Digits { high: bytes[2], low: bytes[3] });
+        let Ok(b) = band(Digits { high: bytes[4], low: bytes[5] });
 
         Ok(Colour([b, g, r, 0xff]))
     }
 }
 
-const fn band(high: u8, low: u8) -> Result<u8, Never> {
-    let Ok(high) = hex(high);
-    let Ok(low) = hex(low);
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Digits {
+    high: u8,
+    low: u8,
+}
+
+const fn band(digits: Digits) -> Result<u8, Never> {
+    let Ok(high) = hex(digits.high);
+    let Ok(low) = hex(digits.low);
 
     Ok(high * 16 + low)
 }
@@ -164,7 +170,7 @@ fn parse_args(config: &mut Config, argv: &[String]) -> Result<(), Error> {
             }
             _ => {
                 let value = take_value(argv, &mut i, &flag)?;
-                apply_flag(config, &flag, &value)?;
+                apply_flag(config, &flag, Value(&value))?;
             }
         }
     }
@@ -187,15 +193,18 @@ fn take_value(argv: &[String], i: &mut usize, flag: &str) -> Result<String, Erro
     Ok(value)
 }
 
-fn apply_flag(config: &mut Config, flag: &str, value: &str) -> Result<(), Error> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Value<'a>(&'a str);
+
+fn apply_flag(config: &mut Config, flag: &str, value: Value<'_>) -> Result<(), Error> {
     let short = flag.trim_start_matches('-');
     let long = short.trim_start_matches('-');
     let name = long.trim_start_matches('-');
 
     match name {
-        "l" => config.layers = value.split(',').map(str::to_string).collect(),
+        "l" => config.layers = value.0.split(',').map(str::to_string).collect(),
         "landscape-layers" => {
-            config.landscape_layers = value.split(',').map(str::to_string).collect()
+            config.landscape_layers = value.0.split(',').map(str::to_string).collect()
         }
         "H" => {
             let height = parse_number(value, flag)?;
@@ -213,18 +222,18 @@ fn apply_flag(config: &mut Config, flag: &str, value: &str) -> Result<(), Error>
 
             config.rounding = rounding;
         }
-        "fn" => config.font = value.to_string(),
+        "fn" => config.font = value.0.to_string(),
         _ => apply_colour(config, name, value)?,
     }
 
     Ok(())
 }
 
-fn parse_number(value: &str, flag: &str) -> Result<u32, Error> {
-    value.parse().map_err(|_| Error::MissingValue(flag.to_string()))
+fn parse_number(value: Value<'_>, flag: &str) -> Result<u32, Error> {
+    value.0.parse().map_err(|_| Error::MissingValue(flag.to_string()))
 }
 
-fn apply_colour(config: &mut Config, name: &str, value: &str) -> Result<(), Error> {
+fn apply_colour(config: &mut Config, name: &str, value: Value<'_>) -> Result<(), Error> {
     let slot = match name {
         "bg" => Some((0, Slot::Bg)),
         "fg" => Some((0, Slot::Fg)),
@@ -242,7 +251,7 @@ fn apply_colour(config: &mut Config, name: &str, value: &str) -> Result<(), Erro
         "text-sel-sp" => Some((1, Slot::TextSel)),
         _ => return Err(Error::Unknown(name.to_string())),
     };
-    let colour = parse_colour(value)?;
+    let colour = parse_colour(value.0)?;
 
     match slot {
         Some((scheme, slot)) => match config.schemes.get_mut(scheme) {
@@ -294,6 +303,13 @@ fn parse_colour(value: &str) -> Result<Colour, Error> {
     Ok(colour)
 }
 
+#[cfg_attr(
+    dylint_lib = "explicit026_env_read_once",
+    allow(
+        explicit026_env_read_once,
+        reason = "the keyboard's own settings, and `parse` is handed a reader rather than reaching for one so that a test can answer it without an environment"
+    )
+)]
 pub fn from_env(argv: &[String]) -> Result<Config, Error> {
     parse(argv, &|name| match env::var(name) {
         Ok(said) => Some(said),
@@ -328,7 +344,7 @@ mod tests {
 
     #[test]
     fn defaults_match_the_c_binarys_compiled_in_palette() {
-        let config = parse(&argv(&["virtual-keyboard"]), &empty_env).expect("defaults");
+        let config = parse(&argv(&["console-keyboard"]), &empty_env).expect("defaults");
         assert_eq!(Ok(config.schemes[0].bg), Colour::from_hex("000000"));
         assert_eq!(Ok(config.schemes[0].fg), Colour::from_hex("f0f0f0"));
         assert_eq!(config.height, 260);
@@ -337,34 +353,34 @@ mod tests {
     #[test]
     fn a_flag_only_the_c_understands_is_taken_and_dropped() {
         let with = parse(
-            &argv(&["virtual-keyboard", "--no-popup", "--swipe", "ffb5e2", "--text-swipe", "110b12"]),
+            &argv(&["console-keyboard", "--no-popup", "--swipe", "ffb5e2", "--text-swipe", "110b12"]),
             &empty_env,
         )
         .expect("the C's flags are taken");
-        assert_eq!(with, parse(&argv(&["virtual-keyboard"]), &empty_env).expect("plain"));
+        assert_eq!(with, parse(&argv(&["console-keyboard"]), &empty_env).expect("plain"));
 
-        let err = parse(&argv(&["virtual-keyboard", "--swipe", "ffbac"]), &empty_env)
+        let err = parse(&argv(&["console-keyboard", "--swipe", "ffbac"]), &empty_env)
             .expect_err("five digits is still five digits");
         assert_eq!(err, Error::Unknown("ffbac".into()));
     }
 
     #[test]
     fn a_colour_flag_overrides_the_default() {
-        let config = parse(&argv(&["virtual-keyboard", "--bg", "110b12"]), &empty_env).expect("bg");
+        let config = parse(&argv(&["console-keyboard", "--bg", "110b12"]), &empty_env).expect("bg");
         assert_eq!(Ok(config.schemes[0].bg), Colour::from_hex("110b12"));
         assert_eq!(Ok(config.schemes[1].bg), Colour::from_hex("000000"));
     }
 
     #[test]
     fn the_sp_suffix_targets_the_non_letter_scheme() {
-        let config = parse(&argv(&["virtual-keyboard", "--fg-sp", "382a38"]), &empty_env).expect("fg-sp");
+        let config = parse(&argv(&["console-keyboard", "--fg-sp", "382a38"]), &empty_env).expect("fg-sp");
         assert_eq!(Ok(config.schemes[1].fg), Colour::from_hex("382a38"));
         assert_eq!(Ok(config.schemes[0].fg), Colour::from_hex("f0f0f0"));
     }
 
     #[test]
     fn height_takes_the_landscape_value_too() {
-        let config = parse(&argv(&["virtual-keyboard", "-L", "300"]), &empty_env).expect("-L");
+        let config = parse(&argv(&["console-keyboard", "-L", "300"]), &empty_env).expect("-L");
         assert_eq!(config.height, 300);
         assert_eq!(config.landscape_height, 300);
     }
@@ -372,7 +388,7 @@ mod tests {
     #[test]
     fn environment_layers_split_on_commas() {
         let config = parse(
-            &argv(&["virtual-keyboard"]),
+            &argv(&["console-keyboard"]),
             &with_env(&[("VIRTUAL_KEYBOARD_LAYERS", "latin,thai,emoji")]),
         )
         .expect("env");
@@ -382,7 +398,7 @@ mod tests {
     #[test]
     fn an_argv_layer_overrides_an_environment_one() {
         let config = parse(
-            &argv(&["virtual-keyboard", "-l", "simple"]),
+            &argv(&["console-keyboard", "-l", "simple"]),
             &with_env(&[("VIRTUAL_KEYBOARD_LAYERS", "latin,thai")]),
         )
         .expect("override");
@@ -391,26 +407,26 @@ mod tests {
 
     #[test]
     fn missing_value_for_a_flag_refuses() {
-        let err = parse(&argv(&["virtual-keyboard", "--bg"]), &empty_env).expect_err("no value");
+        let err = parse(&argv(&["console-keyboard", "--bg"]), &empty_env).expect_err("no value");
         assert_eq!(err, Error::MissingValue("--bg".into()));
     }
 
     #[test]
     fn an_unknown_flag_refuses() {
-        let err = parse(&argv(&["virtual-keyboard", "--nonsense"]), &empty_env).expect_err("nonsense");
+        let err = parse(&argv(&["console-keyboard", "--nonsense"]), &empty_env).expect_err("nonsense");
         assert_eq!(err, Error::MissingValue("--nonsense".into()));
     }
 
     #[test]
     fn a_colour_with_too_few_digits_refuses() {
-        let err = parse(&argv(&["virtual-keyboard", "--bg", "ff"]), &empty_env).expect_err("short");
+        let err = parse(&argv(&["console-keyboard", "--bg", "ff"]), &empty_env).expect_err("short");
         assert_eq!(err, Error::Unknown("ff".into()));
     }
 
     #[test]
     fn short_and_long_forms_are_equivalent() {
-        let short = parse(&argv(&["virtual-keyboard", "-H", "400"]), &empty_env).expect("-H");
-        let long = parse(&argv(&["virtual-keyboard", "--H", "400"]), &empty_env).expect("--H");
+        let short = parse(&argv(&["console-keyboard", "-H", "400"]), &empty_env).expect("-H");
+        let long = parse(&argv(&["console-keyboard", "--H", "400"]), &empty_env).expect("--H");
         assert_eq!(short.height, long.height);
     }
 }

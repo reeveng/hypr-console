@@ -21,6 +21,10 @@
 use console_core_never::Never;
 
 use crate::kinds::{self, Kind};
+use console_core_walking::Ring;
+
+const THE_FIRST_SHOT: usize = 0;
+
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Shot {
@@ -60,7 +64,10 @@ impl Reel {
             false => {},
         }
 
-        let at = shots.iter().position(|shot| shot.name == opened).unwrap_or(0);
+        let at = match shots.iter().position(|shot| shot.name == opened) {
+            Some(at) => at,
+            None => THE_FIRST_SHOT,
+        };
 
         Ok(Some(Reel { shots, at }))
     }
@@ -83,14 +90,16 @@ impl Reel {
     }
 
     pub fn step(&mut self, by: isize) -> Result<(), Never> {
-        let many = self.shots.len();
+        let Ok(round) = Ring::of(&self.shots);
 
-        let forward = match by >= 0 {
-            true => by.unsigned_abs().checked_rem(many).unwrap_or(0),
-            false => many.saturating_sub(by.unsigned_abs().checked_rem(many).unwrap_or(0)),
+        let ring = match round {
+            Some(ring) => ring,
+            None => return Ok(()),
         };
 
-        self.at = self.at.saturating_add(forward).checked_rem(many).unwrap_or(0);
+        let Ok(went) = ring.walked(self.at, by);
+
+        self.at = went;
 
         Ok(())
     }

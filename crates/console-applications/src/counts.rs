@@ -6,6 +6,9 @@
 use console_core_never::Never;
 use std::collections::BTreeMap;
 
+const NEVER_OPENED: u64 = 0;
+
+
 pub fn read(said: &str) -> Result<BTreeMap<String, u64>, Never> {
     Ok(said
         .lines()
@@ -34,7 +37,12 @@ pub fn bumped(mut counts: BTreeMap<String, u64>, name: &str) -> Result<BTreeMap<
 pub fn order(names: &[String], counts: &BTreeMap<String, u64>) -> Result<Vec<String>, Never> {
     let mut order: Vec<String> = names.to_vec();
     order.sort_by_key(|name| {
-        (std::cmp::Reverse(counts.get(name).copied().unwrap_or(0)), name.to_lowercase())
+        let opened = match counts.get(name).copied() {
+            Some(opened) => opened,
+            None => NEVER_OPENED,
+        };
+
+        (std::cmp::Reverse(opened), name.to_lowercase())
     });
 
     Ok(order)

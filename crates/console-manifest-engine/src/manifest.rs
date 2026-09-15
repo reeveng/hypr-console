@@ -30,16 +30,25 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use console_core_ini_files::heading;
+use console_core_ini_files::{heading, without_a_comment};
 use console_core_never::Never;
+use console_core_words::Words;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+use crate::unapplied::Unapplied;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Words)]
 pub enum Section {
+    #[words(name = "packages")]
     Packages,
+    #[words(name = "build")]
     Build,
+    #[words(name = "files")]
     Files,
+    #[words(name = "services")]
     Services,
+    #[words(name = "masked")]
     Masked,
+    #[words(name = "elsewhere")]
     Elsewhere,
 }
 
@@ -63,17 +72,6 @@ impl Section {
             _ => None,
         })
     }
-
-    pub fn name(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Section::Packages => "packages",
-            Section::Build => "build",
-            Section::Files => "files",
-            Section::Services => "services",
-            Section::Masked => "masked",
-            Section::Elsewhere => "elsewhere",
-        })
-    }
 }
 
 pub const THEIRS: &str = "theirs";
@@ -90,13 +88,69 @@ pub struct Manifest {
     theirs: BTreeSet<String>,
 }
 
+pub const MARK: &str = "desktop.conf";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Conf<'a>(pub &'a str);
+
 impl Manifest {
-    pub fn read(text: &str) -> Result<Self, String> {
+    pub fn read(text: &str) -> Result<Self, Unapplied> {
+        Manifest::default().folding(Conf(MARK), text)
+    }
+
+    pub fn and(self, conf: Conf<'_>, text: &str) -> Result<Self, Unapplied> {
+        let Conf(file) = conf;
+        let added = Manifest::default().folding(conf, text)?;
+
+        for section in Section::EVERY {
+            let Ok(held) = self.of(section);
+            let Ok(coming) = added.of(section);
+            let already: BTreeSet<&String> = held.iter().collect();
+            let twice = coming.iter().find(|entry| already.contains(entry));
+            let Ok(under) = section.name();
+
+            match twice {
+                Some(entry) => {
+                    return Err(Unapplied::TwiceSaid(
+                        file.to_string(),
+                        entry.to_string(),
+                        under.to_string(),
+                    ));
+                }
+                None => {},
+            }
+        }
+
+        let mut held = self;
+
+        for (section, entries) in &added.sections {
+            let Ok(opened) = held.opening(*section);
+
+            held = opened;
+
+            for entry in entries {
+                let Ok(whose) = added.whose(entry);
+                let Ok(holding) = held.holding(*section, entry, whose);
+
+                held = holding;
+            }
+        }
+
+        Ok(held)
+    }
+
+    fn folding(self, conf: Conf<'_>, text: &str) -> Result<Self, Unapplied> {
+        let Conf(file) = conf;
+
         text.lines()
-            .map(|line| line.split('#').next().unwrap_or("").trim())
+            .map(|line| {
+                let Ok(said) = without_a_comment(line);
+
+                said
+            })
             .filter(|line| !line.is_empty())
             .try_fold(
-                (Manifest::default(), None),
+                (self, None),
                 |(held, current), line| {
                     let Ok(heading) = heading(line);
 
@@ -110,17 +164,23 @@ impl Manifest {
 
                                     Ok((opened, Some(section)))
                                 }
-                                None => Err(format!("desktop.conf has a section called [{name}], which is not one this reads")),
+                                None => Err(Unapplied::NoSuchSection(
+                                    file.to_string(),
+                                    name.to_string(),
+                                )),
                             }
                         }
                         None => match current {
                             Some(section) => {
-                                let (name, whose) = said(section, line)?;
+                                let (name, whose) = said_in(conf, section, line)?;
                                 let Ok(holding) = held.holding(section, &name, whose);
 
                                 Ok((holding, current))
                             }
-                            None => Err(format!("desktop.conf has {line:?} before any section")),
+                            None => Err(Unapplied::BeforeAnySection(
+                                file.to_string(),
+                                line.to_string(),
+                            )),
                         },
                     }
                 },
@@ -170,9 +230,16 @@ impl Manifest {
     }
 }
 
-fn said(section: Section, entry: &str) -> Result<(String, Whose), String> {
+fn said_in(conf: Conf<'_>, section: Section, entry: &str) -> Result<(String, Whose), Unapplied> {
+    let Conf(file) = conf;
+
     let mut words = entry.split_whitespace();
-    let name = words.next().unwrap_or("").to_string();
+
+    let name = match words.next() {
+        Some(name) => name.to_string(),
+        None => String::new(),
+    };
+
     let rest: Vec<&str> = words.collect();
     let Ok(under) = section.name();
 
@@ -185,16 +252,18 @@ fn said(section: Section, entry: &str) -> Result<(String, Whose), String> {
             | Section::Services
             | Section::Masked
             | Section::Elsewhere => {
-                return Err(format!(
-                    "desktop.conf says {entry:?} under [{under}], and {THEIRS} is a word only a \
-                     file takes: a package or a unit has no inside for anybody to own"
+                return Err(Unapplied::TheirsIsForFiles(
+                    file.to_string(),
+                    entry.to_string(),
+                    under.to_string(),
                 ));
             }
         },
         _ => {
-            return Err(format!(
-                "desktop.conf says {entry:?} under [{under}], and the only word an entry takes \
-                 after it is {THEIRS}"
+            return Err(Unapplied::OnlyTheirs(
+                file.to_string(),
+                entry.to_string(),
+                under.to_string(),
             ));
         }
     })
@@ -280,17 +349,17 @@ mod tests {
     #[test]
     fn a_word_after_a_path_that_nobody_reads_is_refused_rather_than_taken_as_part_of_it() {
         let fault = Manifest::read("[files]\n/etc/a mine\n").expect_err("no such word");
-        assert!(fault.contains("theirs"), "{fault}");
-        assert!(fault.contains("/etc/a mine"), "{fault}");
+        assert!(fault.to_string().contains("theirs"), "{fault}");
+        assert!(fault.to_string().contains("/etc/a mine"), "{fault}");
     }
 
     #[test]
     fn only_a_file_has_an_inside_for_anybody_to_own() {
         let fault = Manifest::read("[packages]\nhyprland theirs\n").expect_err("not a file");
-        assert!(fault.contains("packages"), "{fault}");
+        assert!(fault.to_string().contains("packages"), "{fault}");
 
         let fault = Manifest::read("[services]\nconsole.target theirs\n").expect_err("not a file");
-        assert!(fault.contains("services"), "{fault}");
+        assert!(fault.to_string().contains("services"), "{fault}");
     }
 
     #[test]
@@ -298,24 +367,50 @@ mod tests {
         let held = include_str!("../../../desktop.conf");
         let read = Manifest::read(held).expect("desktop.conf reads");
         let Ok(bar) = read.whose("/home/@user@/.config/console/bar.css");
-        let Ok(session) = read.whose("/etc/plasmalogin.conf.d/zz-steamos-autologin.conf");
-        let Ok(hyprland) = read.whose("/home/@user@/.config/hypr/hyprland.lua");
+        let Ok(hyprland) = read.whose("/home/@user@/.config/console/hypr/hyprland.lua");
 
         assert_eq!(bar, Whose::Theirs, "console-scale apply writes this at every login");
-        assert_eq!(session, Whose::Theirs, "steamos-session-select rewrites this on the way out");
         assert_eq!(hyprland, Whose::Ours);
+    }
+
+    #[test]
+    fn a_machines_own_block_marks_them_too_and_is_read_by_the_same_code() {
+        let held = include_str!("../../../machines.conf");
+        let Ok(mine) = crate::machines::of(held, crate::machines::Named("legion-go"));
+        let read = Manifest::read(&mine).expect("the handheld's own block reads");
+        let Ok(session) = read.whose("/etc/plasmalogin.conf.d/zz-steamos-autologin.conf");
+
+        assert_eq!(session, Whose::Theirs, "steamos-session-select rewrites this on the way out");
+    }
+
+    #[test]
+    fn a_line_in_both_files_is_one_of_them_being_wrong() {
+        let read = Manifest::read("[files]\n/etc/a\n").expect("it reads");
+        let fault = read.and(Conf("machines.conf"), "[files]\n/etc/a\n").expect_err("twice");
+
+        assert!(fault.to_string().contains("/etc/a"), "{fault}");
+        assert!(fault.to_string().contains("machines.conf"), "{fault}");
+    }
+
+    #[test]
+    fn a_machine_with_no_block_gets_the_manifest_and_nothing_else() {
+        let read = Manifest::read("[files]\n/etc/a\n").expect("it reads");
+        let whole = read.and(Conf("machines.conf"), "").expect("nothing to add");
+        let Ok(files) = whole.of(Section::Files);
+
+        assert_eq!(files, ["/etc/a"]);
     }
 
     #[test]
     fn a_section_nobody_named_is_refused_rather_than_skipped() {
         let fault = Manifest::read("[packagez]\nhyprland\n").expect_err("no such section");
-        assert!(fault.contains("packagez"), "{fault}");
+        assert!(fault.to_string().contains("packagez"), "{fault}");
     }
 
     #[test]
     fn an_entry_before_any_section_is_refused() {
         let fault = Manifest::read("hyprland\n[packages]\n").expect_err("nowhere to put it");
-        assert!(fault.contains("hyprland"), "{fault}");
+        assert!(fault.to_string().contains("hyprland"), "{fault}");
     }
 
     #[test]

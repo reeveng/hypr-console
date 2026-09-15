@@ -10,17 +10,33 @@ PartOf=console.target
 # rather than being told the service is there and then finding nothing on it.
 Type=dbus
 BusName=org.freedesktop.Notifications
-ExecStart=/usr/bin/mako
+ExecStart=/usr/local/bin/console-notify
+
+# What the panel and the bell read, taken away when there is nobody holding it.
+# The file is a copy of what the daemon has; a daemon that is gone is holding
+# nothing, and a bell still lit over a file nobody is writing any more is a
+# reading, and it is wrong.
+ExecStopPost=-/usr/bin/rm -f %t/console/notices.json
 ExecStopPost=-/usr/local/bin/console-fell %n
 Restart=always
 RestartSec=2
 
 # What this reaches past `console-.service.d/confining.conf`, and why.
 #
-# mako reads one config file and the icon a card names, and draws through the
-# compositor's socket. It opens no device node, it writes nothing in the home
-# directory, and the bus is the only thing it speaks to -- which is the whole
-# point of a name anything on the machine can raise a card through.
+# It reads the palette in the home directory and the icons a card names, draws
+# through the compositor's socket, writes one file in the runtime directory and
+# speaks to the bus. It opens no device node and writes nothing else in the
+# home, which is the whole point of a name anything on the machine can raise a
+# card through.
+#
+# `PrivateDevices=` and the filter in `confining.conf` are a pair, and the
+# program is written knowing it. With no render node GTK falls to Mesa's
+# software EGL, which asks `mincore` before it dereferences the window pointer;
+# `@system-service` allows no `mincore`, so every card was a SIGSYS and no
+# notification came up at all. `console-notify` disables GL itself rather than
+# this file widening the filter or handing back the device line -- what the
+# checks draw in the nested desktop is then what the device draws, and the
+# argument is in the program's own head.
 PrivateDevices=yes
 ProtectHome=read-only
 RestrictAddressFamilies=AF_UNIX AF_NETLINK

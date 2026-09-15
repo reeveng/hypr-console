@@ -1,8 +1,8 @@
 //! The buttons, and where they are on this device.
 //!
 //! ```text
-//!     layout-panel            open it
-//!     layout-panel --first    open it because nobody has answered yet
+//!     mapping-panel            open it
+//!     mapping-panel --first    open it because nobody has answered yet
 //! ```
 //!
 //! One row per thing the desktop does, what plays it now beside it, and A on a
@@ -27,11 +27,12 @@
 
 use std::sync::Arc;
 
+use crate::Unmapped;
 use crate::pressing::{FIRST, Heard, Its, Setting, Setup, TABLE, WRITTEN};
 use crate::rows::{PUT_BACK_SURE, PUT_BACK_YES, Part, parts, rows};
 use crate::table;
 use console_core_never::Never;
-use console_panel::page::{Does, Page, Row, Rows, Showing};
+use console_panel::page::{Does, Page, Row, Rows, Showing, Which};
 use console_panel::card::{Card, Door};
 use console_input_bindings::bound::{EVERY, Input};
 use console_program_contract::{Argv, Doing, Named, Program, Turn, Word, Writing};
@@ -55,13 +56,8 @@ fn carry(doing: &Doing<Its>, showing: &dyn Showing) -> Result<(), Never> {
         Doing::Its(Its::Sure) => {
             let Ok(putting) = putting_back();
 
-            showing.sure(PUT_BACK_SURE, "", &[PUT_BACK_YES], Arc::new(move |showing, _| {
-                match &putting {
-                    Some(putting) => {
-                        let Ok(()) = press(putting, Heard::Sure, showing);
-                    },
-                    None => {},
-                }
+            showing.sure(PUT_BACK_SURE, Which(""), &[PUT_BACK_YES], Arc::new(move |showing, _| {
+                let Ok(()) = press(&putting, Heard::Sure, showing);
             }));
         }
 
@@ -77,7 +73,7 @@ fn carry(doing: &Doing<Its>, showing: &dyn Showing) -> Result<(), Never> {
 
         Doing::Write(writing) => match wrote(writing) {
             Ok(()) => {},
-            Err(fault) => showing.note(&fault),
+            Err(fault) => showing.note(&fault.to_string()),
         },
 
         Doing::Watch(_)
@@ -110,21 +106,24 @@ fn writing(doing: &Doing<Its>) -> Result<Option<&Writing>, Never> {
     })
 }
 
-fn wrote(writing: &Writing) -> Result<(), String> {
+fn wrote(writing: &Writing) -> Result<(), Unmapped> {
     match writing.at.parent() {
         Some(holding) => std::fs::create_dir_all(holding)
-            .map_err(|fault| format!("{}: {fault}", holding.display()))?,
+            .map_err(|fault| Unmapped::Holding(holding.to_path_buf(), fault))?,
         None => {},
     }
 
-    std::fs::write(&writing.at, &writing.what)
-        .map_err(|fault| format!("{}: {fault}", writing.at.display()))
+    console_core_atomic_writes::whole(&writing.at, writing.what.as_bytes())
+        .map_err(Unmapped::Writing)
 }
 
-fn putting_back() -> Result<Option<Setting>, Never> {
+fn putting_back() -> Result<Setting, Never> {
     let Ok(at) = table::at();
 
-    Ok(at.map(|at| Setting::Set { at }))
+    Ok(match at {
+        Some(at) => Setting::Set { at },
+        None => Setting::Nowhere,
+    })
 }
 
 fn asks_for(part: &Part) -> Result<Does, Never> {
@@ -132,26 +131,14 @@ fn asks_for(part: &Part) -> Result<Does, Never> {
 
     Does::and_stay(move |showing| {
         let Ok(putting) = putting_back();
-
-        match putting {
-            Some(putting) => {
-                let Ok(()) = press(&putting, Heard::Asked(part.clone()), showing);
-            },
-            None => {},
-        }
+        let Ok(()) = press(&putting, Heard::Asked(part.clone()), showing);
     })
 }
 
 fn puts_it_all_back() -> Result<Does, Never> {
     Does::and_stay(|showing| {
         let Ok(putting) = putting_back();
-
-        match putting {
-            Some(putting) => {
-                let Ok(()) = press(&putting, Heard::PutBack, showing);
-            },
-            None => {},
-        }
+        let Ok(()) = press(&putting, Heard::PutBack, showing);
     })
 }
 
@@ -212,7 +199,7 @@ fn opening() -> Result<Argv, Never> {
 }
 
 
-pub const WHO: &str = "layout-panel";
+pub const WHO: &str = "mapping-panel";
 
 pub fn door(_argv: &[String]) -> Result<Door, Never> {
     Door::closing(DOOR)
@@ -233,7 +220,7 @@ pub fn card(_argv: &[String]) -> Result<Card, Never> {
     for writing in writings {
         match wrote(writing) {
             Ok(()) => {},
-            Err(fault) => eprintln!("layout-panel: {fault}"),
+            Err(fault) => eprintln!("mapping-panel: {fault}"),
         }
     }
 

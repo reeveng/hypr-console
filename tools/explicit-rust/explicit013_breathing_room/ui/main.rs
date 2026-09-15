@@ -153,3 +153,16 @@ fn crowded_unsafe(p: *mut u8) {
     }
     println!("wrote");
 }
+
+// GOOD: an attribute written over several lines is part of what it sits on,
+// down to the `)]` that closes it.
+#[cfg_attr(
+    dylint_lib = "explicit013_breathing_room",
+    allow(
+        dead_code,
+        reason = "the fixture is here to be read rather than called"
+    )
+)]
+fn wearing_a_long_attribute() -> u32 {
+    ONE
+}

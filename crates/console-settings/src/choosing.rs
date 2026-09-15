@@ -40,6 +40,9 @@ use console_home_screen::shape::{self, Shape, Size};
 use console_core_never::Never;
 use console_program_contract::{Argv, Doing, Opening, Program, Turn, Word};
 
+const THE_FIRST_SIZE: usize = 0;
+
+
 pub const SEARCH: usize = 0;
 
 pub const WHERE: usize = 1;
@@ -258,14 +261,20 @@ fn stepped(now: usize, step: i32) -> Result<usize, Never> {
 }
 
 fn rung(now: Size, step: i32) -> Result<Size, Never> {
-    let at = shape::EVERY.iter().position(|size| *size == now).unwrap_or(0);
+    let at = match shape::EVERY.iter().position(|size| *size == now) {
+        Some(at) => at,
+        None => THE_FIRST_SIZE,
+    };
 
     let went = match step > 0 {
         true => at.saturating_add(1),
         false => at.saturating_sub(1),
     };
 
-    Ok(shape::EVERY.get(went).copied().unwrap_or(now))
+    Ok(match shape::EVERY.get(went).copied() {
+        Some(size) => size,
+        None => now,
+    })
 }
 
 #[cfg(test)]

@@ -48,6 +48,8 @@
 use std::os::linux::net::SocketAddrExt;
 use std::os::unix::net::{SocketAddr, UnixListener};
 
+use crate::unapplied::Unapplied;
+
 pub const NAME: &str = "console/apply";
 
 #[derive(Debug)]
@@ -55,17 +57,17 @@ pub struct Alone {
     _holding: UnixListener,
 }
 
-pub fn taking() -> Result<Alone, String> {
+pub fn taking() -> Result<Alone, Unapplied> {
     named(NAME)
 }
 
-pub fn named(name: &str) -> Result<Alone, String> {
+pub fn named(name: &str) -> Result<Alone, Unapplied> {
     let who = SocketAddr::from_abstract_name(name.as_bytes())
-        .map_err(|fault| format!("{name} is not a name this kernel will hold: {fault}"))?;
+        .map_err(|fault| Unapplied::NoKernelName(name.to_string(), fault))?;
 
     match UnixListener::bind_addr(&who) {
         Ok(holding) => Ok(Alone { _holding: holding }),
-        Err(_) => Err("another console apply is running on this machine.".to_string()),
+        Err(_) => Err(Unapplied::AlreadyRunning),
     }
 }
 
@@ -108,10 +110,10 @@ mod tests {
         assert!(first.is_ok());
         let said = named(&name).expect_err("the second one was let in");
         assert!(
-            said.contains("another console apply is running"),
+            said.to_string().contains("another console apply is running"),
             "the refusal does not say another apply is running: {said:?}"
         );
-        assert!(!said.contains("os error"), "the refusal hands over an errno: {said:?}");
+        assert!(!said.to_string().contains("os error"), "the refusal hands over an errno: {said:?}");
     }
 
     #[test]

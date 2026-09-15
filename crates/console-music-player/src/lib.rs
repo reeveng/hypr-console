@@ -26,7 +26,7 @@
 //! this is worse: a seek here is ffmpeg started again at an offset.
 //!
 //! What the panel talks to does not change. kew answered on MPRIS and so does
-//! this: the surface is already what `console_music_panel::player` asks for and what
+//! this: the surface is already what `console_music::player` asks for and what
 //! the checks press, and it is what media keys and the rest of the machine
 //! speak. The one member the panel used to ask for and will not find here is
 //! `xesam:url`, which said which file was playing so the now-playing card could
@@ -37,5 +37,6 @@ pub mod art;
 pub mod bus;
 pub mod library;
 pub mod playlist;
+pub mod remembering;
 pub mod sounding;
 pub mod tags;

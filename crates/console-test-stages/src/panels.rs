@@ -15,7 +15,34 @@
 //! it, and a mark drawn at a place outside the room the compositor granted.
 //!
 //! Pressing is the second half and goes through `console-point`, the same way
-//! the desktop stage's own does.
+//! the desktop stage's own does. A press is not finished when the key has been
+//! sent: it is finished when the panel has drawn what the key did, so that is
+//! what is waited for. This used to be three numbers -- sleep two and a half
+//! seconds for the panel to come up, six tenths between presses, a second and
+//! a half at the end -- and every one of them was a guess about a machine with
+//! nothing else running on it. Six panel checks run beside each other here,
+//! each in a nested compositor of its own, queued a few at a time, so the
+//! machine a check runs on is always busy and the guess was wrong often enough
+//! to read as the panel being broken: the key went nowhere because nothing was
+//! up to receive it, and the check said the mark was never drawn.
+//!
+//! `console-desktop pressing` is the wait said once. It takes the file the
+//! panel writes a line to on every draw, waits for a line to be in it, counts
+//! them, presses, and returns when there is one more -- and `--press` is the
+//! nested desktop holding itself open until that whole chain has finished
+//! rather than until a number of seconds has gone by. Nothing here sleeps now,
+//! and a run on a loaded machine is slower rather than red.
+//!
+//! **A panel binary is not a dependency of the check that drives it**, so
+//! `cargo test -p console-media-viewer` builds today's expectations and runs
+//! them against whatever binary was left in `target/` -- and a panel a library
+//! change has not reached fails in ways that read as the check being wrong.
+//! That is what `built_since_the_panel_code` refuses, and what it compares
+//! against is the library and the program's own file. The other programs under
+//! `console-panel/src/bin` are not in it: they are separate binaries that
+//! cannot change what this one draws, and counting them meant that editing the
+//! bar's door stopped every panel check in the tree until somebody rebuilt the
+//! world.
 //!
 //! ```no_run
 //! # use console_test_stages::panels::Panel;
@@ -23,7 +50,7 @@
 //! let drawn = panel.drawn().expect("the viewer drew nothing");
 //!
 //! for card in &drawn {
-//!     assert_eq!(console_test_stages::panels::every_offer_answered(card), Ok(()));
+//!     console_test_stages::panels::every_offer_answered(card).expect("a finger can reach it");
 //! }
 //! ```
 
@@ -31,27 +58,27 @@ use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use console_core_geometry::Point;
 use console_core_never::Never;
-use console_core_number_conversion::{Float, fitted};
+use console_core_number_conversion::fitted;
 use console_panel::telling::{self, Bare, Line, Offers, Reachable, Spot, Told};
 
-const DRAWN: f64 = 2.5;
+use crate::Awry;
 
-const AFTER: f64 = 1.5;
-
-const BETWEEN: f64 = 0.6;
-
-pub const QUIET: f64 = 4.0;
+const THE_ONLY_ONE: usize = 0;
 
 struct Room(Option<std::fs::File>);
 
 fn how_many() -> Result<usize, Never> {
     let all = std::thread::available_parallelism().map_or(SOME, std::num::NonZero::get);
 
-    Ok(all.checked_div(A_SHARE).unwrap_or(SOME).max(SOME))
+    Ok((all / A_SHARE).max(SOME))
 }
 
-const A_SHARE: usize = 4;
+const A_SHARE: std::num::NonZeroUsize = match std::num::NonZeroUsize::new(4) {
+    Some(share) => share,
+    None => std::num::NonZeroUsize::MIN,
+};
 
 const SOME: usize = 2;
 
@@ -60,9 +87,25 @@ impl Room {
         let Ok(mine) = fitted::<u32, usize>(mine);
         let Ok(how_many) = how_many();
 
-        let slot = mine.checked_rem(how_many).unwrap_or(0);
+        let Ok(round) = console_core_walking::Ring::round(how_many);
+
+        let slot = match round {
+            Some(ring) => {
+                let Ok(slot) = ring.at(mine);
+
+                slot
+            }
+            None => THE_ONLY_ONE,
+        };
         let at = std::env::temp_dir().join(format!("console-panel-stage-{slot}.lock"));
 
+        #[cfg_attr(
+            dylint_lib = "explicit040_no_torn_write",
+            allow(
+                explicit040_no_torn_write,
+                reason = "the lock two check runs queue on, whose whole point is the open file and not its bytes"
+            )
+        )]
         let held = match std::fs::OpenOptions::new().create(true).write(true).truncate(false).open(&at) {
             Ok(file) => Some(file),
             Err(fault) => {
@@ -96,7 +139,9 @@ impl Drop for Room {
     }
 }
 
-fn built_since_the_panel_code(program: &Path) -> Result<(), String> {
+const PROGRAMS: &str = "bin";
+
+fn built_since_the_panel_code(program: &Path) -> Result<(), Awry> {
     let when = |at: &Path| -> Option<std::time::SystemTime> {
         let about = match at.metadata() {
             Ok(about) => about,
@@ -120,7 +165,7 @@ fn built_since_the_panel_code(program: &Path) -> Result<(), String> {
     };
 
     let mut newest = None;
-    let mut look = vec![library];
+    let mut look = vec![library.clone()];
 
     while let Some(at) = look.pop() {
         let entries = match std::fs::read_dir(&at) {
@@ -132,7 +177,10 @@ fn built_since_the_panel_code(program: &Path) -> Result<(), String> {
             let at = found.path();
 
             match at.is_dir() {
-                true => look.push(at),
+                true => match at.file_name().is_some_and(|named| named == PROGRAMS) {
+                    true => {},
+                    false => look.push(at),
+                },
                 false => {
                     let named = at.extension().is_some_and(|it| it == "rs" || it == "css");
 
@@ -145,16 +193,30 @@ fn built_since_the_panel_code(program: &Path) -> Result<(), String> {
         }
     }
 
+    let its_own = program
+        .file_name()
+        .map(|named| library.join(PROGRAMS).join(named).with_extension("rs"));
+
+    match its_own {
+        Some(at) => newest = newest.max(when(&at)),
+        None => {},
+    }
+
     match (newest, when(program)) {
-        (Some(edited), Some(built)) if built < edited => Err(format!(
-            "{} was built before console-panel was last edited, so this would hold \
-             today's rules against yesterday's panel: cargo build --workspace",
-            program.display()
-        )),
+        (Some(edited), Some(built)) if built < edited => {
+            Err(Awry::Stale(program.to_path_buf()))
+        }
         _ => Ok(()),
     }
 }
 
+#[cfg_attr(
+    dylint_lib = "explicit044_no_ambient_value",
+    allow(
+        explicit044_no_ambient_value,
+        reason = "each panel this process opens needs a directory no other one is using, and checks are separate functions run beside each other with nothing above them to do the counting"
+    )
+)]
 static ONE_AFTER_ANOTHER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 pub struct Panel {
@@ -183,7 +245,7 @@ impl Panel {
         })
     }
 
-    pub fn press(&mut self, card: &Told, spot: &Spot) -> Result<(), String> {
+    pub fn press(&mut self, card: &Told, spot: &Spot) -> Result<(), Awry> {
         let Ok((across, down)) = spot.middle();
 
         match across >= 0 && down >= 0 {
@@ -195,16 +257,16 @@ impl Panel {
 
                 Ok(())
             }
-            false => Err(format!(
-                "({across}, {down}) is not a place inside {}",
-                card.panel
+            false => Err(Awry::NotInside(
+                Point { across, down },
+                card.panel.clone(),
             )),
         }
     }
 
-    pub fn key(&mut self, key: &str) -> Result<(), String> {
+    pub fn key(&mut self, key: &str) -> Result<(), Awry> {
         match key.is_empty() {
-            true => Err("a key with no name".to_string()),
+            true => Err(Awry::NamelessKey),
             false => {
                 self.presses.push(format!("wtype -k {key}"));
 
@@ -213,25 +275,28 @@ impl Panel {
         }
     }
 
-    fn script(&self) -> Result<Option<(String, f64)>, Never> {
-        let (first, rest) = match self.presses.split_first() {
-            Some((first, rest)) => (first, rest),
-            None => return Ok(None),
-        };
+    fn script(&self, told: &Path) -> Result<Option<String>, Never> {
+        let Ok(desktop) = crate::beside("console-desktop");
 
-        let mut script = format!("sleep {DRAWN}; {first}");
+        let every: Vec<String> = self
+            .presses
+            .iter()
+            .map(|command| {
+                format!(
+                    "{} pressing {} --then '{command}'",
+                    desktop.display(),
+                    told.display()
+                )
+            })
+            .collect();
 
-        for command in rest {
-            script.push_str(&format!("; sleep {BETWEEN}; {command}"));
-        }
-
-        let Ok(pressed) = fitted::<usize, u64>(self.presses.len());
-        let Ok(many) = pressed.float();
-
-        Ok(Some((script, DRAWN + many * BETWEEN + AFTER)))
+        Ok(match every.is_empty() {
+            true => None,
+            false => Some(every.join("; ")),
+        })
     }
 
-    pub fn drawn(&mut self) -> Result<Vec<Told>, String> {
+    pub fn drawn(&mut self) -> Result<Vec<Told>, Awry> {
         match &self.read {
             Some(read) => return Ok(read.clone()),
             None => {},
@@ -242,16 +307,10 @@ impl Panel {
 
         match program.is_file() {
             true => built_since_the_panel_code(&program)?,
-            false => {
-                return Err(format!(
-                    "{} is not in target/debug, so there would be nothing to open: \
-                     cargo build --workspace",
-                    program.display()
-                ));
-            }
+            false => return Err(Awry::NotBuilt(program)),
         }
 
-        std::fs::create_dir_all(&self.here).map_err(|fault| fault.to_string())?;
+        std::fs::create_dir_all(&self.here).map_err(Awry::Machine)?;
 
         let told = self.here.join("told.jsonl");
         let _ = std::fs::remove_file(&told);
@@ -271,36 +330,27 @@ impl Panel {
         nesting.args(["--open", &opening]);
         nesting.args(["--until", &told.display().to_string()]);
 
-        let Ok(script) = self.script();
+        let Ok(script) = self.script(&told);
 
-        let waited = match script {
-            Some((script, waited)) => {
-                nesting.args(["--open", &script]);
-                waited
+        match script {
+            Some(script) => {
+                nesting.args(["--press", &script]);
             }
-            None => AFTER,
-        };
+            None => {},
+        }
 
-        nesting.args(["--settle", &format!("{waited:.1}")]);
-
-        let said = nesting.output().map_err(|fault| fault.to_string())?;
+        let said = nesting.output().map_err(Awry::Machine)?;
 
         let read = std::fs::read_to_string(&told).map_err(|fault| {
-            format!(
-                "{} said nothing about what it drew ({fault}):\n{}",
-                self.program,
-                {
-                    let Ok(why) = why(&said.stderr);
+            let Ok(why) = why(&said.stderr);
 
-                    why
-                }
-            )
+            Awry::SaidNothingDrawn(self.program.clone(), fault, why)
         })?;
 
         let every = telling::every(&read)?;
 
         match every.is_empty() {
-            true => Err(format!("{} drew nothing at all", self.program)),
+            true => Err(Awry::DrewNothing(self.program.clone())),
             false => {
                 self.read = Some(every.clone());
 
@@ -342,7 +392,7 @@ impl Drop for Panel {
     }
 }
 
-pub fn every_offer_answered(card: &Told) -> Result<(), String> {
+pub fn every_offer_answered(card: &Told) -> Result<(), Awry> {
     let missing: Vec<String> = card
         .lines
         .iter()
@@ -361,15 +411,11 @@ pub fn every_offer_answered(card: &Told) -> Result<(), String> {
 
     match missing.is_empty() {
         true => Ok(()),
-        false => Err(format!(
-            "{} offers something behind Y that no finger can reach: {}",
-            card.panel,
-            missing.join(", ")
-        )),
+        false => Err(Awry::OfferUnanswered(card.panel.clone(), missing)),
     }
 }
 
-pub fn one_mark_for_one_subject(card: &Told) -> Result<(), String> {
+pub fn one_mark_for_one_subject(card: &Told) -> Result<(), Awry> {
     let marks = card
         .lines
         .iter()
@@ -383,15 +429,12 @@ pub fn one_mark_for_one_subject(card: &Told) -> Result<(), String> {
 
     match (offered, marks) {
         (false, 0) | (true, 1) => Ok(()),
-        (false, _) => Err(format!("{} draws a mark for an offer it does not make", card.panel)),
-        (true, _) => Err(format!(
-            "{} draws {marks} marks for Y where a card with one subject wants one",
-            card.panel
-        )),
+        (false, _) => Err(Awry::MarkWithoutOffer(card.panel.clone())),
+        (true, _) => Err(Awry::TooManyMarks(card.panel.clone(), marks)),
     }
 }
 
-pub fn every_mark_reachable(card: &Told) -> Result<(), String> {
+pub fn every_mark_reachable(card: &Told) -> Result<(), Awry> {
     let Ok(every) = card.every_spot();
     let off: Vec<String> = every
         .into_iter()
@@ -405,21 +448,16 @@ pub fn every_mark_reachable(card: &Told) -> Result<(), String> {
 
     match off.is_empty() {
         true => Ok(()),
-        false => Err(format!(
-            "{} draws these where a hand cannot land, in a room of {:?}: {}",
-            card.panel,
-            card.room,
-            off.join(", ")
-        )),
+        false => Err(Awry::OutOfReach(card.panel.clone(), card.room, off)),
     }
 }
 
-pub fn a_way_out_is_drawn(card: &Told) -> Result<(), String> {
+pub fn a_way_out_is_drawn(card: &Told) -> Result<(), Awry> {
     let Ok(worn) = card.wearing("shut");
 
     match worn {
         Some(_) => Ok(()),
-        None => Err(format!("{} draws no way out, on the {} tab", card.panel, card.tab)),
+        None => Err(Awry::NoWayOut(card.panel.clone(), card.tab.clone())),
     }
 }
 
@@ -445,6 +483,7 @@ mod tests {
             aside: String::new(),
             offers,
             bare,
+            heading: console_panel::telling::Heading::No,
             standing: console_panel::telling::Standing::No,
             spots,
         }
@@ -473,8 +512,8 @@ mod tests {
         let marked = line(1, Offers::Yes, Bare::No, vec![spot("else", (900, 300), (40, 30))]);
         let card = card(vec![bare, marked], Vec::new());
 
-        assert_eq!(every_offer_answered(&card), Ok(()));
-        assert_eq!(one_mark_for_one_subject(&card), Ok(()));
+        every_offer_answered(&card).expect("the mark beside it answers");
+        one_mark_for_one_subject(&card).expect("one mark, one subject");
     }
 
     #[test]
@@ -494,8 +533,8 @@ mod tests {
     fn a_panel_that_offers_nothing_needs_no_mark() {
         let card = card(vec![line(0, Offers::No, Bare::No, Vec::new())], Vec::new());
 
-        assert_eq!(every_offer_answered(&card), Ok(()));
-        assert_eq!(one_mark_for_one_subject(&card), Ok(()));
+        every_offer_answered(&card).expect("nothing is offered");
+        one_mark_for_one_subject(&card).expect("nothing is offered");
     }
 
     #[test]
@@ -504,16 +543,14 @@ mod tests {
         let on = card(Vec::new(), vec![spot("shut", (954, 14), (56, 44))]);
 
         assert!(every_mark_reachable(&off).is_err());
-        assert_eq!(every_mark_reachable(&on), Ok(()));
+        every_mark_reachable(&on).expect("a mark inside the room");
     }
 
     #[test]
     fn a_card_with_no_way_out_is_a_card_a_finger_is_shut_into() {
         assert!(a_way_out_is_drawn(&card(Vec::new(), Vec::new())).is_err());
-        assert_eq!(
-            a_way_out_is_drawn(&card(Vec::new(), vec![spot("shut", (954, 14), (56, 44))])),
-            Ok(())
-        );
+        a_way_out_is_drawn(&card(Vec::new(), vec![spot("shut", (954, 14), (56, 44))]))
+            .expect("a way out");
     }
 
     #[test]
@@ -523,7 +560,7 @@ mod tests {
         let Ok(worn) = card.wearing("shut");
         let shut = worn.expect("a way out to press");
 
-        assert_eq!(panel.press(&card, shut), Ok(()));
+        panel.press(&card, shut).expect("a place inside the panel");
         assert_eq!(panel.presses, vec!["console-point --in a-panel 982 36 --click".to_string()]);
     }
 

@@ -4,11 +4,17 @@
 //! from every closure that draws a row. What it holds is one of two things, so
 //! the actor was the shape rather than the state, and it is here as a
 //! `console_program_contract::Program`: a press goes in, a place and a list of
-//! doings comes out, and none of it needs a mako or a screen.
+//! doings comes out, and none of it needs a daemon or a screen.
 //!
-//! Dismissing goes back to the list before the row it dismissed has gone,
-//! because mako answers the dismissal before it answers a fresh `list`, and a
-//! panel that stayed would be drawing a notice nobody can act on.
+//! Dismissing goes back to the list before the row it dismissed has gone. The
+//! daemon answers the call before it writes the file the panel reads, so a
+//! panel that stayed on the row would be drawing a notice nobody can act on.
+//!
+//! Both presses are a call on the bus, which is what `makoctl` was doing in
+//! mako's words and is now `busctl` in ours. The argv is built by
+//! `crate::serving`, which is the one place the interface is spelled: a panel
+//! that wrote out the name, the path and the member itself would be a second
+//! opinion about what this desktop's own daemon is called.
 
 use console_core_external_programs::Program as Theirs;
 use console_core_never::Never;
@@ -69,8 +75,7 @@ impl Program for Notices {
             },
 
             Word::Its(Heard::Dismissed(id)) => {
-                let Ok(dismiss) =
-                    Runs::theirs(Theirs::Makoctl, &["dismiss", "-n", &id.to_string()]);
+                let Ok(dismiss) = closing(*id);
 
                 Turn::doing(
                     Onto::List,
@@ -79,7 +84,7 @@ impl Program for Notices {
             }
 
             Word::Its(Heard::ClearAll) => {
-                let Ok(clear) = Runs::theirs(Theirs::Makoctl, &["dismiss", "--all"]);
+                let Ok(clear) = clearing();
 
                 Turn::doing(Onto::List, vec![Doing::Ask(clear), Doing::Its(Its::Refresh)])
             }
@@ -90,6 +95,20 @@ impl Program for Notices {
 
         turn
     }
+}
+
+fn closing(id: u32) -> Result<Runs, Never> {
+    let Ok(argv) = crate::serving::closing_one(id);
+    let said: Vec<&str> = argv.iter().map(String::as_str).collect();
+
+    Runs::theirs(Theirs::Busctl, &said)
+}
+
+fn clearing() -> Result<Runs, Never> {
+    let Ok(argv) = crate::serving::asking("ClearAll");
+    let said: Vec<&str> = argv.iter().map(String::as_str).collect();
+
+    Runs::theirs(Theirs::Busctl, &said)
 }
 
 pub fn closes(state: &Onto) -> Result<Closes, Never> {
@@ -106,7 +125,7 @@ mod tests {
     use super::*;
 
     fn dismissing(id: u32) -> Doing<Its> {
-        let Ok(runs) = Runs::theirs(Theirs::Makoctl, &["dismiss", "-n", &id.to_string()]);
+        let Ok(runs) = closing(id);
 
         Doing::Ask(runs)
     }
@@ -133,7 +152,7 @@ mod tests {
     }
 
     #[test]
-    fn dismissing_one_asks_mako_and_comes_back_to_the_list() {
+    fn dismissing_one_asks_the_daemon_and_comes_back_to_the_list() {
         let Ok(said) = told::<Notices>(
             &Argv::default(),
             &[Word::Its(Heard::Chose(7)), Word::Its(Heard::Dismissed(7))],
@@ -149,7 +168,7 @@ mod tests {
     #[test]
     fn clearing_them_all_stays_where_it_is_and_draws_again() {
         let Ok(said) = told::<Notices>(&Argv::default(), &[Word::Its(Heard::ClearAll)]);
-        let Ok(clear) = Runs::theirs(Theirs::Makoctl, &["dismiss", "--all"]);
+        let Ok(clear) = clearing();
 
         assert_eq!(
             said.on(0),

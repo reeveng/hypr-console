@@ -23,6 +23,9 @@
 //! press into one, and the guide says them out loud -- and a copy of either in
 //! any of the four would be the copy that drifts.
 
+use std::fmt;
+use std::path::PathBuf;
+
 pub mod active;
 pub mod bound;
 pub mod keys;
@@ -30,3 +33,59 @@ pub mod moved;
 
 pub use bound::{Binding, Fits, Input, NOTHING, Played};
 pub use moved::{Jobs, Moved, NAMED, Rebound, path_in};
+
+#[derive(Debug)]
+pub enum Unbound {
+    NoSuchKey(String),
+    NoSuchInput(String, String),
+    ATrigger(String, String),
+    NotOnThisMachine(String),
+    AModifier(String, String),
+    AKey(String),
+    Untabled(toml::de::Error),
+    UnderAJob(String, Box<Unbound>),
+    Rootless,
+    Holding(PathBuf, std::io::Error),
+    Writing(console_core_atomic_writes::Unwritten),
+}
+
+impl fmt::Display for Unbound {
+    fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Unbound::NoSuchKey(word) => write!(to, "no key called {word:?}"),
+            Unbound::NoSuchInput(word, said) => {
+                write!(to, "nothing here is called {word:?}, in {said:?}")
+            }
+            Unbound::ATrigger(pressed, binding) => write!(
+                to,
+                "{pressed:?} is a trigger, and a trigger is what is held: {binding}"
+            ),
+            Unbound::NotOnThisMachine(word) => {
+                write!(to, "nothing on this machine is called {word:?}")
+            }
+            Unbound::AModifier(pressed, binding) => write!(
+                to,
+                "{pressed:?} is a modifier, and a modifier is what is held: {binding}"
+            ),
+            Unbound::AKey(word) => write!(
+                to,
+                "{word:?} is a key, and a key is what is pressed rather than held"
+            ),
+            Unbound::Untabled(fault) => {
+                write!(to, "the button table does not parse: {fault}")
+            }
+            Unbound::UnderAJob(job, fault) => write!(to, "{job}: {fault}"),
+            Unbound::Rootless => write!(to, "the remembered input has no directory"),
+            Unbound::Holding(under, fault) => write!(to, "{}: {fault}", under.display()),
+            Unbound::Writing(fault) => write!(to, "{fault}"),
+        }
+    }
+}
+
+impl std::error::Error for Unbound {}
+
+impl From<console_core_atomic_writes::Unwritten> for Unbound {
+    fn from(fault: console_core_atomic_writes::Unwritten) -> Self {
+        Unbound::Writing(fault)
+    }
+}

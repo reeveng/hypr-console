@@ -17,6 +17,9 @@ use std::time::Duration;
 
 use console_core_never::Never;
 
+const NOT_SAID: f64 = 0.0;
+
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Said {
     Count(u64),
@@ -134,8 +137,15 @@ pub fn read(said: &str) -> Result<Option<Entry>, Never> {
         | serde_json::Value::Array(_)
         | serde_json::Value::Object(_) => return Ok(None),
     };
-    let up = number("up").unwrap_or(0.0);
-    let load = number("load").unwrap_or(0.0);
+    let up = match number("up") {
+        Some(up) => up,
+        None => NOT_SAID,
+    };
+
+    let load = match number("load") {
+        Some(load) => load,
+        None => NOT_SAID,
+    };
 
     let who = match word("who") {
         Some(who) => who,

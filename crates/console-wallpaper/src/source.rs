@@ -18,6 +18,8 @@ use console_core_external_programs::Program;
 use console_core_never::Never;
 use sha2::{Digest, Sha256};
 
+use crate::Unpainted;
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum Got {
     Held,
@@ -31,13 +33,13 @@ pub fn kept() -> Result<Option<PathBuf>, Never> {
     Ok(ours.map(|at| at.join("sky")))
 }
 
-pub fn checksum(at: &Path) -> Result<String, String> {
+pub fn checksum(at: &Path) -> Result<String, Unpainted> {
     let held = std::fs::read(at)
-        .map_err(|fault| format!("{} could not be read: {fault}", at.display()))?;
+        .map_err(|fault| Unpainted::Unreadable(at.to_path_buf(), fault))?;
     Ok(format!("{:x}", Sha256::digest(&held)))
 }
 
-pub fn is_the_one(at: &Path, wanted: &str) -> Result<bool, String> {
+pub fn is_the_one(at: &Path, wanted: &str) -> Result<bool, Unpainted> {
     match wanted.is_empty() {
         true => Ok(true),
         false => {
@@ -48,7 +50,15 @@ pub fn is_the_one(at: &Path, wanted: &str) -> Result<bool, String> {
     }
 }
 
-pub fn get(from: &str, wanted: &str, into: &Path) -> Result<Got, String> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Source<'a> {
+    pub from: &'a str,
+    pub wanted: &'a str,
+}
+
+pub fn get(source: Source<'_>, into: &Path) -> Result<Got, Unpainted> {
+    let Source { from, wanted } = source;
+
     match into.is_file() {
         true => {
             let held = is_the_one(into, wanted)?;
@@ -67,7 +77,7 @@ pub fn get(from: &str, wanted: &str, into: &Path) -> Result<Got, String> {
 
     match into.parent() {
         Some(holding) => std::fs::create_dir_all(holding)
-            .map_err(|fault| format!("{} could not be made: {fault}", holding.display()))?,
+            .map_err(|fault| Unpainted::Holding(holding.to_path_buf(), fault))?,
         None => {},
     }
 
@@ -80,15 +90,15 @@ pub fn get(from: &str, wanted: &str, into: &Path) -> Result<Got, String> {
         .arg(&part)
         .arg(from)
         .output()
-        .map_err(|fault| format!("curl would not run: {fault}"))?;
+        .map_err(Unpainted::NoCurl)?;
 
     match done.status.success() {
         true => {},
         false => {
             let _ = std::fs::remove_file(&part);
-            return Err(format!(
-                "{from} would not come: {}",
-                String::from_utf8_lossy(&done.stderr).trim()
+            return Err(Unpainted::Unfetched(
+                from.to_string(),
+                String::from_utf8_lossy(&done.stderr).trim().to_string(),
             ));
         }
     }
@@ -105,7 +115,7 @@ pub fn get(from: &str, wanted: &str, into: &Path) -> Result<Got, String> {
     }
 
     std::fs::rename(&part, into)
-        .map_err(|fault| format!("{} could not be put in place: {fault}", into.display()))?;
+        .map_err(|fault| Unpainted::Unplaced(into.to_path_buf(), fault))?;
     Ok(Got::Fetched)
 }
 
@@ -114,7 +124,7 @@ mod tests {
     use super::*;
 
     fn scratch(name: &str) -> PathBuf {
-        let at = std::env::temp_dir().join(format!("console-sky-{name}"));
+        let at = std::env::temp_dir().join(format!("console-wallpaper-{name}"));
         let _ = std::fs::remove_file(&at);
         at
     }
@@ -134,7 +144,7 @@ mod tests {
     fn a_file_with_nothing_written_down_about_it_is_taken_on_trust() {
         let at = scratch("trusted");
         std::fs::write(&at, b"hers").expect("a file");
-        assert_eq!(is_the_one(&at, ""), Ok(true));
+        assert!(is_the_one(&at, "").expect("taken on trust"));
         let _ = std::fs::remove_file(&at);
     }
 
@@ -142,7 +152,7 @@ mod tests {
     fn a_file_that_is_not_what_was_written_down_is_not_the_one() {
         let at = scratch("changed");
         std::fs::write(&at, b"a different picture").expect("a file");
-        assert_eq!(is_the_one(&at, "0".repeat(64).as_str()), Ok(false));
+        assert!(!is_the_one(&at, "0".repeat(64).as_str()).expect("not the one"));
         let _ = std::fs::remove_file(&at);
     }
 
@@ -151,11 +161,13 @@ mod tests {
         let at = scratch("held");
         std::fs::write(&at, b"a picture").expect("a file");
         let got = get(
-            "https://example.invalid/never-asked",
-            "92b2fa58028958317e408bd84ecfa70f5ee35b121991dbc232c49d166353708b",
+            Source {
+                from: "https://example.invalid/never-asked",
+                wanted: "92b2fa58028958317e408bd84ecfa70f5ee35b121991dbc232c49d166353708b",
+            },
             &at,
         );
-        assert_eq!(got, Ok(Got::Held));
+        assert_eq!(got.expect("held"), Got::Held);
         let _ = std::fs::remove_file(&at);
     }
 
@@ -163,7 +175,9 @@ mod tests {
     fn a_source_here_that_has_changed_says_so_rather_than_being_used() {
         let at = scratch("swapped");
         std::fs::write(&at, b"a picture").expect("a file");
-        let got = get("https://example.invalid/never-asked", &"0".repeat(64), &at);
+        let wanted = "0".repeat(64);
+        let source = Source { from: "https://example.invalid/never-asked", wanted: &wanted };
+        let got = get(source, &at);
         assert!(matches!(got, Ok(Got::Changed { .. })), "{got:?}");
         let _ = std::fs::remove_file(&at);
     }

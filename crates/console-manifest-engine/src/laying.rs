@@ -24,21 +24,26 @@ use std::path::{Path, PathBuf};
 
 use console_core_never::Never;
 
+use crate::unapplied::Unapplied;
+
 pub const STAGED: &str = "console-new";
 
 pub const KEPT: &str = "console-old";
 
-fn beside(live: &Path, ending: &str) -> Result<PathBuf, Never> {
-    let name = live.file_name().and_then(|name| name.to_str()).unwrap_or("file");
+fn beside(live: &Path, ending: &str) -> Result<Option<PathBuf>, Never> {
+    let name = match live.file_name().and_then(|name| name.to_str()) {
+        Some(name) => name,
+        None => return Ok(None),
+    };
 
-    Ok(live.with_file_name(format!("{name}.{ending}")))
+    Ok(Some(live.with_file_name(format!("{name}.{ending}"))))
 }
 
-pub fn staged(live: &Path) -> Result<PathBuf, Never> {
+pub fn staged(live: &Path) -> Result<Option<PathBuf>, Never> {
     beside(live, STAGED)
 }
 
-pub fn kept(live: &Path) -> Result<PathBuf, Never> {
+pub fn kept(live: &Path) -> Result<Option<PathBuf>, Never> {
     beside(live, KEPT)
 }
 
@@ -59,11 +64,11 @@ pub fn undoing(laid: &[Laid]) -> Result<Vec<&Laid>, Never> {
 }
 
 pub trait Lays {
-    fn stage(&mut self, from: &Path, live: &str) -> Result<(), String>;
+    fn stage(&mut self, from: &Path, live: &str) -> Result<(), Unapplied>;
 
-    fn swap(&mut self, live: &str) -> Result<Back, String>;
+    fn swap(&mut self, live: &str) -> Result<Back, Unapplied>;
 
-    fn put_back(&mut self, laid: &Laid) -> Result<(), String>;
+    fn put_back(&mut self, laid: &Laid) -> Result<(), Unapplied>;
 
     fn drop_staged(&mut self, live: &str);
 
@@ -71,7 +76,7 @@ pub trait Lays {
 
     fn standing(&self, live: &str) -> Back;
 
-    fn note(&mut self, laid: &[Laid]) -> Result<(), String>;
+    fn note(&mut self, laid: &[Laid]) -> Result<(), Unapplied>;
 
     fn forget_note(&mut self);
 }
@@ -95,13 +100,13 @@ pub struct Deploy {
 }
 
 impl Deploy {
-    pub fn stage(&mut self, lays: &mut impl Lays, from: &Path, live: &str) -> Result<(), String> {
+    pub fn stage(&mut self, lays: &mut impl Lays, from: &Path, live: &str) -> Result<(), Unapplied> {
         lays.stage(from, live)?;
         self.staged.push(live.to_string());
         Ok(())
     }
 
-    pub fn swap(&mut self, lays: &mut impl Lays) -> Result<Vec<Undone>, String> {
+    pub fn swap(&mut self, lays: &mut impl Lays) -> Result<Vec<Undone>, Unapplied> {
         let plan: Vec<Laid> = self
             .staged
             .iter()
@@ -118,7 +123,7 @@ impl Deploy {
 
                     return Err(match put_back.is_empty() {
                         true => fault,
-                        false => format!("{fault} (and what was already down went back)"),
+                        false => Unapplied::WentBack(Box::new(fault)),
                     });
                 }
             }
@@ -144,7 +149,7 @@ impl Deploy {
                 at: one.at.clone(),
                 put: match lays.put_back(one) {
                     Ok(()) => Put::Back,
-                    Err(fault) => Put::NotBack(fault),
+                    Err(fault) => Put::NotBack(fault.to_string()),
                 },
             })
             .collect();
@@ -170,13 +175,17 @@ mod tests {
     use super::*;
 
     fn staged(live: &Path) -> PathBuf {
-        let Ok(staged) = super::staged(live);
+        let Ok(Some(staged)) = super::staged(live) else {
+            panic!("{} names no file to stage one beside", live.display())
+        };
 
         staged
     }
 
     fn kept(live: &Path) -> PathBuf {
-        let Ok(kept) = super::kept(live);
+        let Ok(Some(kept)) = super::kept(live) else {
+            panic!("{} names no file to keep one beside", live.display())
+        };
 
         kept
     }
@@ -264,11 +273,15 @@ mod tests {
     }
 
     impl Lays for Paper {
-        fn stage(&mut self, from: &Path, live: &str) -> Result<(), String> {
+        fn stage(&mut self, from: &Path, live: &str) -> Result<(), Unapplied> {
             self.asked.push(format!("stage {live}"));
             match self.wont_stage.iter().any(|which| which == live) {
                 true => {
-                    return Err(format!("{live}: will not stage"));
+                    return Err(Unapplied::Staging(
+                        live.to_string(),
+                        "will not stage",
+                        std::io::Error::other("the paper machine"),
+                    ));
                 }
                 false => {},
             }
@@ -277,11 +290,15 @@ mod tests {
             Ok(())
         }
 
-        fn swap(&mut self, live: &str) -> Result<Back, String> {
+        fn swap(&mut self, live: &str) -> Result<Back, Unapplied> {
             self.asked.push(format!("swap {live}"));
             match self.wont_swap.iter().any(|which| which == live) {
                 true => {
-                    return Err(format!("{live}: will not go into place"));
+                    return Err(Unapplied::Staging(
+                        live.to_string(),
+                        "will not go into place",
+                        std::io::Error::other("the paper machine"),
+                    ));
                 }
                 false => {},
             }
@@ -296,11 +313,11 @@ mod tests {
             Ok(back)
         }
 
-        fn put_back(&mut self, laid: &Laid) -> Result<(), String> {
+        fn put_back(&mut self, laid: &Laid) -> Result<(), Unapplied> {
             self.asked.push(format!("put back {}", laid.at));
             match self.wont_put_back.iter().any(|which| which == &laid.at) {
                 true => {
-                    return Err(format!("{}: will not go back", laid.at));
+                    return Err(Unapplied::NothingKept(laid.at.clone()));
                 }
                 false => {},
             }
@@ -333,11 +350,16 @@ mod tests {
             }
         }
 
-        fn note(&mut self, laid: &[Laid]) -> Result<(), String> {
+        fn note(&mut self, laid: &[Laid]) -> Result<(), Unapplied> {
             self.asked.push(format!("note {}", laid.len()));
 
             match self.wont_note {
-                true => return Err("the plan could not be written down".to_string()),
+                true => {
+                    return Err(Unapplied::Directory(
+                        PathBuf::from("the plan"),
+                        std::io::Error::other("the paper machine"),
+                    ));
+                }
                 false => {},
             }
 
@@ -402,7 +424,7 @@ mod tests {
         deploy.stage(&mut paper, &from("new two"), "/bin/two").expect("staged");
         let fault = deploy.swap(&mut paper).expect_err("the second will not go");
 
-        assert!(fault.contains("went back"), "the fault does not say it went back: {fault}");
+        assert!(fault.to_string().contains("went back"), "the fault does not say it went back: {fault}");
         assert_eq!(paper.holding("/bin/one"), Some("old one"));
         assert_eq!(paper.holding("/bin/two"), Some("old two"));
     }

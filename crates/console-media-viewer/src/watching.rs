@@ -213,7 +213,7 @@ impl Program for Watch {
             }
 
             Heard::Where { at, whole } => {
-                let Ok(along) = Along::new(*at, *whole);
+                let along = Along { at: *at, whole: *whole };
 
                 Turn::nothing(Watching { along, ..state.clone() })
             }

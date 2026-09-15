@@ -10,6 +10,7 @@ name = "console-tap"
 path = "src/bin/tap.rs"
 
 [dependencies]
+console-core-geometry.workspace = true
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true
 console-screen.workspace = true

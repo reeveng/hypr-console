@@ -1,0 +1,43 @@
+error: `std::process::Command::status` is called with a loop over it: a program is a fork and an exec, and costs milliseconds whatever the program is
+  --> $DIR/main.rs:28:15
+   |
+LL |         match Command::new("hyprctl").arg(one).status() {
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: ask once and walk the answer. `console_compositor` will say what every window is in one reply, and one program handed a list is one process. Where the program really has to be run per item, allow this rule at the site and let the reason say why
+   = note: `#[deny(explicit029_no_asking_per_item)]` on by default
+
+error: `std::process::Command::new` is called with a loop over it: a program is a fork and an exec, and costs milliseconds whatever the program is
+  --> $DIR/main.rs:28:15
+   |
+LL |         match Command::new("hyprctl").arg(one).status() {
+   |               ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: ask once and walk the answer. `console_compositor` will say what every window is in one reply, and one program handed a list is one process. Where the program really has to be run per item, allow this rule at the site and let the reason say why
+
+error: `std::process::Command::status` is called with a loop over it: a program is a fork and an exec, and costs milliseconds whatever the program is
+  --> $DIR/main.rs:60:19
+   |
+LL |             match Command::new("hyprctl").args([how, one.as_str()]).status() {
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: ask once and walk the answer. `console_compositor` will say what every window is in one reply, and one program handed a list is one process. Where the program really has to be run per item, allow this rule at the site and let the reason say why
+
+error: `std::process::Command::new` is called with a loop over it: a program is a fork and an exec, and costs milliseconds whatever the program is
+  --> $DIR/main.rs:60:19
+   |
+LL |             match Command::new("hyprctl").args([how, one.as_str()]).status() {
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: ask once and walk the answer. `console_compositor` will say what every window is in one reply, and one program handed a list is one process. Where the program really has to be run per item, allow this rule at the site and let the reason say why
+
+error: `std::process::Command::new` is called with a loop over it: a program is a fork and an exec, and costs milliseconds whatever the program is
+  --> $DIR/main.rs:89:28
+   |
+LL |     names.iter().map(|one| std::process::Command::new(one)).collect()
+   |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: ask once and walk the answer. `console_compositor` will say what every window is in one reply, and one program handed a list is one process. Where the program really has to be run per item, allow this rule at the site and let the reason say why
+
+error: aborting due to 5 previous errors
+

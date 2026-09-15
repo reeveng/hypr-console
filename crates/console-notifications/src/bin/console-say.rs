@@ -11,7 +11,10 @@
 //! pictures that will not delete are one kind, and the picture and the
 //! compositor are two.
 
-use console_notifications::saying::{Kept, fault, for_the_journal, journal, raise};
+use console_notifications::saying::{Kept, Said, fault, for_the_journal, journal, raise};
+
+const NO_BODY: &str = "";
+
 
 fn main() -> std::process::ExitCode {
     let said: Vec<String> = std::env::args().skip(1).collect();
@@ -32,13 +35,16 @@ fn main() -> std::process::ExitCode {
         false => {}
     }
 
-    let body = rest.first().map(String::as_str).unwrap_or_default();
+    let body = match rest.first() {
+        Some(body) => body.as_str(),
+        None => NO_BODY,
+    };
 
-    let Ok(said) = for_the_journal(kind, summary, body);
+    let Ok(said) = for_the_journal(kind, Said { summary, body });
     let Ok(()) = journal(&said);
     let Ok(counting) = Kept::counting(kind);
     let Ok(again) = counting.again();
-    let Ok(fault) = fault(summary, body, again);
+    let Ok(fault) = fault(Said { summary, body }, again);
 
     match fault {
         Some(notice) => {

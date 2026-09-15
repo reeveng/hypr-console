@@ -56,7 +56,11 @@ pub const UNLESS_TOLD: &str = "duckduckgo";
 
 pub fn chosen() -> Result<String, Never> {
     let told = crate::setting("search")?;
-    let said = told.unwrap_or_default();
+
+    let said = match told {
+        Some(said) => said,
+        None => String::new(),
+    };
     let known = one(&said)?;
 
     Ok(match known.is_some() {
@@ -70,7 +74,7 @@ pub fn one(key: &str) -> Result<Option<&'static Engine>, Never> {
 }
 
 pub fn choose(key: &str) -> Result<(), Never> {
-    crate::set("search", key)
+    crate::set(crate::Setting { key: "search", value: key })
 }
 
 pub fn address(said: &str, engine: &Engine) -> Result<Option<String>, Never> {
@@ -100,12 +104,19 @@ enum Typed {
 }
 
 fn a_site(said: &str) -> Result<Typed, Never> {
-    match said.split_whitespace().count() == 1 {
-        true => {}
-        false => return Ok(Typed::AQuestion),
+    let mut words = said.split_whitespace();
+
+    match (words.next(), words.next()) {
+        (Some(_), None) => {}
+        (Some(_), Some(_)) | (None, None) | (None, Some(_)) => return Ok(Typed::AQuestion),
     }
 
-    let host = a_host(said.split(['/', '?', '#']).next().unwrap_or_default())?;
+    let before = match said.split(['/', '?', '#']).next() {
+        Some(before) => before,
+        None => said,
+    };
+
+    let host = a_host(before)?;
 
     Ok(match said.contains("://") || host == Typed::ASite {
         true => Typed::ASite,

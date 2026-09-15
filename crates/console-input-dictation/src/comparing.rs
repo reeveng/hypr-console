@@ -37,13 +37,18 @@
 //! `sed` in a pipeline.
 //!
 //! Nothing here is part of the desktop. It fetches into the same directory
-//! `dictate` keeps its model in, it is run by hand, and what it leaves behind
-//! can be deleted.
+//! `console-dictate` keeps its model in, it is run by hand, and what it leaves
+//! behind can be deleted.
 
 use std::path::{Path, PathBuf};
 
 use console_core_external_programs::Program as Theirs;
 use console_core_never::Never;
+
+const NOTHING_NAMED: &str = "";
+
+const NOTHING_GUESSED: &str = "none";
+
 use console_program_contract::{
     Argv, Chose, Doing, Ending, Opening, Program, Question, Runs, Turn, Went, Word, Writing,
 };
@@ -206,7 +211,13 @@ pub enum Ear {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Work {
     Detect(usize),
-    Hear(usize, usize),
+    Hear(Hear),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Hear {
+    pub clip: usize,
+    pub model: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -251,7 +262,10 @@ impl Program for Compare {
     fn opening(argv: &Argv) -> Opening<Comparing> {
         let Ok(words) = argv.words();
 
-        let said = |at: usize| words.get(at).cloned().unwrap_or_default();
+        let said = |at: usize| match words.get(at).cloned() {
+            Some(said) => said,
+            None => String::new(),
+        };
         let at = Where { kept: PathBuf::from(said(0)), host: said(1), stamp: said(2) };
 
         let Ok(job) = asked_for(words.get(3).map(String::as_str));
@@ -597,7 +611,7 @@ fn looked(state: &Comparing, seen: &[Seen]) -> Result<Turn<Comparing, Its>, Neve
                 &state,
                 &format!(
                     "The hearing this machine built for itself is not there:\n  {shown}\n\
-                     Press the paddle once, or run: dictate --fetch\n\
+                     Press the paddle once, or run: console-dictate --fetch\n\
                      The packaged whisper-cli speaks nothing but the processor, so measuring \
                      against it would be measuring the wrong thing."
                 ),
@@ -657,8 +671,8 @@ fn working(
 
             Some(header)
         }
-        (Some(Work::Hear(_, model)), Word::Its(Heard::Took(took))) => {
-            let Ok(row) = row(*model, took);
+        (Some(Work::Hear(hear)), Word::Its(Heard::Took(took))) => {
+            let Ok(row) = row(hear.model, took);
 
             Some(row)
         }
@@ -698,8 +712,8 @@ fn going(state: &Comparing, left: &[Work]) -> Result<Vec<Doing<Its>>, Never> {
 
             vec![Doing::Its(Its::Ran(detecting))]
         }
-        Some(Work::Hear(clip, model)) => {
-            let Ok(hearing) = hearing(state, *clip, *model);
+        Some(Work::Hear(hear)) => {
+            let Ok(hearing) = hearing(state, *hear);
 
             match hearing {
                 Some(argv) => vec![Doing::Its(Its::Timed(argv))],
@@ -804,8 +818,8 @@ pub fn walking(state: &Comparing) -> Result<Vec<Work>, Never> {
     for clip in recorded {
         every.push(Work::Detect(clip));
 
-        for model in 0..MODELS.len() {
-            every.push(Work::Hear(clip, model));
+        for (model, _) in MODELS.iter().enumerate() {
+            every.push(Work::Hear(Hear { clip, model }));
         }
     }
 
@@ -829,12 +843,12 @@ fn recorded(state: &Comparing) -> Result<Vec<usize>, Never> {
 }
 
 fn is(state: &Comparing, at: &Path) -> Result<Found, Never> {
-    Ok(state
-        .there
-        .iter()
-        .find(|seen| seen.at == at)
-        .map(|seen| seen.is)
-        .unwrap_or(Found::Missing))
+    let seen = state.there.iter().find(|seen| seen.at == at).map(|seen| seen.is);
+
+    Ok(match seen {
+        Some(is) => is,
+        None => Found::Missing,
+    })
 }
 
 pub fn graphics(said: &str) -> Result<Option<String>, Never> {
@@ -863,28 +877,31 @@ pub fn plainly(said: &str) -> Result<String, Never> {
 
 fn header(clip: usize, said: &str) -> Result<String, Never> {
     let Ok(detected) = detected(said);
-    let guessed = detected.unwrap_or_else(|| "none".to_string());
-    let spoken = CLIPS.get(clip).map(|clip| clip.language).unwrap_or_default();
+    let guessed = match detected {
+        Some(guessed) => guessed,
+        None => NOTHING_GUESSED.to_string(),
+    };
+
+    let Ok(spoken) = language(clip);
     let wrong = match guessed == spoken {
         true => "",
         false => "   <-- wrong",
     };
 
-    Ok(format!(
-        "\n== {}   spoken: {spoken}   auto heard: {guessed}{wrong}",
-        CLIPS.get(clip).map(|clip| clip.name).unwrap_or_default()
-    ))
+    let Ok(named) = name(clip);
+
+    Ok(format!("\n== {named}   spoken: {spoken}   auto heard: {guessed}{wrong}"))
 }
 
 fn row(model: usize, took: &Took) -> Result<String, Never> {
     let Ok(plainly) = plainly(&took.said);
 
-    Ok(format!(
-        "   {:<11} {:>5} ms  (first {:>5} ms)  {plainly}",
-        MODELS.get(model).map(|model| model.name).unwrap_or_default(),
-        took.best,
-        took.first
-    ))
+    let named = match MODELS.get(model).map(|model| model.name) {
+        Some(named) => named,
+        None => NOTHING_NAMED,
+    };
+
+    Ok(format!("   {named:<11} {:>5} ms  (first {:>5} ms)  {plainly}", took.best, took.first))
 }
 
 fn detecting(state: &Comparing, clip: usize) -> Result<Vec<String>, Never> {
@@ -929,11 +946,9 @@ fn backing(state: &Comparing) -> Result<Vec<String>, Never> {
     ])
 }
 
-pub fn hearing(
-    state: &Comparing,
-    clip: usize,
-    model: usize,
-) -> Result<Option<Vec<String>>, Never> {
+pub fn hearing(state: &Comparing, hear: Hear) -> Result<Option<Vec<String>>, Never> {
+    let Hear { clip, model } = hear;
+
     let model = match MODELS.get(model) {
         Some(model) => model,
         None => return Ok(None),
@@ -942,7 +957,7 @@ pub fn hearing(
     let Ok(file) = state.at.model(model.file);
     let Ok(name) = name(clip);
     let Ok(heard) = state.at.clip(name);
-    let language = CLIPS.get(clip).map(|clip| clip.language).unwrap_or_default();
+    let Ok(language) = language(clip);
     let Ok(llama) = state.at.llama();
     let Ok(whisper) = state.at.whisper();
     let Ok(has_file) = is(state, &file);
@@ -1006,7 +1021,10 @@ fn getting(from: &str, into: &Path) -> Result<Runs, Never> {
 }
 
 fn moved(left: &[(String, PathBuf)]) -> Result<Runs, Never> {
-    let into = left.first().map(|(_, into)| into.clone()).unwrap_or_default();
+    let into = match left.first() {
+        Some((_named, into)) => into.clone(),
+        None => PathBuf::new(),
+    };
     let Ok(coming) = coming(&into);
     let Ok(shown) = shown(&into);
 
@@ -1068,11 +1086,24 @@ fn compiling(at: &Where) -> Result<Runs, Never> {
 }
 
 fn name(clip: usize) -> Result<&'static str, Never> {
-    Ok(CLIPS.get(clip).map(|clip| clip.name).unwrap_or_default())
+    Ok(match CLIPS.get(clip).map(|clip| clip.name) {
+        Some(named) => named,
+        None => NOTHING_NAMED,
+    })
+}
+
+fn language(clip: usize) -> Result<&'static str, Never> {
+    Ok(match CLIPS.get(clip).map(|clip| clip.language) {
+        Some(language) => language,
+        None => NOTHING_NAMED,
+    })
 }
 
 fn turbo() -> Result<&'static str, Never> {
-    Ok(MODELS.first().map(|model| model.file).unwrap_or_default())
+    Ok(match MODELS.first().map(|model| model.file) {
+        Some(file) => file,
+        None => NOTHING_NAMED,
+    })
 }
 
 fn shown(at: &Path) -> Result<String, Never> {
@@ -1086,7 +1117,10 @@ fn coming(at: &Path) -> Result<String, Never> {
 }
 
 fn named(at: &Path) -> Result<String, Never> {
-    Ok(at.file_name().map(|name| name.to_string_lossy().to_string()).unwrap_or_default())
+    Ok(match at.file_name() {
+        Some(named) => named.to_string_lossy().to_string(),
+        None => String::new(),
+    })
 }
 
 fn stepped(state: &Comparing, step: Step) -> Result<Comparing, Never> {
@@ -1139,8 +1173,8 @@ mod tests {
         walking
     }
 
-    fn hearing(state: &Comparing, clip: usize, model: usize) -> Option<Vec<String>> {
-        let Ok(hearing) = super::hearing(state, clip, model);
+    fn hearing(state: &Comparing, hear: Hear) -> Option<Vec<String>> {
+        let Ok(hearing) = super::hearing(state, hear);
 
         hearing
     }
@@ -1283,7 +1317,7 @@ mod tests {
 
         assert!(
             matches!(doings.last(), Some(Doing::Stop(Ending::Badly(why)))
-                if why.contains("dictate --fetch"))
+                if why.contains("console-dictate --fetch"))
         );
     }
 
@@ -1312,7 +1346,7 @@ mod tests {
         let state = holding(everything_there());
         let left = walking(&state);
         let detects = left.iter().filter(|work| matches!(work, Work::Detect(_))).count();
-        let hears = left.iter().filter(|work| matches!(work, Work::Hear(_, _))).count();
+        let hears = left.iter().filter(|work| matches!(work, Work::Hear(_))).count();
 
         assert_eq!(detects, CLIPS.len());
         assert_eq!(hears, CLIPS.len().saturating_mul(MODELS.len()));
@@ -1342,8 +1376,11 @@ mod tests {
 
         let state = holding(there);
 
-        assert!(hearing(&state, 0, 2).is_none(), "a model that is not there was run");
-        assert!(hearing(&state, 0, 0).is_some());
+        assert!(
+            hearing(&state, Hear { clip: 0, model: 2 }).is_none(),
+            "a model that is not there was run"
+        );
+        assert!(hearing(&state, Hear { clip: 0, model: 0 }).is_some());
     }
 
     #[test]
@@ -1353,12 +1390,13 @@ mod tests {
 
         there.retain(|seen| seen.at != llama(&at));
 
-        assert!(hearing(&holding(there), 0, 3).is_none());
+        assert!(hearing(&holding(there), Hear { clip: 0, model: 3 }).is_none());
     }
 
     #[test]
     fn whisper_is_given_the_language_the_clip_was_spoken_in_and_the_threads_dictate_gives_it() {
-        let argv = hearing(&holding(everything_there()), 2, 0).unwrap_or_default();
+        let argv =
+            hearing(&holding(everything_there()), Hear { clip: 2, model: 0 }).unwrap_or_default();
 
         assert!(argv.windows(2).any(|pair| pair == ["--language".to_string(), "th".to_string()]));
         assert!(argv.windows(2).any(|pair| pair == ["--threads".to_string(), THREADS.to_string()]));

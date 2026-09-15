@@ -6,9 +6,15 @@ theme and the checks would run on any handheld with a pad and a compositor. The
 prefix is `console-*` now, as the music panel set it, and the repository is
 `reeveng/hypr-console`.
 
-There have been two of them. Sections 1 to 4 are the first, from `legion-*` to
-`console-*`; section 5 is the second, which moved no prefix and gave the
-families inside it a word to share.
+There have been three of them. Sections 1 to 4 are the first, from `legion-*`
+to `console-*`; section 5 is the second, which moved no prefix and gave the
+families inside it a word to share; section 6 is the third, which left the
+crates alone and went through the programs `[build]` installs. A name in an
+earlier section may have moved again in a later one -- `console-sky` and
+`sky-press` are section 2's names for what section 6 calls `console-wallpaper`
+and `wallpaper-press` -- and the earlier text is left saying what was true when
+it was written, because it is the record of a rename rather than a list of what
+things are called.
 
 The rename is done in this repository. It is not done on a device until
 `tools/console-migrate` has been run against it, which is what section 3 is
@@ -193,7 +199,7 @@ share:
 | `console-core-*` | what the rest imports and nothing outside the workspace ever names: the error of a function that cannot fail, the colour arithmetic, the one place a number changes width, the whole-file write, the language a person reads, the programs this desktop did not write, the retry |
 | `console-input-*` | everything a press comes through: the controller, the pad it is emulated on, the mapping, what has the input, the pointer and the touchscreen the checks press with, the on-screen keyboard, dictation |
 | `console-manifest-*` | what a deploy is: the engine, the sweeps, the public copy |
-| `console-music-*` | the music: the panel that draws it, and the player that makes the sound |
+| `console-music-*` | the music: `console-music` is what it draws, lists and presses, and `console-music-player` is what makes the sound |
 | `console-program-*` | what a program on this device is: the contract, the loop that carries it out, how long a started one lives |
 | `console-test-*` | where a check runs: the checks themselves, the flows, the stages, the desktop nested here |
 
@@ -207,6 +213,15 @@ written the panel's name stopped being available to it -- two crates cannot both
 be *the music* -- so the panel became `console-music-panel`, the player is
 `console-music-player`, and the word they share is the heading. A family is not
 designed and then filled: it is what a second crate makes true.
+
+Section 6 took the `-panel` back off it. What settled the question the second
+time is that the crate builds five programs and four of them are not panels:
+the bar's reading, the index, what plays next, and the sleeve drawn as letters.
+`-panel` named how one of the five is drawn, so it was never the crate's
+subject. `console-music` is the music -- what it draws, what it lists, what it
+presses -- and `console-music-player` is the thing that makes the sound, which
+is a different job and not *the music*. The family word is still `music` and
+the crate that carries it bare is the head of it.
 
 The line `console-core-*` is drawn at: no machine, no feature, and no program
 somebody types. That is why `console-onscreen` and `console-screen` are not in
@@ -234,5 +249,81 @@ rename needed a migration and the crates on their own would not have:
 entries named after the viewer and the downloads. A machine that applied the
 commit before it has both units enabled and would have run the old pair beside
 the new -- two daemons on one pad -- so the sweep disables before it moves
-anything. Every other installed name was already named for what somebody types
-rather than for the crate behind it, and did not move at all.
+anything. Every other installed name was left where it was, on the
+grounds that it was already named for what somebody types -- which section 6 is
+about, because for two names out of three it was not true.
+
+## 6. The binaries
+
+`[build]` is the list of programs this device compiles for itself, and until
+this rename only about a third of them had a rule. *A binary is named for what
+somebody types* is true of `console`, `console-deploy` and `console-check`, and
+false of `bar-clock`, `home-square`, `panel-pictures` and `files-thumbs`, which
+nobody has ever typed: they are started by a unit, by the bar's configuration,
+by a keybinding, or by another program of ours. With no rule covering them each
+was named by whoever wrote it, and there were four schemes in one list.
+
+So there are two kinds of name and they take two rules.
+
+A **command** is typed, and opens with `console-` and the word a person would
+say: `console-buttons`, `console-screenshot`, `console-dictate`. `console`
+itself is the one exception, being named for the whole desktop rather than for
+a part of it.
+
+A **part** is reached for by something else, and opens with a word its own
+crate's name holds -- the word rather than the whole name, because a crate's
+name is its job in as few words as say it and a part is one thing that crate
+does. `bar-clock` out of `console-status-bar` and `home-square` out of
+`console-home-screen` are each a part of what the crate is for, and demanding
+the whole subject would have named them `status-bar-clock` and
+`home-screen-square`. The family word comes off first: `console-input-keyboard`
+is in the `input` family and its subject is the keyboard.
+
+What that buys is that `[build]` sorted is `ls crates/` sorted. A reader
+looking at a name knows where to open it, and a crate that grows a second
+program gives it a name nobody has to choose.
+
+`console-manifest-engine/tests/the_binaries.rs` holds it. What it cannot ask is
+whether the word a part opens with is the one worth opening with: `bar-` names
+what consumes the output rather than what produces it, and reads as a family
+only because three crates happened to agree. The test caught the two that did
+not agree -- `bar-door` out of `console-panel` and `bar-updating` out of
+`console-notifications` -- and the answer there was to move the binaries rather
+than the names, so all five now come out of the crate whose subject is the bar.
+
+Seventeen names moved, and the shape of the list is the argument for them:
+
+| Was | Is | Why |
+| --- | --- | --- |
+| `stick-scroll` | `controller-desktop` | the desktop half of the controller; the name said one thing it does |
+| `game-return` | `controller-game` | the Game Mode half of the same crate |
+| `game-mode` | `session-game` | it switches the session, which is what the crate is |
+| `desktop-mode` | `session-desktop` | the other direction of the same switch |
+| `layout-panel` | `mapping-panel` | out of `console-input-mapping` |
+| `switch-language` | `language-switch` | the subject first, then what it does to it |
+| `notices-panel` | `notifications-panel` | the crate is `console-notifications`; *notices* was a third word for it |
+| `download-panel` | `downloads-panel` | one word in two numbers |
+| `download-find` | `downloads-find` | |
+| `download-get` | `downloads-get` | |
+| `one-format` | `downloads-format` | named for what it makes rather than for anything a reader could place |
+| `cover-ascii` | `music-cover` | named neither its crate nor, to anybody who had not read it, what it does |
+| `sky-press` | `wallpaper-press` | `console-wallpaper` built `console-sky` and `sky-press`: two words for one subject |
+| `console-sky` | `console-wallpaper` | |
+| `put-away` | `console-put-away` | typed, and said the way a person says it |
+| `dictate` | `console-dictate` | |
+| `virtual-keyboard` | `console-keyboard` | *virtual* was whose it used to be rather than what it is |
+
+`theme/sky.toml` and `docs/sky.md` keep their names: the sky is what the
+wallpaper follows, and a table of pictures indexed by the weather and the sun
+is named for the thing it is about rather than for the program that reads it.
+
+The migration is the usual shape and is larger than the last one, because a
+binary is installed under its own name and an apply removes nothing. A machine
+that applied the commit before this one has both spellings of all sixteen
+installed programs, and the old one still runs -- it is the same code compiled a
+day earlier, which is what makes it worth sweeping rather than leaving: nothing
+tells a person which of the two they have. The unit is the half that bites on
+its own. `console-sky.service` is enabled and pulled in by `console.target`,
+and an apply that installs `console-wallpaper.service` beside it leaves two
+daemons choosing a picture for one screen, so the sweep stops and disables
+before it moves anything.

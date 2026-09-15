@@ -8,6 +8,7 @@
 
 mod harness;
 
+use console_core_geometry::Point;
 use std::collections::BTreeMap;
 
 use evdev::{EventType, KeyCode, RelativeAxisCode};
@@ -39,7 +40,7 @@ fn the_top_right_paddle_closes_what_is_up() {
     let (mut go, mut daemon) = desktop();
     go.press("right-paddle-top").expect("a paddle");
     daemon.run(&mut go, 2);
-    assert_eq!(daemon.did.names(), ["put-away"]);
+    assert_eq!(daemon.did.names(), ["console-put-away"]);
 }
 
 #[test]
@@ -114,11 +115,11 @@ fn the_menu_button_opens_the_guide() {
 }
 
 #[test]
-fn legion_left_leaves_for_game_mode() {
+fn legion_left_leaves_for_session_game() {
     let (mut go, mut daemon) = desktop();
     go.press("legion-left").expect("a button");
     daemon.run(&mut go, 2);
-    assert_eq!(daemon.did.names(), ["game-mode"]);
+    assert_eq!(daemon.did.names(), ["session-game"]);
 }
 
 fn read_the_pad(go: &mut Go, returning: &mut Returning, now: f64) {
@@ -140,13 +141,13 @@ fn keys_of(go: &mut Go) -> Vec<u16> {
 }
 
 fn way_back() -> Result<Option<Doing>, Never> {
-    let Ok(run) = Doing::run(&["/usr/local/bin/desktop-mode"]);
+    let Ok(run) = Doing::run(&["/usr/local/bin/session-desktop"]);
 
     Ok(Some(run))
 }
 
 #[test]
-fn legion_left_held_comes_back_from_game_mode() {
+fn legion_left_held_comes_back_from_session_game() {
     let mut go = go("game");
     let mut returning = Returning::default();
     go.down("legion-left").expect("a button");
@@ -216,7 +217,7 @@ fn a_button_pressed_after_the_daemon_has_settled_is_acted_on() {
     daemon.run(&mut go, 2 + (SETTLING_SECONDS / POLL) as usize);
     go.press("legion-left").expect("a button");
     daemon.run(&mut go, 2);
-    assert_eq!(daemon.did.names(), ["game-mode"]);
+    assert_eq!(daemon.did.names(), ["session-game"]);
 }
 
 #[test]
@@ -300,7 +301,7 @@ fn the_dpad_alone_is_not_the_brightness() {
 #[test]
 fn the_right_stick_turns_the_wheel() {
     let (mut go, mut daemon) = desktop();
-    go.stick("right-stick", 0.0, -1.0).expect("a stick");
+    go.stick("right-stick", Point { across: 0.0, down: -1.0 }).expect("a stick");
     daemon.run(&mut go, 11);
 
     assert_eq!(total(&daemon, WHEEL), 2, "a full push turns the wheel by a known amount");
@@ -309,11 +310,11 @@ fn the_right_stick_turns_the_wheel() {
 #[test]
 fn a_half_pushed_stick_scrolls_less_than_a_quarter_as_fast() {
     let (mut full, mut turning_full) = desktop();
-    full.stick("right-stick", 0.0, -1.0).expect("a stick");
+    full.stick("right-stick", Point { across: 0.0, down: -1.0 }).expect("a stick");
     turning_full.run(&mut full, 44);
 
     let (mut half, mut turning_half) = desktop();
-    half.stick("right-stick", 0.0, -0.6).expect("a stick");
+    half.stick("right-stick", Point { across: 0.0, down: -0.6 }).expect("a stick");
     turning_half.run(&mut half, 44);
 
     assert!(
@@ -325,7 +326,7 @@ fn a_half_pushed_stick_scrolls_less_than_a_quarter_as_fast() {
 #[test]
 fn inside_the_deadzone_the_page_stays_where_it_is() {
     let (mut go, mut daemon) = desktop();
-    go.stick("right-stick", 0.0, -0.15).expect("a stick");
+    go.stick("right-stick", Point { across: 0.0, down: -0.15 }).expect("a stick");
     daemon.run(&mut go, 20);
     assert!(of_kind(&daemon, WHEEL).is_empty());
 }
@@ -333,10 +334,10 @@ fn inside_the_deadzone_the_page_stays_where_it_is() {
 #[test]
 fn pushing_up_scrolls_up_and_pushing_down_scrolls_down() {
     let (mut up, mut reading_up) = desktop();
-    up.stick("right-stick", 0.0, -1.0).expect("a stick");
+    up.stick("right-stick", Point { across: 0.0, down: -1.0 }).expect("a stick");
     reading_up.run(&mut up, 11);
     let (mut down, mut reading_down) = desktop();
-    down.stick("right-stick", 0.0, 1.0).expect("a stick");
+    down.stick("right-stick", Point { across: 0.0, down: 1.0 }).expect("a stick");
     reading_down.run(&mut down, 11);
     assert!(total(&reading_up, WHEEL) > 0);
     assert!(total(&reading_down, WHEEL) < 0);
@@ -345,7 +346,7 @@ fn pushing_up_scrolls_up_and_pushing_down_scrolls_down() {
 #[test]
 fn a_finger_on_the_pad_moves_the_pointer() {
     let (mut go, mut daemon) = desktop();
-    go.drag((200, 200), (400, 200), 4, 0.0);
+    go.drag(Point { across: 200, down: 200 }, Point { across: 400, down: 200 }, 4, 0.0);
     daemon.run(&mut go, 2);
     let across = total(&daemon, (EventType::RELATIVE, RelativeAxisCode::REL_X.0));
     let down = total(&daemon, (EventType::RELATIVE, RelativeAxisCode::REL_Y.0));
@@ -356,7 +357,7 @@ fn a_finger_on_the_pad_moves_the_pointer() {
 #[test]
 fn the_pointer_does_not_jump_to_where_the_finger_landed() {
     let (mut go, mut daemon) = desktop();
-    go.touch_down(900, 900);
+    go.touch_down(Point { across: 900, down: 900 });
     go.touch_up();
     daemon.run(&mut go, 2);
     assert!(of_kind(&daemon, (EventType::RELATIVE, RelativeAxisCode::REL_X.0)).is_empty());
@@ -365,7 +366,7 @@ fn the_pointer_does_not_jump_to_where_the_finger_landed() {
 #[test]
 fn a_quick_touch_is_a_click() {
     let (mut go, mut daemon) = desktop();
-    go.tap(500, 500);
+    go.tap(Point { across: 500, down: 500 });
     daemon.run(&mut go, 2);
     assert_eq!(of_kind(&daemon, LEFT), [1, 0]);
 }
@@ -373,7 +374,7 @@ fn a_quick_touch_is_a_click() {
 #[test]
 fn a_drag_across_the_pad_is_not_a_click() {
     let (mut go, mut daemon) = desktop();
-    go.drag((100, 100), (900, 900), 8, 0.0);
+    go.drag(Point { across: 100, down: 100 }, Point { across: 900, down: 900 }, 8, 0.0);
     daemon.run(&mut go, 2);
     assert!(of_kind(&daemon, LEFT).is_empty());
 }

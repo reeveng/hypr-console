@@ -20,6 +20,7 @@ license = "AGPL-3.0-or-later"
 console-applications = { path = "crates/console-applications" }
 console-input-mapping = { path = "crates/console-input-mapping" }
 console-program-lifetime = { path = "crates/console-program-lifetime" }
+console-bus = { path = "crates/console-bus" }
 console-core-colour = { path = "crates/console-core-colour" }
 console-compositor = { path = "crates/console-compositor" }
 console-input-controller = { path = "crates/console-input-controller" }
@@ -44,14 +45,19 @@ console-input-language = { path = "crates/console-input-language" }
 console-input-keyboard = { path = "crates/console-input-keyboard" }
 console-launcher = { path = "crates/console-launcher" }
 console-manifest-migrations = { path = "crates/console-manifest-migrations" }
-console-music-panel = { path = "crates/console-music-panel" }
+console-music = { path = "crates/console-music" }
 console-music-player = { path = "crates/console-music-player" }
 console-test-desktop = { path = "crates/console-test-desktop" }
+console-core-geometry = { path = "crates/console-core-geometry" }
+console-core-shapes = { path = "crates/console-core-shapes" }
+console-core-walking = { path = "crates/console-core-walking" }
 console-core-never = { path = "crates/console-core-never" }
+console-core-our-programs = { path = "crates/console-core-our-programs" }
 console-notifications = { path = "crates/console-notifications" }
 console-core-ini-files = { path = "crates/console-core-ini-files" }
 console-core-number-conversion = { path = "crates/console-core-number-conversion" }
 console-onscreen = { path = "crates/console-onscreen" }
+console-draw-painting = { path = "crates/console-draw-painting" }
 console-panel = { path = "crates/console-panel" }
 console-panels = { path = "crates/console-panels" }
 console-core-places = { path = "crates/console-core-places" }
@@ -60,6 +66,7 @@ console-program-runtime = { path = "crates/console-program-runtime" }
 console-core-reconnect = { path = "crates/console-core-reconnect" }
 console-repository = { path = "crates/console-repository" }
 console-screen = { path = "crates/console-screen" }
+console-draw-surface = { path = "crates/console-draw-surface" }
 console-session = { path = "crates/console-session" }
 console-settings = { path = "crates/console-settings" }
 console-test-stages = { path = "crates/console-test-stages" }
@@ -71,6 +78,27 @@ console-response-times = { path = "crates/console-response-times" }
 console-resume = { path = "crates/console-resume" }
 console-wallpaper = { path = "crates/console-wallpaper" }
 console-waiting = { path = "crates/console-waiting" }
+console-core-words = { path = "crates/console-core-words" }
+
+# What a debug build is allowed to cost. This tree reached 150G of `target/debug`
+# in a fortnight, on a disk that had 29G left, and neither of these two lines was
+# written at the time.
+#
+# `debug` is the larger half. Full DWARF carries every type and every local in
+# every crate, and nothing here has ever been stepped through in a debugger:
+# what a fault on this desktop is read from is the file and line in a backtrace,
+# which is what `line-tables-only` keeps. The types go, the addresses stay.
+#
+# `incremental` is the faster-growing half. Cargo never collects: a fingerprint
+# that changes writes a new hashed artifact and orphans the old one for good, and
+# an incremental session is orphaned the same day it is written -- so an age
+# window wide enough to be safe never catches one, and the daily sweep was
+# arriving to a directory that had grown faster than it could take away. A cold
+# rebuild is the price, and it is paid in minutes rather than in gigabytes.
+
+[profile.dev]
+debug = "line-tables-only"
+incremental = false
 
 [profile.release]
 # A handheld compiles this, so the build is kept cheap. None of these programs
@@ -124,6 +152,12 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(dylint_lib, values(any()))
 # written against -- it turns "this would not be read" into "this was empty",
 # and the machine runs on a value nobody chose. The `match` is what says which
 # of the two happened, so it stays.
+#
+# `manual_unwrap_or` is that one again without the default. A number off the bus
+# that will not fit is not the number zero; zero is what this desktop's own
+# `Notify` means by *no notification is being replaced*, chosen here and named
+# in the arm that chooses it. Clippy offers `unwrap_or(0)` back and EXPLICIT001
+# denies that call, so this is the same standoff and settles the same way.
 [workspace.lints.clippy]
 single_match = "allow"
 single_match_else = "allow"
@@ -132,6 +166,7 @@ equatable_if_let = "allow"
 option_if_let_else = "allow"
 manual_ok_err = "allow"
 manual_let_else = "allow"
+manual_unwrap_or = "allow"
 manual_unwrap_or_default = "allow"
 
 # The other direction: stock rules that say what the suite already says, or

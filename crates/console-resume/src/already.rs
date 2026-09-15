@@ -24,6 +24,8 @@ use std::path::PathBuf;
 
 use console_core_never::Never;
 
+use crate::Unresumed;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Already {
     PutBack,
@@ -32,17 +34,21 @@ pub enum Already {
 }
 
 fn mark() -> Result<Option<PathBuf>, Never> {
-    let runtime = match std::env::var("XDG_RUNTIME_DIR") {
-        Ok(runtime) => runtime,
-        Err(_nothing_says_where) => return Ok(None),
+    let Ok(said) = console_core_places::runtime();
+
+    let runtime = match said {
+        Some(runtime) => runtime,
+        None => return Ok(None),
     };
 
-    let instance = match std::env::var("HYPRLAND_INSTANCE_SIGNATURE") {
-        Ok(instance) => instance,
-        Err(_no_compositor_to_be_the_same_one_as) => return Ok(None),
+    let Ok(named) = console_compositor::instance();
+
+    let instance = match named {
+        Some(instance) => instance,
+        None => return Ok(None),
     };
 
-    Ok(Some(PathBuf::from(runtime).join(crate::OURS).join(instance)))
+    Ok(Some(runtime.join(crate::OURS).join(instance)))
 }
 
 pub fn asked() -> Result<Already, Never> {
@@ -59,7 +65,7 @@ pub fn asked() -> Result<Already, Never> {
     })
 }
 
-pub fn said() -> Result<(), String> {
+pub fn said() -> Result<(), Unresumed> {
     let Ok(mark) = mark();
 
     let at = match mark {
@@ -69,10 +75,9 @@ pub fn said() -> Result<(), String> {
 
     match at.parent() {
         Some(above) => std::fs::create_dir_all(above)
-            .map_err(|fault| format!("{}: making it: {fault}", above.display()))?,
+            .map_err(|fault| Unresumed::Making(above.to_path_buf(), fault))?,
         None => {},
     }
 
-    std::fs::write(&at, "")
-        .map_err(|fault| format!("{}: writing it: {fault}", at.display()))
+    console_core_atomic_writes::whole(&at, b"").map_err(Unresumed::Unwritten)
 }

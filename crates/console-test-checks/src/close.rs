@@ -26,7 +26,7 @@ fn here(stage: &mut Here) -> Done {
     let Ok(()) = stage.settle(TURNS);
     let Ok(asked) = stage.names();
 
-    same(&asked, &["put-away"], || format!("it asked for {asked:?}"))
+    same(&asked, &["console-put-away"], || format!("it asked for {asked:?}"))
 }
 
 fn there(stage: &mut Device) -> Done {

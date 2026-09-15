@@ -24,16 +24,34 @@ pub const PRESSED: i32 = 30;
 
 pub const EDGE: i32 = 3;
 
-pub fn room(wide: i32, spent: i32) -> Result<i32, Never> {
-    Ok(wide
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Card {
+    pub wide: i32,
+    pub spent: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Cell(pub i32);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Tabs {
+    pub many: usize,
+    pub here: usize,
+    pub from: usize,
+    pub fits: usize,
+}
+
+pub fn room(card: Card) -> Result<i32, Never> {
+    Ok(card
+        .wide
         .saturating_sub(2i32.saturating_mul(EDGE))
         .saturating_sub(2i32.saturating_mul(MARGIN))
         .saturating_sub(2i32.saturating_mul(PAD))
-        .saturating_sub(spent))
+        .saturating_sub(card.spent))
 }
 
-pub fn fits(room: i32, cell: i32) -> Result<usize, Never> {
-    let each = cell.saturating_add(GAP);
+pub fn fits(room: i32, cell: Cell) -> Result<usize, Never> {
+    let each = cell.0.saturating_add(GAP);
 
     let Ok(many) = fitted(room.saturating_add(GAP).saturating_div(each).max(1));
 
@@ -43,16 +61,17 @@ pub fn fits(room: i32, cell: i32) -> Result<usize, Never> {
     })
 }
 
-pub fn showing(tabs: usize, here: usize, from: usize, fits: usize) -> Result<Range<usize>, Never> {
-    match fits >= tabs {
-        true => return Ok(0..tabs),
+pub fn showing(tabs: Tabs) -> Result<Range<usize>, Never> {
+    match tabs.fits >= tabs.many {
+        true => return Ok(0..tabs.many),
         false => {},
     }
 
-    let first = from.min(here).max(here.saturating_add(1).saturating_sub(fits));
-    let first = first.min(tabs.saturating_sub(fits));
+    let least = tabs.here.saturating_add(1).saturating_sub(tabs.fits);
+    let first = tabs.from.min(tabs.here).max(least);
+    let first = first.min(tabs.many.saturating_sub(tabs.fits));
 
-    Ok(first..first.saturating_add(fits))
+    Ok(first..first.saturating_add(tabs.fits))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -89,33 +108,38 @@ mod tests {
 
     #[test]
     fn a_strip_with_room_for_all_of_them_starts_at_the_first() {
-        assert_eq!(showing(5, 3, 0, 5), Ok(0..5));
-        assert_eq!(showing(5, 3, 2, 9), Ok(0..5));
+        assert_eq!(showing(Tabs { many: 5, here: 3, from: 0, fits: 5 }), Ok(0..5));
+        assert_eq!(showing(Tabs { many: 5, here: 3, from: 2, fits: 9 }), Ok(0..5));
     }
 
     #[test]
     fn the_run_moves_as_little_as_it_can() {
-        assert_eq!(showing(5, 0, 0, 3), Ok(0..3), "standing on the first");
-        assert_eq!(showing(5, 2, 0, 3), Ok(0..3), "the third is already showing");
-        assert_eq!(showing(5, 3, 0, 3), Ok(1..4), "one step, because it had to");
-        assert_eq!(showing(5, 1, 2, 3), Ok(1..4), "back the other way, one step");
+        let run = |here, from| showing(Tabs { many: 5, here, from, fits: 3 });
+
+        assert_eq!(run(0, 0), Ok(0..3), "standing on the first");
+        assert_eq!(run(2, 0), Ok(0..3), "the third is already showing");
+        assert_eq!(run(3, 0), Ok(1..4), "one step, because it had to");
+        assert_eq!(run(1, 2), Ok(1..4), "back the other way, one step");
     }
 
     #[test]
     fn the_run_never_hangs_off_either_end() {
-        assert_eq!(showing(5, 4, 0, 3), Ok(2..5));
-        assert_eq!(showing(5, 4, 9, 3), Ok(2..5));
+        assert_eq!(showing(Tabs { many: 5, here: 4, from: 0, fits: 3 }), Ok(2..5));
+        assert_eq!(showing(Tabs { many: 5, here: 4, from: 9, fits: 3 }), Ok(2..5));
     }
 
     #[test]
     fn a_tab_and_a_gap_is_what_a_tab_costs() {
-        assert_eq!(fits(100, 20), Ok(4), "four tabs and the gaps between them");
-        assert_eq!(fits(0, 20), Ok(1), "somewhere to stand, whatever the room");
+        assert_eq!(fits(100, Cell(20)), Ok(4), "four tabs and the gaps between them");
+        assert_eq!(fits(0, Cell(20)), Ok(1), "somewhere to stand, whatever the room");
     }
 
     #[test]
     fn the_room_is_the_card_less_everything_that_is_not_a_tab() {
-        assert_eq!(room(900, 120), Ok(900 - 2 * EDGE - 2 * MARGIN - 2 * PAD - 120));
+        assert_eq!(
+            room(Card { wide: 900, spent: 120 }),
+            Ok(900 - 2 * EDGE - 2 * MARGIN - 2 * PAD - 120)
+        );
     }
 
     #[test]

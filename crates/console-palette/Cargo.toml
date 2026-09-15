@@ -10,6 +10,8 @@ name = "console-palette"
 path = "src/main.rs"
 
 [dependencies]
+console-core-atomic-writes.workspace = true
+console-core-words.workspace = true
 console-repository.workspace = true
 console-core-colour.workspace = true
 console-core-never.workspace = true

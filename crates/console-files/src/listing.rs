@@ -6,6 +6,9 @@ use console_core_number_conversion::{Float, whole_u64};
 
 use crate::unzipping::{self, Packed};
 
+const SMALLEST: (&str, u64) = ("B", 1);
+
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Entry {
     pub name: String,
@@ -121,13 +124,13 @@ pub fn aside(entry: &Entry) -> Result<String, Never> {
 const UNITS: [(&str, u64); 4] = [("B", 1), ("KB", 1 << 10), ("MB", 1 << 20), ("GB", 1 << 30)];
 
 pub fn said(bytes: u64) -> Result<String, Never> {
-    let (unit, worth) = UNITS
-        .iter()
-        .rev()
-        .find(|(_, worth)| bytes >= *worth)
-        .copied()
-        .or_else(|| UNITS.first().copied())
-        .unwrap_or(("B", 1));
+    let found =
+        UNITS.iter().rev().find(|(_, worth)| bytes >= *worth).copied().or_else(|| UNITS.first().copied());
+
+    let (unit, worth) = match found {
+        Some(both) => both,
+        None => SMALLEST,
+    };
     let Ok(many) = bytes.float();
     let Ok(each) = worth.float();
 

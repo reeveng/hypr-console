@@ -4,6 +4,7 @@
 //! device loads, so a test that passes here is a statement about the profile
 //! as much as about the emulator.
 
+use console_core_geometry::Point;
 use std::path::{Path, PathBuf};
 
 use evdev::{EventType, KeyCode};
@@ -120,7 +121,7 @@ fn holding_a_trigger_pulls_it_all_the_way() {
 #[test]
 fn a_stick_is_one_frame_of_two_numbers() {
     let mut pad = go("game");
-    pad.stick("left-stick", 1.0, -1.0).expect("a push");
+    pad.stick("left-stick", Point { across: 1.0, down: -1.0 }).expect("a push");
     let span = ok(pad.devices.axis("pad", 0).expect("ABS_X").span());
     let pushed = ok(pad.devices.sink.of_kind("pad", EventType::ABSOLUTE, None));
     assert_eq!(
@@ -136,14 +137,14 @@ fn a_stick_is_one_frame_of_two_numbers() {
 fn a_stick_only_moves_where_the_profile_publishes_a_pad() {
     let mut pad = go_of(WITHOUT_A_MOUSE, "spare");
     assert_eq!(ok(pad.profile()).publishes("xbox-elite"), Ok(Has::No));
-    pad.stick("left-stick", 1.0, 0.0).expect("a push");
+    pad.stick("left-stick", Point { across: 1.0, down: 0.0 }).expect("a push");
     assert!(ok(pad.devices.sink.of_kind("pad", EventType::ABSOLUTE, None)).is_empty());
 }
 
 #[test]
 fn the_touchpad_is_not_in_the_profile_loop_at_all() {
     let mut pad = go(console_input_gamepad::router::NAME);
-    ok(pad.tap(300, 400));
+    ok(pad.tap(Point { across: 300, down: 400 }));
     let touched = ok(pad.devices.sink.written("touchpad"));
     assert_eq!(touched.first().map(|w| (w.kind, w.code, w.value)), Some((EventType::KEY, KeyCode::BTN_TOUCH.0, 1)));
     assert!(touched.iter().any(|w| w.kind == EventType::ABSOLUTE && w.value == 300));
@@ -152,7 +153,7 @@ fn the_touchpad_is_not_in_the_profile_loop_at_all() {
 #[test]
 fn a_drag_reports_every_step_of_the_way() {
     let mut pad = go(console_input_gamepad::router::NAME);
-    ok(pad.drag((0, 0), (80, 0), 8, 0.0));
+    ok(pad.drag(Point { across: 0, down: 0 }, Point { across: 80, down: 0 }, 8, 0.0));
     let along: Vec<i32> = ok(pad.devices.sink.of_kind("touchpad", EventType::ABSOLUTE, Some(0)))
         .iter()
         .map(|written| written.value)
@@ -164,7 +165,9 @@ fn a_drag_reports_every_step_of_the_way() {
 fn a_profile_nothing_has_says_which_there_are() {
     let mut pad = go(console_input_gamepad::router::NAME);
     let fault = pad.load_profile("gaming").expect_err("no such profile");
-    assert!(fault.contains("router") && fault.contains("gaming"), "{fault}");
+    let said = fault.to_string();
+
+    assert!(said.contains("router") && said.contains("gaming"), "{said}");
 }
 
 #[test]

@@ -1,4 +1,4 @@
-//! Bring this machine to match /etc/console/desktop.conf.
+//! This machine, brought to match /etc/console/desktop.conf.
 //!
 //!     console list      what the desktop is made of
 //!     console check     where the machine has drifted from it
@@ -20,13 +20,16 @@ mod install;
 mod installing;
 mod laying;
 mod machine;
+mod machines;
 mod manifest;
 mod migrating;
 mod packages;
 mod previous;
 mod room;
+mod screen;
 mod settled;
 mod staying;
+mod unapplied;
 mod units;
 mod well;
 mod went;
@@ -36,12 +39,17 @@ use std::process::ExitCode;
 
 
 use building::Names;
+use crate::install::User;
+use console_core_atomic_writes::Held;
+use console_how_far::Far;
 use console_core_external_programs::Program;
 use console_core_never::Never;
+use console_manifest_migrations::done::Outstanding;
 use laying::{Deploy, Put};
 use machine::Ran;
 use manifest::{Manifest, Section};
 use settled::Settled;
+use unapplied::Unapplied;
 
 const ROOT: &str = "/etc/console";
 
@@ -131,14 +139,28 @@ console buttons   write the profiles again, with this device's buttons in them
 console save      take a file edited in place back into the source
 console migrate   run what this machine has not run; --pending only says what";
 
-fn read(root: &Path) -> Result<Manifest, String> {
-    let at = root.join("desktop.conf");
+fn read(root: &Path) -> Result<Manifest, Unapplied> {
+    let at = root.join(manifest::MARK);
     let held = std::fs::read_to_string(&at)
-        .map_err(|fault| format!("{} could not be read: {fault}", at.display()))?;
-    Manifest::read(&held)
+        .map_err(|fault| Unapplied::Unreadable(at.clone(), fault))?;
+    let read = Manifest::read(&held)?;
+    let mine = quirks(root)?;
+
+    read.and(manifest::Conf(machines::AT), &mine)
 }
 
-fn report(done: Result<(), String>) -> Result<ExitCode, Never> {
+fn quirks(root: &Path) -> Result<String, Unapplied> {
+    let at = root.join(machines::AT);
+    let Ok(held) = console_core_atomic_writes::read(&at);
+
+    match held {
+        Held::Said(said) => machines::here(&said, Path::new(machines::FIRMWARE)),
+        Held::Nothing => Ok(String::new()),
+        Held::Unreadable(fault) => Err(Unapplied::Unsaid(at.clone(), fault)),
+    }
+}
+
+fn report(done: Result<(), Unapplied>) -> Result<ExitCode, Never> {
     Ok(match done {
         Ok(()) => ExitCode::SUCCESS,
         Err(fault) => {
@@ -148,7 +170,14 @@ fn report(done: Result<(), String>) -> Result<ExitCode, Never> {
     })
 }
 
-fn line(colour: &str, state: &str, about: &str) -> Result<(), Never> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Said<'a> {
+    state: &'a str,
+    about: &'a str,
+}
+
+fn line(colour: &str, said: Said<'_>) -> Result<(), Never> {
+    let Said { state, about } = said;
     let pad = " ".repeat(COLUMN.saturating_sub(state.chars().count()));
     println!("  {colour}{state}{OFF}{pad}  {about}");
 
@@ -231,7 +260,7 @@ fn check(root: &Path, manifest: &Manifest) -> Result<ExitCode, Never> {
         went::to("files", || {
             let Ok(drift) = under("files", files, |path| {
                 let Ok(whose) = manifest.whose(path);
-                let Ok(state) = install::state(&source, path, whoever, whose);
+                let Ok(state) = install::state(&source, path, User(whoever), whose);
                 let Ok(settled) = state.settled();
                 let Ok(said) = state.name();
 
@@ -303,14 +332,20 @@ fn front(standing: &buttons::Standing) -> Result<(), Never> {
     match (standing.asked, settled) {
         (false, _) => {
             let Ok(()) =
-                line(YELLOW, "not asked", "InputPlumber did not say what this device sends");
+                line(YELLOW, Said {
+                    state: "not asked",
+                    about: "InputPlumber did not say what this device sends",
+                });
         }
         (true, Settled::Yes) => {
-            let Ok(()) = line(GREEN, "all here", "every button this desktop binds");
+            let Ok(()) = line(GREEN, Said {
+                state: "all here",
+                about: "every button this desktop binds",
+            });
         }
         (true, Settled::No) => {
             for lost in &standing.missing {
-                let Ok(()) = line(RED, "not here", lost);
+                let Ok(()) = line(RED, Said { state: "not here", about: lost });
             }
         }
     }
@@ -319,14 +354,20 @@ fn front(standing: &buttons::Standing) -> Result<(), Never> {
         true => {
             let many = standing.moved;
             let Ok(()) =
-                line(GREEN, "moved", &format!("{many} of them are elsewhere on this device"));
+                line(GREEN, Said {
+                    state: "moved",
+                    about: &format!("{many} of them are elsewhere on this device"),
+                });
         }
         false => {},
     }
 
     match standing.touchscreen == Some(false) {
         true => {
-            let Ok(()) = line(YELLOW, "no touchscreen", "nothing here can be driven by a finger");
+            let Ok(()) = line(YELLOW, Said {
+                state: "no touchscreen",
+                about: "nothing here can be driven by a finger",
+            });
         }
         false => {},
     }
@@ -348,7 +389,7 @@ fn under<T>(
         .map(state)
         .filter(|(ok, said, about)| {
             let Ok(colour) = settled(*ok);
-            let Ok(()) = line(colour, said, about);
+            let Ok(()) = line(colour, Said { state: said, about });
 
             *ok == Settled::No
         })
@@ -470,12 +511,14 @@ fn standing(root: &Path, manifest: &Manifest) -> Result<well::Standing, Never> {
         .collect();
 
     for live in &claimed {
-        let Ok(on) = install::on_machine(live, user);
+        let Ok(on) = install::on_machine(live, User(user));
         let at = Path::new(&on);
         let Ok(staged) = laying::staged(at);
         let Ok(kept) = laying::kept(at);
 
-        match staged.exists() || kept.exists() {
+        let over = [staged, kept].into_iter().flatten().any(|beside| beside.exists());
+
+        match over {
             true => standing.leftovers.push(live.clone()),
             false => {},
         }
@@ -483,7 +526,7 @@ fn standing(root: &Path, manifest: &Manifest) -> Result<well::Standing, Never> {
 
     for live in files {
         let Ok(whose) = manifest.whose(live);
-        let Ok(state) = install::state(&source, live, user, whose);
+        let Ok(state) = install::state(&source, live, User(user), whose);
         let Ok(settled) = state.settled();
 
         match state != install::State::Unreadable && settled == Settled::No {
@@ -510,7 +553,7 @@ fn standing(root: &Path, manifest: &Manifest) -> Result<well::Standing, Never> {
         let described = |unit: &str| {
             let Ok(said) = machine::mine(&["show", "-p", "Description", "--value", unit]);
 
-            well::Piece::new(unit, &said.out)
+            well::Piece::new(unit, well::Called(&said.out))
         };
         let Ok(active) = machine::mine(&["is-active", unit]);
 
@@ -632,11 +675,17 @@ fn well(root: &Path, manifest: &Manifest) -> Result<ExitCode, Never> {
 
     println!("{RED}{summary}{OFF}\n{body}");
 
-    let Ok(said) = console_notifications::saying::for_the_journal(kind, &summary, &body);
+    let Ok(said) = console_notifications::saying::for_the_journal(
+        kind,
+        console_notifications::saying::Said { summary: &summary, body: &body },
+    );
     let Ok(()) = console_notifications::saying::journal(&said);
     let Ok(counting) = console_notifications::saying::Kept::counting(kind);
     let Ok(again) = counting.again();
-    let Ok(once) = console_notifications::saying::once(&summary, &body, again);
+    let Ok(once) = console_notifications::saying::once(
+        console_notifications::saying::Said { summary: &summary, body: &body },
+        again,
+    );
 
     match once {
         Some(notice) => {
@@ -648,15 +697,25 @@ fn well(root: &Path, manifest: &Manifest) -> Result<ExitCode, Never> {
     Ok(ExitCode::FAILURE)
 }
 
-fn migrate(root: &Path, rest: &[String]) -> Result<(), String> {
+fn migrate(root: &Path, rest: &[String]) -> Result<(), Unapplied> {
     let asking = rest.iter().any(|word| word == "--pending" || word == "--check");
 
     match asking {
         true => {
-            let outstanding = migrating::outstanding(root)?;
+            let pending = migrating::outstanding(root)?;
 
-            for name in outstanding {
-                println!("{name}");
+            match pending {
+                Outstanding::Run(names) => {
+                    for name in names {
+                        println!("{name}");
+                    }
+                }
+                Outstanding::Remember(_every_one_of_them) => {
+                    println!(
+                        "this machine has never applied, so nothing is swept and the history is \
+                         marked done by the apply that installs it"
+                    );
+                }
             }
 
             Ok(())
@@ -665,7 +724,7 @@ fn migrate(root: &Path, rest: &[String]) -> Result<(), String> {
             let Ok(root_is) = nix_is_root();
 
             match root_is == Root::No {
-                true => return Err("console migrate has to run as root.".into()),
+                true => return Err(Unapplied::AsRoot("migrate")),
                 false => {},
             }
 
@@ -676,11 +735,11 @@ fn migrate(root: &Path, rest: &[String]) -> Result<(), String> {
     }
 }
 
-fn apply(root: &Path, manifest: &Manifest) -> Result<(), String> {
+fn apply(root: &Path, manifest: &Manifest) -> Result<(), Unapplied> {
     let Ok(root_is) = nix_is_root();
 
     match root_is == Root::No {
-        true => return Err("console apply has to run as root.".into()),
+        true => return Err(Unapplied::AsRoot("apply")),
         false => {},
     }
 
@@ -691,7 +750,7 @@ fn apply(root: &Path, manifest: &Manifest) -> Result<(), String> {
     let Ok(enough) = enough::enough(charge, levels);
 
     match enough {
-        enough::Enough::No(said) => return Err(said),
+        enough::Enough::No(said) => return Err(Unapplied::NotEnough(said)),
         enough::Enough::Yes => {},
     }
 
@@ -716,7 +775,7 @@ fn apply(root: &Path, manifest: &Manifest) -> Result<(), String> {
     };
 
     match room {
-        room::Room::No(said) => return Err(said),
+        room::Room::No(said) => return Err(Unapplied::NoRoom(said)),
         room::Room::Enough => {},
     }
 
@@ -773,13 +832,13 @@ fn apply(root: &Path, manifest: &Manifest) -> Result<(), String> {
                 installing::Said::Fetching(name) => {
                     fetched = fetched.saturating_add(1);
 
-                    let Ok(far) = installing::fetched(fetched, many);
+                    let Ok(far) = installing::fetched(Far { done: fetched, many });
                     let Ok(()) = moving.far(far, &format!("fetching {name}"));
                 }
 
                 installing::Said::Doing { done, many, name } => {
-                    let Ok(far) = installing::done(done, many);
-                    let Ok(counted) = console_how_far::counted(done, many);
+                    let Ok(far) = installing::done(Far { done, many });
+                    let Ok(counted) = console_how_far::counted(Far { done, many });
                     let Ok(()) = moving.far(far, &format!("{counted} {name}"));
                 }
 
@@ -791,7 +850,7 @@ fn apply(root: &Path, manifest: &Manifest) -> Result<(), String> {
     });
 
     match installed == Ran::Badly {
-        true => return Err("pacman could not install what the manifest asks for.".into()),
+        true => return Err(Unapplied::PacmanRefused),
         false => {},
     }
 
@@ -816,7 +875,7 @@ fn apply(root: &Path, manifest: &Manifest) -> Result<(), String> {
     });
 
     match kept == Ran::Badly {
-        true => return Err("pacman would not be told the desktop asks for these.".into()),
+        true => return Err(Unapplied::PacmanUntold),
         false => {},
     }
 
@@ -862,6 +921,15 @@ fn apply(root: &Path, manifest: &Manifest) -> Result<(), String> {
             None => {}
         }
     });
+    let Ok(()) = going.through(going::SCREEN, || {
+        let Ok(home) = home();
+        let Ok(wrote) = screen::wrote(Path::new(&home));
+
+        match wrote {
+            Some(live) => println!("{YELLOW}writing{OFF} {live}"),
+            None => {}
+        }
+    });
     let Ok(()) = going.through(going::WALLPAPERS, || {
         let Ok(()) = pressed_the_wallpapers();
     });
@@ -881,7 +949,7 @@ fn apply(root: &Path, manifest: &Manifest) -> Result<(), String> {
         let many = services.len();
 
         for (done, unit) in services.iter().enumerate() {
-            let Ok(()) = moving.at(done, many, unit);
+            let Ok(()) = moving.at(Far { done, many }, unit);
             let Ok((enabled, active)) = machine::unit_state(unit);
 
             match enabled != "enabled" {
@@ -939,10 +1007,7 @@ fn apply(root: &Path, manifest: &Manifest) -> Result<(), String> {
                 let Ok(_) = machine::user_systemctl(&["restart", unit]);
             }
 
-            return Err(format!(
-                "put back: {} would not run what this was about to install.",
-                fell.join(", ")
-            ));
+            return Err(Unapplied::PutBack(fell.clone()));
         }
         false => {},
     }
@@ -1018,10 +1083,10 @@ fn told_what_there_is_to_come_back_to(was: &[previous::Held]) -> Result<(), Neve
 
         match held {
             previous::Held::Made { .. } => {
-                let Ok(()) = line(GREEN, "kept", &said);
+                let Ok(()) = line(GREEN, Said { state: "kept", about: &said });
             }
             previous::Held::Not { .. } => {
-                let Ok(()) = line(YELLOW, "no snapshot", &said);
+                let Ok(()) = line(YELLOW, Said { state: "no snapshot", about: &said });
             }
         }
     }
@@ -1052,7 +1117,7 @@ fn packed_the_add_on() -> Result<(), Never> {
 fn pressed_the_wallpapers() -> Result<(), Never> {
     println!("{YELLOW}pressing{OFF} the wallpapers the table names and this has not");
 
-    let Ok(_) = machine::run_seen(&["sky-press"]);
+    let Ok(_) = machine::run_seen(&["wallpaper-press"]);
 
     Ok(())
 }
@@ -1090,7 +1155,7 @@ fn told_the_front(root: &Path) -> Result<(), Never> {
         true => {
             println!("{YELLOW}asking{OFF} which buttons this device has");
 
-            let Ok(()) = machine::in_the_session("layout-panel --first");
+            let Ok(()) = machine::in_the_session("mapping-panel --first");
         }
         false => {},
     }
@@ -1132,6 +1197,13 @@ fn restarted_by(source: &Path, unit: &str, written: &[String]) -> Result<Restart
         Err(_) => return Ok(Restart::Wanted),
     };
     let Ok(named) = units::named_by(&held);
+    #[cfg_attr(
+        dylint_lib = "explicit028_no_search_in_a_loop",
+        allow(
+            explicit028_no_search_in_a_loop,
+            reason = "the units one file declares, which is one or two of them, asked of what this apply wrote"
+        )
+    )]
     let its_program = named.iter().any(|named| written.contains(named));
 
     Ok(match its_program {
@@ -1175,7 +1247,7 @@ fn compile(
     deploy: &mut Deploy,
     here: &mut machine::Here,
     moving: &mut going::Moving,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<String>, Unapplied> {
     let Ok(names) = manifest.of(Section::Build);
 
     match names.is_empty() {
@@ -1195,7 +1267,7 @@ fn compile(
     let built = cargo(root, &argv, moving)?;
 
     match !built.success() {
-        true => return Err("cargo could not build what the manifest asks for.".into()),
+        true => return Err(Unapplied::CargoRefused),
         false => {},
     }
 
@@ -1218,7 +1290,7 @@ fn compile(
             let Ok(made) = build::made(root, name);
 
             let Ok(()) = moving.say(&format!("{YELLOW}staging{OFF} {live}"));
-            let Ok(()) = moving.at(done, many, &live);
+            let Ok(()) = moving.at(Far { done, many }, &live);
 
             deploy.stage(here, &made, &live).map(|()| live)
         })
@@ -1229,12 +1301,12 @@ fn cargo(
     root: &Path,
     argv: &[&str],
     moving: &mut going::Moving,
-) -> Result<std::process::ExitStatus, String> {
+) -> Result<std::process::ExitStatus, Unapplied> {
     use std::io::{BufRead, BufReader, IsTerminal};
 
     let (program, rest) = match argv.split_first() {
         Some((program, rest)) => (program, rest),
-        None => return Err("cargo was asked for with no program to run".to_string()),
+        None => return Err(Unapplied::NoProgram),
     };
 
     let mut starting = std::process::Command::new(program);
@@ -1249,7 +1321,7 @@ fn cargo(
 
     let mut child =
         console_program_lifetime::alongside(&mut starting)
-            .map_err(|fault| format!("cargo could not be run: {fault}"))?;
+            .map_err(Unapplied::CargoUnrun)?;
 
     let Ok(erring) = child.erring();
 
@@ -1295,7 +1367,7 @@ fn cargo(
         None => {},
     }
 
-    child.waiting().map_err(|fault| format!("cargo could not be waited for: {fault}"))
+    child.waiting().map_err(Unapplied::CargoUnwaited)
 }
 
 fn write(
@@ -1304,17 +1376,17 @@ fn write(
     deploy: &mut Deploy,
     here: &mut machine::Here,
     moving: &mut going::Moving,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<String>, Unapplied> {
     let mut staged = Vec::new();
     let Ok(whoever) = machine::whoever();
     let Ok(files) = manifest.of(Section::Files);
     let many = files.len();
 
     for (done, path) in files.iter().enumerate() {
-        let Ok(()) = moving.at(done, many, path);
+        let Ok(()) = moving.at(Far { done, many }, path);
 
         let Ok(whose) = manifest.whose(path);
-        let Ok(state) = install::state(source, path, whoever, whose);
+        let Ok(state) = install::state(source, path, User(whoever), whose);
 
         match state {
             install::State::Ok | install::State::Theirs => {}
@@ -1335,11 +1407,11 @@ fn write(
     Ok(staged)
 }
 
-fn rebuttoned(_root: &Path, _manifest: &Manifest) -> Result<(), String> {
+fn rebuttoned(_root: &Path, _manifest: &Manifest) -> Result<(), Unapplied> {
     let Ok(root_is) = nix_is_root();
 
     match root_is == Root::No {
-        true => return Err("console buttons has to run as root.".into()),
+        true => return Err(Unapplied::AsRoot("buttons")),
         false => {},
     }
 
@@ -1357,7 +1429,7 @@ fn rebuttoned(_root: &Path, _manifest: &Manifest) -> Result<(), String> {
     Ok(())
 }
 
-fn save(root: &Path, manifest: &Manifest, asked: &[String]) -> Result<(), String> {
+fn save(root: &Path, manifest: &Manifest, asked: &[String]) -> Result<(), Unapplied> {
     let _alone = alone::taking()?;
     let source = root.join("files");
     let Ok(whoever) = machine::whoever();
@@ -1367,7 +1439,7 @@ fn save(root: &Path, manifest: &Manifest, asked: &[String]) -> Result<(), String
             .iter()
             .filter(|path| {
                 let Ok(whose) = manifest.whose(path);
-                let Ok(state) = install::state(&source, path, whoever, whose);
+                let Ok(state) = install::state(&source, path, User(whoever), whose);
 
                 state == install::State::Differs
             })
@@ -1387,8 +1459,8 @@ fn save(root: &Path, manifest: &Manifest, asked: &[String]) -> Result<(), String
     let mut taken: Vec<PathBuf> = Vec::new();
 
     for path in &wanted {
-        let Ok(declared) = install::as_declared(path, whoever);
-        let Ok(on) = install::on_machine(&declared, whoever);
+        let Ok(declared) = install::as_declared(path, User(whoever));
+        let Ok(on) = install::on_machine(&declared, User(whoever));
 
         match !Path::new(&on).exists() {
             true => {
@@ -1402,14 +1474,15 @@ fn save(root: &Path, manifest: &Manifest, asked: &[String]) -> Result<(), String
 
         match into.parent() {
             Some(holding) => std::fs::create_dir_all(holding)
-                .map_err(|fault| format!("{}: {fault}", holding.display()))?,
+                .map_err(|fault| Unapplied::Making(holding.to_path_buf(), fault))?,
             None => {},
         }
 
-        let held = std::fs::read(&on).map_err(|fault| format!("{path}: {fault}"))?;
-        let Ok(content) = install::content_as_declared(&held, whoever);
+        let held = std::fs::read(&on).map_err(|fault| Unapplied::At(path.clone(), fault))?;
+        let Ok(content) = install::content_as_declared(&held, User(whoever));
 
-        std::fs::write(&into, content).map_err(|fault| format!("{path}: {fault}"))?;
+        console_core_atomic_writes::whole(&into, &content)
+            .map_err(|fault| Unapplied::Saving(path.clone(), fault))?;
         println!("{YELLOW}saved{OFF} {path}");
         taken.push(into);
     }

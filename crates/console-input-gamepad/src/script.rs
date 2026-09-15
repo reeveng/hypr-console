@@ -18,8 +18,10 @@
 
 
 use console_core_number_conversion::toward_zero_i32;
+use crate::Unpressed;
 use crate::devices::Sink;
 use crate::go::{Clock, LegionGo, MIDDLE};
+use console_core_geometry::Point;
 use console_core_never::Never;
 
 const DRAG_STEPS: i32 = 8;
@@ -30,28 +32,31 @@ pub enum Step {
     Press(Vec<String>),
     Hold(Vec<String>),
     Release(Vec<String>),
-    Stick { which: String, x: f64, y: f64 },
+    Stick { which: String, to: Point<f64> },
     Centre(String),
     Trigger { which: String, amount: f64 },
-    Tap { x: i32, y: i32 },
-    Drag { from: (i32, i32), to: (i32, i32), seconds: f64 },
+    Tap { at: Point<i32> },
+    Drag { from: Point<i32>, to: Point<i32>, seconds: f64 },
     Click(bool),
     Wait(f64),
 }
 
-fn number(word: &str) -> Result<f64, String> {
-    word.parse::<f64>().map_err(|_| format!("{word:?} is not a number"))
+fn number(word: &str) -> Result<f64, Unpressed> {
+    word.parse::<f64>()
+        .map_err(|_| Unpressed::NotANumber(word.to_string()))
 }
 
-fn whole(word: &str) -> Result<i32, String> {
+fn whole(word: &str) -> Result<i32, Unpressed> {
     let said = number(word)?;
     let Ok(whole) = toward_zero_i32(said);
 
     Ok(whole)
 }
 
-fn word(rest: &[&str], at: usize, what: &str) -> Result<String, String> {
-    rest.get(at).map(|said| (*said).to_string()).ok_or_else(|| format!("no {what}"))
+fn word(rest: &[&str], at: usize, what: &'static str) -> Result<String, Unpressed> {
+    rest.get(at)
+        .map(|said| (*said).to_string())
+        .ok_or(Unpressed::NothingSaid(what))
 }
 
 fn stick_named(said: &str) -> Result<String, Never> {
@@ -62,8 +67,8 @@ fn stick_named(said: &str) -> Result<String, Never> {
 }
 
 impl Step {
-    pub fn read(line: &str) -> Result<Option<Step>, String> {
-        let bare = line.split('#').next().unwrap_or("");
+    pub fn read(line: &str) -> Result<Option<Step>, Unpressed> {
+        let Ok(bare) = console_core_ini_files::without_a_comment(line);
         let words: Vec<&str> = bare.split_whitespace().collect();
         let (verb, rest) = match words.split_first() {
             None => return Ok(None),
@@ -88,7 +93,7 @@ impl Step {
 
                 let Ok(named) = stick_named(&which);
 
-                Step::Stick { which: named, x, y }
+                Step::Stick { which: named, to: Point { across: x, down: y } }
             }
             "centre" => {
                 let which = word(rest, 0, "stick")?;
@@ -105,14 +110,14 @@ impl Step {
                 Step::Trigger { which, amount }
             }
             "tap" => match rest.is_empty() {
-                true => Step::Tap { x: MIDDLE, y: MIDDLE },
+                true => Step::Tap { at: Point { across: MIDDLE, down: MIDDLE } },
                 false => {
                     let across = word(rest, 0, "x")?;
                     let down = word(rest, 1, "y")?;
                     let x = whole(&across)?;
                     let y = whole(&down)?;
 
-                    Step::Tap { x, y }
+                    Step::Tap { at: Point { across: x, down: y } }
                 }
             },
             "drag" => {
@@ -129,7 +134,11 @@ impl Step {
                     None => 0.0,
                 };
 
-                Step::Drag { from: (from_x, from_y), to: (to_x, to_y), seconds }
+                Step::Drag {
+                    from: Point { across: from_x, down: from_y },
+                    to: Point { across: to_x, down: to_y },
+                    seconds,
+                }
             }
             "click" => {
                 let said = word(rest, 0, "down or up")?;
@@ -142,23 +151,23 @@ impl Step {
 
                 Step::Wait(seconds)
             }
-            other => return Err(format!("no such thing as {other:?}")),
+            other => return Err(Unpressed::NoSuchStep(other.to_string())),
         };
         Ok(Some(step))
     }
 
-    pub fn done<S: Sink, C: Clock>(&self, go: &mut LegionGo<S, C>) -> Result<(), String> {
+    pub fn done<S: Sink, C: Clock>(&self, go: &mut LegionGo<S, C>) -> Result<(), Unpressed> {
         match self {
             Step::Profile(name) => go.load_profile(name),
             Step::Press(buttons) => buttons.iter().try_for_each(|button| go.press(button)),
             Step::Hold(buttons) => buttons.iter().try_for_each(|button| go.hold(button)),
             Step::Release(buttons) if buttons.is_empty() => go.release_all(),
             Step::Release(buttons) => buttons.iter().try_for_each(|button| go.release(button)),
-            Step::Stick { which, x, y } => go.stick(which, *x, *y),
+            Step::Stick { which, to } => go.stick(which, *to),
             Step::Centre(which) => go.centre(which),
             Step::Trigger { which, amount } => go.trigger(which, *amount),
-            Step::Tap { x, y } => {
-                let Ok(()) = go.tap(*x, *y);
+            Step::Tap { at } => {
+                let Ok(()) = go.tap(*at);
 
                 Ok(())
             }
@@ -181,17 +190,21 @@ impl Step {
     }
 }
 
-pub fn read(text: &str) -> Result<Vec<Step>, String> {
+pub fn read(text: &str) -> Result<Vec<Step>, Unpressed> {
     text.lines()
         .enumerate()
         .map(|(number, line)| {
-            Step::read(line).map_err(|fault| format!("line {}: {fault}", number.saturating_add(1)))
+            Step::read(line)
+                .map_err(|fault| Unpressed::AtLine(number.saturating_add(1), Box::new(fault)))
         })
-        .collect::<Result<Vec<Option<Step>>, String>>()
+        .collect::<Result<Vec<Option<Step>>, Unpressed>>()
         .map(|steps| steps.into_iter().flatten().collect())
 }
 
-pub fn play<S: Sink, C: Clock>(go: &mut LegionGo<S, C>, text: &str) -> Result<Vec<Step>, String> {
+pub fn play<S: Sink, C: Clock>(
+    go: &mut LegionGo<S, C>,
+    text: &str,
+) -> Result<Vec<Step>, Unpressed> {
     let steps = read(text)?;
     steps.iter().try_for_each(|step| step.done(go))?;
     Ok(steps)
@@ -214,57 +227,90 @@ pub const VERBS: &str = "\
 mod tests {
     use super::*;
 
+    fn step(line: &str) -> Option<Step> {
+        Step::read(line).expect("a line this knows")
+    }
+
     #[test]
     fn a_blank_line_and_a_comment_are_nothing() {
-        assert_eq!(Step::read(""), Ok(None));
-        assert_eq!(Step::read("   "), Ok(None));
-        assert_eq!(Step::read("# what somebody did"), Ok(None));
+        assert_eq!(step(""), None);
+        assert_eq!(step("   "), None);
+        assert_eq!(step("# what somebody did"), None);
     }
 
     #[test]
     fn a_comment_after_a_step_is_still_a_comment() {
-        assert_eq!(Step::read("press a  # click"), Ok(Some(Step::Press(vec!["a".into()]))));
+        assert_eq!(step("press a  # click"), Some(Step::Press(vec!["a".into()])));
     }
 
     #[test]
     fn a_stick_is_the_same_stick_by_either_name() {
-        let both = [Step::read("stick left 1 0"), Step::read("stick left-stick 1 0")];
+        let both = [step("stick left 1 0"), step("stick left-stick 1 0")];
         assert_eq!(both[0], both[1]);
-        assert_eq!(both[0], Ok(Some(Step::Stick { which: "left-stick".into(), x: 1.0, y: 0.0 })));
+        assert_eq!(
+            both[0],
+            Some(Step::Stick {
+                which: "left-stick".into(),
+                to: Point { across: 1.0, down: 0.0 },
+            })
+        );
     }
 
     #[test]
     fn releasing_nothing_is_releasing_everything() {
-        assert_eq!(Step::read("release"), Ok(Some(Step::Release(vec![]))));
+        assert_eq!(step("release"), Some(Step::Release(vec![])));
     }
 
     #[test]
     fn a_tap_with_nowhere_named_lands_in_the_middle() {
-        assert_eq!(Step::read("tap"), Ok(Some(Step::Tap { x: MIDDLE, y: MIDDLE })));
+        assert_eq!(
+            step("tap"),
+            Some(Step::Tap { at: Point { across: MIDDLE, down: MIDDLE } })
+        );
     }
 
     #[test]
     fn a_drag_may_say_how_long_it_takes_or_not() {
         assert_eq!(
-            Step::read("drag 0 0 10 10"),
-            Ok(Some(Step::Drag { from: (0, 0), to: (10, 10), seconds: 0.0 }))
+            step("drag 0 0 10 10"),
+            Some(Step::Drag {
+                from: Point { across: 0, down: 0 },
+                to: Point { across: 10, down: 10 },
+                seconds: 0.0,
+            })
         );
         assert_eq!(
-            Step::read("drag 0 0 10 10 0.5"),
-            Ok(Some(Step::Drag { from: (0, 0), to: (10, 10), seconds: 0.5 }))
+            step("drag 0 0 10 10 0.5"),
+            Some(Step::Drag {
+                from: Point { across: 0, down: 0 },
+                to: Point { across: 10, down: 10 },
+                seconds: 0.5,
+            })
         );
     }
 
     #[test]
     fn a_line_that_is_not_a_step_says_which_line_it_was() {
         let fault = read("press a\nsqueeze b\n").expect_err("no such verb");
-        assert!(fault.starts_with("line 2:"), "{fault}");
-        assert!(fault.contains("squeeze"), "{fault}");
+
+        match fault {
+            Unpressed::AtLine(2, ref inner) => match **inner {
+                Unpressed::NoSuchStep(ref said) => assert_eq!(said, "squeeze"),
+                ref other => panic!("{other:?}"),
+            },
+            ref other => panic!("{other:?}"),
+        }
     }
 
     #[test]
     fn a_step_missing_what_it_needs_says_what_is_missing() {
-        assert_eq!(Step::read("stick left 1"), Err("no up or down".to_string()));
-        assert_eq!(Step::read("wait soon"), Err("\"soon\" is not a number".to_string()));
+        assert!(matches!(
+            Step::read("stick left 1"),
+            Err(Unpressed::NothingSaid("up or down"))
+        ));
+        assert!(matches!(
+            Step::read("wait soon"),
+            Err(Unpressed::NotANumber(ref said)) if said == "soon"
+        ));
     }
 }

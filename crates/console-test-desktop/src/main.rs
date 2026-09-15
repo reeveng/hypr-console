@@ -7,7 +7,12 @@
 //!                            changing, or --settle N seconds after
 //! console-desktop shot FILE --bare   the same, without a ground to paint
 //! console-desktop shot FILE --until AT   and not before AT has a line in it
+//! console-desktop shot FILE --press S   run S inside, and do not go on until
+//!                            it has finished
+//! console-desktop pressing AT --then C  once AT has been drawn to, press C,
+//!                            and not return until it has been drawn to again
 //! console-desktop shot FILE --clients AT what windows it had, written to AT
+//! console-desktop shot FILE --monitors AT what screen it was, written to AT
 //! console-desktop probe      what the nested compositor thinks
 //! console-desktop stage      the staged copy, and nothing else
 //! console-desktop clean      forget what nobody is using
@@ -15,6 +20,7 @@
 
 
 use console_core_external_programs::Program;
+use console_core_geometry::{Point, Size};
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
 use console_waiting::{Patience, Seen, until};
@@ -24,9 +30,12 @@ use std::time::Duration;
 
 use console_test_desktop::nested::Wallpaper;
 use console_test_desktop::staging::{Screen, Told, environment, staged};
-use console_test_desktop::talking::{Inside, Waited};
-use console_test_desktop::{screen, session, stage};
+use console_test_desktop::talking::{Inside, Instance, Waited};
+use console_test_desktop::{Unnested, screen, session, stage};
 use console_test_stages::picture::{Picture, where_};
+
+const KILLED_BY_A_SIGNAL: i32 = -1;
+
 
 struct Asked {
     command: String,
@@ -35,7 +44,10 @@ struct Asked {
     settle: Option<f64>,
     until: Option<PathBuf>,
     clients: Option<PathBuf>,
+    monitors: Option<PathBuf>,
     open: Vec<String>,
+    press: Option<String>,
+    then: Option<String>,
     sample: Vec<String>,
     window: bool,
     bare: bool,
@@ -86,7 +98,10 @@ fn asked(words: Vec<String>) -> Result<Asked, Never> {
         }),
         until: every("--until").first().map(PathBuf::from),
         clients: every("--clients").first().map(PathBuf::from),
+        monitors: every("--monitors").first().map(PathBuf::from),
         open: every("--open"),
+        press: every("--press").first().cloned(),
+        then: every("--then").first().cloned(),
         sample: every("--sample"),
         window: words.iter().any(|word| word == "--window"),
         bare: words.iter().any(|word| word == "--bare"),
@@ -101,16 +116,17 @@ fn main() -> ExitCode {
         "stage" => staged(Told::Aloud, Screen::InAWindow, Wallpaper::Started).map(|_| 0),
         "verify" => verify(),
         "probe" => run(&asked, None, Doing::Probing),
+        "pressing" => pressing(&asked),
         "shot" => match asked.file.clone() {
             Some(file) => run(&asked, Some(file), Doing::Running),
-            None => Err("a picture wants somewhere to be written".to_string()),
+            None => Err(Unnested::NowhereToWrite),
         },
         _ => run(&asked, None, Doing::Running),
     };
 
-    match asked.command == "stage" {
-        true => {},
-        false => {
+    match asked.command.as_str() {
+        "stage" | "pressing" => {},
+        _ => {
             let Ok(here) = stage();
             let _ = std::fs::remove_dir_all(here);
         }
@@ -125,10 +141,64 @@ fn main() -> ExitCode {
     }
 }
 
+fn pressing(asked: &Asked) -> Result<u8, Unnested> {
+    let at = match &asked.file {
+        Some(at) => at,
+        None => return Err(Unnested::NothingToPress),
+    };
+
+    let command = match &asked.then {
+        Some(command) => command,
+        None => return Err(Unnested::NothingToPress),
+    };
+
+    let Ok(drew) = session::wait_for_written(at, session::A_LINE);
+
+    match drew {
+        session::Wrote::Something => {},
+        session::Wrote::Nothing => eprintln!(
+            "console-desktop: nothing had drawn to {} in {}s, and {command} is pressed anyway",
+            at.display(),
+            session::A_LINE.as_secs()
+        ),
+    }
+
+    let Ok(before) = session::lines(at);
+
+    let Ok(mut asking) = Program::Sh.command();
+
+    let pressed = asking
+        .args(["-c", command])
+        .status()
+        .map_err(Unnested::Machine)?;
+
+    match pressed.success() {
+        true => {},
+        false => eprintln!("console-desktop: {command}: {pressed}"),
+    }
+
+    let Ok(again) = session::wait_for_more_than(at, before, session::A_LINE);
+
+    Ok(match again {
+        session::Wrote::Something => 0,
+        session::Wrote::Nothing => {
+            eprintln!(
+                "console-desktop: {command} drew nothing new to {} in {}s",
+                at.display(),
+                session::A_LINE.as_secs()
+            );
+
+            1
+        }
+    })
+}
+
 fn out_of_the_way() -> Result<(), Never> {
-    match std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_none() {
-        true => return Ok(()),
-        false => {},
+    let Ok(instance) = console_compositor::instance();
+
+    match instance {
+        None => return Ok(()),
+        Some(_a_compositor_to_stand_out_of_the_way_of) => {},
     }
 
     let Ok(_said) = console_compositor::told(
@@ -139,7 +209,7 @@ fn out_of_the_way() -> Result<(), Never> {
     Ok(())
 }
 
-fn clean() -> Result<u8, String> {
+fn clean() -> Result<u8, Unnested> {
     let Ok(here) = stage();
     let Ok(abandoned) = session::abandoned();
     let Ok(dead) = session::dead_instances();
@@ -153,7 +223,7 @@ fn clean() -> Result<u8, String> {
     Ok(0)
 }
 
-fn verify() -> Result<u8, String> {
+fn verify() -> Result<u8, Unnested> {
     let nested = staged(Told::Quietly, Screen::InAWindow, Wallpaper::Started)?;
     let Ok(mut asking) = Program::Hyprland.command();
 
@@ -165,7 +235,7 @@ fn verify() -> Result<u8, String> {
         asking.env(name, value);
     }
 
-    let done = asking.output().map_err(|fault| fault.to_string())?;
+    let done = asking.output().map_err(Unnested::Machine)?;
     let said = String::from_utf8_lossy(&done.stdout).trim().to_string();
     let complained = String::from_utf8_lossy(&done.stderr).trim().to_string();
     println!("{}", match said.is_empty() {
@@ -187,7 +257,7 @@ enum Ended {
     ByTheCompositor,
 }
 
-fn run(asked: &Asked, shot: Option<PathBuf>, probe: Doing) -> Result<u8, String> {
+fn run(asked: &Asked, shot: Option<PathBuf>, probe: Doing) -> Result<u8, Unnested> {
     let headless = !asked.window;
     let showing = match headless && shot.is_some() {
         true => Screen::Headless,
@@ -207,7 +277,6 @@ fn run(asked: &Asked, shot: Option<PathBuf>, probe: Doing) -> Result<u8, String>
 
     let mut compositor = {
         let Ok(_held) = session::Starting::now();
-        let Ok(was) = session::sockets();
         let Ok(running) = session::instances();
         let Ok(mut asking) = Program::Hyprland.command();
 
@@ -220,18 +289,17 @@ fn run(asked: &Asked, shot: Option<PathBuf>, probe: Doing) -> Result<u8, String>
             asking.env(name, value);
         }
 
-        let started = asking.spawn().map_err(|fault| fault.to_string())?;
-        let Ok(socket) = session::wait_for_socket(&was);
-        let Ok(signature) = session::wait_for_instance(&running);
+        let started = asking.spawn().map_err(Unnested::Machine)?;
+        let Ok(came) = session::wait_for_one(&running);
 
-        (started, socket, signature)
+        (started, came)
     };
 
-    let (socket, signature) = match (compositor.1.clone(), compositor.2.clone()) {
-        (Some(socket), Some(signature)) => (socket, signature),
-        (None, _) | (_, None) => {
+    let (socket, signature) = match compositor.1.clone() {
+        Some(came) => (came.display, came.signature),
+        None => {
             let _ = compositor.0.kill();
-            return Err("the nested compositor never came up".to_string());
+            return Err(Unnested::NoCompositor);
         }
     };
 
@@ -239,7 +307,7 @@ fn run(asked: &Asked, shot: Option<PathBuf>, probe: Doing) -> Result<u8, String>
 
     match ended {
         Ended::ByTheCompositor => {
-            let done = compositor.0.wait().map_err(|fault| fault.to_string())?;
+            let done = compositor.0.wait().map_err(Unnested::Machine)?;
             let Ok(()) = session::left_behind(&signature);
 
             return Ok(u8::from(!done.success()));
@@ -247,7 +315,7 @@ fn run(asked: &Asked, shot: Option<PathBuf>, probe: Doing) -> Result<u8, String>
         Ended::ByThis => {},
     }
 
-    let Ok(inside) = Inside::new(where_, &socket, &signature);
+    let Ok(inside) = Inside::new(where_, Instance { socket: &socket, signature: &signature });
 
     let go = screen()?;
     let looked_at = match headless {
@@ -268,7 +336,7 @@ fn run(asked: &Asked, shot: Option<PathBuf>, probe: Doing) -> Result<u8, String>
         Waited::RanOut => {
             let Ok(()) = stop(&mut compositor.0, &signature, &inside);
 
-            return Err("the screen never appeared".to_string());
+            return Err(Unnested::NoScreen);
         }
         Waited::Happened => {},
     }
@@ -284,6 +352,13 @@ fn run(asked: &Asked, shot: Option<PathBuf>, probe: Doing) -> Result<u8, String>
 
     let Ok(was) = inside.surfaces();
 
+    #[cfg_attr(
+        dylint_lib = "explicit029_no_asking_per_item",
+        allow(
+            explicit029_no_asking_per_item,
+            reason = "each is a different program the check asked to be opened, so there was never one process that could have opened all of them"
+        )
+    )]
     let mut opened: Vec<(String, Child)> = asked
         .open
         .iter()
@@ -353,6 +428,21 @@ fn run(asked: &Asked, shot: Option<PathBuf>, probe: Doing) -> Result<u8, String>
         None => {},
     }
 
+    match &asked.press {
+        Some(script) => {
+            let Ok(mut asking) = inside.command("sh");
+
+            match asking.args(["-c", script]).status() {
+                Ok(done) => match done.success() {
+                    true => {},
+                    false => eprintln!("console-desktop: the presses ended {done}"),
+                },
+                Err(fault) => eprintln!("console-desktop: {script}: {fault}"),
+            }
+        }
+        None => {},
+    }
+
     match asked.settle {
         Some(seconds) => {
             #[cfg_attr(
@@ -373,7 +463,19 @@ fn run(asked: &Asked, shot: Option<PathBuf>, probe: Doing) -> Result<u8, String>
         Some(at) => {
             let Ok(said) = inside.hyprctl(&["clients", "-j"]);
 
-            match std::fs::write(at, said) {
+            match console_core_atomic_writes::whole(at, said.as_bytes()) {
+                Ok(()) => {},
+                Err(fault) => eprintln!("console-desktop: {}: {fault}", at.display()),
+            }
+        }
+        None => {},
+    }
+
+    let Ok(monitors) = inside.hyprctl(&["monitors", "-j"]);
+
+    match &asked.monitors {
+        Some(at) => {
+            match console_core_atomic_writes::whole(at, monitors.as_bytes()) {
                 Ok(()) => {},
                 Err(fault) => eprintln!("console-desktop: {}: {fault}", at.display()),
             }
@@ -389,12 +491,12 @@ fn run(asked: &Asked, shot: Option<PathBuf>, probe: Doing) -> Result<u8, String>
                 .args(["-o", looked_at])
                 .arg(file)
                 .output()
-                .map_err(|fault| fault.to_string())?;
+                .map_err(Unnested::Machine)?;
 
             match taken.status.success() {
                 true => {
                     println!("{}", file.display());
-                    let Ok(()) = say_the_colours(file, &asked.sample, &go);
+                    let Ok(()) = say_the_colours(file, &asked.sample, &monitors, &go);
                 }
                 false => {
                     eprintln!(
@@ -522,7 +624,10 @@ fn say_what_died(opened: &mut [(String, Child)]) -> Result<(), Never> {
         let said = said.trim().to_string();
         eprintln!(
             "{command} ended with {}: {}",
-            ended.code().unwrap_or(-1),
+            match ended.code() {
+                Some(code) => code,
+                None => KILLED_BY_A_SIGNAL,
+            },
             match said.is_empty() {
                 true => "nothing said".to_string(),
                 false => said,
@@ -533,15 +638,40 @@ fn say_what_died(opened: &mut [(String, Child)]) -> Result<(), Never> {
     Ok(())
 }
 
+fn live(monitors: &str, go: &console_screen::Screen) -> Result<Size<u32>, Never> {
+    let Ok(declared) = go.logical();
+
+    let said = match console_compositor::read(monitors) {
+        Ok(said) => said,
+        Err(_nothing_to_read) => return Ok(declared),
+    };
+
+    let Ok(monitors) = console_compositor::monitors(&said);
+
+    let asked = monitors.first().and_then(|first| {
+        let Ok(logical) = first.logical();
+
+        logical
+    });
+
+    Ok(match asked {
+        Some(asked) => asked,
+        None => declared,
+    })
+}
+
 fn say_the_colours(
     shot: &std::path::Path,
     sample: &[String],
+    monitors: &str,
     go: &console_screen::Screen,
 ) -> Result<(), Never> {
     match sample.is_empty() {
         true => return Ok(()),
         false => {},
     }
+
+    let Ok(logical) = live(monitors, go);
 
     let picture = match Picture::read(shot) {
         Ok(picture) => picture,
@@ -569,7 +699,7 @@ fn say_the_colours(
             (Err(_), _) | (_, Err(_)) => continue,
         };
 
-        match where_(&picture, across, down, go) {
+        match where_(&picture, Point { across, down }, logical) {
             Ok(colour) => println!("  {:<12} #{colour}", format!("{across},{down}")),
             Err(why) => eprintln!("  {place}: {why}"),
         }

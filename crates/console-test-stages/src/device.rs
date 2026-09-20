@@ -14,7 +14,7 @@
 //! presses and lets go by itself and is sound. So a walk is taps rather than a
 //! hold, a key is a chord of `Keyboard:` capabilities, and the two that need a
 //! button held say they cannot rather than sending something the daemon drops on
-//! the floor. todos.md is the rest, and this comes back the day it is fixed.
+//! the floor. The backlog is the rest, and this comes back the day it is fixed.
 //!
 //! A name asked of the kernel is not always the name in `[build]`. `comm` is
 //! sixteen bytes with the terminator, so anything longer arrives cut to
@@ -106,7 +106,7 @@ const BY_A_SWITCH: &str = "console-warm";
 
 const SENDEVENT: &str = "InputPlumber's SendEvent panics on its own runtime rather than \
      emitting anything, so nothing here can hold a button down or pull a trigger; \
-     press instead, and see todos.md";
+     press instead, and see the backlog";
 
 const BUS: (&str, &str, &str) = (
     "org.shadowblip.InputPlumber",
@@ -160,6 +160,19 @@ fn spoken_as(kind: Kind, name: &str) -> Result<Option<String>, Never> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Value<'a>(&'a str);
 
+#[derive(Debug, Default)]
+struct Came {
+    which: String,
+    where_: String,
+}
+
+#[cfg_attr(
+    dylint_lib = "explicit048_no_unreal_state",
+    allow(
+        explicit048_no_unreal_state,
+        reason = "`dry` is how this stage was started and the absences are what it has learnt since -- whose machine it is, a picture taken, a profile kept, the screen, a watcher; a dry stage that has read the screen is the ordinary one"
+    )
+)]
 pub struct Device {
     pub host: String,
     whom: Option<String>,
@@ -748,7 +761,8 @@ impl Device {
 
     pub fn go_to(&mut self, workspace: &str) -> Result<Waited, Never> {
         let wanted = workspace.to_string();
-        let Ok(quoted) = quoted(&format!("hl.dsp.focus({{workspace = \"{wanted}\"}})"));
+        let Ok(lua) = console_compositor::onto(&wanted, console_compositor::Carrying::Nothing);
+        let Ok(quoted) = quoted(&lua);
         let Ok(_) = self.hypr(&format!("dispatch {quoted}"));
 
         self.until::<Never>(
@@ -785,10 +799,10 @@ impl Device {
 
         let Ok(was) = self.addresses();
         let Ok(_) = self.exec_cmd(command);
-        let mut where_ = String::new();
-        let mut which = String::new();
-        let Ok(came) = self.until::<Never>(
-            |seen| {
+        let mut came = Came::default();
+        let Ok(arrived) = self.until_handed::<Came, Never>(
+            &mut came,
+            |came, seen| {
                 seen.taken = None;
 
                 let Ok(now) = seen.clients();
@@ -805,12 +819,12 @@ impl Device {
 
                 let Ok(found) = address(new);
 
-                which = match found {
+                came.which = match found {
                     Some(found) => found,
                     None => String::new(),
                 };
 
-                where_ = match new
+                came.where_ = match new
                     .get("workspace")
                     .and_then(|workspace| workspace.get("name"))
                     .and_then(|name| name.as_str())
@@ -824,17 +838,17 @@ impl Device {
             seconds,
         );
 
-        match came {
+        match arrived {
             Waited::Happened => {},
             Waited::RanOut => return Ok(None),
         }
 
-        self.opened.push(which.clone());
+        self.opened.push(came.which.clone());
 
-        let Ok(there) = self.go_to(&where_);
+        let Ok(there) = self.go_to(&came.where_);
 
         Ok(match there {
-            Waited::Happened => Some(which),
+            Waited::Happened => Some(came.which),
             Waited::RanOut => None,
         })
     }
@@ -1121,6 +1135,15 @@ impl Device {
         mut what: impl FnMut(&mut Self) -> Result<Seen, Why>,
         seconds: f64,
     ) -> Result<Waited, Why> {
+        self.until_handed(&mut what, |what, seen| what(seen), seconds)
+    }
+
+    pub fn until_handed<M, Why>(
+        &mut self,
+        handed: &mut M,
+        mut what: impl FnMut(&mut M, &mut Self) -> Result<Seen, Why>,
+        seconds: f64,
+    ) -> Result<Waited, Why> {
         let Ok(rounds) = toward_zero_u32(seconds / 0.5);
 
         for _ in 0..rounds {
@@ -1140,7 +1163,7 @@ impl Device {
             )]
             let Ok(()) = self.settle(0.5);
 
-            let seen = what(self)?;
+            let seen = what(handed, self)?;
 
             match seen {
                 Seen::Yes => return Ok(Waited::Happened),
@@ -1157,8 +1180,9 @@ impl Device {
         from: &T,
         seconds: f64,
     ) -> Result<Waited, Why> {
-        self.until(
-            |seen| {
+        self.until_handed(
+            &mut reading,
+            |reading, seen| {
                 let now = reading(seen)?;
 
                 Ok(match now == *from {

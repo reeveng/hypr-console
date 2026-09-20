@@ -31,6 +31,15 @@
 //! An error out of that wait ends the run rather than being printed and gone
 //! round again: what arrives there is the connection dying, and the next turn
 //! would not block, so the keyboard would spin and say so forever.
+//!
+//! A turn also asks what alphabet this keyboard should be wearing, which is a
+//! few bytes under the state directory that `language-switch` writes when the
+//! board somebody is typing on moves. Asked here rather than waited for: the
+//! keyboard already has three signals and a fourth would be a fourth program
+//! to send it, and a turn happens when something happened -- a press, a frame,
+//! a wake -- so this is one small read on a loop that is not spinning. What it
+//! costs is that a switch made while the keyboard is up and untouched lands on
+//! the next thing that wakes it rather than at once.
 
 
 use console_core_geometry::{Point, Size};
@@ -198,6 +207,8 @@ impl State<'_> {
             }
         }
 
+        let Ok(()) = self.follows();
+
         self.drawing(showing_now)?;
 
         let spoke = self.waiting_on()?;
@@ -207,6 +218,28 @@ impl State<'_> {
 
         let Ok(()) = self.wants(now);
         let Ok(()) = self.pokes();
+
+        Ok(())
+    }
+
+    fn follows(&mut self) -> Result<(), Never> {
+        let Ok(shape) = landscape(Size { wide: u32::MAX, tall: self.config.height });
+        let Ok(worn) = left_on(shape);
+
+        let wanted = match worn {
+            Some(wanted) => wanted,
+            None => return Ok(()),
+        };
+
+        match wanted == self.worn {
+            true => {},
+            false => {
+                let Ok(()) = self.typist.go(wanted);
+
+                self.worn = wanted;
+                self.selected = None;
+            }
+        }
 
         Ok(())
     }

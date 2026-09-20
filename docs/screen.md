@@ -60,23 +60,34 @@ is a setting that appears to do nothing. It has to be
 -- a whole screen and not just a number, because a monitor described without its
 transform is this panel turned back upright.
 
-The answer is remembered in `~/.config/console/scale` and put back on at every
-login, by `console-scale apply` in `session-start`. Not in the compositor's own
-file: that file is this repository's byte for byte, and a machine that wrote its
-own preference into it would be reported as drift for ever after. Same shape as
+The answer is remembered in `~/.config/console/screens/eDP-1/scale-wider` --
+under the connector it is about and the shape that screen was standing in,
+beside that screen's `turn` -- and put back on at every login, by `console-scale
+apply` in `session-start`, which walks every screen the compositor has and puts
+each one back to its own. A rung is a canvas divided into the panel's own width,
+so the same word is a different density on every screen it is said about, and a
+different density again either way up: **Normal** held landscape is 1024 points
+across 2560 pixels and **Normal** stood on its end is 1024 across 1600, which is
+everything on the screen a third larger. One word for the whole machine put the
+handheld's quarter turn on the monitor plugged into it and the handheld's
+landscape rung on its own portrait; a rung per screen per shape is neither.
+Two shapes and not four quarters, because the half turn is the same width as
+the quarter opposite it and a rung is only ever about the width. Not in the
+compositor's own file: that file is this repository's byte for byte, and a
+machine that wrote its own preference into it would be reported as drift for
+ever after. Same shape as
 the evening switch, and for the same reason. `console-scale apply` cannot fail,
 because the step after it in `session-start` is the whole desktop.
 
-**The bar has to be told.** Its apply strip is a gradient with a hard stop in a
-box, and a gradient's percentages are percentages of the box -- so the box has
-to be the width of the screen, which is the one number in this repository that
-depends on the density. `console-scale` writes it into
-`~/.config/console/bar.css`, which the bar's stylesheet imports, and restarts
-the bar onto it. GTK takes `@import` only at the top of a file, so that rule
-cannot win on order and is written to outrank the stylesheet's own instead. The
-number in the stylesheet is what the strip is at the size this device is set up
-as, and `the_strip_is_as_wide_as_the_screen` still holds it against the
-compositor's declaration.
+**The bar is not told, and it used to have to be.** Its apply strip was a
+gradient with a hard stop in a box, and a gradient's percentages are
+percentages of the box -- so the box had to be the width of the screen, which
+made it the one number in this repository that depended on the density.
+`console-scale` wrote it into `~/.config/console/bar.css` at every login and
+restarted the bar onto it. `console-bar` draws its own surface and asks the
+compositor how wide that surface is, so the width is a fact it already has and
+the file is gone. `console-scale` still restarts it, beside the home screen and
+in the same transaction, so both come back onto the screen that is now there.
 
 **The home screen has to be stood back up.** It is not told the density -- the
 grid takes whatever screen its surface is given -- but the surface it has is
@@ -112,6 +123,49 @@ the screen is told to change the ladder rather than finding out on the device.
 Nothing else in this repository is told the density. The panels take fractions
 of whatever screen they are given, and the on-screen keyboard reads the scale
 off the output it is drawn on.
+
+## Which way up it stands
+
+A row per quarter under the ladder -- **Turned left**, **Not turned**, **Turned
+right**, **Turned over** -- and they are quarters either side of the way the
+panel is mounted rather than degrees from nothing. This panel is 1600 by 2560
+with a transform of 1 in the compositor's file: that quarter is what makes a
+portrait panel a landscape desktop, and it is what **Not turned** means here. On
+a panel mounted the other way the same words mean the same things, which is the
+whole reason the mounting is read rather than written down. The half turn is
+there because a panel stands four ways and not three: on a handheld it is the
+way round that puts the sticks where a stand does not foul them, and on a panel
+screwed in upside down it is the only way up that reads at all.
+
+Nothing drawn is told. Every surface takes fractions of the screen it is given
+and a rung is a canvas divided into the panel's own width -- so turning the
+screen changes which of its two sides that width is, and the size has to go
+with the turn. `console-scale` describes the screen whole, in one eval, and
+restarts the bar and the home screen exactly as a change of size does. A turn
+that sent the transform on its own would leave the desktop at a density nobody
+chose.
+
+It is remembered in `~/.config/console/screens/{connector}/turn`, beside that
+screen's scale and for the same reason, and `console-scale apply` wears both at
+every login. A screen with nothing under its name wears what `console apply`
+wrote out of its own mode, so a monitor plugged in for the first time stands
+upright at its own density rather than wearing whatever the last screen was set
+to.
+
+**The touchscreen turns with it.** A touch panel reports in its own orientation
+and the compositor reads it through a quarter of its own, which was a number in
+the compositor's file: right for the one way up this device had ever stood, and
+left behind the moment the screen could be turned. A desktop standing at a
+quarter with its touches still read at the mounting is one where every press
+lands a quarter away from the thumb that made it, which reads as panels that
+ignore you and a bar that takes seconds to answer. So the touch device is part
+of describing the screen -- `console apply` writes it into `monitor.lua` out of
+the panel's own mode, and `console-scale` says it in the same `eval` as the
+monitor, because the two are one answer.
+
+Which way round left is cannot be settled without the device in somebody's
+hands: left is one quarter on from the mounting and right is three. If that
+reads backwards in the hand, the two arms swap and nothing else moves.
 
 ## When nobody is looking at it
 

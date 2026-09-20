@@ -56,7 +56,7 @@ fn main() -> ExitCode {
             },
             "--all" => window = None,
             "--file" => match words.next() {
-                Some(path) => at = Some(path.into()),
+                Some(path) => at = Some(std::path::PathBuf::from(path)),
                 None => {
                     eprintln!("{USAGE}");
                     return ExitCode::FAILURE;

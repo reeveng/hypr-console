@@ -92,6 +92,13 @@ pub const HURRY: &str = "balance_performance";
 
 pub const FOR: Duration = Duration::from_millis(750);
 
+#[cfg_attr(
+    dylint_lib = "explicit048_no_unreal_state",
+    allow(
+        explicit048_no_unreal_state,
+        reason = "`until` is when a hurry ends and `said` is whether the one complaint about a processor that will not take a word has been printed; a machine that cannot be hurried is still one this has already complained about, so the two are answers to different questions"
+    )
+)]
 pub struct Hurrying {
     cpus: PathBuf,
     note: PathBuf,

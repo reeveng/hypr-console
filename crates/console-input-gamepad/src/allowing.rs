@@ -107,10 +107,10 @@ impl Program for Allow {
                         Allowing::Reloading { whom: whom.clone() },
                         vec![
                             Doing::Write(Writing {
-                                at: MODULE.into(),
+                                at: std::path::PathBuf::from(MODULE),
                                 what: "uinput\n".to_string(),
                             }),
-                            Doing::Write(Writing { at: RULE.into(), what: RULED.to_string() }),
+                            Doing::Write(Writing { at: std::path::PathBuf::from(RULE), what: RULED.to_string() }),
                             Doing::Print(
                                 "granting the seat's own user a way in to /dev/uinput".to_string(),
                             ),

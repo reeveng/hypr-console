@@ -133,16 +133,36 @@ pub fn read(
     }))
 }
 
+pub fn written(app: &Application) -> Result<String, Never> {
+    let one_line = |said: &str| -> String { said.chars().filter(|letter| !letter.is_control()).collect() };
+
+    let terminal = match app.terminal {
+        true => "true",
+        false => "false",
+    };
+
+    let icon = match app.icon.is_empty() {
+        true => String::new(),
+        false => format!("Icon={}\n", one_line(&app.icon)),
+    };
+
+    Ok(format!(
+        "[{GROUP}]\nType=Application\nName={}\nExec={}\n{icon}Terminal={terminal}\n",
+        one_line(&app.name),
+        one_line(&app.command),
+    ))
+}
+
 pub fn files(roots: &[PathBuf]) -> Result<Vec<PathBuf>, Never> {
     let mut found: BTreeMap<String, PathBuf> = BTreeMap::new();
 
     for root in roots {
         let under = under(root)?;
 
-        for path in under {
+        'over_files: for path in under {
             let name = match path.file_name().map(|name| name.to_string_lossy().to_string()) {
                 Some(name) => name,
-                None => continue,
+                None => continue 'over_files,
             };
 
             found.entry(name).or_insert(path);
@@ -245,6 +265,33 @@ Exec=firefox --new-window
         let said = also("TryExec=firefox");
         assert_eq!(ok(read(&said, |_| Ok(Installed::No))), None);
         assert!(ok(read(&said, anything)).is_some());
+    }
+
+    #[test]
+    fn what_is_written_is_what_is_read_back() {
+        let app = Application {
+            name: "Hacker News".to_string(),
+            command: "xdg-open \"https://news.ycombinator.com/?q=a b\"".to_string(),
+            terminal: false,
+            icon: "/home/somebody/.local/share/console/bookmark-icons/abc".to_string(),
+        };
+        let Ok(said) = written(&app);
+
+        assert_eq!(ok(read(&said, anything)), Some(app));
+    }
+
+    #[test]
+    fn a_name_with_a_line_break_in_it_is_still_one_line() {
+        let app = Application {
+            name: "Two\nLines".to_string(),
+            command: "xdg-open https://example.com".to_string(),
+            terminal: false,
+            icon: String::new(),
+        };
+        let Ok(said) = written(&app);
+
+        assert_eq!(said.lines().count(), 5, "{said}");
+        assert_eq!(ok(read(&said, anything)).expect("an entry").name, "TwoLines");
     }
 
     #[test]

@@ -149,24 +149,20 @@ fn every_program_the_device_builds_is_one_this_repository_holds() {
 
 #[test]
 fn the_font_the_bar_draws_its_icons_in_is_one_the_manifest_installs() {
-    let style = std::fs::read_to_string(
-        root().join("files/home/@user@/.config/waybar/style.css"),
-    )
-    .expect("the bar's stylesheet");
-    let asked = style
-        .lines()
-        .find(|line| line.trim_start().starts_with("font-family:"))
-        .expect("a font-family");
+    let asked = console_status_bar::showing::ICONS;
+
     assert!(
         asked.contains("Nerd Font Mono"),
         "the bar asks for {asked:?}. Only the Mono cut draws these glyphs centred in \
          their cell; in the others the ink overflows the advance and hangs off the right, \
          which puts every icon a different distance off centre"
     );
+
     let packages: BTreeSet<String> = section(&manifest(), "packages").into_iter().collect();
+
     assert!(
         packages.contains("ttf-fantasque-nerd"),
-        "[packages] does not name the font the stylesheet asks for"
+        "[packages] does not name the font the bar asks for"
     );
 }
 
@@ -400,76 +396,6 @@ fn every_json_file_parses() {
     }
 }
 
-const OUTSIDE: [&str; 2] = ["activate", "wpctl"];
-
-fn bar_modules() -> Vec<(String, serde_json::Map<String, serde_json::Value>)> {
-    let config = root().join("files/home/@user@/.config/waybar/config.jsonc");
-    let said = std::fs::read_to_string(config).expect("the bar");
-    let without_comments: String = said
-        .lines()
-        .map(|line| match line.trim_start().starts_with("//") {
-            true => "",
-            false => line,
-        })
-        .collect::<Vec<&str>>()
-        .join("\n");
-    let read: serde_json::Value = serde_json::from_str(&without_comments).expect("the bar reads");
-    let bars = match read {
-        serde_json::Value::Array(bars) => bars,
-        one => vec![one],
-    };
-    bars.into_iter()
-        .filter_map(|bar| bar.as_object().cloned())
-        .flat_map(|bar| {
-            bar.into_iter()
-                .filter_map(|(module, about)| {
-                    about.as_object().map(|about| (module, about.clone()))
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect()
-}
-
-fn bar_commands() -> Vec<(String, String)> {
-    bar_modules()
-        .into_iter()
-        .flat_map(|(module, about)| {
-            about
-                .iter()
-                .filter(|(key, _)| key.starts_with("on-"))
-                .filter_map(|(_, command)| command.as_str())
-                .filter_map(|command| {
-                    command
-                        .split_whitespace()
-                        .find(|word| !word.contains('=') || word.starts_with('-'))
-                })
-                .map(|word| (module.clone(), word.to_string()))
-                .collect::<Vec<(String, String)>>()
-        })
-        .collect()
-}
-
-#[test]
-fn every_program_the_bar_runs_is_carried() {
-    let listed = carried_or_declared(&manifest());
-    for (module, command) in bar_commands() {
-        if OUTSIDE.contains(&command.as_str()) {
-            continue;
-        }
-        assert!(
-            listed.contains(&format!("/usr/local/bin/{command}")),
-            "the bar's {module} runs {command}, which is not carried"
-        );
-    }
-}
-
-#[test]
-fn the_bar_has_a_door_for_the_menu_and_for_the_keyboard() {
-    let runs: BTreeSet<String> = bar_commands().into_iter().map(|(_, command)| command).collect();
-    assert!(runs.contains("launcher"), "there is no way to open the menu by hand");
-    assert!(runs.contains("keyboard-toggle"), "there is no way to ask for the keyboard by hand");
-}
-
 #[test]
 fn something_answers_when_a_password_is_asked_for() {
     let held = manifest();
@@ -542,99 +468,6 @@ fn the_toggle_names_the_keyboard_the_manifest_installs() {
         carried || built,
         "the manifest neither carries nor builds {installed}, so the toggle names a program \
          nobody has"
-    );
-}
-
-#[test]
-fn the_bar_and_the_engine_agree_on_the_signal() {
-    let engine =
-        std::fs::read_to_string(root().join("crates/console-notifications/src/updating.rs"))
-            .expect("updating.rs");
-    let sent = engine
-        .lines()
-        .find_map(|line| line.split_once("\"-RTMIN+"))
-        .and_then(|(_, rest)| rest.split('"').next())
-        .expect("nothing names a real-time signal to wake the bar with");
-
-    let config = std::fs::read_to_string(root().join("files/home/@user@/.config/waybar/config.jsonc"))
-        .expect("the waybar config");
-    let module = config
-        .split_once("\"custom/updating\"")
-        .expect("the bar has no updating module")
-        .1;
-    let heard = module
-        .split_once("\"signal\"")
-        .expect("the updating module is never signalled, so it would never update")
-        .1
-        .trim_start_matches([':', ' '])
-        .split([',', '\n', '}'])
-        .next()
-        .expect("a number")
-        .trim();
-
-    assert_eq!(
-        sent, heard,
-        "the engine sends SIGRTMIN+{sent} and the bar listens for SIGRTMIN+{heard}, so the bar \
-         would never hear that an apply had moved on"
-    );
-}
-
-#[test]
-fn every_module_reads_from_a_program_the_manifest_builds() {
-    let built = programs();
-    let mut asked = 0;
-    for (module, about) in bar_modules() {
-        let run = match about.get("exec").and_then(|run| run.as_str()) {
-            Some(run) => run,
-            None => continue,
-        };
-        let program = run.split_whitespace().next().expect("something to run");
-        asked += 1;
-        assert!(
-            built.iter().any(|one| one == program),
-            "the bar's {module} reads from {program}, which is not in the manifest's [build]"
-        );
-    }
-    assert!(asked > 1, "no module reads from anything, so this test asked nothing");
-}
-
-#[test]
-fn the_strip_is_as_wide_as_the_screen() {
-    let screen = std::fs::read_to_string(root().join("files/home/@user@/.config/console/hypr/hyprland.lua"))
-        .expect("the compositor's config");
-    let field = |name: &str| {
-        screen
-            .lines()
-            .find_map(|line| line.trim().strip_prefix(name)?.split_once('='))
-            .map(|(_, said)| said.trim().trim_matches([',', '"', ' ']).to_string())
-            .unwrap_or_else(|| panic!("the monitor has no {name}"))
-    };
-    let mode = field("mode");
-    let (across, down) = mode.split_once('x').expect("a mode like 1600x2560@144");
-    let across: f64 = across.parse().expect("a width");
-    let down: f64 = down.split('@').next().expect("a height").parse().expect("a height");
-    let scale: f64 = field("scale").parse().expect("a scale");
-    let turned = field("transform").parse::<u32>().expect("a transform") % 2 == 1;
-    let wide = match turned {
-        true => down,
-        false => across,
-    };
-    let logical = (wide / scale).round() as u32;
-
-    let style = std::fs::read_to_string(root().join("files/home/@user@/.config/waybar/style.css"))
-        .expect("the waybar stylesheet");
-    let written: u32 = style
-        .lines()
-        .find_map(|line| line.trim().strip_prefix("min-width:")?.trim().strip_suffix("px;"))
-        .expect("nothing on the bar sets a min-width")
-        .trim()
-        .parse()
-        .expect("a width in pixels");
-
-    assert_eq!(
-        written, logical,
-        "the strip is {written} logical pixels wide and the screen is {logical}, so an apply \
-         would fill it to the wrong place"
     );
 }
 

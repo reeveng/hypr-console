@@ -57,7 +57,7 @@ use std::path::Path;
 use std::sync::OnceLock;
 use crate::wallpaper::{Found, Offered, wallpaper_rows};
 use crate::warm::{self, Warmth};
-use crate::{bluetooth, screen, size, sound, wifi};
+use crate::{bluetooth, screen, size, sound, turning, wifi};
 use console_home_screen::shape::{self, Shape};
 use console_program_contract::{Argv, Doing, Program as _, Turn, Word};
 use crate::choosing::{Closes, Deeper, Heard, Its, Meeting, Onto, Settings, Under, closes, under};
@@ -255,6 +255,19 @@ fn standing_at(said: &str) -> Result<Option<size::Size>, Never> {
     size::standing(&monitors)
 }
 
+fn turned_at(said: &str) -> Result<Option<turning::Turn>, Never> {
+    let monitors = match console_compositor::read(said) {
+        Ok(monitors) => monitors,
+        Err(_the_compositor_said_nothing) => return Ok(None),
+    };
+    let Ok(shown) = console_screen::shown(&monitors);
+
+    match shown {
+        Some(screen) => turning::standing(&screen),
+        None => Ok(None),
+    }
+}
+
 fn size_tab(held: &Held) -> Result<Vec<console_panel::page::Row>, Never> {
     let Ok(brightness) = brightness();
     let Ok(warmth) = warmth();
@@ -262,10 +275,11 @@ fn size_tab(held: &Held) -> Result<Vec<console_panel::page::Row>, Never> {
     let Ok(screens) = asked(SCREENS, Program::Hyprctl, words);
     let Ok(home) = home_rows(held);
     let Ok(standing) = standing_at(&screens);
+    let Ok(turned) = turned_at(&screens);
 
     let Ok(dim) = dim();
 
-    screen_rows(Some(brightness), dim, warmth, standing, home)
+    screen_rows(Some(brightness), dim, warmth, standing, turned, home)
 }
 
 fn home_at() -> Result<Option<std::path::PathBuf>, Never> {
@@ -414,10 +428,11 @@ fn size_meanwhile(held: &Held) -> Result<Vec<console_panel::page::Row>, Never> {
     let Ok(screens) = kept(SCREENS);
     let Ok(home) = home_rows(held);
     let Ok(standing) = standing_at(&screens);
+    let Ok(turned) = turned_at(&screens);
 
     let Ok(dim) = dim();
 
-    screen_rows(Some(brightness), dim, warmth, standing, home)
+    screen_rows(Some(brightness), dim, warmth, standing, turned, home)
 }
 
 fn join(network: wifi::Network, known: wifi::Known) -> Result<Does, Never> {

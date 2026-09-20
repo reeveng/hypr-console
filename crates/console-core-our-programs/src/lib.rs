@@ -59,6 +59,7 @@ macro_rules! ours {
 }
 
 ours! {
+    CalendarPanel, "calendar-panel";
     Confirm, "console-confirm";
     ConsoleSay, "console-say";
     Dictate, "console-dictate";

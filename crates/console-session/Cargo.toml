@@ -27,7 +27,9 @@ path = "src/bin/session-desktop.rs"
 # runs; the two switches are usually killed halfway through by the session
 # going down, and `session-start` -- which runs in the session that is coming
 # up -- is the one that always lands.
+console-core-atomic-writes.workspace = true
 console-core-external-programs.workspace = true
+console-core-places.workspace = true
 console-core-never.workspace = true
 console-core-words.workspace = true
 console-response-times.workspace = true

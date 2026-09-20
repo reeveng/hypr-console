@@ -1,0 +1,14 @@
+[Unit]
+Description=One reading of what the machine is spending
+PartOf=console.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/console-resource-usage note
+
+# It reads /proc and /sys and appends one line under the home directory, and
+# that is the whole of it. No device, and no socket of any family: nothing here
+# asks the compositor or the bus anything, which is what makes a reading taken
+# while nobody is watching cheap enough to take again in five minutes.
+PrivateDevices=yes
+RestrictAddressFamilies=none

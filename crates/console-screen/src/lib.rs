@@ -181,6 +181,32 @@ impl Screen {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Shape {
+    Wider,
+    Taller,
+}
+
+impl Shape {
+    pub fn other(self) -> Result<Shape, Never> {
+        Ok(match self {
+            Shape::Wider => Shape::Taller,
+            Shape::Taller => Shape::Wider,
+        })
+    }
+}
+
+impl Screen {
+    pub fn shape(&self) -> Result<Shape, Never> {
+        let Ok(pixels) = self.pixels();
+
+        Ok(match pixels.tall > pixels.wide {
+            true => Shape::Taller,
+            false => Shape::Wider,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Canvas(pub u32);
 
 pub const DRAWN_AT: Canvas = Canvas(1024);
@@ -289,21 +315,24 @@ pub fn shown(said: &serde_json::Value) -> Result<Option<Screen>, Never> {
 }
 
 pub fn here() -> Result<Option<Screen>, console_compositor::Unanswered> {
-    let said = console_compositor::asked(console_compositor::Asked::Monitors)?;
-    let Ok(shown) = shown(&said);
+    let found = driving_here()?;
 
-    Ok(shown)
+    Ok(found.map(|(_what_it_is_called, screen)| screen))
 }
 
-pub fn bar_css(screen: &Screen, scale: f64) -> Result<String, Never> {
-    let Ok(room) = screen.logical_at(scale);
-    let wide = room.wide;
+pub fn driving_here() -> Result<Option<(String, Screen)>, console_compositor::Unanswered> {
+    let said = console_compositor::asked(console_compositor::Asked::Monitors)?;
+    let Ok(monitors) = console_compositor::monitors(&said);
+    let Ok(found) = panel(&monitors);
 
-    Ok(format!(
-        "/* Written by console-scale. The apply strip is as wide as the screen,\n   \
-         and how wide that is depends on the size the screen is set to. */\n\
-         window#waybar #custom-updating {{\n  min-width: {wide}px;\n}}\n"
-    ))
+    let found = match found {
+        Some(found) => found,
+        None => return Ok(None),
+    };
+
+    let Ok(screen) = driving(found);
+
+    Ok(screen.map(|screen| (found.named.clone(), screen)))
 }
 
 struct Wrapped {
@@ -446,6 +475,31 @@ mod tests {
     }
 
     #[test]
+    fn the_seed_reads_a_finger_through_the_quarter_it_draws_the_seed_screen_at() {
+        let screen = declared().expect("the compositor declares a screen");
+        let said = format!("transform = {}", screen.transform);
+        let touch = DECLARED.find("touchdevice").expect("the seed says how a touch is read");
+        let quarter = match DECLARED.get(touch..) {
+            Some(after) => after.find(&said),
+            None => None,
+        };
+
+        assert!(
+            quarter.is_some(),
+            "the seed draws at {} and reads a finger at something else",
+            screen.transform
+        );
+
+        let dofile =
+            DECLARED.find("pcall(dofile").expect("the seed reads the machine's own block");
+
+        assert!(
+            touch < dofile,
+            "the machine's own block is read first, so the seed's quarter outlives it"
+        );
+    }
+
+    #[test]
     fn a_finger_lands_where_the_picture_says_it_should() {
         let screen = Screen { mode: Size { wide: 1600, tall: 2560 }, refresh: 144, scale: 2.5, transform: 1 };
         assert_eq!(screen.on_the_panel(point(204, 151)), Ok(point(378, 2050)));
@@ -487,6 +541,20 @@ mod tests {
     }
 
     #[test]
+    fn the_shape_a_screen_stands_in_is_the_picture_and_not_the_mounting() {
+        let portrait =
+            Screen { mode: Size { wide: 1600, tall: 2560 }, refresh: 144, scale: 2.5, transform: 1 };
+        let laptop = Screen { mode: size(1920, 1200), refresh: 60, scale: 1.0, transform: SQUARE };
+
+        assert_eq!(portrait.shape(), Ok(Shape::Wider), "a sideways panel at its quarter is wide");
+        assert_eq!(Screen { transform: 3, ..portrait }.shape(), Ok(Shape::Wider), "the other quarter");
+        assert_eq!(Screen { transform: 0, ..portrait }.shape(), Ok(Shape::Taller));
+        assert_eq!(Screen { transform: 2, ..portrait }.shape(), Ok(Shape::Taller), "upside down");
+        assert_eq!(laptop.shape(), Ok(Shape::Wider));
+        assert_eq!(Screen { transform: 1, ..laptop }.shape(), Ok(Shape::Taller));
+    }
+
+    #[test]
     fn a_picture_of_a_turned_screen_is_the_mode_the_other_way_round() {
         let portrait = Screen { mode: Size { wide: 1600, tall: 2560 }, refresh: 144, scale: 2.5, transform: 1 };
         assert_eq!(portrait.pixels(), Ok(size(2560, 1600)));
@@ -512,17 +580,6 @@ mod tests {
     fn cutting_to_a_smaller_screen_gives_up_only_the_density() {
         let screen = Screen { mode: Size { wide: 1600, tall: 2560 }, refresh: 144, scale: 2.5, transform: 1 };
         assert_eq!(screen.cut_to(size(1280, 1600)), Ok(1.25));
-    }
-
-    #[test]
-    fn the_bar_is_told_how_wide_the_screen_became() {
-        let screen = declared().expect("the compositor declares a screen");
-        let Ok(said) = bar_css(&screen, 2.0);
-        let Ok(at_scale) = bar_css(&screen, screen.scale);
-
-        assert!(said.contains("min-width: 1280px"), "{said}");
-        assert!(said.contains("window#waybar #custom-updating"), "the rule cannot outrank");
-        assert!(at_scale.contains("min-width: 1024px"));
     }
 
     #[test]

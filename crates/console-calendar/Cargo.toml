@@ -1,0 +1,25 @@
+[package]
+name = "console-calendar"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_calendar"
+path = "src/lib.rs"
+
+[[bin]]
+name = "calendar-panel"
+path = "src/bin/calendar-panel.rs"
+
+[dependencies]
+console-core-external-programs.workspace = true
+console-core-never.workspace = true
+console-panel.workspace = true
+
+[dev-dependencies]
+console-test-stages.workspace = true
+
+[lints]
+workspace = true

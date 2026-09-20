@@ -87,6 +87,30 @@ user_pref("browser.toolbars.bookmarks.visibility", "never");
 // does fall over still comes back with the pages that were open.
 user_pref("toolkit.startup.max_resumed_crashes", -1);
 
+// Where the browser starts is where it was left.
+//
+// A handheld is put down mid-page and picked up an hour later, often with the
+// session gone in between: this desktop stops the browser rather than the
+// person doing it -- the session going down, a check putting the screen back,
+// a mode change -- and every one of those used to cost whatever was open.
+//
+// Two prefs, because the first alone would not hold here. LibreWolf clears
+// history on shutdown as it ships, and what a resume reads is that same store,
+// so a browser told to come back where it was would find nothing to come back
+// to. Switching the sweep off is what leaves the pages and the cookies a
+// resumed tab needs; a private window still keeps nothing.
+user_pref("browser.startup.page", 3);
+user_pref("privacy.sanitize.sanitizeOnShutdown", false);
+
+// Containers, which the add-on spends on every page opened from outside.
+//
+// `crates/console-browser-extension/web/browser.js` makes one per thing opened
+// and takes it away when the last tab in it closes. The API it does that with
+// is not there at all unless this is on, and what it fails with is a promise
+// that never comes to anything, so the add-on would go on quietly opening
+// every page in the one jar.
+user_pref("privacy.userContext.enabled", true);
+
 // Held with two hands at arm's length, so the smallest thing on a page is a
 // little larger than a desk would want it.
 user_pref("browser.display.use_document_fonts", 1);

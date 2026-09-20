@@ -6,7 +6,7 @@
 //! v2 a child inherits its parent's cgroup, so without an explicit move the
 //! launched program sits in `console-input-controller.service`'s cgroup.
 //! Restarting the controller then takes the program with it, which is the harm
-//! the entry in `todos.md` describes.  `left_running` wraps the program in
+//! the entry in the backlog describes.  `left_running` wraps the program in
 //! `systemd-run --user --scope`, which moves the child into a transient scope
 //! unit named `run-<pid>-<id>.scope`. This test runs the same wrap against
 //! `/bin/sleep` and reads the child's cgroup path back out of
@@ -20,7 +20,7 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 use console_core_external_programs::Program;
-use console_panel::running::scope_around;
+use console_program_lifetime::in_a_scope_of_its_own;
 
 #[test]
 fn a_launched_program_is_in_a_scope_of_its_own() {
@@ -63,7 +63,7 @@ fn wrap(name: &str, args: &[&str]) -> Option<Vec<String>> {
     let argv: Vec<String> = std::iter::once(name.to_string())
         .chain(args.iter().map(|word| (*word).to_string()))
         .collect();
-    let Ok((_, wrapped)) = scope_around(&argv);
+    let Ok((_, wrapped)) = in_a_scope_of_its_own(None, &argv);
     Some(wrapped)
 }
 

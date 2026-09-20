@@ -19,7 +19,7 @@ use std::process::{Command, ExitCode};
 
 use console_default_applications::battery::{Cable, Charge, Step, charge};
 use console_core_never::Never;
-use console_waiting::{Patience, Seen, Waited, until};
+use console_waiting::{Patience, found};
 use console_notifications::saying::{Kept, Said, journal, raise, raise_kept};
 use console_settings::stopping::{GRACE, LOOKING, Stop, card, for_the_journal, saved, stop};
 
@@ -129,30 +129,19 @@ fn stopping(percent: i32, stop: Stop) -> Result<ExitCode, Never> {
 
 fn plugged_in_within(waiting: std::time::Duration) -> Result<Option<i32>, Never> {
     let Ok(patience) = Patience::asking_every(waiting, LOOKING);
-    let mut percent = None;
-    let Ok(plugged) = until(patience, || {
+
+    found(patience, || {
         let said = charge()?;
         let now = Charge::of(&said)?;
 
         let Ok(cable) = now.filling.cable();
 
         Ok(match cable {
-            Cable::In => {
-                percent = Some(match now.percent {
-                    Some(percent) => percent,
-                    None => NOTHING_SAID,
-                });
-
-                Seen::Yes
-            }
-            Cable::Out => Seen::NotYet,
+            Cable::In => Some(match now.percent {
+                Some(percent) => percent,
+                None => NOTHING_SAID,
+            }),
+            Cable::Out => None,
         })
-    });
-
-    match plugged {
-        Waited::Happened => return Ok(percent),
-        Waited::RanOut => {},
-    }
-
-    Ok(None)
+    })
 }

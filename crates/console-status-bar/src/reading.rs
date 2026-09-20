@@ -43,12 +43,12 @@ pub struct Says {
 }
 
 impl Says {
-    pub fn new(icon: impl Into<String>, tone: Tone) -> Result<Self, Never> {
-        Ok(Says { icon: icon.into(), beside: None, tone })
+    pub fn new(icon: &str, tone: Tone) -> Result<Self, Never> {
+        Ok(Says { icon: String::from(icon), beside: None, tone })
     }
 
-    pub fn and(self, said: impl Into<String>) -> Result<Self, Never> {
-        Ok(Says { beside: Some(said.into()), ..self })
+    pub fn and(self, said: String) -> Result<Self, Never> {
+        Ok(Says { beside: Some(said), ..self })
     }
 }
 

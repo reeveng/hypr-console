@@ -17,26 +17,54 @@
 //! console-desktop stage      the staged copy, and nothing else
 //! console-desktop clean      forget what nobody is using
 //! ```
+//!
+//! The compositor is started in a control group of its own, named after this
+//! process, because killing it reaches nothing it started. `session-start`
+//! backgrounds a pool, a bar, a keyboard and a wallpaper; when the compositor
+//! goes they are reparented to the user manager and land in the control group
+//! of whoever is logged in, where nothing can tell them from the desktop
+//! somebody is using. An afternoon of runs left eight hundred of them on this
+//! laptop, sixty `pactl subscribe` among them -- four short of the number
+//! pipewire-pulse serves before it starts refusing, which is the volume keys
+//! going quiet for a reason nobody would find. Stopping the scope takes all of
+//! it without naming one process, which matters because the names are the
+//! session's own.
+//!
+//! `just alone` wraps a whole run the same way and this is not that. A scope
+//! made inside a scope is its sibling rather than its child, so the run's scope
+//! never reaches this one -- and it is this one that has to hold, because the
+//! panel tier is run as often by `cargo test -p console-panel` as by `just`.
+//! What a scope cannot answer is a run killed outright, which leaves its own
+//! standing; `session::swept` ends the scope of every stage whose pid is gone,
+//! by the same arithmetic that deletes the stage.
 
 
 use console_core_external_programs::Program;
 use console_core_geometry::{Point, Size};
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
-use console_waiting::{Patience, Seen, until};
+use console_program_lifetime::{Wrapped, in_a_scope_of_its_own, nothing_left_in};
+use console_waiting::{Patience, Seen, until_handed};
 use std::path::PathBuf;
-use std::process::{Child, ExitCode, Stdio};
+use std::process::{Child, Command, ExitCode, Stdio};
 use std::time::Duration;
 
 use console_test_desktop::nested::Wallpaper;
 use console_test_desktop::staging::{Screen, Told, environment, staged};
 use console_test_desktop::talking::{Inside, Instance, Waited};
-use console_test_desktop::{Unnested, screen, session, stage};
+use console_test_desktop::{Unnested, screen, scope_of, session, stage};
 use console_test_stages::picture::{Picture, where_};
 
 const KILLED_BY_A_SIGNAL: i32 = -1;
 
 
+#[cfg_attr(
+    dylint_lib = "explicit048_no_unreal_state",
+    allow(
+        explicit048_no_unreal_state,
+        reason = "what somebody typed, one field per word: a window and a file and a number of seconds are asked for together or not at all, and the combinations are the command lines rather than states"
+    )
+)]
 struct Asked {
     command: String,
     file: Option<PathBuf>,
@@ -211,12 +239,11 @@ fn out_of_the_way() -> Result<(), Never> {
 
 fn clean() -> Result<u8, Unnested> {
     let Ok(here) = stage();
-    let Ok(abandoned) = session::abandoned();
+    let _ = std::fs::remove_dir_all(here);
+    let Ok(()) = session::swept();
     let Ok(dead) = session::dead_instances();
 
-    let every = [here].into_iter().chain(abandoned).chain(dead);
-
-    for path in every {
+    for path in dead {
         let _ = std::fs::remove_dir_all(path);
     }
 
@@ -274,16 +301,31 @@ fn run(asked: &Asked, shot: Option<PathBuf>, probe: Doing) -> Result<u8, Unneste
     let nested = staged(Told::Quietly, showing, wallpaper)?;
     let Ok(where_) = environment();
     let Ok(()) = out_of_the_way();
+    let Ok(here) = stage();
+    let Ok(named) = scope_of(&here);
+    let Ok(argv) =
+        Program::Hyprland.words(vec!["-c".to_string(), nested.display().to_string()]);
+    let Ok((wrapped, argv)) = in_a_scope_of_its_own(named.as_deref(), &argv);
+
+    match wrapped {
+        Wrapped::InAScope => {},
+        Wrapped::AsItWasHandedIn => eprintln!(
+            "console-desktop: no user manager here, so what this session starts \
+             outlives it"
+        ),
+    }
+
+    let (program, rest) = match argv.split_first() {
+        Some(said) => said,
+        None => return Err(Unnested::NoCompositor),
+    };
 
     let mut compositor = {
         let Ok(_held) = session::Starting::now();
         let Ok(running) = session::instances();
-        let Ok(mut asking) = Program::Hyprland.command();
+        let mut asking = Command::new(program);
 
-        asking
-            .arg("-c")
-            .arg(&nested)
-            .env_remove("HYPRLAND_INSTANCE_SIGNATURE");
+        asking.args(rest).env_remove("HYPRLAND_INSTANCE_SIGNATURE");
 
         for (name, value) in &where_ {
             asking.env(name, value);
@@ -299,6 +341,8 @@ fn run(asked: &Asked, shot: Option<PathBuf>, probe: Doing) -> Result<u8, Unneste
         Some(came) => (came.display, came.signature),
         None => {
             let _ = compositor.0.kill();
+            let Ok(()) = nothing_left(named.as_deref());
+
             return Err(Unnested::NoCompositor);
         }
     };
@@ -309,6 +353,7 @@ fn run(asked: &Asked, shot: Option<PathBuf>, probe: Doing) -> Result<u8, Unneste
         Ended::ByTheCompositor => {
             let done = compositor.0.wait().map_err(Unnested::Machine)?;
             let Ok(()) = session::left_behind(&signature);
+            let Ok(()) = nothing_left(named.as_deref());
 
             return Ok(u8::from(!done.success()));
         }
@@ -334,7 +379,7 @@ fn run(asked: &Asked, shot: Option<PathBuf>, probe: Doing) -> Result<u8, Unneste
 
     match waited {
         Waited::RanOut => {
-            let Ok(()) = stop(&mut compositor.0, &signature, &inside);
+            let Ok(()) = stop(&mut compositor.0, &signature, &inside, named.as_deref());
 
             return Err(Unnested::NoScreen);
         }
@@ -523,7 +568,7 @@ fn run(asked: &Asked, shot: Option<PathBuf>, probe: Doing) -> Result<u8, Unneste
         None => {},
     }
 
-    let Ok(()) = stop(&mut compositor.0, &signature, &inside);
+    let Ok(()) = stop(&mut compositor.0, &signature, &inside, named.as_deref());
     let Ok(()) = nothing_left_running(opened);
 
     Ok(0)
@@ -550,7 +595,7 @@ fn nothing_left_running(opened: Vec<(String, Child)>) -> Result<(), Never> {
     }
 
     let Ok(patience) = Patience::asking_every(GOING, Duration::from_millis(100));
-    let Ok(all_gone) = until(patience, || {
+    let Ok(all_gone) = until_handed(patience, &mut going, |going| {
         going.retain_mut(|(_, process)| !matches!(process.try_wait(), Ok(Some(_))));
 
         Ok(match going.is_empty() {
@@ -573,7 +618,19 @@ fn nothing_left_running(opened: Vec<(String, Child)>) -> Result<(), Never> {
     Ok(())
 }
 
-fn stop(compositor: &mut Child, signature: &str, inside: &Inside) -> Result<(), Never> {
+fn nothing_left(named: Option<&str>) -> Result<(), Never> {
+    match named {
+        Some(unit) => nothing_left_in(unit),
+        None => Ok(()),
+    }
+}
+
+fn stop(
+    compositor: &mut Child,
+    signature: &str,
+    inside: &Inside,
+    named: Option<&str>,
+) -> Result<(), Never> {
     let Ok(()) = inside.stop_the_wallpaper();
     let Ok(()) = inside.stop_the_bar();
     let Ok(which) = fitted(compositor.id());
@@ -582,7 +639,7 @@ fn stop(compositor: &mut Child, signature: &str, inside: &Inside) -> Result<(), 
     unsafe { libc::kill(which, libc::SIGTERM) };
 
     let Ok(patience) = Patience::asking_every(Duration::from_secs(10), Duration::from_millis(100));
-    let Ok(ended) = until(patience, || {
+    let Ok(ended) = until_handed(patience, compositor, |compositor| {
         Ok(match compositor.try_wait().is_ok_and(|ended| ended.is_some()) {
             true => Seen::Yes,
             false => Seen::NotYet,
@@ -592,6 +649,7 @@ fn stop(compositor: &mut Child, signature: &str, inside: &Inside) -> Result<(), 
     match ended {
         Waited::Happened => {
             let Ok(()) = session::left_behind(signature);
+            let Ok(()) = nothing_left(named);
 
             return Ok(());
         }
@@ -601,6 +659,7 @@ fn stop(compositor: &mut Child, signature: &str, inside: &Inside) -> Result<(), 
     let _ = compositor.kill();
     let _ = compositor.wait();
     let Ok(()) = session::left_behind(signature);
+    let Ok(()) = nothing_left(named);
 
     Ok(())
 }

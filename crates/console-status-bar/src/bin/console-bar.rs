@@ -53,27 +53,32 @@
 //! **The one wait that is a duration is an apply.** While the strip is filling
 //! there is nothing to subscribe to: the engine writes a number to a file as it
 //! goes, and how often the bar looks at it is the bar's own frame rate for a
-//! thing that is moving. Every other wait here is until something says so.
+//! thing that is moving. That an apply has *started* is told rather than
+//! polled: the engine sends `SIGRTMIN+4`, which this blocks and reads off a
+//! `signalfd` in the same `poll` as the compositor's socket, so an idle bar
+//! waits a minute at a time and a filling one is still on the first frame of
+//! it. Every other wait here is until something says so.
 
 use std::collections::BTreeSet;
 use std::io::Write;
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsRawFd, RawFd};
 use std::process::{ExitCode, Stdio};
 use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use console_compositor::{Asked, Told, Workspace};
+use console_compositor::{Asked, Carrying, Told, Workspace};
 use console_core_colour::spent::{Undressed, beside, read};
 use console_core_geometry::{Point, Size};
 use console_core_never::Never;
-use console_core_number_conversion::toward_zero_i32;
+use console_core_number_conversion::{fitted, toward_zero_i32};
 use console_core_our_programs::Ours;
 use console_draw_painting::{Frame, Run, measured, onto};
 use console_draw_surface::standing::{
     Anchor, Gone, Keyboard, Margin, Room, Under, Wanted,
 };
 use console_draw_surface::{Missing, Poke, Surface};
+use console_music::player::Sound;
 use console_onscreen::Up;
 use console_program_contract::Topic;
 use console_status_bar::clock;
@@ -84,6 +89,7 @@ use console_status_bar::reading::{Says, What};
 use console_status_bar::showing::{
     self, Bar, Does, Drawn, Face, Filling, Fitting, Measured, Slot, Wearing,
 };
+use console_notifications::updating;
 use console_status_bar::watch;
 use console_waiting::woken;
 
@@ -99,6 +105,7 @@ enum Cannot {
     NoPalette { at: std::path::PathBuf, why: std::io::Error },
     Undressed(Undressed),
     Pipe(std::io::Error),
+    Deaf(std::io::Error),
     Screenless,
     Compositor(Missing),
 }
@@ -110,6 +117,7 @@ impl std::fmt::Display for Cannot {
             Cannot::NoPalette { at, why } => write!(to, "no palette at {}: {why}", at.display()),
             Cannot::Undressed(why) => write!(to, "{why}"),
             Cannot::Pipe(why) => write!(to, "nothing to be woken down: {why}"),
+            Cannot::Deaf(why) => write!(to, "nothing to hear an apply on: {why}"),
             Cannot::Screenless => {
                 write!(to, "the compositor named no screen to draw a bar across")
             }
@@ -173,6 +181,7 @@ fn drawing() -> Result<(), Cannot> {
     let wearing = dressed()?;
     let mut surface = Surface::connect()?;
     let waking = woken::pipe().map_err(Cannot::Pipe)?;
+    let applying = listening().map_err(Cannot::Deaf)?;
     let seen = Arc::new(Mutex::new(BTreeSet::new()));
     let saying = Arc::new(waking.saying);
     let Ok(()) = sources(&seen, &saying);
@@ -209,6 +218,7 @@ fn drawing() -> Result<(), Cannot> {
         keyboard: Up::NotThere,
         music: Up::NotThere,
         notices: Up::NotThere,
+        calendar: Up::NotThere,
         settings: Up::NotThere,
         tab: None,
     });
@@ -231,9 +241,9 @@ fn drawing() -> Result<(), Cannot> {
     let woken = waking.waiting.as_raw_fd();
 
     loop {
-        let Ok(far) = console_notifications::updating::far();
+        let Ok(far) = updating::far();
         let filling = match &far {
-            Some(far) => Filling::At(far.percent),
+            Some(far) => Filling::At(far.thousandths),
             None => Filling::Nothing,
         };
         let Ok(saying) = held.saying(filling);
@@ -263,10 +273,16 @@ fn drawing() -> Result<(), Cannot> {
 
         let Ok(until) = waiting(&readings, filling, settling);
 
-        surface.wait(&[woken], Some(until))?;
+        surface.wait(&[woken, applying], Some(until))?;
 
         let Ok(()) = tapped(&mut surface, &drawn);
         let Ok(()) = woken::drained(&waking.waiting);
+        let Ok(()) = told_again(applying);
+
+        held.open.tab = match console_onscreen::tab() {
+            Ok(tab) => tab,
+            Err(_nothing_has_said_which_tab_is_in_front) => None,
+        };
         let Ok(woke) = heard(&seen);
 
         settling = match woke.is_empty() {
@@ -343,6 +359,50 @@ fn due(what: What) -> Result<Instant, Never> {
         Some(due) => due,
         None => now,
     })
+}
+
+fn listening() -> Result<RawFd, std::io::Error> {
+    let told = libc::SIGRTMIN().saturating_add(console_onscreen::WAKES_AT);
+
+    // SAFETY: a mask on the stack, filled and applied by the calls that own it,
+    // and a descriptor the kernel opens for exactly the signals in it.
+    unsafe {
+        let mut mask: libc::sigset_t = std::mem::zeroed();
+        libc::sigemptyset(&mut mask);
+        libc::sigaddset(&mut mask, told);
+
+        match libc::pthread_sigmask(libc::SIG_BLOCK, &mask, std::ptr::null_mut()) != 0 {
+            true => return Err(std::io::Error::last_os_error()),
+            false => {},
+        }
+
+        let heard = libc::signalfd(-1, &mask, libc::SFD_CLOEXEC | libc::SFD_NONBLOCK);
+
+        match heard < 0 {
+            true => Err(std::io::Error::last_os_error()),
+            false => Ok(heard),
+        }
+    }
+}
+
+fn told_again(heard: RawFd) -> Result<(), Never> {
+    let size = std::mem::size_of::<libc::signalfd_siginfo>();
+    let Ok(whole) = fitted::<usize, isize>(size);
+
+    loop {
+        // SAFETY: a struct this frame owns, filled by the kernel or not at all,
+        // on a descriptor that never blocks.
+        let read = unsafe {
+            let mut said: libc::signalfd_siginfo = std::mem::zeroed();
+
+            libc::read(heard, std::ptr::from_mut(&mut said).cast(), size)
+        };
+
+        match read == whole {
+            true => {},
+            false => return Ok(()),
+        }
+    }
 }
 
 fn waiting(
@@ -444,13 +504,13 @@ fn playing() -> Result<Says, Never> {
         None => return holding::music(Paused::No, Playing::Nothing),
     };
 
-    let playing = match asked.stopped {
-        true => Playing::Nothing,
-        false => Playing::Something,
+    let playing = match asked.sound {
+        Sound::Stopped => Playing::Nothing,
+        Sound::Playing | Sound::Paused => Playing::Something,
     };
-    let paused = match asked.paused {
-        true => Paused::Yes,
-        false => Paused::No,
+    let paused = match asked.sound {
+        Sound::Paused => Paused::Yes,
+        Sound::Playing | Sound::Stopped => Paused::No,
     };
 
     holding::music(paused, playing)
@@ -478,6 +538,7 @@ fn shown(before: Open) -> Result<Open, Never> {
     let Ok(launcher) = Ours::Launcher.name();
     let Ok(music) = Ours::MusicPanel.name();
     let Ok(notices) = Ours::NotificationsPanel.name();
+    let Ok(calendar) = Ours::CalendarPanel.name();
     let Ok(settings) = Ours::SettingsPanel.name();
 
     Ok(Open {
@@ -485,6 +546,7 @@ fn shown(before: Open) -> Result<Open, Never> {
         keyboard: up(console_onscreen::KEYBOARD),
         music: up(music),
         notices: up(notices),
+        calendar: up(calendar),
         settings: up(settings),
         tab,
     })
@@ -613,6 +675,11 @@ fn doing(does: Does) -> Result<(), Never> {
 
             command
         }
+        Does::Calendar => {
+            let Ok(command) = Ours::CalendarPanel.command();
+
+            command
+        }
         Does::Settings(what) => {
             let Ok(mut command) = Ours::SettingsPanel.command();
             let Ok(tab) = what.tab();
@@ -637,7 +704,8 @@ fn doing(does: Does) -> Result<(), Never> {
 }
 
 fn switched(id: i64) -> Result<(), Never> {
-    let Ok(_done) = console_compositor::told(Told::Dispatch, &format!("workspace {id}"));
+    let Ok(lua) = console_compositor::onto(&id.to_string(), Carrying::Nothing);
+    let Ok(_done) = console_compositor::told(Told::Dispatch, &lua);
 
     Ok(())
 }

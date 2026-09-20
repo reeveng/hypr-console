@@ -73,18 +73,18 @@ fn the_desktops_own_applications_are_on_this_machine() {
 
 #[test]
 fn the_room_left_for_the_bar_is_what_the_bar_reserves() {
-    let bars = read("files/home/@user@/.config/waybar/config.jsonc");
-    let reserved: i32 = bars
-        .lines()
-        .filter_map(|line| line.trim().strip_prefix("\"height\":"))
-        .filter_map(|rest| rest.trim().trim_end_matches(',').parse::<i32>().ok())
-        .sum();
+    let screen = console_screen::declared().expect("the screen this desktop is laid out on");
+    let Ok(room) = screen.logical();
+    let Ok(fitting) = console_status_bar::showing::Fitting::of(room);
+    let Ok(reserved) = fitting.tall();
     let ours = read("crates/console-home-screen/src/bin/console-home.rs");
 
-    assert!(reserved > 0, "waybar reserves no rows at all now");
+    assert!(reserved > 0, "the bar reserves no rows at all now");
     assert!(
         ours.contains(&format!("const CLEARED: i32 = {reserved};")),
-        "the bar reserves {reserved} pixels and the surface clears something else"
+        "the bar reserves {reserved} rows of a {} row screen and the surface clears something \
+         else",
+        room.tall
     );
 }
 

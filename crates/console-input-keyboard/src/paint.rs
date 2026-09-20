@@ -58,12 +58,16 @@ pub fn keyboard(onto: &Surface, look: &Look) -> Result<(), Never> {
             None => continue,
         };
 
-        let down = pressed == Some(placed.at);
+        let showing = match (pressed == Some(placed.at), selected == Some(placed.at)) {
+            (true, _) => Showing::Pressed,
+            (false, true) => Showing::Under,
+            (false, false) => Showing::Plain,
+        };
+
         let Ok(rounding) = fitted(config.rounding);
         let Ok(()) = one(onto, key, placed, &Ink {
             scheme,
-            pressed: down,
-            under: selected == Some(placed.at),
+            showing,
             held,
             language,
             font: &font,
@@ -74,10 +78,16 @@ pub fn keyboard(onto: &Surface, look: &Look) -> Result<(), Never> {
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Showing {
+    Pressed,
+    Under,
+    Plain,
+}
+
 struct Ink<'a> {
     scheme: &'a Scheme,
-    pressed: bool,
-    under: bool,
+    showing: Showing,
     held: u8,
     language: Option<&'a str>,
     font: &'a FontDescription,
@@ -85,12 +95,12 @@ struct Ink<'a> {
 }
 
 fn one(onto: &Surface, key: &Key, placed: &Placed, ink: &Ink) -> Result<(), Never> {
-    let Ink { scheme, pressed, under, held, language, font, rounding } = *ink;
+    let Ink { scheme, showing, held, language, font, rounding } = *ink;
     let at = Rect { x: placed.x, y: placed.y, w: placed.wide, h: placed.tall };
-    let face = match (pressed, under) {
-        (true, _) => scheme.high,
-        (false, true) => scheme.sel,
-        (false, false) => scheme.fg,
+    let face = match showing {
+        Showing::Pressed => scheme.high,
+        Showing::Under => scheme.sel,
+        Showing::Plain => scheme.fg,
     };
     let Ok(face) = colour(face);
     let Ok(inset) = at.inset(EDGE);
@@ -122,10 +132,10 @@ fn one(onto: &Surface, key: &Key, placed: &Placed, ink: &Ink) -> Result<(), Neve
         false => {},
     }
 
-    let ink = match (pressed, under) {
-        (true, _) => scheme.text_press,
-        (false, true) => scheme.text_sel,
-        (false, false) => scheme.text,
+    let ink = match showing {
+        Showing::Pressed => scheme.text_press,
+        Showing::Under => scheme.text_sel,
+        Showing::Plain => scheme.text,
     };
     let Ok(ink) = colour(ink);
     let Ok(()) = onto.draw_text(ink, at, EDGE, label, font);

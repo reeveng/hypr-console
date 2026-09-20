@@ -22,6 +22,7 @@ use std::path::PathBuf;
 
 use console_compositor::stirred::Stirred;
 use console_core_atomic_writes::Held;
+use console_core_external_programs::Program;
 use console_core_never::Never;
 
 pub mod homeward;
@@ -157,10 +158,8 @@ pub fn standing(screens: &serde_json::Value, namespace: &str) -> Result<Option<S
     console_compositor::corner(surface)
 }
 
-pub const FURNITURE: [&str; 8] = [
+pub const FURNITURE: [&str; 6] = [
     "awww-daemon",
-    "waybar",
-    "updating",
     "console-keyboard",
     "notifications",
     BAR,
@@ -259,17 +258,42 @@ pub fn saying(tab: &str) -> Result<(), Amiss> {
         None => {}
     }
 
-    console_core_atomic_writes::whole(&note, tab.as_bytes()).map_err(Amiss::Writing)
+    console_core_atomic_writes::whole(&note, tab.as_bytes()).map_err(Amiss::Writing)?;
+
+    let Ok(()) = wake();
+
+    Ok(())
+}
+
+pub const WAKES_AT: i32 = 4;
+
+pub const WAKING: &str = "-RTMIN+4";
+
+pub fn wake() -> Result<(), Never> {
+    let Ok(mut waking) = Program::Pkill.command();
+
+    let _ = waking
+        .arg(WAKING)
+        .args(["-x", BAR])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+
+    Ok(())
 }
 
 pub fn forget() -> Result<(), Amiss> {
     let note = note()?;
 
-    match std::fs::remove_file(&note) {
+    let gone = match std::fs::remove_file(&note) {
         Ok(()) => Ok(()),
         Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(fault) => Err(Amiss::Removing(note, fault)),
-    }
+    };
+
+    let Ok(()) = wake();
+
+    gone
 }
 
 pub fn tab() -> Result<Option<String>, Amiss> {
@@ -332,7 +356,7 @@ mod tests {
 
     const NOTHING_UP: &str = r#"{"eDP-1":{"levels":{
         "0":[{"namespace":"awww-daemon","h":1600}],
-        "2":[{"namespace":"waybar","h":38}]}}}"#;
+        "2":[{"namespace":"console-bar","h":40}]}}}"#;
 
     #[test]
     fn a_door_nothing_opened_is_shut() {
@@ -370,7 +394,7 @@ mod tests {
     }
 
     const A_PANEL: &str = r#"{"eDP-1":{"levels":{
-        "2":[{"namespace":"waybar","x":0,"y":0,"w":1920,"h":38}],
+        "2":[{"namespace":"console-bar","x":0,"y":0,"w":1920,"h":40}],
         "3":[{"namespace":"settings-panel","x":260,"y":140,"w":1400,"h":900}]}}}"#;
 
     #[test]

@@ -119,7 +119,7 @@ fn until<T>(
 ) -> Result<Option<T>, Never> {
     let Ok(patience) = Patience::asking_every(patience, BREATH);
 
-    console_waiting::found(patience, || Ok(look()))
+    console_waiting::found_handed(patience, &mut look, |look| Ok(look()))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -184,6 +184,25 @@ pub fn wait_for_written(at: &Path, patience: Duration) -> Result<Wrote, Never> {
 pub fn left_behind(signature: &str) -> Result<(), Never> {
     let Ok(runtime) = runtime();
     let _ = std::fs::remove_dir_all(runtime.join("hypr").join(signature));
+
+    Ok(())
+}
+
+pub fn swept() -> Result<(), Never> {
+    let Ok(abandoned) = abandoned();
+
+    for path in abandoned {
+        let Ok(named) = crate::scope_of(&path);
+
+        match named {
+            Some(unit) => {
+                let Ok(()) = console_program_lifetime::nothing_left_in(&unit);
+            }
+            None => {},
+        }
+
+        let _ = std::fs::remove_dir_all(path);
+    }
 
     Ok(())
 }

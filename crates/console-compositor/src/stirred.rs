@@ -165,8 +165,8 @@ mod tests {
 
     #[test]
     fn what_happened_to_the_screen_rather_than_to_a_window_is_told_apart() {
-        assert_eq!(read("openlayer>>waybar"), Ok(Stirred::LayerOpened));
-        assert_eq!(read("closelayer>>waybar"), Ok(Stirred::LayerClosed));
+        assert_eq!(read("openlayer>>console-bar"), Ok(Stirred::LayerOpened));
+        assert_eq!(read("closelayer>>console-bar"), Ok(Stirred::LayerClosed));
         assert_eq!(read("workspace>>2"), Ok(Stirred::WorkspaceChanged));
         assert_eq!(read("workspacev2>>2,2"), Ok(Stirred::WorkspaceChanged));
         assert_eq!(read("focusedmon>>eDP-1,2"), Ok(Stirred::ScreenFocused));

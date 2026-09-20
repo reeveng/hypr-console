@@ -63,6 +63,7 @@ programs! {
     Bash, "bash", Origin::Arch;
     Bluetoothctl, "bluetoothctl", Origin::Package("bluez-utils");
     Busctl, "busctl", Origin::Arch;
+    Cal, "cal", Origin::Arch;
     Cargo, "cargo", Origin::Package("rust");
     Cat, "cat", Origin::Arch;
     Cmake, "cmake", Origin::Package("cmake");

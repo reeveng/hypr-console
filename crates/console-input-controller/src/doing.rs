@@ -38,11 +38,7 @@ pub enum Doing {
     Using(console_input_bindings::bound::Input),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Carry {
-    Window,
-    Nothing,
-}
+pub use console_compositor::Carrying as Carry;
 
 impl Doing {
     pub fn run(argv: &[&str]) -> Result<Self, Never> {
@@ -57,12 +53,9 @@ impl Doing {
     }
 
     pub fn workspace(where_: &str, carrying: Carry) -> Result<Self, Never> {
-        let verb = match carrying {
-            Carry::Window => "hl.dsp.window.move",
-            Carry::Nothing => "hl.dsp.focus",
-        };
+        let Ok(lua) = console_compositor::onto(where_, carrying);
 
-        Doing::dispatch(&format!("{verb}({{workspace = \"{where_}\"}})"))
+        Doing::dispatch(&lua)
     }
 }
 

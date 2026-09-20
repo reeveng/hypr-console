@@ -328,13 +328,13 @@ impl Ahead {
         }
     }
 
-    pub fn percent(&self) -> Result<u16, Never> {
+    pub fn far(&self) -> Result<u16, Never> {
         match self.whole.is_zero() {
             true => counted(Far { done: self.done, many: self.many }),
             false => {
                 let Ok(leaning) =
                     leaning(self.passed.as_secs_f64() / self.whole.as_secs_f64());
-                let Ok(along) = toward_zero_u16(leaning * 100.0);
+                let Ok(along) = toward_zero_u16(leaning * f64::from(WHOLE));
 
                 Ok(along.min(WHOLE))
             }
@@ -348,7 +348,7 @@ impl Ahead {
                 let Ok(inside) = self.inside(gone);
                 let at = self.passed.saturating_add(inside);
                 let Ok(leaning) = leaning(at.as_secs_f64() / self.whole.as_secs_f64());
-                let Ok(along) = toward_zero_u16(leaning * 100.0);
+                let Ok(along) = toward_zero_u16(leaning * f64::from(WHOLE));
 
                 Ok(along.min(WHOLE))
             }
@@ -406,8 +406,9 @@ impl Ahead {
 
             false => {
                 let Ok(one) = self.expecting();
-                let Ok(span) =
-                    toward_zero_u16(one.as_secs_f64() / self.whole.as_secs_f64() * 100.0);
+                let Ok(span) = toward_zero_u16(
+                    one.as_secs_f64() / self.whole.as_secs_f64() * f64::from(WHOLE),
+                );
 
                 Ok(span.min(WHOLE))
             }
@@ -428,7 +429,7 @@ impl Ahead {
     }
 }
 
-pub const WHOLE: u16 = 100;
+pub const WHOLE: u16 = console_notifications::updating::WHOLE;
 
 pub const LEANING: f64 = 1.3;
 
@@ -471,7 +472,7 @@ fn counted(far: Far) -> Result<u16, Never> {
         many => {
             let Ok(passed) = done.float();
             let Ok(whole) = many.float();
-            let Ok(along) = toward_zero_u16(passed / whole * 100.0);
+            let Ok(along) = toward_zero_u16(passed / whole * f64::from(WHOLE));
 
             along.min(WHOLE)
         }
@@ -609,14 +610,14 @@ mod tests {
 
         let Ok(ahead) = Ahead::of(&lengths, &[&SLOW, &QUICK]);
 
-        assert_eq!(ahead.span(), Ok(75));
+        assert_eq!(ahead.span(), Ok(750));
     }
 
     #[test]
     fn a_run_nothing_has_ever_timed_gives_every_check_the_same_share() {
         let Ok(ahead) = Ahead::of(&Lengths::default(), &[&SLOW, &QUICK]);
 
-        assert_eq!(ahead.span(), Ok(50));
+        assert_eq!(ahead.span(), Ok(500));
     }
 
     fn nothing(_device: &mut Device) -> Done {
@@ -693,10 +694,10 @@ mod tests {
         ahead
     }
 
-    fn percent(ahead: &Ahead) -> u16 {
-        let Ok(percent) = ahead.percent();
+    fn far(ahead: &Ahead) -> u16 {
+        let Ok(far) = ahead.far();
 
-        percent
+        far
     }
 
     fn left(ahead: &Ahead) -> Option<Duration> {
@@ -755,24 +756,24 @@ mod tests {
     fn a_machine_nobody_has_timed_is_given_the_table_that_travels() {
         let mut ahead = ahead(&Lengths::default(), &every());
 
-        assert_eq!(percent(&ahead), 0);
+        assert_eq!(far(&ahead), 0);
         assert!(whole(&ahead).is_some(), "a fresh machine was promised nothing");
         finished(&mut ahead);
 
-        assert!(percent(&ahead) > 0, "a check finished and the bar did not move");
+        assert!(far(&ahead) > 0, "a check finished and the bar did not move");
     }
 
     #[test]
     fn a_machine_with_no_table_at_all_still_counts_checks() {
         let Ok(mut ahead) = Ahead::from(&Lengths::default(), &Lengths::default(), &every());
 
-        assert_eq!(percent(&ahead), 0);
+        assert_eq!(far(&ahead), 0);
         assert_eq!(left(&ahead), None);
         assert_eq!(whole(&ahead), None);
 
         let Ok(()) = ahead.finished(Duration::ZERO);
 
-        assert_eq!(percent(&ahead), 33);
+        assert_eq!(far(&ahead), 333);
     }
 
     #[test]
@@ -831,8 +832,8 @@ mod tests {
         finished(&mut ahead);
 
         assert_eq!(
-            percent(&ahead),
-            74,
+            far(&ahead),
+            748,
             "the long one is most of the run and the strip says so, leaning behind"
         );
         assert_eq!(left(&ahead), Some(Duration::from_secs(20)));
@@ -847,11 +848,11 @@ mod tests {
             finished(&mut ahead);
         }
 
-        assert_eq!(percent(&ahead), WHOLE);
+        assert_eq!(far(&ahead), WHOLE);
         assert_eq!(left(&ahead), Some(Duration::ZERO));
         finished(&mut ahead);
 
-        assert_eq!(percent(&ahead), WHOLE, "a check nobody expected pushed the strip off the end");
+        assert_eq!(far(&ahead), WHOLE, "a check nobody expected pushed the strip off the end");
     }
 
     #[test]

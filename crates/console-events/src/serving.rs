@@ -202,10 +202,10 @@ pub fn serve(socket: &Path, holding: Holding) -> Result<(), Unserved> {
             Err(_nothing_will_say_anything_again) => return Ok(()),
         };
 
-        loop {
+        'over_words: loop {
             let now = match word.take() {
                 Some(now) => now,
-                None => break,
+                None => break 'over_words,
             };
 
             match now {

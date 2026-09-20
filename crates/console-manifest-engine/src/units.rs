@@ -4,12 +4,7 @@ use std::collections::BTreeSet;
 
 use console_core_never::Never;
 
-pub const WAKES: [Wake; 2] = [
-    Wake {
-        under: "/.config/waybar/",
-        run: "pkill -SIGUSR2 -x waybar",
-        name: "the bar",
-    },
+pub const WAKES: [Wake; 1] = [
     Wake {
         under: "/usr/share/backgrounds/",
         run: "awww clear-cache",
@@ -102,9 +97,7 @@ mod tests {
     }
 
     #[test]
-    fn the_bar_is_woken_when_its_own_configuration_is_written() {
-        let written = vec!["/home/@user@/.config/waybar/config.jsonc".to_string()];
-        assert_eq!(woken(&written).len(), 1);
+    fn a_file_under_nothing_that_wakes_wakes_nothing() {
         let elsewhere = vec!["/home/@user@/.config/wofi/config".to_string()];
         assert!(woken(&elsewhere).is_empty());
     }

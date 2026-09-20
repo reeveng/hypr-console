@@ -23,6 +23,17 @@
 //! moment, a backoff between two attempts -- and each of those says so at its
 //! own site.
 //!
+//! **Each of the two has a second spelling that is handed what it asks with.**
+//! A question about a child, or a lock file, or anything else reached through
+//! a `&mut`, cannot be asked by a closure that was given nothing: what it
+//! needs can only arrive by capture, and a closure that captured it holds the
+//! permission to write it for as long as it lives, which is EXPLICIT047's
+//! whole complaint. So `until_handed` and `found_handed` take the thing and
+//! hand it to the question at every ask, which is EXPLICIT044's sentence about
+//! a function said about a closure, and what `Device::until` has done with the
+//! stage since it was written. The loop is written once, in `found_handed`,
+//! and the other three are that loop with the answer said differently.
+//!
 //! What it does not do is decide the patience. How long is worth waiting for
 //! is a question about the thing, and the caller is the only one who knows it:
 //! a lock is milliseconds and a nested compositor is twenty seconds. What is
@@ -74,34 +85,38 @@ impl Patience {
     }
 }
 
-#[cfg_attr(
-    dylint_lib = "explicit039_no_reading_the_clock",
-    allow(
-        explicit039_no_reading_the_clock,
-        reason = "the elapsing is what was asked for here: this crate is the one that waits, and a patience with no clock under it is a loop that never ends"
-    )
-)]
 pub fn until(
     patience: Patience,
     mut ask: impl FnMut() -> Result<Seen, Never>,
 ) -> Result<Waited, Never> {
-    let by = Instant::now() + patience.until;
+    until_handed(patience, &mut ask, |ask| ask())
+}
 
-    loop {
-        let Ok(seen) = ask();
+pub fn found<T>(
+    patience: Patience,
+    mut look: impl FnMut() -> Result<Option<T>, Never>,
+) -> Result<Option<T>, Never> {
+    found_handed(patience, &mut look, |look| look())
+}
 
-        match seen {
-            Seen::Yes => return Ok(Waited::Happened),
-            Seen::NotYet => {},
-        }
+pub fn until_handed<M>(
+    patience: Patience,
+    handed: &mut M,
+    ask: impl Fn(&mut M) -> Result<Seen, Never>,
+) -> Result<Waited, Never> {
+    let Ok(found) = found_handed(patience, handed, |handed| {
+        let Ok(seen) = ask(handed);
 
-        match Instant::now() >= by {
-            true => return Ok(Waited::RanOut),
-            false => {},
-        }
+        Ok(match seen {
+            Seen::Yes => Some(()),
+            Seen::NotYet => None,
+        })
+    });
 
-        let Ok(()) = between(patience.between);
-    }
+    Ok(match found {
+        Some(()) => Waited::Happened,
+        None => Waited::RanOut,
+    })
 }
 
 #[cfg_attr(
@@ -111,14 +126,15 @@ pub fn until(
         reason = "the elapsing is what was asked for here: this crate is the one that waits, and a patience with no clock under it is a loop that never ends"
     )
 )]
-pub fn found<T>(
+pub fn found_handed<M, T>(
     patience: Patience,
-    mut look: impl FnMut() -> Result<Option<T>, Never>,
+    handed: &mut M,
+    look: impl Fn(&mut M) -> Result<Option<T>, Never>,
 ) -> Result<Option<T>, Never> {
     let by = Instant::now() + patience.until;
 
     loop {
-        let Ok(found) = look();
+        let Ok(found) = look(handed);
 
         match found {
             Some(found) => return Ok(Some(found)),
@@ -244,6 +260,46 @@ mod tests {
         assert_eq!(plain.between, BETWEEN);
         assert_eq!(often.between, Duration::from_millis(5));
         assert_eq!(plain.until, often.until);
+    }
+
+    #[test]
+    fn what_a_wait_was_handed_is_written_by_the_question_and_kept() {
+        let mut asks = 0;
+        let Ok(waited) = until_handed(
+            Patience { until: Duration::from_secs(10), between: Duration::from_millis(1) },
+            &mut asks,
+            |asks| {
+                *asks += 1;
+
+                Ok(match *asks >= 3 {
+                    true => Seen::Yes,
+                    false => Seen::NotYet,
+                })
+            },
+        );
+
+        assert_eq!(waited, Waited::Happened);
+        assert_eq!(asks, 3, "the question was handed the same count every time");
+    }
+
+    #[test]
+    fn a_look_brings_back_what_it_found_and_what_it_was_handed() {
+        let mut said = String::new();
+        let Ok(found) = found_handed(
+            Patience { until: Duration::from_millis(20), between: Duration::from_millis(5) },
+            &mut said,
+            |said| {
+                said.push('.');
+
+                Ok(match said.len() >= 2 {
+                    true => Some(said.len()),
+                    false => None,
+                })
+            },
+        );
+
+        assert_eq!(found, Some(2));
+        assert_eq!(said, "..");
     }
 
     #[test]

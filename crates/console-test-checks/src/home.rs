@@ -91,7 +91,7 @@ use std::collections::BTreeSet;
 use console_home_screen::{Holding, Home, Spot};
 use console_core_never::Never;
 use console_test_stages::checking::{
-    Body, Check, Done, cannot, empty, failed, happened, less_than, same, seen,
+    Body, Check, Done, cannot, empty, failed, happened, happened_handed, less_than, same, seen,
 };
 use console_test_stages::desktop::Desktop;
 use console_test_stages::device::{Device, PATIENCE, Seen, Waited};
@@ -104,7 +104,7 @@ use crate::Unchecked;
 
 const THE_HOME_SCREEN: &str = r#"{"eDP-1":{"levels":{
     "0":[{"namespace":"awww-daemon","h":1600},{"namespace":"console-home","h":1562}],
-    "2":[{"namespace":"waybar","h":38},{"namespace":"updating","h":2}]}}}"#;
+    "2":[{"namespace":"console-bar","h":40}]}}}"#;
 
 pub const WHOSE_BUTTONS: Check = Check {
     name: "260-the-home-screens-buttons",
@@ -226,7 +226,7 @@ fn whose_there(stage: &mut Device) -> Done {
 
 fn pressable_there(stage: &mut Device) -> Done {
     cleared(stage)?;
-    let Ok(bar) = stage.layer("waybar");
+    let Ok(bar) = stage.layer(console_onscreen::BAR);
 
     let (left, top, _taken_2, tall) = match bar {
         Some((left, top, _taken_2, tall)) => (left, top, _taken_2, tall),
@@ -280,7 +280,7 @@ fn cleared(stage: &mut Device) -> Done {
         PATIENCE,
     );
 
-    happened(ready, || {
+    happened_handed(ready, stage, |stage| {
         let Ok(left) = stage.menus();
         let Ok(worn) = stage.profile();
 
@@ -321,7 +321,7 @@ fn arranging_there(stage: &mut Device) -> Done {
     let Ok(()) = stage.press("dpad-right");
     let Ok(woke) = stage.until(Device::home_awake, PATIENCE);
 
-    happened(woke, || {
+    happened_handed(woke, stage, |stage| {
         let Ok(up) = stage.menus();
         let Ok(here) = stage.windows_here();
 
@@ -420,7 +420,7 @@ fn carried(stage: &mut Device, ways: &[(&str, usize)]) -> Done {
     let Ok(()) = stage.press("a");
     let Ok(went) = stage.gone(PATIENCE);
 
-    happened(went, || {
+    happened_handed(went, stage, |stage| {
         let Ok(up) = stage.menus();
 
         format!("A on the card left {up:?} on the screen, so the card said nothing on its way out")
@@ -439,7 +439,7 @@ fn carried(stage: &mut Device, ways: &[(&str, usize)]) -> Done {
     let Ok(()) = stage.press("a");
     let Ok(landed) = stage.changed(placed, &was, PATIENCE);
 
-    happened(landed, || {
+    happened_handed(landed, stage, |stage| {
         let Ok(hand) = stage.home_carrying();
 
         format!(
@@ -499,18 +499,18 @@ fn settled(
     over: (u32, u32, u32, u32),
     spent: &str,
 ) -> Result<BTreeSet<u32>, Unchecked> {
-    let mut twice = None;
-    let mut now = BTreeSet::new();
+    let mut settling = Settling::default();
 
-    let waited = stage.until::<Unchecked>(
-        |seen| {
+    let waited = stage.until_handed::<Settling, Unchecked>(
+        &mut settling,
+        |settling, seen| {
             let Ok(()) = seen.again();
 
-            let found = lit(over, spent, |across, down| seen.colour(Point { across, down }))?;
-            let same = twice.as_ref() == Some(&found);
+            let found = lit(seen, over, spent, Device::colour)?;
+            let same = settling.twice.as_ref() == Some(&found);
 
-            twice = Some(found.clone());
-            now = found;
+            settling.twice = Some(found.clone());
+            settling.now = found;
 
             Ok(match same {
                 true => Seen::Yes,
@@ -521,9 +521,15 @@ fn settled(
     )?;
 
     match waited {
-        Waited::Happened => Ok(now),
+        Waited::Happened => Ok(settling.now),
         Waited::RanOut => Err(Unchecked::StillRepainting),
     }
+}
+
+#[derive(Default)]
+struct Settling {
+    twice: Option<BTreeSet<u32>>,
+    now: BTreeSet<u32>,
 }
 
 fn newly(
@@ -535,13 +541,14 @@ fn newly(
 ) -> Result<BTreeSet<u32>, Unchecked> {
     let mut found = BTreeSet::new();
 
-    let _waited = stage.until::<Unchecked>(
-        |seen| {
+    let _waited = stage.until_handed::<BTreeSet<u32>, Unchecked>(
+        &mut found,
+        |found, seen| {
             let Ok(()) = seen.again();
 
-            let now = lit(over, spent, |across, down| seen.colour(Point { across, down }))?;
+            let now = lit(seen, over, spent, Device::colour)?;
 
-            found = now.difference(before).copied().collect();
+            *found = now.difference(before).copied().collect();
 
             let lighting = match found.is_empty() {
                 true => Lit::Nowhere,
@@ -559,20 +566,22 @@ fn newly(
     Ok(found)
 }
 
-fn lit(
+fn lit<S>(
+    stage: &mut S,
     over: (u32, u32, u32, u32),
     spent: &str,
-    colour: impl FnMut(f64, f64) -> Result<String, Awry>,
+    colour: impl Fn(&mut S, Point<f64>) -> Result<String, Awry>,
 ) -> Result<BTreeSet<u32>, Unchecked> {
-    let found = lit_at(over, spent, colour)?;
+    let found = lit_at(stage, over, spent, colour)?;
 
     Ok(found.into_iter().map(|(across, _down)| across).collect())
 }
 
-fn lit_at(
+fn lit_at<S>(
+    stage: &mut S,
     over: (u32, u32, u32, u32),
     spent: &str,
-    mut colour: impl FnMut(f64, f64) -> Result<String, Awry>,
+    colour: impl Fn(&mut S, Point<f64>) -> Result<String, Awry>,
 ) -> Result<BTreeSet<(u32, u32)>, Unchecked> {
     let Ok(every) = palette();
 
@@ -588,7 +597,8 @@ fn lit_at(
 
     for down in band.step_by(DOWN) {
         for across in side.clone().step_by(ACROSS) {
-            let said = colour(f64::from(across), f64::from(down))?;
+            let said =
+                colour(stage, Point { across: f64::from(across), down: f64::from(down) })?;
 
             match &said == plate {
                 true => {
@@ -651,7 +661,7 @@ fn pointed_here(stage: &mut Desktop) -> Done {
     stage.open("console-home")?;
     stage.point(at)?;
 
-    let found = lit(over, STANDING, |across, down| stage.colour(Point { across, down }))?;
+    let found = lit(stage, over, STANDING, Desktop::colour)?;
 
     let reached = match reaches(&found) {
         Ok(Some(reached)) => reached,

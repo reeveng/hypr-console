@@ -93,10 +93,10 @@ fn line(icon: &str) -> Result<String, Never> {
         Some(playing) => playing,
         None => player::Playing::default(),
     };
-    let (mark, class) = match (playing.stopped, playing.paused) {
-        (true, _) => (icon.to_string(), "stopped"),
-        (_, true) => (PAUSE.to_string(), "paused"),
-        _ => (icon.to_string(), "playing"),
+    let (mark, class) = match playing.sound {
+        player::Sound::Stopped => (icon.to_string(), "stopped"),
+        player::Sound::Paused => (PAUSE.to_string(), "paused"),
+        player::Sound::Playing => (icon.to_string(), "playing"),
     };
     let lit = match is_open(PANEL) {
         Ok(Up::OnScreen) => Some("open"),

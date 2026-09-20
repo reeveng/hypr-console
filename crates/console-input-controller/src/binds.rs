@@ -173,11 +173,11 @@ pub fn wanted(table: &Table) -> Result<Vec<Bind>, Never> {
     let mut wanted: Vec<Bind> = Vec::new();
 
     for (job, bound) in every {
-        for one in bound.iter().filter(|one| one.on == Input::Keyboard) {
+        'over_binds: for one in bound.iter().filter(|one| one.on == Input::Keyboard) {
             let Ok(played) = one.played();
 
             match played {
-                Played::ByNothing => continue,
+                Played::ByNothing => continue 'over_binds,
                 Played::ByAPress => {},
             }
 
@@ -185,21 +185,21 @@ pub fn wanted(table: &Table) -> Result<Vec<Bind>, Never> {
 
             let keys = match keys {
                 Some(keys) => keys,
-                None => continue,
+                None => continue 'over_binds,
             };
 
             let Ok(held) = keys::mask(&one.held);
 
             let held = match held {
                 Some(held) => held,
-                None => continue,
+                None => continue 'over_binds,
             };
 
             let Ok(does) = job.what.does(Press::Down);
 
             let argv = match does {
                 Some(Doing::Run(argv)) => argv,
-                Some(Doing::Frame(_) | Doing::Tell(_) | Doing::Using(_)) | None => continue,
+                Some(Doing::Frame(_) | Doing::Tell(_) | Doing::Using(_)) | None => continue 'over_binds,
             };
 
             let Ok(runs) = quoted(&argv);

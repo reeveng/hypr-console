@@ -1209,7 +1209,7 @@ fn following(screen: &Rc<Screen>) -> Result<(), Never> {
 
                     let Ok(()) = screen.settle();
 
-                    loop {
+                    'over_lines: loop {
                         let read = gtk4::gio::spawn_blocking(move || {
                             let mut said = String::new();
 
@@ -1228,7 +1228,7 @@ fn following(screen: &Rc<Screen>) -> Result<(), Never> {
                         };
 
                         match got {
-                            0 => break,
+                            0 => break 'over_lines,
                             _ => {},
                         }
 

@@ -60,6 +60,20 @@
 //! rather than Super and K, where it was. T is what a keyboard is for, and a
 //! job that would take one of the four gets another letter instead.
 //!
+//! ## A digit says which place, and only a keyboard has one
+//!
+//! A place is reached by walking -- R1 and L1 in the hand, Super and Tab on a
+//! desk -- because a window opens on the next empty workspace and the places
+//! are only ever whatever is open. Super and a digit is the other question:
+//! not the place after this one, the third place. It is a keyboard's alone,
+//! because the pad has no row of ten of anything, and it is the one thing in
+//! this table that names a place by a number rather than by where it is from
+//! here. A number nothing is open on is an empty place, which on this desktop
+//! is the home screen, so a digit is always somewhere to go and never an
+//! error. Zero is the tenth, where the row of keys puts it. Shift carries the
+//! window along, which is the same sentence Shift already says beside the
+//! arrows.
+//!
 //! The power key is in here too, and it is the one row whose being in a table
 //! is a loss as well as a gain. It was the first line of the lua for a reason:
 //! a config that fails to load abandons every line after the failure, and a
@@ -106,7 +120,9 @@ pub enum What {
     Fullscreen,
     Focus(&'static str),
     Workspace(i32),
+    Place(&'static str),
     Carry(i32),
+    CarryTo(&'static str),
     Click,
     MoreOptions,
     Back,
@@ -209,7 +225,7 @@ const SUPER: &[&str] = &["super"];
 const SUPER_CTRL: &[&str] = &["super", "ctrl"];
 const SUPER_SHIFT: &[&str] = &["super", "shift"];
 
-pub const JOBS: [Job; 56] = [
+pub const JOBS: [Job; 76] = [
     Job {
         slug: "menu",
         what: What::Menu,
@@ -464,6 +480,66 @@ pub const JOBS: [Job; 56] = [
         bound: &[(PAD, ALONE, "l1"), (KEYS, SUPER_SHIFT, "tab")],
     },
     Job {
+        slug: "place-one",
+        what: What::Place("1"),
+        when: When::OnTheDesktop,
+        bound: &[(KEYS, SUPER, "1")],
+    },
+    Job {
+        slug: "place-two",
+        what: What::Place("2"),
+        when: When::OnTheDesktop,
+        bound: &[(KEYS, SUPER, "2")],
+    },
+    Job {
+        slug: "place-three",
+        what: What::Place("3"),
+        when: When::OnTheDesktop,
+        bound: &[(KEYS, SUPER, "3")],
+    },
+    Job {
+        slug: "place-four",
+        what: What::Place("4"),
+        when: When::OnTheDesktop,
+        bound: &[(KEYS, SUPER, "4")],
+    },
+    Job {
+        slug: "place-five",
+        what: What::Place("5"),
+        when: When::OnTheDesktop,
+        bound: &[(KEYS, SUPER, "5")],
+    },
+    Job {
+        slug: "place-six",
+        what: What::Place("6"),
+        when: When::OnTheDesktop,
+        bound: &[(KEYS, SUPER, "6")],
+    },
+    Job {
+        slug: "place-seven",
+        what: What::Place("7"),
+        when: When::OnTheDesktop,
+        bound: &[(KEYS, SUPER, "7")],
+    },
+    Job {
+        slug: "place-eight",
+        what: What::Place("8"),
+        when: When::OnTheDesktop,
+        bound: &[(KEYS, SUPER, "8")],
+    },
+    Job {
+        slug: "place-nine",
+        what: What::Place("9"),
+        when: When::OnTheDesktop,
+        bound: &[(KEYS, SUPER, "9")],
+    },
+    Job {
+        slug: "place-ten",
+        what: What::Place("10"),
+        when: When::OnTheDesktop,
+        bound: &[(KEYS, SUPER, "0")],
+    },
+    Job {
         slug: "carry-next",
         what: What::Carry(1),
         when: When::OnTheDesktop,
@@ -474,6 +550,66 @@ pub const JOBS: [Job; 56] = [
         what: What::Carry(-1),
         when: When::OnTheDesktop,
         bound: &[(PAD, L2, "l1"), (KEYS, SUPER_SHIFT, "left"), (KEYS, SUPER_SHIFT, "h")],
+    },
+    Job {
+        slug: "carry-to-one",
+        what: What::CarryTo("1"),
+        when: When::OnTheDesktop,
+        bound: &[(KEYS, SUPER_SHIFT, "1")],
+    },
+    Job {
+        slug: "carry-to-two",
+        what: What::CarryTo("2"),
+        when: When::OnTheDesktop,
+        bound: &[(KEYS, SUPER_SHIFT, "2")],
+    },
+    Job {
+        slug: "carry-to-three",
+        what: What::CarryTo("3"),
+        when: When::OnTheDesktop,
+        bound: &[(KEYS, SUPER_SHIFT, "3")],
+    },
+    Job {
+        slug: "carry-to-four",
+        what: What::CarryTo("4"),
+        when: When::OnTheDesktop,
+        bound: &[(KEYS, SUPER_SHIFT, "4")],
+    },
+    Job {
+        slug: "carry-to-five",
+        what: What::CarryTo("5"),
+        when: When::OnTheDesktop,
+        bound: &[(KEYS, SUPER_SHIFT, "5")],
+    },
+    Job {
+        slug: "carry-to-six",
+        what: What::CarryTo("6"),
+        when: When::OnTheDesktop,
+        bound: &[(KEYS, SUPER_SHIFT, "6")],
+    },
+    Job {
+        slug: "carry-to-seven",
+        what: What::CarryTo("7"),
+        when: When::OnTheDesktop,
+        bound: &[(KEYS, SUPER_SHIFT, "7")],
+    },
+    Job {
+        slug: "carry-to-eight",
+        what: What::CarryTo("8"),
+        when: When::OnTheDesktop,
+        bound: &[(KEYS, SUPER_SHIFT, "8")],
+    },
+    Job {
+        slug: "carry-to-nine",
+        what: What::CarryTo("9"),
+        when: When::OnTheDesktop,
+        bound: &[(KEYS, SUPER_SHIFT, "9")],
+    },
+    Job {
+        slug: "carry-to-ten",
+        what: What::CarryTo("10"),
+        when: When::OnTheDesktop,
+        bound: &[(KEYS, SUPER_SHIFT, "0")],
     },
     Job {
         slug: "home-up",
@@ -591,8 +727,28 @@ impl What {
             What::Focus(_) => "the window below",
             What::Workspace(-1) => "the place before this one",
             What::Workspace(_) => "the place after this one",
+            What::Place("1") => "the first place",
+            What::Place("2") => "the second place",
+            What::Place("3") => "the third place",
+            What::Place("4") => "the fourth place",
+            What::Place("5") => "the fifth place",
+            What::Place("6") => "the sixth place",
+            What::Place("7") => "the seventh place",
+            What::Place("8") => "the eighth place",
+            What::Place("9") => "the ninth place",
+            What::Place(_) => "the tenth place",
             What::Carry(-1) => "carry the window to the place before",
             What::Carry(_) => "carry the window to the place after",
+            What::CarryTo("1") => "carry the window to the first place",
+            What::CarryTo("2") => "carry the window to the second place",
+            What::CarryTo("3") => "carry the window to the third place",
+            What::CarryTo("4") => "carry the window to the fourth place",
+            What::CarryTo("5") => "carry the window to the fifth place",
+            What::CarryTo("6") => "carry the window to the sixth place",
+            What::CarryTo("7") => "carry the window to the seventh place",
+            What::CarryTo("8") => "carry the window to the eighth place",
+            What::CarryTo("9") => "carry the window to the ninth place",
+            What::CarryTo(_) => "carry the window to the tenth place",
             What::Click => "click",
             What::MoreOptions => "right click, more options",
             What::Back => "back, and out of what is up",
@@ -704,7 +860,9 @@ impl What {
                 Ok(Some(focus))
             }
             What::Workspace(step) => moved(step, Carry::Nothing),
+            What::Place(number) => at(number, Carry::Nothing),
             What::Carry(step) => moved(step, Carry::Window),
+            What::CarryTo(number) => at(number, Carry::Window),
         }
     }
 }
@@ -741,6 +899,12 @@ fn moved(step: i32, carrying: Carry) -> Result<Option<Doing>, Never> {
     let Ok(moved) = Doing::workspace(&format!("{step:+}"), carrying);
 
     Ok(Some(moved))
+}
+
+fn at(number: &str, carrying: Carry) -> Result<Option<Doing>, Never> {
+    let Ok(gone) = Doing::workspace(number, carrying);
+
+    Ok(Some(gone))
 }
 
 pub fn sends() -> Result<Vec<KeyCode>, Never> {
@@ -1066,6 +1230,25 @@ mod tests {
         assert_eq!(typed(&table, "i", &["super"]), Some(What::Settings));
         assert_eq!(typed(&table, "i", &[]), None, "the modifier is part of the place");
         assert_eq!(what(&table, "i", &["super"], Mode::Desktop), None);
+    }
+
+    #[test]
+    fn a_digit_names_a_place_by_its_number_and_zero_is_the_tenth() {
+        let table = ours();
+
+        assert_eq!(typed(&table, "3", &["super"]), Some(What::Place("3")));
+        assert_eq!(typed(&table, "0", &["super"]), Some(What::Place("10")));
+        assert_eq!(what(&table, "3", &["super"], Mode::Desktop), None, "a pad has no digits");
+
+        let Ok(third) = Doing::workspace("3", Carry::Nothing);
+
+        assert_eq!(What::Place("3").does(Press::Down), Ok(Some(third)));
+        assert_eq!(ok(What::Place("10").says()), "the tenth place");
+
+        let Ok(carried) = Doing::workspace("3", Carry::Window);
+
+        assert_eq!(typed(&table, "3", &["super", "shift"]), Some(What::CarryTo("3")));
+        assert_eq!(What::CarryTo("3").does(Press::Down), Ok(Some(carried)));
     }
 
     #[test]

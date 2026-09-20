@@ -100,10 +100,23 @@ pub enum Trigger {
     Loose,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+fn pulled_by(value: i32) -> Result<Trigger, Never> {
+    Ok(match value == 1 {
+        true => Trigger::Held,
+        false => Trigger::Loose,
+    })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Pulled {
-    pub l2: bool,
-    pub r2: bool,
+    pub l2: Trigger,
+    pub r2: Trigger,
+}
+
+impl Default for Pulled {
+    fn default() -> Self {
+        Pulled { l2: Trigger::Loose, r2: Trigger::Loose }
+    }
 }
 
 impl Pulled {
@@ -111,13 +124,13 @@ impl Pulled {
         let mut said = Vec::new();
 
         match self.l2 {
-            true => said.push("l2"),
-            false => {},
+            Trigger::Held => said.push("l2"),
+            Trigger::Loose => {},
         }
 
         match self.r2 {
-            true => said.push("r2"),
-            false => {},
+            Trigger::Held => said.push("r2"),
+            Trigger::Loose => {},
         }
 
         Ok(said)
@@ -300,9 +313,11 @@ impl Controller {
     }
 
     fn on_trigger_button(&mut self, code: u16, value: i32) -> Result<Vec<Doing>, Never> {
+        let Ok(pulled) = pulled_by(value);
+
         match (code == KeyCode::BTN_TL2.0, code == KeyCode::BTN_TR2.0) {
-            (true, _) => self.pulled.l2 = value == 1,
-            (false, true) => self.pulled.r2 = value == 1,
+            (true, _) => self.pulled.l2 = pulled,
+            (false, true) => self.pulled.r2 = pulled,
             (false, false) => {},
         }
 
@@ -313,11 +328,10 @@ impl Controller {
         match code == AbsoluteAxisCode::ABS_Z.0 || code == AbsoluteAxisCode::ABS_RZ.0 {
             true => {
                 let Ok(pulled) = self.pulled(value);
-                let held = pulled == Trigger::Held;
 
                 match code == AbsoluteAxisCode::ABS_Z.0 {
-                    true => self.pulled.l2 = held,
-                    false => self.pulled.r2 = held,
+                    true => self.pulled.l2 = pulled,
+                    false => self.pulled.r2 = pulled,
                 }
 
                 return Ok(Vec::new());
@@ -759,7 +773,7 @@ mod tests {
         let mut held = controller();
         assert_eq!(pressed(&mut held, From::Pad, KeyCode::BTN_TR), [ok(Doing::workspace("+1", Carry::Nothing))]);
         ok(held.saw(From::Pad, EventType::KEY, KeyCode::BTN_TL2.0, 1, 1000.0));
-        assert!(held.pulled.l2);
+        assert_eq!(held.pulled.l2, Trigger::Held);
         assert_eq!(pressed(&mut held, From::Pad, KeyCode::BTN_TR), [ok(Doing::workspace("+1", Carry::Window))]);
     }
 
@@ -767,11 +781,11 @@ mod tests {
     fn pulling_l2_past_halfway_is_holding_it() {
         let mut held = controller();
         ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_Z.0, 400, 1000.0));
-        assert!(!held.pulled.l2, "not far enough");
+        assert_eq!(held.pulled.l2, Trigger::Loose, "not far enough");
         ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_Z.0, 900, 1000.0));
-        assert!(held.pulled.l2);
+        assert_eq!(held.pulled.l2, Trigger::Held);
         ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_RZ.0, 900, 1000.0));
-        assert!(held.pulled.r2);
+        assert_eq!(held.pulled.r2, Trigger::Held);
     }
 
     #[test]

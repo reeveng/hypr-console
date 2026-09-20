@@ -99,17 +99,17 @@ fn moving(root: &Path, renaming: Renaming<'_>) -> Result<Vec<Moved>, Never> {
     let mut done: BTreeSet<PathBuf> = BTreeSet::new();
 
     for at in files {
-        for held in at.ancestors() {
+        'over_ancestors: for held in at.ancestors() {
             let Ok(landing) = renamed(held, renaming);
 
             let landing = match landing {
                 Some(landing) => landing,
-                None => continue,
+                None => continue 'over_ancestors,
             };
 
             match done.insert(held.to_path_buf()) {
                 true => {},
-                false => continue,
+                false => continue 'over_ancestors,
             }
 
             let Ok(went) = git_mv(root, held, &landing);

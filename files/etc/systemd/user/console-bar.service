@@ -4,7 +4,7 @@ PartOf=console.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/waybar
+ExecStart=/usr/local/bin/console-bar
 ExecStopPost=-/usr/local/bin/console-fell %n
 Restart=always
 RestartSec=2

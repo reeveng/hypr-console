@@ -37,6 +37,10 @@ console-music-player.workspace = true
 # The strip under the bar reads how far along the long thing is out of one
 # file, and the check fills it rather than spelling the format a second time.
 console-notifications.workspace = true
+# The bar's own arithmetic: how deep it is and how thin the strip under it is,
+# which is where the rows a check reads back off the screen come from.
+console-status-bar.workspace = true
+console-screen.workspace = true
 serde_json = "1"
 
 console-program-lifetime.workspace = true

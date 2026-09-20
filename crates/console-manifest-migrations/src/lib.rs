@@ -231,8 +231,8 @@ mod tests {
 
     #[test]
     fn a_path_under_a_home_is_the_same_file_whoever_the_home_belongs_to() {
-        let Ok(theirs) = holds(Section("[files]"), "/home/ada/.config/waybar/style.css");
-        let Ok(whoevers) = holds(Section("[files]"), "/home/@user@/.config/waybar/style.css");
+        let Ok(theirs) = holds(Section("[files]"), "/home/ada/.config/console/palette.css");
+        let Ok(whoevers) = holds(Section("[files]"), "/home/@user@/.config/console/palette.css");
 
         assert_eq!(theirs, whoevers);
     }

@@ -15,6 +15,14 @@
 //! Off unless asked, so this costs one `env::var` per stretch on the ordinary
 //! run and nothing else. `CONSOLE_TIMINGS=1 console apply` is the whole
 //! interface.
+//!
+//! `to` wraps the work in a closure and is what a caller with nothing to hand
+//! in wants. `started` and `ended` are the same thing in two halves, for the
+//! one caller that cannot use a closure: `Going::during` builds a `Moving` out
+//! of a borrow of itself and hands it to the work, and a closure wrapped round
+//! that would be a closure holding the permission to write it, which is what
+//! EXPLICIT047 is about. The halves are three lines apart in one function body,
+//! and a `None` from `started` is an `ended` that prints nothing.
 
 use std::time::Instant;
 
@@ -51,15 +59,47 @@ pub fn to<T>(doing: &str, work: impl FnOnce() -> T) -> Result<T, Never> {
 }
 
 pub fn timing<T>(asked: Asked, doing: &str, work: impl FnOnce() -> T) -> Result<T, Never> {
+    let Ok(started) = starting(asked);
+    let done = work();
+    let Ok(()) = ended(doing, started);
+
+    Ok(done)
+}
+
+pub fn started() -> Result<Option<Instant>, Never> {
+    let Ok(asked) = asked();
+
+    starting(asked)
+}
+
+#[cfg_attr(
+    dylint_lib = "explicit039_no_reading_the_clock",
+    allow(
+        explicit039_no_reading_the_clock,
+        reason = "the clock is the subject here: this module is what answers where the time went, and an apply is the one caller"
+    )
+)]
+fn starting(asked: Asked) -> Result<Option<Instant>, Never> {
     Ok(match asked {
-        Asked::No => work(),
-        Asked::Yes => {
-            let started = Instant::now();
-            let done = work();
-            eprintln!("  {doing:COLUMN$} {:>10.1?}", started.elapsed());
-            done
-        },
+        Asked::No => None,
+        Asked::Yes => Some(Instant::now()),
     })
+}
+
+#[cfg_attr(
+    dylint_lib = "explicit039_no_reading_the_clock",
+    allow(
+        explicit039_no_reading_the_clock,
+        reason = "the other end of `started`, and an elapsed is the thing being printed"
+    )
+)]
+pub fn ended(doing: &str, started: Option<Instant>) -> Result<(), Never> {
+    match started {
+        Some(started) => eprintln!("  {doing:COLUMN$} {:>10.1?}", started.elapsed()),
+        None => {},
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

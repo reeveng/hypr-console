@@ -41,11 +41,13 @@ pub const HELD_SECONDS: f64 = 1.0;
 
 pub const RUNS: [&str; 1] = ["/usr/local/bin/session-desktop"];
 
-#[derive(Debug, Default, Clone, PartialEq)]
-pub struct Returning {
-    since: Option<f64>,
-    shared: bool,
-    left: bool,
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub enum Returning {
+    #[default]
+    Loose,
+    Held(f64),
+    Shared,
+    Left,
 }
 
 impl Returning {
@@ -56,9 +58,14 @@ impl Returning {
         }
 
         match (code == BUTTON.0, value) {
-            (true, 1) => *self = Returning { since: Some(now), ..Returning::default() },
-            (true, 0) => *self = Returning::default(),
-            (false, 1) => self.shared = self.since.is_some(),
+            (true, 1) => *self = Returning::Held(now),
+            (true, 0) => *self = Returning::Loose,
+            (false, 1) => {
+                match self {
+                    Returning::Held(_) => *self = Returning::Shared,
+                    Returning::Loose | Returning::Shared | Returning::Left => {},
+                }
+            }
             _ => (),
         }
 
@@ -66,15 +73,15 @@ impl Returning {
     }
 
     pub fn gone(&mut self) -> Result<(), Never> {
-        *self = Returning::default();
+        *self = Returning::Loose;
 
         Ok(())
     }
 
     pub fn turn(&mut self, now: f64) -> Result<Option<Doing>, Never> {
-        let since = match self.since.filter(|_| !self.shared && !self.left) {
-            Some(since) => since,
-            None => return Ok(None),
+        let since = match self {
+            Returning::Held(since) => *since,
+            Returning::Loose | Returning::Shared | Returning::Left => return Ok(None),
         };
 
         match now - since < HELD_SECONDS {
@@ -82,7 +89,7 @@ impl Returning {
             false => {},
         }
 
-        self.left = true;
+        *self = Returning::Left;
 
         let Ok(runs) = Doing::run(&RUNS);
 

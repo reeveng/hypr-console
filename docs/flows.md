@@ -18,7 +18,7 @@ on that.
 
 What somebody holding the device can expect, always, wherever a flow has
 taken them. The flows further down are proofs of these; a promise nothing
-walks through is not a promise, it is a hope, and it belongs in `todos.md`
+walks through is not a promise, it is a hope, and it belongs in the backlog
 as owed until something holds it.
 
 **B always leaves.** One step at a time, from anywhere, and pressed enough
@@ -271,5 +271,5 @@ through -- and each flow is a test file beside it, run at the fast stage by
 `scenarios/` still play through the real profiles and assert that they parse
 and press; the checks still answer their single questions at all three
 stages. What stands between this page and the rest of the flows is written
-in `todos.md`, each line with what would settle it, so this page describes
+in the backlog, each line with what would settle it, so this page describes
 the destination and owes nothing to the present tense.

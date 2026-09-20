@@ -204,6 +204,39 @@ experiment, it refuses the whole add-on -- and a page would lose its labels
 along with everything else. `console apply` writes `user.js` and packs the
 add-on in that order, so one restart has both.
 
+## A bookmark is a thing the machine opens
+
+The pages somebody keeps were behind the browser: open it, reach the address
+bar or a list drawn at the top of the screen, and take one. That is three
+surfaces to arrive somewhere the home screen arrives in one press, and the home
+screen already holds a handful of things by name.
+
+So a bookmark is written out as a desktop entry, and stops being a special kind
+of thing. `console-applications` finds it with everything else, the menu lists
+it, **Y** on the row puts it on the wallpaper or takes it off, and **A** opens
+it -- which is every word of what the menu and the home screen already do,
+with nothing in either of them knowing a bookmark from an application. Which
+bookmarks are on the home screen is the same question as which applications
+are, asked in the same place, and the answer is not all of them.
+
+The add-on is what says which bookmarks there are. Walking the tree and
+watching it change is ordinary and is in `browser.js`; the picture a page has
+and the program that writes the entries are not, and are in `around.js` beside
+the keyboard, for the same reason. What is handed over is one line per
+bookmark -- the browser's own id for it, the address, the title, and the
+favicon as it is kept -- and `crates/console-bookmarks` is what the handing
+over means. The id is what makes a deleted bookmark disappear: an entry under
+the mark that the browser did not name this time is one that has gone.
+
+An import fires an event per bookmark, so the telling is one run at a time with
+one more after it if anything changed while it ran, rather than a program
+started a thousand times.
+
+The favicon is asked for through `page-icon:`, which is the browser's own store
+and is why this is in the privileged half. A bookmark whose picture will not
+come is a row with no picture, which is what an application whose theme has
+none already looks like.
+
 ## How it gets onto the machine
 
 `console apply` packs it and then tells the browser about it, in that order.

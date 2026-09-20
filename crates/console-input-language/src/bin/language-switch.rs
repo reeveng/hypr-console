@@ -20,6 +20,21 @@
 //! the key again. What each keeps is still its own: they are stepped from
 //! wherever each of them was, so two boards on different alphabets stay a step
 //! apart.
+//!
+//! ## The keyboard on the screen comes along
+//!
+//! It is the one board that cannot be stepped from here -- it wears an
+//! arrangement of its own rather than an xkb layout, and nothing in this
+//! workspace may link it -- so what it is left wearing is written down for it,
+//! under `wearing::SCREEN`, whenever the board the compositor calls the main
+//! one moves. The keyboard reads that and follows.
+//!
+//! One way round, and only from the leading board. Somebody typing Thai on the
+//! keys in front of them and then reaching for the screen expects the screen to
+//! be typing Thai: the two boards are one pair of hands, and a keyboard that
+//! came up in the alphabet before the last one somebody chose is the confusing
+//! half of keeping a habit per board. What a second board is wearing is still
+//! its own, because only one of them can be the one being typed on.
 
 use console_core_walking::Step;
 use console_input_alphabets::wearing;
@@ -88,6 +103,16 @@ fn main() -> std::process::ExitCode {
         match wearing::remember(&home, &keyboard.name, wants) {
             Ok(()) => {},
             Err(fault) => eprintln!("language-switch: {fault}"),
+        }
+
+        match keyboard.leading {
+            console_compositor::Leading::No => {},
+            console_compositor::Leading::Yes => {
+                match wearing::remember(&home, wearing::SCREEN, wants) {
+                    Ok(()) => {},
+                    Err(fault) => eprintln!("language-switch: {fault}"),
+                }
+            }
         }
 
         println!("{} is typing {}", keyboard.name, wants.says);

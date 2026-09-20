@@ -62,11 +62,65 @@ pub fn split(said: &str) -> Result<Option<Vec<String>>, Never> {
     Ok(Some(words))
 }
 
+const RESERVED: &str = " \t\"'\\<>~|&;$*?#()`%";
+
+pub fn joined(argv: &[String]) -> Result<String, Never> {
+    let mut said = String::new();
+
+    for word in argv {
+        match said.is_empty() {
+            true => {},
+            false => said.push(' '),
+        }
+
+        let word = quoted(word)?;
+
+        said.push_str(&word);
+    }
+
+    Ok(said)
+}
+
+fn quoted(word: &str) -> Result<String, Never> {
+    let plain = !word.is_empty() && !word.chars().any(|letter| RESERVED.contains(letter));
+
+    match plain {
+        true => return Ok(word.to_string()),
+        false => {},
+    }
+
+    let mut said = String::from("\"");
+
+    for letter in word.chars() {
+        match letter {
+            '"' | '\\' | '$' | '`' => said.push('\\'),
+            '%' => said.push('%'),
+            _ => {},
+        }
+
+        said.push(letter);
+    }
+
+    said.push('"');
+
+    Ok(said)
+}
+
 pub fn without_field_codes(command: &str) -> Result<String, Never> {
     let mut said = String::new();
     let mut letters = command.chars().peekable();
 
     while let Some(letter) = letters.next() {
+        match letter == '%' && letters.peek() == Some(&'%') {
+            true => {
+                letters.next();
+                said.push('%');
+
+                continue;
+            }
+            false => {},
+        }
+
         match letter == '%'
             && letters.peek().is_some_and(|next| "cdDfFikmnNuUvm".contains(*next))
         {
@@ -129,5 +183,40 @@ mod tests {
     #[test]
     fn something_that_is_not_a_field_code_is_left_where_it_is() {
         assert_eq!(ok(without_field_codes("thing --at 50%")), "thing --at 50%");
+    }
+
+    #[test]
+    fn a_doubled_percent_is_the_one_a_command_meant() {
+        assert_eq!(ok(without_field_codes("open https://x/a%%20b")), "open https://x/a%20b");
+        assert_eq!(ok(without_field_codes("open %%D0%%BF")), "open %D0%BF");
+    }
+
+    #[test]
+    fn a_word_with_nothing_in_it_to_hide_is_written_as_it_is() {
+        assert_eq!(ok(joined(&["xdg-open".into(), "https://example.com/a".into()])), "xdg-open https://example.com/a");
+    }
+
+    #[test]
+    fn what_is_joined_is_what_is_split_back_out() {
+        let argv = vec![
+            "xdg-open".to_string(),
+            "https://example.com/a b?q=1&r=2#top".to_string(),
+            "a \"quoted\" $thing".to_string(),
+        ];
+        let Ok(said) = joined(&argv);
+        let Ok(read) = without_field_codes(&said);
+
+        assert_eq!(ok(split(&read)), Some(argv));
+    }
+
+    #[test]
+    fn a_percent_in_an_address_survives_the_reading() {
+        let argv = vec!["xdg-open".to_string(), "https://example.com/%D0%BF".to_string()];
+        let Ok(said) = joined(&argv);
+
+        assert!(said.contains("%%D0%%BF"), "{said}");
+        let Ok(read) = without_field_codes(&said);
+
+        assert_eq!(ok(split(&read)), Some(argv));
     }
 }

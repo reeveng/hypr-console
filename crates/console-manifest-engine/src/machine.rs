@@ -84,7 +84,11 @@ pub fn run_seen(argv: &[&str]) -> Result<Ran, Never> {
     })
 }
 
-pub fn run_watched(argv: &[&str], heard: &mut dyn FnMut(&str)) -> Result<Ran, Never> {
+pub fn run_watched<M>(
+    argv: &[&str],
+    handed: &mut M,
+    heard: impl Fn(&mut M, &str),
+) -> Result<Ran, Never> {
     use std::io::{BufRead, BufReader};
 
     let (program, rest) = match argv.split_first() {
@@ -110,7 +114,7 @@ pub fn run_watched(argv: &[&str], heard: &mut dyn FnMut(&str)) -> Result<Ran, Ne
     match reading {
         Some(said) => {
             for line in BufReader::new(said).lines().map_while(Result::ok) {
-                heard(&line);
+                heard(handed, &line);
             }
         }
         None => {},

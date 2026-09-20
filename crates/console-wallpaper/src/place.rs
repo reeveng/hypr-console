@@ -103,10 +103,10 @@ fn freshen_in(kept: &Path, picture: &Path) -> Result<(), Never> {
     for version in versions {
         let every = listed(&version)?;
 
-        for frames in every {
+        'over_frames: for frames in every {
             let named = match frames.file_name() {
                 Some(named) => named.to_string_lossy().to_string(),
-                None => continue,
+                None => continue 'over_frames,
             };
             let stale = written(&frames).is_ok_and(|kept| kept < pressed);
 
@@ -168,29 +168,29 @@ pub fn every() -> Result<Vec<String>, Never> {
             }
         };
 
-        for entry in found {
+        'over_entries: for entry in found {
             let path = match entry {
                 Ok(entry) => entry.path(),
                 Err(fault) => {
                     eprintln!("console-wallpaper: {}: reading what is in it: {fault}", at.display());
 
-                    continue;
+                    continue 'over_entries;
                 }
             };
 
             match path.extension().is_some_and(|kind| kind == "webp") {
                 true => {},
-                false => continue,
+                false => continue 'over_entries,
             }
 
             let name = match path.file_name().and_then(|name| name.to_str()) {
                 Some(name) => name,
-                None => continue,
+                None => continue 'over_entries,
             };
 
             let name = match name.strip_suffix(".webp") {
                 Some(name) => name,
-                None => continue,
+                None => continue 'over_entries,
             };
 
             match name.ends_with(".still") {

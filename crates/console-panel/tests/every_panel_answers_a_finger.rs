@@ -75,6 +75,11 @@ fn the_downloads() {
 }
 
 #[test]
+fn the_calendar() {
+    held_to_the_contract("calendar-panel", &[]);
+}
+
+#[test]
 fn the_guide() {
     held_to_the_contract("console-buttons", &["--menu"]);
 }

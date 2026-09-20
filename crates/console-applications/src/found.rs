@@ -184,24 +184,24 @@ fn steam_icon(appid: &str) -> Result<Option<String>, Never> {
             reading.filter_map(Result::ok).map(|entry| entry.path()).collect();
         paths.sort();
 
-        for path in paths {
+        'over_pictures: for path in paths {
             let suffix = path.extension().map(|kind| kind.to_string_lossy().to_lowercase());
 
             match matches!(suffix.as_deref(), Some("jpg" | "png")) {
                 true => {},
-                false => continue,
+                false => continue 'over_pictures,
             }
 
             let head = match read_head(&path) {
                 Ok(head) => head,
-                Err(_fault) => continue,
+                Err(_fault) => continue 'over_pictures,
             };
 
             let size = image::size(&head)?;
 
             let (width, height) = match size {
                 Some((width, height)) => (width, height),
-                None => continue,
+                None => continue 'over_pictures,
             };
 
             match width == height {
@@ -211,7 +211,7 @@ fn steam_icon(appid: &str) -> Result<Option<String>, Never> {
 
             let name = match path.file_name() {
                 Some(name) => name.to_string_lossy().to_string(),
-                None => continue,
+                None => continue 'over_pictures,
             };
 
             fallbacks.entry(name).or_insert_with(|| path.to_string_lossy().to_string());

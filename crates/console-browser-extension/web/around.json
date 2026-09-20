@@ -1,7 +1,7 @@
 [
   {
     "namespace": "around",
-    "description": "The browser around the page: the two places chrome keeps that a page cannot reach.",
+    "description": "The browser around the page: what chrome keeps, and the programs of this desktop's that a page cannot reach.",
     "functions": [
       {
         "name": "address",
@@ -16,6 +16,26 @@
         "async": true,
         "description": "Open the browser's own menu.",
         "parameters": []
+      },
+      {
+        "name": "bookmarks",
+        "type": "function",
+        "async": true,
+        "description": "Hand the bookmarks, with the picture each page has, to the program that writes them where the menu looks.",
+        "parameters": [
+          {
+            "name": "every",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string" },
+                "url": { "type": "string" },
+                "title": { "type": "string" }
+              }
+            }
+          }
+        ]
       },
       {
         "name": "keyboard",

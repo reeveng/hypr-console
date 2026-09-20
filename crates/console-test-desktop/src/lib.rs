@@ -132,6 +132,12 @@ pub fn stage() -> Result<PathBuf, Never> {
     Ok(stages.join(named))
 }
 
+pub fn scope_of(stage: &Path) -> Result<Option<String>, Never> {
+    Ok(stage
+        .file_name()
+        .map(|named| format!("console-desktop-{}", named.to_string_lossy())))
+}
+
 pub fn runtime() -> Result<PathBuf, Never> {
     let told = console_core_places::runtime()?;
 

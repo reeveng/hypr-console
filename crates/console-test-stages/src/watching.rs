@@ -44,11 +44,10 @@
 //! These are two readers with two different costs, so they are fed two
 //! different ways.
 //!
-//! The strip is on the device, at the far end of an ssh, and it is painted in
-//! twentieths -- waybar has no progress widget, so `bar-updating` sends one of
-//! a fixed set of classes and the stylesheet fills a gradient to it. Writing it
-//! more often than it can be painted is a handheld woken for nothing. So the
-//! write rides in front of a command that was being sent anyway, and only when
+//! The strip is on the device, at the far end of an ssh, and it is a row of
+//! the bar's own surface filled to a share of its width. Writing it more often
+//! than it can be painted is a handheld woken for nothing. So the write rides
+//! in front of a command that was being sent anyway, and only when
 //! the number it would write has actually changed: a check that talks to the
 //! device forty times does not wake the bar forty times, and a check that has
 //! stopped talking to it stops moving the strip, which is the truth about it.
@@ -93,6 +92,22 @@
 //!
 //! The card at the end stays on the screen when something failed. A run that
 //! ends badly while somebody is making tea is the whole reason to say it twice.
+//!
+//! The strip is drawn from two places and wiped by whoever is about to print,
+//! and the end of a run is where that showed. The thread here redraws it on a
+//! clock, and so does every command sent to the device: `Device::ssh` ticks the
+//! strip so a check that spends a minute in one ssh still moves. `ending` sets
+//! the run down, stops the thread and wipes -- and then the run puts the device
+//! back, which is half a dozen more ssh commands, each of which drew the strip
+//! again on the line that had just been cleared. What a person saw was the
+//! putting-back sentence welded to the right-hand end of a full bar, and the
+//! bar again under it, on a run that had already finished.
+//!
+//! So a draw asked for after the run has ended is not drawn. It is asked here
+//! rather than at the two call sites because the tick is the device's and the
+//! device does not know the run is over. Every line the run prints goes through
+//! `quietly`, which wipes before it prints: a `println!` beside the strip is a
+//! line drawn on top of it.
 
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -101,7 +116,7 @@ use console_core_never::Never;
 use console_core_number_conversion::toward_zero_u16;
 use console_how_far::Bar;
 use console_notifications::saying::{Notice, Said};
-use console_notifications::updating::{self, Far, WAKING};
+use console_notifications::updating::{self, Far};
 use console_waiting::{Patience, Seen, until};
 
 use crate::device::{Device, quoted};
@@ -126,8 +141,8 @@ pub fn writing(far: &Far) -> Result<String, Never> {
 }
 
 pub fn showing(device: &mut Device, ahead: &Ahead, doing: &str) -> Result<(), Never> {
-    let Ok(percent) = ahead.percent();
-    let Ok(said) = writing(&Far { percent, doing: doing.to_string() });
+    let Ok(thousandths) = ahead.far();
+    let Ok(said) = writing(&Far { thousandths, doing: doing.to_string() });
     let Ok(_) = device.ssh(&said);
 
     Ok(())
@@ -211,7 +226,7 @@ impl Watching {
     }
 
     pub fn on(&mut self, ahead: &Ahead, doing: &str) -> Result<(), Never> {
-        let Ok(at) = ahead.percent();
+        let Ok(at) = ahead.far();
 
         self.ahead = Some(ahead.clone());
         self.started = Instant::now();
@@ -228,6 +243,11 @@ impl Watching {
     }
 
     pub fn drawn(&mut self) -> Result<(), Never> {
+        match self.ended {
+            Ended::Yes => return Ok(()),
+            Ended::No => {},
+        }
+
         let ahead = match &self.ahead {
             Some(ahead) => ahead,
             None => return Ok(()),
@@ -258,7 +278,7 @@ impl Watching {
 
         self.said = far;
 
-        let Ok(said) = writing(&Far { percent: far, doing: self.doing.clone() });
+        let Ok(said) = writing(&Far { thousandths: far, doing: self.doing.clone() });
 
         Ok(format!("; {said}"))
     }
@@ -288,10 +308,18 @@ pub fn on(watching: &Mutex<Watching>, ahead: &Ahead, doing: &str) -> Result<(), 
 }
 
 pub fn quietly(watching: &Mutex<Watching>, work: impl FnOnce()) -> Result<(), Never> {
+    quietly_handed(watching, &mut (), |_nothing| work())
+}
+
+pub fn quietly_handed<M>(
+    watching: &Mutex<Watching>,
+    handed: &mut M,
+    work: impl FnOnce(&mut M),
+) -> Result<(), Never> {
     let Ok(mut held) = held(watching);
     let Ok(()) = held.quiet();
 
-    work();
+    work(handed);
 
     Ok(())
 }
@@ -332,7 +360,7 @@ pub fn done_showing(device: &mut Device) -> Result<(), Never> {
 }
 
 fn waking() -> Result<String, Never> {
-    Ok(format!("pkill {WAKING} -x waybar || true"))
+    Ok(format!("pkill {} -x {} || true", console_onscreen::WAKING, console_onscreen::BAR))
 }
 
 fn holding_of(at: &str) -> Result<String, Never> {
@@ -489,11 +517,11 @@ mod tests {
 
     #[test]
     fn what_is_written_is_the_file_the_strip_reads_and_the_number_it_reads() {
-        let Ok(said) = writing(&Far { percent: 40, doing: "120-a-page".to_string() });
+        let Ok(said) = writing(&Far { thousandths: 400, doing: "120-a-page".to_string() });
 
         assert!(said.contains("/run/console/updating"), "{said}");
-        assert!(said.contains("40 120-a-page"), "{said}");
-        assert!(said.contains("waybar"), "the bar was not woken: {said}");
+        assert!(said.contains("400 120-a-page"), "{said}");
+        assert!(said.contains(console_onscreen::BAR), "the bar was not woken: {said}");
     }
 
     #[test]
@@ -578,8 +606,8 @@ mod tests {
     #[test]
     fn the_last_check_of_a_run_cannot_carry_the_strip_past_the_end() {
         let Ok(reached) = reached(Reaching {
-            at: 96,
-            span: 10,
+            at: 960,
+            span: 100,
             gone: Duration::from_secs(600),
             expecting: Duration::from_secs(1),
         });

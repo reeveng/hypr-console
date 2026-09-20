@@ -36,7 +36,7 @@
 use console_core_never::Never;
 use console_settings::hours;
 use console_settings::rows::configuration;
-use console_test_stages::checking::{Body, Check, Done, cannot, failed, happened};
+use console_test_stages::checking::{Body, Check, Done, cannot, failed, happened, happened_handed};
 use console_test_stages::device::{Device, PATIENCE, Seen, Waited};
 
 pub const HOUR: Check = Check {
@@ -159,7 +159,7 @@ fn there(stage: &mut Device) -> Done {
     let Ok(()) = console_put_away(stage);
     let Ok(()) = put_back(stage, &was);
 
-    happened(moved, || {
+    happened_handed(moved, stage, |stage| {
         let Ok(now) = zone(stage);
 
         format!(

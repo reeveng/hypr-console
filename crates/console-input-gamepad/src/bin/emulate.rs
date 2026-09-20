@@ -135,7 +135,11 @@ fn run() -> Result<ExitCode, Unemulated> {
     let mut go = LegionGo::new(profiles, devices, Passing, &asked.profile)?;
 
     match &asked.doing {
-        Doing::Press(buttons) => buttons.iter().try_for_each(|button| go.press(button))?,
+        Doing::Press(buttons) => {
+            for button in buttons {
+                go.press(button)?;
+            }
+        }
         Doing::Run(scenario) => {
             let text = std::fs::read_to_string(scenario)
                 .map_err(|fault| Unemulated::Unreadable(scenario.clone(), fault))?;
@@ -168,7 +172,7 @@ fn read(args: Vec<String>) -> Result<Option<Asked>, Unemulated> {
             "--root" => {
                 let path = waiting.next().ok_or(Unemulated::NoRootPath)?;
 
-                root = path.into();
+                root = std::path::PathBuf::from(path);
             }
             _ => rest.push(word),
         }
@@ -190,7 +194,7 @@ fn read(args: Vec<String>) -> Result<Option<Asked>, Unemulated> {
         Some("run") => {
             let scenario = rest.get(1).ok_or(Unemulated::NoScenario)?;
 
-            Doing::Run(scenario.into())
+            Doing::Run(std::path::PathBuf::from(scenario))
         }
         Some(other) => return Err(Unemulated::NoSuchCommand(other.to_string())),
     };
@@ -212,8 +216,13 @@ fn interactive<S: console_input_gamepad::devices::Sink>(
             "help" | "?" => println!("{VERBS}"),
             "quit" | "exit" => break,
             said => {
-                let done = script::Step::read(said)
-                    .and_then(|step| step.map_or(Ok(()), |step| step.done(go)));
+                let read = script::Step::read(said);
+
+                let done = match read {
+                    Ok(Some(step)) => step.done(go),
+                    Ok(None) => Ok(()),
+                    Err(fault) => Err(fault),
+                };
 
                 match done {
                     Ok(()) => {},
@@ -233,12 +242,12 @@ fn what(
     for spoken in buttons {
         println!("{spoken}");
 
-        for (name, profile) in profiles {
+        'over_profiles: for (name, profile) in profiles {
             let mappings = match profile.for_button(spoken) {
                 Ok(mappings) => mappings,
                 Err(fault) => {
                     println!("  {fault}");
-                    break;
+                    break 'over_profiles;
                 }
             };
 
@@ -249,7 +258,7 @@ fn what(
                         false => "nothing",
                     };
                     println!("  {name:<9} {does}");
-                    continue;
+                    continue 'over_profiles;
                 }
                 false => {},
             }

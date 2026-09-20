@@ -1,15 +1,31 @@
 //! Every file the desktop reads, in one place, pointing at each other.
+//!
+//! The copy is shared rather than made. A stage is every program `[build]`
+//! names, and in a debug build that is gigabytes of unstripped binary; written
+//! out with `std::fs::copy` it was gigabytes off the disk and back onto it for
+//! every session, and a laptop with a thousand of them left on it had thirty-six
+//! gigabytes of stages nobody had looked at. `FICLONE` is the same file with the
+//! same path and its own inode, sharing the extents it came from until something
+//! writes, so a stage costs what its names cost and the writing that follows
+//! cannot reach `target/`. A filesystem that cannot share extents says so and
+//! the bytes are copied as before.
+//!
+//! Reading is bounded the same way. What decides a staged file's mode is its
+//! first four bytes, and asking for them used to read the whole file into memory
+//! first -- every binary in the stage, one at a time, to look at four bytes.
 
 
 use console_core_ini_files::Under;
 use console_core_geometry::Size;
 use console_core_never::Never;
 use console_core_number_conversion::{Float, toward_zero_u32};
+use std::io::Read;
 use std::os::unix::fs::PermissionsExt;
+use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 
 use crate::nested::Wallpaper;
-use crate::{HOME, Unnested, nested, root, screen, stage};
+use crate::{HOME, Unnested, nested, root, screen, session, stage};
 
 pub const ROOM: f64 = 0.9;
 
@@ -47,6 +63,51 @@ pub fn walk(at: &Path) -> Result<Vec<PathBuf>, Never> {
     Ok(found)
 }
 
+const SHARING: libc::c_ulong = 0x4004_9409;
+
+const HEAD: u64 = 4;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Shared {
+    Extents,
+    Bytes,
+}
+
+#[cfg_attr(
+    dylint_lib = "explicit040_no_torn_write",
+    allow(
+        explicit040_no_torn_write,
+        reason = "sharing extents is an ioctl between two descriptors and there is no rename over a name to do it with. What makes that safe is the stage rather than the write: a session directory is built whole and swept whole, and one that stopped halfway is named after a process that is gone, which is what `session::abandoned` removes before the next run stages anything"
+    )
+)]
+fn cloned(from: &Path, to: &Path) -> std::io::Result<Shared> {
+    let source = std::fs::File::open(from)?;
+    let target = std::fs::File::create(to)?;
+
+    // SAFETY: two descriptors this call owns and holds open across it, and a
+    // request that reads no pointer of ours.
+    let shared = unsafe { libc::ioctl(target.as_raw_fd(), SHARING, source.as_raw_fd()) };
+
+    match shared {
+        0 => Ok(Shared::Extents),
+        _a_filesystem_that_shares_nothing => {
+            drop(target);
+            std::fs::copy(from, to)?;
+
+            Ok(Shared::Bytes)
+        }
+    }
+}
+
+fn head_of(at: &Path) -> std::io::Result<Vec<u8>> {
+    let file = std::fs::File::open(at)?;
+    let mut head = Vec::new();
+
+    file.take(HEAD).read_to_end(&mut head)?;
+
+    Ok(head)
+}
+
 fn copied(from: &Path, to: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(to)?;
 
@@ -63,7 +124,7 @@ fn copied(from: &Path, to: &Path) -> std::io::Result<()> {
             }
             (_, true) => copied(&source, &target)?,
             _ => {
-                std::fs::copy(&source, &target)?;
+                let _shared = cloned(&source, &target)?;
             }
         }
     }
@@ -202,6 +263,7 @@ pub enum Screen {
 }
 
 pub fn staged(told: Told, headless: Screen, wallpaper: Wallpaper) -> Result<PathBuf, Unnested> {
+    let Ok(()) = session::swept();
     let Ok(here) = stage();
 
     let fault = |what: &'static str| move |e: std::io::Error| Unnested::Staging(what, e);
@@ -241,7 +303,7 @@ pub fn staged(told: Told, headless: Screen, wallpaper: Wallpaper) -> Result<Path
     let Ok(programs) = built();
 
     for (name, at) in programs {
-        let _ = std::fs::copy(&at, here.join("usr/local/bin").join(&name));
+        let _ = cloned(&at, &here.join("usr/local/bin").join(&name));
     }
 
     let unit = root.join(nested::UNIT);
@@ -263,8 +325,7 @@ pub fn staged(told: Told, headless: Screen, wallpaper: Wallpaper) -> Result<Path
             false => {},
         }
 
-        let held = std::fs::read(&path).map_err(fault("a staged file"))?;
-        let head: Vec<u8> = held.into_iter().take(4).collect();
+        let head = head_of(&path).map_err(fault("a staged file"))?;
         let live = match path.strip_prefix(&here) {
             Ok(under) => under.display().to_string(),
             Err(_outside_the_stage) => path.display().to_string(),
@@ -312,20 +373,6 @@ pub fn staged(told: Told, headless: Screen, wallpaper: Wallpaper) -> Result<Path
             said
         }
     };
-    let bar = ours.join("bar.css");
-
-    match bar.parent() {
-        Some(holding) => {
-            let _ = std::fs::create_dir_all(holding);
-        }
-        None => {},
-    }
-
-    let Ok(css) = console_screen::bar_css(&go, at_scale);
-
-    console_core_atomic_writes::whole(&bar, css.as_bytes())
-        .map_err(unwritten("the bar's width"))?;
-
     let config = ours.join("hypr/nested.lua");
     let Ok(nested) = nested::config(
         nested::Said { screen: &said, device: &device_config.display().to_string() },
@@ -355,13 +402,13 @@ pub fn environment() -> Result<Vec<(String, String)>, Never> {
     };
 
     Ok(vec![
-        ("HOME".into(), at("home")),
-        ("PATH".into(), format!("{}:{path}", at("usr/local/bin"))),
-        ("XDG_CACHE_HOME".into(), at("home/.cache")),
-        ("XDG_CONFIG_HOME".into(), at("home/.config")),
-        ("XDG_DATA_DIRS".into(), format!("{}:/usr/local/share:/usr/share", at("usr/share"))),
-        ("XDG_DATA_HOME".into(), at("home/.local/share")),
-        ("XDG_STATE_HOME".into(), at("home/.local/state")),
+        (String::from("HOME"), at("home")),
+        (String::from("PATH"), format!("{}:{path}", at("usr/local/bin"))),
+        (String::from("XDG_CACHE_HOME"), at("home/.cache")),
+        (String::from("XDG_CONFIG_HOME"), at("home/.config")),
+        (String::from("XDG_DATA_DIRS"), format!("{}:/usr/local/share:/usr/share", at("usr/share"))),
+        (String::from("XDG_DATA_HOME"), at("home/.local/share")),
+        (String::from("XDG_STATE_HOME"), at("home/.local/state")),
     ])
 }
 
@@ -425,6 +472,63 @@ mod tests {
         let held = std::fs::read_to_string(root.join("desktop.conf")).expect("desktop.conf");
         let built = section(&held, Under("build")).expect("the build section");
         assert!(built.contains(&"launcher".to_string()));
+    }
+
+    #[test]
+    fn a_staged_file_cannot_reach_the_one_it_came_from() {
+        let Ok(root) = root();
+
+        let here = root.join(".stage").join(format!("cloning-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&here);
+        std::fs::create_dir_all(&here).expect("somewhere to clone into");
+
+        let from = here.join("built");
+        let to = here.join("staged");
+        std::fs::write(&from, b"the program as it was built").expect("something to share");
+
+        let shared = cloned(&from, &to).expect("a staged copy");
+
+        assert_eq!(
+            std::fs::read(&to).ok(),
+            Some(b"the program as it was built".to_vec()),
+            "the staged copy is not what it came from"
+        );
+
+        std::fs::write(&to, b"and what the stage did to it").expect("a write into the stage");
+
+        assert_eq!(
+            std::fs::read(&from).ok(),
+            Some(b"the program as it was built".to_vec()),
+            "a write into the stage reached the build it was cloned from"
+        );
+
+        let _ = std::fs::remove_dir_all(&here);
+
+        match shared {
+            Shared::Extents => {},
+            Shared::Bytes => eprintln!(
+                "the tree is on a filesystem that cannot share extents, so every stage \
+                 costs what it copies"
+            ),
+        }
+    }
+
+    #[test]
+    fn a_mode_is_decided_by_four_bytes_and_reads_four_bytes() {
+        let here = std::env::temp_dir().join(format!("console-head-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&here);
+        std::fs::create_dir_all(&here).expect("somewhere to read from");
+
+        let at = here.join("script");
+        std::fs::write(&at, b"#!/bin/sh\nand a great deal more after it\n").expect("a script");
+
+        assert_eq!(head_of(&at).ok(), Some(b"#!/b".to_vec()));
+
+        let short = here.join("short");
+        std::fs::write(&short, b"ab").expect("a file shorter than a head");
+        assert_eq!(head_of(&short).ok(), Some(b"ab".to_vec()));
+
+        let _ = std::fs::remove_dir_all(&here);
     }
 
     #[test]

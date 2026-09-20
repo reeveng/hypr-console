@@ -93,6 +93,13 @@ pub struct Screen {
     board: Board,
 }
 
+#[cfg_attr(
+    dylint_lib = "explicit048_no_unreal_state",
+    allow(
+        explicit048_no_unreal_state,
+        reason = "every one of these is a separate thing wayland has or has not said yet -- a surface configured, a frame owed, a size known, a keyboard manager bound, a close asked for, a pointer down -- and they arrive in any order, so there is no state here that names them together"
+    )
+)]
 pub struct Board {
     compositor: wl_compositor::WlCompositor,
     shm: wl_shm::WlShm,

@@ -13,7 +13,7 @@
 //! that listens for windows opening, and what that listens to is this desktop's
 //! own event pool, which the nested session does not run. On a screen with one
 //! workspace there is nothing for that half to get wrong anyway. It is the
-//! device's question and `todos.md` says so.
+//! device's question and the backlog says so.
 //!
 //! ## It saves into a directory of its own, under the name the unit uses
 //!
@@ -217,7 +217,7 @@ fn refused(_stage: &mut Here) -> Done {
 
     let Ok(patience) = Patience::asking_every(REFUSING, ASKING);
 
-    let Ok(waited) = console_waiting::until(patience, || {
+    let Ok(waited) = console_waiting::until_handed(patience, &mut running, |running| {
         let Ok(still) = running.still();
 
         Ok(match still {
@@ -398,7 +398,7 @@ mod tests {
 
     #[test]
     fn the_terminals_are_counted_and_nothing_else_is() {
-        let open = [window(CLASS), window("waybar"), window(CLASS)];
+        let open = [window(CLASS), window("org.kde.dolphin"), window(CLASS)];
 
         assert_eq!(terminals(&open), Ok(2));
         assert_eq!(terminals(&[]), Ok(0));

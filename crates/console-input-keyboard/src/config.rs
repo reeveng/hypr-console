@@ -161,12 +161,12 @@ fn parse_args(config: &mut Config, argv: &[String]) -> Result<(), Error> {
         i = i.saturating_add(1);
 
         match flag.as_str() {
-            "-v" | "--version" => return Err(Error::MissingValue("--version".into())),
-            "-h" | "--help" => return Err(Error::MissingValue("--help".into())),
+            "-v" | "--version" => return Err(Error::MissingValue(String::from("--version"))),
+            "-h" | "--help" => return Err(Error::MissingValue(String::from("--help"))),
             "-hidden" | "--hidden" => config.hidden = true,
             "-no-popup" | "--no-popup" => {}
             "-list-layers" | "--list-layers" => {
-                return Err(Error::MissingValue("--list-layers".into()))
+                return Err(Error::MissingValue(String::from("--list-layers")))
             }
             _ => {
                 let value = take_value(argv, &mut i, &flag)?;

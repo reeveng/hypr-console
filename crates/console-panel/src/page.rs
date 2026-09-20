@@ -116,6 +116,13 @@ pub struct Bar {
 pub type Seek = Arc<dyn Fn(&dyn Showing, f64) + Send + Sync>;
 
 #[derive(Clone, Default)]
+#[cfg_attr(
+    dylint_lib = "explicit048_no_unreal_state",
+    allow(
+        explicit048_no_unreal_state,
+        reason = "these are the ways one row draws rather than the kinds of row there are: `naming` with `middle` and `stacked` is one row, and so is `nothing` on its own, so no enum here would have fewer states than the combinations do"
+    )
+)]
 pub struct Row {
     pub says: String,
     pub aside: String,
@@ -133,13 +140,14 @@ pub struct Row {
     pub middle: bool,
     pub stacked: bool,
     pub across: Option<Across>,
+    pub cells: Vec<Cell>,
     pub chief: bool,
 }
 
 #[derive(Clone)]
 pub struct Press {
     pub icon: Icon,
-    pub now: bool,
+    pub now: InEffect,
     pub chief: bool,
     pub does: Act,
 }
@@ -152,7 +160,7 @@ impl Press {
     ) -> Result<Press, Never> {
         Ok(Press {
             icon,
-            now: now == InEffect::Yes,
+            now,
             chief: false,
             does: Arc::new(move |showing| {
                 does(showing);
@@ -172,6 +180,18 @@ impl Press {
 pub struct Across {
     pub presses: Vec<Press>,
     pub at: usize,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Cell {
+    pub says: String,
+    pub now: bool,
+}
+
+impl Cell {
+    pub fn new(says: &str, now: InEffect) -> Result<Self, Never> {
+        Ok(Cell { says: says.to_string(), now: now == InEffect::Yes })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -315,6 +335,16 @@ impl Row {
         })
     }
 
+    pub fn celled(cells: Vec<Cell>) -> Result<Self, Never> {
+        Ok(Row { cells, ..Row::default() })
+    }
+
+    pub fn naming_cells(cells: Vec<Cell>) -> Result<Self, Never> {
+        let Ok(row) = Row::celled(cells);
+
+        Ok(Row { naming: true, ..row })
+    }
+
     pub fn now(&self) -> Result<InEffect, Never> {
         Ok(match self.aside == NOW {
             true => InEffect::Yes,
@@ -360,6 +390,7 @@ impl Row {
             middle,
             stacked,
             across,
+            cells,
             chief,
         } = self;
         let Ok(mine) = across.as_ref().map(Across::looks).transpose();
@@ -381,6 +412,7 @@ impl Row {
             && middle == &other.middle
             && stacked == &other.stacked
             && mine == theirs
+            && cells == &other.cells
             && chief == &other.chief;
 
         Ok(match alike {
@@ -390,7 +422,7 @@ impl Row {
     }
 }
 
-type Looks = (Vec<(Icon, bool, bool)>, usize);
+type Looks = (Vec<(Icon, InEffect, bool)>, usize);
 
 impl Across {
     fn looks(&self) -> Result<Looks, Never> {
@@ -818,7 +850,7 @@ mod tests {
     fn a_press_that_has_come_on_is_drawn_again() {
         let off = pressing(strip(), 1);
         let mut lit = strip();
-        lit[0].now = true;
+        lit[0].now = InEffect::Yes;
 
         assert_eq!(off.looks_like(&pressing(lit, 1)), Ok(Same::No));
     }

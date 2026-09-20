@@ -127,10 +127,12 @@ what is inside the file rather than where it goes. The manifest ships what the
 file starts as; something on this machine writes it afterwards and is supposed
 to. Such a file is installed when it is not there, is never compared, and
 `console save` with nothing named does not sweep it back into the tree -- only
-the person naming it does. Two files carry it. `bar.css` is written by
-`console-scale apply` at every login with the width the screen is really
-standing at, and `zz-steamos-autologin.conf` is rewritten by
-`steamos-session-select` on the way into Game Mode and on the way back.
+the person naming it does. One file carries it today, in `machines.conf`:
+`zz-steamos-autologin.conf`, which `steamos-session-select` rewrites on the way
+into Game Mode and on the way back. The other was `bar.css`, written at every
+login with the width the screen was really standing at, and it is gone with the
+bar that imported it -- `console-bar` asks the compositor how wide the screen
+is rather than being told in a stylesheet.
 
 Before that word existed both were reported as changed on every boot of a
 machine where nothing had changed, and what it cost was a morning: an
@@ -140,8 +142,8 @@ sentence and the same colour as the two that always mean nothing. A card nobody
 reads is worse than no card. So the two that are not news say `theirs` in the
 manifest and are green in `console check`, and `50-legion_go.yaml` is not
 marked, because a package taking a file back is exactly the thing to be told
-about -- what to do about that one is its own entry in `todos.md`, and it is not
-this.
+about -- what to do about that one is its own entry in the backlog, and it
+is not this.
 
 **`[services]`** and **`[masked]`** last, enabled for the desktop user and
 pulled in together by `console.target`.

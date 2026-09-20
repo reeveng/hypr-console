@@ -9,7 +9,11 @@
 //! # Two readers, two shapes
 //!
 //! The strip under the bar on the device wants one number for the whole apply,
-//! because it is one row of pixels and there is nowhere to put a second. The
+//! because it is one row of pixels and there is nowhere to put a second. It is
+//! counted in thousandths of the whole, which is the strip's own unit and about
+//! a point of fill: the build is most of an apply and most of a screen, and a
+//! stretch that can only move the number a hundredth at a time leaves it still
+//! for whole minutes of it. The
 //! person at the terminal wants the opposite: what is happening right now, and
 //! whether it is still happening. So the same walk feeds both, and they are
 //! drawn differently.
@@ -112,24 +116,24 @@ pub struct Stretch {
     pub share: u16,
 }
 
-pub const WHOLE: u16 = 100;
+pub const WHOLE: u16 = updating::WHOLE;
 
 pub const STRETCHES: [Stretch; 15] = [
-    Stretch { doing: READING, share: 1 },
-    Stretch { doing: WANTED, share: 1 },
-    Stretch { doing: PACKAGES, share: 6 },
-    Stretch { doing: KEEPING, share: 1 },
-    Stretch { doing: SWEEPING, share: 1 },
-    Stretch { doing: BUILDING, share: 59 },
-    Stretch { doing: FILES, share: 8 },
-    Stretch { doing: SWAPPING, share: 1 },
-    Stretch { doing: ADD_ON, share: 2 },
-    Stretch { doing: BROWSERS, share: 2 },
-    Stretch { doing: PROFILES, share: 3 },
-    Stretch { doing: SCREEN, share: 1 },
-    Stretch { doing: WALLPAPERS, share: 2 },
-    Stretch { doing: SERVICES, share: 10 },
-    Stretch { doing: RELEASE, share: 2 },
+    Stretch { doing: READING, share: 10 },
+    Stretch { doing: WANTED, share: 10 },
+    Stretch { doing: PACKAGES, share: 60 },
+    Stretch { doing: KEEPING, share: 10 },
+    Stretch { doing: SWEEPING, share: 10 },
+    Stretch { doing: BUILDING, share: 590 },
+    Stretch { doing: FILES, share: 80 },
+    Stretch { doing: SWAPPING, share: 10 },
+    Stretch { doing: ADD_ON, share: 20 },
+    Stretch { doing: BROWSERS, share: 20 },
+    Stretch { doing: PROFILES, share: 30 },
+    Stretch { doing: SCREEN, share: 10 },
+    Stretch { doing: WALLPAPERS, share: 20 },
+    Stretch { doing: SERVICES, share: 100 },
+    Stretch { doing: RELEASE, share: 20 },
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -139,8 +143,8 @@ pub enum Told {
     Nobody,
 }
 
-fn tell(percent: u16, doing: &str) -> Result<(), Never> {
-    let Ok(()) = updating::wrote(&updating::Far { percent, doing: doing.to_string() });
+fn tell(thousandths: u16, doing: &str) -> Result<(), Never> {
+    let Ok(()) = updating::wrote(&updating::Far { thousandths, doing: doing.to_string() });
     let Ok(()) = updating::wake();
 
     Ok(())
@@ -192,8 +196,19 @@ impl Going {
     }
 
     pub fn through<T>(&mut self, doing: &'static str, work: impl FnOnce() -> T) -> Result<T, Never> {
+        self.through_handed(doing, &mut (), |_nothing| work())
+    }
+
+    pub fn through_handed<M, T>(
+        &mut self,
+        doing: &'static str,
+        handed: &mut M,
+        work: impl FnOnce(&mut M) -> T,
+    ) -> Result<T, Never> {
         let Ok(()) = self.bar.on(doing);
-        let Ok(done) = went::to(doing, work);
+        let Ok(started) = went::started();
+        let done = work(handed);
+        let Ok(()) = went::ended(doing, started);
         let Ok(()) = self.arrived(doing);
 
         Ok(done)
@@ -204,16 +219,29 @@ impl Going {
         doing: &'static str,
         work: impl FnOnce(&mut Moving) -> T,
     ) -> Result<T, Never> {
+        self.during_handed(doing, &mut (), |_nothing, moving| work(moving))
+    }
+
+    pub fn during_handed<M, T>(
+        &mut self,
+        doing: &'static str,
+        handed: &mut M,
+        work: impl FnOnce(&mut M, &mut Moving) -> T,
+    ) -> Result<T, Never> {
         let Ok(()) = self.bar.on(doing);
 
         let start = self.done;
         let Ok(share) = share_of(doing);
+        let Ok(started) = went::started();
+
         let done = {
             let mut moving = Moving { going: &mut *self, doing, start, share };
-            let Ok(done) = went::to(doing, || work(&mut moving));
 
-            done
+            work(handed, &mut moving)
         };
+
+        let Ok(()) = went::ended(doing, started);
+
         self.done = start;
 
         let Ok(()) = self.arrived(doing);
@@ -368,14 +396,14 @@ mod tests {
         let mut going = Going::quiet();
         let mut said = String::new();
         let Ok(()) = going.during(FILES, |moving| {
-            let Ok(()) = moving.at(Far { done: 1, many: 4 }, "waybar/style.css");
+            let Ok(()) = moving.at(Far { done: 1, many: 4 }, "console/palette.css");
             let Ok(drawn) = moving.going.bar.line();
 
             said = drawn;
         });
 
         assert!(said.contains(" 25%"), "{said}");
-        assert!(said.contains("(1/4) waybar/style.css"), "{said}");
+        assert!(said.contains("(1/4) console/palette.css"), "{said}");
     }
 
     #[test]

@@ -97,8 +97,14 @@ impl Panel {
 -- fastest the panel has at it. The rate was written here once, as 144, by the
 -- one machine that has it.
 --
+-- The touchscreen reports in the panel's own orientation, so it wears the same
+-- quarter as the picture does or a finger lands turned. It is said here rather
+-- than in hyprland.lua for the same reason the monitor is: a transform written
+-- down is one machine's, and this one is read off the panel it is about.
+--
 -- Editing this is editing a report. The next apply writes it again.
 hl.monitor({{ output = \"{named}\", mode = \"{wide}x{tall}\", position = \"auto\", scale = {scale}, transform = {transform} }})
+hl.config({{ input = {{ touchdevice = {{ output = \"{named}\", transform = {transform} }} }} }})
 "
         ))
     }
@@ -301,6 +307,23 @@ mod tests {
             r#"hl.monitor({ output = "eDP-1", mode = "1600x2560", position = "auto", scale = 2.5, transform = 1 })"#
         ));
         assert!(!block.contains("1600x2560@"));
+    }
+
+    #[test]
+    fn the_finger_is_read_through_the_same_quarter_the_picture_is_drawn_at() {
+        for (mode, transform) in
+            [(Size { wide: 1600, tall: 2560 }, 1), (Size { wide: 1920, tall: 1200 }, 0)]
+        {
+            let panel = Panel { named: "eDP-1".to_string(), mode };
+            let Ok(block) = panel.block(crate::DRAWN_AT);
+
+            assert!(
+                block.contains(&format!(
+                    r#"hl.config({{ input = {{ touchdevice = {{ output = "eDP-1", transform = {transform} }} }} }})"#
+                )),
+                "{block}"
+            );
+        }
     }
 
     #[test]

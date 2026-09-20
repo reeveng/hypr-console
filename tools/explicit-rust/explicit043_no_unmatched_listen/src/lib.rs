@@ -33,7 +33,7 @@
 //! end are the two variants and there is no third. What stops it being written
 //! today is that `Doing` is a value handed across a loop that does not own the
 //! connection, so there is nothing for the obligation to be attached to.
-//! `todos.md` is where that belongs rather than a rule pretending to it.
+//! The backlog is where that belongs rather than a rule pretending to it.
 //!
 //! It arrives green, which is worth saying plainly: nothing in the tree
 //! constructs `Doing::Listen` at all today, and the two crates that call

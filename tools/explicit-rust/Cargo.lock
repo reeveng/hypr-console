@@ -748,6 +748,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "explicit045_no_unnamed_conversion"
+version = "0.1.0"
+dependencies = [
+ "clippy_utils",
+ "dylint_linting",
+ "dylint_testing",
+]
+
+[[package]]
+name = "explicit046_no_unnamed_jump"
+version = "0.1.0"
+dependencies = [
+ "clippy_utils",
+ "dylint_linting",
+ "dylint_testing",
+]
+
+[[package]]
+name = "explicit047_no_captured_permission"
+version = "0.1.0"
+dependencies = [
+ "clippy_utils",
+ "dylint_linting",
+ "dylint_testing",
+]
+
+[[package]]
+name = "explicit048_no_unreal_state"
+version = "0.1.0"
+dependencies = [
+ "clippy_utils",
+ "dylint_linting",
+ "dylint_testing",
+]
+
+[[package]]
 name = "fastrand"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

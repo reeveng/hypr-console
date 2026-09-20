@@ -191,11 +191,10 @@ pub fn film(from: &Path, to: &Path) -> Result<Vec<String>, Never> {
 pub fn block(mime: &str, picture: &[u8]) -> Result<String, Never> {
     const FRONT_COVER: u32 = 3;
     let mut held = Vec::new();
-    let mut four = |number: u32| held.extend_from_slice(&number.to_be_bytes());
-    let Ok(wide) = fitted(mime.len());
+    let Ok(wide) = fitted::<usize, u32>(mime.len());
 
-    four(FRONT_COVER);
-    four(wide);
+    held.extend_from_slice(&FRONT_COVER.to_be_bytes());
+    held.extend_from_slice(&wide.to_be_bytes());
     held.extend_from_slice(mime.as_bytes());
 
     for _ in 0..5 {

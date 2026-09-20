@@ -118,13 +118,14 @@ fn decoding(
     Ok(asking)
 }
 
-fn each_frame(
+fn each_frame<T>(
     source: &Path,
     cube: &Path,
     size: Size<u32>,
     stir: &Stir,
     slice: Option<(usize, usize)>,
-    mut take: impl FnMut(&[u8]) -> Result<(), Unpainted>,
+    into: &mut T,
+    take: impl Fn(&mut T, &[u8]) -> Result<(), Unpainted>,
 ) -> Result<usize, Unpainted> {
     let Ok(mut decoding) = decoding(source, cube, size, stir, slice);
 
@@ -143,7 +144,7 @@ fn each_frame(
     loop {
         match pipe.read_exact(&mut frame) {
             Ok(()) => {
-                take(&frame)?;
+                take(into, &frame)?;
                 count = count.saturating_add(1);
             }
             Err(fault) if fault.kind() == std::io::ErrorKind::UnexpectedEof => break,
@@ -220,8 +221,9 @@ fn slice(source: &Path, cube: &Path, stir: &Stir) -> Result<(usize, usize), Unpa
     const LOOKING: Size<u32> = Size { wide: 240, tall: 150 };
 
     let mut small = Vec::new();
-    let count = each_frame(source, cube, LOOKING, stir, None, |frame| {
+    let count = each_frame(source, cube, LOOKING, stir, None, &mut small, |small, frame| {
         small.push(frame.to_vec());
+
         Ok(())
     })?;
 
@@ -239,6 +241,14 @@ fn slice(source: &Path, cube: &Path, stir: &Stir) -> Result<(usize, usize), Unpa
     }
 }
 
+#[derive(Default)]
+struct Pressing {
+    written: Vec<Frame>,
+    before: Option<Vec<u8>>,
+    largest: u64,
+    carried: u32,
+}
+
 pub fn press(
     source: &Path,
     cube: &Path,
@@ -247,13 +257,10 @@ pub fn press(
 ) -> Result<Pressed, Unpainted> {
     let slice = slice(source, cube, stir)?;
 
-    let mut written: Vec<Frame> = Vec::new();
-    let mut before: Option<Vec<u8>> = None;
-    let mut largest = 0u64;
-    let mut carried = 0;
+    let mut pressing = Pressing::default();
 
-    each_frame(source, cube, size, stir, Some(slice), |frame| {
-        let wrote = match &before {
+    each_frame(source, cube, size, stir, Some(slice), &mut pressing, |pressing, frame| {
+        let wrote = match &pressing.before {
             None => {
                 let picture = encode(frame, size, stir.quality)?;
 
@@ -262,7 +269,7 @@ pub fn press(
                 let Ok(width) = fitted(size.wide);
                 let Ok(height) = fitted(size.tall);
 
-                written.push(Frame {
+                pressing.written.push(Frame {
                     x: 0,
                     y: 0,
                     width,
@@ -292,13 +299,14 @@ pub fn press(
                         let Ok(width) = fitted(patch.wide);
                         let Ok(height) = fitted(patch.tall);
 
-                        largest = largest.max(area);
-                        written.push(Frame {
+                        pressing.largest = pressing.largest.max(area);
+                        pressing.written.push(Frame {
                             x,
                             y,
                             width,
                             height,
-                            milliseconds: each.saturating_add(std::mem::take(&mut carried)),
+                            milliseconds: each
+                                .saturating_add(std::mem::take(&mut pressing.carried)),
                             picture,
                         });
                         true
@@ -311,12 +319,15 @@ pub fn press(
 
         match wrote {
             true => {},
-            false => carried = carried.saturating_add(each),
+            false => pressing.carried = pressing.carried.saturating_add(each),
         }
 
-        before = Some(frame.to_vec());
+        pressing.before = Some(frame.to_vec());
+
         Ok(())
     })?;
+
+    let Pressing { mut written, largest, carried, before: _ } = pressing;
 
     match written.first_mut() {
         Some(first) => first.milliseconds = first.milliseconds.saturating_add(carried),

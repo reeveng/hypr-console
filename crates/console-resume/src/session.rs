@@ -174,6 +174,13 @@ pub struct Sessions {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(
+    dylint_lib = "explicit048_no_unreal_state",
+    allow(
+        explicit048_no_unreal_state,
+        reason = "this is what hyprctl says about one window, written to disk as it was read; `floating`, `pinned` and a monitor are three separate facts the compositor keeps separately, and a shape of our own here would be a second reading of somebody else's format"
+    )
+)]
 pub struct Saved {
     pub address: String,
     pub title: String,
@@ -249,6 +256,13 @@ fn as_window(saved: &Saved) -> Result<Window, Never> {
 }
 
 #[derive(Default)]
+#[cfg_attr(
+    dylint_lib = "explicit048_no_unreal_state",
+    allow(
+        explicit048_no_unreal_state,
+        reason = "`gained` is a window that arrived and `lost` is when one went; a moment where both happened is the ordinary one, and neither answers the other"
+    )
+)]
 struct Changes {
     gained: bool,
     lost: Option<Instant>,

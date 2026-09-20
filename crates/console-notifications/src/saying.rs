@@ -27,7 +27,7 @@ use std::time::Instant;
 use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_core_words::Words;
-use console_waiting::{Patience, Seen, Waited, until};
+use console_waiting::{Patience, Seen, Waited, until_handed};
 
 const NEVER_SAID_BEFORE: u32 = 0;
 
@@ -334,7 +334,7 @@ fn said_within(argv: &[String], waiting: Duration) -> Result<Option<String>, Nev
     };
 
     let Ok(patience) = Patience::asking_every(waiting, LOOKING);
-    let Ok(ended) = until(patience, || {
+    let Ok(ended) = until_handed(patience, &mut running, |running| {
         Ok(match running.try_wait() {
             Ok(Some(_)) => Seen::Yes,
             Ok(None) => Seen::NotYet,

@@ -52,6 +52,13 @@ const NONE_OF_THEM: usize = 0;
 const HERE: &str = "here";
 
 
+#[cfg_attr(
+    dylint_lib = "explicit048_no_unreal_state",
+    allow(
+        explicit048_no_unreal_state,
+        reason = "four flags somebody typed, and every combination of them is a command line: `--list --all`, `--dry --yes`, none of them"
+    )
+)]
 struct Asked {
     only: Vec<String>,
     stage: String,
@@ -146,11 +153,34 @@ fn spared(check: &Check, tier: Tier) -> Result<Option<Stage>, Never> {
     })
 }
 
+fn say(
+    counted: &mut BTreeMap<&'static str, usize>,
+    ink: &Ink,
+    check: &Check,
+    how: How,
+) -> Result<(), Never> {
+    let Ok(name) = how.name();
+    let Ok(why) = how.why();
+
+    let tally = counted.entry(name).or_insert(0);
+    *tally = tally.saturating_add(1);
+
+    let aside = match why.is_empty() {
+        true => String::new(),
+        false => format!("{}{why}{}", ink.dim, ink.off),
+    };
+    let Ok(mark) = ink.mark(&how);
+
+    println!("{:<28} {mark} {aside}", check.name);
+
+    Ok(())
+}
+
 fn on_the_device(
     asked: &Asked,
     checks: Vec<&'static Check>,
     ink: &Ink,
-    said: &mut dyn FnMut(&Check, How),
+    counted: &mut BTreeMap<&'static str, usize>,
 ) -> Result<(), Unchecked> {
     let touching = match asked.dry {
         true => Dry::Pretend,
@@ -171,7 +201,7 @@ fn on_the_device(
             Some(where_) => {
                 let Ok(name) = where_.name();
 
-                said(check, How::Skipped(format!("{name} answers this")));
+                let Ok(()) = say(counted, ink, check, How::Skipped(format!("{name} answers this")));
             }
             None => running.push(check),
         }
@@ -222,8 +252,8 @@ fn on_the_device(
 
         match stop {
             Stop::Asked => {
-                let Ok(()) = watching::quietly(&watch, || {
-                    said(check, How::Skipped("stopped".to_string()));
+                let Ok(()) = watching::quietly_handed(&watch, counted, |counted| {
+                    let Ok(()) = say(counted, ink, check, How::Skipped("stopped".to_string()));
                 });
 
                 break;
@@ -249,7 +279,9 @@ fn on_the_device(
             How::Would => {}
         }
 
-        let Ok(()) = watching::quietly(&watch, || said(check, how));
+        let Ok(()) = watching::quietly_handed(&watch, counted, |counted| {
+            let Ok(()) = say(counted, ink, check, how);
+        });
     }
 
     let Ok(()) = watching::ending(&watch);
@@ -261,8 +293,9 @@ fn on_the_device(
         Some(was) => {
             let Ok(handed) = putting_back::back(&mut stage, &was);
             let Ok(said) = putting_back::said(&handed);
-
-            println!("{}{said}{}", ink.dim, ink.off);
+            let Ok(()) = watching::quietly(&watch, || {
+                println!("{}{said}{}", ink.dim, ink.off);
+            });
         }
         None => {},
     }
@@ -316,27 +349,11 @@ fn run(asked: Asked, ink: &Ink) -> Result<std::process::ExitCode, Unchecked> {
         false => {}
     }
 
-    let mut counted: BTreeMap<&str, usize> = BTreeMap::new();
-    let mut said = |check: &Check, how: How| {
-        let Ok(name) = how.name();
-        let Ok(why) = how.why();
-
-        let tally = counted.entry(name).or_insert(0);
-        *tally = tally.saturating_add(1);
-
-        let aside =
-            match why.is_empty() {
-                true => String::new(),
-                false => format!("{}{why}{}", ink.dim, ink.off),
-            };
-        let Ok(mark) = ink.mark(&how);
-
-        println!("{:<28} {mark} {aside}", check.name);
-    };
+    let mut counted: BTreeMap<&'static str, usize> = BTreeMap::new();
 
     match asked.stage.as_str() {
         "device" => {
-            on_the_device(&asked, checks, ink, &mut said)?;
+            on_the_device(&asked, checks, ink, &mut counted)?;
         }
         "desktop" => {
             let Ok(mut stage) = Desktop::new();
@@ -344,7 +361,7 @@ fn run(asked: Asked, ink: &Ink) -> Result<std::process::ExitCode, Unchecked> {
             for check in checks {
                 let Ok(how) = checking::desktop(check, &mut stage);
 
-                said(check, how);
+                let Ok(()) = say(&mut counted, ink, check, how);
             }
 
             let Ok(()) = stage.close();
@@ -354,7 +371,7 @@ fn run(asked: Asked, ink: &Ink) -> Result<std::process::ExitCode, Unchecked> {
                 let mut stage = Here::new()?;
                 let Ok(how) = checking::here(check, &mut stage);
 
-                said(check, how);
+                let Ok(()) = say(&mut counted, ink, check, how);
             }
         }
     }

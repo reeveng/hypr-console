@@ -97,8 +97,8 @@ twice over. `launcher` was a shell script in `[files]` and is a compiled program
 in `[build]`; the line moved between sections and `/usr/local/bin/launcher`
 never moved at all. And the manifest used to name the person whose desktop this
 is and now writes `@user@`, which is filled in at apply -- so
-`/home/ada/.config/waybar/style.css` and `/home/@user@/.config/waybar/style.css`
-are one file. The first version of this gate read the first change as five
+`/home/ada/.config/console/palette.css` and
+`/home/@user@/.config/console/palette.css` are one file. The first version of this gate read the first change as five
 programs being abandoned and the second as twenty-eight files being abandoned in
 a home, and both times what was wrong was that it was comparing declarations
 rather than machines.

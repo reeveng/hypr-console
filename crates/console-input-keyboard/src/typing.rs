@@ -98,6 +98,13 @@ pub fn symbols(walk: &[Which]) -> Result<Option<Which>, Never> {
     }))
 }
 
+#[cfg_attr(
+    dylint_lib = "explicit048_no_unreal_state",
+    allow(
+        explicit048_no_unreal_state,
+        reason = "`worn` is which alphabet the compositor is holding and `composing` is whether a dead key is waiting for its second press; either can be true of the other, and neither decides the other"
+    )
+)]
 pub struct Typist {
     keys: zwp_virtual_keyboard_v1::ZwpVirtualKeyboardV1,
     alphabets: Vec<Keymap>,

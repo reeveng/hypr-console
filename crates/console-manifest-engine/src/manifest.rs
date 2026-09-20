@@ -11,11 +11,13 @@
 //! saying more than that -- that what is in it is what the tree ships, so
 //! anything else is drift -- and for most of them that is exactly right. Two
 //! kinds of file it is wrong about, and both were being reported as changed on
-//! every boot of a machine where nothing had changed: `bar.css`, which
-//! `console-scale apply` writes at every login with the width the screen is
-//! really standing at, and `zz-steamos-autologin.conf`, which
+//! every boot of a machine where nothing had changed: the bar's own width,
+//! which was written at every login by `console-scale` with the size the screen
+//! was really standing at, and `zz-steamos-autologin.conf`, which
 //! `steamos-session-select` rewrites on the way into Game Mode and back. Both
-//! are ours to put there and neither is ours afterwards.
+//! are ours to put there and neither is ours afterwards. The first of the two
+//! is gone -- the bar asks the compositor how wide the screen is now -- and the
+//! word stays, because the second is still true and machines.conf carries it.
 //!
 //! A card that names two files that are always named teaches the person to read
 //! past it, and that cost a morning once: an inputplumber upgrade laid its own
@@ -366,10 +368,8 @@ mod tests {
     fn the_manifest_this_desktop_wears_marks_the_files_something_else_on_it_writes() {
         let held = include_str!("../../../desktop.conf");
         let read = Manifest::read(held).expect("desktop.conf reads");
-        let Ok(bar) = read.whose("/home/@user@/.config/console/bar.css");
         let Ok(hyprland) = read.whose("/home/@user@/.config/console/hypr/hyprland.lua");
 
-        assert_eq!(bar, Whose::Theirs, "console-scale apply writes this at every login");
         assert_eq!(hyprland, Whose::Ours);
     }
 

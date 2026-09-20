@@ -95,7 +95,7 @@ What this must not become is a general notification server. No actions, no icon
 data, no fd passing, no hints beyond urgency and progress, because everything
 that raises a notification here is named in one module. The day a program
 nobody wrote raises one is the day that question is worth answering, and
-`todos.md` says what it would take.
+the backlog says what it would take.
 
 ## Five seconds, or until it is seen
 
@@ -152,18 +152,19 @@ battery does. The first two sit where the icon on the bar already changes
 colour, so the card and the icon say the same thing at the same moment. Any of
 them can be walked down to *never*.
 
-`bar-say battery` is what watches, and it is the only thing on the machine
-reading the battery at all: it takes a reading every thirty seconds for the icon
-it draws, and a second program on a second clock would be two opinions about
-when one battery crossed something. What a crossing *is* --
+`console-bar` is what watches -- `dwindling` is that half of it -- and it is
+the only thing on the machine reading the battery at all: it takes a reading for
+the icon it draws, when udev says a supply changed and on its own tick under
+that, and a second program on a second clock would be two opinions about when
+one battery crossed something. What a crossing *is* --
 `console_default_applications::battery` -- is a function of the reading, the
 levels and what has already been said, so it can be asked without a battery.
 What is done about one is `console-battery`, a program of its own, because the
-third of them waits a quarter of a minute under a card and a bar module is not a
-thing that should hold still for that.
+third of them waits a quarter of a minute under a card and the bar is not a
+thing that should be holding still for that.
 
-Which couples the battery to the bar, and that is worth saying out loud: if
-waybar is not running, nothing is reading the battery and none of the three
+Which couples the battery to the bar, and that is worth saying out loud: if the
+bar is not running, nothing is reading the battery and none of the three
 happens. It is the right trade all the same. A watcher of its own would be a
 second program reading the same two files on a second clock, which is the thing
 this desktop keeps arriving at as the mistake, and a machine with no bar on it
@@ -177,8 +178,9 @@ card, because being told the machine is stopping and then that it is getting
 low is a machine reading its own list out backwards; and on the mains nothing
 is said at all, since a machine that stopped itself while it was filling would
 be doing the one thing this is here to prevent. What has been said is kept in
-the runtime directory rather than in the process, because waybar starts a
-module again the moment it exits.
+the runtime directory rather than in the process, because the bar is restarted
+-- by an apply, by a change of screen size -- and what it has already said has
+to outlive that.
 
 ### What "stop" means depends on the machine
 
@@ -211,7 +213,7 @@ told either way, because a machine found off in the morning is a question.
 
 ## The bell
 
-`bar-notice` counts what `console-notify` is holding and the bar draws it on the right,
+The bar counts what `console-notify` is holding and draws it on the right,
 beside the tray. Lit with a number when something is waiting, soft and empty
 when nothing is -- the same soft the bar wears for bluetooth that is off and
 music that is not playing. A tap opens the panel, and a second tap puts it
@@ -242,7 +244,7 @@ standing over the device is not asking what it is doing; the lines already say
 that. They are asking whether to keep standing there.
 
 The fill is weighted rather than counted. `going.rs` holds what share of an
-apply each stretch usually is, and the build is most of the hundred on its own.
+apply each stretch usually is, and the build is most of the thousand on its own.
 A strip that moved an equal step per stretch would sit near the left through the
 minutes of the build and then jump to the end, which is a strip that lies twice.
 Weighted, it crawls at the start, where the time is, and runs at the finish,
@@ -256,33 +258,28 @@ the services are lists whose length is known before the loop begins -- so each
 of those carries the fill a share of its own stretch and the strip moves while
 the longest thing an apply does is happening, rather than at the end of it.
 
-Nothing polls it. The engine writes `/run/console/updating` and signals waybar
+Nothing polls it. The engine writes `/run/console/updating` and signals the bar
 when the number changes and only then -- so a stretch that is over in a
 millisecond costs one wake-up, a build costs one per crate, and a desktop where
 nothing is being applied costs none at all. The engine is root's and the bar is
 hers, so a file under `/run` and a real-time signal are the only things that
 cross between them.
 
-It is a second waybar bar rather than a module on the first, because it runs
-the width of the screen and nothing on a bar does that. waybar has no progress
-widget of any kind: a custom module hands over text, a tooltip and a class, and
-the class is all the stylesheet gets. So `bar-updating` sends `at-0` through
-`at-100` and `style.css` has a rule for each, filling a gradient to that mark.
-Two lists in two languages, held together by
-`every_step_the_bar_can_send_is_one_the_style_paints`.
+It is the last rows of the bar's own surface, and it took two windows to draw
+before that. waybar has no progress widget of any kind -- a custom module hands
+over text, a tooltip and a class, and the class is all the stylesheet gets --
+so the strip was a second bar the width of the screen, `bar-updating` sent
+`at-0` through `at-100`, and `style.css` had a rule for each filling a gradient
+to that mark. Two lists in two languages, and the shorter of them was the
+ceiling on how many places the strip could be in: one rule per whole per cent,
+on a screen where a per cent is ten points.
 
-A class is a name written down in advance, so the stylesheet is the ceiling on
-how many places the strip can be in, and for a while it was the thing making the
-strip jump. It painted one step in five per cent, which was as fine as the
-number was when the number only moved a handful of times in a run; once the
-number became continuous -- per crate, per file and per package during an apply,
-and on the clock during a check run -- a strip crossing a screen this wide was
-still moving in jumps of fifty pixels. It is one rule per whole per cent now,
-which is what the number carries and no more. Between two of those the fill is
-walked rather than jumped: GTK interpolates two gradients of the same shape, and
-every rule is the same shape with the stop moved, so a `transition` on the
-module turns the last of the stepping into movement. A GTK that stopped
-interpolating them would put the stepping back and nothing else.
+None of that survives the bar drawing itself. The room comes back from the
+compositor, the fill is a panel that many points across, and the number is the
+number: it is written in thousandths, which is about a point of fill and as
+fine as the drawing can be. What the strip cannot do anything about is how
+often it is told -- an apply reports once per crate it builds, so the fill
+still steps where the report does.
 
 The row is bought rather than taken: it is reserved whether an apply is running
 or not. A strip that appeared only during one would shove every window on the
@@ -290,15 +287,15 @@ screen down and back again, and one that reserved nothing would sit on top of
 the bar instead of under it. Idle, it is the same colour as the bar above it, so
 what it reads as is the bar being a row taller.
 
-None of that is believed from the JSON. `440-the-strip-under-the-bar-fills` puts
-a number in the file the strip reads, brings the nested desktop up with it
+None of that is believed from the arithmetic. `440-the-strip-under-the-bar-fills`
+puts a number in the file the strip reads, brings the nested desktop up with it
 already there, and reads the row back off the screen: the fill colour on the
-left of where the number says, the bar's own ground on the right of it. A
-stylesheet naming a colour nobody defined does not fail -- GTK drops the
-declaration and carries on -- so the file parses, the widget lays out, waybar
-exits 0 and the journal is empty while the strip fills to nothing. That is how
-it shipped once, and asking the machine three ways got three answers about the
-plumbing. The path is `CONSOLE_UPDATING_PATH` when something says so, which is
+left of where the number says, the bar's own ground on the right of it. Back
+when the bar was waybar, a stylesheet naming a colour nobody defined did not
+fail -- GTK drops the declaration and carries on -- so the file parsed, the
+widget laid out, the bar exited 0 and the journal was empty while the strip
+filled to nothing. That is how it shipped once, and asking the machine three
+ways got three answers about the plumbing. The path is `CONSOLE_UPDATING_PATH` when something says so, which is
 how a staged session is filled without writing into the laptop's own `/run`;
 the engine runs as root outside anybody's session and is never told.
 

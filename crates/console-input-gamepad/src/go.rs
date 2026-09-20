@@ -168,7 +168,11 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
         )]
         let held: Vec<String> = self.held.iter().cloned().collect();
 
-        held.iter().try_for_each(|spoken| self.up(spoken))
+        for spoken in &held {
+            self.up(spoken)?;
+        }
+
+        Ok(())
     }
 
     fn button(&mut self, spoken: &str, value: i32) -> Result<(), Unpressed> {
@@ -195,7 +199,13 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
 
         match targets.is_empty() {
             true => self.passthrough(name, value),
-            false => targets.iter().try_for_each(|target| self.send(target, value)),
+            false => {
+                for target in &targets {
+                    self.send(target, value)?;
+                }
+
+                Ok(())
+            }
         }
     }
 

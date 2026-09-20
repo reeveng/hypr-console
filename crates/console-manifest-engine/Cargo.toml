@@ -40,6 +40,8 @@ console-core-atomic-writes.workspace = true
 # keyboard without its runtime: `port` is a compositor client, and the question
 # a test asks of this is what a constant says.
 console-input-keyboard = { path = "../console-input-keyboard", default-features = false }
+# The font the bar asks its icons for, which the manifest has to install.
+console-status-bar.workspace = true
 serde_json = "1"
 serde_yaml_ng = "0.10"
 toml = { version = "0.9", default-features = false, features = ["parse", "serde"] }

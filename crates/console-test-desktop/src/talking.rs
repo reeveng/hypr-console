@@ -9,7 +9,7 @@ use console_compositor::{Asked, Told};
 use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_screen::Screen;
-use console_waiting::{Patience, Seen, until};
+use console_waiting::{Patience, Seen, until, until_handed};
 
 use crate::nested;
 
@@ -221,7 +221,7 @@ impl Inside {
         let Ok(patience) = Patience::asking_every(A_STILL_SCREEN, Duration::from_millis(100));
         let mut before: Option<Vec<u8>> = None;
 
-        until(patience, || {
+        until_handed(patience, &mut before, |before| {
             let Ok(now) = self.shot();
 
             let now = match now {
@@ -231,7 +231,7 @@ impl Inside {
 
             let same = before.as_ref() == Some(&now);
 
-            before = Some(now);
+            *before = Some(now);
 
             Ok(match same {
                 true => Seen::Yes,
@@ -311,8 +311,8 @@ impl Inside {
             None => return Ok(()),
         };
 
-        let Ok(_focused) =
-            self.told(Told::Dispatch, &format!(r#"hl.dsp.focus({{workspace = "{where_}"}})"#));
+        let Ok(lua) = console_compositor::onto(where_, console_compositor::Carrying::Nothing);
+        let Ok(_focused) = self.told(Told::Dispatch, &lua);
         let Ok(patience) = Patience::asking_every(A_GOODBYE, Duration::from_millis(50));
         let Ok(there) = until(patience, || {
             let Ok(now) = self.asking(Asked::ActiveWorkspace);
@@ -348,7 +348,7 @@ impl Inside {
 
         let Ok(patience) = Patience::asking_every(A_PAINT, Duration::from_millis(250));
         let mut last = String::new();
-        let Ok(painted) = until(patience, || {
+        let Ok(painted) = until_handed(patience, &mut last, |last| {
             let Ok(mut asking) = self.command("awww");
             let told = asking
                 .args(["img"])
@@ -359,12 +359,12 @@ impl Inside {
             Ok(match told {
                 Ok(done) if done.status.success() => Seen::Yes,
                 Ok(done) => {
-                    last = String::from_utf8_lossy(&done.stderr).trim().to_string();
+                    *last = String::from_utf8_lossy(&done.stderr).trim().to_string();
 
                     Seen::NotYet
                 }
                 Err(_there_is_no_awww_here) => {
-                    last = "awww is not on this machine".to_string();
+                    *last = "awww is not on this machine".to_string();
 
                     Seen::Yes
                 }
@@ -382,7 +382,7 @@ impl Inside {
     }
 
     pub fn stop_the_bar(&self) -> Result<(), Never> {
-        let Ok(bars) = self.talking_to("waybar");
+        let Ok(bars) = self.talking_to(console_onscreen::BAR);
 
         for bar in &bars {
             // SAFETY: a signal to a process of this session's own, by its pid.

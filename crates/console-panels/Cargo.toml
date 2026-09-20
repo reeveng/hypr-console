@@ -18,6 +18,7 @@ path = "src/bin/console-panels.rs"
 
 [dependencies]
 console-input-mapping.workspace = true
+console-calendar.workspace = true
 console-downloads.workspace = true
 console-files.workspace = true
 console-launcher.workspace = true

@@ -17,6 +17,7 @@
 //! is measured in the session that is coming up, and that is the half somebody
 //! is actually sitting there watching.
 
+pub mod radio;
 pub mod reaching;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Words)]

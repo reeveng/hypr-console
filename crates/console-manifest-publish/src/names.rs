@@ -26,24 +26,27 @@ pub struct Watched {
     pub what: &'static str,
 }
 
+fn push(names: &mut Vec<Watched>, name: String, what: &'static str) -> Result<(), Never> {
+    let name = name.trim().to_string();
+
+    let worth = name.len() > 2 && !names.iter().any(|held: &Watched| held.name == name);
+
+    match worth {
+        true => names.push(Watched { name, what }),
+        false => {}
+    }
+
+    Ok(())
+}
+
 pub fn watched() -> Result<(Vec<Watched>, Option<String>), Never> {
     let mut names = Vec::new();
-    let mut push = |name: String, what| {
-        let name = name.trim().to_string();
-
-        let worth = name.len() > 2 && !names.iter().any(|held: &Watched| held.name == name);
-
-        match worth {
-            true => names.push(Watched { name, what }),
-            false => {}
-        }
-    };
 
     let Ok(building) = said(Program::Id, &["-un"]);
     let Ok(machine) = said(Program::Hostname, &[]);
 
-    push(building, "whoever is building this");
-    push(machine, "what this machine calls itself");
+    let Ok(()) = push(&mut names, building, "whoever is building this");
+    let Ok(()) = push(&mut names, machine, "what this machine calls itself");
 
     let told = console_device::naming::device();
 
@@ -58,7 +61,8 @@ pub fn watched() -> Result<(Vec<Watched>, Option<String>), Never> {
                 None => at.as_str(),
             };
 
-            push(named.to_string(), "the device");
+            let Ok(()) = push(&mut names, named.to_string(), "the device");
+
             let Ok(asked) = said(Program::Ssh, &[
                 "-o",
                 "BatchMode=yes",
@@ -78,7 +82,7 @@ pub fn watched() -> Result<(Vec<Watched>, Option<String>), Never> {
                     let asking = ["the device", "whoever the device belongs to"];
 
                     for (said, what) in asked.lines().zip(asking) {
-                        push(said.to_string(), what);
+                        let Ok(()) = push(&mut names, said.to_string(), what);
                     }
 
                     None

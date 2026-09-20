@@ -22,6 +22,13 @@ use console_core_never::Never;
 use crate::machine;
 use crate::settled::Settled;
 
+#[cfg_attr(
+    dylint_lib = "explicit048_no_unreal_state",
+    allow(
+        explicit048_no_unreal_state,
+        reason = "`asked` is whether the pad answered, `touchscreen` is what it said about a screen it may not have, and `told` is whether the router file is on disk; a device that never answered can still have a router written for it"
+    )
+)]
 pub struct Standing {
     pub missing: Vec<String>,
     pub asked: bool,

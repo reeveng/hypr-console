@@ -64,14 +64,20 @@ pub const NAME: &str = "org.mpris.MediaPlayer2.console";
 const OBJECT: &str = "/org/mpris/MediaPlayer2";
 const PLAYER: &str = "org.mpris.MediaPlayer2.Player";
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Sound {
+    Playing,
+    Paused,
+    Stopped,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Playing {
     pub title: String,
     pub artist: String,
     pub album: String,
     pub art: Option<PathBuf>,
-    pub paused: bool,
-    pub stopped: bool,
+    pub sound: Sound,
 }
 
 impl Default for Playing {
@@ -81,8 +87,7 @@ impl Default for Playing {
             artist: String::new(),
             album: String::new(),
             art: None,
-            paused: false,
-            stopped: true,
+            sound: Sound::Stopped,
         }
     }
 }
@@ -176,8 +181,11 @@ pub fn read(status: &Value, metadata: &Value) -> Result<Playing, Never> {
         artist: said("xesam:artist"),
         album: said("xesam:album"),
         art,
-        paused: state == "Paused",
-        stopped: state == "Stopped" || state.is_empty(),
+        sound: match state {
+            "Paused" => Sound::Paused,
+            "Stopped" | "" => Sound::Stopped,
+            _playing_or_something_this_player_made_up => Sound::Playing,
+        },
     })
 }
 
@@ -622,7 +630,7 @@ mod tests {
 
     #[test]
     fn a_player_that_cannot_be_asked_is_not_playing() {
-        assert!(Playing::default().stopped);
+        assert_eq!(Playing::default().sound, Sound::Stopped);
     }
 
     #[test]
@@ -671,14 +679,14 @@ mod tests {
 
         assert_eq!(playing.artist, "Arctic Monkeys");
         assert_eq!(playing.title, "505");
-        assert!(!playing.paused && !playing.stopped);
+        assert_eq!(playing.sound, Sound::Playing);
     }
 
     #[test]
     fn a_player_that_says_nothing_is_stopped() {
         let Ok(playing) = read(&Value::Null, &serde_json::json!({}));
 
-        assert!(playing.stopped);
+        assert_eq!(playing.sound, Sound::Stopped);
         assert_eq!(playing.title, "");
     }
 

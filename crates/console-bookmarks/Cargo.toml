@@ -1,0 +1,20 @@
+[package]
+name = "console-bookmarks"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "bookmarks-index"
+path = "src/bin/bookmarks-index.rs"
+
+[dependencies]
+console-applications.workspace = true
+console-core-atomic-writes.workspace = true
+console-core-external-programs.workspace = true
+console-core-never.workspace = true
+console-core-places.workspace = true
+
+[lints]
+workspace = true

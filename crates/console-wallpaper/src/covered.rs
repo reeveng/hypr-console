@@ -150,8 +150,7 @@ mod tests {
 
     const NOTHING_UP: &str = r#"{"eDP-1":{"levels":{
         "0":[{"address":"0x1","namespace":"awww-daemon"}],
-        "2":[{"address":"0x2","namespace":"waybar"},
-             {"address":"0x3","namespace":"updating"}]}}}"#;
+        "2":[{"address":"0x2","namespace":"console-bar"}]}}}"#;
 
     fn said(text: &str) -> serde_json::Value {
         console_compositor::read(text).expect("what hyprctl said")
@@ -178,7 +177,7 @@ mod tests {
         let home = r#"{"eDP-1":{"levels":{
             "0":[{"namespace":"awww-daemon","h":800}],
             "1":[{"namespace":"console-home","h":760}],
-            "2":[{"namespace":"waybar","h":38},{"namespace":"updating","h":2}]}}}"#;
+            "2":[{"namespace":"console-bar","h":40}]}}}"#;
         assert_eq!(something_over_it(&said(home)), Ok(Covered::No));
     }
 
@@ -204,7 +203,7 @@ mod tests {
     fn a_menu_is_in_front_of_it() {
         let menu = r#"{"eDP-1":{"levels":{
             "0":[{"namespace":"awww-daemon"}],
-            "2":[{"namespace":"waybar"}],
+            "2":[{"namespace":"console-bar"}],
             "3":[{"namespace":"wofi"}]}}}"#;
         assert_eq!(something_over_it(&said(menu)), Ok(Covered::Yes));
     }

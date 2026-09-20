@@ -98,7 +98,7 @@ impl Turning {
             };
 
             for path in paths {
-                for _ in 0..match deaf {
+                'over_tries: for _ in 0..match deaf {
                     true => DRY,
                     false => 1,
                 } {
@@ -118,7 +118,7 @@ impl Turning {
                             }
 
                             match dry {
-                                true => break,
+                                true => break 'over_tries,
                                 false => {},
                             }
                         }
@@ -126,7 +126,7 @@ impl Turning {
                             let Ok(went) = self.went(which, &path);
 
                             doing.extend(went);
-                            break;
+                            break 'over_tries;
                         }
                     }
                 }
@@ -225,14 +225,14 @@ impl Turning {
 
             let Ok(found) = self.at(machine, which);
 
-            for path in found {
+            'over_paths: for path in found {
                 match self.open.get(&which).is_some_and(|paths| paths.contains(&path)) {
-                    true => continue,
+                    true => continue 'over_paths,
                     false => {},
                 }
 
                 match machine.open(&path) {
-                    Took::Refused => continue,
+                    Took::Refused => continue 'over_paths,
                     Took::Held => {},
                 }
 
@@ -246,7 +246,7 @@ impl Turning {
                 let _ = self.open.entry(which).or_default().insert(path);
 
                 match wants {
-                    Wants::One => break,
+                    Wants::One => break 'over_paths,
                     Wants::Every => {},
                 }
             }

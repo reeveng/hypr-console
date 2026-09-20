@@ -20,11 +20,7 @@
 //! what is waited for. This used to be three numbers -- sleep two and a half
 //! seconds for the panel to come up, six tenths between presses, a second and
 //! a half at the end -- and every one of them was a guess about a machine with
-//! nothing else running on it. Six panel checks run beside each other here,
-//! each in a nested compositor of its own, queued a few at a time, so the
-//! machine a check runs on is always busy and the guess was wrong often enough
-//! to read as the panel being broken: the key went nowhere because nothing was
-//! up to receive it, and the check said the mark was never drawn.
+//! nothing else running on it.
 //!
 //! `console-desktop pressing` is the wait said once. It takes the file the
 //! panel writes a line to on every draw, waits for a line to be in it, counts
@@ -32,6 +28,28 @@
 //! nested desktop holding itself open until that whole chain has finished
 //! rather than until a number of seconds has gone by. Nothing here sleeps now,
 //! and a run on a loaded machine is slower rather than red.
+//!
+//! **One nested desktop at a time, and the lock is how.** Every check here
+//! wants a compositor of its own, and for a long time they were let up a few at
+//! a time -- a share of the cores, with a floor under it. What that bought was
+//! the viewer's tier failing a different handful of its checks every run, on a
+//! laptop with nothing else running, and passing all of them every time under
+//! `--test-threads=1`. The failures read as the panel: the key reached nothing,
+//! the page was never arrived at, a picture opened over the whole screen drew
+//! no way out. What was happening is that a panel's first frame is drawn before
+//! what it is going to show has arrived -- a folder is walked, a picture is
+//! decoded -- and with compositors racing each other for one machine's graphics
+//! that gap grows until the press lands in a card that is still empty, which
+//! draws a frame and changes nothing at all. A press that waits for the line
+//! saying the thing the check is about was tried against the same load and is
+//! not enough: the second compositor is the whole of it.
+//!
+//! So a tier queues on one lock. It costs the wall clock several times over and
+//! it is the only reason any of it means anything: a tier that is red for the
+//! machine it ran on is worse than no tier. Why this was tried once before and
+//! looked like it failed is worth keeping -- the share was lowered and the
+//! floor underneath it was not, so compositors went on racing in pairs and the
+//! checks went on failing.
 //!
 //! **A panel binary is not a dependency of the check that drives it**, so
 //! `cargo test -p console-media-viewer` builds today's expectations and runs
@@ -60,44 +78,17 @@ use std::process::Command;
 
 use console_core_geometry::Point;
 use console_core_never::Never;
-use console_core_number_conversion::fitted;
 use console_panel::telling::{self, Bare, Line, Offers, Reachable, Spot, Told};
 
 use crate::Awry;
 
-const THE_ONLY_ONE: usize = 0;
-
 struct Room(Option<std::fs::File>);
 
-fn how_many() -> Result<usize, Never> {
-    let all = std::thread::available_parallelism().map_or(SOME, std::num::NonZero::get);
-
-    Ok((all / A_SHARE).max(SOME))
-}
-
-const A_SHARE: std::num::NonZeroUsize = match std::num::NonZeroUsize::new(4) {
-    Some(share) => share,
-    None => std::num::NonZeroUsize::MIN,
-};
-
-const SOME: usize = 2;
+const ONE_AT_A_TIME: &str = "console-panel-stage.lock";
 
 impl Room {
-    fn for_one_more(mine: u32) -> Result<Room, Never> {
-        let Ok(mine) = fitted::<u32, usize>(mine);
-        let Ok(how_many) = how_many();
-
-        let Ok(round) = console_core_walking::Ring::round(how_many);
-
-        let slot = match round {
-            Some(ring) => {
-                let Ok(slot) = ring.at(mine);
-
-                slot
-            }
-            None => THE_ONLY_ONE,
-        };
-        let at = std::env::temp_dir().join(format!("console-panel-stage-{slot}.lock"));
+    fn for_one_more() -> Result<Room, Never> {
+        let at = std::env::temp_dir().join(ONE_AT_A_TIME);
 
         #[cfg_attr(
             dylint_lib = "explicit040_no_torn_write",
@@ -221,7 +212,6 @@ static ONE_AFTER_ANOTHER: std::sync::atomic::AtomicU32 = std::sync::atomic::Atom
 
 pub struct Panel {
     program: String,
-    mine: u32,
     args: Vec<String>,
     presses: Vec<String>,
     here: PathBuf,
@@ -237,7 +227,6 @@ impl Panel {
 
         Ok(Panel {
             program: program.to_string(),
-            mine,
             args: args.iter().map(|said| (*said).to_string()).collect(),
             presses: Vec::new(),
             here,
@@ -302,7 +291,7 @@ impl Panel {
             None => {},
         }
 
-        let Ok(_room) = Room::for_one_more(self.mine);
+        let Ok(_room) = Room::for_one_more();
         let Ok(program) = crate::beside(&self.program);
 
         match program.is_file() {

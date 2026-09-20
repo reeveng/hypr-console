@@ -103,6 +103,166 @@ const answers = {
   },
 };
 
+/* The bookmarks, said to the desktop rather than kept in here.
+ *
+ * A bookmark is a thing somebody opens, and everything else a person opens on
+ * this machine is in the menu and can be put on the home screen from it. So
+ * they are written out as desktop entries -- `crates/console-bookmarks` is the
+ * argument -- and then the menu, the home screen and the panel need to know
+ * nothing about bookmarks at all.
+ *
+ * Walking the tree and watching it change is what an add-on is for, and is
+ * here. Fetching the picture a page has and starting a program of ours is what
+ * an add-on may not do, and is in `around.js`.
+ *
+ * A folder is not a bookmark and neither is a separator: what is handed over
+ * is what has an address, and what is not a page -- a keyword search, a query
+ * the browser keeps for itself -- is dropped at the other end, where what a
+ * desktop entry can hold is decided.
+ */
+function under(nodes, found) {
+  for (const node of nodes || []) {
+    if (node.children) under(node.children, found);
+    else if (node.url) found.push({ id: node.id, url: node.url, title: title(node) });
+  }
+  return found;
+}
+
+/* A tab, a line break or a stray space would be a second field or a second
+   line to whatever reads this, so the title is one line before it leaves. */
+function title(node) {
+  return (node.title || '').replace(/\s+/gu, ' ').trim();
+}
+
+/* One run at a time, and one more afterwards if anything changed while it ran.
+   Importing bookmarks fires an event per bookmark, and a program started per
+   event is a thousand programs; this is the same list written twice instead. */
+let telling = null;
+let again = false;
+
+function tell() {
+  if (telling) {
+    again = true;
+    return;
+  }
+
+  telling = browser.bookmarks
+    .getTree()
+    .then((tree) => browser.around.bookmarks(under(tree, [])))
+    .catch(() => null)
+    .then(() => {
+      telling = null;
+      if (again) {
+        again = false;
+        tell();
+      }
+    });
+}
+
+browser.bookmarks.onCreated.addListener(tell);
+browser.bookmarks.onChanged.addListener(tell);
+browser.bookmarks.onRemoved.addListener(tell);
+
+tell();
+
+/* Every page that arrives from outside gets a jar of its own.
+ *
+ * A bookmark on the home screen, a question typed into the menu and a link in
+ * the guide all reach the browser the same way -- `xdg-open`, a command line,
+ * a tab -- and a command line cannot say which container to open in. So they
+ * all landed in the one the browser starts with, which is the jar every other
+ * page on this device also lands in: one machine, one person, and every site
+ * she opens sharing a cookie store with every other.
+ *
+ * What happens here instead is what the Temporary Containers add-on does in
+ * its automatic mode, in the add-on this desktop already ships rather than a
+ * second one installed beside it. A signed add-on from a store would bring its
+ * own preferences page -- a desk-sized surface on a machine with no pointer to
+ * aim at it -- to configure a rule this desktop has already made.
+ *
+ * The rule is the whole of it: a navigation in a tab that is still in the
+ * browser's own container is stopped and opened again in a container made for
+ * it. A tab that has been moved is no longer in that container, so the only
+ * navigation this catches is the first one of a tab nothing else claimed --
+ * which is exactly a thing opened from outside. Links followed from there stay
+ * where they are, because a tab hands its container to what it opens: one jar
+ * per thing opened, not one per page, which is the difference between being
+ * isolated and being logged out every time you click.
+ *
+ * The jar is named for where it went, because the browser draws that name on
+ * the tab and `once: example.com` is something a person can read. The mark is
+ * what tells ours from a container somebody made on purpose.
+ *
+ * They are taken away when the last tab in one closes, and the sweep looks at
+ * all of them rather than the one that just emptied: this desktop stops the
+ * browser rather than the person doing it, so a session that went down hard
+ * leaves jars behind, and the next tab anybody closes is when they go.
+ */
+const ONCE = 'once';
+
+const THE_BROWSERS_OWN = 'firefox-default';
+
+async function apart(tab, url) {
+  const where = host(url);
+
+  const made = await browser.contextualIdentities.create({
+    name: where ? `${ONCE}: ${where}` : ONCE,
+    color: 'pink',
+    icon: 'fingerprint',
+  });
+
+  await browser.tabs.create({
+    url,
+    cookieStoreId: made.cookieStoreId,
+    index: tab.index,
+    active: tab.active,
+    windowId: tab.windowId,
+  });
+
+  await browser.tabs.remove(tab.id);
+}
+
+browser.webRequest.onBeforeRequest.addListener(
+  (asked) => {
+    if (asked.tabId < 0) return {};
+
+    return browser.tabs
+      .get(asked.tabId)
+      .then((tab) => {
+        if (tab.cookieStoreId !== THE_BROWSERS_OWN) return {};
+
+        /* The request is stopped only once the tab it is moving to is open.
+           A browser where containers are switched off answers the making of
+           one with a promise that breaks, and a page stopped on the strength
+           of a tab that was never opened is a press that loads nothing at
+           all -- so what that costs is the jar, and not the page. */
+        return apart(tab, asked.url).then(
+          () => ({ cancel: true }),
+          () => ({}),
+        );
+      })
+      .catch(() => ({}));
+  },
+  { urls: ['<all_urls>'], types: ['main_frame'] },
+  ['blocking'],
+);
+
+async function swept() {
+  const every = await browser.contextualIdentities.query({});
+  const tabs = await browser.tabs.query({});
+  const held = new Set(tabs.map((tab) => tab.cookieStoreId));
+
+  for (const one of every) {
+    if (!one.name.startsWith(ONCE)) continue;
+    if (held.has(one.cookieStoreId)) continue;
+    await browser.contextualIdentities.remove(one.cookieStoreId);
+  }
+}
+
+browser.tabs.onRemoved.addListener(() => {
+  swept().catch(() => null);
+});
+
 function host(url) {
   try {
     return new URL(url).host;

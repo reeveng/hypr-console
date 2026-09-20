@@ -1,0 +1,25 @@
+[Unit]
+Description=What the machine is spending, every few minutes
+PartOf=console.target
+
+[Timer]
+# Two minutes rather than at the target, for the same reason the startup check
+# waits three: the first reading of a desktop still coming up is a reading of
+# the desktop coming up, and every program on this machine is at its busiest in
+# the seconds after it starts.
+OnStartupSec=2min
+# Five minutes is the shortest gap worth keeping a year of. A reading is a pair
+# of counters and what is read out of it is a rate, so the gap decides what the
+# store can answer: a window this size can say which program held the CPU while
+# the battery fell, and cannot say which frame was slow -- and the second of
+# those is what console-response-times is already for.
+OnUnitActiveSec=5min
+# A minute of slack, so the wake-up is shared with whatever else the machine was
+# going to do. A handheld pays for being woken, and this is the one thing here
+# that would otherwise wake it for nothing.
+AccuracySec=1min
+# Not Persistent=. A reading missed while the machine was off is not a reading
+# owed: what it would have measured is a machine that was not running.
+
+[Install]
+WantedBy=console.target

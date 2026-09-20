@@ -21,7 +21,7 @@
  * What is in here is deliberately small. Everything that can be done from
  * inside a page is done from inside a page, where a mistake is a broken label
  * rather than a broken browser, and this holds only what nothing else can
- * reach: two places chrome keeps, and the one program that is outside the
+ * reach: two places chrome keeps, and the two programs that are outside the
  * browser altogether.
  */
 
@@ -72,6 +72,55 @@ this.around = class extends ExtensionAPI {
            Nothing waits on it. A keyboard that failed to come up is a card
            that still draws, still takes a row, and still has the pad: the
            search would be worse for it and is not broken by it. */
+        /* The bookmarks, handed to the program that writes them where the menu
+           looks for applications. `console-bookmarks` is the argument for why
+           they are desktop entries and not a list of our own; this is the half
+           of it a page cannot do, which is three things: the picture a
+           bookmark has, which lives in the browser's own store behind a
+           protocol only chrome may ask for, and a program of this desktop's,
+           started with what was gathered on its input.
+
+           A bookmark with no picture is a bookmark. Nothing here fails the
+           write because an icon would not come: the menu draws a row with no
+           picture the way it does for an application whose theme has none. */
+        async bookmarks(every) {
+          const picture = async (url) => {
+            try {
+              const answer = await fetch(`page-icon:${url}`);
+              const bytes = new Uint8Array(await answer.arrayBuffer());
+              let said = '';
+              for (const byte of bytes) said += byte.toString(16).padStart(2, '0');
+              return said;
+            } catch (_) {
+              return '';
+            }
+          };
+
+          try {
+            const { Subprocess } = ChromeUtils.importESModule(
+              'resource://gre/modules/Subprocess.sys.mjs',
+            );
+            const said = [];
+
+            for (const one of every) {
+              const icon = await picture(one.url);
+              said.push([one.id, one.url, one.title, icon].join('\t'));
+            }
+
+            const running = await Subprocess.call({
+              command: '/usr/local/bin/bookmarks-index',
+              arguments: [],
+              stdin: 'pipe',
+            });
+            await running.stdin.write(`${said.join('\n')}\n`);
+            await running.stdin.close();
+            await running.wait();
+            return true;
+          } catch (_) {
+            return false;
+          }
+        },
+
         async keyboard() {
           try {
             const { Subprocess } = ChromeUtils.importESModule(

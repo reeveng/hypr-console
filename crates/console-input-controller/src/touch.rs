@@ -35,6 +35,13 @@ fn click() -> Result<Vec<Doing>, Never> {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[cfg_attr(
+    dylint_lib = "explicit048_no_unreal_state",
+    allow(
+        explicit048_no_unreal_state,
+        reason = "`down` is a finger on the pad and `held` is the click under it, which are two devices: a finger travels without the button and the button stays held after the finger lifts"
+    )
+)]
 pub struct Finger {
     pub down: bool,
     pub held: bool,

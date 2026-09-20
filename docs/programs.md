@@ -240,9 +240,10 @@ worked it out. That is the same fault as the subscriptions, one layer down. The
 wallpaper's copy went with the subscription it was for, and the pool asks
 `console_onscreen`.
 
-**Four watches on that socket are one.** `music-bar`, `bar-door`,
-`controller-desktop` and the status bar's `watch` each opened it to learn the
-same thing, and all four ask the pool now through `console_events::layers`.
+**Four watches on that socket are one.** `music-bar`, the icon that says
+whether the menu or the keyboard is up, `controller-desktop` and the status
+bar's `watch` each opened it to learn the same thing, and all four ask the pool
+now through `console_events::layers`.
 `console_onscreen::watching_layers` is gone rather than left standing beside
 them, which is the rule this crate only earns by being kept: a source with two
 observers is a source nobody has moved off.
@@ -253,7 +254,7 @@ a pool that decided would be deciding for both. And `Heard::GotIn` came out of
 it: what these watches carry is *ask again* rather than an answer, so a gap in
 one is an icon quietly wrong with nothing on the way to correct it. The pool
 says *you are in* on every reconnection, whoever does not need it ignores it,
-and `bar-door` — the one with no tick under it — is why it exists.
+and that icon — the one with no tick under it — is why it exists.
 
 **The orphan fix is a write that would not go through.** Nothing has to be
 tidied up by the program that left, and nothing has to notice that it left: a
@@ -509,7 +510,7 @@ runs `keyboard-toggle`. Putting it away is the keyboard's, because while it is
 up it reads the pad itself and the daemon acts on nothing, so the second press
 reaches it as the pad button it always was. One button, two programs, and
 neither of them ever acting on the same press -- which is the one thing here
-that has to be pressed rather than read about, and `todos.md` says so.
+that has to be pressed rather than read about, and the backlog says so.
 
 The profile is still switched when the keyboard opens, and that is the one
 switch left. The keyboard needs raw d-pad events off the gamepad target to move
@@ -522,7 +523,7 @@ So the last profile switch used to rest on one binary that no other repository
 could reach, and that was the decision this document kept arriving at from
 different directions. The binary is ours now. The switch is not gone with it --
 it is a function of reading a pad, not of who wrote the reader -- and what is
-left of it is `todos.md`'s claim crate.
+left of it is the backlog's claim crate.
 
 ## Everything in Rust, and what is written in something else
 
@@ -654,7 +655,7 @@ anything: the keyboard reads the pad itself in `gamepad.rs`, in
 `console_pad::vocabulary`'s words, which is the same table the daemon reads
 buttons out of rather than a second copy of it. The one part of the plan that
 is still owed is the part that was never about the fork -- the `keyboard`
-profile, and the pad rebuild that a profile load is. See `todos.md`.
+profile, and the pad rebuild that a profile load is. See the backlog.
 
 ### What the fork actually was, and what internalising it cost
 

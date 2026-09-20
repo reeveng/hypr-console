@@ -51,13 +51,48 @@
 //! this for years because a handle is cheap to drop. Only half of it carries
 //! over -- a thread cannot be ended from outside -- so what is there is the
 //! `LetGo` half and the word for it, and EXPLICIT035 asks at every `spawn`.
+//!
+//! Both answers reach one process, and a process is not always one process.
+//! [`Alongside`] kills the child it was handed; what that child started is
+//! reparented to the user manager and carries on, in the control group of
+//! whoever is logged in, where nothing can tell it from the desktop somebody is
+//! using. A nested desktop is the whole of that fault: the compositor dies with
+//! the run and its session, its bar and its keyboard are still there an hour
+//! later, and the only way anyone found them was `ps`.
+//!
+//! [`in_a_scope_of_its_own`] is the answer to what neither type can reach. A
+//! transient scope is a control group with a name this tree chose, so what a
+//! program starts at any depth is in it, and [`nothing_left_in`] ends all of it
+//! at once without naming a single pid -- which matters, because the names are
+//! the session's own: `pgrep -x Hyprland` on this laptop matches the compositor
+//! the person is looking at.
+//!
+//! It is a thing to reach for deliberately and not a thing to wrap every
+//! `alongside` in: a scope is a round trip to the user manager, which is worth
+//! paying once for a run and not once for every watcher a panel starts. Where a
+//! run is wrapped and why is in the justfile.
+//!
+//! The other place it is paid is the nested compositor itself, which wraps its
+//! own session in `console-test-desktop`. A run is only wrapped when somebody
+//! typed `just`, and the panel tier is a `cargo test` like any other: for an
+//! afternoon the justfile's scope was taken for the whole of this, and the
+//! count went on climbing underneath it -- eight hundred processes, because
+//! what had been run was `cargo test` and not `just test`. A scope inside a
+//! scope is a sibling rather than a child, so the two do not reach each other
+//! and the inner one is the one that holds.
+//!
+//! A machine with no user manager gets the argv it handed in. That is most of
+//! what is not a desktop, and it is not a fault: `Alongside` still holds, and a
+//! machine with no manager to leave something behind in mostly has no session
+//! to leave it in.
 
 pub mod threads;
 
 use console_core_never::Never;
 use std::io;
 use std::os::unix::process::CommandExt;
-use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, ExitStatus};
+use console_core_external_programs::Program;
+use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, ExitStatus, Stdio};
 
 #[derive(Debug)]
 pub struct Alongside {
@@ -140,6 +175,83 @@ fn still(child: &mut Child) -> Result<Still, Never> {
     })
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Wrapped {
+    InAScope,
+    AsItWasHandedIn,
+}
+
+pub fn in_a_scope_of_its_own(named: Option<&str>, argv: &[String]) -> Result<(Wrapped, Vec<String>), Never> {
+    let Ok(has) = has_systemd_run();
+
+    match has {
+        Has::No => return Ok((Wrapped::AsItWasHandedIn, argv.to_vec())),
+        Has::Yes => {},
+    }
+
+    let unit: Vec<String> = named
+        .into_iter()
+        .map(|named| format!("--unit={named}"))
+        .collect();
+
+    let Ok(said) = Program::SystemdRun.words(
+        ["--user".to_string(), "--scope".to_string(), "--quiet".to_string()]
+            .into_iter()
+            .chain(unit)
+            .chain(std::iter::once("--".to_string()))
+            .chain(argv.iter().cloned())
+            .collect(),
+    );
+
+    Ok((Wrapped::InAScope, said))
+}
+
+pub fn nothing_left_in(named: &str) -> Result<(), Never> {
+    let Ok(has) = has_systemd_run();
+
+    match has {
+        Has::No => return Ok(()),
+        Has::Yes => {},
+    }
+
+    let Ok(mut asking) = Program::Systemctl.command();
+
+    let _ended = asking
+        .args(["--user", "stop", "--no-block", &format!("{named}.scope")])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+
+    Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Has {
+    Yes,
+    No,
+}
+
+fn has_systemd_run() -> Result<Has, Never> {
+    let Ok(said) = console_core_external_programs::path();
+
+    let path = match said {
+        Some(path) => path,
+        None => return Ok(Has::No),
+    };
+
+    let Ok(systemd_run) = Program::SystemdRun.name();
+
+    let found = path
+        .split(':')
+        .filter(|at| !at.is_empty())
+        .any(|at| std::path::Path::new(at).join(systemd_run).exists());
+
+    Ok(match found {
+        true => Has::Yes,
+        false => Has::No,
+    })
+}
+
 fn dying_with_us(command: &mut Command) -> Result<(), Never> {
     let whose = std::process::id();
 
@@ -162,6 +274,76 @@ fn dying_with_us(command: &mut Command) -> Result<(), Never> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod scopes {
+    use super::*;
+
+    #[test]
+    fn the_wrap_is_in_front_of_everything_else() {
+        let argv = vec![
+            "firefox".to_string(),
+            "--new-window".to_string(),
+            "https://example.com".to_string(),
+        ];
+        let Ok((wrapped, made)) = in_a_scope_of_its_own(None, &argv);
+
+        match wrapped {
+            Wrapped::AsItWasHandedIn => {
+                eprintln!("skipped: no systemd-run on PATH; scopes cannot be made");
+
+                return;
+            }
+            Wrapped::InAScope => {},
+        }
+
+        assert_eq!(
+            made,
+            vec![
+                "systemd-run".to_string(),
+                "--user".to_string(),
+                "--scope".to_string(),
+                "--quiet".to_string(),
+                "--".to_string(),
+                "firefox".to_string(),
+                "--new-window".to_string(),
+                "https://example.com".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_program_named_like_a_flag_is_kept_a_program() {
+        let argv = vec!["--something".to_string()];
+        let Ok((wrapped, made)) = in_a_scope_of_its_own(None, &argv);
+
+        match wrapped {
+            Wrapped::AsItWasHandedIn => return,
+            Wrapped::InAScope => {},
+        }
+
+        let at = made.iter().position(|word| word == "--");
+
+        assert_eq!(at, Some(4), "the terminator is what keeps the program a program");
+        assert_eq!(made.last().map(String::as_str), Some("--something"));
+    }
+
+    #[test]
+    fn a_scope_that_is_named_can_be_stopped_by_that_name() {
+        let argv = vec!["sleep".to_string()];
+        let Ok((wrapped, made)) = in_a_scope_of_its_own(Some("console-run-1"), &argv);
+
+        match wrapped {
+            Wrapped::AsItWasHandedIn => return,
+            Wrapped::InAScope => {},
+        }
+
+        assert!(
+            made.contains(&"--unit=console-run-1".to_string()),
+            "a scope nothing named is a scope nothing can stop: {made:?}"
+        );
+    }
 }
 
 #[cfg(test)]

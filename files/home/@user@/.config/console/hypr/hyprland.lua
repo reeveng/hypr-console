@@ -32,6 +32,25 @@ hl.monitor({
     transform = 1,
 })
 
+-- The touchscreen reports in the panel's own orientation, and the panel is
+-- mounted a quarter turn from the way the picture is drawn. Naming the output
+-- alone left the transform at 0 while the screen sat at 1, so touches landed
+-- rotated. Say both.
+--
+-- It stands above the dofile below for the same reason the monitor does: this
+-- is the seed, the file written out of the machine is the answer, and a screen
+-- turned since is a screen console-scale has said both of these about again in
+-- one eval. A quarter here that outlived either of those would be a desktop
+-- reading every press through the way it used to stand.
+hl.config({
+    input = {
+        touchdevice = {
+            output    = "eDP-1",
+            transform = 1,
+        },
+    },
+})
+
 -- Through pcall, because a `dofile` of a file that is not there is an error, and
 -- an error in this file abandons every line after it -- which would be a session
 -- with no bindings on a device whose only other way in is ssh. There is nothing
@@ -173,19 +192,6 @@ hl.config({
     },
     dwindle = {
         preserve_split = true,
-    },
-})
-
--- The touchscreen reports in the panel's own orientation, and the panel is
--- mounted a quarter turn from the way the picture is drawn. Naming the output
--- alone left the transform at 0 while the screen sat at 1, so touches landed
--- rotated. Say both.
-hl.config({
-    input = {
-        touchdevice = {
-            output    = "eDP-1",
-            transform = 1,
-        },
     },
 })
 

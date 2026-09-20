@@ -27,7 +27,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use console_core_our_programs::Ours;
-use console_program_lifetime::{LetGo, Still, let_go};
+use console_program_lifetime::{LetGo, Still, Wrapped, in_a_scope_of_its_own, let_go};
 use console_core_external_programs::Program;
 use console_core_never::Never;
 
@@ -118,11 +118,10 @@ pub fn left_running(argv: &[String]) -> Result<(), Never> {
         None => return Ok(()),
     };
 
-    let Ok((scope, scope_argv)) = scope_around(argv);
-    let Ok(has) = has_systemd_run();
+    let Ok((scope, scope_argv)) = in_a_scope_of_its_own(None, argv);
 
-    match (scope && has == Has::Yes, scope_argv.split_first()) {
-        (true, Some((wrapper, wrapped))) => {
+    match (scope, scope_argv.split_first()) {
+        (Wrapped::InAScope, Some((wrapper, wrapped))) => {
             let mut starting = Command::new(wrapper);
             starting
                 .args(wrapped)
@@ -134,14 +133,14 @@ pub fn left_running(argv: &[String]) -> Result<(), Never> {
 
             return Ok(());
         }
-        (true, None) | (false, _) => {},
+        (Wrapped::InAScope, None) | (Wrapped::AsItWasHandedIn, _) => {},
     }
 
-    match !scope {
-        true => {
+    match scope {
+        Wrapped::AsItWasHandedIn => {
             eprintln!("left_running: not wrapping {} in a scope: {}", program, argv.join(" "));
         }
-        false => {},
+        Wrapped::InAScope => {},
     }
 
     let mut starting = Command::new(program);
@@ -177,93 +176,6 @@ fn holding(starting: &mut Command) -> Result<(), Never> {
     Ok(())
 }
 
-pub fn scope_around(argv: &[String]) -> Result<(bool, Vec<String>), Never> {
-    let Ok(systemd_run) = Program::SystemdRun.name();
-
-    let mut wrapped = Vec::with_capacity(argv.len().saturating_add(5));
-    wrapped.push(systemd_run.to_string());
-    wrapped.push("--user".to_string());
-    wrapped.push("--scope".to_string());
-    wrapped.push("--".to_string());
-    wrapped.extend(argv.iter().cloned());
-
-    Ok((true, wrapped))
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Has {
-    Yes,
-    No,
-}
-
-fn has_systemd_run() -> Result<Has, Never> {
-    let Ok(said) = console_core_external_programs::path();
-
-    let path = match said {
-        Some(path) => path,
-        None => return Ok(Has::No),
-    };
-
-    let Ok(systemd_run) = Program::SystemdRun.name();
-
-    let found = path
-        .split(':')
-        .filter(|at| !at.is_empty())
-        .any(|at| std::path::Path::new(at).join(systemd_run).exists());
-
-    Ok(match found {
-        true => Has::Yes,
-        false => Has::No,
-    })
-}
-
 pub const PATIENCE: Duration = Duration::from_secs(45);
 
 pub const SETTLING: Duration = Duration::from_millis(250);
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_wrap_is_in_front_of_everything_else() {
-        let argv = vec![
-            "firefox".to_string(),
-            "--new-window".to_string(),
-            "https://example.com".to_string(),
-        ];
-        let Ok((wrapped, made)) = scope_around(&argv);
-
-        assert!(wrapped, "the wrap was not applied");
-        assert_eq!(
-            made,
-            vec![
-                "systemd-run".to_string(),
-                "--user".to_string(),
-                "--scope".to_string(),
-                "--".to_string(),
-                "firefox".to_string(),
-                "--new-window".to_string(),
-                "https://example.com".to_string(),
-            ]
-        );
-    }
-
-    #[test]
-    fn a_program_named_like_a_flag_is_kept_a_program() {
-        let argv = vec!["--something".to_string()];
-        let Ok((_, made)) = scope_around(&argv);
-
-        assert_eq!(made[3], "--", "the terminator is what keeps the program a program");
-        assert_eq!(made[4], "--something");
-    }
-
-    #[test]
-    fn an_empty_argv_still_makes_a_wrapped_one() {
-        let Ok((_, made)) = scope_around(&[]);
-
-        let Ok(systemd_run) = Program::SystemdRun.name();
-
-        assert_eq!(made, vec![systemd_run, "--user", "--scope", "--"]);
-    }
-}

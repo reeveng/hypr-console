@@ -6,6 +6,13 @@ use std::collections::btree_map::Entry;
 use console_core_never::Never;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(
+    dylint_lib = "explicit048_no_unreal_state",
+    allow(
+        explicit048_no_unreal_state,
+        reason = "`here` is whether this is the network the machine is on and `locked` is whether it wants a password; every combination of the two is a network somebody can see in the list"
+    )
+)]
 pub struct Network {
     pub name: String,
     pub here: bool,

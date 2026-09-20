@@ -33,6 +33,7 @@ pub mod named {
     pub const ASKED: &str = "asked";
     pub const BAR: &str = "bar";
     pub const CARD: &str = "card";
+    pub const CELL: &str = "cell";
     pub const COVER: &str = "cover";
     pub const ELSE: &str = "else";
     pub const ICON: &str = "icon";
@@ -54,9 +55,9 @@ pub mod named {
     pub const TAB: &str = "tab";
     pub const TOP: &str = "top";
 
-    pub const EVERY: [&str; 22] = [
-        ABOUT, ANSWER, ASIDE, ASKED, BAR, CARD, COVER, ELSE, ICON, INTO, LINE, MORE, NOTE, PANEL,
-        SAID, SHUT, SOUGHT, STEP, STRIP, SURE, TAB, TOP,
+    pub const EVERY: [&str; 23] = [
+        ABOUT, ANSWER, ASIDE, ASKED, BAR, CARD, CELL, COVER, ELSE, ICON, INTO, LINE, MORE, NOTE,
+        PANEL, SAID, SHUT, SOUGHT, STEP, STRIP, SURE, TAB, TOP,
     ];
 }
 

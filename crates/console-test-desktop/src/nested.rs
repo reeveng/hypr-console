@@ -62,14 +62,15 @@ const SESSION_START: &str = r#"#!/bin/sh
 # takes about two seconds altogether. A bar started before that is built on the
 # screen that is about to go, and then built again on the one that arrives.
 #
-# The second building is what kills it. waybar closes the modules of the screen
-# it is finished with, and closing one forks a copy of the bar to start the
-# little program the module reads from. The copy never becomes that program: it
-# is a whole waybar with the Hyprland module's static still in it, and when its
-# one thread ends, glibc exits the process, the static's destructor destroys the
-# thread that is running it, and destroying a joinable thread aborts. A core out
-# of a bar that had drawn nothing, in five staged sessions in six, and none at
-# all in twenty once the bar goes up last.
+# The second building is what killed it, back when the bar was waybar: closing
+# the modules of the screen it was finished with forked a copy of the bar per
+# module, and a copy that never became the program it was forked to run exits
+# with a joinable thread still running, which aborts. A core out of a bar that
+# had drawn nothing, in five staged sessions in six, and none at all in twenty
+# once the bar went up last. `console-bar` is one process that redraws when the
+# compositor hands it a new size, so it has nothing to fork and nothing to
+# rebuild; the waiting stays because a bar built on a screen that is about to
+# go still draws itself the wrong width for a moment.
 #
 # Settled rather than slept: a list of screens that has not changed for a second
 # and a half is a session that has finished being arranged, and the last change

@@ -143,16 +143,18 @@ impl Deploy {
     pub fn undo(&mut self, lays: &mut impl Lays) -> Result<Vec<Undone>, Never> {
         let laid = std::mem::take(&mut self.laid);
         let Ok(undoing) = undoing(&laid);
-        let undone: Vec<Undone> = undoing
-            .into_iter()
-            .map(|one| Undone {
-                at: one.at.clone(),
-                put: match lays.put_back(one) {
-                    Ok(()) => Put::Back,
-                    Err(fault) => Put::NotBack(fault.to_string()),
-                },
-            })
-            .collect();
+        let mut undone: Vec<Undone> = Vec::new();
+
+        for one in undoing {
+            let at = one.at.clone();
+
+            let put = match lays.put_back(one) {
+                Ok(()) => Put::Back,
+                Err(fault) => Put::NotBack(fault.to_string()),
+            };
+
+            undone.push(Undone { at, put });
+        }
 
         lays.forget_note();
 

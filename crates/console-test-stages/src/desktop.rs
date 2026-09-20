@@ -59,7 +59,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use console_compositor::Window;
+use console_compositor::{Window, Workspace};
 use console_core_external_programs::Program;
 use console_core_geometry::{Point, Size};
 use console_core_never::Never;
@@ -462,6 +462,22 @@ impl Desktop {
         let Ok(logical) = first.logical();
 
         logical.ok_or_else(|| Awry::NoSize(at.clone(), first.named.clone()))
+    }
+
+    pub fn front(&mut self) -> Result<Workspace, Awry> {
+        self.picture()?;
+
+        let at = self.here.join(SCREEN);
+        let said = std::fs::read_to_string(&at)
+            .map_err(|fault| Awry::NoScreenSaid(at.clone(), fault))?;
+        let read = console_compositor::read(&said)?;
+        let first = read
+            .as_array()
+            .and_then(|monitors| monitors.first())
+            .ok_or_else(|| Awry::NoScreenAtAll(at.clone()))?;
+        let Ok(front) = console_compositor::front_of(first);
+
+        front.ok_or_else(|| Awry::NoScreenAtAll(at.clone()))
     }
 
     pub fn patch(&mut self, at: Point<f64>) -> Result<String, Awry> {

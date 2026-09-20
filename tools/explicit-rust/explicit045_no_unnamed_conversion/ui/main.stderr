@@ -1,0 +1,19 @@
+error: `into()` turns `&str` into `std::string::String` and the line says neither
+  --> $DIR/main.rs:8:5
+   |
+LL |     text.into()
+   |     ^^^^^^^^^^^
+   |
+   = help: write the destination out -- `Target::from(x)` -- so the reader sees what this becomes without asking the compiler, and so the call stops compiling when the type around it changes rather than converting to the new one behind the line
+   = note: `#[deny(explicit045_no_unnamed_conversion)]` on by default
+
+error: `into()` turns `&str` into `std::path::PathBuf` and the line says neither
+  --> $DIR/main.rs:14:5
+   |
+LL |     text.into()
+   |     ^^^^^^^^^^^
+   |
+   = help: write the destination out -- `Target::from(x)` -- so the reader sees what this becomes without asking the compiler, and so the call stops compiling when the type around it changes rather than converting to the new one behind the line
+
+error: aborting due to 2 previous errors
+

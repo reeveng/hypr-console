@@ -66,6 +66,10 @@ which stable cannot do; `rust-toolchain.toml` pins the nightly and the
     EXPLICIT042  a program ends by returning from `main`
     EXPLICIT043  a topic listened to is a topic deafened
     EXPLICIT044  a function decides from what it was handed
+    EXPLICIT045  a conversion names the type it becomes
+    EXPLICIT046  a jump out of a nested loop says which loop it leaves
+    EXPLICIT047  a closure takes what it writes, rather than holding it
+    EXPLICIT048  a type spells no state it does not have
 
 All of them are written. Each is one crate with a `ui/` case beside it.
 
@@ -75,19 +79,60 @@ remaining distance on every run so it is never out of sight. A rule moves from
 `Warn` to `Deny` in its own crate when the last call site that broke it is
 fixed, and by the ratchet's one law it never moves back.
 
-No rule stands warned. 039, 040, 041 and 044 arrived there together, which is
-the state this README said the suite would be found in the moment somebody
-wrote the next rule, and they have all come out; 042 and 043 came in denied
-beside them, 042 with the tree breaking it in a handful of binaries, all of
-them an error arm at the end of a `main`, and 043 green, which makes it the
-third ratchet after 034 and 037. Of what came after 023, 025 and three of the
-five after 033 also arrived denied, and the others arrived with the tree
-breaking them -- which is the thing this README used to say would be the only
-way to put anything back in that tier, and it was right. None of them was one
-sweep: some of what they found wanted moving, and some of it wanted a sentence
-at the site saying why it is where it is, and the rule was doing its work
-either way. Neither answer is available to somebody who cannot see the list,
-which is what the tier is for.
+Nothing stands warned. 047 and 048 were the last two in that tier, written
+ahead of the code the way this README said a rule would be, and both came out
+together; what each of them cost is further down. They and 045
+are read out of Kast, which is stricter than either. 045 is EXPLICIT010's
+argument with the numbers taken out of it: a conversion that names neither end
+says nothing at the call site, and Kast has no implicit coercion at all -- a
+cast there is a value somebody wrote, so the pair is declared and both halves
+are named. It came out in one sweep, because almost every site it found was a
+string literal becoming a `String` and a path spelled as one, where the
+destination was the only thing the line was not already saying; the two that
+wanted more than a spelling were a parameter taking `impl Into<String>`, which
+is the permission to convert handed to a caller who then cannot write the
+conversion down, and a `PathBuf` turned into an `Option` to be matched against
+a `None` that could not happen.
+
+047 was the one with the furthest to go: Kast's closures capture the pointer
+and not the access, so `() -> () with mutable_access[x]` says at the call that
+calling writes, and what this rule asks for is the argument that says the same
+thing in a language with no contexts in it. What it found was one question
+repeated rather than a list of independently wrong lines, which is why it stood
+warned for as long as it did and why it then came out in one pass. Some of the
+sites were an iterator word standing in for a loop -- a `try_for_each` over
+something that writes, a `filter` that inserts as it goes, a `map` that asks a
+machine -- and those became the `for` they always were, where what is written
+is a statement rather than a capture. The rest were the functions that take a
+closure and hand it nothing: a wait, a stretch of an apply, the sentence a
+failed check prints, the line a run draws quietly. Each of those has a second
+spelling now, `_handed`, that takes what the question is asked with and hands
+it in at every ask -- EXPLICIT044's own sentence, said about a closure instead
+of a function -- which is what `Device::until` had been doing since it was
+written,
+and the one that could not have a closure at all -- the stretch, because the
+thing it hands over is a borrow of the bar itself -- is two halves in one
+function body instead. It still catches the
+borrow and not the `move` closure that owns what it writes, which is the
+larger half and wants the page #108 in the backlog is asking for. 046 arrived
+warned beside them and came out in one pass, which is the shortest a rule has
+stood there: it is the smallest possible version of Kast's other argument --
+Kast has no anonymous non-local exit, a jump names the block it returns to --
+and what it found was a jump in a nested loop that names neither loop, in
+about a dozen crates. Every one of them meant the loop it was standing in, so
+the sweep was a label on that loop and the same word on the jump, and the
+reader stops counting braces. Before it, 039, 040, 041 and 044 arrived warned
+together and have all come out; 042 and 043 came in denied beside them, 042
+with the tree breaking it in a handful of binaries, all of them an error arm
+at the end of a `main`, and 043 green, which makes it the third ratchet after
+034 and 037. Of what came after 023, 025 and three of the five after 033 also
+arrived denied, and the others arrived with the tree breaking them -- which is
+the thing this README used to say would be the only way to put anything back
+in that tier, and it was right. None of them was one sweep: some of what they
+found wanted moving, and some of it wanted a sentence at the site saying why
+it is where it is, and the rule was doing its work either way. Neither answer
+is available to somebody who cannot see the list, which is what the tier is
+for.
 
 The four came out together and each one came out the same shape: where somebody
 at the edge could hold the answer, it moved there and became a parameter, and
@@ -131,7 +176,7 @@ unwinding, which drops nothing and so keeps nothing's promise -- a child started
 `Alongside` is killed by a `Drop` and by nothing else. 043 is the one obligation
 here a single line cannot answer, because its two halves are in two places on
 purpose, so it asks the crate rather than the call and says in its own head why
-that is weaker than the type it is standing in for. `todos.md` carries the rest
+that is weaker than the type it is standing in for. The backlog carries the rest
 of that argument.
 
 028 and 029 grew a half at the same time and for the same reason. Both stopped
@@ -449,7 +494,7 @@ edge cases. It uses the compiler's own lexer, which knows that a `//` inside a
 string is a string.
 
 The head it points at is not itself judged. Whether a `//!` earns its place is a
-reading, and a lint cannot do a reading; `todos.md` carries that as work for a
+reading, and a lint cannot do a reading; the backlog carries that as work for a
 person.
 
 ## Where a rule does not apply
@@ -723,7 +768,7 @@ not, so the same comment would be legal in one and not in the other.
 
 ## The nine that came after, and the half of them that are about cost
 
-024, 025 and 026 are the suite finishing an argument `todos.md` had been
+024, 025 and 026 are the suite finishing an argument the backlog had been
 keeping for it. Each is a thing a signature cannot say: 024 that two quantities
 are not the same quantity, 025 that a number is standing for a case the type
 does not have, 026 that a name read out of the air belongs to somebody. All
@@ -960,12 +1005,75 @@ time, bottom-up, the way 002 went, and the sentence each fault used to print is
 the `Display` arm that replaced it -- so the journal reads as it did, and the
 caller can now ask which fault it is looking at.
 
+## 048, which asks about the type rather than the code in it
+
+Every rule before it reads something somebody wrote in a function. 048 reads
+the shape of a type and asks how many of the states it can be written into are
+states it really has. The struct that prompted it is the one everybody has
+written: a `bool` saying whether the thing worked, an `Option` holding what it
+produced and an `Option` holding what went wrong, which is three fields, eight
+spellings and four meanings -- and the other four are reachable by a caller who
+sets one field and forgets the next. That struct is an enum written out flat,
+and the states are real; they were simply never named, so nothing counts them
+and nothing fails when a fifth arrives. `Option<Option<T>>` and
+`Option<Result<T, E>>` are the same complaint in a smaller shape, three states
+spelled as two questions, with the reader left working out which absence meant
+what.
+
+It is EXPLICIT016's argument moved from the match to the type. 016 denies the
+wildcard arm so a decision names every case; the case the wildcard was hiding is
+usually a combination the type should never have let exist. Both halves are read
+out of a Haskell habit that has a sentence for itself: make illegal states
+unrepresentable.
+
+The false positive decides how narrow it is. What is asked about is a `bool`
+standing beside an absence in the same struct -- a flag and the thing the flag
+is about -- or beside another flag, which is the same shape with the payload
+left out. Two `Option` fields are frequently two optional things and are left
+alone. The message says how many fields it read that way and how many spellings
+they make, so what `just explicit` prints is a distance to argue with rather
+than a verdict -- and where the fields really are independent, the site carries
+the allow and EXPLICIT018 asks the reason to say so.
+
+The fix at a site is usually more than a rename, and the help says so. Where the
+flag was set by a check, the variant holds what the check found -- `Yes(Socket)`
+rather than a yes -- so whatever does the work takes the thing and cannot be
+called without it, and the gap between the check and the doing closes with it.
+That is what Elixir gets from a second function head. Rust has one definition
+per name and no dispatch on a return type, so the same guarantee has to live in
+the type, which is where this rule keeps pointing.
+
+`Result<Option<T>, E>` looks like the third nesting and was in the rule until
+the count came back. It is in hundreds of signatures here, and every one of
+them is right: EXPLICIT002 puts every function through a `Result`, so that shape
+is the ordinary way to say *the call happened and the thing is not there* --
+the outer answer is about the call, the inner one about the value, and they are
+two questions rather than one asked twice. A rule that condemns the house style
+is a rule nobody keeps, and finding that out cost one run of `just explicit`,
+which is what the warned tier is for.
+
+What the run found when the distance was walked was a split, and the split is
+the rule. Some of the structs were the flat enum it is named for and are enums
+now: a player that is playing, paused or stopped rather than two flags that can
+both be true; a button that is loose, held, shared or already gone rather than
+an instant and two more flags; a key drawn pressed, under or plain rather than
+a pair whose fourth spelling the drawing quietly ignored. Every one of those
+lost a combination nobody meant, and two of them were answered by an enum the
+same file already had. The rest were fields that really are independent -- a
+wayland surface's separate promises, the flags somebody typed on a command
+line, what hyprctl says about one window -- and each carries the allow with a
+sentence saying which different question each field answers. Neither half was
+available to anybody who could not see the list, which is what the tier was
+for.
+
 ## What it is, and what it is not yet
 
 `just explicit-gate` is a gate. It denies the rules that nothing in the tree
 breaks and warns the rest; which tier a rule is in is the level in its own
-crate and nowhere else. Nothing is in the warned tier today, which is a thing
-that is true between rules rather than a thing that is finished. A rule moves up when the last call site that broke it
+crate and nowhere else. The warned tier is empty today, which is a thing that
+is true between sweeps rather than a thing that is finished: the next rule
+somebody writes ahead of the code will stand there until its last call site is
+answered. A rule moves up when the last call site that broke it
 is fixed, and it never moves back. That is the whole ratchet.
 
 `just explicit` is the other half: every rule over every crate, counted rather

@@ -35,6 +35,7 @@ pub mod music;
 pub mod notices;
 pub mod panel;
 pub mod pointer;
+pub mod resource_usage;
 pub mod resume;
 pub mod screenshot;
 pub mod services;
@@ -58,7 +59,7 @@ pub enum Unchecked {
     Unreadable(PathBuf, std::io::Error),
     Making(PathBuf, std::io::Error),
     Unparsed(toml::de::Error),
-    NotTwoBars(usize),
+    Undeclared(console_screen::Undeclared),
     NoGround(PathBuf),
     ShowingInstead(String),
     NotInTheTable(String, Vec<String>),
@@ -80,11 +81,7 @@ impl fmt::Display for Unchecked {
                 write!(to, "{}: making it: {fault}", at.display())
             }
             Unchecked::Unparsed(fault) => write!(to, "{fault}"),
-            Unchecked::NotTwoBars(many) => write!(
-                to,
-                "{} says {many} bars have a height, so which row is the strip is a guess",
-                updating::CONFIG
-            ),
+            Unchecked::Undeclared(fault) => write!(to, "{fault}"),
             Unchecked::NoGround(at) => {
                 write!(to, "{} sets no ground colour", at.display())
             }
@@ -134,9 +131,11 @@ impl From<Unchecked> for Why {
     }
 }
 
-pub const CHECKS: [&Check; 53] = [
+pub const CHECKS: [&Check; 56] = [
     &workspaces::RIGHT,
     &workspaces::LEFT,
+    &workspaces::TAPPED,
+    &workspaces::ANOTHER,
     &carry::CARRY,
     &carry::HALF,
     &close::CLOSE,
@@ -188,6 +187,7 @@ pub const CHECKS: [&Check; 53] = [
     &typing::LAST_PRESS,
     &bluetooth::LOOKS,
     &updating::FILLS,
+    &resource_usage::KEPT,
 ];
 
 pub fn chosen(words: &[String]) -> Result<Vec<&'static Check>, Never> {

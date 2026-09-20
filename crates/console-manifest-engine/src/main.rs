@@ -240,7 +240,7 @@ fn check(root: &Path, manifest: &Manifest) -> Result<ExitCode, Never> {
                 let Ok(settled) = held.settled();
                 let Ok(name) = held.name();
 
-                (settled, name.into(), package.clone())
+                (settled, String::from(name), package.clone())
             });
 
             drift
@@ -252,7 +252,7 @@ fn check(root: &Path, manifest: &Manifest) -> Result<ExitCode, Never> {
                 let Ok(said) = state.name();
                 let Ok(live) = build::live(name);
 
-                (settled, said.into(), live)
+                (settled, String::from(said), live)
             });
 
             drift
@@ -264,7 +264,7 @@ fn check(root: &Path, manifest: &Manifest) -> Result<ExitCode, Never> {
                 let Ok(settled) = state.settled();
                 let Ok(said) = state.name();
 
-                (settled, said.into(), path.clone())
+                (settled, String::from(said), path.clone())
             });
 
             drift
@@ -735,6 +735,16 @@ fn migrate(root: &Path, rest: &[String]) -> Result<(), Unapplied> {
     }
 }
 
+struct Laying {
+    deploy: Deploy,
+    onto: machine::Here,
+}
+
+struct Fetching<'a, 'b> {
+    moving: &'a mut going::Moving<'b>,
+    done: usize,
+}
+
 fn apply(root: &Path, manifest: &Manifest) -> Result<(), Unapplied> {
     let Ok(root_is) = nix_is_root();
 
@@ -823,23 +833,23 @@ fn apply(root: &Path, manifest: &Manifest) -> Result<(), Unapplied> {
             .into_iter()
             .chain(missing)
             .collect();
-        let mut fetched: usize = 0;
-        let Ok(ran) = machine::run_watched(&argv, &mut |line| {
+        let mut fetching = Fetching { moving, done: 0 };
+        let Ok(ran) = machine::run_watched(&argv, &mut fetching, |fetching, line| {
             let Ok(said) = installing::said(line);
-            let Ok(()) = moving.say(line);
+            let Ok(()) = fetching.moving.say(line);
 
             match said {
                 installing::Said::Fetching(name) => {
-                    fetched = fetched.saturating_add(1);
+                    fetching.done = fetching.done.saturating_add(1);
 
-                    let Ok(far) = installing::fetched(Far { done: fetched, many });
-                    let Ok(()) = moving.far(far, &format!("fetching {name}"));
+                    let Ok(far) = installing::fetched(Far { done: fetching.done, many });
+                    let Ok(()) = fetching.moving.far(far, &format!("fetching {name}"));
                 }
 
                 installing::Said::Doing { done, many, name } => {
                     let Ok(far) = installing::done(Far { done, many });
                     let Ok(counted) = console_how_far::counted(Far { done, many });
-                    let Ok(()) = moving.far(far, &format!("{counted} {name}"));
+                    let Ok(()) = fetching.moving.far(far, &format!("{counted} {name}"));
                 }
 
                 installing::Said::Nothing => {}
@@ -883,27 +893,36 @@ fn apply(root: &Path, manifest: &Manifest) -> Result<(), Unapplied> {
         let Ok(()) = swept(manifest);
     });
 
-    let mut here = machine::Here;
-    let mut deploy = Deploy::default();
-    let Ok(built) = going
-        .during(going::BUILDING, |moving| compile(root, manifest, &mut deploy, &mut here, moving));
-    let staged = built.and_then(|built| {
-        let Ok(files) = going.during(going::FILES, |moving| {
-            write(&source, manifest, &mut deploy, &mut here, moving)
-        });
-        let written = files?;
-
-        Ok((built, written))
+    let mut laying = Laying { deploy: Deploy::default(), onto: machine::Here };
+    let Ok(built) = going.during_handed(going::BUILDING, &mut laying, |laying, moving| {
+        compile(root, manifest, &mut laying.deploy, &mut laying.onto, moving)
     });
+
+    let staged = match built {
+        Ok(built) => {
+            let Ok(files) = going.during_handed(going::FILES, &mut laying, |laying, moving| {
+                write(&source, manifest, &mut laying.deploy, &mut laying.onto, moving)
+            });
+
+            match files {
+                Ok(written) => Ok((built, written)),
+                Err(fault) => Err(fault),
+            }
+        }
+        Err(fault) => Err(fault),
+    };
+
     let written = match staged {
         Ok((built, files)) => built.into_iter().chain(files).collect::<Vec<String>>(),
         Err(fault) => {
-            let Ok(()) = deploy.abandon(&mut here);
+            let Ok(()) = laying.deploy.abandon(&mut laying.onto);
 
             return Err(fault);
         }
     };
-    let Ok(swapped) = going.through(going::SWAPPING, || deploy.swap(&mut here));
+    let Ok(swapped) = going.through_handed(going::SWAPPING, &mut laying, |laying| {
+        laying.deploy.swap(&mut laying.onto)
+    });
 
     swapped?;
 
@@ -945,7 +964,7 @@ fn apply(root: &Path, manifest: &Manifest) -> Result<(), Unapplied> {
 
     let mut asked_to_run: Vec<&String> = Vec::new();
     let Ok(services) = manifest.of(Section::Services);
-    let Ok(()) = going.during(going::SERVICES, |moving| {
+    let Ok(()) = going.during_handed(going::SERVICES, &mut asked_to_run, |asked_to_run, moving| {
         let many = services.len();
 
         for (done, unit) in services.iter().enumerate() {
@@ -985,7 +1004,7 @@ fn apply(root: &Path, manifest: &Manifest) -> Result<(), Unapplied> {
         true => {
             println!("\n{RED}did not come up{OFF} {}", fell.join(" "));
 
-            let Ok(undone) = deploy.undo(&mut here);
+            let Ok(undone) = laying.deploy.undo(&mut laying.onto);
 
             for one in undone {
                 match one.put {
@@ -1012,8 +1031,8 @@ fn apply(root: &Path, manifest: &Manifest) -> Result<(), Unapplied> {
         false => {},
     }
 
-    let Ok(()) = going.through(going::RELEASE, || {
-        let Ok(()) = deploy.settle(&mut here);
+    let Ok(()) = going.through_handed(going::RELEASE, &mut laying, |laying| {
+        let Ok(()) = laying.deploy.settle(&mut laying.onto);
     });
     let Ok(masked) = manifest.of(Section::Masked);
 
@@ -1282,19 +1301,21 @@ fn compile(
         .collect();
     let many = staging.len();
 
-    staging
-        .into_iter()
-        .enumerate()
-        .map(|(done, name)| {
-            let Ok(live) = build::live(name);
-            let Ok(made) = build::made(root, name);
+    let mut staged: Vec<String> = Vec::new();
 
-            let Ok(()) = moving.say(&format!("{YELLOW}staging{OFF} {live}"));
-            let Ok(()) = moving.at(Far { done, many }, &live);
+    for (done, name) in staging.into_iter().enumerate() {
+        let Ok(live) = build::live(name);
+        let Ok(made) = build::made(root, name);
 
-            deploy.stage(here, &made, &live).map(|()| live)
-        })
-        .collect()
+        let Ok(()) = moving.say(&format!("{YELLOW}staging{OFF} {live}"));
+        let Ok(()) = moving.at(Far { done, many }, &live);
+
+        deploy.stage(here, &made, &live)?;
+
+        staged.push(live);
+    }
+
+    Ok(staged)
 }
 
 fn cargo(

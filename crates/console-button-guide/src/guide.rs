@@ -118,16 +118,16 @@ fn chords(table: &Table, on: Input) -> Result<Vec<Vec<String>>, Never> {
     let mut held: BTreeSet<Vec<String>> = BTreeSet::new();
 
     for (_, bound) in every {
-        for one in bound.iter().filter(|one| one.on == on) {
+        'over_binds: for one in bound.iter().filter(|one| one.on == on) {
             let Ok(played) = one.played();
 
             match played {
-                Played::ByNothing => continue,
+                Played::ByNothing => continue 'over_binds,
                 Played::ByAPress => {},
             }
 
             match one.held.is_empty() {
-                true => continue,
+                true => continue 'over_binds,
                 false => {
                     let _ = held.insert(one.held.clone());
                 },

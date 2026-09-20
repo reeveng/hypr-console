@@ -99,17 +99,11 @@ mod tests {
 
     const NOTHING_UP: &str = r#"{"eDP-1":{"levels":{
         "0":[{"namespace":"awww-daemon","h":1600}],
-        "2":[{"namespace":"waybar","h":38},{"namespace":"updating","h":2}]}}}"#;
+        "2":[{"namespace":"console-bar","h":40}]}}}"#;
 
     #[test]
     fn the_wallpaper_and_the_bar_are_not_somewhere_you_are() {
         assert_eq!(Mode::seen(&layers(NOTHING_UP), Awake::No), Ok(Mode::Desktop));
-    }
-
-    #[test]
-    fn the_strip_under_the_bar_is_the_bar() {
-        let said = r#"{"eDP-1":{"levels":{"2":[{"namespace":"updating","h":2}]}}}"#;
-        assert_eq!(Mode::seen(&layers(said), Awake::No), Ok(Mode::Desktop));
     }
 
     #[test]
@@ -143,7 +137,7 @@ mod tests {
     #[test]
     fn a_keyboard_with_no_height_is_not_up() {
         let said = r#"{"eDP-1":{"levels":{
-            "2":[{"namespace":"waybar","h":38}],
+            "2":[{"namespace":"console-bar","h":40}],
             "3":[{"namespace":"console-keyboard","h":0}]}}}"#;
         assert_eq!(Mode::seen(&layers(said), Awake::No), Ok(Mode::Desktop));
     }
@@ -151,7 +145,7 @@ mod tests {
     #[test]
     fn a_notification_card_is_not_a_panel() {
         let said = r#"{"eDP-1":{"levels":{
-            "2":[{"namespace":"waybar","h":38}],
+            "2":[{"namespace":"console-bar","h":40}],
             "3":[{"namespace":"notifications","h":140}]}}}"#;
         assert_eq!(Mode::seen(&layers(said), Awake::No), Ok(Mode::Desktop));
     }
@@ -208,7 +202,7 @@ mod tests {
     fn the_home_screen_is_the_desktop_with_the_apps_on_it() {
         let said = r#"{"eDP-1":{"levels":{
             "0":[{"namespace":"awww-daemon","h":1600},{"namespace":"console-home","h":1562}],
-            "2":[{"namespace":"waybar","h":38}]}}}"#;
+            "2":[{"namespace":"console-bar","h":40}]}}}"#;
         assert_eq!(Mode::seen(&layers(said), Awake::No), Ok(Mode::Home));
         assert_eq!(Mode::Home.acts(), Ok(Acts::OnPresses));
     }
@@ -217,7 +211,7 @@ mod tests {
     fn the_home_screen_with_a_highlight_up_is_somewhere_else_to_be() {
         let said = r#"{"eDP-1":{"levels":{
             "0":[{"namespace":"awww-daemon","h":1600},{"namespace":"console-home","h":1562}],
-            "2":[{"namespace":"waybar","h":38}]}}}"#;
+            "2":[{"namespace":"console-bar","h":40}]}}}"#;
         assert_eq!(Mode::seen(&layers(said), Awake::Yes), Ok(Mode::Standing));
         assert_eq!(Mode::Standing.acts(), Ok(Acts::OnPresses));
     }
@@ -226,7 +220,7 @@ mod tests {
     fn a_panel_over_an_awake_home_screen_is_still_a_panel() {
         let said = r#"{"eDP-1":{"levels":{
             "0":[{"namespace":"awww-daemon","h":1600},{"namespace":"console-home","h":1562}],
-            "2":[{"namespace":"waybar","h":38},{"namespace":"launcher","h":1562}]}}}"#;
+            "2":[{"namespace":"console-bar","h":40},{"namespace":"launcher","h":1562}]}}}"#;
         assert_eq!(Mode::seen(&layers(said), Awake::Yes), Ok(Mode::Tabs));
     }
 

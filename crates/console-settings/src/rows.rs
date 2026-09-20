@@ -28,6 +28,7 @@ use crate::level::{CELLS, Muted, bar, volume};
 use crate::named::{self, Allowed};
 use crate::tongues::{Locale, Made, Names, Tongue, made};
 use crate::size::{EVERY, Size};
+use crate::turning::{self, Turn};
 use crate::warm::Warmth;
 use crate::{bluetooth, sound, wifi};
 
@@ -197,6 +198,7 @@ pub fn screen_rows(
     dim: Level,
     warm: Warmth,
     standing: Option<Size>,
+    turned: Option<Turn>,
     home: Vec<Row>,
 ) -> Result<Vec<Row>, Never> {
     let level = match brightness {
@@ -224,9 +226,36 @@ pub fn screen_rows(
 
         row
     }));
+
+    let Ok(which_way_up) = say(&Word::WhichWayUp);
+    let Ok(naming) = Row::naming(&which_way_up, Aside(""));
+
+    rows.push(naming);
+    rows.extend(turning::EVERY.into_iter().map(|turn| {
+        let Ok(word) = said_of_turn(turn);
+        let Ok(said_word) = say(&word);
+        let Ok(written) = turn.written();
+        let Ok(mut row) = switch(&said_word, Aside(""), &["/usr/local/bin/console-scale", written]);
+
+        row.aside = match turned == Some(turn) {
+            true => NOW.to_string(),
+            false => String::new(),
+        };
+
+        row
+    }));
     rows.extend(home);
 
     Ok(rows)
+}
+
+fn said_of_turn(turn: Turn) -> Result<Word, Never> {
+    Ok(match turn {
+        Turn::Left => Word::TurnedLeft,
+        Turn::Upright => Word::NotTurned,
+        Turn::Right => Word::TurnedRight,
+        Turn::Over => Word::TurnedOver,
+    })
 }
 
 fn said_of_size(size: Size) -> Result<Word, Never> {
@@ -1093,7 +1122,7 @@ mod tests {
 
     fn sized(standing: Option<Size>) -> Vec<Row> {
         let Ok(rows) =
-            screen_rows(Some(50), nothing(), Warmth::Ordinary, standing, grid());
+            screen_rows(Some(50), nothing(), Warmth::Ordinary, standing, None, grid());
 
         rows
     }
@@ -1245,6 +1274,23 @@ mod tests {
     }
 
     #[test]
+    fn the_way_up_the_screen_stands_is_the_one_marked_and_the_three_are_offered() {
+        let Ok(rows) =
+            screen_rows(Some(50), nothing(), Warmth::Ordinary, None, Some(Turn::Left), grid());
+        let at = rows
+            .iter()
+            .position(|row| row.says == said(&Word::WhichWayUp))
+            .expect("the ways up are named");
+
+        assert!(rows[at].naming, "the name is a row the highlight can land on");
+        assert_eq!(
+            says(&rows[at + 1..at + 4]),
+            [said(&Word::TurnedLeft), said(&Word::NotTurned), said(&Word::TurnedRight)]
+        );
+        assert_eq!(marked(&rows), [said(&Word::TurnedLeft)]);
+    }
+
+    #[test]
     fn the_size_the_screen_is_at_is_the_one_marked() {
         let rows = sized(Some(Size::Bigger));
         assert_eq!(marked(&rows), [said(&Word::SizeBigger)]);
@@ -1258,7 +1304,11 @@ mod tests {
             "something is marked"
         );
         let pressable = rows.iter().filter(|row| row.does.is_some()).count();
-        assert_eq!(pressable, EVERY.len() + 1, "a rung went missing");
+        assert_eq!(
+            pressable,
+            EVERY.len() + turning::EVERY.len() + 1,
+            "a rung or a way up went missing"
+        );
     }
 
     #[test]

@@ -120,9 +120,17 @@ pub fn seen(seen: Seen, why: impl FnOnce() -> String) -> Done {
 }
 
 pub fn happened(waited: Waited, why: impl FnOnce() -> String) -> Done {
+    happened_handed(waited, &mut (), |_nothing| why())
+}
+
+pub fn happened_handed<M>(
+    waited: Waited,
+    handed: &mut M,
+    why: impl FnOnce(&mut M) -> String,
+) -> Done {
     match waited {
         Waited::Happened => Ok(()),
-        Waited::RanOut => failed(why()),
+        Waited::RanOut => failed(why(handed)),
     }
 }
 

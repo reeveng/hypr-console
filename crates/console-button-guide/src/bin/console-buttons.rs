@@ -215,12 +215,12 @@ fn identify() -> Result<(), Unidentified> {
     loop {
         let Ok(heard) = claim.arrived();
 
-        for (which, event) in heard.events {
+        'over_presses: for (which, event) in heard.events {
             let Ok(said) = pressed(which, event.event_type(), event.code(), event.value());
 
             let said = match said {
                 Some(said) => said,
-                None => continue,
+                None => continue 'over_presses,
             };
 
             println!("  {}{said}{}", ink.bold, ink.off);

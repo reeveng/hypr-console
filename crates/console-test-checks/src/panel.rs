@@ -37,17 +37,17 @@ pub const WITH_THE_KEYBOARD: Check = Check {
 
 const OVER_A_PANEL: &str = r#"{"eDP-1":{"levels":{
     "0":[{"namespace":"awww-daemon","h":1600}],
-    "2":[{"namespace":"waybar","h":38},{"namespace":"updating","h":2}],
+    "2":[{"namespace":"console-bar","h":40}],
     "3":[{"namespace":"settings-panel","h":1562},{"namespace":"console-keyboard","h":520}]}}}"#;
 
 const THE_PANEL_ALONE: &str = r#"{"eDP-1":{"levels":{
     "0":[{"namespace":"awww-daemon","h":1600}],
-    "2":[{"namespace":"waybar","h":38},{"namespace":"updating","h":2}],
+    "2":[{"namespace":"console-bar","h":40}],
     "3":[{"namespace":"settings-panel","h":1562}]}}}"#;
 
 const NOTHING_UP: &str = r#"{"eDP-1":{"levels":{
     "0":[{"namespace":"awww-daemon","h":1600}],
-    "2":[{"namespace":"waybar","h":38},{"namespace":"updating","h":2}]}}}"#;
+    "2":[{"namespace":"console-bar","h":40}]}}}"#;
 
 fn without_a_screen(stage: &mut Here) -> Done {
     stage.showing(THE_PANEL_ALONE)?;
@@ -94,10 +94,13 @@ pub const EVERY: usize = 6;
 
 pub fn drew(stage: &mut Desktop) -> Done {
     let Ok(wanted) = palette();
-    let down: BTreeSet<String> = DOWN
-        .step_by(EVERY)
-        .map(|y| stage.colour(Point { across: ACROSS, down: f64::from(y) }))
-        .collect::<Result<_, _>>()?;
+    let mut down: BTreeSet<String> = BTreeSet::new();
+
+    for y in DOWN.step_by(EVERY) {
+        let said = stage.colour(Point { across: ACROSS, down: f64::from(y) })?;
+
+        let _ = down.insert(said);
+    }
 
     let any_of = |names: &[&str]| {
         let any = names

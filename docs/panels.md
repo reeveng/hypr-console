@@ -584,11 +584,13 @@ there when whoever started the program stamped it. That is the daemon, which
 holds a press for as long as a turn of its loop takes before it starts
 anything, and a panel starting an application because somebody pressed a row.
 
-An opening from the bar has no `press`, and that is not a stamp going missing.
-Waybar forks on the touch, so the fork *is* the press: `exec` already holds the
-whole of that wait and there is nothing before it to measure. The bar says so
-rather than leaving it to be worked out -- its clicks carry `CONSOLE_FROM=bar`,
-and every line records `from` under `with`.
+An opening from the bar carries one, and for a while it did not. The bar was
+waybar then, and waybar forked on the touch, so the fork *was* the press: `exec`
+held the whole of that wait and there was nothing in front of it to measure.
+`console-bar` is one process that takes the tap in its own loop and starts the
+program itself, so it stamps the moment it starts one, which in that loop is the
+moment it took the tap. Its openings carry `CONSOLE_FROM=console-bar`, and every
+line records `from` under `with`.
 
 Two rules keep the field honest, and both exist because it was wrong before
 them. A stamp that is not there leaves the field out rather than writing a

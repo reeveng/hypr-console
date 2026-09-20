@@ -159,10 +159,28 @@ impl Step {
     pub fn done<S: Sink, C: Clock>(&self, go: &mut LegionGo<S, C>) -> Result<(), Unpressed> {
         match self {
             Step::Profile(name) => go.load_profile(name),
-            Step::Press(buttons) => buttons.iter().try_for_each(|button| go.press(button)),
-            Step::Hold(buttons) => buttons.iter().try_for_each(|button| go.hold(button)),
+            Step::Press(buttons) => {
+                for button in buttons {
+                    go.press(button)?;
+                }
+
+                Ok(())
+            }
+            Step::Hold(buttons) => {
+                for button in buttons {
+                    go.hold(button)?;
+                }
+
+                Ok(())
+            }
             Step::Release(buttons) if buttons.is_empty() => go.release_all(),
-            Step::Release(buttons) => buttons.iter().try_for_each(|button| go.release(button)),
+            Step::Release(buttons) => {
+                for button in buttons {
+                    go.release(button)?;
+                }
+
+                Ok(())
+            }
             Step::Stick { which, to } => go.stick(which, *to),
             Step::Centre(which) => go.centre(which),
             Step::Trigger { which, amount } => go.trigger(which, *amount),
@@ -206,7 +224,11 @@ pub fn play<S: Sink, C: Clock>(
     text: &str,
 ) -> Result<Vec<Step>, Unpressed> {
     let steps = read(text)?;
-    steps.iter().try_for_each(|step| step.done(go))?;
+
+    for step in &steps {
+        step.done(go)?;
+    }
+
     Ok(steps)
 }
 

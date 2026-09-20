@@ -103,6 +103,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "console-bookmarks"
+version = "0.1.0"
+dependencies = [
+ "console-applications",
+ "console-core-atomic-writes",
+ "console-core-external-programs",
+ "console-core-never",
+ "console-core-places",
+]
+
+[[package]]
 name = "console-browser-extension"
 version = "0.1.0"
 dependencies = [
@@ -139,6 +150,16 @@ dependencies = [
  "console-input-gamepad",
  "console-panel",
  "evdev",
+]
+
+[[package]]
+name = "console-calendar"
+version = "0.1.0"
+dependencies = [
+ "console-core-external-programs",
+ "console-core-never",
+ "console-panel",
+ "console-test-stages",
 ]
 
 [[package]]
@@ -379,6 +400,8 @@ dependencies = [
  "console-core-words",
  "console-onscreen",
  "console-panel",
+ "console-screen",
+ "console-status-bar",
  "gtk4",
  "gtk4-layer-shell",
  "serde_json",
@@ -616,6 +639,7 @@ dependencies = [
  "console-notifications",
  "console-program-lifetime",
  "console-screen",
+ "console-status-bar",
  "serde_json",
  "serde_yaml_ng",
  "toml 0.9.12+spec-1.1.0",
@@ -731,6 +755,7 @@ version = "0.1.0"
 dependencies = [
  "console-compositor",
  "console-core-atomic-writes",
+ "console-core-external-programs",
  "console-core-never",
  "console-core-places",
  "console-core-words",
@@ -781,6 +806,7 @@ dependencies = [
 name = "console-panels"
 version = "0.1.0"
 dependencies = [
+ "console-calendar",
  "console-core-never",
  "console-downloads",
  "console-files",
@@ -837,6 +863,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "console-resource-usage"
+version = "0.1.0"
+dependencies = [
+ "console-core-atomic-writes",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-places",
+ "console-default-applications",
+ "serde_json",
+]
+
+[[package]]
 name = "console-response-times"
 version = "0.1.0"
 dependencies = [
@@ -885,8 +923,10 @@ dependencies = [
 name = "console-session"
 version = "0.1.0"
 dependencies = [
+ "console-core-atomic-writes",
  "console-core-external-programs",
  "console-core-never",
+ "console-core-places",
  "console-core-words",
  "console-response-times",
 ]
@@ -945,7 +985,9 @@ dependencies = [
  "console-program-contract",
  "console-program-lifetime",
  "console-response-times",
+ "console-settings",
  "console-waiting",
+ "libc",
  "serde_json",
 ]
 
@@ -971,7 +1013,9 @@ dependencies = [
  "console-panel",
  "console-program-lifetime",
  "console-resume",
+ "console-screen",
  "console-settings",
+ "console-status-bar",
  "console-test-stages",
  "console-waiting",
  "evdev",
@@ -992,6 +1036,8 @@ dependencies = [
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
+ "console-onscreen",
+ "console-program-lifetime",
  "console-screen",
  "console-test-stages",
  "console-waiting",

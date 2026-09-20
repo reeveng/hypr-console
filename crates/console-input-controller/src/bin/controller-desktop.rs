@@ -267,6 +267,13 @@ enum Word {
     Gone,
 }
 
+#[cfg_attr(
+    dylint_lib = "explicit048_no_unreal_state",
+    allow(
+        explicit048_no_unreal_state,
+        reason = "`read` is whether the bindings have ever been looked for and `written` is when the file last changed; a home with no bindings file is read and has no time, which is the pair saying two different things rather than one twice"
+    )
+)]
 struct Bound {
     at: Option<PathBuf>,
     written: Option<std::time::SystemTime>,

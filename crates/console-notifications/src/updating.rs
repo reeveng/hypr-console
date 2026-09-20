@@ -2,8 +2,15 @@
 //!
 //! `console apply` runs as root and the bar runs as whoever the desktop
 //! belongs to, so the two cannot share anything but a file. This is that file
-//! and both ends of it: the engine writes, `bar-updating` reads, and the
+//! and both ends of it: the engine writes, `console-bar` reads, and the
 //! format is in one place rather than agreed twice.
+//!
+//! The number is in thousandths rather than per cent. The strip is as wide as
+//! the screen, so a hundredth of it is ten points of this glass and rather
+//! more of anybody else's: a fill that moves in jumps that size reads as a
+//! thing that is stuck and then lurches, which is the opposite of what it is
+//! for. A thousandth is about a point, which is as fine as the drawing can be,
+//! and it costs one digit in a file nothing else reads.
 //!
 //! An apply is not the only long thing. A run of the checks against the device
 //! is minutes of somebody's handheld pressing its own buttons, and it is driven
@@ -33,17 +40,24 @@
 //!
 //! # Why the bar is told rather than asked
 //!
-//! Nothing polls this. The engine signals waybar when the number changes and
-//! waybar runs `bar-updating` again, so an idle desktop -- which is almost all
-//! of them, almost all the time -- does no work at all for a bar that has
-//! nothing to say. A read every fifth of a second for the life of a session is
-//! a wake-up a battery pays for, on a machine that spends most of its life in
+//! Nothing polls this. The engine signals the bar when the number changes and
+//! the bar reads the file again, so an idle desktop -- which is almost all of
+//! them, almost all the time -- does no work at all for a bar that has nothing
+//! to say. A read every fifth of a second for the life of a session is a
+//! wake-up a battery pays for, on a machine that spends most of its life in
 //! somebody's hands doing something else.
+//!
+//! `console_onscreen::wake` is what sends it, because the bar is one program
+//! with several things to be told and an apply is only one of them: which tab
+//! is in front is the other, and the crate that owns both the bar's name and
+//! the note is the one that owns the telling. It is a real-time signal rather
+//! than `SIGUSR1`, and the bar blocks it and reads it off a `signalfd` beside
+//! everything else its loop waits on, so being told is a descriptor becoming
+//! readable rather than a handler running between two lines of drawing.
 
 use std::path::Path;
 use std::path::PathBuf;
 
-use console_core_external_programs::Program;
 use console_core_never::Never;
 
 pub const WHERE: &str = "CONSOLE_UPDATING_PATH";
@@ -78,12 +92,14 @@ pub fn at() -> Result<PathBuf, Never> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Far {
-    pub percent: u16,
+    pub thousandths: u16,
     pub doing: String,
 }
 
+pub const WHOLE: u16 = 1000;
+
 pub fn written(far: &Far) -> Result<String, Never> {
-    Ok(format!("{} {}\n", far.percent, far.doing))
+    Ok(format!("{} {}\n", far.thousandths, far.doing))
 }
 
 pub fn reading(held: &str) -> Result<Option<Far>, Never> {
@@ -94,18 +110,18 @@ pub fn reading(held: &str) -> Result<Option<Far>, Never> {
 
     let line = first.trim();
 
-    let (percent, doing) = match line.split_once(' ') {
-        Some((percent, doing)) => (percent, doing),
+    let (thousandths, doing) = match line.split_once(' ') {
+        Some((thousandths, doing)) => (thousandths, doing),
         None => return Ok(None),
     };
 
-    let percent = match percent.parse::<u16>() {
-        Ok(percent) => percent,
+    let thousandths = match thousandths.parse::<u16>() {
+        Ok(thousandths) => thousandths,
         Err(_fault) => return Ok(None),
     };
 
-    Ok(match percent <= 100 && !doing.trim().is_empty() {
-        true => Some(Far { percent, doing: doing.trim().to_string() }),
+    Ok(match thousandths <= WHOLE && !doing.trim().is_empty() {
+        true => Some(Far { thousandths, doing: doing.trim().to_string() }),
         false => None,
     })
 }
@@ -149,17 +165,8 @@ pub fn done() -> Result<(), Never> {
     Ok(())
 }
 
-pub const WAKING: &str = "-RTMIN+4";
-
 pub fn wake() -> Result<(), Never> {
-    let Ok(mut waking) = Program::Pkill.command();
-
-    let _ = waking
-        .arg(WAKING)
-        .args(["-x", "waybar"])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
+    let Ok(()) = console_onscreen::wake();
 
     Ok(())
 }
@@ -182,9 +189,9 @@ mod tests {
     #[test]
     fn what_the_engine_writes_is_what_the_bar_reads() {
         for far in [
-            Far { percent: 0, doing: "reading packages".to_string() },
-            Far { percent: 62, doing: "building".to_string() },
-            Far { percent: 100, doing: "done".to_string() },
+            Far { thousandths: 0, doing: "reading packages".to_string() },
+            Far { thousandths: 620, doing: "building".to_string() },
+            Far { thousandths: WHOLE, doing: "done".to_string() },
         ] {
             let Ok(written) = written(&far);
 
@@ -194,7 +201,7 @@ mod tests {
 
     #[test]
     fn a_name_with_spaces_in_it_survives_the_round_trip() {
-        let far = Far { percent: 8, doing: "writing files".to_string() };
+        let far = Far { thousandths: 8, doing: "writing files".to_string() };
         let Ok(written) = written(&far);
 
         assert_eq!(reading(&written), Ok(Some(far)));
@@ -209,7 +216,7 @@ mod tests {
 
     #[test]
     fn a_number_past_the_end_is_not_ours() {
-        assert_eq!(reading("101 building"), Ok(None));
+        assert_eq!(reading("1001 building"), Ok(None));
         assert_eq!(reading("999999 building"), Ok(None));
     }
 

@@ -103,9 +103,9 @@ pub fn under(
 
         let here = read(&at)?;
 
-        for thing in here {
+        'over_things: for thing in here {
             match thing.name.starts_with('.') {
-                true => continue,
+                true => continue 'over_things,
                 false => {},
             }
 

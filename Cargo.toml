@@ -21,6 +21,7 @@ console-applications = { path = "crates/console-applications" }
 console-input-mapping = { path = "crates/console-input-mapping" }
 console-program-lifetime = { path = "crates/console-program-lifetime" }
 console-bus = { path = "crates/console-bus" }
+console-calendar = { path = "crates/console-calendar" }
 console-core-colour = { path = "crates/console-core-colour" }
 console-compositor = { path = "crates/console-compositor" }
 console-input-controller = { path = "crates/console-input-controller" }
@@ -69,6 +70,8 @@ console-screen = { path = "crates/console-screen" }
 console-draw-surface = { path = "crates/console-draw-surface" }
 console-session = { path = "crates/console-session" }
 console-settings = { path = "crates/console-settings" }
+console-status-bar = { path = "crates/console-status-bar" }
+console-resource-usage = { path = "crates/console-resource-usage" }
 console-test-stages = { path = "crates/console-test-stages" }
 console-core-localization = { path = "crates/console-core-localization" }
 console-media-viewer = { path = "crates/console-media-viewer" }
@@ -110,7 +113,7 @@ strip = true
 
 # `cargo dylint --all` finds the lint libraries here. The Explicit-Rust suite
 # lives at tools/explicit-rust; `just ready` enforces the denied rules through
-# `just explicit-gate`, and `just explicit` counts the warned one.
+# `just explicit-gate`, and `just explicit` counts the warned ones.
 [workspace.metadata.dylint]
 libraries = [{ path = "tools/explicit-rust", pattern = "explicit*" }]
 
@@ -186,3 +189,13 @@ collection_is_never_read = "deny"          # filled, and then nobody asks
 suspicious_operation_groupings = "deny"    # `a.x == b.x && a.y == b.x`
 empty_line_after_doc_comments = "deny"     # a blank line orphaning the prose
 empty_line_after_outer_attr = "deny"       # and the same, orphaning an attribute
+
+# Allowed here and counted by `just literals`, which is the warned tier spelled
+# for a rule somebody else wrote: `ready` runs clippy with `-D warnings`, so a
+# `warn` in this table is a `deny` at the gate and there would be no distance
+# left to walk. A number literal with no type takes the fallback rustc picks for
+# it, `i32` or `f64`, and that is a width nobody chose -- the fault EXPLICIT010
+# and EXPLICIT024 each spend their argument on, arrived at from the other side.
+# Kast refuses the fallback outright: there is no literal type to fall back to,
+# and what one would default to is itself a choice somebody has to make.
+default_numeric_fallback = "allow"

@@ -130,6 +130,26 @@ row.naming #aside { color: @soft; font-size: 15px; font-weight: normal; }
 row.nothing #line { background-color: transparent; padding: 30px 18px; }
 row.nothing label { color: @soft; font-size: 15px; }
 
+/* A week of a month, and the seven names over it. Seven columns of equal width
+   are what makes the fifth of one week sit under the fifth of the last, so the
+   cells are homogeneous in the box and carry no card of their own: a month is
+   one shape a thumb reads across and down, not thirty-one things to aim at.
+   Today keeps the mint every other panel says what is already true in.
+
+   A week is given the height a row of this panel has rather than the four
+   points it had. A month drawn at four is five lines of small print against
+   the top of a card the height of the screen, which reads as a table somebody
+   forgot to finish rather than as a month -- and the thing a calendar is for
+   is seeing the shape of the weeks, which is a shape only if the rows are far
+   enough apart to be rows. The names over them keep their own quiet size and
+   take the space under the month's own row, so the grid starts below the
+   level rather than against it. */
+row.cells #line { background-color: transparent; padding: 15px 18px; }
+#cell { color: @text; }
+#cell.now { color: @mint; font-weight: bold; }
+row.naming.cells #line { padding: 22px 18px 10px 18px; }
+row.naming.cells #cell { color: @soft; font-size: 15px; font-weight: bold; }
+
 /* Nothing of the list's own, at the sides or above or below. The scroller it
    sits in is already held off the card by the same margin the tab strip is,
    and this was a second one on top of it: the rows stood a margin further in

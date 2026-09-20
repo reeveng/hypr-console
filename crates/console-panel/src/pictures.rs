@@ -318,9 +318,16 @@ pub fn make(wanted: &[String]) -> Result<(), Never> {
     };
 
     let asked = asked.get_or_insert_with(std::collections::BTreeSet::new);
-    let wanted: Vec<String> =
-        wanted.iter().filter(|of| asked.insert((*of).clone())).cloned().collect();
-    let wanted = wanted.as_slice();
+    let mut fresh: Vec<String> = Vec::new();
+
+    for of in wanted {
+        match asked.insert(of.clone()) {
+            true => fresh.push(of.clone()),
+            false => {},
+        }
+    }
+
+    let wanted = fresh.as_slice();
 
     match wanted.is_empty() {
         true => return Ok(()),

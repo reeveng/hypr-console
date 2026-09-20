@@ -26,8 +26,11 @@ There is no controller here. Buttons come from `console-emulate`.
 
 There is no hardware: no battery, no backlight, no Bluetooth.
 
-The bar and the wallpaper need `waybar` and `hyprpaper` installed on this
-machine. Without them the desktop comes up without them and says nothing.
+The wallpaper needs `hyprpaper` installed on this machine. Without it the
+desktop comes up without it and says nothing. The bar is this tree's own
+program and is staged with the rest of them, but it draws its icons out of a
+Nerd Font: on a machine without one they are the boxes fontconfig falls back
+to, and the bar is otherwise itself.
 
 ## Traps
 

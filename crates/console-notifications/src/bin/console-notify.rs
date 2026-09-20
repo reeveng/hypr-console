@@ -35,6 +35,16 @@
 //! seconds run out is not taken down by the old card's clock -- which is what a
 //! rocker held down would do to itself twenty times a second.
 //!
+//! **A frame is drawn when what it would show has changed, and not otherwise.**
+//! The loop drew on every pass, and a commit is answered by the compositor
+//! releasing the buffer it was handed -- which is an event, which wakes the
+//! poll, which draws again. A card standing on the screen with nothing
+//! happening to it held a whole core that way, and the one the battery leaves
+//! up held it until somebody touched the card. What was last drawn is kept and
+//! compared: the stack, and the size and scale the compositor last said, so a
+//! configure or a scale arriving late still redraws while a card that has not
+//! moved does not.
+//!
 //! **A card is taken down by touching it.** It is the only thing on this
 //! desktop a person can reach without opening anything, and it was mako's
 //! `on-touch=dismiss` before it was ours: a card that stands over what somebody
@@ -75,12 +85,13 @@ use std::time::{Duration, Instant};
 use console_bus::messages::Message;
 use console_bus::talking::{Bus, Got, Hearing, Saying};
 use console_core_colour::spent::{beside, read};
-use console_core_geometry::Point;
+use console_core_geometry::{Point, Size};
 use console_core_never::Never;
 use console_draw_painting::{Font, Frame, Run, measured, onto};
 use console_draw_surface::standing::{
     Anchor, Gone as Closed, Keyboard, Margin, Room, Under, Wanted,
 };
+use console_draw_surface::scale::Scale;
 use console_draw_surface::{Missing, Poke, Surface};
 use console_notifications::reading::written;
 use console_notifications::saying::Expiry;
@@ -241,6 +252,20 @@ struct Waiting {
     until: Instant,
 }
 
+#[derive(PartialEq)]
+struct Drew {
+    stack: Stack,
+    logical: Option<Size<u32>>,
+    scale: Scale,
+}
+
+fn asking(surface: &Surface, stack: &Stack) -> Result<Drew, Never> {
+    let Ok(logical) = surface.logical();
+    let Ok(scale) = surface.scale();
+
+    Ok(Drew { stack: stack.clone(), logical, scale })
+}
+
 fn standing(
     surface: &mut Surface,
     queue: &Queue,
@@ -251,14 +276,25 @@ fn standing(
     let mut waiting: Vec<Waiting> = Vec::new();
     let woken = queue.woken.as_raw_fd();
     let Ok(font) = showing::font();
+    let mut drew: Option<Drew> = None;
 
     loop {
         let Ok(()) = drained(queue, &mut holding, saying, &mut waiting);
         let Ok(()) = ran_out(&mut holding, saying, &mut waiting);
 
         let Ok(stack) = shown(&holding, wearing, &font);
+        let Ok(wanted) = asking(surface, &stack);
 
-        drawn(surface, &stack)?;
+        match drew.as_ref() == Some(&wanted) {
+            true => {}
+            false => {
+                drawn(surface, &stack)?;
+
+                let Ok(after) = asking(surface, &stack);
+
+                drew = Some(after);
+            }
+        }
 
         let Ok(closed) = surface.closed();
 
@@ -377,15 +413,16 @@ fn ran_out(
 ) -> Result<(), Never> {
     let now = Instant::now();
     let mut over = Vec::new();
+    let mut still = Vec::new();
 
-    waiting.retain(|one| match one.until > now {
-        true => true,
-        false => {
-            over.push(one.armed);
-
-            false
+    for one in std::mem::take(waiting) {
+        match one.until > now {
+            true => still.push(one),
+            false => over.push(one.armed),
         }
-    });
+    }
+
+    *waiting = still;
 
     for armed in over {
         let Ok(gone) = holding.ran_out(&armed);

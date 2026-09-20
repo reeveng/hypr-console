@@ -11,7 +11,18 @@
     }
   },
 
-  "permissions": ["tabs", "search", "find", "sessions"],
+  "permissions": [
+    "tabs",
+    "search",
+    "find",
+    "sessions",
+    "bookmarks",
+    "cookies",
+    "contextualIdentities",
+    "webRequest",
+    "webRequestBlocking",
+    "<all_urls>"
+  ],
 
   "background": { "scripts": ["browser.js"] },
 

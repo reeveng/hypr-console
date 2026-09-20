@@ -12,6 +12,63 @@ HOST := env_var_or_default("CONSOLE_HOST", "")
 default:
     @just --list --unsorted
 
+# Everything a run starts, in a control group of its own.
+#
+# A nested desktop is a compositor, and that compositor starts a session, a bar,
+# a keyboard and everything those reach for. Killing the compositor reaches none
+# of them: they are reparented to the user manager and stay in the control group
+# of whoever is logged in, where nothing can tell them from the desktop somebody
+# is using -- which is why they are found weeks later by `ps` and never by a
+# program. Thirty-six gigabytes of stages and an hour-old compositor on a hidden
+# workspace is what that looks like in the end.
+#
+# A transient scope is the one handle a whole run has. Whatever it starts, at
+# whatever depth, is inside it, and stopping the unit takes all of it without
+# naming a single process -- which matters here more than anywhere, because the
+# names are the session's own and `pgrep -x Hyprland` on this laptop matches the
+# compositor the person is looking at.
+#
+# It costs the runs nothing, which took some finding out. A scope looked for a
+# while like it made one of the panel tier's seven sessions fail to come up about
+# a third of the time, and the reason it looked that way is worth keeping: the
+# sweep this landed beside was asking a machine in the hot path, and deleting the
+# runtime directory of a compositor that had registered and was not answering
+# hyprctl yet. Every scoped run was measured with that in the tree and every
+# unscoped one without it. With the sweep asking only what is in /proc, the tier
+# passes inside a scope in the same seventeen seconds it takes outside one.
+#
+# The lesson is the measurement rather than the scope: two changes were in the
+# tree at once and the A and the B differed by both of them.
+#
+# This is not where a nested desktop is held. `console-desktop` puts its own
+# compositor in a scope of its own, because the panel tier is a `cargo test` and
+# is run as often without `just` as with it -- and a scope made inside a scope is
+# its sibling rather than its child, so stopping this one would not have reached
+# it either way. What this one is for is everything else a run starts.
+#
+# A machine with no user manager to ask runs the command as it always did, and
+# says so once rather than failing at something that is not the test.
+
+most := "32G"
+
+threads := "8192"
+
+[private]
+alone +command:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    unit="console-run-$$"
+    if ! command -v systemd-run >/dev/null 2>&1 || ! systemctl --user show-environment >/dev/null 2>&1; then
+        echo "no user manager here, so this run is not in a group of its own" >&2
+        {{command}}
+        exit $?
+    fi
+    systemd-run --user --scope --quiet --unit="$unit" \
+        -p MemoryHigh={{most}} -p TasksMax={{threads}} -- {{command}}
+    status=$?
+    systemctl --user stop --no-block "$unit.scope" >/dev/null 2>&1
+    exit $status
+
 # write the palette into every file that spends it
 theme:
     cargo run --quiet --release --bin console-palette
@@ -36,8 +93,8 @@ sky:
 
 # every test that can run on this machine
 test:
-    cargo build --quiet --workspace --all-features
-    cargo test --quiet --workspace --all-features
+    @just alone cargo build --quiet --workspace --all-features
+    @just alone cargo test --quiet --workspace --all-features
 
 # The tree's own accent, printed rather than enforced.
 #
@@ -51,6 +108,21 @@ test:
 # the words this tree writes furthest out of English's proportion
 words:
     cargo test --quiet -p console-vocabulary --test the_words -- --nocapture
+
+# The number literals that would take rustc's fallback, by crate.
+#
+# Counted rather than enforced, for the same reason the warned EXPLICIT tier is:
+# `ready` runs clippy with `-D warnings`, so this rule cannot be a `warn` in
+# Cargo.toml without being a `deny` at the gate before a single call site has
+# moved. The lint is allowed there and asked for here, and a crate leaves this
+# list when every literal in it says its own width.
+
+# the number literals whose type nobody wrote
+literals:
+    cargo clippy --quiet --workspace --all-targets --all-features \
+        --message-format=short -- -W clippy::default_numeric_fallback 2>&1 \
+        | grep 'default numeric fallback' \
+        | awk -F/ '{print $2}' | sort | uniq -c | sort -rn
 
 # What a deploy runs before it sends anything, and the only place the list
 # lives.
@@ -91,10 +163,10 @@ words:
 
 # everything that must hold before a deploy
 ready:
-    cargo build --quiet --locked --workspace --all-features
-    cargo test --quiet --locked --workspace --all-features
-    cargo clippy --quiet --locked --workspace --all-targets --all-features -- -D warnings
-    cargo run --quiet --bin console-check
+    @just alone cargo build --quiet --locked --workspace --all-features
+    @just alone cargo test --quiet --locked --workspace --all-features
+    @just alone cargo clippy --quiet --locked --workspace --all-targets --all-features -- -D warnings
+    @just alone cargo run --quiet --bin console-check
     just explicit-gate
 
 # The EXPLICIT_* rules, counted rather than enforced.
@@ -102,10 +174,10 @@ ready:
 # Deliberately not in `ready`, because what it counts is the warned tier:
 # production code is held to the denied rules by `just explicit-gate`, and this
 # is where a rule the code has not caught up with says how far there is left to
-# go. Nothing stands there today -- 039, 040, 041 and 044 were the last four and
-# are denied -- so what this prints is nothing, and it is still worth running: it
-# is the whole tree rather than production alone, and it is where the next rule
-# written ahead of the code will say its distance.
+# go. Nothing stands there today -- 047 and 048 were the last two and came out
+# together -- so what this prints is a clean run until somebody writes the next
+# rule ahead of the code. It is the whole tree rather than production alone, which is the
+# other half of why it is worth running even when the tier is empty.
 # tools/explicit-rust/README.md says what each rule is for.
 #
 # Capped to warnings so the run reaches every crate. Left uncapped it stops at
@@ -163,7 +235,16 @@ explicit:
 # from Warn to Deny in its own source when the last call site that broke it is
 # fixed, and it never moves back.
 #
-# The last five written were read off a rule taxonomy somebody keeps for C++,
+# 047 and 048 were the last two out, and they came out together. 047's sites
+# were one design question repeated: an iterator word standing in for a loop,
+# and a closure handed nothing and then given what it needed by capture -- a
+# wait, a stretch of an apply, the sentence a failed check prints, the line a
+# run draws quietly. Each of those has a `_handed` spelling now that takes the
+# thing it is asked with and hands it in at the call. 048's sites split: some were the flat enum it is
+# named for and are enums, and the rest were fields that really are independent
+# and carry the allow with a sentence saying so.
+#
+# The five written before them were read off a rule taxonomy somebody keeps for C++,
 # which is worth saying because of what it cost: most of that list was already
 # answered here or is a fault Rust will not compile, and five questions came
 # back that this tree could be asked. Two had call sites -- 035, a thread let
@@ -223,11 +304,11 @@ live:
 
 # a Legion Go on this machine, to press
 emulate:
-    cargo run --quiet --features console-input-gamepad/read --bin console-emulate
+    @just alone cargo run --quiet --features console-input-gamepad/read --bin console-emulate
 
 # every feature, tried again, here
 checks:
-    cargo run --quiet --bin console-check
+    @just alone cargo run --quiet --bin console-check
 
 # Minutes rather than a fraction of a second, because each of these is a whole
 # compositor of its own. The build is first, and it is the whole workspace on
@@ -237,8 +318,8 @@ checks:
 
 # the checks written for a screen, pressed against a nested desktop
 desktop-checks:
-    cargo build --quiet --workspace
-    cargo run --quiet --bin console-check -- --stage desktop
+    @just alone cargo build --quiet --workspace
+    @just alone cargo run --quiet --bin console-check -- --stage desktop
 
 # one panel, opened alone, held to what the buttons promise a hand
 #
@@ -247,9 +328,9 @@ desktop-checks:
 #
 #   just panel-checks the_files
 panel-checks name="":
-    cargo build --quiet --workspace
-    cargo test --quiet -p console-panel --test every_panel_answers_a_finger -- {{name}}
-    cargo test --quiet -p console-media-viewer --test a_finger -- {{name}}
+    @just alone cargo build --quiet --workspace
+    @just alone cargo test --quiet -p console-panel --test every_panel_answers_a_finger -- {{name}}
+    @just alone cargo test --quiet -p console-media-viewer --test a_finger -- {{name}}
 
 # what those would do to the device
 device-checks:
@@ -261,11 +342,11 @@ device-checks-all:
 
 # the device's desktop here, in a window
 desktop:
-    cargo run --quiet --bin console-desktop -- run
+    @just alone cargo run --quiet --bin console-desktop -- run
 
 # a picture of it, at the device's size
 shot:
-    cargo run --quiet --bin console-desktop -- shot desktop.png
+    @just alone cargo run --quiet --bin console-desktop -- shot desktop.png
     @echo "desktop.png"
 
 # The device compiles it, out of the tree `just deploy` pushed there, so this

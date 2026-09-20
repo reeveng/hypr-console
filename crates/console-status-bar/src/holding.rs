@@ -12,6 +12,10 @@
 //! [`Held`] and this turns it into slots, which is the half worth pressing: a
 //! reading that is lit when its own tab is in front, a workspace lit when it is
 //! the one you are on, a battery that says two things where the others say one.
+//!
+//! The slot after the workspaces is the first number nobody is on, which is the
+//! only way a thumb has of reaching a workspace that is not there yet: the
+//! compositor makes one the moment it is asked to go to it.
 //! Asking the machine is the program's, because it is the half that needs a
 //! machine.
 
@@ -30,6 +34,8 @@ pub const MUSIC: &str = "\u{f075a}";
 
 pub const PAUSED: &str = "\u{f03e4}";
 
+pub const ANOTHER: &str = "+";
+
 pub const ALONG: [What; 4] = [What::Sound, What::Bluetooth, What::Network, What::Battery];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,6 +44,7 @@ pub struct Open {
     pub keyboard: Up,
     pub music: Up,
     pub notices: Up,
+    pub calendar: Up,
     pub settings: Up,
     pub tab: Option<String>,
 }
@@ -117,6 +124,19 @@ impl Open {
 }
 
 impl Held {
+    pub fn next(&self) -> Result<i64, Never> {
+        let mut next = 1;
+
+        for workspace in &self.workspaces {
+            match workspace.id == next {
+                true => next = next.saturating_add(1),
+                false => {},
+            }
+        }
+
+        Ok(next)
+    }
+
     pub fn saying(&self, filling: Filling) -> Result<Saying, Never> {
         let Ok(launcher) = lit(self.open.launcher);
         let Ok(keyboard) = lit(self.open.keyboard);
@@ -141,11 +161,22 @@ impl Held {
             });
         }
 
+        let Ok(next) = self.next();
+
+        left.push(Slot {
+            said: vec![Said { said: ANOTHER.to_string(), face: Face::Reading }],
+            tone: Tone::Quiet,
+            lit: Lit::No,
+            does: Some(Does::Workspace(next)),
+        });
+
+        let Ok(calendar) = lit(self.open.calendar);
+
         let middle = vec![Slot {
             said: vec![Said { said: self.clock.clone(), face: Face::Clock }],
             tone: Tone::Plain,
-            lit: Lit::No,
-            does: None,
+            lit: calendar,
+            does: Some(Does::Calendar),
         }];
 
         let Ok(song) = reading(&self.music, music, Does::Music);
@@ -183,6 +214,7 @@ mod tests {
             keyboard: Up::NotThere,
             music: Up::NotThere,
             notices: Up::NotThere,
+            calendar: Up::NotThere,
             settings: Up::NotThere,
             tab: None,
         }
@@ -227,9 +259,31 @@ mod tests {
                 Some(Does::Launcher),
                 Some(Does::Keyboard),
                 Some(Does::Workspace(1)),
-                Some(Does::Workspace(2))
+                Some(Does::Workspace(2)),
+                Some(Does::Workspace(3))
             ]
         );
+    }
+
+    #[test]
+    fn the_slot_after_the_workspaces_is_the_first_number_nobody_is_on() {
+        let next = |ids: &[i64]| {
+            let held = Held {
+                workspaces: ids
+                    .iter()
+                    .map(|id| Workspace { id: *id, named: id.to_string() })
+                    .collect(),
+                ..held()
+            };
+            let Ok(next) = held.next();
+
+            next
+        };
+
+        assert_eq!(next(&[1, 2]), 3);
+        assert_eq!(next(&[2, 3]), 1);
+        assert_eq!(next(&[1, 3]), 2);
+        assert_eq!(next(&[]), 1);
     }
 
     #[test]
@@ -259,7 +313,7 @@ mod tests {
             .map(|slot| slot.lit)
             .collect();
 
-        assert_eq!(workspaces, [Lit::No, Lit::Yes]);
+        assert_eq!(workspaces, [Lit::No, Lit::Yes, Lit::No]);
     }
 
     #[test]
@@ -334,10 +388,21 @@ mod tests {
     }
 
     #[test]
-    fn the_clock_is_the_only_thing_in_the_middle_and_it_opens_nothing() {
+    fn the_clock_is_the_only_thing_in_the_middle_and_it_opens_the_calendar() {
         let saying = said(&held());
 
-        assert_eq!(does(&saying.middle), [None]);
+        assert_eq!(does(&saying.middle), [Some(Does::Calendar)]);
+    }
+
+    #[test]
+    fn the_clock_is_lit_while_the_calendar_it_opens_is_up() {
+        let up = Held { open: Open { calendar: Up::OnScreen, ..shut() }, ..held() };
+        let Ok(shut) = held().saying(Filling::Nothing);
+        let Ok(open) = up.saying(Filling::Nothing);
+        let lit = |saying: &Saying| saying.middle.iter().map(|slot| slot.lit).collect::<Vec<_>>();
+
+        assert_eq!(lit(&shut), [Lit::No]);
+        assert_eq!(lit(&open), [Lit::Yes]);
     }
 
     #[test]

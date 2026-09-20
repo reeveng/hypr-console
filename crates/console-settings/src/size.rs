@@ -49,8 +49,37 @@
 //! The compositor's file is this repository's, byte for byte -- `console check`
 //! reports it as drift the moment anything on the machine edits it. So the file
 //! goes on declaring the size this device is set up as, and a machine standing
-//! somewhere else says so in `~/.config/console/scale`, which is nobody's to
-//! check. Same shape as [`crate::warm`], and for the same reason.
+//! somewhere else says so under `~/.config/console/screens`, which is nobody's
+//! to check. Same shape as [`crate::warm`], and for the same reason.
+//!
+//! It is a rung per screen rather than a rung for the machine, and
+//! [`crate::screens`] is the argument: a rung is a canvas divided into the
+//! panel's own width, so the same word is a different density on every screen
+//! it is said about, and the one thing it cannot be is a number the machine
+//! holds once.
+//!
+//! It is also a rung per shape the screen stands in, for the second half of the
+//! same sentence. Which of a panel's two sides is its width is what a turn
+//! changes, so **Normal** on this handheld held landscape is 1024 points across
+//! 2560 pixels and **Normal** stood on its end is 1024 across 1600: the same
+//! word, and everything on the screen a third larger. A person who turns the
+//! device and then picks a size is not correcting the size they chose for the
+//! other way up, they are saying what this way up should be -- so the two are
+//! remembered apart, and turning back finds the rung that was chosen there.
+//! Two shapes rather than four quarters, because the half turn is the same
+//! width as the quarter it is opposite and a rung is only ever about the
+//! width.
+//!
+//! ## The touchscreen turns with it or a finger lands turned
+//!
+//! A touch panel reports in its own orientation, so the compositor is told
+//! which quarter to read it through, and that quarter is the screen's. It was
+//! a number in the compositor's file -- right for the one way up this device
+//! was ever set up, and left behind the moment the screen could be turned: a
+//! desktop standing at a quarter with its touches still read at the mounting
+//! is one where every panel answers a press somebody did not make. So the
+//! touch device is part of describing the screen and goes in the same `eval`,
+//! for the same reason the density does.
 //!
 //! The live change is `hyprctl eval`, and that is not a preference. A
 //! Lua-configured compositor answers `hyprctl keyword` with *"keyword can't
@@ -61,7 +90,9 @@
 
 use console_core_never::Never;
 use console_core_words::Words;
-use console_screen::{Canvas, DRAWN_AT, Fits, Screen};
+use console_screen::{Canvas, DRAWN_AT, Fits, Screen, Shape};
+
+use crate::screens::{Output, Unnamed};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Words)]
 pub enum Size {
@@ -134,10 +165,21 @@ impl Size {
 
 pub const NAMED: &str = "scale";
 
-pub fn at(home: &std::path::Path) -> Result<std::path::PathBuf, Never> {
-    let Ok(ours) = console_core_places::Base::Config.ours_under(home);
+pub fn shaped(shape: Shape) -> Result<&'static str, Never> {
+    Ok(match shape {
+        Shape::Wider => "wider",
+        Shape::Taller => "taller",
+    })
+}
 
-    Ok(ours.join(NAMED))
+pub fn at(
+    home: &std::path::Path,
+    panel: Output<'_>,
+    shape: Shape,
+) -> Result<std::path::PathBuf, Unnamed> {
+    let Ok(shaped) = shaped(shape);
+
+    panel.keeping(home, &format!("{NAMED}-{shaped}"))
 }
 
 pub fn standing(monitors: &serde_json::Value) -> Result<Option<Size>, Never> {
@@ -155,24 +197,17 @@ pub fn standing(monitors: &serde_json::Value) -> Result<Option<Size>, Never> {
     }))
 }
 
-pub fn lua(screen: &Screen, scale: f64) -> Result<String, Never> {
+pub fn lua(panel: Output<'_>, screen: &Screen, scale: f64) -> Result<String, Never> {
     let (wide, tall) = (screen.mode.wide, screen.mode.tall);
+    let named = panel.0;
+    let transform = screen.transform;
 
     Ok(format!(
-        r#"hl.monitor({{ output = "{}", mode = "{wide}x{tall}@{}", position = "auto", scale = {scale}, transform = {} }})"#,
-        OUTPUT, screen.refresh, screen.transform
+        r#"hl.monitor({{ output = "{named}", mode = "{wide}x{tall}@{}", position = "auto", scale = {scale}, transform = {transform} }}) hl.config({{ input = {{ touchdevice = {{ output = "{named}", transform = {transform} }} }} }})"#,
+        screen.refresh
     ))
 }
 
-pub const OUTPUT: &str = "eDP-1";
-
-pub const BAR_NAMED: &str = "bar.css";
-
-pub fn bar_at(home: &std::path::Path) -> Result<std::path::PathBuf, Never> {
-    let Ok(ours) = console_core_places::Base::Config.ours_under(home);
-
-    Ok(ours.join(BAR_NAMED))
-}
 
 #[cfg(test)]
 mod tests {
@@ -222,7 +257,7 @@ mod tests {
     }
 
     fn lua(screen: &Screen, at: f64) -> String {
-        let Ok(said) = super::lua(screen, at);
+        let Ok(said) = super::lua(Output("eDP-1"), screen, at);
 
         said
     }
@@ -376,7 +411,35 @@ mod tests {
         assert!(said.contains("transform = 1"), "{said}");
         assert!(said.contains("1600x2560@144"), "{said}");
         assert!(said.contains("scale = 3.2"), "{said}");
-        assert!(said.contains(OUTPUT), "{said}");
+        assert!(said.contains("eDP-1"), "{said}");
+    }
+
+    #[test]
+    fn the_touchscreen_is_read_through_the_quarter_the_picture_is_drawn_at() {
+        for transform in 0..4 {
+            let screen = Screen { transform, ..screen() };
+            let said = lua(&screen, 2.5);
+            let both = said.matches(&format!("transform = {transform}")).count();
+
+            assert!(said.contains("touchdevice"), "the finger was not told anything: {said}");
+            assert_eq!(
+                both, 2,
+                "the screen and the finger on it are at two different quarters: {said}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_two_shapes_a_screen_stands_in_are_two_rungs_and_not_one() {
+        let home = std::path::Path::new("/home/ada");
+        let wider = at(home, Output("eDP-1"), Shape::Wider);
+        let taller = at(home, Output("eDP-1"), Shape::Taller);
+
+        assert_eq!(
+            wider,
+            Ok(std::path::PathBuf::from("/home/ada/.config/console/screens/eDP-1/scale-wider"))
+        );
+        assert_ne!(wider, taller, "a turn would have found the other shape's rung");
     }
 
     #[test]

@@ -66,7 +66,7 @@ use gtk4::glib;
 use crate::ascii;
 use crate::library::{self, Kind, Thing};
 use crate::looking::{self, Song};
-use crate::player::{self, Order, Over, Playing};
+use crate::player::{self, Order, Over, Playing, Sound};
 use crate::pressing::{Closes, Heard, Its, Music, Standing, closes};
 use crate::library::folder;
 use console_panel::actor::{self, Addr, Answer};
@@ -220,7 +220,7 @@ fn playing_rows(held: &Panel) -> Result<Vec<Row>, Never> {
     let asked = player::playing()?;
 
     match asked.as_ref() {
-        Some(playing) if !playing.stopped => playing_card(held, playing),
+        Some(playing) if playing.sound != Sound::Stopped => playing_card(held, playing),
         Some(_) | None => {
             let Ok(row) = Row::nothing("Nothing is playing");
 
@@ -386,9 +386,9 @@ fn transport_row(held: &Panel, playing: &Playing, at: usize) -> Result<Row, Neve
         showing.refresh();
     });
     let Ok(playing) = Press::new(
-            match playing.paused {
-                true => Icon::Play,
-                false => Icon::Pause,
+            match playing.sound {
+                Sound::Paused | Sound::Stopped => Icon::Play,
+                Sound::Playing => Icon::Pause,
             },
             InEffect::No,
             |showing| {

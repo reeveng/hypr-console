@@ -253,10 +253,10 @@ fn table(said: &str, codes: &[&str]) -> Result<BTreeMap<String, String>, Never> 
             None => continue,
         };
 
-        for entry in entries {
+        'over_entries: for entry in entries {
             let says = match entry.get("name").and_then(serde_json::Value::as_str) {
                 Some(says) => says,
-                None => continue,
+                None => continue 'over_entries,
             };
 
             for code in codes {

@@ -52,8 +52,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as Written;
-use quote::quote;
-use syn::{Data, DeriveInput, Error, Fields, Ident, LitStr, Variant};
+use quote::{ToTokens, quote};
+use syn::punctuated::Punctuated;
+use syn::{Data, DeriveInput, Error, Fields, Ident, LitStr, MetaNameValue, Token, Variant};
 
 #[cfg_attr(dylint_lib = "explicit002_infallible_result", allow(explicit002_infallible_result, reason = "a derive answers the compiler in token streams, and a `Result` does not cross that boundary any more than it crosses an `extern` one"))]
 #[proc_macro_derive(Words, attributes(words))]
@@ -62,8 +63,8 @@ pub fn words(asked: TokenStream) -> TokenStream {
     let written = read.and_then(|enumeration| spelling(&enumeration));
 
     match written {
-        Ok(spelt) => spelt.into(),
-        Err(fault) => fault.to_compile_error().into(),
+        Ok(spelt) => proc_macro::TokenStream::from(spelt),
+        Err(fault) => proc_macro::TokenStream::from(fault.to_compile_error()),
     }
 }
 
@@ -141,22 +142,25 @@ fn said(variant: &Variant) -> Result<Spelt, Error> {
 
         match mine {
             true => {
-                let read = attribute.parse_nested_meta(|meta| {
-                    let named = match meta.path.get_ident() {
+                let read = attribute
+                    .parse_args_with(Punctuated::<MetaNameValue, Token![,]>::parse_terminated);
+
+                let said = read?;
+
+                for one in said {
+                    let named = match one.path.get_ident() {
                         Some(name) => Ok(name.clone()),
-                        None => Err(meta.error("a word is said as `name = \"the word\"`")),
+                        None => Err(Error::new_spanned(
+                            &one.path,
+                            "a word is said as `name = \"the word\"`",
+                        )),
                     };
 
                     let name = named?;
-                    let value = meta.value()?;
-                    let word = value.parse::<LitStr>()?;
+                    let word = syn::parse2::<LitStr>(one.value.to_token_stream())?;
 
                     words.push((name, word));
-
-                    Ok(())
-                });
-
-                read?;
+                }
             }
             false => {}
         }

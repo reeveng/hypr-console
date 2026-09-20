@@ -77,6 +77,7 @@ fn held() -> Held {
             keyboard: Up::NotThere,
             music: Up::NotThere,
             notices: Up::NotThere,
+            calendar: Up::NotThere,
             settings: Up::NotThere,
             tab: None,
         },
@@ -228,16 +229,16 @@ fn the_surface_is_painted_over_the_strip_rows_as_well_as_the_bar() {
 
 #[test]
 fn a_running_apply_fills_the_strip_from_the_left_and_stops_where_it_has_got_to() {
-    let (pixels, device) = painted(Filling::At(50));
+    let (pixels, device) = painted(Filling::At(500));
     let Ok(fitting) = Fitting::of(SCREEN);
     let ground = at(&pixels, device, 0, 0);
     let row = fitting.deep;
     let filled = |across| at(&pixels, device, across, row) != ground;
 
     assert!(filled(0), "the strip is empty at the left with an apply half done");
-    assert!(filled(device.wide / 2 - 2), "the strip stops short of half at fifty per cent");
-    assert!(!filled(device.wide / 2 + 2), "the strip runs past half at fifty per cent");
-    assert!(!filled(device.wide.saturating_sub(1)), "the strip is full at fifty per cent");
+    assert!(filled(device.wide / 2 - 2), "the strip stops short of half at half way");
+    assert!(!filled(device.wide / 2 + 2), "the strip runs past half at half way");
+    assert!(!filled(device.wide.saturating_sub(1)), "the strip is full at half way");
 }
 
 #[test]
@@ -246,7 +247,7 @@ fn a_picture_of_the_bar_is_written_when_somebody_asks_for_one() {
         Ok(into) => into,
         Err(_nobody_wants_to_look_at_one) => return,
     };
-    let (pixels, device) = painted(Filling::At(38));
+    let (pixels, device) = painted(Filling::At(380));
 
     match std::fs::write(&into, &pixels) {
         Ok(()) => println!("{into}: {}x{} bgra", device.wide, device.tall),

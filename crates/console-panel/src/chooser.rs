@@ -49,7 +49,7 @@
 
 
 use console_core_never::Never;
-use console_waiting::{Patience, Seen, Waited, until};
+use console_waiting::{Patience, Seen, Waited, found_handed, until};
 use console_core_number_conversion::fitted;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -223,16 +223,12 @@ enum Meanwhile {
 
 fn meanwhile(handle: &mut File) -> Result<Meanwhile, Never> {
     let Ok(patience) = Patience::asking_every(COMING, BREATH);
-    let mut answer = Meanwhile::Stuck;
-    let Ok(_settled) = until(patience, || {
+
+    let Ok(answer) = found_handed(patience, handle, |handle| {
         let Ok(took) = take(handle);
 
         match took == Took::It {
-            true => {
-                answer = Meanwhile::Free;
-
-                return Ok(Seen::Yes);
-            }
+            true => return Ok(Some(Meanwhile::Free)),
             false => {},
         }
 
@@ -240,16 +236,15 @@ fn meanwhile(handle: &mut File) -> Result<Meanwhile, Never> {
         let Ok((_pid, drawn)) = holder(&said);
 
         Ok(match !drawn.is_empty() {
-            true => {
-                answer = Meanwhile::Drawn;
-
-                Seen::Yes
-            }
-            false => Seen::NotYet,
+            true => Some(Meanwhile::Drawn),
+            false => None,
         })
     });
 
-    Ok(answer)
+    Ok(match answer {
+        Some(answer) => answer,
+        None => Meanwhile::Stuck,
+    })
 }
 
 fn read(handle: &mut File) -> Result<String, Never> {

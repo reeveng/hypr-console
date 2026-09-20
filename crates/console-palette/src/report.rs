@@ -31,22 +31,22 @@ pub fn write(
         String::new(),
         spec.meta.about.clone(),
         String::new(),
-        "Written by `console-palette` from `theme/palette.toml`. Every number".into(),
-        "here is measured after the colour has been quantised to eight bits a".into(),
-        "channel, which is what a contrast checker reads off the screen and is a".into(),
-        "tenth of a point away from the arithmetic on the same two colours.".into(),
+        String::from("Written by `console-palette` from `theme/palette.toml`. Every number"),
+        String::from("here is measured after the colour has been quantised to eight bits a"),
+        String::from("channel, which is what a contrast checker reads off the screen and is a"),
+        String::from("tenth of a point away from the arithmetic on the same two colours."),
         String::new(),
-        "Every pairing is measured twice. The ratio is WCAG 2, which is what the".into(),
-        "law asks for and what a checker will report. `Lc` is APCA, which knows".into(),
-        "which of the two colours is the paper: it is negative here because".into(),
-        "everything on this desktop is pale ink on a dark ground. A colour is".into(),
-        "lifted until it clears both, and on a palette this dark it is almost".into(),
-        "always `Lc` that decides where it lands.".into(),
+        String::from("Every pairing is measured twice. The ratio is WCAG 2, which is what the"),
+        String::from("law asks for and what a checker will report. `Lc` is APCA, which knows"),
+        String::from("which of the two colours is the paper: it is negative here because"),
+        String::from("everything on this desktop is pale ink on a dark ground. A colour is"),
+        String::from("lifted until it clears both, and on a palette this dark it is almost"),
+        String::from("always `Lc` that decides where it lands."),
         String::new(),
-        "## The colours".into(),
+        String::from("## The colours"),
         String::new(),
-        "| | colour | spent on |".into(),
-        "| --- | --- | --- |".into(),
+        String::from("| | colour | spent on |"),
+        String::from("| --- | --- | --- |"),
     ];
 
     let colours = spec
@@ -61,10 +61,10 @@ pub fn write(
 
     let asked = [
         String::new(),
-        "## What was asked of them".into(),
+        String::from("## What was asked of them"),
         String::new(),
-        "| front | on | asked | got | | asked | got | |".into(),
-        "| --- | --- | --- | --- | --- | --- | --- | --- |".into(),
+        String::from("| front | on | asked | got | | asked | got | |"),
+        String::from("| --- | --- | --- | --- | --- | --- | --- | --- |"),
     ]
     .into_iter()
     .chain(rows.iter().map(|row| {
@@ -84,10 +84,10 @@ pub fn write(
 
     let sixteen = [
         String::new(),
-        "## The terminal".into(),
+        String::from("## The terminal"),
         String::new(),
-        "| slot | normal | | | bright | | |".into(),
-        "| --- | --- | --- | --- | --- | --- | --- |".into(),
+        String::from("| slot | normal | | | bright | | |"),
+        String::from("| --- | --- | --- | --- | --- | --- | --- |"),
     ]
     .into_iter()
     .chain(SLOTS.map(|slot| {

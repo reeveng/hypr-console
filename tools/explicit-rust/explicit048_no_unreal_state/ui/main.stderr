@@ -1,0 +1,35 @@
+error: `Connection` holds a flag beside an absence, so 3 of its fields spell 8 states of which only a few mean anything
+  --> $DIR/main.rs:9:8
+   |
+LL | struct Connection {
+   |        ^^^^^^^^^^
+   |
+   = help: a flag beside what it is about, or beside another flag, is an enum written out flat. Name one variant per state that can really happen, and the compiler counts them, a caller cannot set one field and forget the next, and a state added later has to be answered everywhere. Where the flag was set by a check, the variant holds what the check found, so whatever does the work takes that and cannot be called without it. Where the fields really are independent, allow this rule here and let the reason say so
+   = note: `#[deny(explicit048_no_unreal_state)]` on by default
+
+error: `Standing` holds one flag beside another, so 2 of its fields spell 4 states of which only a few mean anything
+  --> $DIR/main.rs:24:8
+   |
+LL | struct Standing {
+   |        ^^^^^^^^
+   |
+   = help: a flag beside what it is about, or beside another flag, is an enum written out flat. Name one variant per state that can really happen, and the compiler counts them, a caller cannot set one field and forget the next, and a state added later has to be answered everywhere. Where the flag was set by a check, the variant holds what the check found, so whatever does the work takes that and cannot be called without it. Where the fields really are independent, allow this rule here and let the reason say so
+
+error: `Option<Option<..>>` is three states spelled as two questions
+  --> $DIR/main.rs:43:19
+   |
+LL | fn looked_up() -> Option<Option<Socket>> {
+   |                   ^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: name the three: an enum with a variant per state, so the reader is not left working out which of the two answers the absence came from, and so the compiler counts them
+
+error: `Option<Result<..>>` is three states spelled as two questions
+  --> $DIR/main.rs:49:15
+   |
+LL | fn tried() -> Option<Result<Socket, Fault>> {
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: name the three: an enum with a variant per state, so the reader is not left working out which of the two answers the absence came from, and so the compiler counts them
+
+error: aborting due to 4 previous errors
+

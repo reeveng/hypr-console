@@ -15,7 +15,7 @@ and everything else imports whichever speaks its own:
 
 | The palette, written | Imported by |
 | --- | --- |
-| `~/.config/console/palette.css` | waybar, the panels, GTK 3, GTK 4, libadwaita, Breeze |
+| `~/.config/console/palette.css` | the bar, the panels, GTK 3, GTK 4, libadwaita, Breeze |
 | `~/.config/console/palette.toml` | alacritty |
 | `~/.librewolf/console/chrome/palette.css` | `userChrome.css`, `userContent.css` |
 | `/usr/local/lib/console/palette.sh` | the keyboard, which reads it on the way in and hands the colours to itself as arguments |

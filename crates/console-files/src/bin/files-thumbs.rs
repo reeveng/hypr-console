@@ -34,10 +34,7 @@ fn main() {
         }
     };
 
-    let cache = match glib::user_cache_dir().into() {
-        Some(cache) => cache,
-        None => return,
-    };
+    let cache = glib::user_cache_dir();
 
     let Ok(store) = thumbs::store(&cache);
 

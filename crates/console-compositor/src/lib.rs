@@ -50,6 +50,13 @@
 //! thing worse than a compositor that will not take something is one that
 //! says so where nobody is looking.
 //!
+//! Which is also why [`onto`] is here rather than written out wherever a
+//! workspace is asked for. The daemon, the two test stages and the bar each
+//! spelled that dispatcher themselves, and the bar spelled it in hyprctl's own
+//! words: `dispatch workspace 2` reaches a lua config as
+//! `hl.dispatch(workspace 2)`, which is a syntax error, so a tap on a
+//! workspace along the bar did nothing at all and said so nowhere.
+//!
 //! `stirred` is the same crate's other half: what the compositor says when
 //! nobody asked it anything. Four crates were reading those lines by the words
 //! Hyprland spells them with, and two of the four lists had already drifted
@@ -176,11 +183,18 @@ pub enum Told {
 
 const SWITCH: &str = "switchxkblayout";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Leading {
+    Yes,
+    No,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Keyboard {
     pub name: String,
     pub layouts: Vec<String>,
     pub wearing: Option<String>,
+    pub leading: Leading,
 }
 
 pub fn keyboards(devices: &serde_json::Value) -> Result<Vec<Keyboard>, Never> {
@@ -206,8 +220,12 @@ pub fn keyboards(devices: &serde_json::Value) -> Result<Vec<Keyboard>, Never> {
                 .get("active_keymap")
                 .and_then(serde_json::Value::as_str)
                 .map(str::to_string);
+            let leading = match one.get("main").and_then(serde_json::Value::as_bool) {
+                Some(true) => Leading::Yes,
+                Some(false) | None => Leading::No,
+            };
 
-            Some(Keyboard { name: name.to_string(), layouts, wearing })
+            Some(Keyboard { name: name.to_string(), layouts, wearing, leading })
         })
         .collect())
 }
@@ -306,6 +324,22 @@ pub fn laying_out(telling: Command, name: &str, layouts: Layouts<'_>) -> Result<
     )
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Carrying {
+    Window,
+    Nothing,
+}
+
+pub fn onto(where_: &str, carrying: Carrying) -> Result<String, Never> {
+    let dispatcher = match carrying {
+        Carrying::Window => "hl.dsp.window.move",
+        Carrying::Nothing => "hl.dsp.focus",
+    };
+    let Ok(said) = quoted(where_);
+
+    Ok(format!("{dispatcher}({{workspace = {said}}})"))
+}
+
 pub fn quoted(said: &str) -> Result<String, Never> {
     Ok(format!("\"{}\"", said.replace('\\', "\\\\").replace('"', "\\\"")))
 }
@@ -397,6 +431,13 @@ pub fn in_front(said: &serde_json::Value) -> Result<Option<Workspace>, Never> {
     };
 
     Ok(Some(Workspace { id, named }))
+}
+
+pub fn front_of(monitor: &serde_json::Value) -> Result<Option<Workspace>, Never> {
+    match monitor.get("activeWorkspace") {
+        Some(said) => in_front(said),
+        None => Ok(None),
+    }
 }
 
 pub fn workspaces(said: &serde_json::Value) -> Result<Vec<Workspace>, Never> {
@@ -671,6 +712,26 @@ mod tests {
          "refreshRate":143.97,"transform":1},
         {"name":"HEADLESS-2","width":1600,"height":2560,"scale":1.00}]"#;
 
+    const TWO_BOARDS: &str = r#"{"keyboards":[
+        {"name":"hl-virtual-keyboard-console-keyboard","layout":"us",
+         "active_keymap":"English (US)","main":false},
+        {"name":"lab31---keyboard","layout":"us,th",
+         "active_keymap":"Thai","main":true}]}"#;
+
+    #[test]
+    fn the_board_somebody_is_typing_on_is_the_one_the_compositor_leads_with() {
+        let Ok(keyboards) = keyboards(&said(TWO_BOARDS));
+
+        let leading: Vec<&str> = keyboards
+            .iter()
+            .filter(|keyboard| keyboard.leading == Leading::Yes)
+            .map(|keyboard| keyboard.name.as_str())
+            .collect();
+
+        assert_eq!(leading, ["lab31---keyboard"], "{keyboards:?}");
+        assert_eq!(keyboards.first().map(|keyboard| keyboard.leading), Some(Leading::No));
+    }
+
     #[test]
     fn a_screen_is_named_measured_and_scaled() {
         let Ok(monitors) = monitors(&said(TWO_SCREENS));
@@ -795,7 +856,7 @@ mod tests {
 
     const ON_THE_SCREEN: &str = r#"{"eDP-1":{"levels":{
         "0":[{"namespace":"awww-daemon","address":"0x1","h":1600}],
-        "2":[{"namespace":"waybar","address":"0x2","h":38}],
+        "2":[{"namespace":"console-bar","address":"0x2","h":40}],
         "3":[{"namespace":"launcher","address":"0x3","h":0}]}}}"#;
 
     #[test]
@@ -810,7 +871,7 @@ mod tests {
             })
             .collect();
 
-        assert_eq!(named, ["awww-daemon", "waybar", "launcher"]);
+        assert_eq!(named, ["awww-daemon", "console-bar", "launcher"]);
     }
 
     #[test]

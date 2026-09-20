@@ -11,7 +11,7 @@
 //! repository's comments are about, so what is asked now is that opening a
 //! menu changes nothing about what the machine is wearing.
 
-use console_test_stages::checking::{Done, happened, same};
+use console_test_stages::checking::{Done, happened, happened_handed, same};
 use console_test_stages::device::{Device, PATIENCE};
 
 pub const WORN: &str = "Router";
@@ -39,7 +39,7 @@ pub fn closes(stage: &mut Device, what: &str) -> Done {
     let Ok(()) = stage.press("b");
     let Ok(gone) = stage.gone(PATIENCE);
 
-    happened(gone, || {
+    happened_handed(gone, stage, |stage| {
         let Ok(left) = stage.menus();
 
         format!("B did not close the {what}: {left:?}")

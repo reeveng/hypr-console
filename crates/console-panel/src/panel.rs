@@ -47,8 +47,8 @@ use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use crate::keys::{Driving, Meaning, meaning, swept};
 use crate::marks::{self, named};
 use crate::page::{
-    About, Act, Answer, Does, Heading, InEffect, Page, Picture, Row, Same, Set, Showing, Stirred,
-    Taken, Which,
+    About, Act, Answer, Cell, Does, Heading, InEffect, Page, Picture, Row, Same, Set, Showing,
+    Stirred, Taken, Which,
 };
 use crate::strip::{ANSWER, EDGE, GAP, MARGIN, PICTURE, PRESSED, SLEEVE};
 use crate::tab::Title;
@@ -75,6 +75,13 @@ const NO_CELL: i32 = 0;
 
 pub type Build = Arc<dyn Fn() -> Vec<Page> + Send + Sync>;
 
+#[cfg_attr(
+    dylint_lib = "explicit048_no_unreal_state",
+    allow(
+        explicit048_no_unreal_state,
+        reason = "one panel's whole standing, and the flags are about different parts of it: `out` is the tab strip, `beside` is a second panel alongside, `reshaping` and `due` are two redraws owed to gtk for two reasons. What is already a state here is spelt as one -- `opened` is an enum and `asking` and `sure` are what a question is -- and the rest is what a window happens to be holding"
+    )
+)]
 struct State {
     pages: Vec<Page>,
     here: usize,
@@ -1568,6 +1575,13 @@ impl Panel {
                 false => {},
             }
 
+            match row.cells.is_empty() {
+                true => {},
+                false => {
+                    held.add_css_class("cells");
+                }
+            }
+
             match matches!(row.picture, Picture::Showing(_) | Picture::Playing(_)) {
                 true => {
                     held.add_css_class("showing");
@@ -1718,6 +1732,17 @@ impl Panel {
                 return Ok(line);
             }
             false => {},
+        }
+
+        match row.cells.is_empty() {
+            true => {},
+            false => {
+                let Ok(week) = self.celled(&row.cells);
+
+                line.append(&week);
+
+                return Ok(line);
+            }
         }
 
         match &row.across {
@@ -1979,6 +2004,28 @@ impl Panel {
         Ok(line)
     }
 
+    fn celled(self: &Rc<Self>, cells: &[Cell]) -> Result<GtkBox, Never> {
+        let held = GtkBox::new(Orientation::Horizontal, 0);
+        held.set_hexpand(true);
+        held.set_homogeneous(true);
+
+        for cell in cells {
+            let said = Label::new(Some(&cell.says));
+            said.set_widget_name(named::CELL);
+
+            match cell.now {
+                true => {
+                    said.add_css_class("now");
+                }
+                false => {},
+            }
+
+            held.append(&said);
+        }
+
+        Ok(held)
+    }
+
     fn strip(self: &Rc<Self>, across: &crate::page::Across) -> Result<GtkBox, Never> {
         let held = GtkBox::new(Orientation::Horizontal, 0);
         held.set_hexpand(true);
@@ -1993,10 +2040,10 @@ impl Panel {
             button.set_child(Some(&icon));
 
             match press.now {
-                true => {
+                crate::page::InEffect::Yes => {
                     button.add_css_class("now");
                 }
-                false => {},
+                crate::page::InEffect::No => {},
             }
 
             match at == across.at {
@@ -3204,6 +3251,13 @@ type Asked = (PathBuf, i32);
 
 type Pixels = (glib::Bytes, i32, i32, usize, bool);
 
+#[cfg_attr(
+    dylint_lib = "explicit048_no_unreal_state",
+    allow(
+        explicit048_no_unreal_state,
+        reason = "`wanted` is the picture asked for next and `busy` is whether the thread is already on one; the whole point of the pair is that a second ask arrives while the first is still running"
+    )
+)]
 struct Decoding {
     kept: VecDeque<(Asked, gtk4::gdk::Texture)>,
     wanted: Option<(Asked, glib::WeakRef<gtk4::Picture>)>,

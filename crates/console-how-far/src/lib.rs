@@ -33,14 +33,22 @@
 //! arithmetic instead of an ioctl. Eighty columns is the whole budget and
 //! `every_line_fits_a_terminal_eighty_wide` is what holds it.
 //!
-//! # Two streams, because they are two different questions
+//! # Two streams, and only one of them is ever asked
 //!
 //! The bar is drawn on stderr and everything said on the way is printed on
-//! stdout, which is where each already was. That means either can be a pipe
-//! while the other is a screen, so each is asked on its own whether it is being
-//! watched, and neither is sent an escape sequence that would end up in
-//! somebody's log. A stream that is not a screen gets a plain line per finished
-//! item and no redrawing at all.
+//! stdout, which is where each already was, so either can be a pipe while the
+//! other is a screen. What follows from that is one rule, and it was written
+//! the other way round at first: **whether to erase is a question about the
+//! stream the bar is on, not about the stream the message is on.** `say` asked
+//! stdout, and wrote the erase there -- so a run with stdout in a log and
+//! stderr on the screen put an escape sequence in the log and left the bar
+//! standing, and the next thing printed landed on the end of it. What a person
+//! saw was a message welded to the right-hand side of a full bar.
+//!
+//! So an erase is stderr's, always, and gated on stderr alone; a line said is
+//! stdout's, always, and plain. Nothing writes an escape to a stream it has not
+//! asked about, which is what that rule was for, and a stream that is not a
+//! screen still gets a plain line per finished item and no redrawing at all.
 
 use console_core_never::Never;
 use console_core_number_conversion::{Float, toward_zero_u16};
@@ -74,13 +82,6 @@ pub enum Ending {
 
 pub fn watched() -> Result<Watched, Never> {
     Ok(match std::io::stderr().is_terminal() {
-        true => Watched::Screen,
-        false => Watched::Not,
-    })
-}
-
-pub fn talking() -> Result<Watched, Never> {
-    Ok(match std::io::stdout().is_terminal() {
         true => Watched::Screen,
         false => Watched::Not,
     })
@@ -196,7 +197,6 @@ pub fn line(far: Far, said: &str, into: u16) -> Result<String, Never> {
 #[derive(Debug)]
 pub struct Bar {
     watched: Watched,
-    talking: Watched,
     at: usize,
     many: usize,
     into: u16,
@@ -207,11 +207,9 @@ pub struct Bar {
 impl Bar {
     pub fn of(many: usize) -> Result<Self, Never> {
         let Ok(watched) = watched();
-        let Ok(talking) = talking();
 
         Ok(Bar {
             watched,
-            talking,
             at: 0,
             many,
             into: 0,
@@ -223,7 +221,6 @@ impl Bar {
     pub fn unwatched(many: usize) -> Result<Self, Never> {
         Ok(Bar {
             watched: Watched::Not,
-            talking: Watched::Not,
             at: 0,
             many,
             into: 0,
@@ -279,11 +276,10 @@ impl Bar {
     }
 
     pub fn say(&self, line: &str) -> Result<(), Never> {
+        let Ok(()) = self.wiped();
+
         let mut out = std::io::stdout();
-        let _ = match self.talking {
-            Watched::Screen => writeln!(out, "\r{ERASE}{line}"),
-            Watched::Not => writeln!(out, "{line}"),
-        };
+        let _ = writeln!(out, "{line}");
         let _ = out.flush();
 
         self.moved()
@@ -373,7 +369,7 @@ mod tests {
             [(1_usize, 9_usize, 0_u16), (14, 14, 100), (120, 120, 7), (7, 1000, 50)]
         {
             let Ok(said) =
-                caption("keeping the release", Now("home/@user@/.config/waybar/style.css"));
+                caption("keeping the release", Now("home/@user@/.config/console/palette.css"));
             let Ok(drawn) = line(Far { done: at, many }, &said, into);
             let wide = drawn.chars().count();
 
@@ -392,10 +388,10 @@ mod tests {
     #[test]
     fn a_name_too_long_for_the_column_keeps_its_tail() {
         let Ok(room) = room(14);
-        let Ok(said) = fitted("writing files home/@user@/.config/waybar/a/long/way/style.css", room);
+        let Ok(said) = fitted("writing files home/@user@/.config/console/a/long/way/palette.css", room);
 
         assert!(said.starts_with('…'), "{said}");
-        assert!(said.ends_with("style.css"), "{said}");
+        assert!(said.ends_with("palette.css"), "{said}");
         assert!(said.chars().count() <= room, "{said}");
     }
 

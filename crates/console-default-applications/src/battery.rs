@@ -233,6 +233,8 @@ pub const SUPPLIES: &str = "/sys/class/power_supply";
 
 pub const MAINS: &str = "Mains";
 
+pub const BATTERY: &str = "Battery";
+
 pub const CHARGING: &str = "Charging";
 
 pub const FULL: &str = "Full";

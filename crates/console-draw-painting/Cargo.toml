@@ -5,13 +5,6 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
-# Shapes, put into a buffer someone else owns.
-#
-# The one crate on this side of the toolkit that needs a machine, because
-# measuring a wrapped line is the only thing placement cannot do for itself.
-# It depends on no compositor on purpose: what it is handed is bytes and two
-# sizes, so it can be pressed against a slab of memory with no screen anywhere.
-
 [lib]
 name = "console_draw_painting"
 path = "src/lib.rs"
@@ -23,15 +16,8 @@ console-core-never.workspace = true
 console-core-number-conversion.workspace = true
 console-core-shapes.workspace = true
 
-# Cairo for the rectangles and Pango for the words, which is what the keyboard
-# already draws itself with and what the backlog settled as rented rather than
-# written. Shaping is not a decision, and a script with no spaces between its
-# words wraps by dictionary -- a text engine of our own would break the one
-# feature the on-screen keyboard exists for.
 cairo-rs = "0.22"
 pango = "0.22"
-# `pango_cairo_show_layout`, and the font map a measurement can be taken from
-# with no surface to take it on.
 pangocairo = "0.22"
 
 [lints]

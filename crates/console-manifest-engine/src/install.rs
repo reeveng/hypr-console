@@ -85,7 +85,7 @@ pub fn source_of(source: &Path, live: &str) -> Result<PathBuf, Never> {
 pub fn content_on_machine(held: &[u8], user: User<'_>, _live: &str) -> Result<Vec<u8>, Never> {
     let text = match std::str::from_utf8(held) {
         Ok(text) => text,
-        Err(_fault) => return Ok(held.to_vec()),
+        Err(_not_text) => return Ok(held.to_vec()),
     };
 
     Ok(match text.contains(USER) {
@@ -100,7 +100,7 @@ pub fn content_as_declared(held: &[u8], user: User<'_>) -> Result<Vec<u8>, Never
             true => text.replace(user.0, USER).into_bytes(),
             false => held.to_vec(),
         },
-        Err(_) => held.to_vec(),
+        Err(_not_text) => held.to_vec(),
     })
 }
 
@@ -110,7 +110,7 @@ pub fn state(source: &Path, live: &str, user: User<'_>, written: Written) -> Res
     let to = Path::new(&on);
 
     Ok(match (std::fs::read(&from), std::fs::read(to)) {
-        (Err(_), _) => State::Unsourced,
+        (Err(_no_source), _) => State::Unsourced,
         (Ok(_), Err(fault)) => match fault.kind() == std::io::ErrorKind::PermissionDenied {
             true => match written {
                 Written::Once => State::WrittenOnce,
@@ -143,16 +143,16 @@ pub fn owner_of(live: &str, user: User<'_>) -> Result<String, Never> {
 }
 
 pub fn holding(live: &str) -> Result<Vec<PathBuf>, Never> {
-    let mut dirs: Vec<PathBuf> = Path::new(live)
+    let mut directories: Vec<PathBuf> = Path::new(live)
         .parent()
         .into_iter()
         .flat_map(Path::ancestors)
-        .filter(|dir| !dir.as_os_str().is_empty() && *dir != Path::new("/"))
+        .filter(|directory| !directory.as_os_str().is_empty() && *directory != Path::new("/"))
         .map(Path::to_path_buf)
         .collect();
-    dirs.reverse();
+    directories.reverse();
 
-    Ok(dirs)
+    Ok(directories)
 }
 
 #[cfg(test)]
@@ -379,7 +379,7 @@ mod tests {
     fn a_directory_made_inside_a_home_belongs_to_whoever_lives_there() {
         let made = holding("/home/ada/.librewolf/console/chrome/userChrome.css");
         let owners: Vec<String> =
-            made.iter().map(|dir| owner_of(&dir.to_string_lossy(), SOMEONE)).collect();
+            made.iter().map(|directory| owner_of(&directory.to_string_lossy(), SOMEONE)).collect();
         assert_eq!(owners, ["root", "root", SOMEONE, SOMEONE, SOMEONE]);
     }
 }

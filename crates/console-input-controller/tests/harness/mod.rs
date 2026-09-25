@@ -62,7 +62,7 @@ impl Plugged for Plug<'_> {
                     vendor: descriptor.vendor,
                     product: descriptor.product,
                     keys: descriptor.capabilities.key.clone(),
-                    axes: descriptor.capabilities.abs.iter().map(|axis| axis.code).collect(),
+                    axes: descriptor.capabilities.absolute.iter().map(|axis| axis.code).collect(),
                 })
             })
             .collect()
@@ -83,7 +83,7 @@ impl Plugged for Plug<'_> {
         Ranges {
             stick: ok(descriptor.axis(AbsoluteAxisCode::ABS_RX.0)).map_or(1, |axis| ok(axis.span())),
             trigger: ok(descriptor.axis(AbsoluteAxisCode::ABS_Z.0))
-                .map_or((0, 1), |axis| (axis.min, axis.max)),
+                .map_or((0, 1), |axis| (axis.minimum, axis.maximum)),
         }
     }
 
@@ -105,6 +105,7 @@ pub struct Did {
     pub written: Vec<Output>,
     pub told: Vec<console_onscreen::PadInput>,
     pub using: Vec<console_input_bindings::bound::Input>,
+    pub reconnected: Vec<console_input_controller::effect::Reconnected>,
 }
 
 impl Did {
@@ -176,6 +177,7 @@ impl Daemon {
                     Effect::Frame(frame) => self.did.written.extend(frame),
                     Effect::Tell(said) => self.did.told.push(said),
                     Effect::Using(on) => self.did.using.push(on),
+                    Effect::Reconnected(back) => self.did.reconnected.push(back),
                 }
             }
             let Ok(wake) = self.turning.wake();

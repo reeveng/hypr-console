@@ -1,7 +1,7 @@
 //! The numbers, written down where someone can read them without running this.
 
 use console_core_color::{Ground, HexColor};
-use console_core_color as col;
+use console_core_color as color;
 use console_core_never::Never;
 
 use crate::measure::Row;
@@ -13,7 +13,7 @@ pub fn ratio(value: f64) -> Result<String, Never> {
     Ok(format!("{value}"))
 }
 
-pub fn asked_lc(value: f64) -> Result<String, Never> {
+pub fn asked_lightness_contrast(value: f64) -> Result<String, Never> {
     Ok(match value > 0.0 {
         true => format!("Contrast {value}"),
         false => "--".to_string(),
@@ -25,7 +25,7 @@ pub fn write(
     palette: &Palette,
     rows: &[Row],
     terminal: &Terminal,
-) -> Result<String, col::Short> {
+) -> Result<String, color::Short> {
     let Ok(head) = head(configuration);
     let colors = colors(configuration, palette)?;
     let Ok(asked) = asked(rows);
@@ -42,9 +42,9 @@ pub fn write(
 
 fn head(configuration: &Configuration) -> Result<[String; 20], Never> {
     Ok([
-        format!("# {}", configuration.meta.name),
+        format!("# {}", configuration.metadata.name),
         String::new(),
-        configuration.meta.about.clone(),
+        configuration.metadata.about.clone(),
         String::new(),
         String::from("Written by `console-palette` from `theme/palette.toml`. Every number"),
         String::from("here is measured after the color has been quantised to eight bits a"),
@@ -65,7 +65,7 @@ fn head(configuration: &Configuration) -> Result<[String; 20], Never> {
     ])
 }
 
-fn colors(configuration: &Configuration, palette: &Palette) -> Result<Vec<String>, col::Short> {
+fn colors(configuration: &Configuration, palette: &Palette) -> Result<Vec<String>, color::Short> {
     configuration
         .color
         .iter()
@@ -74,7 +74,7 @@ fn colors(configuration: &Configuration, palette: &Palette) -> Result<Vec<String
 
             Ok(format!("| `{name}` | `#{color}` | {} |", declared.spent))
         })
-        .collect::<Result<Vec<String>, col::Short>>()
+        .collect::<Result<Vec<String>, color::Short>>()
 }
 
 fn asked(rows: &[Row]) -> Result<impl Iterator<Item = String> + '_, Never> {
@@ -91,13 +91,13 @@ fn asked(rows: &[Row]) -> Result<impl Iterator<Item = String> + '_, Never> {
 
         let Ok(grade) = row.grade();
 
-        let Ok(lc) = asked_lc(row.asked_lc);
+        let Ok(lightness_contrast) = asked_lightness_contrast(row.asked_lightness_contrast);
 
-        let Ok(grade_lc) = row.grade_lc();
+        let Ok(grade_lightness_contrast) = row.grade_lightness_contrast();
 
         format!(
-            "| `{}` | `{}` | {asked}:1 | **{:.2}:1** | {grade} | {lc} | **{:.1}** | {grade_lc} |",
-            row.front, row.back, row.got, row.got_lc
+            "| `{}` | `{}` | {asked}:1 | **{:.2}:1** | {grade} | {lightness_contrast} | **{:.1}** | {grade_lightness_contrast} |",
+            row.front, row.back, row.got, row.got_lightness_contrast
         )
     })))
 }
@@ -116,14 +116,14 @@ fn sixteen(terminal: &Terminal) -> Result<impl Iterator<Item = String> + '_, Nev
 
         let Ok(bright) = terminal.slot(Shade::Bright, slot);
 
-        let Ok(normal_ratio) = col::contrast(HexColor(normal), Ground(&terminal.background));
-        let Ok(normal_lc) = col::lc(HexColor(normal), Ground(&terminal.background));
-        let Ok(bright_ratio) = col::contrast(HexColor(bright), Ground(&terminal.background));
-        let Ok(bright_lc) = col::lc(HexColor(bright), Ground(&terminal.background));
+        let Ok(normal_ratio) = color::contrast(HexColor(normal), Ground(&terminal.background));
+        let Ok(normal_lightness_contrast) = color::lightness_contrast(HexColor(normal), Ground(&terminal.background));
+        let Ok(bright_ratio) = color::contrast(HexColor(bright), Ground(&terminal.background));
+        let Ok(bright_lightness_contrast) = color::lightness_contrast(HexColor(bright), Ground(&terminal.background));
 
         format!(
-            "| {slot} | `#{normal}` | {normal_ratio:.2}:1 | {normal_lc:.1} \
-             | `#{bright}` | {bright_ratio:.2}:1 | {bright_lc:.1} |"
+            "| {slot} | `#{normal}` | {normal_ratio:.2}:1 | {normal_lightness_contrast:.1} \
+             | `#{bright}` | {bright_ratio:.2}:1 | {bright_lightness_contrast:.1} |"
         )
     })))
 }
@@ -150,9 +150,9 @@ mod tests {
     }
 
     #[test]
-    fn a_pairing_with_no_lc_to_ask_for_says_so_rather_than_saying_nought() {
-        assert_eq!(asked_lc(75.0), Ok("Contrast 75".to_string()));
-        assert_eq!(asked_lc(0.0), Ok("--".to_string()));
+    fn a_pairing_with_no_lightness_contrast_to_ask_for_says_so_rather_than_saying_nought() {
+        assert_eq!(asked_lightness_contrast(75.0), Ok("Contrast 75".to_string()));
+        assert_eq!(asked_lightness_contrast(0.0), Ok("--".to_string()));
     }
 
     #[test]
@@ -168,7 +168,7 @@ mod tests {
         let (configuration, palette) = (declared_palette(), blossom());
         let rows = measure(&configuration, &palette).expect("every pairing names a declared color");
         let report = written();
-        assert_eq!(report.lines().filter(|l| l.contains(":1 | **")).count(), rows.len());
+        assert_eq!(report.lines().filter(|line| line.contains(":1 | **")).count(), rows.len());
     }
 
     #[test]

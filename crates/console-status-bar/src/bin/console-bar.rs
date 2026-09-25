@@ -53,24 +53,37 @@
 //! **The one wait that is a duration is an apply.** While the strip is filling
 //! there is nothing to subscribe to: the engine writes a number to a file as it
 //! goes, and how often the bar looks at it is the bar's own frame rate for a
-//! thing that is moving. That an apply has *started* is told rather than
-//! polled: the engine sends `SIGRTMIN+4`, which this blocks and reads off a
-//! `signalfd` in the same `poll` as the compositor's socket, so an idle bar
-//! waits a minute at a time and a filling one is still on the first frame of
-//! it. Every other wait here is until something says so.
+//! thing that is moving. That an apply has *started* is heard rather than
+//! polled: the folder that file is in, and the one the tab in front is noted
+//! in, are watched with inotify in the same `poll` as the compositor's socket,
+//! so an idle bar waits a minute at a time and a filling one is still on the
+//! first frame of it. A folder that is not there yet -- `/run/console` before
+//! the first apply since boot -- is watched from the nearest one that is, and
+//! the watch moves down each pass until it reaches it. Every other wait here
+//! is until something says so.
+//!
+//! The engine used to send `SIGRTMIN+4` to a pid the bar had written down, and
+//! the bar blocked it and read it off a `signalfd`. That was a pid file, a name
+//! checked against a truncated `comm`, and a signal whose default is to end
+//! the bar if it lands before the mask is up -- all to say what the file
+//! changing already says, to a bar that was reading the file anyway.
 //!
 //! **Everything a tap starts is reaped, and a child ending wakes the loop.**
 //! Only the last program a tap started used to be held, for the lit icon's
 //! sake, and every one before it was dropped without anyone waiting on it. A
 //! hundred taps on the device was a hundred dead entries under the bar, one per
 //! panel, for as long as the session lasted. They are all held now and let go
-//! of as they end, and `SIGCHLD` comes down the same `signalfd` as an apply,
+//! of as they end, and each one is watched through a pidfd in the same `poll`,
 //! because a panel that ends between two things happening on the screen would
-//! otherwise lie there until the clock next turned over.
+//! otherwise lie there until the clock next turned over. A pidfd rather than
+//! `SIGCHLD`: a child that has ended and not been reaped is still there to be
+//! opened, so asking again every pass cannot miss one, and nothing about it is
+//! inherited by the panels it watches.
 
 use std::collections::BTreeSet;
 use std::io::Write;
-use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
+use std::os::fd::{AsFd, OwnedFd};
+use std::path::{Path, PathBuf};
 use std::process::{ExitCode, Stdio};
 use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Mutex};
@@ -102,6 +115,8 @@ use console_status_bar::showing::{
 use console_notifications::updating;
 use console_status_bar::watch;
 use console_waiting::woken;
+use rustix::fs::inotify::{self, CreateFlags, WatchFlags};
+use rustix::process::{Pid, PidfdFlags, pidfd_open};
 
 const GATHERING: Duration = Duration::from_millis(120);
 
@@ -113,7 +128,7 @@ const AT_MOST: Duration = Duration::from_secs(60);
 enum Cannot {
     Palette(WearingError),
     Pipe(std::io::Error),
-    Deaf(std::io::Error),
+    Deaf(rustix::io::Errno),
     Screenless,
     Compositor(SurfaceError),
 }
@@ -123,7 +138,7 @@ impl std::fmt::Display for Cannot {
         match self {
             Cannot::Palette(why) => write!(to, "{why}"),
             Cannot::Pipe(why) => write!(to, "nothing to be woken down: {why}"),
-            Cannot::Deaf(why) => write!(to, "nothing to hear an apply on: {why}"),
+            Cannot::Deaf(why) => write!(to, "nothing to hear an apply or a tab on: {why}"),
             Cannot::Screenless => {
                 write!(to, "the compositor named no screen to draw a bar across")
             }
@@ -194,12 +209,8 @@ fn drawing() -> Result<(), Cannot> {
     let wearing = Wearing::out_of(&spent)?;
     let mut surface = Surface::connect()?;
     let waking = woken::pipe().map_err(Cannot::Pipe)?;
-    let applying = listening().map_err(Cannot::Deaf)?;
-
-    match console_onscreen::bar_started(std::process::id()) {
-        Ok(()) => {},
-        Err(fault) => eprintln!("console-bar: nothing can wake it but an apply: {fault}"),
-    }
+    let hearing = inotify::init(CreateFlags::CLOEXEC | CreateFlags::NONBLOCK).map_err(Cannot::Deaf)?;
+    let Ok(folders) = heard_in();
 
     let seen = Arc::new(Mutex::new(BTreeSet::new()));
     let saying = Arc::new(waking.saying);
@@ -257,7 +268,13 @@ fn drawing() -> Result<(), Cannot> {
 
         let Ok(until) = waiting(&readings, filling, settling);
 
-        surface.wait(&[woken, applying.as_fd()], Some(until))?;
+        let Ok(()) = watched(&hearing, &folders);
+        let Ok(ending) = endings(&started);
+        let mut also = vec![woken, hearing.as_fd()];
+
+        also.extend(ending.iter().map(AsFd::as_fd));
+
+        surface.wait(&also, Some(until))?;
 
         let Ok(()) = tapped(&mut surface, &drawn, &mut requested);
 
@@ -268,7 +285,7 @@ fn drawing() -> Result<(), Cannot> {
         }
 
         let Ok(()) = woken::drained(&waking.waiting);
-        let Ok(()) = told_again(applying.as_fd());
+        let Ok(()) = heard_again(&hearing);
         let Ok(still) = console_program_lifetime::reaped(started);
 
         started = still;
@@ -417,49 +434,77 @@ fn due(item: StatusItem) -> Result<Option<Instant>, Never> {
     }))
 }
 
-fn listening() -> Result<OwnedFd, std::io::Error> {
-    let told = libc::SIGRTMIN().saturating_add(console_onscreen::WAKES_AT);
+fn heard_in() -> Result<Vec<PathBuf>, Never> {
+    let Ok(progress) = updating::at();
+    let tab = match console_onscreen::note() {
+        Ok(note) => Some(note),
+        Err(fault) => {
+            eprintln!("console-bar: which tab is in front will not be heard: {fault}");
 
-    // SAFETY: a mask on the stack, filled and applied by the calls that own it,
-    // a descriptor the kernel opens for exactly the signals in it, and nothing
-    // else holding it when it is handed to `OwnedFd`.
-    unsafe {
-        let mut mask: libc::sigset_t = std::mem::zeroed();
-        libc::sigemptyset(&mut mask);
-        libc::sigaddset(&mut mask, told);
-        libc::sigaddset(&mut mask, libc::SIGCHLD);
-
-        match libc::pthread_sigmask(libc::SIG_BLOCK, &mask, std::ptr::null_mut()) != 0 {
-            true => return Err(std::io::Error::last_os_error()),
-            false => {},
+            None
         }
+    };
 
-        let heard = libc::signalfd(-1, &mask, libc::SFD_CLOEXEC | libc::SFD_NONBLOCK);
+    Ok([Some(progress), tab]
+        .into_iter()
+        .flatten()
+        .filter_map(|file| file.parent().map(Path::to_path_buf))
+        .collect())
+}
 
-        match heard < 0 {
-            true => Err(std::io::Error::last_os_error()),
-            false => Ok(OwnedFd::from_raw_fd(heard)),
+fn watched(hearing: &OwnedFd, folders: &[PathBuf]) -> Result<(), Never> {
+    let asked = WatchFlags::CLOSE_WRITE
+        | WatchFlags::CREATE
+        | WatchFlags::DELETE
+        | WatchFlags::MOVED_TO
+        | WatchFlags::ONLYDIR;
+
+    for folder in folders {
+        let nearest = folder.ancestors().find(|one| one.is_dir());
+
+        match nearest {
+            Some(nearest) => match inotify::add_watch(hearing, nearest, asked) {
+                Ok(_watched) => {}
+                Err(_the_folder_went_between_being_found_and_being_watched) => {}
+            },
+            None => {}
+        }
+    }
+
+    Ok(())
+}
+
+fn heard_again(hearing: &OwnedFd) -> Result<(), Never> {
+    let mut heard = [0_u8; 4096];
+
+    loop {
+        match rustix::io::read(hearing, &mut heard) {
+            Ok(_more_was_said) => {}
+            Err(_nothing_more_was_said) => return Ok(()),
         }
     }
 }
 
-fn told_again(heard: BorrowedFd<'_>) -> Result<(), Never> {
-    let Ok(whole) = fitted::<_, i64>(std::mem::size_of::<libc::signalfd_siginfo>());
+fn endings(started: &[Detached]) -> Result<Vec<OwnedFd>, Never> {
+    Ok(started
+        .iter()
+        .filter_map(|one| {
+            let Ok(id) = one.id();
+            let Ok(raw) = fitted::<u32, i32>(id);
 
-    loop {
-        // SAFETY: a struct this frame owns, filled by the kernel or not at all,
-        // on a descriptor that never blocks.
-        let Ok(read) = fitted::<_, i64>(unsafe {
-            let mut said: libc::signalfd_siginfo = std::mem::zeroed();
+            match Pid::from_raw(raw) {
+                Some(pid) => match pidfd_open(pid, PidfdFlags::empty()) {
+                    Ok(ending) => Some(ending),
+                    Err(fault) => {
+                        eprintln!("console-bar: {id} will be reaped when something else wakes the bar: {fault}");
 
-            libc::read(heard.as_raw_fd(), std::ptr::from_mut(&mut said).cast(), std::mem::size_of::<libc::signalfd_siginfo>())
-        });
-
-        match read == whole {
-            true => {},
-            false => return Ok(()),
-        }
-    }
+                        None
+                    }
+                },
+                None => None,
+            }
+        })
+        .collect())
 }
 
 fn waiting(

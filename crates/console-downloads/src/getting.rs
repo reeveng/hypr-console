@@ -284,7 +284,7 @@ pub fn copies(names: impl IntoIterator<Item = String>, book: Book<'_>) -> Result
 pub fn holds(folder: &Path, id: &str) -> Result<Have, Never> {
     let reading = match std::fs::read_dir(folder) {
         Ok(reading) => reading,
-        Err(_fault) => return Ok(Have::Not),
+        Err(_unreadable) => return Ok(Have::Not),
     };
 
     let names = reading.flatten().map(|entry| entry.file_name().to_string_lossy().to_string());

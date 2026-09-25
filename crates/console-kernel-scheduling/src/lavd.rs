@@ -36,7 +36,7 @@ fn reverse_runtime(of: Duration) -> Result<u64, Never> {
 
     Ok(match u64::try_from(steps) {
         Ok(steps) => steps.saturating_add(1),
-        Err(_) => 1,
+        Err(_too_large) => 1,
     })
 }
 
@@ -65,7 +65,7 @@ fn deadline(of: &Runnable) -> Result<Instant, Never> {
 fn slice(among: &[Runnable]) -> Result<Duration, Never> {
     let runnable = match u32::try_from(among.len()) {
         Ok(runnable) => runnable.max(1),
-        Err(_) => u32::MAX,
+        Err(_too_large) => u32::MAX,
     };
 
     let shared = match TARGETED_LATENCY.checked_div(runnable) {

@@ -69,7 +69,7 @@ fn described(unit: &str) -> Result<String, Never> {
         .output()
     {
         Ok(said) => said,
-        Err(_fault) => return Ok(String::new()),
+        Err(_would_not_start) => return Ok(String::new()),
     };
 
     Ok(String::from_utf8_lossy(&said.stdout).trim().to_string())
@@ -90,7 +90,7 @@ fn main() {
     )]
     let result = match std::env::var("SERVICE_RESULT") {
         Ok(result) => result,
-        Err(_fault) => return,
+        Err(_unset) => return,
     };
 
     let Ok(described) = described(&unit);

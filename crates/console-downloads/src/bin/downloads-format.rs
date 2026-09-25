@@ -78,7 +78,7 @@ fn main() {
 fn wanting(folder: &Path) -> Result<Vec<PathBuf>, Never> {
     let reading = match std::fs::read_dir(folder) {
         Ok(reading) => reading,
-        Err(_fault) => return Ok(Vec::new()),
+        Err(_unreadable) => return Ok(Vec::new()),
     };
 
     let mut found: Vec<PathBuf> = reading

@@ -105,7 +105,7 @@ fn every_desktop_entry_is_named_for_something_this_tree_still_uses() {
         "these name nothing on the machine: {stale:?}\n\
          a desktop entry's filename is what mimeapps.list and the menu point at, \
          so rename it to a crate, a built binary or a package -- and sweep the old \
-         path in migrations/, because an apply installs a name and never removes one",
+         path in a migration, because an apply installs a name and never removes one",
     );
 }
 

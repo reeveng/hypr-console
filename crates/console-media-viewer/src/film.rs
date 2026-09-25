@@ -159,7 +159,7 @@ fn rate(said: &str) -> Result<f64, Never> {
             true => over / under,
             false => 0.0,
         },
-        (Err(_), _) | (_, Err(_)) => 0.0,
+        (Err(_unmeasured), _) | (_, Err(_unmeasured)) => 0.0,
     })
 }
 
@@ -462,7 +462,8 @@ pub fn fitted_size(had: Size<u32>, room: Size<u32>) -> Result<Size<u32>, Never> 
 fn shown(showing: &Showing, clock: &Clock, shared: &Shared) -> Result<(), Never> {
     let had = match console_pictures::measured(&showing.film) {
         Ok(Some(had)) => had,
-        Ok(None) | Err(_) => Size { width: 16, height: 9 },
+        Ok(None) => Size { width: 16, height: 9 },
+        Err(_unmeasured) => Size { width: 16, height: 9 },
     };
     let Ok(size) = fitted_size(had, showing.size);
     let Ok(decoder) = decoding(showing, size);

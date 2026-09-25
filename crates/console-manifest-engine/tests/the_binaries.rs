@@ -3,7 +3,7 @@
 //! There are two kinds of name in that list and only one of them ever had a
 //! rule. A binary is named for what someone types is true of `console` itself
 //! and of the handful a person reaches for by hand, and false of `bar-clock`,
-//! `home-square`, `panel-pictures` and `files-thumbs`, which no one has ever
+//! `home-square`, `panel-pictures` and `files-thumbnails`, which no one has ever
 //! typed: they are reached for by a unit, by the bar's configuration, by a
 //! keybinding or by another program of ours. With no rule covering them each
 //! was named by whoever wrote it, which is the whole of why `[build]` reads

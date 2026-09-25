@@ -78,7 +78,7 @@ impl Spot {
         let (pane, row, column) =
             match (pane.parse::<u32>(), row.parse::<u32>(), column.parse::<u32>()) {
                 (Ok(pane), Ok(row), Ok(column)) => (pane, row, column),
-                (Err(_), _, _) | (_, Err(_), _) | (_, _, Err(_)) => return Ok(None),
+                (Err(_not_a_number), _, _) | (_, Err(_not_a_number), _) | (_, _, Err(_not_a_number)) => return Ok(None),
             };
 
         let spot = Spot { pane, row, column };
@@ -263,7 +263,7 @@ impl HomeScreen {
                 column.trim().parse::<u32>(),
             ) {
                 (Ok(pane), Ok(row), Ok(column)) => (pane, row, column),
-                (Err(_), _, _) | (_, Err(_), _) | (_, _, Err(_)) => continue,
+                (Err(_not_a_number), _, _) | (_, Err(_not_a_number), _) | (_, _, Err(_not_a_number)) => continue,
             };
 
             let spot = Spot { pane, row, column };

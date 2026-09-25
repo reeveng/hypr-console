@@ -228,7 +228,7 @@ pub fn read(home: &str) -> Result<Tasks, Never> {
 
     let said = match std::fs::read_to_string(&at) {
         Ok(said) => said,
-        Err(_fault) => return Tasks::none(),
+        Err(_unreadable) => return Tasks::none(),
     };
 
     match Tasks::read(&said) {

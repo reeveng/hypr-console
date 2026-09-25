@@ -13,7 +13,6 @@ path = "src/lib.rs"
 name = "notifications-panel"
 path = "src/bin/notifications-panel.rs"
 
-# The daemon that owns org.freedesktop.Notifications and draws the card.
 [[bin]]
 name = "console-notify"
 path = "src/bin/console-notify.rs"

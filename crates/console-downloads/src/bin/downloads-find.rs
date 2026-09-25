@@ -122,7 +122,7 @@ fn ran(search: Search<'_>) -> Result<Looked, Never> {
 
     let done = match Command::new(program).args(rest).output() {
         Ok(done) => done,
-        Err(_fault) => return Ok(Looked { asked, fault: missing.to_string(), found: Vec::new() }),
+        Err(_would_not_start) => return Ok(Looked { asked, fault: missing.to_string(), found: Vec::new() }),
     };
 
     let said = String::from_utf8_lossy(&done.stdout);

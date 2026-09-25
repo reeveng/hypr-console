@@ -151,12 +151,12 @@ fn built_since_the_panel_code(program: &Path) -> Result<(), Error> {
     let when = |at: &Path| -> Option<std::time::SystemTime> {
         let about = match at.metadata() {
             Ok(about) => about,
-            Err(_fault) => return None,
+            Err(_unreadable) => return None,
         };
 
         let when = match about.modified() {
             Ok(when) => when,
-            Err(_fault) => return None,
+            Err(_unstamped) => return None,
         };
 
         Some(when)
@@ -176,7 +176,7 @@ fn built_since_the_panel_code(program: &Path) -> Result<(), Error> {
     while let Some(at) = look.pop() {
         let entries = match std::fs::read_dir(&at) {
             Ok(entries) => entries,
-            Err(_fault) => continue,
+            Err(_unreadable) => continue,
         };
 
         for found in entries.flatten() {
@@ -228,14 +228,14 @@ static ONE_AFTER_ANOTHER: std::sync::atomic::AtomicU32 = std::sync::atomic::Atom
 
 pub struct Panel {
     program: String,
-    args: Vec<String>,
+    arguments: Vec<String>,
     presses: Vec<String>,
     here: PathBuf,
     read: Option<Vec<Description>>,
 }
 
 impl Panel {
-    pub fn opening(program: &str, args: &[&str]) -> Result<Panel, Never> {
+    pub fn opening(program: &str, arguments: &[&str]) -> Result<Panel, Never> {
         let mine = ONE_AFTER_ANOTHER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
         let here = std::env::temp_dir()
@@ -243,7 +243,7 @@ impl Panel {
 
         Ok(Panel {
             program: program.to_string(),
-            args: args.iter().map(|said| (*said).to_string()).collect(),
+            arguments: arguments.iter().map(|said| (*said).to_string()).collect(),
             presses: Vec::new(),
             here,
             read: None,
@@ -324,7 +324,7 @@ impl Panel {
             "CONSOLE_PANEL_TELLS={} {} {}",
             told.display(),
             self.program,
-            self.args.join(" ")
+            self.arguments.join(" ")
         );
 
         let Ok(desktop) = crate::beside("console-desktop");

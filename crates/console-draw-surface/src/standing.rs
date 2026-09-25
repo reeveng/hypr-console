@@ -419,7 +419,7 @@ impl Surface {
                 (),
             ) {
             Ok(manager) => Some(manager),
-            Err(_) => {
+            Err(_not_offered) => {
                 eprintln!(
                     "this compositor has no wp_fractional_scale_v1, so every surface here \
                      is drawn at whole pixels and a screen driven at a fraction will be soft"
@@ -430,7 +430,7 @@ impl Surface {
         };
         let presentation = match globals.bind::<wp_presentation::WpPresentation, _, _>(&hand, 1..=1, ()) {
             Ok(presentation) => Some(presentation),
-            Err(_) => {
+            Err(_not_offered) => {
                 eprintln!(
                     "this compositor has no wp_presentation, so every frame here is counted \
                      and none of them is timed"
@@ -768,7 +768,7 @@ impl Surface {
 
         match poll(&mut watch, wait.as_ref()) {
             Ok(_) => {},
-            Err(_) => {
+            Err(_the_poll_failed) => {
                 drop(guard);
 
                 return Ok(());
@@ -796,7 +796,7 @@ impl Surface {
                 let carried_on = match guard.read() {
                     Ok(_) => true,
                     Err(wayland_client::backend::WaylandError::Io(why)) => why.kind() == io::ErrorKind::WouldBlock,
-                    Err(_) => false,
+                    Err(_the_connection_failed) => false,
                 };
 
                 match carried_on {

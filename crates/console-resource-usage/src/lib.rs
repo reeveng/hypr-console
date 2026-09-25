@@ -12,7 +12,8 @@
 //! ```text
 //! {"at":1758240300,"up":67932.4,"slept":10423.0,"energy":41.230,"draw":9.12,
 //!  "gpu":3.10,"percent":88,
-//!  "busy":{"wireplumber":1234.5,"pipewire":701.2,"kew":688.0}}
+//!  "busy":{"wireplumber":1234.5,"pipewire":701.2,"kew":688.0},
+//!  "held":{"console-panels":212.4,"Hyprland":180.9,"kew":41.0}}
 //! ```
 //!
 //! Every number on a line is a **counter, not a rate**: what is left in the
@@ -49,6 +50,16 @@
 //! answer it was built to go and measure. A log that is nothing but straddling
 //! windows says nothing, and says so.
 //!
+//! What a night asleep cost is a different question and the same windows
+//! answer it the other way round. A window that was mostly asleep is one
+//! sleep, near enough, because the timer does not fire while the machine is
+//! down and fires within a few minutes of it waking; what the battery fell by
+//! across it, over the hours asleep, is a rate that is *at most* what the
+//! sleep drew, since the awake minutes either side are in it too. [`between`]
+//! keeps the worst of them, because one sleep that kept the machine half awake
+//! is the fault worth finding and an average over a week of good nights hides
+//! it. A window that rose was on the cable and is not a sleep's cost.
+//!
 //! ## What spent it, by name rather than by number
 //!
 //! A pid is a number that means a different program next week, and a report
@@ -59,10 +70,32 @@
 //! of the list by what each has spent since it started: a program that has
 //! never used a second of CPU is not the one draining anything.
 //!
+//! What each name holds in memory is on the same line of `/proc/pid/stat`,
+//! summed the same way and kept as `held`, in megabytes, `NAMED` of them by
+//! size. A leak is the one thing a single reading cannot show and every pair
+//! of them can, so [`between`] answers it as growth from the first reading to
+//! the last, and only for the names that were there at both: a program that
+//! started in between did not grow, it arrived.
+//!
+//! ## What died and came back
+//!
+//! A unit systemd restarts reads as up to every check that asks after it, and
+//! a program that dumped core and was started again is running when anybody
+//! looks. So a reading also keeps two counters: `restarts`, each unit's own
+//! `NRestarts` from the system manager and the user's, and `crashes`, the
+//! core dumps `systemd-coredump` is holding, by the name in the dump's file
+//! name, which is the second of its dotted fields: a dot in the program's own
+//! name is written `\x2e`, so that one never splits it. Only names above nothing are written, which is what keeps the line
+//! short on a machine that is well. [`between`] adds up how far each rose
+//! window by window, the way it adds up CPU time: a count that fell is a unit
+//! stopped by hand or a dump vacuumed away, and neither is a crash.
+//!
 //! `TICK` is USER_HZ, which the kernel fixes at 100 for every architecture this
 //! desktop is built for. `sysconf` would answer it at the cost of the one
 //! unsafe call in this crate, and a wrong answer here scales every reading by
-//! the same constant rather than changing which name is at the top.
+//! the same constant rather than changing which name is at the top. `PAGE` is
+//! the same argument about the size of a page, which is four kilobytes on
+//! every machine this desktop is built for.
 //!
 //! ## What it costs to ask
 //!
@@ -78,6 +111,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use console_core_atomic_writes::read;
+use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_core_number_conversion::{Float, index};
 use console_battery::{BATTERY, Charge, SUPPLIES, charge};
@@ -93,6 +127,20 @@ const AMDGPU: &str = "amdgpu";
 const DRAWN: &str = "power1_average";
 
 const RUNNING: &str = "/proc";
+
+const COREDUMPS: &str = "/var/lib/systemd/coredump";
+
+const DUMPED: &str = "core";
+
+const ESCAPED_DOT: &str = "\\x2e";
+
+const RESTARTS: &str = "NRestarts=";
+
+const UNIT: &str = "Id=";
+
+const FRACTION: u32 = 1;
+
+const WHOLE_NUMBER: u32 = 0;
 
 const STORE: &str = "used.jsonl";
 
@@ -110,6 +158,18 @@ const NAMED: u32 = 20;
 
 const FIELDS_BEFORE_UTIME: u32 = 11;
 
+const FIELDS_BETWEEN_STIME_AND_RSS: u32 = 8;
+
+const PAGE: f64 = 4_096.0;
+
+const MEGABYTE: f64 = 1_048_576.0;
+
+struct Spent {
+    named: String,
+    seconds: f64,
+    megabytes: Option<f64>,
+}
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Moment {
@@ -121,6 +181,9 @@ pub struct Moment {
     pub gpu: Option<f64>,
     pub percent: Option<i32>,
     pub busy: Vec<(String, f64)>,
+    pub held: Vec<(String, f64)>,
+    pub restarts: Vec<(String, f64)>,
+    pub crashes: Vec<(String, f64)>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -131,6 +194,23 @@ pub struct Used {
     pub flat: f64,
     pub gpu: Option<f64>,
     pub busy: Vec<(String, f64)>,
+    pub grew: Vec<(String, f64)>,
+    pub restarted: Vec<(String, f64)>,
+    pub crashed: Vec<(String, f64)>,
+    pub worst_sleep: Option<Sleep>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Sleep {
+    pub woke: u64,
+    pub asleep: f64,
+    pub watthours: f64,
+}
+
+impl Sleep {
+    pub fn at_most(self) -> Result<f64, Never> {
+        Ok(self.watthours / (self.asleep / HOUR))
+    }
 }
 
 #[derive(Debug)]
@@ -226,7 +306,7 @@ fn gpu() -> Result<Option<f64>, Never> {
     Ok(None)
 }
 
-fn spending(text: &str) -> Result<Option<(String, f64)>, Never> {
+fn spending(text: &str) -> Result<Option<Spent>, Never> {
     let (through_name, rest) = match text.rsplit_once(')') {
         Some(split) => split,
         None => return Ok(None),
@@ -241,23 +321,54 @@ fn spending(text: &str) -> Result<Option<(String, f64)>, Never> {
     let mut fields = rest.split_whitespace().skip(before);
     let mine = fields.next().map(str::parse::<u64>);
     let system = fields.next().map(str::parse::<u64>);
+    let Ok(between) = index(FIELDS_BETWEEN_STIME_AND_RSS);
+    let resident = fields.nth(between).map(str::parse::<u64>);
+
+    let megabytes = match resident {
+        Some(Ok(pages)) => {
+            let Ok(pages) = pages.float();
+
+            Some(pages * PAGE / MEGABYTE)
+        }
+        Some(Err(_not_a_number)) => None,
+        None => None,
+    };
 
     Ok(match (mine, system) {
         (Some(Ok(mine)), Some(Ok(system))) => {
             let Ok(ticks) = mine.saturating_add(system).float();
 
-            Some((named, ticks / TICK))
+            Some(Spent { named, seconds: ticks / TICK, megabytes })
         }
-        (Some(Err(_)), _) | (_, Some(Err(_))) | (None, _) | (_, None) => None,
+        (None, _) | (_, None) => None,
+        (Some(Err(_not_a_number)), _) | (_, Some(Err(_not_a_number))) => None,
     })
 }
 
-fn busy() -> Result<Vec<(String, f64)>, Never> {
+fn largest(summed: BTreeMap<String, f64>) -> Result<Vec<(String, f64)>, Never> {
+    let mut gathered: Vec<(String, f64)> = summed.into_iter().collect();
+
+    let Ok(named) = index(NAMED);
+
+    gathered.sort_by(|one, another| another.1.total_cmp(&one.1));
+    gathered.truncate(named);
+
+    Ok(gathered)
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct Running {
+    busy: Vec<(String, f64)>,
+    held: Vec<(String, f64)>,
+}
+
+fn running() -> Result<Running, Never> {
     let running = match std::fs::read_dir(RUNNING) {
         Ok(running) => running,
-        Err(_nothing_to_ask) => return Ok(Vec::new()),
+        Err(_nothing_to_ask) => return Ok(Running { busy: Vec::new(), held: Vec::new() }),
     };
     let mut spent: BTreeMap<String, f64> = BTreeMap::new();
+    let mut resident: BTreeMap<String, f64> = BTreeMap::new();
 
     for process in running.flatten().map(|process| process.path()) {
         let numbered = process
@@ -267,7 +378,8 @@ fn busy() -> Result<Vec<(String, f64)>, Never> {
 
         match numbered {
             Some(Ok(_a_process)) => {}
-            Some(Err(_)) | None => continue,
+            None => continue,
+            Some(Err(_not_a_number)) => continue,
         }
 
         let Ok(held) = read(&process.join("stat"));
@@ -279,23 +391,110 @@ fn busy() -> Result<Vec<(String, f64)>, Never> {
         };
         let Ok(spending) = spending(&text);
 
-        let (named, seconds) = match spending {
+        let Spent { named, seconds, megabytes } = match spending {
             Some(spending) => spending,
             None => continue,
         };
-        let held = spent.entry(named).or_insert(NONE);
 
-        *held += seconds;
+        match megabytes {
+            Some(megabytes) => *resident.entry(named.clone()).or_insert(NONE) += megabytes,
+            None => {}
+        }
+
+        *spent.entry(named).or_insert(NONE) += seconds;
     }
 
-    let mut gathered: Vec<(String, f64)> = spent.into_iter().collect();
+    let Ok(busy) = largest(spent);
+    let Ok(held) = largest(resident);
 
-    let Ok(named) = index(NAMED);
+    Ok(Running { busy, held })
+}
 
-    gathered.sort_by(|one, another| another.1.total_cmp(&one.1));
-    gathered.truncate(named);
+pub fn restarts_in(said: &str) -> Result<Vec<(String, f64)>, Never> {
+    let mut counted = Vec::new();
 
-    Ok(gathered)
+    for block in said.split("\n\n") {
+        let unit = block.lines().find_map(|line| line.strip_prefix(UNIT));
+        let restarts = block.lines().find_map(|line| line.strip_prefix(RESTARTS)).map(str::parse::<u32>);
+
+        match (unit, restarts) {
+            (Some(unit), Some(Ok(restarts))) => match restarts > 0 {
+                true => counted.push((unit.to_string(), f64::from(restarts))),
+                false => {}
+            },
+            (Some(_), Some(Err(_not_a_number))) => {}
+            (None, _) | (_, None) => {}
+        }
+    }
+
+    Ok(counted)
+}
+
+fn restarts() -> Result<Vec<(String, f64)>, Never> {
+    let mut counted = Vec::new();
+
+    for manager in [None, Some("--user")] {
+        let Ok(mut asking) = Program::Systemctl.command();
+
+        asking.args(manager).args(["show", "--property=Id,NRestarts", "*"]);
+
+        match asking.output() {
+            Ok(said) => match said.status.success() {
+                true => {
+                    let Ok(these) = restarts_in(&String::from_utf8_lossy(&said.stdout));
+
+                    counted.extend(these);
+                }
+                false => eprintln!(
+                    "console-resource-usage: systemctl would not say what restarted: {}",
+                    String::from_utf8_lossy(&said.stderr).trim()
+                ),
+            },
+            Err(fault) => eprintln!("console-resource-usage: systemctl would not say what restarted: {fault}"),
+        }
+    }
+
+    Ok(counted)
+}
+
+pub fn dumped(file: &str) -> Result<Option<String>, Never> {
+    let mut fields = file.split('.');
+
+    match fields.next() {
+        Some(DUMPED) => {}
+        Some(_) | None => return Ok(None),
+    }
+
+    let named = fields.next();
+    let (_whose, _boot, _process, time) = (fields.next(), fields.next(), fields.next(), fields.next());
+
+    Ok(match (named, time) {
+        (Some(named), Some(time)) => match (named.is_empty(), time.bytes().all(|digit| digit.is_ascii_digit())) {
+            (false, true) => Some(named.replace(ESCAPED_DOT, ".")),
+            (true, _) | (_, false) => None,
+        },
+        (None, _) | (_, None) => None,
+    })
+}
+
+fn crashes() -> Result<Vec<(String, f64)>, Never> {
+    let dumps = match std::fs::read_dir(COREDUMPS) {
+        Ok(dumps) => dumps,
+        Err(_nothing_to_ask) => return Ok(Vec::new()),
+    };
+    let mut counted: BTreeMap<String, f64> = BTreeMap::new();
+
+    for dump in dumps.flatten() {
+        let file = dump.file_name();
+        let Ok(named) = dumped(&file.to_string_lossy());
+
+        match named {
+            Some(named) => *counted.entry(named).or_insert(NONE) += 1.0,
+            None => {}
+        }
+    }
+
+    Ok(counted.into_iter().collect())
 }
 
 fn battery() -> Result<Option<PathBuf>, Never> {
@@ -337,9 +536,11 @@ pub fn taken(at: u64) -> Result<Moment, Never> {
     };
     let Ok(text) = charge();
     let Ok(charged) = Charge::of(&text);
-    let Ok(busy) = busy();
+    let Ok(Running { busy, held }) = running();
+    let Ok(restarts) = restarts();
+    let Ok(crashes) = crashes();
 
-    Ok(Moment { at, up, slept, energy, draw, gpu, percent: charged.percent, busy })
+    Ok(Moment { at, up, slept, energy, draw, gpu, percent: charged.percent, busy, held, restarts, crashes })
 }
 
 fn quoted(text: &str) -> Result<String, Never> {
@@ -376,11 +577,22 @@ pub fn written(moment: &Moment) -> Result<String, Never> {
         None => {}
     }
 
-    text.push_str(",\"busy\":{");
+    let Ok(busy) = object(&moment.busy, FRACTION);
+    let Ok(held) = object(&moment.held, FRACTION);
+    let Ok(restarts) = object(&moment.restarts, WHOLE_NUMBER);
+    let Ok(crashes) = object(&moment.crashes, WHOLE_NUMBER);
 
+    text.push_str(&format!(",\"busy\":{busy},\"held\":{held},\"restarts\":{restarts},\"crashes\":{crashes}}}"));
+
+    Ok(text)
+}
+
+fn object(named: &[(String, f64)], places: u32) -> Result<String, Never> {
+    let Ok(places) = index(places);
+    let mut text = String::from("{");
     let mut first = true;
 
-    for (named, seconds) in &moment.busy {
+    for (named, amount) in named {
         match first {
             true => {}
             false => text.push(','),
@@ -390,12 +602,22 @@ pub fn written(moment: &Moment) -> Result<String, Never> {
 
         let Ok(named) = quoted(named);
 
-        text.push_str(&format!("{named}:{seconds:.1}"));
+        text.push_str(&format!("{named}:{amount:.places$}"));
     }
 
-    text.push_str("}}");
+    text.push('}');
 
     Ok(text)
+}
+
+fn named(object: &serde_json::Map<String, serde_json::Value>, key: &str) -> Result<Vec<(String, f64)>, Never> {
+    Ok(match object.get(key).and_then(serde_json::Value::as_object) {
+        Some(named) => named
+            .iter()
+            .filter_map(|(named, amount)| amount.as_f64().map(|amount| (named.to_string(), amount)))
+            .collect(),
+        None => Vec::new(),
+    })
 }
 
 pub fn of(text: &str) -> Result<Option<Moment>, Never> {
@@ -413,15 +635,10 @@ pub fn of(text: &str) -> Result<Option<Moment>, Never> {
         Some(at) => at,
         None => return Ok(None),
     };
-    let busy = match object.get("busy").and_then(serde_json::Value::as_object) {
-        Some(busy) => busy
-            .iter()
-            .filter_map(|(named, seconds)| {
-                seconds.as_f64().map(|seconds| (named.to_string(), seconds))
-            })
-            .collect(),
-        None => Vec::new(),
-    };
+    let Ok(busy) = named(object, "busy");
+    let Ok(held) = named(object, "held");
+    let Ok(restarts) = named(object, "restarts");
+    let Ok(crashes) = named(object, "crashes");
     let slept = match object.get("slept").and_then(serde_json::Value::as_f64) {
         Some(slept) => slept,
         None => NONE,
@@ -442,6 +659,9 @@ pub fn of(text: &str) -> Result<Option<Moment>, Never> {
             None => None,
         },
         busy,
+        held,
+        restarts,
+        crashes,
     }))
 }
 
@@ -479,9 +699,15 @@ pub fn between(moments: &[Moment]) -> Result<Option<Used>, Never> {
         flat: NONE,
         gpu: None,
         busy: Vec::new(),
+        grew: Vec::new(),
+        restarted: Vec::new(),
+        crashed: Vec::new(),
+        worst_sleep: None,
     };
     let mut drawn = (NONE, NONE);
     let mut busy: BTreeMap<String, f64> = BTreeMap::new();
+    let mut restarted: BTreeMap<String, f64> = BTreeMap::new();
+    let mut crashed: BTreeMap<String, f64> = BTreeMap::new();
 
     for pair in moments.windows(2) {
         let (before, after) = match (pair.first(), pair.last()) {
@@ -519,30 +745,26 @@ pub fn between(moments: &[Moment]) -> Result<Option<Used>, Never> {
             (true, true) | (false, false) | (false, true) => {}
         }
 
+        match (dropped > NONE, asleep > awake) {
+            (true, true) => {
+                let slept = Sleep { woke: after.at, asleep, watthours: dropped };
+                let Ok(worse) = worse(used.worst_sleep, slept);
+
+                used.worst_sleep = Some(worse);
+            }
+            (true, false) | (false, true) | (false, false) => {}
+        }
+
         match after.gpu {
             Some(watts) => drawn = (drawn.0 + watts, drawn.1 + 1.0),
             None => {}
         }
 
-        let earlier: BTreeMap<&str, f64> =
-            before.busy.iter().map(|(named, seconds)| (named.as_str(), *seconds)).collect();
-
-        'over_engines: for (named, seconds) in &after.busy {
-            let was = match earlier.get(named.as_str()) {
-                Some(was) => *was,
-                None => continue 'over_engines,
-            };
-            let since = seconds - was;
-
-            match since > NONE {
-                true => {
-                    let held = busy.entry(named.clone()).or_insert(NONE);
-
-                    *held += since;
-                }
-                false => {}
-            }
-        }
+        let Ok(()) = risen(Counted { before: &before.busy, after: &after.busy, unseen: Unseen::Unknown }, &mut busy);
+        let Ok(()) =
+            risen(Counted { before: &before.restarts, after: &after.restarts, unseen: Unseen::None }, &mut restarted);
+        let Ok(()) =
+            risen(Counted { before: &before.crashes, after: &after.crashes, unseen: Unseen::None }, &mut crashed);
     }
 
     match used.awake > NONE {
@@ -555,16 +777,92 @@ pub fn between(moments: &[Moment]) -> Result<Option<Used>, Never> {
         false => None,
     };
 
-    let mut gathered: Vec<(String, f64)> = busy.into_iter().collect();
+    let Ok(busy) = largest(busy);
+    let Ok(grew) = grew(moments);
+    let Ok(restarted) = largest(restarted);
+    let Ok(crashed) = largest(crashed);
 
-    let Ok(named) = index(NAMED);
-
-    gathered.sort_by(|one, another| another.1.total_cmp(&one.1));
-    gathered.truncate(named);
-
-    used.busy = gathered;
+    used.busy = busy;
+    used.grew = grew;
+    used.restarted = restarted;
+    used.crashed = crashed;
 
     Ok(Some(used))
+}
+
+fn worse(held: Option<Sleep>, slept: Sleep) -> Result<Sleep, Never> {
+    let held = match held {
+        Some(held) => held,
+        None => return Ok(slept),
+    };
+    let Ok(was) = held.at_most();
+    let Ok(is) = slept.at_most();
+
+    Ok(match is > was {
+        true => slept,
+        false => held,
+    })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Unseen {
+    Unknown,
+    None,
+}
+
+struct Counted<'a> {
+    before: &'a [(String, f64)],
+    after: &'a [(String, f64)],
+    unseen: Unseen,
+}
+
+fn risen(counted: Counted<'_>, into: &mut BTreeMap<String, f64>) -> Result<(), Never> {
+    let earlier: BTreeMap<&str, f64> =
+        counted.before.iter().map(|(named, amount)| (named.as_str(), *amount)).collect();
+
+    'over_names: for (named, amount) in counted.after {
+        let was = match (earlier.get(named.as_str()), counted.unseen) {
+            (Some(was), Unseen::Unknown | Unseen::None) => *was,
+            (None, Unseen::None) => NONE,
+            (None, Unseen::Unknown) => continue 'over_names,
+        };
+        let since = amount - was;
+
+        match since > NONE {
+            true => *into.entry(named.clone()).or_insert(NONE) += since,
+            false => {}
+        }
+    }
+
+    Ok(())
+}
+
+fn grew(moments: &[Moment]) -> Result<Vec<(String, f64)>, Never> {
+    let mut read = moments.iter().filter(|moment| !moment.held.is_empty());
+
+    let (first, last) = match (read.next(), read.next_back()) {
+        (Some(first), Some(last)) => (first, last),
+        (None, _) | (_, None) => return Ok(Vec::new()),
+    };
+    let earlier: BTreeMap<&str, f64> =
+        first.held.iter().map(|(named, megabytes)| (named.as_str(), *megabytes)).collect();
+    let mut grown: BTreeMap<String, f64> = BTreeMap::new();
+
+    for (named, megabytes) in &last.held {
+        let since = match earlier.get(named.as_str()) {
+            Some(was) => megabytes - was,
+            None => continue,
+        };
+
+        match since > NONE {
+            true => {
+                grown.insert(named.clone(), since);
+            }
+            false => {}
+        }
+    }
+
+    largest(grown)
 }
 
 pub fn watts(used: &Used) -> Result<Option<f64>, Never> {
@@ -579,6 +877,21 @@ fn stretch(seconds: f64) -> Result<String, Never> {
     let Ok(minutes) = console_core_number_conversion::toward_zero_u64((seconds / 60.0) % 60.0);
 
     Ok(format!("{hours}h {minutes:02}m"))
+}
+
+fn counts(text: &mut String, heading: &str, counted: &[(String, f64)]) -> Result<(), Never> {
+    match counted.is_empty() {
+        true => {}
+        false => {
+            text.push_str(&format!("\n{heading}\n"));
+
+            for (named, times) in counted {
+                text.push_str(&format!("  {named:<24}{times:>6.0} times\n"));
+            }
+        }
+    }
+
+    Ok(())
 }
 
 pub fn told(used: &Used) -> Result<String, Never> {
@@ -606,6 +919,19 @@ pub fn told(used: &Used) -> Result<String, Never> {
         None => {}
     }
 
+    match used.worst_sleep {
+        Some(slept) => {
+            let Ok(asleep) = stretch(slept.asleep);
+            let Ok(at_most) = slept.at_most();
+
+            text.push_str(&format!(
+                "the worst sleep drew at most {at_most:.2} W: {:.1} Wh over {asleep} asleep, woken at {}\n",
+                slept.watthours, slept.woke
+            ));
+        }
+        None => {}
+    }
+
     text.push_str("\nwhat spent the time awake\n");
 
     for (named, seconds) in &used.busy {
@@ -614,5 +940,34 @@ pub fn told(used: &Used) -> Result<String, Never> {
         text.push_str(&format!("  {named:<24}{share:>6.1} % of a core\n"));
     }
 
+    match used.grew.is_empty() {
+        true => {}
+        false => {
+            text.push_str("\nwhat grew in memory from the first reading to the last\n");
+
+            for (named, megabytes) in &used.grew {
+                text.push_str(&format!("  {named:<24}{megabytes:>6.1} MB\n"));
+            }
+        }
+    }
+
+    let Ok(()) = counts(&mut text, "what systemd started again", &used.restarted);
+    let Ok(()) = counts(&mut text, "what dumped core", &used.crashed);
+
     Ok(text)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_line_of_stat_says_the_time_spent_and_the_pages_held() {
+        let said = "1212026 (a (b) c) R 1212024 1212024 1212024 0 -1 4194304 134 0 0 0 250 50 0 0 20 0 1 0 \
+                    2147753 6438912 512 18446744073709551615 94194824380416";
+        let Ok(spent) = spending(said);
+        let spent = spent.map(|Spent { named, seconds, megabytes }| (named, seconds, megabytes));
+
+        assert_eq!(spent, Some(("a (b) c".to_string(), 3.0, Some(2.0))));
+    }
 }

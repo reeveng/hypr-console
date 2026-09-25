@@ -39,7 +39,7 @@ mod tests {
 
     #[test]
     fn every_color_is_opaque() {
-        for line in spend(&blossom()).expect("every color it spends is declared").lines().filter(|l| l.contains("rgba")) {
+        for line in spend(&blossom()).expect("every color it spends is declared").lines().filter(|line| line.contains("rgba")) {
             assert!(line.contains("ff)"), "{line:?} is not opaque");
         }
     }
@@ -48,7 +48,7 @@ mod tests {
     fn the_window_you_are_typing_into_is_not_the_color_of_the_ones_you_are_not() {
         let lua = spend(&blossom()).expect("every color it spends is declared");
         let of = |name: &str| {
-            lua.lines().find(|l| l.trim_start().starts_with(name)).expect(name).to_string()
+            lua.lines().find(|line| line.trim_start().starts_with(name)).expect(name).to_string()
         };
         assert_ne!(of("active"), of("inactive"));
     }

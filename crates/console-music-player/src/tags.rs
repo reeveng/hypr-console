@@ -150,7 +150,8 @@ fn length(said: &str) -> Result<f64, Never> {
 
     Ok(match told.and_then(Value::as_str).map(str::parse::<f64>) {
         Some(Ok(length)) => length,
-        Some(Err(_)) | None => 0.0,
+        None => 0.0,
+        Some(Err(_not_a_number)) => 0.0,
     })
 }
 

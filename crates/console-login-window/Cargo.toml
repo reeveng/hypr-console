@@ -5,14 +5,6 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
-# The way in: the process that holds the console before anybody has logged
-# in, starts the greeter, and starts the desktop of whoever the greeter lets
-# through. greetd's daemon, rewritten for one greeter and one person.
-#
-# Nothing it links draws. A root process that loads a toolkit is a root
-# process a broken toolkit can take down, and this is the one that has to be
-# standing for any rung of the way in to be.
-
 [lib]
 name = "console_login_window"
 path = "src/lib.rs"

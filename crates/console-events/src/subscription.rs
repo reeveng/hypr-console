@@ -223,12 +223,12 @@ fn round(
 ) -> Result<Round, Never> {
     let stream = match UnixStream::connect(socket) {
         Ok(stream) => stream,
-        Err(_fault) => return Ok(Round::Another),
+        Err(_no_one_is_listening) => return Ok(Round::Another),
     };
 
     let reading = match stream.try_clone() {
         Ok(reading) => reading,
-        Err(_) => return Ok(Round::Another),
+        Err(_the_socket_would_not_clone) => return Ok(Round::Another),
     };
 
     let Ok(subscribed) = subscribed(desired, stream);
@@ -240,7 +240,7 @@ fn round(
 
     match sender.send(Received::Connected) {
         Ok(()) => {},
-        Err(_) => return Ok(Round::Finished),
+        Err(_no_one_is_listening) => return Ok(Round::Finished),
     }
 
     for line in BufReader::new(reading).lines().map_while(Result::ok) {
@@ -252,7 +252,7 @@ fn round(
 
                 match sent {
                     Ok(()) => {},
-                    Err(_) => return Ok(Round::Finished),
+                    Err(_no_one_is_listening) => return Ok(Round::Finished),
                 }
             }
             Some(Message::Subscribe(_) | Message::Unsubscribe(_)) | None => {},
@@ -279,7 +279,7 @@ fn subscribed(wanted: &Arc<Mutex<Wanted>>, mut stream: UnixStream) -> Result<Sub
 
         match writeln!(stream, "{spelled}") {
             Ok(()) => {},
-            Err(_) => return Ok(SubscribeResult::Rejected),
+            Err(_the_socket_has_closed) => return Ok(SubscribeResult::Rejected),
         }
     }
 
@@ -298,7 +298,7 @@ fn send(wanted: &mut Wanted, message: &Message) -> Result<(), Never> {
 
     match sent {
         Ok(()) => {},
-        Err(_) => wanted.connection = None,
+        Err(_the_socket_has_closed) => wanted.connection = None,
     }
 
     Ok(())

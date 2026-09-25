@@ -5,10 +5,6 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
-# The checksums this desktop has to be able to say out loud, because somebody
-# else's format names them: MD5 for the name a thumbnail is filed under, CRC32
-# for a zip entry and a PNG chunk.
-
 [lib]
 name = "console_core_checksums"
 path = "src/lib.rs"

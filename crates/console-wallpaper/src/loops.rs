@@ -59,8 +59,8 @@ pub fn apart(one: &[u8], other: &[u8]) -> Result<f64, Never> {
     let mut total = 0u64;
     let mut counted = 0u64;
 
-    for (a, b) in one.iter().step_by(7).zip(other.iter().step_by(7)) {
-        total = total.saturating_add(u64::from(a.abs_diff(*b)));
+    for (first, second) in one.iter().step_by(7).zip(other.iter().step_by(7)) {
+        total = total.saturating_add(u64::from(first.abs_diff(*second)));
         counted = counted.saturating_add(1);
     }
 

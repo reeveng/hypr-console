@@ -5,15 +5,10 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
-# `console`, because that is what someone types on the device. The crate is
-# named for what it is; the program is named for what it does.
 [[bin]]
 name = "console"
 path = "src/main.rs"
 
-# What `desktop.conf` and `machines.conf` mean, for whoever else has to read
-# them: the engine's own tests, and the migrations that are derived from the
-# history of both. Everything that acts on a machine stays in the program.
 [lib]
 name = "console_manifest_engine"
 path = "src/lib.rs"
@@ -30,27 +25,18 @@ console-core-ini-files.workspace = true
 console-core-never.workspace = true
 console-battery.workspace = true
 console-defaults.workspace = true
+console-response-times.workspace = true
 console-repository.workspace = true
 console-core-places.workspace = true
 console-screen.workspace = true
 console-core-number-conversion.workspace = true
 console-input-controller.workspace = true
-# For the battery, which is the one reading that moves while an apply runs.
-# For the one file the engine and the bar share: how far along an apply is.
 console-notifications.workspace = true
 console-input-bindings.workspace = true
 console-input-gamepad.workspace = true
-# The one place a file is written whole: beside, synced, renamed, dir synced.
 console-core-atomic-writes.workspace = true
 
 [dev-dependencies]
-# What the two ways of asking for the keyboard signal, which has to be the
-# program the manifest installs. Spelled as a path rather than
-# `workspace = true` because it is the one dependency here that wants the
-# keyboard without its runtime: `port` is a compositor client, and the question
-# a test asks of this is what a constant says.
-console-input-keyboard = { path = "../console-input-keyboard", default-features = false }
-# The font the bar asks its icons for, which the manifest has to install.
 console-core-fonts.workspace = true
 serde_json = "1"
 serde_yaml_ng = "0.10"

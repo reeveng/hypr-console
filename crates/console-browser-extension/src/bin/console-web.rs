@@ -41,7 +41,7 @@ fn main() -> ExitCode {
 
     let palette = match std::fs::read_to_string(&at) {
         Ok(palette) => palette,
-        Err(_fault) => {
+        Err(_unreadable) => {
             eprintln!("{}: no palette to dress the add-on in", at.display());
             return ExitCode::from(1);
         }

@@ -284,7 +284,7 @@ pub fn beside(program: &str) -> Result<std::path::PathBuf, console_core_never::N
 pub fn screen() -> Result<console_screen::Screen, Error> {
     let Ok(root) = root();
     let written =
-        std::fs::read_to_string(root.join(console_screen::CONFIG)).map_err(Error::Machine)?;
+        std::fs::read_to_string(root.join(console_screen::CONFIGURATION)).map_err(Error::Machine)?;
 
     console_screen::Screen::read(&written).map_err(Error::Undeclared)
 }

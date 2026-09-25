@@ -35,7 +35,7 @@ use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{
 };
 
 use crate::keymap::{Keymap, Layer};
-use crate::layout::{Drops, Kind, Layout, LayoutKind, mods, of};
+use crate::layout::{Drops, Kind, Layout, LayoutKind, modifiers, of};
 use crate::shared_memory::keymap_file;
 use crate::surface::Board;
 use console_core_walking::{Ring, Step, where_it_is};
@@ -148,7 +148,7 @@ impl Typist {
             alphabets,
             worn: None,
             since,
-            held: mods::NONE,
+            held: modifiers::NONE,
             composing: false,
             showing,
             walk,
@@ -170,14 +170,14 @@ impl Typist {
             false => {},
         }
 
-        let keymap = match self.alphabets.iter().find(|k| k.layer == alphabet) {
+        let keymap = match self.alphabets.iter().find(|keymap| keymap.layer == alphabet) {
             Some(keymap) => keymap,
             None => return Ok(()),
         };
 
         let (file, long) = match keymap_file(&keymap.bytes) {
             Ok((file, long)) => (file, long),
-            Err(_fault) => return Ok(()),
+            Err(_no_keymap_file) => return Ok(()),
         };
 
         let Ok(long) = fitted(long);
@@ -220,7 +220,7 @@ impl Typist {
 
         let (file, long) = match keymap_file(&one) {
             Ok((file, long)) => (file, long),
-            Err(_fault) => return Ok(()),
+            Err(_no_keymap_file) => return Ok(()),
         };
 
         let Ok(long) = fitted(long);
@@ -271,12 +271,12 @@ impl Typist {
             false => {},
         }
 
-        let held_down = self.held & (mods::CTRL | mods::ALT | mods::ALTGR) != 0 || self.composing;
-        let backward = way == Way::Back || self.held & (mods::SHIFT | mods::CAPS) != 0;
+        let held_down = self.held & (modifiers::CONTROL | modifiers::ALT | modifiers::ALT_GRAPH) != 0 || self.composing;
+        let backward = way == Way::Back || self.held & (modifiers::SHIFT | modifiers::CAPS_LOCK) != 0;
 
         match (held_down, backward) {
             (true, _) => {
-                self.held = mods::NONE;
+                self.held = modifiers::NONE;
                 self.composing = false;
                 self.step = 0;
             }
@@ -348,9 +348,9 @@ impl Typist {
                 let Ok(()) = self.holding(held);
                 let Ok(()) = self.tap(code);
 
-                match reset == Drops::Modifiers || self.held != mods::NONE {
+                match reset == Drops::Modifiers || self.held != modifiers::NONE {
                     true => {
-                        self.held &= mods::CAPS;
+                        self.held &= modifiers::CAPS_LOCK;
                         let Ok(()) = self.holding(self.held);
                         After::Draw
                     },
@@ -361,7 +361,7 @@ impl Typist {
                 }
             },
             Kind::Copy { code, shifted } => {
-                let which = match self.held & (mods::SHIFT | mods::CAPS) != 0 {
+                let which = match self.held & (modifiers::SHIFT | modifiers::CAPS_LOCK) != 0 {
                     true => shifted,
                     false => code,
                 };
@@ -447,7 +447,7 @@ impl Typist {
 
 #[cfg(test)]
 mod tests {
-    use crate::layout::{Kind, Layout, LayoutKind, mods};
+    use crate::layout::{Kind, Layout, LayoutKind, modifiers};
 
     fn named(name: &str) -> Option<LayoutKind> {
         let Ok(named) = crate::layout::named(name);
@@ -463,8 +463,8 @@ mod tests {
 
     #[test]
     fn an_accent_shelf_goes_back_to_the_alphabet_not_to_the_shelf() {
-        let a = named("composea").expect("the a shelf");
-        assert!(!of(a).primary, "an accent shelf is not somewhere you type");
+        let shelf = named("composea").expect("the a shelf");
+        assert!(!of(shelf).primary, "an accent shelf is not somewhere you type");
         let full = named("full").expect("full");
         assert!(of(full).primary, "the letters are");
     }
@@ -528,13 +528,13 @@ mod tests {
     #[test]
     fn the_letters_that_have_accents_carry_them_and_the_rest_do_not() {
         let full = of(named("full").expect("full"));
-        let a = full
+        let key = full
             .keys
             .iter()
             .find(|key| key.label == "a")
             .expect("the a key");
         assert!(
-            matches!(a.kind, Kind::Code { held: Some(LayoutKind::ComposeA), .. }),
+            matches!(key.kind, Kind::Code { held: Some(LayoutKind::ComposeA), .. }),
             "a long press on a does not reach the accents"
         );
         let space = full
@@ -547,7 +547,7 @@ mod tests {
 
     #[test]
     fn shift_and_caps_lock_are_different_bits() {
-        assert_ne!(mods::SHIFT, mods::CAPS);
-        assert_eq!(mods::SHIFT & mods::CAPS, 0);
+        assert_ne!(modifiers::SHIFT, modifiers::CAPS_LOCK);
+        assert_eq!(modifiers::SHIFT & modifiers::CAPS_LOCK, 0);
     }
 }

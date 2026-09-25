@@ -88,7 +88,7 @@ struct Configuration {
     command: Command,
 }
 
-fn spec(binary: &str) -> Result<Option<Configuration>, Never> {
+fn configuration(binary: &str) -> Result<Option<Configuration>, Never> {
     let attached = |flag| Some((flag, Value::Attached));
     let separate = |flag| Some((flag, Value::Separate));
 
@@ -253,16 +253,16 @@ fn restore(arguments: &[String], occupant: &Occupant) -> Result<Option<Vec<Strin
 
     let Ok(named) = binary(first);
 
-    let Ok(known) = spec(named);
+    let Ok(known) = configuration(named);
 
-    let spec = match known {
-        Some(spec) => spec,
+    let configuration = match known {
+        Some(configuration) => configuration,
         None => return Ok(None),
     };
 
     let mut line = vec![first.clone()];
 
-    match spec.subcommand {
+    match configuration.subcommand {
         Some(subcommand) => line.push(subcommand.to_string()),
         None => {},
     }
@@ -272,11 +272,11 @@ fn restore(arguments: &[String], occupant: &Occupant) -> Result<Option<Vec<Strin
         None => &[],
     };
 
-    let Ok(kept) = options(rest, &spec);
+    let Ok(kept) = options(rest, &configuration);
 
     line.extend(kept);
 
-    let told = match (&occupant.directory, &spec.directory) {
+    let told = match (&occupant.directory, &configuration.directory) {
         (Some(directory), Some((flag, value))) => {
             match value {
                 Value::Attached => line.push(format!("{flag}={directory}")),
@@ -295,7 +295,7 @@ fn restore(arguments: &[String], occupant: &Occupant) -> Result<Option<Vec<Strin
 
     match &inside {
         Some(inside) => {
-            match spec.command {
+            match configuration.command {
                 Command::Flag(flag) => line.push(flag.to_string()),
                 Command::Trailing => {},
             }
@@ -357,7 +357,7 @@ fn shell_call(shell: Shell<'_>, line: &str) -> Result<Vec<String>, Never> {
     Ok(vec![shell.0.to_string(), "-i".to_string(), "-c".to_string(), line.to_string()])
 }
 
-fn options(words: &[String], spec: &Configuration) -> Result<Vec<String>, Never> {
+fn options(words: &[String], configuration: &Configuration) -> Result<Vec<String>, Never> {
     let mut kept = Vec::new();
     let mut skip_value = false;
 
@@ -371,12 +371,12 @@ fn options(words: &[String], spec: &Configuration) -> Result<Vec<String>, Never>
             false => {},
         }
 
-        match Some(word.as_str()) == spec.subcommand {
+        match Some(word.as_str()) == configuration.subcommand {
             true => continue,
             false => {},
         }
 
-        let ours = match &spec.directory {
+        let ours = match &configuration.directory {
             Some((flag, value)) => match word == flag {
                 true => {
                     skip_value = matches!(value, Value::Separate);
@@ -393,7 +393,7 @@ fn options(words: &[String], spec: &Configuration) -> Result<Vec<String>, Never>
             false => {},
         }
 
-        let stop = match spec.command {
+        let stop = match configuration.command {
             Command::Flag(flag) => word == flag,
             Command::Trailing => !word.starts_with('-'),
         };

@@ -13,9 +13,6 @@ path = "src/lib.rs"
 name = "downloads"
 path = "src/bin/downloads.rs"
 
-# The looking and the fetching are programs of their own, because both take
-# longer than a frame and a panel that waits is a panel that has stopped
-# answering the buttons.
 [[bin]]
 name = "downloads-find"
 path = "src/bin/downloads-find.rs"
@@ -24,9 +21,6 @@ path = "src/bin/downloads-find.rs"
 name = "downloads-get"
 path = "src/bin/downloads-get.rs"
 
-# The same decision about formats, applied to what is in the folder already
-# rather than to what is arriving. Its own program because it is minutes of
-# ffmpeg over someone's music and a panel cannot wait for that.
 [[bin]]
 name = "downloads-format"
 path = "src/bin/downloads-format.rs"

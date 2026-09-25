@@ -22,7 +22,6 @@ use console_core_never::Never;
 use console_core_number_conversion::{Float, toward_zero_u32};
 use std::io::Read;
 use std::os::unix::fs::PermissionsExt;
-use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 
 use crate::nested::Wallpaper;
@@ -37,7 +36,7 @@ pub fn walk(root: &Path) -> Result<Vec<PathBuf>, Never> {
     while let Some(folder) = waiting.pop() {
         let entries = match std::fs::read_dir(&folder) {
             Ok(entries) => entries,
-            Err(_fault) => continue,
+            Err(_unreadable) => continue,
         };
 
         for path in entries.flatten().map(|entry| entry.path()) {
@@ -52,8 +51,6 @@ pub fn walk(root: &Path) -> Result<Vec<PathBuf>, Never> {
 
     Ok(found)
 }
-
-const SHARING: libc::c_ulong = 0x4004_9409;
 
 const HEAD: u64 = 4;
 
@@ -74,13 +71,9 @@ fn cloned(from: &Path, to: &Path) -> std::io::Result<Shared> {
     let source = std::fs::File::open(from)?;
     let target = std::fs::File::create(to)?;
 
-    // SAFETY: two descriptors this call owns and holds open across it, and a
-    // request that reads no pointer of ours.
-    let shared = unsafe { libc::ioctl(target.as_raw_fd(), SHARING, source.as_raw_fd()) };
-
-    match shared {
-        0 => Ok(Shared::Extents),
-        _a_filesystem_that_shares_nothing => {
+    match rustix::fs::ioctl_ficlone(&target, &source) {
+        Ok(()) => Ok(Shared::Extents),
+        Err(_a_filesystem_that_shares_nothing) => {
             drop(target);
             std::fs::copy(from, to)?;
 
@@ -261,9 +254,9 @@ pub fn staged(told: Verbosity, headless: Screen, wallpaper: Wallpaper) -> Result
     let Ok(()) = session::swept();
     let Ok(here) = stage();
 
-    let fault = |what: &'static str| move |e: std::io::Error| Unnested::Staging(what, e);
+    let fault = |what: &'static str| move |error: std::io::Error| Unnested::Staging(what, error);
     let unwritten =
-        |what: &'static str| move |e: console_core_atomic_writes::Unwritten| Unnested::Unwritten(what, e);
+        |what: &'static str| move |error: console_core_atomic_writes::Unwritten| Unnested::Unwritten(what, error);
     let _ = std::fs::remove_dir_all(&here);
     std::fs::create_dir_all(&here).map_err(fault("the stage"))?;
     let Ok(root) = root();
@@ -283,7 +276,7 @@ pub fn staged(told: Verbosity, headless: Screen, wallpaper: Wallpaper) -> Result
 
         let was = match std::fs::read_to_string(&path) {
             Ok(was) => was,
-            Err(_fault) => continue,
+            Err(_unreadable) => continue,
         };
 
         let Ok(now) = rewritten(&was, Here(&said_here));
@@ -332,7 +325,7 @@ pub fn staged(told: Verbosity, headless: Screen, wallpaper: Wallpaper) -> Result
     let go = screen()?;
     let Ok(ours) = console_core_places::Base::Configuration.ours_under(&here.join("home"));
 
-    let device_config = ours.join("hypr/hyprland.lua");
+    let device_configuration = ours.join("hypr/hyprland.lua");
     let at_scale = match headless {
         Screen::Headless => go.scale,
         Screen::InAWindow => {
@@ -368,13 +361,13 @@ pub fn staged(told: Verbosity, headless: Screen, wallpaper: Wallpaper) -> Result
             said
         }
     };
-    let config = ours.join("hypr/nested.lua");
-    let Ok(nested) = nested::config(
-        nested::Names { screen: &said, device: &device_config.display().to_string() },
+    let configuration = ours.join("hypr/nested.lua");
+    let Ok(nested) = nested::configuration(
+        nested::Names { screen: &said, device: &device_configuration.display().to_string() },
         wallpaper,
     );
 
-    console_core_atomic_writes::whole(&config, nested.as_bytes())
+    console_core_atomic_writes::whole(&configuration, nested.as_bytes())
         .map_err(unwritten("the nested config"))?;
 
     match told {
@@ -382,7 +375,7 @@ pub fn staged(told: Verbosity, headless: Screen, wallpaper: Wallpaper) -> Result
         Verbosity::Quietly => {},
     }
 
-    Ok(config)
+    Ok(configuration)
 }
 
 pub fn environment() -> Result<Vec<(String, String)>, Never> {

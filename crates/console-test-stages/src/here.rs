@@ -150,6 +150,7 @@ impl Here {
                 Effect::Frame(frame) => self.written.extend(frame),
                 Effect::Tell(said) => self.told.push(said),
                 Effect::Using(on) => self.using = Some(on),
+                Effect::Reconnected(_) => {}
             }
         }
 
@@ -193,6 +194,7 @@ impl Here {
                         let Ok(()) = self.reckons();
                     }
                     Effect::Using(on) => self.using = Some(on),
+                    Effect::Reconnected(_) => {}
                 }
             }
 

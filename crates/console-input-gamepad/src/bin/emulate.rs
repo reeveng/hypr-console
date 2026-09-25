@@ -155,11 +155,11 @@ fn run() -> Result<ExitCode, Unemulated> {
     Ok(ExitCode::SUCCESS)
 }
 
-fn read(args: Vec<String>) -> Result<Option<Arguments>, Unemulated> {
+fn read(arguments: Vec<String>) -> Result<Option<Arguments>, Unemulated> {
     let mut profile = console_input_gamepad::router::NAME.to_string();
     let mut root = PathBuf::from(".");
     let mut rest: Vec<String> = Vec::new();
-    let mut waiting = args.into_iter();
+    let mut waiting = arguments.into_iter();
 
     while let Some(word) = waiting.next() {
         match word.as_str() {
@@ -302,11 +302,11 @@ fn devices() -> Result<(), Never> {
     for (role, descriptor) in found {
         let held = &descriptor.capabilities;
         let kinds: Vec<String> = [
-            ("EV_ABS", held.abs.len()),
-            ("EV_FF", held.ff.len()),
+            ("EV_ABS", held.absolute.len()),
+            ("EV_FF", held.force_feedback.len()),
             ("EV_KEY", held.key.len()),
-            ("EV_MSC", held.msc.len()),
-            ("EV_REL", held.rel.len()),
+            ("EV_MSC", held.miscellaneous.len()),
+            ("EV_REL", held.relative.len()),
         ]
         .iter()
         .filter(|(_, many)| *many > 0)

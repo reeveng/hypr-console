@@ -113,7 +113,7 @@ fn main() {
 
     let done = match Command::new(program).args(rest).output() {
         Ok(done) => done,
-        Err(_fault) => {
+        Err(_would_not_start) => {
             let Ok(()) = say(KIND, Notification { summary: &nothing, body: missing });
             return;
         }
@@ -208,7 +208,7 @@ fn settled(into: &Path, said: &str, book: getting::Book<'_>) -> Result<String, N
 
     let names = match std::fs::read_dir(into) {
         Ok(reading) => reading.flatten().map(|entry| entry.file_name().to_string_lossy().to_string()).collect(),
-        Err(_fault) => Vec::new(),
+        Err(_unreadable) => Vec::new(),
     };
     let Ok(copies) = getting::copies(names, book);
     let keeping = Path::new(whole).file_name().map(|name| name.to_string_lossy().to_string());
@@ -253,7 +253,7 @@ fn arrived(said: &str) -> Result<String, Never> {
 fn swept(into: &Path, began: SystemTime) -> Result<(), Never> {
     let reading = match std::fs::read_dir(into) {
         Ok(reading) => reading,
-        Err(_fault) => return Ok(()),
+        Err(_unreadable) => return Ok(()),
     };
 
     for entry in reading.flatten() {
@@ -261,7 +261,7 @@ fn swept(into: &Path, began: SystemTime) -> Result<(), Never> {
 
         let made = match entry.metadata().and_then(|about| about.modified()) {
             Ok(made) => made,
-            Err(_fault) => continue,
+            Err(_unstamped) => continue,
         };
 
         let Ok(litter) = getting::leftover(&name);

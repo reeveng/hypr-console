@@ -99,7 +99,8 @@ struct Arguments {
 fn seconds(said: Option<&str>, unless: Duration) -> Result<Duration, Never> {
     Ok(match said.map(str::parse::<u64>) {
         Some(Ok(seconds)) => Duration::from_secs(seconds),
-        Some(Err(_)) | None => unless,
+        None => unless,
+        Some(Err(_not_a_number)) => unless,
     })
 }
 

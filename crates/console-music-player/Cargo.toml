@@ -9,7 +9,6 @@ license.workspace = true
 name = "console_music_player"
 path = "src/lib.rs"
 
-# The player itself, which the panel starts and then only ever asks.
 [[bin]]
 name = "music-player"
 path = "src/bin/music-player.rs"

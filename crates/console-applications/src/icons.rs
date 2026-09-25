@@ -67,7 +67,7 @@ fn digits(said: &str) -> Result<Option<i64>, Never> {
 
     let number = match front.parse() {
         Ok(number) => number,
-        Err(_fault) => return Ok(None),
+        Err(_not_a_number) => return Ok(None),
     };
 
     Ok(Some(number))
@@ -106,7 +106,7 @@ fn indexed(root: &Path, path: &Path) -> Result<Option<(String, Best)>, Never> {
 
     let inside = match holding.strip_prefix(root) {
         Ok(inside) => inside,
-        Err(_fault) => return Ok(None),
+        Err(_outside_the_folder) => return Ok(None),
     };
 
     let parts: Vec<String> =
@@ -195,7 +195,7 @@ fn under(root: &Path) -> Result<Vec<PathBuf>, Never> {
 fn listed(directory: &Path) -> Result<Vec<PathBuf>, Never> {
     let reading = match std::fs::read_dir(directory) {
         Ok(reading) => reading,
-        Err(_fault) => return Ok(Vec::new()),
+        Err(_unreadable) => return Ok(Vec::new()),
     };
 
     Ok(reading.filter_map(Result::ok).map(|entry| entry.path()).collect())

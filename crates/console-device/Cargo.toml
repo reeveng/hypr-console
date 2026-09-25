@@ -17,7 +17,6 @@ path = "src/bin/console-deploy.rs"
 name = "console-migrate"
 path = "src/bin/console-migrate.rs"
 
-# `just pull`, the other direction of `console-deploy`.
 [[bin]]
 name = "console-pull"
 path = "src/bin/console-pull.rs"

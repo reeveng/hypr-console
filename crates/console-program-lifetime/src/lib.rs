@@ -109,6 +109,18 @@ pub struct BoundToParent {
     child: Child,
 }
 
+pub fn signal(pid: i32, signal: rustix::process::Signal) -> Result<(), Never> {
+    let sent = rustix::process::Pid::from_raw(pid).map(|pid| rustix::process::kill_process(pid, signal));
+
+    match sent {
+        Some(Ok(())) => {},
+        Some(Err(_already_gone)) => {},
+        None => {},
+    }
+
+    Ok(())
+}
+
 pub fn alongside(command: &mut Command) -> io::Result<BoundToParent> {
     let Ok(()) = dying_with_us(command);
 
@@ -203,7 +215,7 @@ fn still(child: &mut Child) -> Result<Still, Never> {
     Ok(match child.try_wait() {
         Ok(None) => Still::Running,
         Ok(Some(_ended)) => Still::Ended,
-        Err(_fault) => Still::Ended,
+        Err(_unasked) => Still::Ended,
     })
 }
 
@@ -559,15 +571,15 @@ mod tests {
     #[test]
     fn a_parent_killed_outright_takes_the_child_with_it() {
         let ours = std::env::current_exe().unwrap_or_default();
-        let exe = match ours.to_str() {
-            Some(exe) => exe,
+        let executable = match ours.to_str() {
+            Some(executable) => executable,
             None => return,
         };
 
         let Ok(mut command) = Program::Sh.command();
 
         command
-            .args(["-c", &format!("exec {exe} --nocapture the_child_this_test_starts")])
+            .args(["-c", &format!("exec {executable} --nocapture the_child_this_test_starts")])
             .env(HOLDING, "yes")
             .stdout(Stdio::piped())
             .stderr(Stdio::null());

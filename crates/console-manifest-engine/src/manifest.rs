@@ -88,9 +88,9 @@ impl Manifest {
         Manifest::default().folding(Configuration(MARK), text)
     }
 
-    pub fn and(self, conf: Configuration<'_>, text: &str) -> Result<Self, Unapplied> {
-        let Configuration(file) = conf;
-        let added = Manifest::default().folding(conf, text)?;
+    pub fn and(self, configuration: Configuration<'_>, text: &str) -> Result<Self, Unapplied> {
+        let Configuration(file) = configuration;
+        let added = Manifest::default().folding(configuration, text)?;
 
         for section in Section::EVERY {
             let Ok(held) = self.of(section);
@@ -129,8 +129,8 @@ impl Manifest {
         Ok(held)
     }
 
-    fn folding(self, conf: Configuration<'_>, text: &str) -> Result<Self, Unapplied> {
-        let Configuration(file) = conf;
+    fn folding(self, configuration: Configuration<'_>, text: &str) -> Result<Self, Unapplied> {
+        let Configuration(file) = configuration;
 
         text.lines()
             .map(|line| {
@@ -162,7 +162,7 @@ impl Manifest {
                         }
                         None => match current {
                             Some(section) => {
-                                let (name, written) = said_in(conf, section, line)?;
+                                let (name, written) = said_in(configuration, section, line)?;
                                 let Ok(holding) = held.holding(section, &name, written);
 
                                 Ok((holding, current))
@@ -220,8 +220,8 @@ impl Manifest {
     }
 }
 
-fn said_in(conf: Configuration<'_>, section: Section, entry: &str) -> Result<(String, Written), Unapplied> {
-    let Configuration(file) = conf;
+fn said_in(configuration: Configuration<'_>, section: Section, entry: &str) -> Result<(String, Written), Unapplied> {
+    let Configuration(file) = configuration;
 
     let mut words = entry.split_whitespace();
 

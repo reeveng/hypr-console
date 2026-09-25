@@ -13,9 +13,6 @@ path = "src/bin/point.rs"
 console-core-geometry.workspace = true
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true
-# Where a surface is standing, for `--in`. The same walk over `hyprctl layers`
-# that answers whether a panel is up answers where it is, so a corner this
-# measures from is a corner the rest of the desktop agrees exists.
 console-onscreen.workspace = true
 console-screen.workspace = true
 wayland-client = "0.31"

@@ -67,7 +67,7 @@ pub fn read(note: Note<'_>) -> Result<Option<String>, Never> {
 
     let said = match std::fs::read_to_string(path) {
         Ok(said) => said,
-        Err(_fault) => return Ok(None),
+        Err(_unreadable) => return Ok(None),
     };
 
     Ok(Some(said))

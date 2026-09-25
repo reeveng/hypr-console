@@ -72,7 +72,7 @@ pub fn last(note: &str) -> Result<String, Never> {
 
     let said = match std::fs::read_to_string(path) {
         Ok(said) => said,
-        Err(_fault) => return Ok(String::new()),
+        Err(_unreadable) => return Ok(String::new()),
     };
 
     Ok(said)

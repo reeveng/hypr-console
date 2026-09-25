@@ -120,7 +120,7 @@ type Panel = Address<Message>;
 fn standing(held: &Panel) -> Result<Standing, Never> {
     Ok(match held.ask(Message::At) {
         Ok(standing) => standing,
-        Err(_) => {
+        Err(_the_actor_has_gone) => {
             eprintln!("music-panel: the panel's own state is missing, so it drew as it opened");
 
             Standing::default()
@@ -131,7 +131,7 @@ fn standing(held: &Panel) -> Result<Standing, Never> {
 fn decided(held: &Panel, heard: MusicEvent) -> Result<Vec<Effect<MusicEffect>>, Never> {
     Ok(match held.ask(|answer| Message::Event(heard, answer)) {
         Ok(effects) => effects,
-        Err(_) => {
+        Err(_the_actor_has_gone) => {
             eprintln!("music-panel: the panel's own state is missing, so the press did nothing");
 
             Vec::new()
@@ -292,16 +292,16 @@ fn head_row(head: Head<'_>) -> Result<Row, Never> {
 }
 
 fn scrub_row() -> Result<Row, Never> {
-    let pos = player::position()?;
+    let position = player::position()?;
     let total = player::length()?;
-    let done = clock(pos)?;
+    let done = clock(position)?;
 
     let whole = match total > 0 {
         true => clock(total)?,
         false => String::new(),
     };
 
-    let scrub = Scrub { at: pos, of: total };
+    let scrub = Scrub { at: position, of: total };
     let bar = scrub_bar(scrub)?;
     let step = scrub_step(scrub)?;
 
@@ -337,16 +337,16 @@ fn clock(micros: i64) -> Result<String, Never> {
 }
 
 fn scrub_step(scrub: Scrub) -> Result<Level, Never> {
-    Ok(Arc::new(move |dir| {
-        let Ok(step) = stepped(scrub, dir);
+    Ok(Arc::new(move |directory| {
+        let Ok(step) = stepped(scrub, directory);
 
         let Ok(()) = player::seek(step);
     }))
 }
 
-fn stepped(scrub: Scrub, dir: i32) -> Result<f64, Never> {
+fn stepped(scrub: Scrub, directory: i32) -> Result<f64, Never> {
     let Scrub { at, of } = scrub;
-    let target = at.saturating_add(i64::from(dir).saturating_mul(SCRUB)).clamp(0, of);
+    let target = at.saturating_add(i64::from(directory).saturating_mul(SCRUB)).clamp(0, of);
 
     let Ok(along) = target.float();
     let Ok(whole) = of.max(1).float();
@@ -496,7 +496,7 @@ fn songs(folder: &Path) -> Result<Vec<Song>, Never> {
 
     let known = match said {
         Ok(said) => looking::kept(&said)?,
-        Err(_) => Vec::new(),
+        Err(_unreadable) => Vec::new(),
     };
 
     looking::songs(folder, &library::things, &known)
@@ -648,9 +648,9 @@ enum Holds {
 }
 
 fn held_as(holds: Holds) -> Result<Card, Never> {
-    let init = Music::init(&Arguments::default());
-    let Ok(holding) = actor::supervise(move || Actor(init.state.clone()));
-    let held = holding.addr.clone();
+    let initial = Music::init(&Arguments::default());
+    let Ok(holding) = actor::supervise(move || Actor(initial.state.clone()));
+    let held = holding.address.clone();
 
     let Ok(card) = Card::new(Arc::new(move || {
         let Ok(playing) = playing_page(&held);
@@ -735,7 +735,7 @@ mod tests {
         let Ok(plain) = room.plain();
 
         assert_eq!(u32::try_from(plain.lines().count()).unwrap(), TALL);
-        assert!(plain.lines().all(|line| u32::try_from(line.chars().count()).unwrap() == room.cols));
+        assert!(plain.lines().all(|line| u32::try_from(line.chars().count()).unwrap() == room.columns));
         let Ok(bare) = Row::stacked(Picture::None, "Blue Monday", Aside("New Order"));
 
         assert_eq!(empty.looks_like(&bare), Ok(Same::No));

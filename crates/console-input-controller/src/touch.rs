@@ -153,8 +153,8 @@ impl Touch {
         self.owed.0 -= f64::from(whole_x);
         self.owed.1 -= f64::from(whole_y);
 
-        let Ok(across) = Output::rel(RelativeAxisCode::REL_X.0, whole_x);
-        let Ok(down) = Output::rel(RelativeAxisCode::REL_Y.0, whole_y);
+        let Ok(across) = Output::relative(RelativeAxisCode::REL_X.0, whole_x);
+        let Ok(down) = Output::relative(RelativeAxisCode::REL_Y.0, whole_y);
 
         Ok(vec![Effect::Frame(vec![across, down])])
     }
@@ -210,8 +210,8 @@ mod tests {
         assert_eq!(
             ok(finger.carried()),
             [Effect::Frame(vec![
-                ok(Output::rel(RelativeAxisCode::REL_X.0, (100.0 * GAIN) as i32)),
-                ok(Output::rel(RelativeAxisCode::REL_Y.0, 0)),
+                ok(Output::relative(RelativeAxisCode::REL_X.0, (100.0 * GAIN) as i32)),
+                ok(Output::relative(RelativeAxisCode::REL_Y.0, 0)),
             ])]
         );
     }

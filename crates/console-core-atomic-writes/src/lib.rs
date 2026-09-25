@@ -161,7 +161,8 @@ pub fn number<Number: std::str::FromStr>(at: &Path) -> Result<Option<Number>, Ne
 
     Ok(match text.map(|said| said.trim().parse::<Number>()) {
         Some(Ok(number)) => Some(number),
-        Some(Err(_)) | None => None,
+        None => None,
+        Some(Err(_not_a_number)) => None,
     })
 }
 
@@ -273,7 +274,7 @@ pub fn named(at: &Path) -> Result<(), Unwritten> {
     };
 
     File::open(holding)
-        .and_then(|dir| dir.sync_all())
+        .and_then(|directory| directory.sync_all())
         .map_err(|fault| Unwritten::Naming(holding.to_path_buf(), fault))
 }
 

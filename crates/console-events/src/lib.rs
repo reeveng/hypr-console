@@ -52,6 +52,8 @@ pub enum Unserved {
     Rootless,
     Holding(std::path::PathBuf, std::io::Error),
     Unbound(std::path::PathBuf, std::io::Error),
+    Waking(std::io::Error),
+    Waiting(rustix::io::Errno),
 }
 
 impl std::fmt::Display for Unserved {
@@ -64,6 +66,8 @@ impl std::fmt::Display for Unserved {
             Unserved::Rootless => write!(to, "the socket has no directory"),
             Unserved::Holding(at, fault) => write!(to, "{}: {fault}", at.display()),
             Unserved::Unbound(at, fault) => write!(to, "{}: {fault}", at.display()),
+            Unserved::Waking(fault) => write!(to, "the pipe a source wakes the pool through: {fault}"),
+            Unserved::Waiting(fault) => write!(to, "waiting for anything to happen: {fault}"),
         }
     }
 }

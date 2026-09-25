@@ -320,7 +320,7 @@ fn degrees(said: &str) -> Result<Option<f64>, Never> {
 
     let (minutes, whole) = match (first_two.parse::<f64>(), whole.parse::<f64>()) {
         (Ok(minutes), Ok(whole)) => (minutes, whole),
-        (Err(_), _) | (_, Err(_)) => return Ok(None),
+        (Err(_not_a_number), _) | (_, Err(_not_a_number)) => return Ok(None),
     };
 
     let seconds: f64 = match rest.get(2..) {
@@ -328,7 +328,7 @@ fn degrees(said: &str) -> Result<Option<f64>, Never> {
             true => 0.0,
             false => match said.parse() {
                 Ok(seconds) => seconds,
-                Err(_) => return Ok(None),
+                Err(_not_a_number) => return Ok(None),
             },
         },
         None => 0.0,

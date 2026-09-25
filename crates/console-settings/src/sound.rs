@@ -37,7 +37,7 @@ impl Thing {
 
         let level = match channel.value_percent.trim_end_matches('%').parse::<i32>() {
             Ok(level) => level,
-            Err(_) => return Ok(0),
+            Err(_not_a_number) => return Ok(0),
         };
 
         Ok(level)

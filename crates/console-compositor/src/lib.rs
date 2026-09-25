@@ -316,10 +316,10 @@ fn parse_layer(value: &serde_json::Value) -> Result<Option<Layer>, Never> {
     let address = value.get("address").and_then(serde_json::Value::as_str).map(str::to_string);
     let x = value.get("x").and_then(serde_json::Value::as_i64);
     let y = value.get("y").and_then(serde_json::Value::as_i64);
-    let w = value.get("w").and_then(serde_json::Value::as_i64);
-    let h = value.get("h").and_then(serde_json::Value::as_i64);
+    let width = value.get("w").and_then(serde_json::Value::as_i64);
+    let height = value.get("h").and_then(serde_json::Value::as_i64);
 
-    Ok(Some(Layer { namespace, address, x, y, w, h }))
+    Ok(Some(Layer { namespace, address, x, y, width, height }))
 }
 
 fn parse_active_workspace(value: serde_json::Value) -> Result<Option<Workspace>, HyprctlError> {
@@ -537,8 +537,8 @@ pub struct Layer {
     pub address: Option<String>,
     pub x: Option<i64>,
     pub y: Option<i64>,
-    pub w: Option<i64>,
-    pub h: Option<i64>,
+    pub width: Option<i64>,
+    pub height: Option<i64>,
 }
 
 fn parse_devices(value: serde_json::Value) -> Result<Vec<Keyboard>, HyprctlError> {
@@ -839,7 +839,7 @@ pub enum Visible {
 
 impl Layer {
     pub fn drawn(&self) -> Result<Visible, Never> {
-        Ok(match self.h {
+        Ok(match self.height {
             Some(tall) => match tall > 0 {
                 true => Visible::Yes,
                 false => Visible::No,
@@ -856,7 +856,7 @@ impl Layer {
             (None, None) => return Ok(None),
         };
 
-        let sized = match (self.w, self.h) {
+        let sized = match (self.width, self.height) {
             (Some(wide), Some(tall)) => (wide, tall),
             (Some(_wide), None) => return Ok(None),
             (None, Some(_tall)) => return Ok(None),
@@ -1074,7 +1074,7 @@ pub fn instance() -> Result<Option<String>, Never> {
             true => None,
             false => Some(value),
         },
-        Err(_) => None,
+        Err(_unset) => None,
     })
 }
 
@@ -1224,7 +1224,7 @@ mod tests {
 
         match layer {
             Some(layer) => layer,
-            None => Layer { namespace: String::new(), address: None, x: None, y: None, w: None, h: None },
+            None => Layer { namespace: String::new(), address: None, x: None, y: None, width: None, height: None },
         }
     }
 

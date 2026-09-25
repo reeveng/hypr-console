@@ -35,7 +35,9 @@
 //! the next one is the one worth catching: a toolkit asked for a base is a
 //! toolkit back in a program that no longer draws with one.
 //!
-//! `console-core-places` is excused because it is the crate that answers.
+//! `console-core-places` is excused because it is the crate that answers, and
+//! `console-manifest-migrations` because a migration names the path an older
+//! desktop wrote, which has to stay what it was whatever `Base` answers now.
 
 mod reading;
 
@@ -43,7 +45,7 @@ use std::collections::BTreeSet;
 
 use reading::{root, saying};
 
-const EXCUSED: [&str; 1] = ["console-core-places"];
+const EXCUSED: [&str; 2] = ["console-core-places", "console-manifest-migrations"];
 
 const BASES: [&str; 4] = [".config", ".local/state", ".local/share", ".cache"];
 

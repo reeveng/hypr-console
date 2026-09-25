@@ -82,7 +82,7 @@ pub fn everywhere(
     let stylesheet = librewolf::stylesheet(palette)?;
     let sh = shell::spend(palette)?;
     let kdeglobals = kde::spend(palette)?;
-    let prefs = librewolf::prefs(palette)?;
+    let preferences = librewolf::preferences(palette)?;
     let hypr = hyprland::spend(palette)?;
     let paper = paper::spend(palette)?;
     let icon = icon::spend(palette)?;
@@ -94,7 +94,7 @@ pub fn everywhere(
         whole(chrome.join("palette.css"), stylesheet),
         whole(files.join("usr/local/lib/console/palette.sh"), sh),
         region(home.join(".config/kdeglobals"), kdeglobals),
-        region(home.join(".librewolf/console/user.js"), prefs),
+        region(home.join(".librewolf/console/user.js"), preferences),
         region(ours.join("hypr/hyprland.lua"), hypr),
         region(files.join("etc/systemd/user/console-paper.service"), paper),
         whole(files.join("usr/share/icons/console-placeholder.svg"), icon),
@@ -125,7 +125,7 @@ pub mod tests {
     #[test]
     fn no_file_is_written_twice() {
         let written = spent();
-        let mut paths: Vec<&PathBuf> = written.iter().map(|w| &w.path).collect();
+        let mut paths: Vec<&PathBuf> = written.iter().map(|file| &file.path).collect();
         paths.sort();
         let once = {
             let mut seen = paths.clone();
@@ -137,7 +137,7 @@ pub mod tests {
 
     #[test]
     fn nothing_written_whole_is_empty() {
-        for written in spent().iter().filter(|w| w.how == How::Whole) {
+        for written in spent().iter().filter(|file| file.how == How::Whole) {
             assert!(
                 !written.body.trim().is_empty(),
                 "{:?} is empty",
@@ -168,7 +168,7 @@ pub mod tests {
     fn every_language_the_desktop_speaks_gets_a_palette() {
         let paths: Vec<String> = spent()
             .iter()
-            .map(|w| w.path.display().to_string())
+            .map(|file| file.path.display().to_string())
             .collect();
         let Ok(ours) = console_core_places::Base::Configuration.ours_under(std::path::Path::new(""));
 
@@ -179,7 +179,7 @@ pub mod tests {
             "usr/local/lib/console/palette.sh".to_string(),
         ] {
             assert!(
-                paths.iter().any(|p| p.contains(&wanted)),
+                paths.iter().any(|path| path.contains(&wanted)),
                 "{wanted} is not written"
             );
         }

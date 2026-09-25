@@ -123,7 +123,7 @@ pub fn curve() -> Result<Vec<Step>, Never> {
     Ok(steps)
 }
 
-pub fn config() -> Result<String, Never> {
+pub fn configuration() -> Result<String, Never> {
     let mut said = String::from(HEAD);
     let Ok(curve) = curve();
 
@@ -284,8 +284,8 @@ mod tests {
         steps
     }
 
-    fn config() -> String {
-        let Ok(said) = super::config();
+    fn configuration() -> String {
+        let Ok(said) = super::configuration();
 
         said
     }
@@ -377,7 +377,7 @@ mod tests {
 
     #[test]
     fn the_config_is_written_the_way_the_daemon_reads_it() {
-        let said = config();
+        let said = configuration();
         assert!(said.starts_with('#'), "the file says what wrote it");
         assert!(said.contains("profile {\n    time = 19:30\n    temperature = 6500\n}\n"));
         assert!(said.contains("profile {\n    time = 21:30\n    temperature = 3000\n}\n"));

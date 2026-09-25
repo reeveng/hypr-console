@@ -259,7 +259,7 @@ gone, the picture in the viewer is the picture that was pressed.
 nothing else can answer -- the real player, the real decoder, the real
 compositor quirk. Everything `checks.md` says about the device tier binds
 flows twice over, because a flow holds the machine longer than any check:
-`--dry` first, `--yes` knowingly, and whoever is holding the device decides.
+`--dry-run` first, `--yes` knowingly, and whoever is holding the device decides.
 
 ## What a flow may assert
 

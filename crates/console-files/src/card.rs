@@ -37,7 +37,7 @@ use crate::doing::{self, Carrying, FileAction, Holding};
 use crate::listing::{self, Entry, Room, Shown, Worth};
 use crate::looking::{self, Found};
 use crate::places::{self, Place, WANTED};
-use crate::thumbs;
+use crate::thumbnails;
 use crate::standing::{
     self, Closes, Files, HERE_START, FilesEvent, FilesEffect, LINE, Line, Destination, Standing, WAYS_START, closes,
     first_thing,
@@ -82,7 +82,7 @@ type ActorAddress = Address<Message>;
 fn standing_of(held: &ActorAddress) -> Result<Standing, Never> {
     match held.ask(Message::At) {
         Ok(standing) => Ok(standing),
-        Err(_) => {
+        Err(_the_actor_has_gone) => {
             eprintln!("files: the panel's own state is missing, so it drew nothing");
 
             Standing::of(Vec::new())
@@ -93,7 +93,7 @@ fn standing_of(held: &ActorAddress) -> Result<Standing, Never> {
 fn decided(held: &ActorAddress, heard: FilesEvent) -> Result<Vec<Effect<FilesEffect>>, Never> {
     Ok(match held.ask(|answer| Message::Event(heard, answer)) {
         Ok(effects) => effects,
-        Err(_) => {
+        Err(_the_actor_has_gone) => {
             eprintln!("files: the panel's own state is missing, so the press did nothing");
 
             Vec::new()
@@ -272,7 +272,7 @@ fn cache_store() -> Result<PathBuf, Never> {
     let Ok(cache) = console_core_places::Base::Cache.hers();
 
     match cache {
-        Some(cache) => thumbs::store(&cache),
+        Some(cache) => thumbnails::store(&cache),
         None => Ok(PathBuf::new()),
     }
 }
@@ -298,7 +298,7 @@ fn plugged_in() -> Result<Vec<Place>, Never> {
 fn wanting_pictures(showing: &dyn Showing, here: &Path) -> Result<(), Never> {
     let said = said(here)?;
 
-    showing.later(vec!["files-thumbs".to_string(), said]);
+    showing.later(vec!["files-thumbnails".to_string(), said]);
 
     Ok(())
 }
@@ -486,7 +486,7 @@ fn picture(store: &Path, here: &Path, thing: &Entry, room: Room) -> Result<Pictu
     let worth = thing.worth_a_picture()?;
 
     let found = match worth {
-        Worth::APicture => thumbs::found(store, &here.join(&thing.name))?,
+        Worth::APicture => thumbnails::found(store, &here.join(&thing.name))?,
         Worth::ItsNameAlone => None,
     };
 
@@ -1132,7 +1132,7 @@ pub fn card(arguments: &[String]) -> Result<Card, Never> {
         Looking(standing)
     });
 
-    let held = standing.addr.clone();
+    let held = standing.address.clone();
 
     let Ok(card) = Card::new(Arc::new(move || {
         let Ok(pages) = pages(&held);

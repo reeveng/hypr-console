@@ -29,16 +29,31 @@
 //! panel took as long as a tenth of a second to close, all of it spent asleep,
 //! and the host could open nothing else meanwhile. So shutting says so here
 //! too, and the loop wakes to read the flag at once.
+//!
+//! The loop has one other sleep, and it is here for the same reason. A tab with
+//! nothing on it yet holds its first frame back a moment for its rows, and that
+//! was a wait on the rows alone, which a shutting could not end: the music card
+//! asks the player several things before it has a row, and a close that landed
+//! meanwhile waited out the rest of the moment. So the first look listens on
+//! this socket too, beside a [`deadline`] the kernel holds for the moment. A
+//! byte is only *look again*: a picture that finished decoding writes one as
+//! well, and a look that ended on it drew the viewer empty under a press that
+//! then landed on nothing. What ends the look is the rows, the shut flag or the
+//! deadline, each asked after every byte.
 
 use std::io::{Read, Write};
-use std::os::fd::{AsFd, BorrowedFd};
+use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 
 use console_core_geometry::Size;
 use console_core_never::Never;
+use console_core_number_conversion::fitted;
 use console_core_shapes::Pixels;
+use rustix::event::{Nsecs, PollFd, PollFlags, Secs, poll};
+use rustix::time::{Itimerspec, Timespec, TimerfdClockId, TimerfdFlags, TimerfdTimerFlags, timerfd_create, timerfd_settime};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum FrameState {
@@ -75,6 +90,25 @@ pub enum FrameReceived {
     Yes,
     #[default]
     No,
+}
+
+impl FrameReceived {
+    fn or(self, later: FrameReceived) -> Result<FrameReceived, Never> {
+        Ok(match (self, later) {
+            (FrameReceived::No, FrameReceived::No) => FrameReceived::No,
+            (FrameReceived::Yes, _) | (FrameReceived::No, FrameReceived::Yes) => FrameReceived::Yes,
+        })
+    }
+}
+
+impl Woken {
+    pub fn and(self, later: Woken) -> Result<Woken, Never> {
+        let Ok(frame) = self.frame.or(later.frame);
+        let Ok(card) = self.card.or(later.card);
+        let Ok(rows) = self.rows.or(later.rows);
+
+        Ok(Woken { frame, card, rows })
+    }
 }
 
 #[cfg_attr(
@@ -145,6 +179,60 @@ pub fn tell(what: Notice) -> Result<(), Never> {
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Listened {
+    Notified,
+    RanOut,
+}
+
+pub fn deadline(until: Duration) -> Result<Option<OwnedFd>, Never> {
+    let Ok(seconds) = fitted::<u64, Secs>(until.as_secs());
+    let Ok(nanoseconds) = fitted::<u32, Nsecs>(until.subsec_nanos());
+
+    let timer = match timerfd_create(TimerfdClockId::Monotonic, TimerfdFlags::CLOEXEC | TimerfdFlags::NONBLOCK) {
+        Ok(timer) => timer,
+        Err(fault) => {
+            eprintln!("console-panel: a first look has no deadline, so it is not taken: {fault}");
+
+            return Ok(None);
+        },
+    };
+
+    let once = Itimerspec {
+        it_interval: Timespec { tv_sec: 0, tv_nsec: 0 },
+        it_value: Timespec { tv_sec: seconds, tv_nsec: nanoseconds },
+    };
+
+    Ok(match timerfd_settime(&timer, TimerfdTimerFlags::empty(), &once) {
+        Ok(_before) => Some(timer),
+        Err(fault) => {
+            eprintln!("console-panel: a first look has no deadline, so it is not taken: {fault}");
+
+            None
+        },
+    })
+}
+
+pub fn listened(deadline: Option<&OwnedFd>) -> Result<Listened, Never> {
+    let Ok(waking) = waking();
+
+    let deadline = match deadline {
+        Some(deadline) => deadline,
+        None => return Ok(Listened::RanOut),
+    };
+
+    let mut watch = vec![PollFd::new(deadline, PollFlags::IN)];
+
+    watch.extend(waking.map(|waking| PollFd::from_borrowed_fd(waking, PollFlags::IN)));
+
+    let _told_or_not_what_happened_is_read_from_the_watch = poll(&mut watch, None);
+
+    Ok(match watch.first().map(|timer| timer.revents().contains(PollFlags::IN)) {
+        Some(true) => Listened::RanOut,
+        Some(false) | None => Listened::Notified,
+    })
+}
+
 pub fn woken() -> Result<Woken, Never> {
     let Ok(wake) = wake();
 
@@ -158,7 +246,8 @@ pub fn woken() -> Result<Woken, Never> {
 
     loop {
         let bytes = match told.read(&mut read) {
-            Ok(0) | Err(_) => return Ok(heard),
+            Ok(0) => return Ok(heard),
+            Err(_the_read_failed) => return Ok(heard),
             Ok(many) => read.iter().take(many),
         };
 

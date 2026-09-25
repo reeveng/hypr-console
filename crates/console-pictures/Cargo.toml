@@ -5,12 +5,6 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
-# A picture file, read into the pixels this desktop draws.
-#
-# Four programs wanted the same thing off a disk and every one of them asked a
-# toolkit for it. What they wanted was never a widget: it was width, height and
-# a run of RGBA, which is what a surface puts in a buffer.
-
 [lib]
 name = "console_pictures"
 path = "src/lib.rs"

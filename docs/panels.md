@@ -103,7 +103,7 @@ size, every time. So they are decoded once into `console_panel::pictures`, at
 the size a row draws them, and an opening reads that file once and hands out
 slices of it.
 
-`panel-pictures` makes it, off the panel and behind it, the way `files-thumbs`
+`panel-pictures` makes it, off the panel and behind it, the way `files-thumbnails`
 makes the thumbnails and for the same reason. A panel asks for what its own rows
 wanted once the real ones have arrived, so what is made is what a list actually
 asked for; and a picture the store has not got is opened the old way, which is

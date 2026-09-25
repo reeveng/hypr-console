@@ -82,6 +82,7 @@
 
 pub mod frames;
 pub mod line;
+pub mod measuring;
 pub mod summary;
 pub mod writing;
 
@@ -382,8 +383,8 @@ fn unix_now() -> Result<u64, Never> {
 
 pub fn uptime() -> Result<Option<Duration>, Never> {
     let said = match std::fs::read_to_string("/proc/uptime") {
-        Ok(s) => s,
-        Err(_) => return Ok(None),
+        Ok(said) => said,
+        Err(_unreadable) => return Ok(None),
     };
 
     let first = match said.split_whitespace().next() {
@@ -392,8 +393,8 @@ pub fn uptime() -> Result<Option<Duration>, Never> {
     };
 
     let seconds: f64 = match first.parse() {
-        Ok(v) => v,
-        Err(_) => return Ok(None),
+        Ok(seconds) => seconds,
+        Err(_not_a_number) => return Ok(None),
     };
 
     Ok(Some(Duration::from_secs_f64(seconds)))
@@ -433,8 +434,8 @@ pub fn load() -> Result<f64, Unloaded> {
 
 pub fn since_exec() -> Result<Option<Duration>, Never> {
     let said = match std::fs::read_to_string("/proc/self/stat") {
-        Ok(s) => s,
-        Err(_) => return Ok(None),
+        Ok(said) => said,
+        Err(_unreadable) => return Ok(None),
     };
 
     let Ok(began_at) = started_at(&said);
@@ -475,14 +476,14 @@ pub fn since_exec() -> Result<Option<Duration>, Never> {
 fn since_boot() -> Result<Option<Duration>, Never> {
     match clock_gettime_dynamic(DynamicClockId::Boottime) {
         Ok(when) => lasted(when, "boot"),
-        Err(_) => Ok(None),
+        Err(_no_boot_clock) => Ok(None),
     }
 }
 
 fn lasted(when: rustix::time::Timespec, clock: &str) -> Result<Option<Duration>, Never> {
     Ok(match (u64::try_from(when.tv_sec), u32::try_from(when.tv_nsec)) {
         (Ok(seconds), Ok(nanoseconds)) => Some(Duration::new(seconds, nanoseconds)),
-        (Err(_), _) | (_, Err(_)) => {
+        (Err(_out_of_range), _) | (_, Err(_out_of_range)) => {
             eprintln!("console-response-times: the {clock} clock said {}s {}ns", when.tv_sec, when.tv_nsec);
 
             None
@@ -539,8 +540,8 @@ pub fn from_said() -> Result<String, Never> {
 
 pub fn waited_since(raw: &str) -> Result<Option<Duration>, Never> {
     let stamped: u64 = match raw.trim().parse() {
-        Ok(v) => v,
-        Err(_) => return Ok(None),
+        Ok(stamped) => stamped,
+        Err(_not_a_number) => return Ok(None),
     };
 
     let Ok(clock) = monotonic_now();
@@ -654,7 +655,7 @@ mod tests {
 
     #[test]
     fn when_a_process_began_is_read_past_a_name_with_spaces_in_it() {
-        let fields: Vec<String> = (3..=22).map(|n| n.to_string()).collect();
+        let fields: Vec<String> = (3..=22).map(|field| field.to_string()).collect();
         let stat = format!("1234 (a (odd) name) {}", fields.join(" "));
         assert_eq!(started_at(&stat), Ok(Some(22.0)));
     }

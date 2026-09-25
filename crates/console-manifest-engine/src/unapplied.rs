@@ -16,6 +16,7 @@ use std::fmt;
 use std::path::PathBuf;
 
 use crate::manifest::{MARK, ONCE};
+use console_manifest_migrations::sweeping::Moment;
 
 #[derive(Debug)]
 pub enum Unapplied {
@@ -53,9 +54,9 @@ pub enum Unapplied {
     OnceIsForFiles(String, String, String),
     OnlyOnce(String, String, String),
     WhatTimeItIs(std::io::Error),
-    Migration(String, std::io::Error),
-    MigrationStopped(String),
+    MigrationStopped(Moment, Box<Unapplied>),
     Undone(console_manifest_migrations::Undone),
+    Pruning(PathBuf, String),
 }
 
 impl fmt::Display for Unapplied {
@@ -153,13 +154,17 @@ impl fmt::Display for Unapplied {
                  after it is {ONCE}"
             ),
             Unapplied::WhatTimeItIs(fault) => write!(to, "what time it is: {fault}"),
-            Unapplied::Migration(name, fault) => write!(to, "migration {name}: {fault}"),
-            Unapplied::MigrationStopped(name) => write!(
+            Unapplied::MigrationStopped(moment, fault) => write!(
                 to,
-                "migration {name} stopped, so nothing after it has run and \
+                "migration {moment} stopped at {fault}, so nothing after it has run and \
                  nothing has been installed over it"
             ),
             Unapplied::Undone(fault) => write!(to, "{fault}"),
+            Unapplied::Pruning(at, said) => write!(
+                to,
+                "{} left the manifest and could not be moved to the attic: {said}",
+                at.display()
+            ),
         }
     }
 }

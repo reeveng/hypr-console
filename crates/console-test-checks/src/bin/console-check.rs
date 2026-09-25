@@ -1,16 +1,16 @@
 //! Everything this desktop has grown, tried again, oldest first.
 //!
 //! ```text
-//! console-check                          here, against the emulator
-//! console-check --list                   what there is, and what each is
-//! console-check brightness               only the checks about that
-//! console-check --stage device --dry     what it would do to the device
-//! console-check --stage device --yes     do it
+//! console-check                           here, against the emulator
+//! console-check --list                    what there is, and what each is
+//! console-check brightness                only the checks about that
+//! console-check --stage device --dry-run  what it would do to the device
+//! console-check --stage device --yes      do it
 //! console-check --stage device --yes --all   every check written for it
 //! ```
 //!
 //! The device is the last stage and it is someone's machine. Nothing is sent to
-//! it without --yes, and --dry prints every command first so it can be read
+//! it without --yes, and --dry-run prints every command first so it can be read
 //! before it is run. The pressing goes through InputPlumber's own SendEvent,
 //! which is how the hardware's own buttons arrive, so nothing is created on the
 //! device and nothing is left behind if this stops halfway.
@@ -23,13 +23,25 @@
 //! reason: a run stopped halfway is the one that would otherwise leave the
 //! most behind. See `console_test_stages::putting_back`.
 //!
-//! It is also the slow stage, and most of what is written for it was already
+//! Here, every check is a handheld of its own with nothing on it but the
+//! emulator, so they run at once, one per core, through `console_concurrency`,
+//! and are said in the order they were asked for once the last has answered.
+//! The desktop and the device are one screen each and are taken a check at a
+//! time.
+//!
+//! The device is also the slow stage, and most of what is written for it was already
 //! answered here a second earlier. So asked for nothing in particular, the
 //! machine is asked only what nothing else can answer, and says of the rest
 //! where it was answered instead. --all is the whole tier for when the answer
 //! wanted is about the hardware rather than the desktop. Naming a check is
 //! asking for it: `--stage device brightness` runs brightness there whatever
 //! the emulator thinks.
+//!
+//! Every check that ran, on every stage, is also a line in the waits store --
+//! who is `check`, what is its name, with the stage and how it went -- so a
+//! check that has been getting slower, or one whose passing follows how long it
+//! happened to take, can be found in the history rather than on the day it
+//! blocks a deploy. A skipped check did not run, so it writes nothing.
 
 use std::collections::BTreeMap;
 use std::io::IsTerminal;
@@ -38,6 +50,7 @@ use std::time::Instant;
 use console_test_checks::chosen;
 use console_test_checks::Unchecked;
 use console_core_never::Never;
+use console_response_times::{Note, Wait, Waiting};
 use console_test_stages::checking::{self, Check, How, Stage};
 use console_test_stages::desktop::Desktop;
 use console_test_stages::device::{self, Device, DryRun};
@@ -51,19 +64,23 @@ const NONE_OF_THEM: u32 = 0;
 
 const HERE: &str = "here";
 
+const DESKTOP: &str = "desktop";
+
+const DEVICE: &str = "device";
+
 
 #[cfg_attr(
     dylint_lib = "explicit048_no_unreal_state",
     allow(
         explicit048_no_unreal_state,
-        reason = "four flags someone typed, and every combination of them is a command line: `--list --all`, `--dry --yes`, none of them"
+        reason = "four flags someone typed, and every combination of them is a command line: `--list --all`, `--dry-run --yes`, none of them"
     )
 )]
 struct Arguments {
     only: Vec<String>,
     stage: String,
     list: bool,
-    dry: bool,
+    dry_run: bool,
     yes: bool,
     all: bool,
 }
@@ -89,7 +106,7 @@ fn asked(words: Vec<String>) -> Result<Arguments, Never> {
             None => HERE.to_string(),
         },
         list: said("--list"),
-        dry: said("--dry"),
+        dry_run: said("--dry-run"),
         yes: said("--yes"),
         all: said("--all"),
     })
@@ -199,7 +216,7 @@ fn on_the_device(
     ink: &HexColor,
     counted: &mut BTreeMap<&'static str, u32>,
 ) -> Result<(), Unchecked> {
-    let touching = match asked.dry {
+    let touching = match asked.dry_run {
         true => DryRun::Pretend,
         false => DryRun::Really,
     };
@@ -241,7 +258,7 @@ fn on_the_device(
 
     let Ok(()) = stopping::caught();
 
-    let was = match asked.dry {
+    let was = match asked.dry_run {
         true => None,
         false => {
             let Ok(was) = putting_back::found(&mut stage);
@@ -265,7 +282,9 @@ fn on_the_device(
         let Ok(()) = watching::showing(&mut stage, &ahead, check.name);
 
         let started = Instant::now();
+        let Ok(timing) = timing(check);
         let Ok(how) = checking::device(check, &mut stage);
+        let Ok(()) = timed(timing, DEVICE, &how);
         let took = started.elapsed();
         let Ok(stop) = stopping::asked();
 
@@ -324,7 +343,7 @@ fn on_the_device(
     let Ok(ended) = watching::ended(passed, &failed, began.elapsed(), card);
     let _ = watching::said(&mut stage, &ended);
 
-    match asked.dry {
+    match asked.dry_run {
         true => {
             println!("\n{}it would have run:{}", ink.yellow, ink.off);
 
@@ -338,6 +357,33 @@ fn on_the_device(
     }
 
     Ok(())
+}
+
+fn here(check: &Check) -> Result<How, Unchecked> {
+    let mut stage = Here::new()?;
+    let Ok(timing) = timing(check);
+    let Ok(how) = checking::here(check, &mut stage);
+    let Ok(()) = timed(timing, HERE, &how);
+
+    Ok(how)
+}
+
+fn timing(check: &Check) -> Result<Waiting, Never> {
+    Waiting::here(Wait { who: "check", what: check.name })
+}
+
+fn timed(mut timing: Waiting, stage: &str, how: &How) -> Result<(), Never> {
+    let Ok(went) = how.name();
+
+    match how {
+        How::Ok | How::Failed(_) => {
+            let Ok(()) = timing.named(Note { name: "stage", said: stage });
+            let Ok(()) = timing.named(Note { name: "went", said: went });
+
+            timing.done()
+        }
+        How::Skipped(_) | How::Would => Ok(()),
+    }
 }
 
 fn run(asked: Arguments, ink: &HexColor) -> Result<std::process::ExitCode, Unchecked> {
@@ -359,7 +405,7 @@ fn run(asked: Arguments, ink: &HexColor) -> Result<std::process::ExitCode, Unche
         false => {}
     }
 
-    let someones_machine = asked.stage == "device" && !(asked.yes || asked.dry);
+    let someones_machine = asked.stage == DEVICE && !(asked.yes || asked.dry_run);
 
     match someones_machine {
         true => {
@@ -371,14 +417,16 @@ fn run(asked: Arguments, ink: &HexColor) -> Result<std::process::ExitCode, Unche
     let mut counted: BTreeMap<&'static str, u32> = BTreeMap::new();
 
     match asked.stage.as_str() {
-        "device" => {
+        DEVICE => {
             on_the_device(&asked, checks, ink, &mut counted)?;
         }
-        "desktop" => {
+        DESKTOP => {
             let Ok(mut stage) = Desktop::new();
 
             for check in checks {
+                let Ok(timing) = timing(check);
                 let Ok(how) = checking::desktop(check, &mut stage);
+                let Ok(()) = timed(timing, DESKTOP, &how);
 
                 let Ok(()) = say(&mut counted, ink, check, how);
             }
@@ -386,9 +434,11 @@ fn run(asked: Arguments, ink: &HexColor) -> Result<std::process::ExitCode, Unche
             let Ok(()) = stage.close();
         }
         _ => {
-            for check in checks {
-                let mut stage = Here::new()?;
-                let Ok(how) = checking::here(check, &mut stage);
+            let ran = console_concurrency::map(&checks, |check| here(check));
+            let ran = ran.map_err(Unchecked::Concurrently)?;
+
+            for (check, how) in checks.into_iter().zip(ran) {
+                let how = how?;
 
                 let Ok(()) = say(&mut counted, ink, check, how);
             }
@@ -404,6 +454,9 @@ fn run(asked: Arguments, ink: &HexColor) -> Result<std::process::ExitCode, Unche
         would => format!(", {would} would run"),
     };
     println!("\n{} ok, {} failed, {} skipped{would}", many("ok"), many("failed"), many("skipped"));
+
+    let Ok(()) = console_response_times::settled();
+
     Ok(match many("failed") {
         0 => std::process::ExitCode::SUCCESS,
         _ => std::process::ExitCode::from(1),

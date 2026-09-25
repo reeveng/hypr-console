@@ -138,7 +138,7 @@ fn pair_of<T: std::str::FromStr>(text: &str) -> Result<Option<(T, T)>, Never> {
     Ok(match text.split_once(' ') {
         Some((first, second)) => match (first.parse::<T>(), second.parse::<T>()) {
             (Ok(first), Ok(second)) => Some((first, second)),
-            (Err(_), _) | (_, Err(_)) => None,
+            (Err(_not_a_number), _) | (_, Err(_not_a_number)) => None,
         },
         None => None,
     })

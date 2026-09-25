@@ -34,14 +34,14 @@ pub struct Axis {
     pub code: u16,
     pub flat: i32,
     pub fuzz: i32,
-    pub max: i32,
-    pub min: i32,
+    pub maximum: i32,
+    pub minimum: i32,
     pub resolution: i32,
 }
 
 impl Axis {
     pub fn span(&self) -> Result<i32, Never> {
-        Ok(self.max.abs().max(self.min.abs()).max(1))
+        Ok(self.maximum.abs().max(self.minimum.abs()).max(1))
     }
 }
 
@@ -61,20 +61,20 @@ pub struct Descriptor {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Capabilities {
     #[serde(rename = "EV_ABS", default, skip_serializing_if = "Vec::is_empty")]
-    pub abs: Vec<Axis>,
+    pub absolute: Vec<Axis>,
     #[serde(rename = "EV_FF", default, skip_serializing_if = "Vec::is_empty")]
-    pub ff: Vec<u16>,
+    pub force_feedback: Vec<u16>,
     #[serde(rename = "EV_KEY", default, skip_serializing_if = "Vec::is_empty")]
     pub key: Vec<u16>,
     #[serde(rename = "EV_MSC", default, skip_serializing_if = "Vec::is_empty")]
-    pub msc: Vec<u16>,
+    pub miscellaneous: Vec<u16>,
     #[serde(rename = "EV_REL", default, skip_serializing_if = "Vec::is_empty")]
-    pub rel: Vec<u16>,
+    pub relative: Vec<u16>,
 }
 
 impl Descriptor {
     pub fn axis(&self, code: u16) -> Result<Option<Axis>, Never> {
-        Ok(self.capabilities.abs.iter().copied().find(|axis| axis.code == code))
+        Ok(self.capabilities.absolute.iter().copied().find(|axis| axis.code == code))
     }
 }
 
@@ -124,14 +124,14 @@ mod tests {
     #[test]
     fn the_pad_reports_over_a_range_and_the_keyboard_does_not() {
         let found = captured().expect("the capture carried in this program parses");
-        assert!(!found["pad"].capabilities.abs.is_empty());
-        assert!(found["keyboard"].capabilities.abs.is_empty());
+        assert!(!found["pad"].capabilities.absolute.is_empty());
+        assert!(found["keyboard"].capabilities.absolute.is_empty());
         assert!(!found["keyboard"].capabilities.key.is_empty());
     }
 
     #[test]
     fn an_axis_with_no_range_is_still_a_span_of_one() {
-        let flat = Axis { code: 0, flat: 0, fuzz: 0, max: 0, min: 0, resolution: 0 };
+        let flat = Axis { code: 0, flat: 0, fuzz: 0, maximum: 0, minimum: 0, resolution: 0 };
         assert_eq!(flat.span(), Ok(1));
     }
 

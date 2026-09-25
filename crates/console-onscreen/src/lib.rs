@@ -218,7 +218,7 @@ pub fn worth_asking_after(line: &str) -> Result<Worth, Never> {
         | CompositorEvent::WindowFilled
         | CompositorEvent::WorkspaceChanged
         | CompositorEvent::ScreenFocused
-        | CompositorEvent::ConfigReloaded
+        | CompositorEvent::ConfigurationReloaded
         | CompositorEvent::Ignored => Worth::Ignoring,
     })
 }
@@ -232,7 +232,7 @@ pub fn events() -> Result<PathBuf, Error> {
     })
 }
 
-fn note() -> Result<PathBuf, Error> {
+pub fn note() -> Result<PathBuf, Error> {
     let runtime = runtime()?;
 
     Ok(runtime.join(console_core_places::OURS).join("tab"))
@@ -247,72 +247,7 @@ pub fn saying(tab: &str) -> Result<(), Error> {
         None => {}
     }
 
-    console_core_atomic_writes::whole(&note, tab.as_bytes()).map_err(Error::Writing)?;
-
-    let Ok(()) = wake();
-
-    Ok(())
-}
-
-pub const WAKES_AT: i32 = 4;
-
-pub const WAKING: &str = "-RTMIN+4";
-
-fn where_the_bar_is() -> Result<PathBuf, Error> {
-    let runtime = runtime()?;
-
-    Ok(runtime.join(console_core_places::OURS).join("bar.pid"))
-}
-
-pub fn bar_started(pid: u32) -> Result<(), Error> {
-    let at = where_the_bar_is()?;
-
-    match at.parent() {
-        Some(above) => std::fs::create_dir_all(above)
-            .map_err(|fault| Error::Making(above.to_path_buf(), fault))?,
-        None => {}
-    }
-
-    console_core_atomic_writes::whole(&at, pid.to_string().as_bytes()).map_err(Error::Writing)
-}
-
-pub fn wake() -> Result<(), Never> {
-    let at = match where_the_bar_is() {
-        Ok(at) => at,
-        Err(_no_session_and_so_no_bar) => return Ok(()),
-    };
-
-    let Ok(held) = console_core_atomic_writes::read(&at);
-
-    let said = match held {
-        Stored::Text(said) => said,
-        Stored::Absent => return Ok(()),
-        Stored::Failed(fault) => {
-            eprintln!("console-onscreen: where the bar is: {fault}");
-
-            return Ok(());
-        }
-    };
-
-    let pid = match said.trim().parse::<i32>() {
-        Ok(pid) => pid,
-        Err(_) => return Ok(()),
-    };
-
-    let named = std::fs::read_to_string(format!("/proc/{pid}/comm"));
-
-    match named.as_deref().map(str::trim) {
-        Ok(BAR) => {},
-        Ok(_) | Err(_) => return Ok(()),
-    }
-
-    let told = libc::SIGRTMIN().saturating_add(WAKES_AT);
-
-    // SAFETY: a signal to a pid that named itself the bar a moment ago, and
-    // one the bar blocks and reads off a signalfd rather than dies of.
-    let _ = unsafe { libc::kill(pid, told) };
-
-    Ok(())
+    console_core_atomic_writes::whole(&note, tab.as_bytes()).map_err(Error::Writing)
 }
 
 pub fn forget_if_still(said: &str) -> Result<(), Error> {
@@ -327,17 +262,13 @@ pub fn forget_if_still(said: &str) -> Result<(), Error> {
 pub fn forget() -> Result<(), Error> {
     let note = note()?;
 
-    let deleted = match std::fs::remove_file(&note) {
+    match std::fs::remove_file(&note) {
         Ok(()) => Ok(()),
         Err(fault) => match fault.kind() == std::io::ErrorKind::NotFound {
             true => Ok(()),
             false => Err(Error::Removing(note, fault)),
         },
-    };
-
-    let Ok(()) = wake();
-
-    deleted
+    }
 }
 
 pub fn tab() -> Result<Option<String>, Error> {

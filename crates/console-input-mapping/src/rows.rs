@@ -301,7 +301,7 @@ pub fn runs(action: Action) -> Result<Option<Vec<String>>, Never> {
 
     Ok(match doing {
         Effect::Run(arguments) => Some(arguments),
-        Effect::Frame(_) | Effect::Tell(_) | Effect::Using(_) => None,
+        Effect::Frame(_) | Effect::Tell(_) | Effect::Using(_) | Effect::Reconnected(_) => None,
     })
 }
 

@@ -39,7 +39,7 @@ digraph desktop {
   "crate:console-music-player" [label="console-music-player", shape=ellipse];
   "crate:console-notifications" [label="console-notifications\nkeeps a clock: deadline", shape=ellipse];
   "crate:console-onscreen" [label="console-onscreen", shape=ellipse];
-  "crate:console-panel" [label="console-panel\nkeeps a clock: recv_timeout", shape=ellipse];
+  "crate:console-panel" [label="console-panel", shape=ellipse];
   "crate:console-panels" [label="console-panels\nkeeps a clock: recv_timeout", shape=ellipse];
   "crate:console-pictures" [label="console-pictures", shape=ellipse];
   "crate:console-program-lifetime" [label="console-program-lifetime", shape=ellipse];
@@ -128,7 +128,6 @@ digraph desktop {
   "program:Pactl" [label="pactl", shape=component];
   "program:Pdfinfo" [label="pdfinfo", shape=component];
   "program:Pdftoppm" [label="pdftoppm", shape=component];
-  "program:Pkill" [label="pkill", shape=component];
   "program:Powerprofilesctl" [label="powerprofilesctl", shape=component];
   "program:Ps" [label="ps", shape=component];
   "program:PwCat" [label="pwcat", shape=component];
@@ -300,7 +299,7 @@ digraph desktop {
   "crate:console-input-gamepad" -> "program:Modprobe" [label="runs", style=solid];
   "crate:console-input-gamepad" -> "program:Udevadm" [label="runs", style=solid];
   "crate:console-input-gamepad" -> "program:Usermod" [label="runs", style=solid];
-  "crate:console-input-keyboard" -> "program:Pkill" [label="runs", style=solid];
+  "crate:console-input-keyboard" -> "a unix socket" [label="binds", style=solid];
   "crate:console-input-language" -> "compositor" [label="asks", style=solid];
   "crate:console-launcher" -> "program:XdgOpen" [label="runs", style=solid];
   "crate:console-login-window" -> "internal:LoginGreeter" [label="starts", style=solid];
@@ -314,6 +313,7 @@ digraph desktop {
   "crate:console-manifest-engine" -> "program:Env" [label="runs", style=solid];
   "crate:console-manifest-engine" -> "program:Git" [label="runs", style=solid];
   "crate:console-manifest-engine" -> "program:Id" [label="runs", style=solid];
+  "crate:console-manifest-engine" -> "program:Mv" [label="runs", style=solid];
   "crate:console-manifest-engine" -> "program:Pacman" [label="runs", style=solid];
   "crate:console-manifest-engine" -> "program:Runuser" [label="runs", style=solid];
   "crate:console-manifest-engine" -> "program:Snapper" [label="runs", style=solid];
@@ -366,6 +366,7 @@ digraph desktop {
   "crate:console-program-runtime" -> "topic:*" [label="subscribes", style=solid];
   "crate:console-recovery" -> "program:Systemctl" [label="runs", style=solid];
   "crate:console-rename" -> "program:Git" [label="runs", style=solid];
+  "crate:console-resource-usage" -> "program:Systemctl" [label="runs", style=solid];
   "crate:console-resume" -> "compositor" [label="asks", style=solid];
   "crate:console-resume" -> "topic:Compositor" [label="subscribes", style=solid];
   "crate:console-screen" -> "compositor" [label="asks", style=solid];

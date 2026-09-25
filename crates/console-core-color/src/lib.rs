@@ -28,7 +28,7 @@
 //! left to get backwards.
 //!
 //! The pairs are worse, because they are asymmetric and read as if they are
-//! not. `lc(ink, ground)` answers a signed number whose sign is which of the
+//! not. `lightness_contrast(ink, ground)` answers a signed number whose sign is which of the
 //! two is the paper, so swapping them does not fail, it lies. `HexColor` and
 //! `Ground` are one word each at the call site and the swap stops compiling.
 //! `contrast` takes them too, though its arithmetic is symmetric: every caller
@@ -323,8 +323,8 @@ fn bytes(code: &str) -> Result<[u8; 3], Never> {
     let code = code.trim_start_matches('#').as_bytes();
     let mut out = [0u8; 3];
 
-    for (channel, i) in out.iter_mut().zip([0usize, 2, 4]) {
-        let two = match code.get(i..i.saturating_add(2)) {
+    for (channel, offset) in out.iter_mut().zip([0usize, 2, 4]) {
+        let two = match code.get(offset..offset.saturating_add(2)) {
             Some(two) => two,
             None => {
                 eprintln!("a color is too short to hold three channels; read as zero");
@@ -335,7 +335,7 @@ fn bytes(code: &str) -> Result<[u8; 3], Never> {
 
         let pair = match std::str::from_utf8(two) {
             Ok(said) => said,
-            Err(_) => {
+            Err(_not_text) => {
                 eprintln!("a color holds bytes that are not text; read as zero");
                 *channel = 0;
                 continue;
@@ -344,7 +344,7 @@ fn bytes(code: &str) -> Result<[u8; 3], Never> {
 
         *channel = match u8::from_str_radix(pair, 16) {
             Ok(number) => number,
-            Err(_) => {
+            Err(_not_hex) => {
                 eprintln!("{pair:?} in a color is not a hex number; read as zero");
                 0
             },
@@ -402,7 +402,7 @@ fn apca_luminance(code: &str) -> Result<f64, Never> {
     })
 }
 
-pub fn lc(ink: HexColor<'_>, ground: Ground<'_>) -> Result<f64, Never> {
+pub fn lightness_contrast(ink: HexColor<'_>, ground: Ground<'_>) -> Result<f64, Never> {
     let Ok(ink) = apca_luminance(ink.0);
     let Ok(ground) = apca_luminance(ground.0);
 
@@ -431,7 +431,7 @@ pub fn lc(ink: HexColor<'_>, ground: Ground<'_>) -> Result<f64, Never> {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Floor {
     pub ratio: f64,
-    pub lc: f64,
+    pub lightness_contrast: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -443,9 +443,9 @@ pub enum Clears {
 impl Floor {
     pub fn cleared_by(self, ink: HexColor<'_>, ground: Ground<'_>) -> Result<Clears, Never> {
         let Ok(contrast) = contrast(ink, ground);
-        let Ok(lc) = lc(ink, ground);
+        let Ok(lightness_contrast) = lightness_contrast(ink, ground);
 
-        Ok(match contrast >= self.ratio && lc.abs() >= self.lc {
+        Ok(match contrast >= self.ratio && lightness_contrast.abs() >= self.lightness_contrast {
             true => Clears::Yes,
             false => Clears::No,
         })
@@ -467,7 +467,7 @@ impl Floor {
 
 impl fmt::Display for Floor {
     fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(out, "{}:1 and Contrast {}", self.ratio, self.lc)
+        write!(out, "{}:1 and Contrast {}", self.ratio, self.lightness_contrast)
     }
 }
 

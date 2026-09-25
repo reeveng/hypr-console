@@ -17,6 +17,7 @@ path = "src/bin/console-check.rs"
 console-core-temporary-directories.workspace = true
 console-architecture.workspace = true
 console-awake.workspace = true
+console-concurrency.workspace = true
 console-core-atomic-writes.workspace = true
 console-input-gamepad.workspace = true
 console-home-screen.workspace = true
@@ -27,30 +28,16 @@ console-core-number-conversion.workspace = true
 console-core-never.workspace = true
 console-core-places.workspace = true
 console-compositor.workspace = true
-# The table's keyboard half, rendered the same way the daemon renders it, so
-# what the compositor is asked for is what the table says rather than a second
-# list written here.
 console-input-bindings.workspace = true
 console-input-controller.workspace = true
-# The bus name, the object and the interface are the player's own words. This
-# check spelled kew's for as long after the swap as it took someone to run it,
-# and busctl answers a name no one holds with "not activatable" rather than
-# with the name it was asked for.
 console-music-player.workspace = true
-# The strip under the bar reads how far along the long thing is out of one
-# file, and the check fills it rather than spelling the format a second time.
 console-notifications.workspace = true
-# The bar's own arithmetic: how deep it is and how thin the strip under it is,
-# which is where the rows a check reads back off the screen come from.
 console-status-bar.workspace = true
 console-screen.workspace = true
 serde_json = "1"
 
 console-program-lifetime.workspace = true
 console-resume.workspace = true
-# The two pages the zone is chosen through are built out of `hours`, and the
-# walk this presses is worked out from the same arithmetic rather than counted
-# into the check.
 console-settings.workspace = true
 console-waiting.workspace = true
 console-onscreen.workspace = true
@@ -60,9 +47,6 @@ console-panel.workspace = true
 console-test-stages.workspace = true
 console-response-times.workspace = true
 console-input-event-devices.workspace = true
-# Where the dots stand on a screen of a given size, and how the pattern they
-# spell is read back, so a stroke the check draws lands where the greeter
-# draws them and what it kept is read the way the login window reads it.
 console-login-greeter.workspace = true
 console-login-pattern.workspace = true
 console-login-window.workspace = true

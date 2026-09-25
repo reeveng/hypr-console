@@ -297,7 +297,7 @@ impl Names {
 
         match (languages, places) {
             (Ok(languages), Ok(places)) => Names::read(Tables { languages: &languages, places: &places }),
-            (Err(_), _) | (_, Err(_)) => {
+            (Err(_unreadable), _) | (_, Err(_unreadable)) => {
                 eprintln!(
                     "settings-panel: {LANGUAGES} and {PLACES} are what a language and a country \
                      are called, and they will not be read. The rows are drawn with the codes \

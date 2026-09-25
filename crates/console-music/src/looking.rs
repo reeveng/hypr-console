@@ -67,7 +67,7 @@ impl Song {
         let within = self.path.parent().and_then(|at| {
             let within = match at.strip_prefix(folder) {
                 Ok(within) => within,
-                Err(_fault) => return None,
+                Err(_outside_the_folder) => return None,
             };
 
             Some(within)
@@ -174,7 +174,7 @@ pub fn kept(said: &str) -> Result<Vec<Song>, Never> {
     let held: Value = match serde_json::from_str(said) {
         Ok(held) => held,
 
-        Err(_) => Value::Null,
+        Err(_not_json) => Value::Null,
     };
 
     let songs = match held.get("songs").and_then(Value::as_array) {

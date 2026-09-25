@@ -5,9 +5,6 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
-# An empty directory this process can work in, named for the process so two
-# runs at once never share one.
-
 [lib]
 name = "console_core_temporary_directories"
 path = "src/lib.rs"

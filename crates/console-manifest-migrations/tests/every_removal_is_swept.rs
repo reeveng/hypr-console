@@ -2,22 +2,24 @@
 //!
 //!     cargo test -p console-manifest-migrations
 //!  This is the check the whole crate is for, and it is the one thing here that
-//! reads git. `console_manifest_migrations::unswept` is arithmetic over four
-//! sets and knows nothing about a repository; what this does is fill those sets
+//! reads git. `console_manifest_migrations::unswept` is arithmetic over sets
+//! and knows nothing about a repository; what this does is fill those sets
 //! from the history of the one file that is the inventory.  It is a test rather
 //! than a stage of `console-check` on purpose. It needs no device, no
 //! compositor and no network -- only a checkout -- so it belongs where it runs
-//! on every `just test`, which is the moment someone deletes a line from
-//! `desktop.conf` and has not yet thought about the machine that still has what
-//! the line named.
+//! on every `just test`.
+//!
+//! The history is read in two halves, split at
+//! `console_manifest_migrations::RECORDED_SINCE`. What was carried after it is
+//! the engine's to take back, because every machine that applied it has the
+//! commit written down; what was carried only before it is asked about here,
+//! because no machine remembers it.
 //! # When this goes red
 //!
-//! It has caught you removing something. Write the migration in the same commit
-//! as the removal:
-//!
-//!     migrations/$(git log -1 --format=%cd --date=unix).sh
-//!
-//! with `# sweeps: <the name you removed>` at the top and the sweep below it.
+//! It has caught a name that left the manifest from before the machines kept a
+//! record of what they applied. Write the migration in the same commit, as a
+//! module under `src/history` named for the commit's moment and listed in
+//! `history::EVERY`, with a step that moves or disables the name you removed.
 //! If the name needs nothing -- it was never ours, or it was already dealt with
 //! by hand -- put it in `migrations/left-on-purpose` with the reason beside it.
 //! Both of those are someone saying so out loud, which is the whole difference
@@ -28,9 +30,10 @@ use std::path::Path;
 use std::process::Command;
 
 use console_core_external_programs::Program;
+use console_manifest_migrations::history::{DIRECTORY, EVERY};
 use console_manifest_migrations::sweeping::{self, ON_PURPOSE};
 use console_rename::UNSAID;
-use console_manifest_migrations::{Outlives, Section, holds, outlives, unswept};
+use console_manifest_migrations::{Outlives, Recorded, Section, holds, outlives, recorded, unswept};
 
 const MANIFEST: &str = "desktop.conf";
 
@@ -88,44 +91,63 @@ fn carried(said: &str) -> BTreeMap<String, String> {
     found
 }
 
-fn git(root: &Path, args: &[&str]) -> Result<String, String> {
+fn git(root: &Path, arguments: &[&str]) -> Result<String, String> {
     let Ok(name) = Program::Git.name();
     let said = Command::new(name)
         .current_dir(root)
-        .args(args)
+        .args(arguments)
         .output()
-        .map_err(|fault| format!("git {}: {fault}", args.join(" ")))?;
+        .map_err(|fault| format!("git {}: {fault}", arguments.join(" ")))?;
 
     match said.status.success() {
         true => Ok(String::from_utf8_lossy(&said.stdout).to_string()),
         false => Err(format!(
             "git {}: {}",
-            args.join(" "),
+            arguments.join(" "),
             String::from_utf8_lossy(&said.stderr).trim()
         )),
     }
 }
 
-fn ever(root: &Path) -> Result<BTreeMap<String, String>, String> {
-    let mut asked: Vec<&str> = vec!["rev-list", "HEAD", "--"];
+struct Carried {
+    before: BTreeMap<String, String>,
+    since: BTreeSet<String>,
+}
+
+fn ever(root: &Path) -> Result<Carried, String> {
+    let mut asked: Vec<&str> = vec!["log", "--format=%H %ct", "HEAD", "--"];
 
     asked.extend(FILES);
 
     let revisions = git(root, &asked)?;
-    let mut found = BTreeMap::new();
+    let mut carried_then = Carried { before: BTreeMap::new(), since: BTreeSet::new() };
 
-    for revision in revisions.split_whitespace() {
+    for said in revisions.lines() {
+        let (revision, when) = match said.split_once(' ') {
+            Some(both) => both,
+            None => return Err(format!("the log said `{said}`, which is not a commit and a time")),
+        };
+        let committed = when
+            .trim()
+            .parse::<u64>()
+            .map_err(|fault| format!("{revision} was committed at `{when}`: {fault}"))?;
+        let Ok(recorded) = recorded(committed);
+
         for file in FILES {
             let said = match git(root, &["show", &format!("{revision}:{file}")]) {
                 Ok(said) => said,
                 Err(_it_was_not_in_the_tree_that_far_back) => continue,
             };
+            let found = carried(&read_as(file, &said));
 
-            found.extend(carried(&read_as(file, &said)));
+            match recorded {
+                Recorded::Yes => carried_then.since.extend(found.into_keys()),
+                Recorded::No => carried_then.before.extend(found),
+            }
         }
     }
 
-    Ok(found)
+    Ok(carried_then)
 }
 
 fn now(root: &Path) -> BTreeSet<String> {
@@ -153,10 +175,7 @@ fn nothing_has_left_the_manifest_with_no_migration_and_no_reason() {
     };
 
     let Ok(under) = sweeping::beside(&root);
-    let swept = match sweeping::all_claimed(&under) {
-        Ok(swept) => swept,
-        Err(why) => panic!("what the migrations claim: {why}"),
-    };
+    let Ok(swept) = sweeping::all_claimed(EVERY);
 
     let on_purpose = match std::fs::read_to_string(under.join(ON_PURPOSE)) {
         Ok(said) => {
@@ -167,7 +186,7 @@ fn nothing_has_left_the_manifest_with_no_migration_and_no_reason() {
         Err(_) => BTreeSet::new(),
     };
 
-    let Ok(left) = unswept(&ever, &now, &swept, &on_purpose);
+    let Ok(left) = unswept(&ever.before, &now, &swept, &on_purpose, &ever.since);
 
     let said: Vec<String> = left
         .iter()
@@ -177,8 +196,8 @@ fn nothing_has_left_the_manifest_with_no_migration_and_no_reason() {
     assert!(
         left.is_empty(),
         "every machine that applied an older commit is still holding these:\n{}\n\n\
-         write migrations/$(git log -1 --format=%cd --date=unix).sh with a `# sweeps:` line \
-         for each, or name it in migrations/{ON_PURPOSE} with the reason.",
+         write a migration under src/history with a step for each, or name it in \
+         migrations/{ON_PURPOSE} with the reason.",
         said.join("\n")
     );
 }
@@ -198,8 +217,10 @@ fn the_manifest_has_a_history_to_read() {
     let now = now(&root);
 
     assert!(!now.is_empty(), "the manifest carries nothing, so this checked nothing");
+    let carried: BTreeSet<&String> = ever.before.keys().chain(ever.since.iter()).collect();
+
     assert!(
-        ever.len() > now.len(),
+        carried.len() > now.len(),
         "the manifest's history carries no more than it does today, which means the \
          history was not read"
     );
@@ -240,12 +261,7 @@ mod tests {
 
 #[test]
 fn no_migration_still_says_its_reason_is_unwritten() {
-    let root = match console_repository::root() {
-        Ok(root) => root,
-        Err(why) => panic!("the top of the tree: {why}"),
-    };
-
-    let at = root.join(sweeping::UNDER);
+    let at = Path::new(env!("CARGO_MANIFEST_DIR")).join(DIRECTORY);
     let mut unsaid: Vec<String> = Vec::new();
 
     for found in std::fs::read_dir(&at).expect("migrations").flatten() {

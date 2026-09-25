@@ -39,7 +39,7 @@ pub struct Setup {
     pub keys: Vec<KeyCode>,
     pub relative_axes: Vec<RelativeAxisCode>,
     pub absolute_axes: Vec<(AbsoluteAxisCode, AbsInfo)>,
-    pub misc: Vec<MiscCode>,
+    pub miscellaneous: Vec<MiscCode>,
     pub properties: Vec<PropType>,
 }
 
@@ -49,7 +49,7 @@ pub enum Step {
     Keys,
     RelativeAxes,
     AbsoluteAxes,
-    Misc,
+    Miscellaneous,
     Properties,
     PhysicalPath,
     Describing,
@@ -71,7 +71,7 @@ impl fmt::Display for Step {
             Step::Keys => "its keys",
             Step::RelativeAxes => "its relative axes",
             Step::AbsoluteAxes => "its absolute axes",
-            Step::Misc => "its miscellaneous codes",
+            Step::Miscellaneous => "its miscellaneous codes",
             Step::Properties => "its properties",
             Step::PhysicalPath => "where it is plugged in",
             Step::Describing => "its name and who made it",
@@ -117,7 +117,7 @@ impl VirtualDevice {
             (EventType::KEY, setup.keys.is_empty()),
             (EventType::RELATIVE, setup.relative_axes.is_empty()),
             (EventType::ABSOLUTE, setup.absolute_axes.is_empty()),
-            (EventType::MISC, setup.misc.is_empty()),
+            (EventType::MISC, setup.miscellaneous.is_empty()),
         ];
 
         for (kind, none) in sent {
@@ -134,7 +134,7 @@ impl VirtualDevice {
         let every = [
             (Step::Keys, kernel::SET_KEY, setup.keys.iter().map(|key| key.0).collect::<Vec<u16>>()),
             (Step::RelativeAxes, kernel::SET_RELATIVE_AXIS, setup.relative_axes.iter().map(|axis| axis.0).collect()),
-            (Step::Misc, kernel::SET_MISC, setup.misc.iter().map(|misc| misc.0).collect()),
+            (Step::Miscellaneous, kernel::SET_MISC, setup.miscellaneous.iter().map(|miscellaneous| miscellaneous.0).collect()),
             (Step::Properties, kernel::SET_PROPERTY, setup.properties.iter().map(|property| property.0).collect()),
         ];
 
@@ -148,8 +148,8 @@ impl VirtualDevice {
     }
 
     fn axes(&self, axes: &[(AbsoluteAxisCode, AbsInfo)]) -> Result<(), Unmade> {
-        for (axis, info) in axes {
-            let setup = AbsoluteSetup { code: axis.0, info: *info };
+        for (axis, information) in axes {
+            let setup = AbsoluteSetup { code: axis.0, information: *information };
 
             self.asked(Step::AbsoluteAxes, kernel::SET_ABSOLUTE_AXIS, axis.0)?;
 

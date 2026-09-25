@@ -32,21 +32,21 @@ use pango::FontDescription;
 pub struct Rectangle {
     pub x: f64,
     pub y: f64,
-    pub w: f64,
-    pub h: f64,
+    pub width: f64,
+    pub height: f64,
 }
 
 impl Rectangle {
     pub const fn new(at: Point<f64>, size: Size<f64>) -> Result<Self, Never> {
-        Ok(Self { x: at.x, y: at.y, w: size.width, h: size.height })
+        Ok(Self { x: at.x, y: at.y, width: size.width, height: size.height })
     }
 
     pub fn inset(self, border: f64) -> Result<Self, Never> {
         Ok(Self {
             x: self.x + border,
             y: self.y + border,
-            w: (self.w - 2.0 * border).max(0.0),
-            h: (self.h - 2.0 * border).max(0.0),
+            width: (self.width - 2.0 * border).max(0.0),
+            height: (self.height - 2.0 * border).max(0.0),
         })
     }
 }
@@ -105,7 +105,7 @@ impl Surface {
     pub fn clear(&self, at: Rectangle) -> Result<(), Never> {
         let _ = self.cairo.save();
         self.cairo.set_operator(cairo::Operator::Clear);
-        self.cairo.rectangle(at.x, at.y, at.w, at.h);
+        self.cairo.rectangle(at.x, at.y, at.width, at.height);
         let _ = self.cairo.fill();
         let _ = self.cairo.restore();
 
@@ -113,23 +113,23 @@ impl Surface {
     }
 
     fn trace(&self, at: Rectangle, rounding: i32) -> Result<(), Never> {
-        let Rectangle { x, y, w, h } = at;
+        let Rectangle { x, y, width, height } = at;
 
         match rounding <= 0 {
             true => {
-                self.cairo.rectangle(x, y, w, h);
+                self.cairo.rectangle(x, y, width, height);
                 return Ok(());
             }
             false => {},
         }
 
-        let r = f64::from(rounding);
+        let radius = f64::from(rounding);
         let pi = std::f64::consts::PI;
         self.cairo.new_sub_path();
-        self.cairo.arc(x + w - r, y + r, r, -pi / 2.0, 0.0);
-        self.cairo.arc(x + w - r, y + h - r, r, 0.0, pi / 2.0);
-        self.cairo.arc(x + r, y + h - r, r, pi / 2.0, pi);
-        self.cairo.arc(x + r, y + r, r, pi, 3.0 * pi / 2.0);
+        self.cairo.arc(x + width - radius, y + radius, radius, -pi / 2.0, 0.0);
+        self.cairo.arc(x + width - radius, y + height - radius, radius, 0.0, pi / 2.0);
+        self.cairo.arc(x + radius, y + height - radius, radius, pi / 2.0, pi);
+        self.cairo.arc(x + radius, y + radius, radius, pi, 3.0 * pi / 2.0);
         self.cairo.close_path();
 
         Ok(())
@@ -158,16 +158,16 @@ impl Surface {
         let Ok(()) = self.set_source(color);
         self.layout.set_font_description(Some(font));
         self.layout.set_text(label);
-        let (text_w, text_h) = self.layout.pixel_size();
-        let dx = (at.w - f64::from(text_w)) / 2.0;
-        let dy = (at.h - f64::from(text_h)) / 2.0;
+        let (text_width, text_height) = self.layout.pixel_size();
+        let offset_x = (at.width - f64::from(text_width)) / 2.0;
+        let offset_y = (at.height - f64::from(text_height)) / 2.0;
         let Ok(inner) = at.inset(border);
-        let Ok(across) = toward_zero_i32(inner.w);
-        let Ok(down) = toward_zero_i32(inner.h);
+        let Ok(across) = toward_zero_i32(inner.width);
+        let Ok(down) = toward_zero_i32(inner.height);
 
         self.layout.set_width(across.saturating_mul(pango::SCALE));
         self.layout.set_height(down.saturating_mul(pango::SCALE));
-        self.cairo.move_to(inner.x + dx, inner.y + dy);
+        self.cairo.move_to(inner.x + offset_x, inner.y + offset_y);
         pangocairo::functions::show_layout(&self.cairo, &self.layout);
         let _ = self.cairo.restore();
 
@@ -175,12 +175,12 @@ impl Surface {
     }
 
     fn set_source(&self, color: Color) -> Result<(), Never> {
-        let [b, g, r, a] = color.0;
+        let [blue, green, red, alpha] = color.0;
         self.cairo.set_source_rgba(
-            f64::from(r) / 255.0,
-            f64::from(g) / 255.0,
-            f64::from(b) / 255.0,
-            f64::from(a) / 255.0,
+            f64::from(red) / 255.0,
+            f64::from(green) / 255.0,
+            f64::from(blue) / 255.0,
+            f64::from(alpha) / 255.0,
         );
 
         Ok(())
@@ -192,15 +192,15 @@ mod tests {
     use super::*;
     use std::cell::RefCell;
 
-    fn buffer(w: i32, h: i32) -> RefCell<Vec<u8>> {
-        RefCell::new(vec![0; (w * 4 * h).try_into().unwrap()])
+    fn buffer(width: i32, height: i32) -> RefCell<Vec<u8>> {
+        RefCell::new(vec![0; (width * 4 * height).try_into().unwrap()])
     }
 
     #[test]
     fn fill_rectangle_writes_some_non_zero_pixel() {
-        let buf = buffer(20, 20);
+        let buffer = buffer(20, 20);
         {
-            let mut bytes = buf.borrow_mut();
+            let mut bytes = buffer.borrow_mut();
             let surface = match Surface::new(&mut bytes, Stride(20 * 4), 20, 1.0) {
                 Ok(Some(surface)) => surface,
                 Ok(None) | Err(_) => panic!("a surface over the test buffer"),
@@ -209,7 +209,7 @@ mod tests {
             let Ok(at) = Rectangle::new(Point { x: 5.0, y: 5.0 }, Size { width: 10.0, height: 10.0 });
             let Ok(()) = surface.fill_rectangle(red, at, 0);
         }
-        let bytes = buf.borrow();
+        let bytes = buffer.borrow();
         assert_eq!(bytes[10 * 20 * 4 + 10 * 4], 0x00);
         assert_eq!(bytes[10 * 20 * 4 + 10 * 4 + 1], 0x00);
         assert_eq!(bytes[10 * 20 * 4 + 10 * 4 + 2], 0xff);
@@ -218,9 +218,9 @@ mod tests {
 
     #[test]
     fn clear_makes_the_pixel_transparent() {
-        let buf = buffer(10, 10);
+        let buffer = buffer(10, 10);
         {
-            let mut bytes = buf.borrow_mut();
+            let mut bytes = buffer.borrow_mut();
             let surface = match Surface::new(&mut bytes, Stride(10 * 4), 10, 1.0) {
                 Ok(Some(surface)) => surface,
                 Ok(None) | Err(_) => panic!("a surface over the test buffer"),
@@ -230,7 +230,7 @@ mod tests {
             let Ok(()) = surface.fill_rectangle(white, at, 0);
             let Ok(()) = surface.clear(at);
         }
-        let bytes = buf.borrow();
+        let bytes = buffer.borrow();
         for byte in bytes.iter() {
             assert_eq!(*byte, 0);
         }
@@ -240,8 +240,8 @@ mod tests {
     fn insetting_past_the_middle_gives_nothing_rather_than_a_backwards_rectangle() {
         let Ok(cell) = Rectangle::new(Point { x: 10.0, y: 10.0 }, Size { width: 8.0, height: 4.0 });
         let Ok(inner) = cell.inset(6.0);
-        assert_eq!(inner.w, 0.0, "the width went backwards: {inner:?}");
-        assert_eq!(inner.h, 0.0, "the height went backwards: {inner:?}");
+        assert_eq!(inner.width, 0.0, "the width went backwards: {inner:?}");
+        assert_eq!(inner.height, 0.0, "the height went backwards: {inner:?}");
         assert!(inner.x >= cell.x && inner.y >= cell.y, "the corner moved out: {inner:?}");
     }
 
@@ -254,10 +254,10 @@ mod tests {
 
     #[test]
     fn color_from_hex_round_trips_through_a_red_pixel() {
-        let Ok(c) = Color::from_hex("deadbe");
-        assert_eq!(c.0[0], 0xbe);
-        assert_eq!(c.0[1], 0xad);
-        assert_eq!(c.0[2], 0xde);
-        assert_eq!(c.0[3], 0xff);
+        let Ok(color) = Color::from_hex("deadbe");
+        assert_eq!(color.0[0], 0xbe);
+        assert_eq!(color.0[1], 0xad);
+        assert_eq!(color.0[2], 0xde);
+        assert_eq!(color.0[3], 0xff);
     }
 }

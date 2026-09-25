@@ -89,7 +89,7 @@ pub fn value(level: Option<&str>) -> Result<Option<i64>, Never> {
 
     let value = match said.trim_end_matches('%').parse::<i64>() {
         Ok(value) => value,
-        Err(_) => return Ok(None),
+        Err(_not_a_number) => return Ok(None),
     };
 
     Ok(Some(value))

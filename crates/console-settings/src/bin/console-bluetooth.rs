@@ -29,7 +29,7 @@ fn bluetoothctl(arguments: &[String]) -> Result<String, Never> {
 
     let said = match asking.args(arguments).output() {
         Ok(said) => said,
-        Err(_) => return Ok(String::new()),
+        Err(_would_not_start) => return Ok(String::new()),
     };
 
     Ok(format!(

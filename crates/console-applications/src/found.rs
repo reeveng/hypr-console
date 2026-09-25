@@ -92,7 +92,7 @@ fn icons_changed_at() -> Result<std::time::SystemTime, Never> {
     for root in roots {
         let about = match root.metadata() {
             Ok(about) => about,
-            Err(_fault) => continue,
+            Err(_unreadable) => continue,
         };
 
         newest = newest.max(match about.modified() {
@@ -102,7 +102,7 @@ fn icons_changed_at() -> Result<std::time::SystemTime, Never> {
 
         let reading = match std::fs::read_dir(&root) {
             Ok(reading) => reading,
-            Err(_fault) => continue,
+            Err(_unreadable) => continue,
         };
 
         for child in reading.filter_map(Result::ok) {
@@ -179,7 +179,7 @@ fn steam_icon(appid: &str) -> Result<Option<String>, Never> {
 
         let reading = match std::fs::read_dir(&cache) {
             Ok(reading) => reading,
-            Err(_fault) => continue,
+            Err(_unreadable) => continue,
         };
 
         let mut paths: Vec<PathBuf> =
@@ -196,7 +196,7 @@ fn steam_icon(appid: &str) -> Result<Option<String>, Never> {
 
             let head = match read_head(&path) {
                 Ok(head) => head,
-                Err(_fault) => continue 'over_pictures,
+                Err(_unreadable) => continue 'over_pictures,
             };
 
             let size = image::size(&head)?;
@@ -264,14 +264,14 @@ fn pictured(found: Option<String>, index: &BTreeMap<String, String>) -> Result<O
 }
 
 pub struct Found {
-    pub apps: BTreeMap<String, Application>,
+    pub applications: BTreeMap<String, Application>,
     pub icon: BTreeMap<String, String>,
 }
 
 pub fn machine() -> Result<Found, Never> {
     let index = index()?;
 
-    let mut apps: BTreeMap<String, Application> = BTreeMap::new();
+    let mut applications: BTreeMap<String, Application> = BTreeMap::new();
     let mut icon: BTreeMap<String, String> = BTreeMap::new();
 
     let roots = console_core_places::applications()?;
@@ -281,41 +281,41 @@ pub fn machine() -> Result<Found, Never> {
     for path in files {
         let said = match std::fs::read_to_string(&path) {
             Ok(said) => said,
-            Err(_fault) => continue,
+            Err(_unreadable) => continue,
         };
 
-        let app = entry::read(&said, installed)?;
+        let application = entry::read(&said, installed)?;
 
-        let app = match app {
-            Some(app) => app,
+        let application = match application {
+            Some(application) => application,
             None => continue,
         };
 
-        match apps.contains_key(&app.name) {
+        match applications.contains_key(&application.name) {
             true => continue,
             false => {},
         }
 
-        let found = icon_at(&app.icon, &index)?;
+        let found = icon_at(&application.icon, &index)?;
         let found = pictured(found, &index)?;
 
         match found {
             Some(found) => {
-                icon.insert(app.name.clone(), found);
+                icon.insert(application.name.clone(), found);
             }
             None => {},
         }
 
-        apps.insert(app.name.clone(), app);
+        applications.insert(application.name.clone(), application);
     }
 
-    keep(&apps, &icon)?;
+    keep(&applications, &icon)?;
 
-    Ok(Found { apps, icon })
+    Ok(Found { applications, icon })
 }
 
 pub fn quickly() -> Result<Found, Never> {
-    let mut apps: BTreeMap<String, Application> = BTreeMap::new();
+    let mut applications: BTreeMap<String, Application> = BTreeMap::new();
 
     let roots = console_core_places::applications()?;
 
@@ -324,20 +324,20 @@ pub fn quickly() -> Result<Found, Never> {
     for path in files {
         let said = match std::fs::read_to_string(&path) {
             Ok(said) => said,
-            Err(_fault) => continue,
+            Err(_unreadable) => continue,
         };
 
-        let app = entry::read(&said, installed)?;
+        let application = entry::read(&said, installed)?;
 
-        let app = match app {
-            Some(app) => app,
+        let application = match application {
+            Some(application) => application,
             None => continue,
         };
 
-        apps.entry(app.name.clone()).or_insert(app);
+        applications.entry(application.name.clone()).or_insert(application);
     }
 
-    Ok(Found { apps, icon: BTreeMap::new() })
+    Ok(Found { applications, icon: BTreeMap::new() })
 }
 
 fn said_at(at: Option<PathBuf>) -> Result<String, Never> {
@@ -359,7 +359,7 @@ fn said_at(at: Option<PathBuf>) -> Result<String, Never> {
 }
 
 pub fn remembered() -> Result<Found, Never> {
-    let mut apps: BTreeMap<String, Application> = BTreeMap::new();
+    let mut applications: BTreeMap<String, Application> = BTreeMap::new();
     let mut icon: BTreeMap<String, String> = BTreeMap::new();
 
     let at = kept_at()?;
@@ -373,18 +373,18 @@ pub fn remembered() -> Result<Found, Never> {
         match held.picture.is_empty() {
             true => {},
             false => {
-                icon.insert(held.app.name.clone(), held.picture);
+                icon.insert(held.application.name.clone(), held.picture);
             }
         }
 
-        apps.insert(held.app.name.clone(), held.app);
+        applications.insert(held.application.name.clone(), held.application);
     }
 
-    Ok(Found { apps, icon })
+    Ok(Found { applications, icon })
 }
 
 fn keep(
-    apps: &BTreeMap<String, Application>,
+    applications: &BTreeMap<String, Application>,
     icon: &BTreeMap<String, String>,
 ) -> Result<(), Never> {
     let held = kept_at()?;
@@ -394,7 +394,7 @@ fn keep(
         None => return Ok(()),
     };
 
-    let said = cache::written(apps, icon)?;
+    let said = cache::written(applications, icon)?;
 
     match std::fs::read_to_string(&at).is_ok_and(|before| before == said) {
         true => return Ok(()),
@@ -415,21 +415,21 @@ pub fn counted() -> Result<BTreeMap<String, u64>, Never> {
     counts::read(&said)
 }
 
-pub fn command(app: &Application) -> Result<Option<Vec<String>>, Never> {
-    bump(&app.name)?;
+pub fn command(application: &Application) -> Result<Option<Vec<String>>, Never> {
+    bump(&application.name)?;
 
-    let words = words::split(&app.command)?;
+    let words = words::split(&application.command)?;
 
     let mut arguments = match words {
         Some(arguments) => arguments,
         None => {
-            eprintln!("{}: {:?} is not a command", app.name, app.command);
+            eprintln!("{}: {:?} is not a command", application.name, application.command);
 
             return Ok(None);
         }
     };
 
-    match app.terminal {
+    match application.terminal {
         true => {
             let Ok(alacritty) = Program::Alacritty.name();
 
@@ -441,7 +441,7 @@ pub fn command(app: &Application) -> Result<Option<Vec<String>>, Never> {
 
     let who = whoami()?;
 
-    eprintln!("{who} chose {}: {}", app.name, arguments.join(" "));
+    eprintln!("{who} chose {}: {}", application.name, arguments.join(" "));
 
     Ok(Some(arguments))
 }

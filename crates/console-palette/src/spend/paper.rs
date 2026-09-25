@@ -72,7 +72,7 @@ mod tests {
         let unit = spend(&blossom()).expect("every color it spends is declared");
         let (_, color) = unit.rsplit_once(' ').expect("a color at the end");
         assert_eq!(color.len(), 6, "{color:?}");
-        assert!(color.chars().all(|c| c.is_ascii_hexdigit()), "{color:?}");
+        assert!(color.chars().all(|digit| digit.is_ascii_hexdigit()), "{color:?}");
     }
 
     #[test]

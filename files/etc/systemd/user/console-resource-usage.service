@@ -6,9 +6,11 @@ PartOf=console.target
 Type=oneshot
 ExecStart=/usr/local/bin/console-resource-usage note
 
-# It reads /proc and /sys and appends one line under the home directory, and
-# that is the whole of it. No device, and no socket of any family: nothing here
-# asks the compositor or the bus anything, which is what makes a reading taken
-# while no one is watching cheap enough to take again in five minutes.
+# It reads /proc, /sys and the core dumps' directory, asks systemctl how often
+# each unit was restarted, and appends one line under the home directory, and
+# that is the whole of it. No device, and no socket but the local one systemctl
+# reaches the managers through: nothing here asks the compositor or the
+# network anything, which is what makes a reading taken while no one is
+# watching cheap enough to take again in five minutes.
 PrivateDevices=yes
-RestrictAddressFamilies=none
+RestrictAddressFamilies=AF_UNIX

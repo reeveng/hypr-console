@@ -5,13 +5,6 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
-# The closed list of shapes this desktop draws, and nothing that draws one.
-#
-# A toolkit is an engine for arbitrary arrangement and this device has one
-# arrangement, so what replaces it is a list that can be matched over. Whether
-# the list closes is the first question this crate is asking, and 016 makes a
-# shape added later announce itself at every place it matters.
-
 [lib]
 name = "console_core_shapes"
 path = "src/lib.rs"

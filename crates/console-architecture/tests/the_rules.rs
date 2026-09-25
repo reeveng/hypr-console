@@ -116,7 +116,7 @@ fn every_topic_the_pool_serves_has_a_source() {
     );
 }
 
-const TICKING: [(&str, &str); 7] = [
+const TICKING: [(&str, &str); 6] = [
     (
         "console-music",
         "`music-bar` draws its line again every ten seconds underneath its Player and Compositor \
@@ -126,11 +126,6 @@ const TICKING: [(&str, &str); 7] = [
         "console-wallpaper",
         "the sky changes with the hour, and the wait is for the next change the sky itself named rather than \
          a reading of the compositor taken again",
-    ),
-    (
-        "console-panel",
-        "a card with no rows waits a moment for its first reading before it draws; a patience rather than a \
-         period, which this rule cannot tell apart",
     ),
     (
         "console-status-bar",

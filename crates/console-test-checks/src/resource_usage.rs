@@ -22,6 +22,18 @@ pub const KEPT: Check = Check {
     bodies: &[Body::Device(kept_there)],
 };
 
+pub const ON_ITS_OWN: Check = Check {
+    name: "451-the-timer-reading-is-taken-whole",
+    about: "The reading the timer takes, inside its unit's sandbox, is taken without a complaint about anything it could not ask.",
+    feature: "resource-usage",
+    since: "2026-09-25",
+    bodies: &[Body::Device(taken_on_its_own)],
+};
+
+const UNIT: &str = "console-resource-usage.service";
+
+const COMPLAINT: &str = "console-resource-usage:";
+
 const STORE: &str = ".cache/console-resource-usage-check.jsonl";
 
 const A_PROGRAM: &str = "% of a core";
@@ -40,5 +52,15 @@ fn kept_there(stage: &mut Device) -> CheckResult {
     match said.contains(A_PROGRAM) {
         true => Ok(()),
         false => failed(format!("two readings came to {said:?}")),
+    }
+}
+
+fn taken_on_its_own(stage: &mut Device) -> CheckResult {
+    let Ok(_) = stage.user(&format!("systemctl --user start {UNIT}"));
+    let Ok(said) = stage.user(&format!("journalctl --user -u {UNIT} -o cat --since=-1min --no-pager"));
+
+    match said.contains(COMPLAINT) {
+        false => Ok(()),
+        true => failed(format!("the timer's reading said {said:?}")),
     }
 }

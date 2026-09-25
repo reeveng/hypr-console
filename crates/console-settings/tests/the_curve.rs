@@ -11,7 +11,7 @@
 
 use std::path::{Path, PathBuf};
 
-use console_settings::warm::config;
+use console_settings::warm::configuration;
 
 const LIVE: &str = "files/home/@user@/.config/console/hypr/hyprsunset.conf";
 
@@ -27,11 +27,11 @@ fn the_config_in_the_tree_is_the_curve_this_workspace_says() {
     let at = tree().join(LIVE);
     let held = std::fs::read_to_string(&at)
         .unwrap_or_else(|fault| panic!("{}: {fault}", at.display()));
-    let Ok(config) = config();
+    let Ok(configuration) = configuration();
 
     assert_eq!(
         held,
-        config,
+        configuration,
         "{} is not what `console-warm curve` prints. Write it again:\n\
          \n    cargo run --bin console-warm -- curve > {LIVE}\n",
         at.display()

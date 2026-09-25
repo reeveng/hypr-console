@@ -113,7 +113,7 @@ pub enum Closed {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Request {
-    pub app: String,
+    pub application: String,
     pub replacing: u32,
     pub summary: String,
     pub body: String,
@@ -166,7 +166,7 @@ impl Holding {
         let held = ActiveNotification {
             notification: Notification {
                 id,
-                app: asked.app.clone(),
+                application: asked.application.clone(),
                 summary: asked.summary.clone(),
                 body: asked.body.clone(),
                 urgency: asked.urgency,
@@ -388,7 +388,7 @@ pub fn going(every: &[u32], why: Why) -> Result<Vec<Message>, Never> {
 }
 
 pub fn asked(values: &[Value]) -> Result<Option<Request>, Never> {
-    let Ok(app) = worded(values.first());
+    let Ok(application) = worded(values.first());
     let Ok(summary) = worded(values.get(3));
     let Ok(body) = worded(values.get(4));
 
@@ -411,7 +411,7 @@ pub fn asked(values: &[Value]) -> Result<Option<Request>, Never> {
     let Ok(expiry) = lasting(asking, urgency);
     let Ok(replacing) = counted(values.get(1));
 
-    Ok(Some(Request { app, replacing, summary, body, urgency, expiry, value }))
+    Ok(Some(Request { application, replacing, summary, body, urgency, expiry, value }))
 }
 
 enum Enough {
@@ -705,7 +705,7 @@ mod tests {
 
         assert_eq!(held.notification.summary, "Notifications fell over");
         assert_eq!(held.notification.body, "the body");
-        assert_eq!(held.notification.app, "Console");
+        assert_eq!(held.notification.application, "Console");
     }
 
     #[test]

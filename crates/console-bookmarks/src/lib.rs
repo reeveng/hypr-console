@@ -271,8 +271,8 @@ pub fn keep(where_: Where<'_>, bookmarks: &[Bookmark]) -> Result<(), Unkept> {
             }
         };
 
-        let Ok(app) = application(bookmark, icon.as_deref());
-        let Ok(said) = entry::written(&app);
+        let Ok(application) = application(bookmark, icon.as_deref());
+        let Ok(said) = entry::written(&application);
         let Ok(at) = entry_at(where_.among, &bookmark.id);
 
         console_core_atomic_writes::whole(&at, said.as_bytes())?;
@@ -443,8 +443,8 @@ d\thttps://example.com/\tA page
     #[test]
     fn what_opens_a_bookmark_is_the_address_it_was_given() {
         let bookmark = one("a", "https://example.com/?q=a b&r=2", "A page");
-        let app = ok(application(&bookmark, None));
-        let Ok(read) = console_applications::words::without_field_codes(&app.command);
+        let application = ok(application(&bookmark, None));
+        let Ok(read) = console_applications::words::without_field_codes(&application.command);
 
         assert_eq!(
             ok(console_applications::words::split(&read)),

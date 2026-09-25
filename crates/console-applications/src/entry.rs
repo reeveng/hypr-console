@@ -129,23 +129,23 @@ pub fn read(
     }))
 }
 
-pub fn written(app: &Application) -> Result<String, Never> {
+pub fn written(application: &Application) -> Result<String, Never> {
     let one_line = |said: &str| -> String { said.chars().filter(|letter| !letter.is_control()).collect() };
 
-    let terminal = match app.terminal {
+    let terminal = match application.terminal {
         true => "true",
         false => "false",
     };
 
-    let icon = match app.icon.is_empty() {
+    let icon = match application.icon.is_empty() {
         true => String::new(),
-        false => format!("Icon={}\n", one_line(&app.icon)),
+        false => format!("Icon={}\n", one_line(&application.icon)),
     };
 
     Ok(format!(
         "[{GROUP}]\nType=Application\nName={}\nExec={}\n{icon}Terminal={terminal}\n",
-        one_line(&app.name),
-        one_line(&app.command),
+        one_line(&application.name),
+        one_line(&application.command),
     ))
 }
 
@@ -192,7 +192,7 @@ fn under(root: &Path) -> Result<Vec<PathBuf>, Never> {
 fn listed(directory: &Path) -> Result<Vec<PathBuf>, Never> {
     let reading = match std::fs::read_dir(directory) {
         Ok(reading) => reading,
-        Err(_fault) => return Ok(Vec::new()),
+        Err(_unreadable) => return Ok(Vec::new()),
     };
 
     let mut names: Vec<PathBuf> = reading.filter_map(Result::ok).map(|entry| entry.path()).collect();
@@ -272,26 +272,26 @@ Exec=firefox --new-window
 
     #[test]
     fn what_is_written_is_what_is_read_back() {
-        let app = Application {
+        let application = Application {
             name: "Hacker News".to_string(),
             command: "xdg-open \"https://news.ycombinator.com/?q=a b\"".to_string(),
             terminal: false,
             icon: "/home/someone/.local/share/console/bookmark-icons/abc".to_string(),
         };
-        let Ok(said) = written(&app);
+        let Ok(said) = written(&application);
 
-        assert_eq!(ok(read(&said, anything)), Some(app));
+        assert_eq!(ok(read(&said, anything)), Some(application));
     }
 
     #[test]
     fn a_name_with_a_line_break_in_it_is_still_one_line() {
-        let app = Application {
+        let application = Application {
             name: "Two\nLines".to_string(),
             command: "xdg-open https://example.com".to_string(),
             terminal: false,
             icon: String::new(),
         };
-        let Ok(said) = written(&app);
+        let Ok(said) = written(&application);
 
         assert_eq!(said.lines().count(), 5, "{said}");
         assert_eq!(ok(read(&said, anything)).expect("an entry").name, "TwoLines");

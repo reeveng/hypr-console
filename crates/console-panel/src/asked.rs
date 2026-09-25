@@ -19,13 +19,11 @@
 //! The write end never closes, because the process it speaks for is what it
 //! outlives. The read end is handed to whoever asked and the loop owns it.
 
-use std::os::fd::{AsRawFd, OwnedFd};
+use std::os::fd::{AsRawFd, BorrowedFd, OwnedFd};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicI32, Ordering};
 
 use console_core_never::Never;
-
-pub const STOPPING: [i32; 3] = [libc::SIGHUP, libc::SIGINT, libc::SIGTERM];
 
 const NOWHERE: i32 = -1;
 
@@ -66,31 +64,18 @@ pub fn told() -> Result<Option<OwnedFd>, Never> {
 
     TELLING.store(raw, Ordering::SeqCst);
 
-    #[cfg_attr(
-        dylint_lib = "explicit051_no_machine_width",
-        allow(
-            explicit051_no_machine_width,
-            reason = "`signal` takes a `sighandler_t`, which is the machine's width by the C ABI and not by choice here"
-        )
-    )]
-    #[cfg_attr(
-        dylint_lib = "explicit011_no_as_cast",
-        allow(
-            explicit011_no_as_cast,
-            reason = "no trait turns a function into the number `signal` takes, which is the same reason `picker` gives two files over"
-        )
-    )]
-    let answer = asked as extern "C" fn(libc::c_int) as libc::sighandler_t;
+    // SAFETY: the handler allocates nothing and writes one byte to a pipe.
+    let answering = unsafe { console_signals::answered(&console_signals::STOPPING, asked) };
 
-    for number in STOPPING {
-        // SAFETY: the handler allocates nothing and writes one byte to a pipe.
-        unsafe { libc::signal(number, answer) };
+    match answering {
+        Ok(()) => {},
+        Err(fault) => eprintln!("console-panel: {fault}"),
     }
 
     Ok(Some(hear))
 }
 
-extern "C" fn asked(_number: libc::c_int) {
+extern "C" fn asked(_number: core::ffi::c_int) {
     let telling = TELLING.load(Ordering::SeqCst);
 
     match telling {
@@ -98,8 +83,9 @@ extern "C" fn asked(_number: libc::c_int) {
         fd => {
             let said: [u8; 1] = [1];
 
-            // SAFETY: one byte to a pipe this process opened and still holds.
-            let _ = unsafe { libc::write(fd, said.as_ptr().cast(), 1) };
+            // SAFETY: a pipe this process opened and still holds, borrowed for one write.
+            let held = unsafe { BorrowedFd::borrow_raw(fd) };
+            let _ = rustix::io::write(held, &said);
         }
     }
 }

@@ -115,7 +115,7 @@ fn holding_a_trigger_pulls_it_all_the_way() {
     pad.hold("l2").expect("l2");
     let pulled = ok(pad.devices.sink.of_kind("pad", EventType::ABSOLUTE, Some(2)));
     let range = pad.devices.axis("pad", 2).expect("ABS_Z");
-    assert_eq!(pulled.last().map(|written| written.value), Some(range.max));
+    assert_eq!(pulled.last().map(|written| written.value), Some(range.maximum));
 }
 
 #[test]
@@ -146,8 +146,8 @@ fn the_touchpad_is_not_in_the_profile_loop_at_all() {
     let mut pad = go(console_input_gamepad::router::NAME);
     ok(pad.tap(Point { x: 300, y: 400 }));
     let touched = ok(pad.devices.sink.written("touchpad"));
-    assert_eq!(touched.first().map(|w| (w.kind, w.code, w.value)), Some((EventType::KEY, KeyCode::BTN_TOUCH.0, 1)));
-    assert!(touched.iter().any(|w| w.kind == EventType::ABSOLUTE && w.value == 300));
+    assert_eq!(touched.first().map(|written| (written.kind, written.code, written.value)), Some((EventType::KEY, KeyCode::BTN_TOUCH.0, 1)));
+    assert!(touched.iter().any(|written| written.kind == EventType::ABSOLUTE && written.value == 300));
 }
 
 #[test]

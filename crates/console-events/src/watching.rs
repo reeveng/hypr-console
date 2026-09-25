@@ -102,7 +102,7 @@ fn round(folder: &Path, say: &Sender<Change>) -> Result<Round, Never> {
                 event.wd(),
                 event.file_name().map(|name| OsStr::from_bytes(name.to_bytes()).to_os_string()),
             ),
-            Err(_fault) => return Ok(Round::Another),
+            Err(_unreadable) => return Ok(Round::Another),
         };
 
         let at = match (watched.get(&within), name) {
@@ -189,7 +189,8 @@ fn added(listening: &OwnedFd, from: &Path, watched: &mut BTreeMap<i32, PathBuf>)
 
             match (hidden, entry.file_type().map(|kind| kind.is_dir())) {
                 (false, Ok(true)) => walking.push(entry.path()),
-                (false, Ok(false) | Err(_)) | (true, Ok(_) | Err(_)) => {},
+                (false, Ok(false)) | (true, Ok(_)) => {},
+                (false | true, Err(_the_kind_is_unknown)) => {},
             }
         }
     }

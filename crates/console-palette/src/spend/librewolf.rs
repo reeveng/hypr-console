@@ -23,7 +23,7 @@ pub fn stylesheet(palette: &Palette) -> Result<String, Short> {
     ))
 }
 
-pub fn prefs(palette: &Palette) -> Result<String, Short> {
+pub fn preferences(palette: &Palette) -> Result<String, Short> {
     [
         ("browser.display.background_color", "night"),
         ("browser.display.background_color.dark", "night"),
@@ -65,24 +65,24 @@ mod tests {
 
     #[test]
     fn a_page_that_has_not_painted_is_painted_the_darkest_ground() {
-        let js = prefs(&blossom()).expect("every color it spends is declared");
+        let script = preferences(&blossom()).expect("every color it spends is declared");
         let palette = blossom();
         let night = palette.must("night").expect("a declared color");
-        assert!(js.contains(&format!("\"browser.display.background_color\", \"#{night}\"")));
-        assert!(js.contains(&format!("\"browser.display.background_color.dark\", \"#{night}\"")));
+        assert!(script.contains(&format!("\"browser.display.background_color\", \"#{night}\"")));
+        assert!(script.contains(&format!("\"browser.display.background_color.dark\", \"#{night}\"")));
     }
 
     #[test]
     fn a_link_and_a_visited_link_are_told_apart() {
-        let js = prefs(&blossom()).expect("every color it spends is declared");
+        let script = preferences(&blossom()).expect("every color it spends is declared");
         let palette = blossom();
         assert_ne!(palette.must("sky").expect("a declared color"), palette.must("mauve").expect("a declared color"));
-        assert!(js.contains(&format!("anchor_color\", \"#{}\"", palette.must("sky").expect("a declared color"))));
-        assert!(js.contains(&format!("visited_color\", \"#{}\"", palette.must("mauve").expect("a declared color"))));
+        assert!(script.contains(&format!("anchor_color\", \"#{}\"", palette.must("sky").expect("a declared color"))));
+        assert!(script.contains(&format!("visited_color\", \"#{}\"", palette.must("mauve").expect("a declared color"))));
     }
 
     #[test]
     fn the_prefs_are_a_block_to_splice_and_do_not_end_in_a_newline() {
-        assert!(!prefs(&blossom()).expect("every color it spends is declared").ends_with('\n'));
+        assert!(!preferences(&blossom()).expect("every color it spends is declared").ends_with('\n'));
     }
 }

@@ -5,8 +5,6 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
-# Not in `[build]`: the map is drawn on the machine that develops this, out of
-# what the compiler saw here, and nothing on the device runs it.
 [[bin]]
 name = "console-architecture"
 path = "src/main.rs"

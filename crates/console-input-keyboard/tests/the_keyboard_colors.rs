@@ -117,16 +117,16 @@ fn a_pressed_key_is_not_the_key_under_the_stick() {
             .unwrap_or_else(|| panic!("--{option} has no color in the palette"))
             .clone()
     };
-    let (press, sel) = (color("press"), color("sel"));
-    assert_ne!(press, sel, "--press and --sel are the same color, so a key never looks typed");
+    let (press, selected) = (color("press"), color("sel"));
+    assert_ne!(press, selected, "--press and --sel are the same color, so a key never looks typed");
 
     let Ok(pressed) = console_core_color::to_oklch(&press);
-    let Ok(under) = console_core_color::to_oklch(&sel);
+    let Ok(under) = console_core_color::to_oklch(&selected);
     let round = (pressed.hue - under.hue).abs();
     let apart = round.min(360.0 - round);
     assert!(
         apart >= APART,
-        "--press (#{press}) and --sel (#{sel}) are {apart:.1} degrees of hue apart, under the \
+        "--press (#{press}) and --sel (#{selected}) are {apart:.1} degrees of hue apart, under the \
          {APART:.0} two pastels of one lightness need to read as two colors. They are the same \
          key a moment apart, so a thumb cannot tell what it has just done."
     );
@@ -168,7 +168,7 @@ fn no_color_is_written_as_anything_but_six_digits() {
         let given = arguments.iter().skip_while(|word| **word != format!("--{option}")).nth(1).expect(option);
         assert_eq!(given.len(), 6, "--{option} is given {given}");
         assert!(
-            given.chars().all(|l| l.is_ascii_hexdigit()),
+            given.chars().all(|digit| digit.is_ascii_hexdigit()),
             "--{option} is given {given}. A color here is six digits and nothing else: the \
              keyboard is read against the wallpaper, and anything after them is an alpha."
         );

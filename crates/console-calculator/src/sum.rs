@@ -146,7 +146,7 @@ impl Sum {
     fn value(&self) -> Result<f64, Never> {
         Ok(match self.entry.parse::<f64>() {
             Ok(value) => value,
-            Err(_) => 0.0,
+            Err(_not_a_number) => 0.0,
         })
     }
 

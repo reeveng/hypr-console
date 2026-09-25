@@ -21,7 +21,6 @@ console-input-controller.workspace = true
 console-files.workspace = true
 console-input-bindings.workspace = true
 console-input-gamepad.workspace = true
-# The devices, taken while a press is being named rather than the daemon stopped.
 console-input-focus.workspace = true
 console-core-atomic-writes.workspace = true
 console-core-never.workspace = true

@@ -9,8 +9,6 @@ license.workspace = true
 name = "console_rename"
 path = "src/lib.rs"
 
-# A dev-machine tool like console-deploy, and deliberately not in [build]:
-# renaming is something someone does to this repository, never to the device.
 [[bin]]
 name = "console-rename"
 path = "src/bin/console-rename.rs"
@@ -19,6 +17,7 @@ path = "src/bin/console-rename.rs"
 console-core-atomic-writes.workspace = true
 console-core-external-programs.workspace = true
 console-core-never.workspace = true
+console-manifest-migrations.workspace = true
 console-repository.workspace = true
 
 [lints]

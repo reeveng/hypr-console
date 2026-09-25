@@ -21,7 +21,7 @@ pub struct Output {
 }
 
 impl Output {
-    pub fn rel(code: u16, value: i32) -> Result<Self, Never> {
+    pub fn relative(code: u16, value: i32) -> Result<Self, Never> {
         Ok(Output { kind: EventType::RELATIVE, code, value })
     }
 
@@ -36,6 +36,13 @@ pub enum Effect {
     Frame(Vec<Output>),
     Tell(console_onscreen::PadInput),
     Using(console_input_bindings::bound::Input),
+    Reconnected(Reconnected),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Reconnected {
+    pub device: crate::reading::From,
+    pub gone: std::time::Duration,
 }
 
 pub use console_compositor::Carrying as Payload;
@@ -70,7 +77,7 @@ impl Effect {
                 },
                 _not_a_dispatch => None,
             },
-            Effect::Frame(_) | Effect::Tell(_) | Effect::Using(_) => None,
+            Effect::Frame(_) | Effect::Tell(_) | Effect::Using(_) | Effect::Reconnected(_) => None,
         })
     }
 }

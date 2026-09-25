@@ -267,7 +267,7 @@ type Named = BTreeMap<String, (Application, String)>;
 struct Screen {
     here: Spot,
     home: HomeScreen,
-    apps: Named,
+    applications: Named,
     carrying: Option<Carrying>,
     woken: Woken,
     pointer: Pointer,
@@ -309,7 +309,7 @@ impl Screen {
         Ok(Screen {
             here: Spot::FIRST,
             home: HomeScreen::default(),
-            apps: BTreeMap::new(),
+            applications: BTreeMap::new(),
             carrying: None,
             woken: Woken::No,
             pointer: Pointer::Elsewhere,
@@ -516,13 +516,13 @@ impl Screen {
             }
         };
 
-        let app = self.apps.get(&name).map(|(app, _)| app.clone());
+        let application = self.applications.get(&name).map(|(application, _)| application.clone());
 
-        match app {
-            Some(app) => {
+        match application {
+            Some(application) => {
                 self.hands_over()?;
 
-                let command = found::command(&app)?;
+                let command = found::command(&application)?;
 
                 match command {
                     Some(arguments) => {
@@ -704,7 +704,7 @@ impl Screen {
     }
 
     fn first(&self) -> Result<HomeScreen, Never> {
-        let names: Vec<String> = self.apps.keys().cloned().collect();
+        let names: Vec<String> = self.applications.keys().cloned().collect();
         let counted = found::counted()?;
 
         let order = console_applications::counts::order(&names, &counted)?;
@@ -974,7 +974,7 @@ fn drawing(screen: &mut Screen, wears: &Wears, room: (i32, i32)) -> Result<Drawi
                 None => continue 'over_columns,
             };
 
-            let at = screen.apps.get(&holding).map(|(_, at)| at.clone());
+            let at = screen.applications.get(&holding).map(|(_, at)| at.clone());
 
             let pixels = match at {
                 Some(at) => icon(&at, Side(side), &mut wanted)?,
@@ -1255,7 +1255,8 @@ fn heard(hear: &OwnedFd) -> Result<Search, Never> {
     let mut said = vec![0u8; room];
 
     Ok(match rustix::io::read(hear, &mut said) {
-        Ok(0) | Err(_) => Search::Finished,
+        Ok(0) => Search::Finished,
+        Err(_the_read_failed) => Search::Finished,
         Ok(_) => Search::Going,
     })
 }
@@ -1273,9 +1274,9 @@ fn found_more(
     };
 
     for found in taken {
-        let apps = named(found)?;
+        let applications = named(found)?;
 
-        screen.apps = apps;
+        screen.applications = applications;
 
         screen.reread()?;
     }
@@ -1477,7 +1478,7 @@ fn worth_asking_after(line: &str) -> Result<Worth, Never> {
         CompositorEvent::WindowRenamed(_)
         | CompositorEvent::WindowFloated
         | CompositorEvent::WindowPinned
-        | CompositorEvent::ConfigReloaded
+        | CompositorEvent::ConfigurationReloaded
         | CompositorEvent::Ignored => Worth::Ignoring,
     })
 }
@@ -1523,7 +1524,7 @@ fn holds_a_window() -> Result<Holds, Never> {
 fn anything_over_it() -> Result<Over, Never> {
     let screens = match console_onscreen::screens() {
         Ok(screens) => screens,
-        Err(_fault) => return Ok(Over::Some),
+        Err(_the_compositor_said_nothing) => return Ok(Over::Some),
     };
 
     over_the_desktop(&screens)
@@ -1531,15 +1532,15 @@ fn anything_over_it() -> Result<Over, Never> {
 
 fn named(found: found::Found) -> Result<Named, Never> {
     Ok(found
-        .apps
+        .applications
         .into_iter()
-        .map(|(name, app)| {
+        .map(|(name, application)| {
             let picture = match found.icon.get(&name) {
                 Some(picture) => picture.clone(),
                 None => String::new(),
             };
 
-            (name, (app, picture))
+            (name, (application, picture))
         })
         .collect())
 }
@@ -1567,9 +1568,9 @@ fn main() {
 
     let Ok(mut screen) = Screen::new();
     let Ok(remembered) = found::remembered();
-    let Ok(apps) = named(remembered);
+    let Ok(applications) = named(remembered);
 
-    screen.apps = apps;
+    screen.applications = applications;
 
     let Ok(()) = screen.reread();
     let Ok(()) = screen.settle(&mut surface);

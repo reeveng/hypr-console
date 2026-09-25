@@ -59,7 +59,7 @@ impl Wheel {
                 true => 1,
                 false => -1,
             };
-            let Ok(out) = Output::rel(RelativeAxisCode::REL_WHEEL.0, step);
+            let Ok(out) = Output::relative(RelativeAxisCode::REL_WHEEL.0, step);
 
             notches.push(out);
             self.y -= f64::from(step);
@@ -70,7 +70,7 @@ impl Wheel {
                 true => 1,
                 false => -1,
             };
-            let Ok(out) = Output::rel(RelativeAxisCode::REL_HWHEEL.0, step);
+            let Ok(out) = Output::relative(RelativeAxisCode::REL_HWHEEL.0, step);
 
             notches.push(out);
             self.x -= f64::from(step);

@@ -46,6 +46,7 @@ use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
 
+use crate::measuring::{self, Measuring};
 use crate::where_;
 
 pub const CAP: u64 = 10 << 30;
@@ -97,7 +98,7 @@ pub fn settled() -> Result<(), Never> {
         Ok(()) => {
             let _ = back.recv();
         }
-        Err(_) => {}
+        Err(_no_one_is_listening) => {}
     }
 
     Ok(())
@@ -135,7 +136,7 @@ fn start() -> Result<Option<SyncSender<Message>>, Never> {
 
     let started = std::thread::Builder::new()
         .name("wait-times".to_string())
-        .spawn(move || keep(&heard, &at));
+        .spawn(move || keep(&heard, &at, measuring::chosen));
 
     match started {
         Ok(_) => Ok(Some(say)),
@@ -147,15 +148,22 @@ fn start() -> Result<Option<SyncSender<Message>>, Never> {
     }
 }
 
-fn keep(heard: &Receiver<Message>, at: &Path) -> Result<(), Never> {
+fn keep(heard: &Receiver<Message>, at: &Path, asked: fn() -> Result<Measuring, Never>) -> Result<(), Never> {
     let mut store: Option<Store> = None;
 
-    for asked in heard {
-        match asked {
+    for told in heard {
+        match told {
             Message::Line(said) => {
-                let Ok(held) = written(store, at, &said);
+                let Ok(chosen) = asked();
 
-                store = held;
+                match chosen {
+                    Measuring::On => {
+                        let Ok(held) = written(store, at, &said);
+
+                        store = held;
+                    }
+                    Measuring::Off => store = None,
+                }
             }
             Message::Settled(told) => {
                 let _ = told.send(());
@@ -258,6 +266,13 @@ fn set_aside(at: &Path) -> Result<(), Never> {
 }
 
 fn by_hand(said: &str) -> Result<(), Never> {
+    let Ok(chosen) = measuring::chosen();
+
+    match chosen {
+        Measuring::On => {}
+        Measuring::Off => return Ok(()),
+    }
+
     let Ok(at) = where_();
 
     let at = match at {
@@ -318,7 +333,7 @@ mod tests {
         let _ = std::fs::remove_file(&at);
         let (say, heard) = sync_channel(8);
         let there = at.clone();
-        let thread = std::thread::spawn(move || keep(&heard, &there));
+        let thread = std::thread::spawn(move || keep(&heard, &there, on));
         say.send(Message::Line("one\n".to_string())).expect("a queue with room in it");
         let (told, back) = sync_channel(0);
         say.send(Message::Settled(told)).expect("a queue with room in it");
@@ -327,6 +342,30 @@ mod tests {
         drop(say);
         let _ = thread.join();
         let _ = std::fs::remove_file(&at);
+    }
+
+    fn on() -> Result<Measuring, Never> {
+        Ok(Measuring::On)
+    }
+
+    fn off() -> Result<Measuring, Never> {
+        Ok(Measuring::Off)
+    }
+
+    #[test]
+    fn with_measuring_off_the_thread_writes_nothing_and_still_answers() {
+        let at = somewhere("off");
+        let _ = std::fs::remove_file(&at);
+        let (say, heard) = sync_channel(8);
+        let there = at.clone();
+        let thread = std::thread::spawn(move || keep(&heard, &there, off));
+        say.send(Message::Line("one\n".to_string())).expect("a queue with room in it");
+        let (told, back) = sync_channel(0);
+        say.send(Message::Settled(told)).expect("a queue with room in it");
+        back.recv().expect("the thread says when it has caught up");
+        assert!(!at.exists(), "a line was written with measuring off");
+        drop(say);
+        let _ = thread.join();
     }
 
     #[test]

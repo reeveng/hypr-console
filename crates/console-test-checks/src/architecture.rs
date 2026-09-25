@@ -110,7 +110,7 @@ pub fn processes(said: &str) -> Result<BTreeMap<u32, Process>, Never> {
                 let Ok(binary) = base(program);
                 let _ = held.insert(pid, Process { parent, binary });
             }
-            (Some(Ok(_) | Err(_)) | None, Some(Ok(_) | Err(_)) | None, Some(_) | None) => {}
+            (Some(_) | None, Some(_) | None, Some(_) | None) => {}
         }
     }
 
@@ -127,7 +127,8 @@ fn pids(users: &str) -> Result<BTreeSet<u32>, Never> {
             Some(Ok(pid)) => {
                 let _ = found.insert(pid);
             }
-            Some(Err(_)) | None => {}
+            None => {}
+            Some(Err(_not_a_number)) => {}
         }
     }
 

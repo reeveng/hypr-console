@@ -31,8 +31,10 @@ const USAGE: &str = "usage: console-response-times [--last N] [--all] [--raw] [-
 const WINDOW: u32 = 20_000;
 
 fn main() -> ExitCode {
-    // SAFETY: one call that sets a disposition and touches nothing else.
-    unsafe { libc::signal(libc::SIGPIPE, libc::SIG_DFL) };
+    match console_signals::defaulted(console_signals::Signal::PIPE) {
+        Ok(()) => {},
+        Err(fault) => eprintln!("console-response-times: a closed pipe will be an error rather than an ending: {fault}"),
+    }
 
     let asked: Vec<String> = std::env::args().skip(1).collect();
     let mut window = Some(WINDOW);
@@ -82,7 +84,7 @@ fn main() -> ExitCode {
 
     let store = match File::open(&at) {
         Ok(store) => store,
-        Err(_fault) => {
+        Err(_unreadable) => {
             println!("nothing waited for yet: {}", at.display());
             return ExitCode::SUCCESS;
         }
@@ -143,7 +145,7 @@ fn held(store: File, window: Option<u32>) -> Result<(VecDeque<String>, u64), Nev
     for said in BufReader::new(store).lines() {
         let said = match said {
             Ok(said) => said,
-            Err(_fault) => continue,
+            Err(_the_read_failed) => continue,
         };
 
         whole = whole.saturating_add(1);

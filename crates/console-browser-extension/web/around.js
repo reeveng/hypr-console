@@ -40,10 +40,10 @@ this.around = class extends ExtensionAPI {
            types over the address rather than into the end of it. X raises the
            keyboard, as it does everywhere, and Enter is A. */
         async address() {
-          const win = window();
-          if (!win || !win.gURLBar) return false;
-          win.focus();
-          win.gURLBar.select();
+          const browserWindow = window();
+          if (!browserWindow || !browserWindow.gURLBar) return false;
+          browserWindow.focus();
+          browserWindow.gURLBar.select();
           return true;
         },
 
@@ -51,10 +51,10 @@ this.around = class extends ExtensionAPI {
            its history live. It is a list of rows that the arrows walk and
            Enter takes, so a thumb has it the moment it is open. */
         async menu() {
-          const win = window();
-          if (!win || !win.PanelUI) return false;
-          win.focus();
-          win.PanelUI.show();
+          const browserWindow = window();
+          if (!browserWindow || !browserWindow.PanelUI) return false;
+          browserWindow.focus();
+          browserWindow.PanelUI.show();
           return true;
         },
 

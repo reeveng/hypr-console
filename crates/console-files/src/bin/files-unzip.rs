@@ -168,7 +168,7 @@ fn ran(archive: &Path, unpacking: &Path) -> Result<Ran, Never> {
 fn inside(unpacking: &Path) -> Result<Vec<(String, Is)>, Never> {
     let reading = match std::fs::read_dir(unpacking) {
         Ok(reading) => reading,
-        Err(_fault) => return Ok(Vec::new()),
+        Err(_unreadable) => return Ok(Vec::new()),
     };
 
     Ok(reading

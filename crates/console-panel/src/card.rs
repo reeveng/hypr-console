@@ -76,7 +76,7 @@ impl Card {
         pages: Pages<A::Message>,
     ) -> Result<Self, Never> {
         let Ok(running) = crate::actor::supervise(start);
-        let held = running.addr.clone();
+        let held = running.address.clone();
 
         let Ok(card) = Card::new(std::sync::Arc::new(move || {
             let Ok(pages) = pages(&held);

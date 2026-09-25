@@ -1,13 +1,5 @@
-# Every program on this device, in one workspace.
-#
-# The device builds these itself: `rust` is in desktop.conf's [packages] and
-# `console apply` runs cargo before it installs. So the manifest stays the whole
-# truth about the machine, nothing compiled is kept in git, and the public copy
-# of this repository is source and nothing else.
-
 [workspace]
 members = ["crates/*"]
-# The lint suite is a workspace of its own, on a nightly of its own.
 exclude = ["tools/*"]
 resolver = "3"
 
@@ -28,6 +20,7 @@ console-calculator = { path = "crates/console-calculator" }
 console-forecast = { path = "crates/console-forecast" }
 console-core-color = { path = "crates/console-core-color" }
 console-compositor = { path = "crates/console-compositor" }
+console-concurrency = { path = "crates/console-concurrency" }
 console-control-center = { path = "crates/console-control-center" }
 console-input-controller = { path = "crates/console-input-controller" }
 console-cpu-boost = { path = "crates/console-cpu-boost" }
@@ -114,30 +107,10 @@ console-core-zip-files = { path = "crates/console-core-zip-files" }
 console-books = { path = "crates/console-books" }
 console-architecture = { path = "crates/console-architecture" }
 
-# What a debug build is allowed to cost. This tree reached 150G of `target/debug`
-# in a fortnight, on a disk that had 29G left, and neither of these two lines was
-# written at the time.
-#
-# `debug` is the larger half. Full DWARF carries every type and every local in
-# every crate, and nothing here has ever been stepped through in a debugger:
-# what a fault on this desktop is read from is the file and line in a backtrace,
-# which is what `line-tables-only` keeps. The types go, the addresses stay.
-#
-# `incremental` is the faster-growing half. Cargo never collects: a fingerprint
-# that changes writes a new hashed artifact and orphans the old one for good, and
-# an incremental session is orphaned the same day it is written -- so an age
-# window wide enough to be safe never catches one, and the daily sweep was
-# arriving to a directory that had grown faster than it could take away. A cold
-# rebuild is the price, and it is paid in minutes rather than in gigabytes.
-
 [profile.dev]
 debug = "line-tables-only"
 incremental = false
 
-# `nothing_is_written_twice` reads every function in the tree with syn and
-# compares each with every other it shares a run of tokens with. Unoptimized,
-# that is half a minute of `just test`; optimized it is seconds. The parser and
-# the crate the test lives in are the only two that pay for it.
 [profile.dev.package.console-repository]
 opt-level = 2
 
@@ -148,63 +121,17 @@ opt-level = 2
 opt-level = 2
 
 [profile.release]
-# A handheld compiles this, so the build is kept cheap. None of these programs
-# is hot: the panel waits for a thumb and the theme runs when a color changes.
 opt-level = 2
 lto = "thin"
 codegen-units = 4
 strip = true
 
-# `cargo dylint --all` finds the lint libraries here. The Explicit-Rust suite
-# lives at tools/explicit-rust; `just ready` enforces the denied rules through
-# `just explicit-gate`, and `just explicit` counts the warned ones.
 [workspace.metadata.dylint]
 libraries = [{ path = "tools/explicit-rust", pattern = "explicit*" }]
 
-# The lints, in one place. Every crate says `[lints] workspace = true` and
-# nothing else, so a rule is added here once instead of in each manifest that
-# remembers to -- and a rule written once per crate is a rule the next crate
-# forgets.
 [workspace.lints.rust]
-# `dylint_lib` is set by `cargo dylint` and by nothing else, so an EXPLICIT
-# allow at a call site is inert under an ordinary build. Declared here or that
-# build warns the name is unknown.
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(dylint_lib, values(any()))'] }
 
-# What clippy is told to stop saying, and what it is asked to say instead.
-#
-# One argument runs under every allow here: the rule the workspace wrote for
-# itself outranks the one it inherited, and where the two cannot both be
-# satisfied it is the inherited one that gives way.
-#
-# The first five want an `if` back where the workspace has written a `match`,
-# and EXPLICIT019 is the rule that put the `match` there: both outcomes on the
-# screen, each with a name, and a third outcome later is an arm rather than a
-# rewrite.
-#
-# `manual_ok_err` is the same standoff over a different word. It asks for
-# `var(..).ok()` wherever a `Result` is matched into an `Option`, and EXPLICIT001
-# and EXPLICIT006 both deny that call for a reason this file agrees with: an
-# `Option` should mean the value may not exist, not that something failed and
-# no one was told. Nothing can satisfy both at the call site, because each denies
-# what the other asks for. Settled here once rather than by an `#[allow]` beside
-# every variable a program reads.
-#
-# The last two are EXPLICIT023's side of the same standoff. `manual_let_else`
-# asks for the `let … else` the rule exists to remove, which is as direct a
-# contradiction as this file holds. `manual_unwrap_or_default` is the quieter
-# one and the more important: every guard clause whose other case is a default
-# becomes a two-armed `match`, and clippy offers `unwrap_or_default()` back.
-# On a `Result` that call is the exact fault `console-core-atomic-writes` was
-# written against -- it turns "this would not be read" into "this was empty",
-# and the machine runs on a value no one chose. The `match` is what says which
-# of the two happened, so it stays.
-#
-# `manual_unwrap_or` is that one again without the default. A number off the bus
-# that will not fit is not the number zero; zero is what this desktop's own
-# `Notify` means by *no notification is being replaced*, chosen here and named
-# in the arm that chooses it. Clippy offers `unwrap_or(0)` back and EXPLICIT001
-# denies that call, so this is the same standoff and settles the same way.
 [workspace.lints.clippy]
 single_match = "allow"
 single_match_else = "allow"
@@ -216,30 +143,18 @@ manual_let_else = "allow"
 manual_unwrap_or = "allow"
 manual_unwrap_or_default = "allow"
 
-# The other direction: stock rules that say what the suite already says, or
-# name a harm no EXPLICIT rule covers. Nothing in the tree breaks any of them
-# today, which is the only reason they are `deny` -- the same ratchet
-# tools/explicit-rust/README.md describes, spent on rules someone else wrote.
-allow_attributes_without_reason = "deny"   # EXPLICIT018, in stock clippy
-rest_pat_in_fully_bound_structs = "deny"   # EXPLICIT016's `..`, over structs
-fallible_impl_from = "deny"                # a `From` that panics instead
-iter_over_hash_type = "deny"               # an order that changes run to run
-mixed_read_write_in_expression = "deny"    # a value that depends on which side
-path_buf_push_overwrite = "deny"           # a leading `/` eating the path
-read_zero_byte_vec = "deny"                # a read into nowhere, reporting none
-debug_assert_with_mut_call = "deny"        # work the release build skips
-significant_drop_in_scrutinee = "deny"     # a lock held across every arm
-collection_is_never_read = "deny"          # filled, and then no one asks
-suspicious_operation_groupings = "deny"    # `a.x == b.x && a.y == b.x`
-empty_line_after_doc_comments = "deny"     # a blank line orphaning the prose
-empty_line_after_outer_attr = "deny"       # and the same, orphaning an attribute
+allow_attributes_without_reason = "deny"
+rest_pat_in_fully_bound_structs = "deny"
+fallible_impl_from = "deny"
+iter_over_hash_type = "deny"
+mixed_read_write_in_expression = "deny"
+path_buf_push_overwrite = "deny"
+read_zero_byte_vec = "deny"
+debug_assert_with_mut_call = "deny"
+significant_drop_in_scrutinee = "deny"
+collection_is_never_read = "deny"
+suspicious_operation_groupings = "deny"
+empty_line_after_doc_comments = "deny"
+empty_line_after_outer_attr = "deny"
 
-# Allowed here and counted by `just literals`, which is the warned tier spelled
-# for a rule someone else wrote: `ready` runs clippy with `-D warnings`, so a
-# `warn` in this table is a `deny` at the gate and there would be no distance
-# left to walk. A number literal with no type takes the fallback rustc picks for
-# it, `i32` or `f64`, and that is a width no one chose -- the fault EXPLICIT010
-# and EXPLICIT024 each spend their argument on, arrived at from the other side.
-# Kast refuses the fallback outright: there is no literal type to fall back to,
-# and what one would default to is itself a choice someone has to make.
 default_numeric_fallback = "allow"

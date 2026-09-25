@@ -69,8 +69,8 @@ fn a_picture() -> std::path::PathBuf {
     at
 }
 
-fn drawn(args: &[&str]) -> Vec<console_panel::description::Description> {
-    let Ok(mut panel) = Panel::opening("viewer", args);
+fn drawn(arguments: &[&str]) -> Vec<console_panel::description::Description> {
+    let Ok(mut panel) = Panel::opening("viewer", arguments);
 
     match panel.drawn() {
         Ok(drawn) => drawn,

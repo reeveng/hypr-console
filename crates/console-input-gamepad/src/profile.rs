@@ -126,7 +126,7 @@ impl Profile {
     pub fn read(path: &Path, yaml: &str) -> Result<Self, GamepadError> {
         let raw: Raw = serde_yaml_ng::from_str(yaml)
             .map_err(|fault| GamepadError::Parse(path.to_path_buf(), fault))?;
-        let stem = path.file_stem().map_or(String::new(), |s| s.to_string_lossy().to_string());
+        let stem = path.file_stem().map_or(String::new(), |stem| stem.to_string_lossy().to_string());
 
         let mut mappings = Vec::new();
 
@@ -187,7 +187,7 @@ impl Profile {
     }
 
     pub fn stem(&self) -> Result<String, Never> {
-        Ok(self.path.file_stem().map_or(String::new(), |s| s.to_string_lossy().to_string()))
+        Ok(self.path.file_stem().map_or(String::new(), |stem| stem.to_string_lossy().to_string()))
     }
 }
 
@@ -201,8 +201,8 @@ pub fn load_all(root: &Path) -> Result<BTreeMap<String, Profile>, GamepadError> 
         .map_err(|fault| GamepadError::Read(holding.clone(), fault))?;
     let mut found: Vec<PathBuf> = listed
         .filter_map(|entry| match entry {
-            Ok(e) => Some(e.path()),
-            Err(_) => None,
+            Ok(entry) => Some(entry.path()),
+            Err(_unreadable_entry) => None,
         })
         .filter(|path| path.extension().is_some_and(|kind| kind == "yaml"))
         .collect();

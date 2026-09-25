@@ -104,20 +104,8 @@ fn the_keyboard_is_built_and_not_also_carried() {
 }
 
 #[test]
-fn the_toggle_aims_at_the_path_the_unit_starts() {
+fn the_unit_starts_the_program_the_desktop_looks_for() {
     let path = console_input_keyboard::palette::VIRTUAL_KEYBOARD;
-    let toggle = std::path::Path::new("/usr/local/bin/keyboard-toggle");
-    assert_eq!(
-        console_input_keyboard::remote::beside(toggle),
-        Ok(std::path::PathBuf::from(path)),
-        "a toggle where the manifest installs it does not find {path}, which is what the unit \
-         starts"
-    );
-    assert_eq!(
-        console_input_keyboard::remote::pattern_for(std::path::Path::new(path)),
-        Ok(format!("^{path}( |$)")),
-        "the two ways of asking do not match {path}, which is what the unit starts"
-    );
     assert!(
         path.ends_with(console_input_controller::mode::KEYBOARD),
         "{path} is not the program the desktop looks for"
@@ -125,15 +113,14 @@ fn the_toggle_aims_at_the_path_the_unit_starts() {
 }
 
 #[test]
-fn the_toggle_and_the_keyboard_are_installed_where_one_can_find_the_other() {
+fn the_toggle_the_show_and_the_keyboard_are_all_built() {
     let held = manifest();
     let built = section(&held, "build");
 
     for name in ["keyboard-toggle", "keyboard-show", console_input_controller::mode::KEYBOARD] {
         assert!(
             built.contains(&name.to_string()),
-            "[build] does not name {name}, and the three of them being in one directory is how \
-             the toggle finds the keyboard beside it"
+            "[build] does not name {name}, so pressing X would ask a keyboard nothing installed"
         );
     }
 }

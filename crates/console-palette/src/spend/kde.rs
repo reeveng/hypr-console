@@ -144,7 +144,7 @@ mod tests {
 
     #[test]
     fn it_parses_as_the_ini_qt_would_read() {
-        for line in spend(&blossom()).expect("every color it spends is declared").lines().filter(|l| !l.is_empty()) {
+        for line in spend(&blossom()).expect("every color it spends is declared").lines().filter(|line| !line.is_empty()) {
             let shaped = line.starts_with('[') && line.ends_with(']') || line.contains('=');
             assert!(shaped, "{line:?} is neither a section nor a setting");
         }

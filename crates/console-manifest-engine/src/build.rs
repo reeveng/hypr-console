@@ -47,8 +47,8 @@ pub fn state(root: &Path, name: &str) -> Result<State, Never> {
     let Ok(live) = live(name);
 
     Ok(match (std::fs::read(made), std::fs::read(live)) {
-        (Err(_), _) => State::Unbuilt,
-        (Ok(_), Err(_)) => State::Missing,
+        (Err(_not_built), _) => State::Unbuilt,
+        (Ok(_), Err(_not_installed)) => State::Missing,
         (Ok(built), Ok(there)) => match built == there {
             true => State::Ok,
             false => State::Differs,

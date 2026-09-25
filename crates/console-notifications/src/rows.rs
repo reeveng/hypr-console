@@ -30,7 +30,7 @@ pub fn aside(notification: &Notification) -> Result<String, Never> {
     let Ok(says) = notification.urgency.says();
 
     Ok(match says {
-        "" => notification.app.clone(),
+        "" => notification.application.clone(),
         said => said.to_string(),
     })
 }
@@ -96,9 +96,9 @@ pub fn one_rows(notification: &Notification, back: &Chosen, dismiss: Handler) ->
 }
 
 fn said_by(notification: &Notification) -> Result<String, Never> {
-    Ok(match notification.app.trim().is_empty() {
+    Ok(match notification.application.trim().is_empty() {
         true => "Notification".to_string(),
-        false => notification.app.trim().to_string(),
+        false => notification.application.trim().to_string(),
     })
 }
 
@@ -203,7 +203,7 @@ mod tests {
     fn fault() -> Notification {
         Notification {
             id: 4,
-            app: "Console".to_string(),
+            application: "Console".to_string(),
             summary: "Notifications fell over".to_string(),
             body: "console-notify.service stopped".to_string(),
             urgency: Urgency::Critical,
@@ -213,7 +213,7 @@ mod tests {
     fn ordinary() -> Notification {
         Notification {
             id: 3,
-            app: "Librewolf".to_string(),
+            application: "Librewolf".to_string(),
             summary: "A download finished".to_string(),
             urgency: Urgency::Low,
             ..Notification::default()

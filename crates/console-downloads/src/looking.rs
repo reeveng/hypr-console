@@ -79,7 +79,7 @@ pub fn search(asked: &str) -> Result<Vec<String>, Never> {
 pub fn found_in(said: &str) -> Result<Vec<Found>, Never> {
     let held = match serde_json::from_str::<Value>(said) {
         Ok(held) => held,
-        Err(_fault) => return Ok(Vec::new()),
+        Err(_not_json) => return Ok(Vec::new()),
     };
 
     Ok(match held.get("entries").and_then(Value::as_array) {
@@ -235,7 +235,7 @@ pub fn written(looked: &Looked) -> Result<String, Unwritten> {
 pub fn kept(said: &str) -> Result<Looked, Never> {
     let held = match serde_json::from_str::<Value>(said) {
         Ok(held) => held,
-        Err(_fault) => return Ok(Looked::default()),
+        Err(_not_json) => return Ok(Looked::default()),
     };
 
     let word = |key: &str| {

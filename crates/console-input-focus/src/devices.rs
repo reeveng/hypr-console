@@ -7,7 +7,7 @@
 //! arrived at from inside.
 
 use std::collections::BTreeMap;
-use std::os::fd::{AsRawFd, RawFd};
+use std::os::fd::{AsFd, BorrowedFd};
 
 use console_core_words::Words;
 use console_input_gamepad::finding::{self, DeviceInfo};
@@ -126,8 +126,8 @@ impl Claim {
         Ok(self.held.iter().map(|taken| (taken.which, taken.path.as_str())).collect())
     }
 
-    pub fn watching(&self) -> Result<Vec<RawFd>, Never> {
-        Ok(self.held.iter().map(|taken| taken.device.as_raw_fd()).collect())
+    pub fn watching(&self) -> Result<Vec<BorrowedFd<'_>>, Never> {
+        Ok(self.held.iter().map(|taken| taken.device.as_fd()).collect())
     }
 
     pub fn spans(&self, which: DeviceKind) -> Result<Spans, ClaimError> {
@@ -144,7 +144,7 @@ impl Claim {
                 }
             };
 
-            spans.extend(told.into_iter().map(|(axis, info)| (axis, (info.minimum, info.maximum))));
+            spans.extend(told.into_iter().map(|(axis, information)| (axis, (information.minimum, information.maximum))));
         }
 
         Ok(spans)

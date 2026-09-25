@@ -28,27 +28,27 @@ const CHANNELS: u32 = 4;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Cell {
-    pub ch: char,
+    pub character: char,
     pub rgb: (u8, u8, u8),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Grid {
-    pub cols: u32,
+    pub columns: u32,
     pub rows: u32,
 }
 
 impl Grid {
     pub fn of(rows: u32) -> Result<Self, Never> {
-        let Ok(cols) = whole_u32(f64::from(rows) * CELL_ASPECT);
+        let Ok(columns) = whole_u32(f64::from(rows) * CELL_ASPECT);
 
-        Ok(Self { cols, rows })
+        Ok(Self { columns, rows })
     }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Cover {
-    pub cols: u32,
+    pub columns: u32,
     pub rows: u32,
     pub cells: Vec<Cell>,
 }
@@ -57,9 +57,9 @@ impl Cover {
     pub fn markup(&self) -> Result<String, Never> {
         let mut out = String::new();
 
-        let Ok(cols) = index(self.cols);
+        let Ok(columns) = index(self.columns);
 
-        for line in self.cells.chunks(cols) {
+        for line in self.cells.chunks(columns) {
             let mut color = None;
             let mut run = String::new();
 
@@ -72,7 +72,7 @@ impl Cover {
                     }
                 }
 
-                let letter = escaped(cell.ch)?;
+                let letter = escaped(cell.character)?;
 
                 run.push_str(&letter);
             }
@@ -85,41 +85,41 @@ impl Cover {
     }
 
     pub fn plain(&self) -> Result<String, Never> {
-        let Ok(cols) = index(self.cols);
+        let Ok(columns) = index(self.columns);
 
         Ok(self
             .cells
-            .chunks(cols)
-            .map(|line| line.iter().map(|cell| cell.ch).collect::<String>())
+            .chunks(columns)
+            .map(|line| line.iter().map(|cell| cell.character).collect::<String>())
             .collect::<Vec<_>>()
             .join("\n"))
     }
 }
 
 fn close(out: &mut String, run: &str, color: Option<(u8, u8, u8)>) -> Result<(), Never> {
-    let (r, g, b) = match color {
-        Some((r, g, b)) => (r, g, b),
+    let (red, green, blue) = match color {
+        Some((red, green, blue)) => (red, green, blue),
         None => return Ok(()),
     };
 
     match run.is_empty() {
         true => {},
         false => {
-            out.push_str(&format!("<span foreground=\"#{r:02x}{g:02x}{b:02x}\">{run}</span>"));
+            out.push_str(&format!("<span foreground=\"#{red:02x}{green:02x}{blue:02x}\">{run}</span>"));
         }
     }
 
     Ok(())
 }
 
-fn escaped(ch: char) -> Result<String, Never> {
-    Ok(match ch {
+fn escaped(character: char) -> Result<String, Never> {
+    Ok(match character {
         '&' => "&amp;".to_string(),
         '<' => "&lt;".to_string(),
         '>' => "&gt;".to_string(),
         '\'' => "&apos;".to_string(),
         '"' => "&quot;".to_string(),
-        _ => ch.to_string(),
+        _ => character.to_string(),
     })
 }
 
@@ -136,14 +136,14 @@ pub fn character(rgb: (u8, u8, u8)) -> Result<char, Never> {
     })
 }
 
-pub fn luminance((r, g, b): (u8, u8, u8)) -> Result<u8, Never> {
-    toward_zero_u8(0.2126 * f64::from(r) + 0.7152 * f64::from(g) + 0.0722 * f64::from(b))
+pub fn luminance((red, green, blue): (u8, u8, u8)) -> Result<u8, Never> {
+    toward_zero_u8(0.2126 * f64::from(red) + 0.7152 * f64::from(green) + 0.0722 * f64::from(blue))
 }
 
 pub fn read(path: &Path, rows: u32) -> Result<Option<Cover>, Never> {
     let grid = Grid::of(rows)?;
 
-    let read = console_pictures::square(path, Size { width: grid.cols, height: grid.rows });
+    let read = console_pictures::square(path, Size { width: grid.columns, height: grid.rows });
 
     let picture = match read {
         Ok(Some(picture)) => picture,
@@ -161,46 +161,46 @@ pub fn read(path: &Path, rows: u32) -> Result<Option<Cover>, Never> {
 }
 
 pub fn room(rows: u32) -> Result<Cover, Never> {
-    let Grid { cols, rows } = Grid::of(rows)?;
+    let Grid { columns, rows } = Grid::of(rows)?;
 
-    let blank = Cell { ch: '\u{a0}', rgb: (0, 0, 0) };
-    let Ok(many) = index(cols.saturating_mul(rows));
+    let blank = Cell { character: '\u{a0}', rgb: (0, 0, 0) };
+    let Ok(many) = index(columns.saturating_mul(rows));
 
-    Ok(Cover { cols, rows, cells: vec![blank; many] })
+    Ok(Cover { columns, rows, cells: vec![blank; many] })
 }
 
 fn laid_out(picture: &Pixels, grid: Grid) -> Result<Cover, Never> {
-    let Grid { cols, rows } = grid;
-    let blank = Cell { ch: ' ', rgb: (0, 0, 0) };
-    let Ok(many) = index(cols.saturating_mul(rows));
+    let Grid { columns, rows } = grid;
+    let blank = Cell { character: ' ', rgb: (0, 0, 0) };
+    let Ok(many) = index(columns.saturating_mul(rows));
     let mut cells = vec![blank; many];
     let (stride, wide, tall) = (picture.stride, picture.width, picture.height);
 
     let bytes = &picture.bytes;
     let (left, top) =
-        (cols.saturating_sub(wide).saturating_div(2), rows.saturating_sub(tall).saturating_div(2));
+        (columns.saturating_sub(wide).saturating_div(2), rows.saturating_sub(tall).saturating_div(2));
 
     for down in 0..tall.min(rows) {
-        for across in 0..wide.min(cols) {
+        for across in 0..wide.min(columns) {
             let Ok(at) = index(down.saturating_mul(stride).saturating_add(across.saturating_mul(CHANNELS)));
             let rgb = match bytes.get(at..at.saturating_add(3)) {
-                Some([r, g, b]) => (*r, *g, *b),
+                Some([red, green, blue]) => (*red, *green, *blue),
                 Some(_) | None => (0, 0, 0),
             };
-            let cell = top.saturating_add(down).saturating_mul(cols)
+            let cell = top.saturating_add(down).saturating_mul(columns)
                 .saturating_add(left)
                 .saturating_add(across);
-            let ch = character(rgb)?;
+            let character = character(rgb)?;
             let Ok(cell) = index(cell);
 
             match cells.get_mut(cell) {
-                Some(cell) => *cell = Cell { ch, rgb },
+                Some(cell) => *cell = Cell { character, rgb },
                 None => {},
             }
         }
     }
 
-    Ok(Cover { cols, rows, cells })
+    Ok(Cover { columns, rows, cells })
 }
 
 #[cfg(test)]
@@ -229,16 +229,16 @@ mod tests {
 
     #[test]
     fn a_run_of_one_color_is_one_span() {
-        let white = Cell { ch: '@', rgb: (255, 255, 255) };
-        let cover = Cover { cols: 3, rows: 1, cells: vec![white; 3] };
+        let white = Cell { character: '@', rgb: (255, 255, 255) };
+        let cover = Cover { columns: 3, rows: 1, cells: vec![white; 3] };
 
         assert_eq!(cover.markup(), Ok("<span foreground=\"#ffffff\">@@@</span>".to_string()));
     }
 
     #[test]
     fn a_character_the_markup_would_choke_on_is_escaped() {
-        let cell = |ch| Cell { ch, rgb: (1, 2, 3) };
-        let cover = Cover { cols: 3, rows: 1, cells: vec![cell('<'), cell('&'), cell('>')] };
+        let cell = |character| Cell { character, rgb: (1, 2, 3) };
+        let cover = Cover { columns: 3, rows: 1, cells: vec![cell('<'), cell('&'), cell('>')] };
 
         assert_eq!(cover.markup(), Ok("<span foreground=\"#010203\">&lt;&amp;&gt;</span>".to_string()));
     }
@@ -246,9 +246,9 @@ mod tests {
     #[test]
     fn every_pixel_lands_on_the_ramp() {
         for lit in 0..=255u8 {
-            let Ok(ch) = character((lit, lit, lit));
+            let Ok(character) = character((lit, lit, lit));
 
-            assert!(RAMP.contains(ch));
+            assert!(RAMP.contains(character));
         }
     }
 }

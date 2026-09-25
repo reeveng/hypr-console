@@ -254,7 +254,7 @@ fn waited(called: &str, timers: &mut Vec<Waiting>, subscriber: &Subscriber) -> R
         (None, Desired::Some) => Ok(match received.recv() {
             Ok(Received::Event(change)) => Some(Woke::Changed(change)),
             Ok(Received::Connected) => None,
-            Err(_) => Some(Woke::Finished),
+            Err(_the_sender_has_gone) => Some(Woke::Finished),
         }),
         (Some(soonest), Desired::Some | Desired::None) => {
             #[cfg_attr(
@@ -412,7 +412,8 @@ fn chose(prompt: &Prompt) -> Result<Choice, Never> {
     let terminal = std::io::stdin();
 
     match terminal.read_line(&mut said) {
-        Ok(0) | Err(_) => Ok(prompt.default),
+        Ok(0) => Ok(prompt.default),
+        Err(_the_terminal_failed) => Ok(prompt.default),
         Ok(_) => meant(said.trim(), prompt.default),
     }
 }

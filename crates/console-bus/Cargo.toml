@@ -15,8 +15,6 @@ console-core-number-conversion.workspace = true
 rustix.workspace = true
 
 [dev-dependencies]
-# The one thing the byte arrays cannot say is that a real bus agrees, so the
-# test runs `busctl` -- and a program this tree runs is a program it names.
 console-core-external-programs.workspace = true
 
 [lints]

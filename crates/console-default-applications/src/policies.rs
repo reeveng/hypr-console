@@ -103,8 +103,8 @@ pub fn mozilla(place: &Where, engine: &Engine, beneath: &str) -> Result<String, 
     searching.insert("Default".to_string(), json!(known.called));
 
     let said = match serde_json::from_str::<Value>(beneath) {
-        Ok(v) => v,
-        Err(_) => json!({}),
+        Ok(value) => value,
+        Err(_not_json) => json!({}),
     };
     let mut top = taken_from(said)?;
     let mut policies = taken(&mut top, "policies")?;

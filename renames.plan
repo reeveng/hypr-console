@@ -89,6 +89,9 @@ Unreadable variant of Stored = Failed    # applied
 [crates/console-core-color/src/lib.rs]
 Unreadable enum = ParseError    # applied
 
+[crates/console-core-external-programs/src/lib.rs]
+Nothing variant of Unprinted = Absent    # applied
+
 [crates/console-core-fonts/src/lib.rs]
 tall field of Font = height    # applied
 tall fn = height    # applied
@@ -110,7 +113,7 @@ tall field of Pixels = height    # applied
 wide field of Line = width    # applied
 wide field of Pixels = width    # applied
 wide field of Text = width    # applied
-across fn = -    # 174: fn across(many: u32) -> Result<i32, Never> {
+across fn = -    # 198: fn across(many: u32) -> Result<i32, Never> {
 
 [crates/console-core-web-engine/src/lib.rs]
 Press variant of Request = Click    # applied
@@ -127,7 +130,7 @@ Taken variant of DeployingEvent = Busy    # applied
 [crates/console-device/src/migrating.rs]
 Asked variant of How = Confirm    # applied
 Home struct = HomeChange    # applied
-theirs fn = -    # 815: fn theirs(going: &Going, command: &str) -> Result<Command, Never> {
+theirs fn = -    # 793: fn theirs(going: &Going, command: &str) -> Result<Command, Never> {
 
 [crates/console-device/src/pulling.rs]
 Asking variant of Pulling = Querying    # applied
@@ -159,11 +162,12 @@ Nothing variant of Under = None    # applied
 [crates/console-events/src/again.rs]
 Asking variant of Worth = Querying    # applied
 
-[crates/console-events/src/sources.rs]
-theirs fn = -    # 244: fn theirs(
+[crates/console-events/src/serving.rs]
+Refused enum = Rejected    # 128: enum Refused {
+Kept variant of Wrote = Retained    # 542: Kept,
 
-[crates/console-files/src/bin/files-thumbs.rs]
-Nothing variant of Made = None    # applied
+[crates/console-events/src/sources.rs]
+theirs fn = -    # 278: fn theirs(
 
 [crates/console-files/src/doing.rs]
 Nothing variant of Asks = None    # applied
@@ -231,7 +235,7 @@ Unreadable variant of Unscrolled = Parse    # applied
 Asking variant of Worth = Querying    # applied
 Bind struct = KeyBinding    # applied
 Says enum = BindCommand    # applied
-Bind variant of BindCommand = -    # 305: Bind(KeyBinding),
+Bind variant of BindCommand = -    # 307: Bind(KeyBinding),
 
 [crates/console-input-controller/src/clock.rs]
 When struct = Instant    # applied
@@ -315,6 +319,11 @@ wide field of Placed = width    # applied
 tall field of Look = height    # applied
 wide field of Look = width    # applied
 
+[crates/console-input-keyboard/src/remote.rs]
+Asked enum = Command    # 41: pub enum Asked {
+Heard variant of Answer = Received    # 90: Heard,
+Unheard variant of Answer = Failed    # 92: Unheard { at: PathBuf, why: ErrorKind },
+
 [crates/console-input-keyboard/src/surface.rs]
 tall field of Frame = height    # applied
 wide field of Frame = width    # applied
@@ -367,8 +376,8 @@ Told enum = Audience    # applied
 down field of Standing = failing    # applied
 
 [crates/console-manifest-engine/src/install.rs]
-Missing variant of State = -    # 59: Missing,
-Unreadable variant of State = -    # 61: Unreadable,
+Missing variant of State = -    # 65: Missing,
+Unreadable variant of State = -    # 67: Unreadable,
 
 [crates/console-manifest-engine/src/laying.rs]
 Kept variant of Back = Retained    # applied
@@ -382,6 +391,9 @@ Said struct = StatusLine    # applied
 
 [crates/console-manifest-engine/src/packages.rs]
 Missing variant of PackageState = -    # 34: Missing,
+
+[crates/console-manifest-engine/src/pruning.rs]
+Unreadable variant of Standing = Invalid    # applied
 
 [crates/console-manifest-engine/src/room.rs]
 Said variant of Left = Reported    # applied
@@ -433,6 +445,7 @@ Words variant of Reply = Strings    # applied
 Changed enum = Modified    # applied
 
 [crates/console-music-player/src/sounding.rs]
+Nothing variant of Crossed = None    # applied
 Told variant of Reached = Requested    # applied
 
 [crates/console-music-player/src/tags.rs]
@@ -528,7 +541,7 @@ Nothing variant of Wears = None    # applied
 Taken type = OnChosen    # applied
 across field of Row = buttons    # applied
 wide field of Track = width    # applied
-Corner variant of Placed = -    # 218: Corner,
+Corner variant of Placed = -    # 266: Corner,
 
 [crates/console-panel/src/picker.rs]
 Drawn variant of Meanwhile = Rendered    # applied
@@ -571,7 +584,7 @@ tall field of Line = height    # applied
 tall field of SurfaceSize = height    # applied
 wide field of Card = width    # applied
 wide field of SurfaceSize = width    # applied
-across fn = -    # 461: fn across(wide: i32) -> Result<u32, Never> {
+across fn = -    # 463: fn across(wide: i32) -> Result<u32, Never> {
 
 [crates/console-panel/src/zoom.rs]
 In variant of Zoomed = ZoomedIn    # applied
@@ -658,6 +671,9 @@ across fn = -    # 141: pub fn across(self) -> Result<Across, Never> {
 [crates/console-settings/src/warm.rs]
 Unreadable variant of Standing = Invalid    # applied
 
+[crates/console-signals/src/lib.rs]
+Refused variant of SignalError = Failed    # 50: Refused(Signal, io::Error),
+
 [crates/console-sound-effects/src/lib.rs]
 Unheard enum = PlaybackError    # applied
 
@@ -732,7 +748,7 @@ Held variant of NameRequestResult = Cached    # applied
 Refused variant of FetchError = Failed    # applied
 Told enum = Notified    # applied
 Unanswered enum = FetchError    # applied
-Already variant of Notified = -    # 152: Already,
+Already variant of Notified = -    # 141: Already,
 
 [crates/console-weather/src/forecast.rs]
 Unanswered variant of Unforecast = Fetch    # applied

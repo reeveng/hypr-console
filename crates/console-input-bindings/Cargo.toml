@@ -10,9 +10,6 @@ console-core-atomic-writes.workspace = true
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true
 console-core-places.workspace = true
-# The pad's own words. A binding on the pad is checked against the buttons this
-# desktop routes, and that list is the gamepad's to keep; the keyboard's words
-# are here because nothing else in this workspace may hold them.
 console-core-words.workspace = true
 console-input-gamepad.workspace = true
 console-input-event-devices.workspace = true

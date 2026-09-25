@@ -71,6 +71,7 @@ pub enum Unchecked {
     NoRuntime,
     NoSuchCheck,
     SomeonesMachine,
+    Concurrently(console_concurrency::Error),
 }
 
 impl fmt::Display for Unchecked {
@@ -80,6 +81,7 @@ impl fmt::Display for Unchecked {
             Unchecked::Machine(fault) => write!(to, "{fault}"),
             Unchecked::Read(at, fault) => write!(to, "{}: {fault}", at.display()),
             Unchecked::Temporary(fault) => write!(to, "{fault}"),
+            Unchecked::Concurrently(fault) => write!(to, "{fault}"),
             Unchecked::Unparsed(fault) => write!(to, "{fault}"),
             Unchecked::NoGround(at) => {
                 write!(to, "{} sets no ground color", at.display())
@@ -109,7 +111,7 @@ impl fmt::Display for Unchecked {
             Unchecked::NoSuchCheck => write!(to, "no checks by that name"),
             Unchecked::SomeonesMachine => write!(
                 to,
-                "that is someone's machine. Add --dry to see what would happen, \
+                "that is someone's machine. Add --dry-run to see what would happen, \
                  or --yes to do it."
             ),
         }
@@ -130,7 +132,7 @@ impl From<Unchecked> for Why {
     }
 }
 
-pub const CHECKS: [&Check; 64] = [
+pub const CHECKS: [&Check; 65] = [
     &workspaces::RIGHT,
     &workspaces::LEFT,
     &workspaces::TAPPED,
@@ -191,6 +193,7 @@ pub const CHECKS: [&Check; 64] = [
     &bluetooth::LOOKS,
     &updating::FILLS,
     &resource_usage::KEPT,
+    &resource_usage::ON_ITS_OWN,
     &login_pattern::STILL,
     &login_pattern::BY_HAND,
     &architecture::MAPPED,

@@ -9,10 +9,6 @@ license.workspace = true
 name = "mapping-panel"
 path = "src/bin/mapping-panel.rs"
 
-# The name is the layer's name. A panel is listed by the compositor under the
-# program that drew it, and `Mode::Asking` is read off exactly this word: the
-# card being on the screen is the whole of what tells the controller daemon
-# that the front of the machine is being asked about rather than used.
 [[bin]]
 name = "console-asking"
 path = "src/bin/console-asking.rs"
@@ -26,11 +22,8 @@ console-input-controller.workspace = true
 console-core-external-programs.workspace = true
 console-input-bindings.workspace = true
 console-input-gamepad.workspace = true
-# The controller, taken while the card is up. What used to be a profile load.
 console-input-focus.workspace = true
 console-panel.workspace = true
-# What a menu, the Home Screen and the keyboard do with a button, after the two
-# pages where a button is given its job.
 console-button-guide.workspace = true
 console-onscreen.workspace = true
 console-core-color.workspace = true

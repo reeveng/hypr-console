@@ -6,6 +6,11 @@
 //! store already has, this runs behind it, and the panel draws again when it
 //! ends.
 //!
+//! Every picture wanted is made at once, one per core, through
+//! `console_concurrency`. None of them reads another, each is an ffmpeg run, and
+//! a folder's worth made one after another was a folder's worth of cores
+//! waiting.
+//!
 //! Once per thing, ever. What is made goes into the store every desktop shares,
 //! so the second visit to a folder is the listing and the pictures together.
 
@@ -16,7 +21,7 @@ use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_core_places::Base;
 use console_files::listing::{Entry, Worth};
-use console_files::thumbs::{self, SIDE};
+use console_files::thumbnails::{self, SIDE};
 
 const INTO_IT: &str = "3";
 
@@ -36,19 +41,19 @@ fn main() {
     let cache = match cache {
         Some(cache) => cache,
         None => {
-            eprintln!("files-thumbs: no home, so there is nowhere to keep a picture");
+            eprintln!("files-thumbnails: no home, so there is nowhere to keep a picture");
 
             return;
         }
     };
 
-    let Ok(store) = thumbs::store(&cache);
+    let Ok(store) = thumbnails::store(&cache);
 
     match std::fs::create_dir_all(&store) {
         Ok(()) => {},
         Err(fault) => {
             eprintln!(
-                "files-thumbs: {}: making the store the pictures go in: {fault}",
+                "files-thumbnails: {}: making the store the pictures go in: {fault}",
                 store.display()
             );
 
@@ -58,8 +63,11 @@ fn main() {
 
     let Ok(wanting) = wanting(Path::new(&folder), &store);
 
-    for (thing, kind) in wanting {
-        let Ok(()) = made(&thing, &kind, &store);
+    let every = console_concurrency::map(&wanting, |(thing, kind)| made(thing, kind, &store));
+
+    match every {
+        Ok(_every_one_tried) => {},
+        Err(fault) => eprintln!("files-thumbnails: {fault}"),
     }
 }
 
@@ -67,7 +75,7 @@ fn wanting(folder: &Path, store: &Path) -> Result<Vec<(PathBuf, String)>, Never>
     let kinds = match Table::here() {
         Ok(kinds) => kinds,
         Err(why) => {
-            eprintln!("files-thumbs: nothing says what a file is: {why}");
+            eprintln!("files-thumbnails: nothing says what a file is: {why}");
 
             Table::default()
         }
@@ -91,7 +99,7 @@ fn wanting(folder: &Path, store: &Path) -> Result<Vec<(PathBuf, String)>, Never>
             size: 0,
         };
         let worth = entry.worth_a_picture()?;
-        let found = thumbs::found(store, &path)?;
+        let found = thumbnails::found(store, &path)?;
 
         match worth == Worth::APicture && found.is_none() {
             true => wanting.push((path, entry.kind)),
@@ -103,14 +111,14 @@ fn wanting(folder: &Path, store: &Path) -> Result<Vec<(PathBuf, String)>, Never>
 }
 
 fn made(thing: &Path, kind: &str, store: &Path) -> Result<(), Never> {
-    let address = thumbs::address(thing)?;
+    let address = thumbnails::address(thing)?;
 
     let address = match address {
         Some(address) => address,
         None => return Ok(()),
     };
 
-    let kept = thumbs::of(store, &address)?;
+    let kept = thumbnails::of(store, &address)?;
 
     let kept = match kept {
         Some(kept) => kept,
@@ -129,7 +137,7 @@ fn made(thing: &Path, kind: &str, store: &Path) -> Result<(), Never> {
     match drawn {
         Made::APicture => {
             let Ok(changed) = changed_at(thing);
-            let Ok(stamped) = stamped(&part, thumbs::Stamp { address: &address, changed: &changed });
+            let Ok(stamped) = stamped(&part, thumbnails::Stamp { address: &address, changed: &changed });
 
             match stamped {
                 Made::APicture => {
@@ -151,17 +159,17 @@ fn made(thing: &Path, kind: &str, store: &Path) -> Result<(), Never> {
 fn changed_at(thing: &Path) -> Result<String, Never> {
     let about = match thing.metadata() {
         Ok(about) => about,
-        Err(_fault) => return Ok(String::new()),
+        Err(_unreadable) => return Ok(String::new()),
     };
 
     let when = match about.modified() {
         Ok(when) => when,
-        Err(_fault) => return Ok(String::new()),
+        Err(_unstamped) => return Ok(String::new()),
     };
 
     let since = match when.duration_since(std::time::UNIX_EPOCH) {
         Ok(since) => since,
-        Err(_fault) => return Ok(String::new()),
+        Err(_the_clock_is_before_the_epoch) => return Ok(String::new()),
     };
 
     Ok(since.as_secs().to_string())
@@ -209,22 +217,22 @@ fn drawn(thing: &Path, part: &Path, into_it: &[Option<&str>]) -> Result<Made, Ne
     Ok(Made::None)
 }
 
-fn stamped(part: &Path, stamp: thumbs::Stamp<'_>) -> Result<Made, Never> {
+fn stamped(part: &Path, stamp: thumbnails::Stamp<'_>) -> Result<Made, Never> {
     let png = match std::fs::read(part) {
         Ok(png) => png,
         Err(fault) => {
-            eprintln!("files-thumbs: {}: {fault}", part.display());
+            eprintln!("files-thumbnails: {}: {fault}", part.display());
 
             return Ok(Made::None);
         }
     };
 
-    let said = thumbs::stamped(&png, stamp)?;
+    let said = thumbnails::stamped(&png, stamp)?;
 
     let said = match said {
         Some(said) => said,
         None => {
-            eprintln!("files-thumbs: {}: this is not the PNG ffmpeg was asked for", part.display());
+            eprintln!("files-thumbnails: {}: this is not the PNG ffmpeg was asked for", part.display());
 
             return Ok(Made::None);
         }
@@ -234,7 +242,7 @@ fn stamped(part: &Path, stamp: thumbs::Stamp<'_>) -> Result<Made, Never> {
         Ok(()) => Made::APicture,
 
         Err(fault) => {
-            eprintln!("files-thumbs: {}: writing the picture: {fault}", part.display());
+            eprintln!("files-thumbnails: {}: writing the picture: {fault}", part.display());
 
             Made::None
         }

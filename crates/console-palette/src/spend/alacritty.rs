@@ -6,9 +6,6 @@ use crate::terminal::{SLOTS, Shade, Terminal};
 
 pub fn spend(terminal: &Terminal) -> Result<String, Never> {
     let head = [
-        "# Written by console-palette from theme/palette.toml.".to_string(),
-        "# Imported by alacritty.toml, which holds no color of its own.".to_string(),
-        String::new(),
         "[colors.primary]".to_string(),
         format!("background = \"0x{}\"", terminal.background),
         format!("foreground = \"0x{}\"", terminal.foreground),
@@ -62,7 +59,7 @@ mod tests {
 
     #[test]
     fn a_color_is_written_the_way_alacritty_reads_one() {
-        for line in written().lines().filter(|l| l.contains(" = ")) {
+        for line in written().lines().filter(|line| line.contains(" = ")) {
             let (_, value) = line.split_once(" = ").expect("an assignment");
             assert!(value.starts_with("\"0x") && value.ends_with('"'), "{line:?}");
             assert_eq!(value.len(), 3 + 6 + 1, "{line:?}");

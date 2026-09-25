@@ -294,7 +294,7 @@ pub fn raise(notification: &Notification) -> Result<Option<u32>, Never> {
 
     let number = match said.trim().parse::<u32>() {
         Ok(number) => number,
-        Err(_fault) => return Ok(None),
+        Err(_not_a_number) => return Ok(None),
     };
 
     Ok(Some(number))
@@ -313,7 +313,7 @@ fn said_within(arguments: &[String], waiting: Duration) -> Result<Option<String>
         .spawn()
     {
         Ok(running) => running,
-        Err(_fault) => return Ok(None),
+        Err(_would_not_start) => return Ok(None),
     };
 
     let Ok(patience) = Schedule::asking_every(waiting, LOOKING);
@@ -329,7 +329,7 @@ fn said_within(arguments: &[String], waiting: Duration) -> Result<Option<String>
         Outcome::Happened => {
             let said = match running.wait_with_output() {
                 Ok(said) => said,
-                Err(_fault) => return Ok(None),
+                Err(_would_not_wait) => return Ok(None),
             };
 
             return Ok(Some(String::from_utf8_lossy(&said.stdout).into_owned()));

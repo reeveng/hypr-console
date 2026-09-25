@@ -265,7 +265,7 @@ fn compositor(say: Sender<Change>) -> Result<(), Never> {
 
             match sent {
                 Ok(()) => {},
-                Err(_) => return Round::Finished,
+                Err(_no_one_is_listening) => return Round::Finished,
             }
         }
 
@@ -288,7 +288,7 @@ fn theirs(
 
         let mut running = match alongside(&mut asking) {
             Ok(running) => running,
-            Err(_fault) => return Round::Another,
+            Err(_would_not_start) => return Round::Another,
         };
 
         let reading = match running.reading() {
@@ -301,7 +301,7 @@ fn theirs(
 
             match sent {
                 Ok(()) => {},
-                Err(_) => return Round::Finished,
+                Err(_no_one_is_listening) => return Round::Finished,
             }
         }
 

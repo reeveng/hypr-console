@@ -1,7 +1,4 @@
 [general]
-# The sixteen a program may ask for by number, and the four around them. There
-# is no color in this file; they are written from theme/palette.toml into the
-# file imported here.
 import = ["~/.config/console/palette.toml"]
 working_directory = "None"
 live_config_reload = true

@@ -187,7 +187,8 @@ fn percent_decode(text: &str) -> Result<String, Never> {
                 Ok(byte) => Some(byte),
                 Err(_not_hex) => None,
             },
-            Some(Err(_)) | None => None,
+            None => None,
+            Some(Err(_not_text)) => None,
         };
 
         rest = match (*first, byte, after.get(2..)) {

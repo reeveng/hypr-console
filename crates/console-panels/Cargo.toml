@@ -9,9 +9,6 @@ license.workspace = true
 name = "console_panels"
 path = "src/lib.rs"
 
-# The one program on the device that keeps a toolkit up. Every panel binary is
-# a stand-in that asks this one to draw, and falls back to drawing itself when
-# it cannot be reached.
 [[bin]]
 name = "console-panels"
 path = "src/bin/console-panels.rs"
@@ -32,10 +29,7 @@ console-panel.workspace = true
 console-settings.workspace = true
 console-media-viewer.workspace = true
 console-response-times.workspace = true
-# A pipe, which is how a panel that put itself away wakes the host that is
-# asleep in a poll.
 rustix.workspace = true
-libc = "0.2"
 
 [lints]
 workspace = true

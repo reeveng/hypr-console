@@ -22,8 +22,8 @@ pub fn door(arguments: &[String]) -> Result<Door, Never> {
 }
 
 pub fn card(arguments: &[String]) -> Result<Card, Never> {
-    let init = Settings::init(&Arguments::default());
-    let Ok(card) = Card::supervised(move || Looking(init.state.clone()), pages);
+    let initial = Settings::init(&Arguments::default());
+    let Ok(card) = Card::supervised(move || Looking(initial.state.clone()), pages);
 
     card.opening_at(arguments.first().map(String::as_str))
 }
@@ -37,7 +37,7 @@ use console_panel::card::{Card, Door};
 use crate::defaults::{self, Application};
 use crate::level::{Step, stepped};
 use console_sound_effects::SoundEffects;
-use crate::rows::{Chosen, Languages, Opens, alphabet_rows, battery_rows, bluetooth_rows, called_row, clock_rows, dictation_rows, dictation_says, engine_says, language_rows, meeting_rows, notifications_rows, place_rows, region_rows, screen_rows, search_rows, sound_rows, tabs, language_picker_rows, login_rows, sound_effects, wifi_rows, zone_rows};
+use crate::rows::{Chosen, Languages, Opens, alphabet_rows, battery_rows, bluetooth_rows, called_row, clock_rows, dictation_rows, dictation_says, engine_says, language_rows, meeting_rows, notifications_rows, place_rows, region_rows, screen_rows, search_rows, sound_rows, tabs, language_picker_rows, security_rows, sound_effects, wifi_rows, zone_rows};
 use crate::languages::{self, Names, Language};
 use crate::{hours, named};
 use console_core_atomic_writes as writes;
@@ -420,7 +420,7 @@ fn home_rows(held: &ActorAddress) -> Result<Vec<console_panel::page::Row>, Never
 fn grid(held: &ActorAddress, heard: SettingsEvent) -> Result<(), Never> {
     let effects = match held.ask(|answer| Message::Event(heard, answer)) {
         Ok(effects) => effects,
-        Err(_) => {
+        Err(_the_actor_has_gone) => {
             eprintln!("settings-panel: the panel's own state is missing, so the grid did not move");
 
             Vec::new()
@@ -762,7 +762,7 @@ fn offered() -> Result<Vec<Offered>, Never> {
 
             set
         }
-        Err(_) => None,
+        Err(_unreadable) => None,
     };
     let written_down = |name: &str| {
         let set = table.as_ref()?;
@@ -797,7 +797,7 @@ fn dropped() -> Result<u32, Never> {
     match dropped
         .and_then(|at| match std::fs::read_dir(at) {
             Ok(found) => Some(found),
-            Err(_fault) => None,
+            Err(_unreadable) => None,
         })
         .map(|found| found.flatten().filter(|entry| entry.path().is_file()).count())
     {
@@ -928,7 +928,7 @@ fn application_at(path: &std::path::Path) -> Result<Option<Application>, Never> 
 
     let held = match std::fs::read_to_string(path) {
         Ok(held) => held,
-        Err(_) => return Ok(None),
+        Err(_unreadable) => return Ok(None),
     };
 
     defaults::application(id, defaults::DesktopFilePath(&held))
@@ -998,14 +998,14 @@ type ActorAddress = Address<Message>;
 fn looking_at(held: &ActorAddress) -> Result<Destination, Never> {
     Ok(match held.ask(Message::At) {
         Ok(onto) => onto,
-        Err(_) => Destination::Settings,
+        Err(_the_actor_has_gone) => Destination::Settings,
     })
 }
 
 fn press(held: &ActorAddress, heard: SettingsEvent, showing: &dyn Showing) -> Result<(), Never> {
     let effects = match held.ask(|answer| Message::Event(heard, answer)) {
         Ok(effects) => effects,
-        Err(_) => {
+        Err(_the_actor_has_gone) => {
             eprintln!("settings-panel: the panel's own state is missing, so the press did nothing");
 
             Vec::new()
@@ -1461,7 +1461,7 @@ fn pages(looking: &ActorAddress) -> Result<Vec<Page>, Never> {
     });
     let Ok(books) = Page::new(&books, asked);
 
-    let Ok(asked) = tab(login_rows);
+    let Ok(asked) = tab(security_rows);
     let Ok(security) = Page::new(&security, asked);
 
     Ok(vec![

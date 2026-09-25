@@ -46,7 +46,7 @@ pub enum CompositorEvent {
     LayerClosed,
     WorkspaceChanged,
     ScreenFocused,
-    ConfigReloaded,
+    ConfigurationReloaded,
     Ignored,
 }
 
@@ -63,7 +63,7 @@ const CARRYING_NO_ADDRESS: [(&str, CompositorEvent); 9] = [
     ("closelayer>>", CompositorEvent::LayerClosed),
     ("workspacev2>>", CompositorEvent::WorkspaceChanged),
     ("focusedmon>>", CompositorEvent::ScreenFocused),
-    ("configreloaded>>", CompositorEvent::ConfigReloaded),
+    ("configreloaded>>", CompositorEvent::ConfigurationReloaded),
 ];
 
 pub fn addressed(said: &str) -> Result<String, Never> {

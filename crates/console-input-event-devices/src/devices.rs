@@ -117,7 +117,8 @@ impl Devices {
 
         loop {
             match self.told.read(&mut buffer) {
-                Ok(0) | Err(_) => return Ok(()),
+                Ok(0) => return Ok(()),
+                Err(_the_read_failed) => return Ok(()),
                 Ok(_) => {}
             }
         }

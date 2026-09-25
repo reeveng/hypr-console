@@ -65,7 +65,7 @@ impl Urgency {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Notification {
     pub id: u32,
-    pub app: String,
+    pub application: String,
     pub summary: String,
     pub body: String,
     pub urgency: Urgency,
@@ -101,7 +101,8 @@ impl Notification {
 #[derive(Deserialize, Serialize)]
 struct StoredNotification {
     id: u32,
-    app_name: Option<String>,
+    #[serde(rename = "app_name")]
+    application_name: Option<String>,
     summary: Option<String>,
     body: Option<String>,
     urgency: Option<String>,
@@ -125,7 +126,7 @@ pub struct Inbox {
 pub fn whole(said: &str) -> Result<Inbox, Never> {
     let kept = match serde_json::from_str::<StoredInbox>(said) {
         Ok(kept) => kept,
-        Err(_fault) => return Ok(Inbox::default()),
+        Err(_not_json) => return Ok(Inbox::default()),
     };
 
     let Ok(waiting) = every(kept.waiting);
@@ -148,7 +149,7 @@ pub fn written(whole: &Inbox) -> Result<String, Never> {
 
     Ok(match serde_json::to_string(&kept) {
         Ok(said) => said,
-        Err(_fault) => String::new(),
+        Err(_unserializable) => String::new(),
     })
 }
 
@@ -160,7 +161,7 @@ fn spelled(held: &[Notification]) -> Result<Vec<StoredNotification>, Never> {
 
         every.push(StoredNotification {
             id: notification.id,
-            app_name: Some(notification.app.clone()),
+            application_name: Some(notification.application.clone()),
             summary: Some(notification.summary.clone()),
             body: Some(notification.body.clone()),
             urgency: Some(urgency.to_string()),
@@ -173,7 +174,7 @@ fn spelled(held: &[Notification]) -> Result<Vec<StoredNotification>, Never> {
 pub fn read(said: &str) -> Result<Vec<Notification>, Never> {
     let held = match serde_json::from_str::<Vec<StoredNotification>>(said) {
         Ok(held) => held,
-        Err(_fault) => return Ok(Vec::new()),
+        Err(_not_json) => return Ok(Vec::new()),
     };
 
     every(held)
@@ -183,12 +184,12 @@ fn every(held: Vec<StoredNotification>) -> Result<Vec<Notification>, Never> {
     let mut every: Vec<Notification> = Vec::new();
 
     for said in held {
-        let Ok(app) = word(said.app_name);
+        let Ok(application) = word(said.application_name);
         let Ok(summary) = word(said.summary);
         let Ok(body) = word(said.body);
         let Ok(urgency) = Urgency::named(said.urgency.as_deref());
 
-        every.push(Notification { id: said.id, app, summary, body, urgency });
+        every.push(Notification { id: said.id, application, summary, body, urgency });
     }
 
     Ok(every)
@@ -249,7 +250,7 @@ mod tests {
         assert_eq!(held[0].id, 4);
         assert_eq!(held[0].summary, "Notifications fell over");
         assert_eq!(held[0].body, "console-notify.service stopped");
-        assert_eq!(held[0].app, "Console");
+        assert_eq!(held[0].application, "Console");
     }
 
     #[test]

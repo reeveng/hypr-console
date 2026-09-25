@@ -64,7 +64,7 @@
 //! which are allowed to hold anything at all except a nul.
 
 use std::io::{BufRead, BufReader, Write};
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsRawFd, BorrowedFd};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI32, Ordering};
@@ -217,7 +217,7 @@ pub fn read(line: &str) -> Result<Option<Request>, Never> {
 fn took(said: &str) -> Result<Duration, Never> {
     Ok(match said.trim().parse::<u64>() {
         Ok(nanos) => Duration::from_nanos(nanos),
-        Err(_) => Duration::ZERO,
+        Err(_not_a_number) => Duration::ZERO,
     })
 }
 
@@ -342,7 +342,7 @@ fn waited(who: &str, asking: UnixStream) -> Result<DrawnBy, Never> {
     for line in reading.lines() {
         let line = match line {
             Ok(line) => line,
-            Err(_fault) => break,
+            Err(_the_read_failed) => break,
         };
 
         match line.trim() {
@@ -390,31 +390,18 @@ fn asking_for(who: &str, arguments: &[String]) -> Result<Request, Never> {
 }
 
 fn answers_being_asked_to_stop() -> Result<(), Never> {
-    #[cfg_attr(
-        dylint_lib = "explicit051_no_machine_width",
-        allow(
-            explicit051_no_machine_width,
-            reason = "`signal` takes a `sighandler_t`, which is the machine's width by the C ABI and not by choice here"
-        )
-    )]
-    #[cfg_attr(
-        dylint_lib = "explicit011_no_as_cast",
-        allow(
-            explicit011_no_as_cast,
-            reason = "no trait turns a function into the number `signal` takes, which is `picker::showing`'s reason for the same cast"
-        )
-    )]
-    let answer = telling as extern "C" fn(libc::c_int) as libc::sighandler_t;
+    // SAFETY: the handler writes one line to a socket and nothing else.
+    let answering = unsafe { console_signals::answered(&console_signals::STOPPING, telling) };
 
-    for number in [libc::SIGHUP, libc::SIGINT, libc::SIGTERM] {
-        // SAFETY: the handler writes one line to a socket and nothing else,
-        unsafe { libc::signal(number, answer) };
+    match answering {
+        Ok(()) => {},
+        Err(fault) => eprintln!("console-panel: {fault}"),
     }
 
     Ok(())
 }
 
-extern "C" fn telling(_number: libc::c_int) {
+extern "C" fn telling(_number: core::ffi::c_int) {
     let fd = TELLING.load(Ordering::SeqCst);
 
     match fd < 0 {
@@ -425,7 +412,9 @@ extern "C" fn telling(_number: libc::c_int) {
     let said = b"close\n";
 
     // SAFETY: `write` is what a signal handler is allowed to call, and the fd
-    unsafe { libc::write(fd, said.as_ptr().cast(), said.len()) };
+    // is the socket this process holds open for as long as it runs.
+    let held = unsafe { BorrowedFd::borrow_raw(fd) };
+    let _ = rustix::io::write(held, said);
 }
 
 #[cfg(test)]

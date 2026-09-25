@@ -446,11 +446,11 @@ mod tests {
     #[test]
     fn a_machine_with_no_pad_asks_the_bus_nothing_and_waits_for_no_round() {
         let Ok(router) = Arguments::of(&["router"]);
-        let init = Profile::init(&router);
+        let initial = Profile::init(&router);
         let Ok(said) = run::<Profile>(&router, &[Event::Opened]);
         let Ok(effects) = said.effects();
 
-        assert_eq!(init.subscriptions, Vec::new());
+        assert_eq!(initial.subscriptions, Vec::new());
         assert!(!effects.iter().any(|effect| matches!(effect, Effect::Run(_))), "{effects:?}");
     }
 

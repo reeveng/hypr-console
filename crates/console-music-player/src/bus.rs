@@ -9,11 +9,14 @@
 //!
 //! Everything is answered under one lock. A property read is short; a method
 //! that starts a song is not, because it asks ffprobe what the song says and
-//! ffmpeg for the picture on the front of it before any sound is made. That is
-//! tens of milliseconds inside a bus call, and it is deliberate: the panel
-//! wants the title and the sleeve at the same moment it wants the sound, and a
-//! player that answered the call first and filled the card in afterwards would
-//! draw an empty card every time a song is pressed.
+//! ffmpeg for the picture on the front of it before any sound is made. Most of
+//! what either costs is ffmpeg loading its libraries before it reads a byte,
+//! which is the same for both and depends on neither, so the two are asked at
+//! once rather than one after the other. That is still tens of milliseconds
+//! inside a bus call, and it is deliberate: the panel wants the title and the
+//! sleeve at the same moment it wants the sound, and a player that answered
+//! the call first and filled the card in afterwards would draw an empty card
+//! every time a song is pressed.
 //!
 //! `PropertiesChanged` is emitted for the pair a listener actually acts on --
 //! what is playing, and whether it is. Nothing here polls to find out, and the
@@ -49,6 +52,7 @@ use console_core_number_conversion::{fitted, index};
 use console_response_times::{Wait, Waiting};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::thread;
 
 use crate::answers::{self, Song, Status, Reply};
 use crate::library;
@@ -247,10 +251,8 @@ impl PlayerState {
     fn describing(&mut self, song: &Path, waiting: &mut Waiting) -> Result<(), Never> {
         self.turn = self.turn.saturating_add(1);
 
-        let Ok(said) = tags::playing(song);
-        let Ok(()) = waiting.mark("tags");
-        let Ok(art) = art::of(song, self.turn);
-        let Ok(()) = waiting.mark("art");
+        let Ok(Described { said, art }) = described(song, self.turn);
+        let Ok(()) = waiting.mark("described");
         let Ok(title) = named(song, &said.title);
 
         self.playing = Song {
@@ -319,6 +321,31 @@ fn named(song: &Path, title: &str) -> Result<String, Never> {
     Ok(match song.file_stem().map(|stem| stem.to_string_lossy().to_string()) {
         Some(stem) => stem,
         None => String::new(),
+    })
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Described {
+    pub said: tags::Playing,
+    pub art: Option<PathBuf>,
+}
+
+pub fn described(song: &Path, turn: u64) -> Result<Described, Never> {
+    thread::scope(|scope| {
+        let copying = scope.spawn(|| art::of(song, turn));
+        let Ok(said) = tags::playing(song);
+
+        let art = match copying.join() {
+            Ok(Ok(art)) => art,
+            Ok(Err(never)) => match never {},
+            Err(_the_copy_panicked) => {
+                eprintln!("music-player: {}: the cover was not copied", song.display());
+
+                None
+            },
+        };
+
+        Ok(Described { said, art })
     })
 }
 

@@ -5,12 +5,6 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
-# A person's login session, from the secret they give to the session closing.
-#
-# Written against libpam itself rather than a crate over it. libpam is the
-# system's login and is on every machine this runs on; what a binding crate
-# adds is a second author between this tree and nine C functions.
-
 [lib]
 name = "console_login_session"
 path = "src/lib.rs"

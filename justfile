@@ -454,11 +454,11 @@ panel-checks name="":
 
 # what those would do to the device
 device-checks:
-    cargo run --quiet --bin console-check -- --stage device --dry
+    cargo run --quiet --bin console-check -- --stage device --dry-run
 
 # and what the whole tier would do, emulator second opinions and all
 device-checks-all:
-    cargo run --quiet --bin console-check -- --stage device --dry --all
+    cargo run --quiet --bin console-check -- --stage device --dry-run --all
 
 # the device's desktop here, in a window
 desktop:

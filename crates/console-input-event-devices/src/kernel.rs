@@ -114,7 +114,7 @@ pub struct UinputSetup {
 #[repr(C)]
 pub struct AbsoluteSetup {
     pub code: u16,
-    pub info: AbsInfo,
+    pub information: AbsInfo,
 }
 
 unsafe extern "C" {

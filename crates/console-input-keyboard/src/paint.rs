@@ -14,7 +14,7 @@ use pango::FontDescription;
 
 use crate::configuration::{Configuration, Scheme};
 use crate::drawing::{Rectangle, Surface};
-use crate::layout::{Key, Kind, Layout, Placed, mods};
+use crate::layout::{Key, Kind, Layout, Placed, modifiers};
 
 const NO_LANGUAGE_NAMED: &str = "";
 
@@ -39,7 +39,7 @@ pub fn keyboard(onto: &Surface, look: &Look) -> Result<(), Never> {
 
     match configuration.schemes.first() {
         Some(first) => {
-            let Ok(()) = onto.fill_rectangle(first.bg, Rectangle { x: 0.0, y: 0.0, w: wide, h: tall }, 0);
+            let Ok(()) = onto.fill_rectangle(first.background, Rectangle { x: 0.0, y: 0.0, width: wide, height: tall }, 0);
         }
         None => {},
     }
@@ -98,16 +98,16 @@ struct HexColor<'a> {
 
 fn one(onto: &Surface, key: &Key, placed: &Placed, ink: &HexColor) -> Result<(), Never> {
     let HexColor { scheme, showing, held, language, font, rounding } = *ink;
-    let at = Rectangle { x: placed.x, y: placed.y, w: placed.width, h: placed.height };
+    let at = Rectangle { x: placed.x, y: placed.y, width: placed.width, height: placed.height };
     let face = match showing {
         Showing::Pressed => scheme.high,
-        Showing::Under => scheme.sel,
-        Showing::Plain => scheme.fg,
+        Showing::Under => scheme.selected,
+        Showing::Plain => scheme.foreground,
     };
     let Ok(inset) = at.inset(EDGE);
     let Ok(()) = onto.fill_rectangle(face, inset, rounding);
 
-    let shifted = held & (mods::SHIFT | mods::CAPS) != 0;
+    let shifted = held & (modifiers::SHIFT | modifiers::CAPS_LOCK) != 0;
     let label = match key.kind {
         Kind::Language => match language {
             Some(language) => language,
@@ -135,7 +135,7 @@ fn one(onto: &Surface, key: &Key, placed: &Placed, ink: &HexColor) -> Result<(),
 
     let ink = match showing {
         Showing::Pressed => scheme.text_press,
-        Showing::Under => scheme.text_sel,
+        Showing::Under => scheme.text_selected,
         Showing::Plain => scheme.text,
     };
     let Ok(()) = onto.draw_text(ink, at, EDGE, label, font);
@@ -155,19 +155,19 @@ mod tests {
         let Ok(layout) = of(name.expect("full"));
         let Ok(keys) = placed(layout, Size { width: 1024.0, height: 260.0 });
         for key in &keys {
-            let Ok(cell) = Rectangle { x: key.x, y: key.y, w: key.width, h: key.height }.inset(EDGE);
-            assert!(cell.w > 0.0 && cell.h > 0.0, "a key with no face left after its border");
+            let Ok(cell) = Rectangle { x: key.x, y: key.y, width: key.width, height: key.height }.inset(EDGE);
+            assert!(cell.width > 0.0 && cell.height > 0.0, "a key with no face left after its border");
             assert!(cell.x >= 0.0 && cell.y >= 0.0);
-            assert!(cell.x + cell.w <= 1024.0);
-            assert!(cell.y + cell.h <= 260.0);
+            assert!(cell.x + cell.width <= 1024.0);
+            assert!(cell.y + cell.height <= 260.0);
         }
     }
 
     #[test]
     fn the_gap_between_two_keys_is_a_border_from_each() {
-        let Ok(left) = Rectangle { x: 0.0, y: 0.0, w: 100.0, h: 50.0 }.inset(EDGE);
-        let Ok(right) = Rectangle { x: 100.0, y: 0.0, w: 100.0, h: 50.0 }.inset(EDGE);
-        let gap = right.x - (left.x + left.w);
+        let Ok(left) = Rectangle { x: 0.0, y: 0.0, width: 100.0, height: 50.0 }.inset(EDGE);
+        let Ok(right) = Rectangle { x: 100.0, y: 0.0, width: 100.0, height: 50.0 }.inset(EDGE);
+        let gap = right.x - (left.x + left.width);
         assert!((gap - EDGE * 2.0).abs() < 0.001, "the gap is {gap}");
     }
 }

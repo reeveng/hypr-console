@@ -23,7 +23,7 @@
 use std::process::ExitCode;
 
 use console_core_external_programs::Program;
-use console_settings::warm::{self, Standing, Switched, NightShift, at, config};
+use console_settings::warm::{self, Standing, Switched, NightShift, at, configuration};
 
 const UNIT: &str = "console-warm.service";
 
@@ -35,9 +35,9 @@ fn main() -> ExitCode {
 
     match word == "curve" {
         true => {
-            let Ok(config) = config();
+            let Ok(configuration) = configuration();
 
-            print!("{config}");
+            print!("{configuration}");
             return ExitCode::SUCCESS;
         }
         false => {},

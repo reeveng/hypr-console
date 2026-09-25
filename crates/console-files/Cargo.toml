@@ -14,8 +14,8 @@ name = "files"
 path = "src/bin/files.rs"
 
 [[bin]]
-name = "files-thumbs"
-path = "src/bin/files-thumbs.rs"
+name = "files-thumbnails"
+path = "src/bin/files-thumbnails.rs"
 
 [[bin]]
 name = "files-unzip"
@@ -30,6 +30,7 @@ console-core-atomic-writes.workspace = true
 console-applications.workspace = true
 console-content-types.workspace = true
 console-core-checksums.workspace = true
+console-concurrency.workspace = true
 console-core-never.workspace = true
 console-core-places.workspace = true
 console-core-words.workspace = true

@@ -133,11 +133,8 @@ pub fn writing(far: &Progress) -> Result<String, Never> {
     let Ok(holding) = quoted(&holding);
     let Ok(writing) = quoted(&beside);
     let Ok(where_) = quoted(&at);
-    let Ok(waking) = waking();
 
-    Ok(format!(
-        "mkdir -p {holding} && printf %s {said} > {writing} && mv {writing} {where_}; {waking}"
-    ))
+    Ok(format!("mkdir -p {holding} && printf %s {said} > {writing} && mv {writing} {where_}"))
 }
 
 pub fn showing(device: &mut Device, ahead: &Ahead, doing: &str) -> Result<(), Never> {
@@ -359,14 +356,9 @@ pub fn drawing(watching: Arc<Mutex<Watching>>) -> Result<std::thread::JoinHandle
 pub fn done_showing(device: &mut Device) -> Result<(), Never> {
     let Ok(where_at) = updating::at();
     let Ok(at) = quoted(&where_at.display().to_string());
-    let Ok(waking) = waking();
-    let Ok(_) = device.ssh(&format!("rm -f {at}; {waking}"));
+    let Ok(_) = device.ssh(&format!("rm -f {at}"));
 
     Ok(())
-}
-
-fn waking() -> Result<String, Never> {
-    Ok(format!("pkill {} -x {} || true", console_onscreen::WAKING, console_onscreen::BAR))
 }
 
 fn holding_of(at: &str) -> Result<String, Never> {
@@ -535,7 +527,7 @@ mod tests {
 
         assert!(said.contains("/run/console/updating"), "{said}");
         assert!(said.contains("400 120-a-page"), "{said}");
-        assert!(said.contains(console_onscreen::BAR), "the bar was not woken: {said}");
+        assert!(said.ends_with("/run/console/updating'"), "the bar hears the file moved into place, and nothing after it: {said}");
     }
 
     #[test]

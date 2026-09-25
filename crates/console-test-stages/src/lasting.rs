@@ -515,7 +515,7 @@ pub fn read_from(device: &mut Device) -> Result<Lengths, Never> {
 }
 
 pub fn keep(device: &mut Device, lengths: &Lengths) -> Result<(), Never> {
-    match device.dry {
+    match device.dry_run {
         true => return Ok(()),
         false => {}
     }

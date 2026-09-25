@@ -7,64 +7,64 @@
           "code": 0,
           "flat": 128,
           "fuzz": 16,
-          "max": 32767,
-          "min": -32768,
+          "maximum": 32767,
+          "minimum": -32768,
           "resolution": 1
         },
         {
           "code": 1,
           "flat": 128,
           "fuzz": 16,
-          "max": 32767,
-          "min": -32768,
+          "maximum": 32767,
+          "minimum": -32768,
           "resolution": 1
         },
         {
           "code": 2,
           "flat": 0,
           "fuzz": 0,
-          "max": 255,
-          "min": 0,
+          "maximum": 255,
+          "minimum": 0,
           "resolution": 1
         },
         {
           "code": 3,
           "flat": 128,
           "fuzz": 16,
-          "max": 32767,
-          "min": -32768,
+          "maximum": 32767,
+          "minimum": -32768,
           "resolution": 1
         },
         {
           "code": 4,
           "flat": 128,
           "fuzz": 16,
-          "max": 32767,
-          "min": -32768,
+          "maximum": 32767,
+          "minimum": -32768,
           "resolution": 1
         },
         {
           "code": 5,
           "flat": 0,
           "fuzz": 0,
-          "max": 255,
-          "min": 0,
+          "maximum": 255,
+          "minimum": 0,
           "resolution": 1
         },
         {
           "code": 16,
           "flat": 0,
           "fuzz": 0,
-          "max": 1,
-          "min": -1,
+          "maximum": 1,
+          "minimum": -1,
           "resolution": 1
         },
         {
           "code": 17,
           "flat": 0,
           "fuzz": 0,
-          "max": 1,
-          "min": -1,
+          "maximum": 1,
+          "minimum": -1,
           "resolution": 1
         }
       ],
@@ -320,24 +320,24 @@
           "code": 0,
           "flat": 0,
           "fuzz": 0,
-          "max": 1024,
-          "min": 0,
+          "maximum": 1024,
+          "minimum": 0,
           "resolution": 36
         },
         {
           "code": 1,
           "flat": 0,
           "fuzz": 0,
-          "max": 1024,
-          "min": 0,
+          "maximum": 1024,
+          "minimum": 0,
           "resolution": 36
         },
         {
           "code": 40,
           "flat": 0,
           "fuzz": 0,
-          "max": 4,
-          "min": 0,
+          "maximum": 4,
+          "minimum": 0,
           "resolution": 0
         }
       ],

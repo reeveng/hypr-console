@@ -9,8 +9,8 @@
 //! for that one rename. What has fallen through since happened to be one-shot
 //! commands rather than daemons, which is luck rather than a property.
 //!
-//! A migration is that sweep, written down. One file per change, named for the
-//! moment of the commit that needs it, run once per machine and remembered
+//! A migration is that sweep, written down. One module per change, named for
+//! the moment of the commit that needs it, run once per machine and remembered
 //! there. The shape is borrowed from omarchy, which has run it over eighty
 //! times: a directory of numbered scripts, a marker per script on the machine
 //! that ran it, and a runner that walks them in order. What is different here
@@ -19,28 +19,35 @@
 //! left it and hold someone to sweeping it.
 //!
 //! That is the whole reason this exists as a crate rather than a script:
-//! [`unswept`] is the rule, it is arithmetic over four sets, and
+//! [`unswept`] is the rule, it is arithmetic over sets, and
 //! `tests/every_removal_is_swept.rs` is what puts a repository's real history
-//! into it. The engine on the device never asks that question at all -- by then
-//! the answer is a file someone committed.
+//! into it.
+//!
+//! The rule now covers less than it did. Since [`RECORDED_SINCE`] every apply
+//! is written down with the commit it came from, and the engine takes back by
+//! itself what those commits placed and today's manifest does not name -- its
+//! `pruning` module is that. So what still needs a sweep written by hand is a
+//! name that left before any machine kept the record, and whatever a removal
+//! costs beyond the thing the line named, which no manifest says.
 //!
 //! # What a migration looks like
 //!
 //! ```text
-//! # sweeps: /usr/local/bin/console-poke
-//! # sweeps: enabled legion-bar.service
-//!
-//! attic /usr/local/bin/console-poke
+//! pub const MIGRATION: Migration = Migration {
+//!     moment: Moment(1790200080),
+//!     says: "sweeping the thumbnail maker under its old name",
+//!     steps: &[Step::Attic("/usr/local/bin/files-thumbs")],
+//! };
 //! ```
 //!
-//! The `sweeps:` lines are the claim, and they are what the gate reads: each
-//! one names a thing the machine was left holding, in the words [`holds`] puts
-//! it in -- a path for a file, and what holds a unit there for a unit. The rest
-//! is a shell script and does the work. Nothing is deleted -- `console-migrate`
-//! set that precedent for the rename and its attic is still on the device, which
-//! is how anyone can still tell that sweep did what it said.
+//! What the steps move and disable is the claim, and it is what the gate reads:
+//! each names a thing the machine was left holding, in the words [`holds`] puts
+//! it in. The engine carries the steps out. Nothing is deleted --
+//! `console-migrate` set that precedent for the rename and its attic is still on
+//! the device, which is how anyone can still tell that sweep did what it said.
 
 pub mod done;
+pub mod history;
 pub mod sweeping;
 
 use console_core_never::Never;
@@ -52,8 +59,6 @@ use std::path::PathBuf;
 #[derive(Debug)]
 pub enum Undone {
     Listing(PathBuf, std::io::Error),
-    Reading(PathBuf, std::io::Error),
-    Untitled(PathBuf),
     Holding(PathBuf, std::io::Error),
     Marking(console_core_atomic_writes::Unwritten),
 }
@@ -62,8 +67,6 @@ impl fmt::Display for Undone {
     fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Undone::Listing(at, fault) => write!(to, "{}: {fault}", at.display()),
-            Undone::Reading(at, fault) => write!(to, "{}: {fault}", at.display()),
-            Undone::Untitled(at) => write!(to, "{} has no name", at.display()),
             Undone::Holding(at, fault) => write!(to, "{}: {fault}", at.display()),
             Undone::Marking(fault) => write!(to, "{fault}"),
         }
@@ -84,12 +87,14 @@ pub fn unswept(
     now: &BTreeSet<String>,
     swept: &BTreeSet<String>,
     on_purpose: &BTreeSet<String>,
+    recorded: &BTreeSet<String>,
 ) -> Result<Vec<Unswept>, Never> {
     Ok(ever
         .iter()
         .filter(|(holds, _)| !now.contains(*holds))
         .filter(|(holds, _)| !swept.contains(*holds))
         .filter(|(holds, _)| !on_purpose.contains(*holds))
+        .filter(|(holds, _)| !recorded.contains(*holds))
         .map(|(holds, section)| Unswept { holds: holds.clone(), section: section.clone() })
         .collect())
 }
@@ -126,6 +131,21 @@ pub fn whoevers(path: &str) -> Result<String, Never> {
 }
 
 pub const USER: &str = "@user@";
+
+pub const RECORDED_SINCE: u64 = 1_790_123_959;
+
+pub fn recorded(committed: u64) -> Result<Recorded, Never> {
+    Ok(match committed >= RECORDED_SINCE {
+        true => Recorded::Yes,
+        false => Recorded::No,
+    })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Recorded {
+    Yes,
+    No,
+}
 
 pub const SWEPT: [&str; 4] = ["[build]", "[files]", "[services]", "[masked]"];
 
@@ -176,7 +196,7 @@ mod tests {
     fn a_name_that_left_and_nothing_sweeps_is_the_answer() {
         let ever = ever(&[("[build]", "console-poke"), ("[build]", "launcher")]);
         let now = now(&[("[build]", "launcher")]);
-        let Ok(left) = unswept(&ever, &now, &names(&[]), &names(&[]));
+        let Ok(left) = unswept(&ever, &now, &names(&[]), &names(&[]), &names(&[]));
 
         assert_eq!(left.len(), 1);
         assert_eq!(left.first().map(|one| one.holds.as_str()), Some("/usr/local/bin/console-poke"));
@@ -187,7 +207,7 @@ mod tests {
         let ever = ever(&[("[build]", "console-poke")]);
         let swept = names(&["/usr/local/bin/console-poke"]);
 
-        let Ok(left) = unswept(&ever, &now(&[]), &swept, &names(&[]));
+        let Ok(left) = unswept(&ever, &now(&[]), &swept, &names(&[]), &names(&[]));
 
         assert!(left.is_empty());
     }
@@ -197,7 +217,7 @@ mod tests {
         let ever = ever(&[("[build]", "console-timings")]);
         let said = names(&["/usr/local/bin/console-timings"]);
 
-        let Ok(left) = unswept(&ever, &now(&[]), &names(&[]), &said);
+        let Ok(left) = unswept(&ever, &now(&[]), &names(&[]), &said, &names(&[]));
 
         assert!(left.is_empty());
     }
@@ -206,17 +226,36 @@ mod tests {
     fn a_rename_is_the_old_name_and_not_the_new_one() {
         let ever = ever(&[("[build]", "legion-sky"), ("[build]", "console-wallpaper")]);
         let now = now(&[("[build]", "console-wallpaper")]);
-        let Ok(left) = unswept(&ever, &now, &names(&[]), &names(&[]));
+        let Ok(left) = unswept(&ever, &now, &names(&[]), &names(&[]), &names(&[]));
 
         assert_eq!(left.first().map(|one| one.holds.as_str()), Some("/usr/local/bin/legion-sky"));
         assert_eq!(left.len(), 1);
     }
 
     #[test]
+    fn a_name_carried_since_the_generations_began_is_the_engines_to_take() {
+        let ever = ever(&[("[build]", "files-panel")]);
+        let recorded = names(&["/usr/local/bin/files-panel"]);
+
+        let Ok(left) = unswept(&ever, &now(&[]), &names(&[]), &names(&[]), &recorded);
+
+        assert!(left.is_empty());
+    }
+
+    #[test]
+    fn a_commit_before_the_generations_began_is_one_no_machine_remembers() {
+        let Ok(before) = recorded(RECORDED_SINCE.saturating_sub(1));
+        let Ok(since) = recorded(RECORDED_SINCE);
+
+        assert_eq!(before, Recorded::No);
+        assert_eq!(since, Recorded::Yes);
+    }
+
+    #[test]
     fn a_program_that_became_a_crate_left_nothing_behind() {
         let ever = ever(&[("[files]", "/usr/local/bin/launcher"), ("[build]", "launcher")]);
         let now = now(&[("[build]", "launcher")]);
-        let Ok(left) = unswept(&ever, &now, &names(&[]), &names(&[]));
+        let Ok(left) = unswept(&ever, &now, &names(&[]), &names(&[]), &names(&[]));
 
         assert!(left.is_empty());
     }
@@ -225,7 +264,7 @@ mod tests {
     fn a_name_that_came_back_is_not_left_anywhere() {
         let ever = ever(&[("[build]", "files-panel")]);
         let now = now(&[("[build]", "files-panel")]);
-        let Ok(left) = unswept(&ever, &now, &names(&[]), &names(&[]));
+        let Ok(left) = unswept(&ever, &now, &names(&[]), &names(&[]), &names(&[]));
 
         assert!(left.is_empty());
     }

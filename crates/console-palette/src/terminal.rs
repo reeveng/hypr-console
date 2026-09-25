@@ -1,7 +1,7 @@
 //! The sixteen colors a program may ask for by number.
 
 use indexmap::IndexMap;
-use console_core_color as col;
+use console_core_color as color;
 use console_core_never::Never;
 use console_core_words::Words;
 
@@ -31,7 +31,7 @@ pub enum Shade {
 }
 
 impl Terminal {
-    pub fn of(configuration: &Configuration, palette: &Palette) -> Result<Self, col::Short> {
+    pub fn of(configuration: &Configuration, palette: &Palette) -> Result<Self, color::Short> {
         let setting = &configuration.terminal;
         let normal: IndexMap<String, String> = setting
             .normal
@@ -41,7 +41,7 @@ impl Terminal {
 
                 Ok((slot.clone(), color.to_owned()))
             })
-            .collect::<Result<_, col::Short>>()?;
+            .collect::<Result<_, color::Short>>()?;
         let bright: IndexMap<String, String> = normal
             .iter()
             .map(|(slot, code)| match slot.as_str() {
@@ -51,18 +51,18 @@ impl Terminal {
                     Ok((slot.clone(), text.to_owned()))
                 }
                 _ => {
-                    let Ok(lifted) = col::lift(code, setting.bright_lift);
+                    let Ok(lifted) = color::lift(code, setting.bright_lift);
 
                     Ok((slot.clone(), lifted))
                 }
             })
-            .collect::<Result<_, col::Short>>()?;
+            .collect::<Result<_, color::Short>>()?;
 
         for slot in SLOTS {
             match (normal.get(slot), bright.get(slot)) {
                 (Some(_), Some(_)) => {},
                 (Some(_) | None, _) => {
-                    return Err(col::Short(format!("the terminal table names no {slot}")));
+                    return Err(color::Short(format!("the terminal table names no {slot}")));
                 }
             }
         }
@@ -127,8 +127,8 @@ mod tests {
 
             let Ok(bright) = terminal.slot(Shade::Bright, slot);
 
-            let Ok(lighter) = col::luminance(bright);
-            let Ok(darker) = col::luminance(normal);
+            let Ok(lighter) = color::luminance(bright);
+            let Ok(darker) = color::luminance(normal);
 
             assert!(
                 lighter > darker,
@@ -144,7 +144,7 @@ mod tests {
             for slot in SLOTS {
                 let Ok(code) = terminal.slot(shade, slot);
 
-                let Ok(got) = col::contrast(HexColor(code), Ground(&terminal.background));
+                let Ok(got) = color::contrast(HexColor(code), Ground(&terminal.background));
 
                 let least = match slot {
                     "black" => 4.5,

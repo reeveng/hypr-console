@@ -336,7 +336,7 @@ mod tests {
     fn the_ground_is_the_color_the_unit_fills_the_screen_with() {
         let ground = ground().expect("the unit sets one");
         assert_eq!(ground.len(), 6, "{ground:?}");
-        assert!(ground.chars().all(|c| c.is_ascii_hexdigit()), "{ground:?}");
+        assert!(ground.chars().all(|digit| digit.is_ascii_hexdigit()), "{ground:?}");
     }
 
     #[test]

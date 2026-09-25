@@ -288,7 +288,7 @@ impl Display {
                 }
                 controller => Some(controller),
             },
-            Err(_) => controllers.first().copied(),
+            Err(_the_card_would_not_say) => controllers.first().copied(),
         };
         let controller = match controller {
             Some(controller) => controller,
@@ -399,7 +399,7 @@ fn described(card: &File, connector: u32) -> Result<Option<(u32, Mode, u32)>, Ne
 
     match asked(card, GET_CONNECTOR, &mut asked_once, "describe a connector") {
         Ok(()) => {}
-        Err(_) => return Ok(None),
+        Err(_the_card_would_not_say) => return Ok(None),
     }
 
     match (asked_once.connection, asked_once.count_modes) {
@@ -424,7 +424,7 @@ fn described(card: &File, connector: u32) -> Result<Option<(u32, Mode, u32)>, Ne
 
     match asked(card, GET_CONNECTOR, &mut described, "describe a connector") {
         Ok(()) => {}
-        Err(_) => return Ok(None),
+        Err(_the_card_would_not_say) => return Ok(None),
     }
 
     let Ok(preferred) = preferred(&modes);

@@ -73,6 +73,7 @@ which stable cannot do; `rust-toolchain.toml` pins the nightly and the
     EXPLICIT049  a function does not reach itself; the depth is a loop's to count
     EXPLICIT050  a function fits on a screen
     EXPLICIT051  a number has a width the source says; no usize
+    EXPLICIT052  the kernel is asked through rustix, never through libc
 
 All of them are written. Each is one crate with a `ui/` case beside it.
 
@@ -1139,6 +1140,17 @@ denied now: the walks keep a stack of their own, and the long bodies are named
 stages called in order. 051 is denied with it, ahead of the tree: it is in
 every crate, and goes the way 002 did, a crate at a time, with the gate red
 until the last one is answered. `just explicit` prints the rest.
+
+**052 is the kernel asked through rustix.** libc spells a system call the C
+way -- an `int` for a file, `-1` and a global number for a failure, and every call
+`unsafe` because the signature says nothing about what it touches -- and
+rustix asks the same kernel with an `OwnedFd`, a `Result` and a borrow. The
+one call rustix will not make beneath glibc is installing a signal handler,
+because the kernel returns from one through a restorer glibc supplies; that
+call is `console-signals`, which declares glibc's `signal` itself rather than
+depending on the `libc` crate for one symbol. It arrived warned, with the
+handler installers carrying allows, and was denied once they had moved there
+and the programs that used signals to talk to each other had stopped.
 
 ## What it is, and what it is not yet
 

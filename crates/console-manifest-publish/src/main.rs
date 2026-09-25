@@ -101,11 +101,11 @@ fn run() -> Result<ExitCode, Unpublished> {
         },
         _ => return Err(Unpublished::NotOnePath),
     };
-    let repo = console_repository::root()?;
+    let repository = console_repository::root()?;
 
-    publish(&repo, &where_)?;
+    publish(&repository, &where_)?;
     println!("built {}", where_.display());
-    checked(&repo, &where_)
+    checked(&repository, &where_)
 }
 
 const KEPT: [&str; 2] = [".git", "target"];
@@ -113,7 +113,7 @@ const KEPT: [&str; 2] = [".git", "target"];
 fn cleared(where_: &Path) -> Result<(), Unpublished> {
     let held = match std::fs::read_dir(where_) {
         Ok(held) => held,
-        Err(_) => return Ok(()),
+        Err(_nothing_there) => return Ok(()),
     };
 
     for entry in held {
@@ -142,18 +142,18 @@ fn cleared(where_: &Path) -> Result<(), Unpublished> {
     Ok(())
 }
 
-fn publish(repo: &Path, where_: &Path) -> Result<(), Unpublished> {
+fn publish(repository: &Path, where_: &Path) -> Result<(), Unpublished> {
     cleared(where_)?;
 
     std::fs::create_dir_all(where_)
         .map_err(|fault| Unpublished::Holding(where_.to_path_buf(), fault))?;
 
-    let tracked = tracked(repo)?;
+    let tracked = tracked(repository)?;
 
     let Ok(carried) = tree::carried(tracked);
 
     for name in carried {
-        carry(&repo.join(&name), &where_.join(&name))?;
+        carry(&repository.join(&name), &where_.join(&name))?;
     }
 
     let manifest = where_.join(console_repository::MARK);
@@ -185,7 +185,7 @@ fn carry(source: &Path, target: &Path) -> Result<(), Unpublished> {
         .map_err(|fault| Unpublished::Unset(target.to_path_buf(), fault))
 }
 
-fn checked(repo: &Path, where_: &Path) -> Result<ExitCode, Unpublished> {
+fn checked(repository: &Path, where_: &Path) -> Result<ExitCode, Unpublished> {
     let Ok((names, missing)) = names::watched();
 
     for said in &missing {
@@ -209,7 +209,7 @@ fn checked(repo: &Path, where_: &Path) -> Result<ExitCode, Unpublished> {
 
     println!("nothing of anyone's name in it");
 
-    let where_it_builds = [("CARGO_TARGET_DIR", repo.join("target/published").display().to_string())];
+    let where_it_builds = [("CARGO_TARGET_DIR", repository.join("target/published").display().to_string())];
 
     let Ok(built) = ran(
         where_,
@@ -242,11 +242,11 @@ enum Passed {
     No,
 }
 
-fn ran(where_: &Path, program: Program, args: &[&str], told: &[(&str, String)]) -> Result<Passed, Never> {
+fn ran(where_: &Path, program: Program, arguments: &[&str], told: &[(&str, String)]) -> Result<Passed, Never> {
     let Ok(mut command) = program.command();
 
     Ok(match command
-        .args(args)
+        .args(arguments)
         .envs(told.iter().map(|(name, value)| (*name, value)))
         .current_dir(where_)
         .status()
@@ -317,10 +317,10 @@ fn talking<'a>(
     Ok(said)
 }
 
-fn tracked(repo: &Path) -> Result<Vec<String>, Unpublished> {
-    let at = repo
+fn tracked(repository: &Path) -> Result<Vec<String>, Unpublished> {
+    let at = repository
         .to_str()
-        .ok_or_else(|| Unpublished::NotAName(repo.to_path_buf()))?;
+        .ok_or_else(|| Unpublished::NotAName(repository.to_path_buf()))?;
     let Ok(mut git) = Program::Git.command();
     let out = git
         .args(["-C", at, "ls-files"])

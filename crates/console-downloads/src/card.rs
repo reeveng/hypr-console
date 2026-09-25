@@ -73,7 +73,7 @@ type Panel = Address<Message>;
 fn at(held: &Panel, tab: u32) -> Result<Tab, Never> {
     Ok(match held.ask(|answer| Message::At { tab, answer }) {
         Ok(tab) => tab,
-        Err(_) => {
+        Err(_the_actor_has_gone) => {
             eprintln!("downloads: the panel's own state is missing, so it drew as it opened");
 
             Tab::default()
@@ -84,7 +84,7 @@ fn at(held: &Panel, tab: u32) -> Result<Tab, Never> {
 fn decided(held: &Panel, heard: DownloadsEvent) -> Result<Vec<Effect<DownloadsEffect>>, Never> {
     Ok(match held.ask(|answer| Message::Event(heard, answer)) {
         Ok(effects) => effects,
-        Err(_) => {
+        Err(_the_actor_has_gone) => {
             eprintln!("downloads: the panel's own state is missing, so the press did nothing");
 
             Vec::new()
@@ -149,7 +149,7 @@ fn looked(kind: Kind) -> Result<Looked, Never> {
 
     let said = match std::fs::read_to_string(at) {
         Ok(said) => said,
-        Err(_fault) => return Ok(Looked::default()),
+        Err(_unreadable) => return Ok(Looked::default()),
     };
 
     looking::kept(&said)
@@ -383,8 +383,8 @@ fn page(held: &Panel, tab: u32, kind: Kind) -> Result<Page, Never> {
 pub const WHO: &str = "downloads";
 
 pub fn card(arguments: &[String]) -> Result<Card, Never> {
-    let init = Downloads::init(&Arguments::default());
-    let Ok(card) = Card::supervised(move || Actor(init.state.clone()), pages);
+    let initial = Downloads::init(&Arguments::default());
+    let Ok(card) = Card::supervised(move || Actor(initial.state.clone()), pages);
 
     card.opening_at(arguments.first().map(String::as_str))
 }

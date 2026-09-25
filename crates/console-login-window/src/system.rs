@@ -74,7 +74,7 @@ pub struct Person {
 pub fn person(name: &str) -> io::Result<Option<Person>> {
     let asked = match CString::new(name) {
         Ok(asked) => asked,
-        Err(_) => return Ok(None),
+        Err(_holds_a_nul) => return Ok(None),
     };
     let mut entry = Passwd {
         name: std::ptr::null_mut(),
@@ -133,7 +133,7 @@ pub enum Terminal {
 pub fn started_as(command: &mut Command, person: &Person, terminal: Terminal) -> Result<(), Never> {
     let name = match CString::new(person.name.as_str()) {
         Ok(name) => name,
-        Err(_) => CString::default(),
+        Err(_holds_a_nul) => CString::default(),
     };
     let (user, group) = (person.user, person.group);
 

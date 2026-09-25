@@ -10,11 +10,6 @@ name = "console_input_alphabets"
 path = "src/lib.rs"
 
 [dependencies]
-# Where a thing someone chose is kept, which is the same store the dictation
-# language and the home grid are kept in.
-# What each keyboard is wearing is one line per keyboard in someone's own
-# state, written whole so a switch interrupted leaves the old answer rather
-# than half of the new one.
 console-core-atomic-writes.workspace = true
 console-core-never.workspace = true
 console-defaults.workspace = true

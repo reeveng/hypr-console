@@ -13,7 +13,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use console_core_color::{Ground, HexColor};
-use console_core_color as col;
+use console_core_color as color;
 
 fn root() -> PathBuf {
     {
@@ -24,16 +24,16 @@ fn root() -> PathBuf {
 
 const HEX: u32 = 6;
 
-fn is_word(c: char) -> bool {
-    c.is_alphanumeric() || c == '_'
+fn is_word(character: char) -> bool {
+    character.is_alphanumeric() || character == '_'
 }
 
-fn is_name(c: char) -> bool {
-    c.is_ascii_alphanumeric() || c == '_' || c == '-'
+fn is_name(character: char) -> bool {
+    character.is_ascii_alphanumeric() || character == '_' || character == '-'
 }
 
 fn run_of(said: &str, taken: impl Fn(char) -> bool) -> (&str, &str) {
-    match said.find(|c: char| !taken(c)) {
+    match said.find(|character: char| !taken(character)) {
         Some(end) => said.split_at(end),
         None => (said, ""),
     }
@@ -42,7 +42,7 @@ fn run_of(said: &str, taken: impl Fn(char) -> bool) -> (&str, &str) {
 fn hex_six(said: &str) -> Option<(&str, &str)> {
     let (code, after) = said.split_at_checked(HEX.try_into().ok()?)?;
 
-    match code.chars().all(|c| c.is_ascii_hexdigit()) {
+    match code.chars().all(|character| character.is_ascii_hexdigit()) {
         true => Some((code, after)),
         false => None,
     }
@@ -52,7 +52,7 @@ fn hex_word(said: &str) -> Option<(&str, &str)> {
     let (code, after) = hex_six(said)?;
 
     match after.chars().next() {
-        Some(c) if is_word(c) => None,
+        Some(character) if is_word(character) => None,
         Some(_) | None => Some((code, after)),
     }
 }
@@ -61,7 +61,7 @@ fn decimal_triple(said: &str) -> bool {
     let mut left = said;
 
     for band in 0..3u8 {
-        let (digits, after) = run_of(left, |c| c.is_ascii_digit());
+        let (digits, after) = run_of(left, |character| character.is_ascii_digit());
 
         match (1..=3).contains(&digits.len()) {
             true => {}
@@ -161,7 +161,7 @@ fn names_asked(code: &str) -> Vec<String> {
     let mut left = code;
 
     while let Some((_, after)) = left.split_once('@') {
-        let opens = after.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_');
+        let opens = after.chars().next().is_some_and(|character| character.is_ascii_alphabetic() || character == '_');
 
         left = match opens {
             true => {
@@ -377,11 +377,11 @@ mod the_engine {
     #[test]
     fn it_agrees_with_the_other_implementation() {
         for (lightness, chroma, hue, expected, ratio) in VECTORS {
-            let Ok(got) = col::hexcode(col::Oklch { lightness, chroma, hue });
+            let Ok(got) = color::hexcode(color::Oklch { lightness, chroma, hue });
 
             assert_eq!(got, expected, "at oklch({lightness} {chroma} {hue})");
 
-            let Ok(reached) = col::contrast(HexColor(&got), Ground("2b212e"));
+            let Ok(reached) = color::contrast(HexColor(&got), Ground("2b212e"));
 
             assert!(
                 (reached - ratio).abs() < 1e-4,
@@ -399,7 +399,7 @@ mod the_engine {
     #[test]
     fn the_apca_numbers_are_the_published_ones() {
         for (ink, ground, expected) in APCA {
-            let Ok(got) = col::lc(HexColor(ink), Ground(ground));
+            let Ok(got) = color::lightness_contrast(HexColor(ink), Ground(ground));
 
             assert!(
                 (got - expected).abs() < 0.01,
@@ -410,10 +410,10 @@ mod the_engine {
 
     #[test]
     fn the_polarity_is_the_whole_point_and_is_not_symmetric() {
-        let Ok(one) = col::contrast(HexColor("000000"), Ground("ffffff"));
-        let Ok(other) = col::contrast(HexColor("ffffff"), Ground("000000"));
-        let Ok(white_on_black) = col::lc(HexColor("ffffff"), Ground("000000"));
-        let Ok(black_on_white) = col::lc(HexColor("000000"), Ground("ffffff"));
+        let Ok(one) = color::contrast(HexColor("000000"), Ground("ffffff"));
+        let Ok(other) = color::contrast(HexColor("ffffff"), Ground("000000"));
+        let Ok(white_on_black) = color::lightness_contrast(HexColor("ffffff"), Ground("000000"));
+        let Ok(black_on_white) = color::lightness_contrast(HexColor("000000"), Ground("ffffff"));
 
         assert_eq!(one, other);
         assert!(white_on_black.abs() != black_on_white.abs());
@@ -421,25 +421,25 @@ mod the_engine {
 
     #[test]
     fn a_color_on_itself_is_no_contrast_in_either_measure() {
-        let Ok(ratio) = col::contrast(HexColor("372c3a"), Ground("372c3a"));
-        let Ok(lc) = col::lc(HexColor("372c3a"), Ground("372c3a"));
+        let Ok(ratio) = color::contrast(HexColor("372c3a"), Ground("372c3a"));
+        let Ok(lightness_contrast) = color::lightness_contrast(HexColor("372c3a"), Ground("372c3a"));
 
         assert!((ratio - 1.0).abs() < 1e-12);
-        assert_eq!(lc, 0.0);
+        assert_eq!(lightness_contrast, 0.0);
     }
 
     #[test]
     fn wcag_flatters_a_dark_pair_and_apca_does_not() {
-        let Ok(on_black) = col::contrast(HexColor("767676"), Ground("000000"));
-        let Ok(on_white) = col::contrast(HexColor("767676"), Ground("ffffff"));
+        let Ok(on_black) = color::contrast(HexColor("767676"), Ground("000000"));
+        let Ok(on_white) = color::contrast(HexColor("767676"), Ground("ffffff"));
 
         assert!(on_black > on_white, "{on_black} should beat {on_white}");
 
-        let Ok(black) = col::lc(HexColor("767676"), Ground("000000"));
-        let Ok(white) = col::lc(HexColor("767676"), Ground("ffffff"));
+        let Ok(black) = color::lightness_contrast(HexColor("767676"), Ground("000000"));
+        let Ok(white) = color::lightness_contrast(HexColor("767676"), Ground("ffffff"));
 
-        let (lc_black, lc_white) = (black.abs(), white.abs());
-        assert!(lc_black < lc_white, "Contrast {lc_black} should be under Contrast {lc_white}");
+        let (lightness_contrast_black, lightness_contrast_white) = (black.abs(), white.abs());
+        assert!(lightness_contrast_black < lightness_contrast_white, "Contrast {lightness_contrast_black} should be under Contrast {lightness_contrast_white}");
     }
 }
 
@@ -485,7 +485,7 @@ mod the_tree {
         let lifted: Vec<String> = spent
             .iter()
             .map(|(_, code)| {
-                let Ok(lifted) = col::lift(code, bright_lift());
+                let Ok(lifted) = color::lift(code, bright_lift());
 
                 lifted
             })
@@ -585,7 +585,7 @@ fn spent() -> Vec<(String, String)> {
                 _ => None,
             }
         })
-        .filter(|(_, code)| code.len() == 6 && code.chars().all(|c| c.is_ascii_hexdigit()))
+        .filter(|(_, code)| code.len() == 6 && code.chars().all(|character| character.is_ascii_hexdigit()))
         .collect()
 }
 

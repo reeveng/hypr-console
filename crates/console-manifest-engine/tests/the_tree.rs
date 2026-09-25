@@ -21,9 +21,9 @@ fn root() -> PathBuf {
 }
 }
 
-fn console(args: &[&str]) -> (bool, String) {
+fn console(arguments: &[&str]) -> (bool, String) {
     let done = Command::new(env!("CARGO_BIN_EXE_console"))
-        .args(args)
+        .args(arguments)
         .output()
         .expect("console runs");
     (done.status.success(), String::from_utf8_lossy(&done.stdout).into_owned())
@@ -422,13 +422,8 @@ fn nothing_matches_a_process_by_a_name_the_kernel_cannot_hold() {
 }
 
 #[test]
-fn the_toggle_names_the_keyboard_the_manifest_installs() {
+fn the_keyboard_the_desktop_asks_is_one_the_manifest_installs() {
     let installed = format!("/usr/local/bin/{}", console_input_controller::mode::KEYBOARD);
-    assert_eq!(
-        console_input_keyboard::remote::pattern_for(std::path::Path::new(&installed)),
-        Ok(format!("^{installed}( |$)")),
-        "the two ways of asking signal a path the manifest does not install, so X reaches nothing"
-    );
     let held = manifest();
     let carried = section(&held, "files").iter().any(|path| path == &installed);
     let built = section(&held, "build")
@@ -436,7 +431,7 @@ fn the_toggle_names_the_keyboard_the_manifest_installs() {
         .any(|name| installed == format!("/usr/local/bin/{name}"));
     assert!(
         carried || built,
-        "the manifest neither carries nor builds {installed}, so the toggle names a program \
+        "the manifest neither carries nor builds {installed}, so the toggle asks a program \
          no one has"
     );
 }
@@ -628,9 +623,9 @@ fn reached_by(bin: &Path) -> String {
     let mut held = own.clone();
 
     for (what, module) in modules(&own) {
-        let src = crates.join(&what).join("src");
-        let one = src.join(format!("{module}.rs"));
-        let folded = src.join(&module).join("mod.rs");
+        let source = crates.join(&what).join("src");
+        let one = source.join(format!("{module}.rs"));
+        let folded = source.join(&module).join("mod.rs");
 
         held.push_str(&std::fs::read_to_string(&one).unwrap_or_default());
         held.push_str(&std::fs::read_to_string(&folded).unwrap_or_default());

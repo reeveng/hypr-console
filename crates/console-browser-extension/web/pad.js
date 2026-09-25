@@ -210,14 +210,14 @@
   /* --------------------------------------------------------------- the page */
 
   /** Whether a thing is on the screen at all, and where. */
-  function seen(el) {
-    if (!el || !el.isConnected) return null;
-    if (el.disabled || el.getAttribute('aria-hidden') === 'true') return null;
-    const rect = el.getBoundingClientRect();
+  function seen(element) {
+    if (!element || !element.isConnected) return null;
+    if (element.disabled || element.getAttribute('aria-hidden') === 'true') return null;
+    const rect = element.getBoundingClientRect();
     if (rect.width < 4 || rect.height < 4) return null;
     if (rect.bottom <= 0 || rect.right <= 0) return null;
     if (rect.top >= innerHeight || rect.left >= innerWidth) return null;
-    const style = getComputedStyle(el);
+    const style = getComputedStyle(element);
     if (style.visibility !== 'visible' || style.display === 'none' || Number(style.opacity) === 0) return null;
     return rect;
   }
@@ -225,20 +225,20 @@
   /** Everything on the screen that can be pressed, nearest the top first. */
   function pressable() {
     const found = [];
-    for (const el of document.querySelectorAll(PRESSABLE)) {
-      if (state.host && state.host.contains(el)) continue;
-      const rect = seen(el);
+    for (const element of document.querySelectorAll(PRESSABLE)) {
+      if (state.host && state.host.contains(element)) continue;
+      const rect = seen(element);
       if (!rect) continue;
-      found.push({ el, rect });
+      found.push({ element, rect });
     }
     /* A link wrapped round a button is one thing to press and two things
        found. The inner one is the one a page means, so an outer one standing
        in the same place is dropped. */
-    const kept = found.filter(({ el, rect }) =>
+    const kept = found.filter(({ element, rect }) =>
       !found.some(
         (other) =>
-          other.el !== el &&
-          el.contains(other.el) &&
+          other.element !== element &&
+          element.contains(other.element) &&
           Math.abs(other.rect.width - rect.width) < 6 &&
           Math.abs(other.rect.height - rect.height) < 6,
       ),
@@ -288,7 +288,7 @@
        the second press did anything at all -- a mode said in one line at the
        bottom of the screen is a mode no one reads while their eyes are on the
        labels. */
-    const every = mode === 'new' ? pressable().filter(({ el }) => el.closest('a[href]')) : pressable();
+    const every = mode === 'new' ? pressable().filter(({ element }) => element.closest('a[href]')) : pressable();
     const marks = [];
     const shown = mode === 'new' ? [] : deeds();
     const said = labels(shown.length + every.length);
@@ -322,12 +322,12 @@
     bar.appendChild(tap('×', 'put the labels away', () => away()));
     bars().appendChild(bar);
 
-    for (const { el, rect } of every) {
+    for (const { element, rect } of every) {
       const node = drawn(said[at], '');
       node.classList.add('hint');
       if (mode === 'new') node.classList.add('new');
       root.appendChild(node);
-      marks.push({ label: said[at], node, wrote: node, target: el, rect });
+      marks.push({ label: said[at], node, wrote: node, target: element, rect });
       at += 1;
     }
     settle(marks.filter((mark) => mark.target));
@@ -348,11 +348,11 @@
   function settle(marks) {
     const sizes = marks.map((mark) => {
       const box = mark.node.getBoundingClientRect();
-      return { w: box.width, h: box.height };
+      return { width: box.width, height: box.height };
     });
     const placed = [];
     marks.forEach((mark, at) => {
-      const put = free(mark.rect, sizes[at].w, sizes[at].h, placed);
+      const put = free(mark.rect, sizes[at].width, sizes[at].height, placed);
       mark.node.style.left = `${put.x}px`;
       mark.node.style.top = `${put.y}px`;
       placed.push(put);
@@ -360,10 +360,10 @@
   }
 
   /** The first corner of this thing that no label is standing on already. */
-  function free(rect, w, h, placed) {
+  function free(rect, width, height, placed) {
     let first = null;
-    for (const [x, y] of corners(rect, w, h)) {
-      const put = { x: Math.max(2, Math.min(innerWidth - w - 2, x)), y: Math.max(2, Math.min(innerHeight - h - 2, y)), w, h };
+    for (const [x, y] of corners(rect, width, height)) {
+      const put = { x: Math.max(2, Math.min(innerWidth - width - 2, x)), y: Math.max(2, Math.min(innerHeight - height - 2, y)), width, height };
       if (!first) first = put;
       if (!placed.some((other) => touching(put, other))) return put;
     }
@@ -382,28 +382,28 @@
      word is a word that cannot be read, and above a line of prose there is
      usually more prose rather than another thing to press, so nothing is made
      ambiguous by moving it there. */
-  function corners(rect, w, h) {
-    const carries = rect.height >= h + 8;
+  function corners(rect, width, height) {
+    const carries = rect.height >= height + 8;
     const out = carries
       ? [
-          [rect.left - 3, rect.top - h + 9],
-          [rect.right - w + 3, rect.top - h + 9],
+          [rect.left - 3, rect.top - height + 9],
+          [rect.right - width + 3, rect.top - height + 9],
           [rect.left - 3, rect.bottom - 9],
           [rect.left - 3, rect.top + 2],
-          [rect.left - w - 3, rect.top],
+          [rect.left - width - 3, rect.top],
         ]
       : [
-          [rect.left - 3, rect.top - h + 4],
+          [rect.left - 3, rect.top - height + 4],
           [rect.left - 3, rect.top - 2],
-          [rect.left - w - 3, rect.top - 2],
-          [rect.right - w + 3, rect.top - h + 4],
+          [rect.left - width - 3, rect.top - 2],
+          [rect.right - width + 3, rect.top - height + 4],
           [rect.left - 3, rect.bottom - 2],
         ];
     /* And along its own top edge, for the thing wide enough to hold several:
        a nav bar is one row of long links, and every label on it wants the same
        corner. */
-    for (let step = 1; step * (w + 4) < rect.width; step += 1) {
-      out.push([rect.left - 3 + step * (w + 4), carries ? rect.top - h + 9 : rect.top - h + 4]);
+    for (let step = 1; step * (width + 4) < rect.width; step += 1) {
+      out.push([rect.left - 3 + step * (width + 4), carries ? rect.top - height + 9 : rect.top - height + 4]);
     }
     return out;
   }
@@ -411,10 +411,10 @@
   /** Whether two labels are in each other's way, with a hair of room between. */
   function touching(one, two) {
     return (
-      one.x < two.x + two.w + 2 &&
-      two.x < one.x + one.w + 2 &&
-      one.y < two.y + two.h + 2 &&
-      two.y < one.y + one.h + 2
+      one.x < two.x + two.width + 2 &&
+      two.x < one.x + one.width + 2 &&
+      one.y < two.y + two.height + 2 &&
+      two.y < one.y + one.height + 2
     );
   }
 
@@ -487,7 +487,7 @@
   }
 
   function nearest(every) {
-    return every.length ? every[0].el : null;
+    return every.length ? every[0].element : null;
   }
 
   /** The thing that way, which is the near one that is also the aligned one. */
@@ -495,17 +495,17 @@
     const axis = AXIS[way];
     let best = null;
     let cost = Infinity;
-    for (const { el, rect } of every) {
-      if (el === state.standing) continue;
-      const dx = rect.left + rect.width / 2 - (from.left + from.width / 2);
-      const dy = rect.top + rect.height / 2 - (from.top + from.height / 2);
-      const along = dx * axis[0] + dy * axis[1];
-      const across = Math.abs(dx * axis[1] + dy * axis[0]);
+    for (const { element, rect } of every) {
+      if (element === state.standing) continue;
+      const deltaX = rect.left + rect.width / 2 - (from.left + from.width / 2);
+      const deltaY = rect.top + rect.height / 2 - (from.top + from.height / 2);
+      const along = deltaX * axis[0] + deltaY * axis[1];
+      const across = Math.abs(deltaX * axis[1] + deltaY * axis[0]);
       if (along < 4) continue;
       const asked = along + across * 3;
       if (asked < cost) {
         cost = asked;
-        best = el;
+        best = element;
       }
     }
     return best;
@@ -529,22 +529,22 @@
 
   /* ------------------------------------------------------------------ take */
 
-  function editable(el) {
-    if (!el) return false;
-    if (el.isContentEditable) return true;
-    const kind = (el.tagName || '').toLowerCase();
+  function editable(element) {
+    if (!element) return false;
+    if (element.isContentEditable) return true;
+    const kind = (element.tagName || '').toLowerCase();
     if (kind === 'textarea') return true;
     if (kind !== 'input') return false;
-    return !['checkbox', 'radio', 'button', 'submit', 'reset', 'file', 'range', 'color'].includes(el.type);
+    return !['checkbox', 'radio', 'button', 'submit', 'reset', 'file', 'range', 'color'].includes(element.type);
   }
 
   /* Taken, these want the focus and not a click. A line is typed into, a list
      is chosen from and a level is moved, and all three of those are the arrows
      rather than a press. */
-  function steered(el) {
-    if (editable(el)) return true;
-    const kind = ((el && el.tagName) || '').toLowerCase();
-    return kind === 'select' || (kind === 'input' && el.type === 'range');
+  function steered(element) {
+    if (editable(element)) return true;
+    const kind = ((element && element.tagName) || '').toLowerCase();
+    return kind === 'select' || (kind === 'input' && element.type === 'range');
   }
 
   /* What the arrows belong to once it has the focus. The d-pad walks the page
@@ -552,27 +552,27 @@
      moment it was taken is the press undoing itself. A video is here and not
      above it: taking one is a click, which is what plays it, and the arrows
      are what a person wants next. */
-  function owns(el) {
-    if (steered(el)) return true;
-    return ((el && el.tagName) || '').toLowerCase() === 'video';
+  function owns(element) {
+    if (steered(element)) return true;
+    return ((element && element.tagName) || '').toLowerCase() === 'video';
   }
 
-  function take(el, mode) {
-    if (!el) return;
+  function take(element, mode) {
+    if (!element) return;
     if (mode === 'new') {
-      const link = el.closest ? el.closest('a[href]') : null;
+      const link = element.closest ? element.closest('a[href]') : null;
       if (link && link.href) {
         ask({ say: 'open', url: link.href }).then(() => note('It is in a new tab, behind this one'));
         return;
       }
     }
-    if (steered(el)) {
-      el.focus({ preventScroll: true });
+    if (steered(element)) {
+      element.focus({ preventScroll: true });
       /* Taking a field on a page is the same decision as opening a card with a
          line in it, so it gets the same answer: the keyboard comes up. What is
          said is what to do about it afterwards, rather than what to press to
          begin. */
-      if (editable(el)) {
+      if (editable(element)) {
         ask({ say: 'keyboard' });
         note('Type. X puts the keyboard away, B leaves the field');
       } else {
@@ -580,8 +580,8 @@
       }
       return;
     }
-    if (el.focus) el.focus({ preventScroll: true });
-    el.click();
+    if (element.focus) element.focus({ preventScroll: true });
+    element.click();
   }
 
   /* ------------------------------------------------------------------ cards */
@@ -832,10 +832,10 @@
   }
 
   function typingNow() {
-    const el = document.activeElement;
-    if (!el) return false;
-    if (state.host && el === state.host) return false;
-    return owns(el);
+    const element = document.activeElement;
+    if (!element) return false;
+    if (state.host && element === state.host) return false;
+    return owns(element);
   }
 
   function swallow(event) {
@@ -926,10 +926,10 @@
         return;
       }
       if (state.standing) {
-        const el = state.standing;
+        const element = state.standing;
         swallow(event);
         unstand();
-        take(el, 'take');
+        take(element, 'take');
       }
     },
     true,

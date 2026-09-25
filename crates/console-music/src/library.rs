@@ -20,7 +20,7 @@ pub struct Thing {
 pub fn things(folder: &Path) -> Result<Vec<Thing>, Never> {
     let reading = match std::fs::read_dir(folder) {
         Ok(reading) => reading,
-        Err(_fault) => return Ok(Vec::new()),
+        Err(_unreadable) => return Ok(Vec::new()),
     };
 
     let mut things: Vec<Thing> = Vec::new();

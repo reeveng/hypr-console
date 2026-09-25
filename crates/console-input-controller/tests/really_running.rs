@@ -53,7 +53,7 @@ fn a_finger_on_the_pad_really_moves_a_pointer() {
         .map(|event| (event.code, event.value))
         .collect();
     let across: i32 =
-        moved.iter().filter(|(code, _)| *code == RelativeAxisCode::REL_X.0).map(|(_, v)| v).sum();
+        moved.iter().filter(|(code, _)| *code == RelativeAxisCode::REL_X.0).map(|(_, amount)| amount).sum();
     assert!(across > 0, "the pointer did not move");
     assert!(
         moved.iter().all(|(code, _)| {

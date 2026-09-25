@@ -62,7 +62,6 @@ macro_rules! programs {
 programs! {
     Alacritty, "alacritty", Origin::Package("alacritty");
     Awww, "awww", Origin::Package("awww");
-    Bash, "bash", Origin::Arch;
     Bluetoothctl, "bluetoothctl", Origin::Package("bluez-utils");
     Busctl, "busctl", Origin::Arch;
     Cal, "cal", Origin::Arch;
@@ -161,14 +160,14 @@ impl Program {
 
 #[derive(Debug)]
 pub enum Unprinted {
-    Nothing,
+    Absent,
     Unran(String, std::io::Error),
 }
 
 impl std::fmt::Display for Unprinted {
     fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Unprinted::Nothing => write!(to, "there was no program to run"),
+            Unprinted::Absent => write!(to, "there was no program to run"),
             Unprinted::Unran(program, fault) => write!(to, "{program} would not run: {fault}"),
         }
     }
@@ -179,7 +178,7 @@ impl std::error::Error for Unprinted {}
 pub fn printed<Word: AsRef<str>>(arguments: &[Word]) -> Result<String, Unprinted> {
     let (program, rest) = match arguments.split_first() {
         Some((program, rest)) => (program, rest),
-        None => return Err(Unprinted::Nothing),
+        None => return Err(Unprinted::Absent),
     };
 
     let program = program.as_ref();
@@ -203,7 +202,7 @@ pub fn path() -> Result<Option<String>, Never> {
             true => None,
             false => Some(said),
         },
-        Err(_) => None,
+        Err(_unset) => None,
     })
 }
 
@@ -260,7 +259,7 @@ mod tests {
     #[test]
     fn what_a_program_printed_is_handed_back_and_one_that_cannot_run_says_so() {
         assert_eq!(printed(&words(&["sh", "-c", "printf said"])).expect("it ran"), "said");
-        assert!(matches!(printed::<&str>(&[]), Err(Unprinted::Nothing)));
+        assert!(matches!(printed::<&str>(&[]), Err(Unprinted::Absent)));
         assert!(matches!(printed(&words(&["definitely-not-a-program-anybody-installed"])), Err(Unprinted::Unran(..))));
     }
 

@@ -358,7 +358,7 @@ fn up(picture: &Path) -> Result<Rendered, Never> {
 
     let said = match asking.arg("query").output() {
         Ok(said) => said,
-        Err(_fault) => return Ok(Rendered::No),
+        Err(_would_not_start) => return Ok(Rendered::No),
     };
 
     Ok(match String::from_utf8_lossy(&said.stdout).contains(name) {

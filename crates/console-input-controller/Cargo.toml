@@ -17,10 +17,6 @@ path = "src/bin/controller-desktop.rs"
 name = "controller-game"
 path = "src/bin/controller-game.rs"
 
-# The last shell script that was the daemon's. It is a program of its own and
-# not a word this daemon takes, because the unit loads the profile before the
-# daemon has read anything and Game Mode loads the other one when the daemon is
-# not running at all.
 [[bin]]
 name = "controller-profile"
 path = "src/bin/controller-profile.rs"
@@ -34,17 +30,10 @@ console-core-number-conversion.workspace = true
 console-response-times.workspace = true
 console-cpu-boost.workspace = true
 console-onscreen.workspace = true
-# The one subscription per source on this machine. What used to be this
-# program's own connection to the compositor is a line down the pool's socket.
 console-events.workspace = true
 console-input-bindings.workspace = true
-# What a keyboard someone plugged in is set to type. The daemon puts each one
-# back on what it was last switched to when the session comes up, which is the
-# only part of that question a program started by a keypress cannot answer.
 console-input-language.workspace = true
 console-input-gamepad.workspace = true
-# What a program is, and the loop that carries out what one decided.
-# `controller-profile` is the first program here written to it.
 console-program-contract.workspace = true
 console-program-runtime.workspace = true
 console-core-atomic-writes.workspace = true
@@ -56,9 +45,6 @@ serde_json = "1"
 console-input-event-devices.workspace = true
 rustix.workspace = true
 
-# The harness builds a pad out of the profiles in the checkout, which the daemon
-# itself never does: it is handed one. So `read` is asked for here rather than
-# above, and `controller-desktop` compiles no YAML parser.
 [dev-dependencies]
 console-input-gamepad = { workspace = true, features = ["read"] }
 

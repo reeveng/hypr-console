@@ -55,7 +55,7 @@ pub fn said(program: Program, rest: &[&str]) -> Result<String, Never> {
 
     let done = match asking.output() {
         Ok(done) => done,
-        Err(_fault) => return Ok(String::new()),
+        Err(_would_not_start) => return Ok(String::new()),
     };
 
     Ok(String::from_utf8_lossy(&done.stdout).trim().to_string())

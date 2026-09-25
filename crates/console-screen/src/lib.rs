@@ -50,7 +50,7 @@ pub struct Screen {
     pub transform: u32,
 }
 
-pub const CONFIG: &str = "files/home/@user@/.config/console/hypr/hyprland.lua";
+pub const CONFIGURATION: &str = "files/home/@user@/.config/console/hypr/hyprland.lua";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Undeclared {
@@ -379,10 +379,10 @@ fn after(block: &str, name: Named<'_>) -> Result<Option<String>, Never> {
 
     let rest = valued.trim_start();
     let said: String = match rest.strip_prefix('"') {
-        Some(quoted) => quoted.chars().take_while(|c| *c != '"').collect(),
+        Some(quoted) => quoted.chars().take_while(|character| *character != '"').collect(),
         None => rest
             .chars()
-            .take_while(|c| c.is_ascii_digit() || *c == '.')
+            .take_while(|character| character.is_ascii_digit() || *character == '.')
             .collect(),
     };
 

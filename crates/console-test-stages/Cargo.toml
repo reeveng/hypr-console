@@ -25,26 +25,18 @@ console-program-lifetime.workspace = true
 console-onscreen.workspace = true
 console-core-number-conversion.workspace = true
 console-how-far.workspace = true
-# Reading a screenshot back as pixels. The same version `console-input-keyboard`
-# draws with, deliberately: two versions here fork the whole glib stack --
-# glib, its proc macro, and four -sys crates -- and this machine compiles both.
 cairo-rs = { version = "0.22", features = ["png"] }
 console-input-event-devices.workspace = true
 console-core-color.workspace = true
 console-input-bindings.workspace = true
 console-input-controller.workspace = true
-# `read` because a stage says what a button does, which means opening the
-# profiles. Nothing on the device does that; see `console-input-gamepad` for why it
-# is a feature.
 console-input-gamepad = { workspace = true, features = ["read"] }
 console-screen.workspace = true
 console-panel.workspace = true
 console-response-times.workspace = true
-# The strip under the bar and the card beside it. A device run fills the same
-# file an apply does, from the other end of the ssh; see `watching`.
 console-notifications.workspace = true
 serde_json = "1"
-libc = "0.2"
+console-signals = { path = "../console-signals" }
 rustix.workspace = true
 
 [lints]

@@ -5,11 +5,6 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
-# The pad, read straight off the kernel's event nodes, for the programs that
-# run where nothing else is reading it: the greeter, and recovery under it.
-# poll and inotify are declared against the C library std already links, so
-# nothing here is anybody else's crate.
-
 [lib]
 name = "console_input_event_devices"
 path = "src/lib.rs"

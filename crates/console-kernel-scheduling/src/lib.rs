@@ -172,7 +172,7 @@ impl Energy {
 
         let microjoules = match u64::try_from(product) {
             Ok(microjoules) => microjoules,
-            Err(_) => u64::MAX,
+            Err(_too_large) => u64::MAX,
         };
 
         Ok(Energy { microjoules })

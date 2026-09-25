@@ -15,7 +15,7 @@
 
 use console_core_external_programs::Program;
 use console_core_never::Never;
-use console_rename::{Moved, Renaming, installed, renamed, stub, through, tracked};
+use console_rename::{Moved, Renaming, installed, renamed, stub, through, tracked, written_at};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
@@ -169,12 +169,15 @@ fn wrote(root: &Path, sweeping: &[String]) -> Result<(), Never> {
         Err(_the_clock_is_before_the_epoch) => 0,
     };
 
-    let at = root.join(format!("migrations/{when}.sh"));
-    let Ok(said) = stub(sweeping);
+    let Ok(at) = written_at(root, when);
+    let Ok(said) = stub(sweeping, when);
 
     match console_core_atomic_writes::whole(&at, said.as_bytes()) {
         Ok(()) => {
-            println!("wrote {} -- the reason in it is yours to write", at.display());
+            println!(
+                "wrote {} -- the reason in it is yours to write, and it runs once history.rs lists it",
+                at.display()
+            );
 
             Ok(())
         },

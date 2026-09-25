@@ -77,7 +77,7 @@ pub const RESUME: &str = "/sys/power/resume";
 pub fn stop() -> Result<Stop, Never> {
     let said = |at: &str| match std::fs::read_to_string(at) {
         Ok(said) => said,
-        Err(_) => String::new(),
+        Err(_unreadable) => String::new(),
     };
 
     Stop::of(&said(STATE), Resume(&said(RESUME)))

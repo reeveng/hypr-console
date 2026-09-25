@@ -141,7 +141,7 @@ pub fn line(reading: &Reading, open: Up) -> Result<String, Never> {
 fn whole(percent: i32) -> Result<Option<u32>, Never> {
     let whole = match u32::try_from(percent) {
         Ok(whole) => whole,
-        Err(_fault) => return Ok(None),
+        Err(_too_large) => return Ok(None),
     };
 
     Ok(Some(whole))
@@ -150,7 +150,7 @@ fn whole(percent: i32) -> Result<Option<u32>, Never> {
 fn number<T: std::str::FromStr>(said: &str) -> Result<Option<T>, Never> {
     let number = match said.trim().parse::<T>() {
         Ok(number) => number,
-        Err(_fault) => return Ok(None),
+        Err(_not_a_number) => return Ok(None),
     };
 
     Ok(Some(number))

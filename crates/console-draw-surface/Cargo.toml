@@ -5,62 +5,29 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
-# A piece of the screen this desktop draws on itself.
-#
-# Written rather than lifted. `console-input-keyboard` has stood a layer
-# surface up and put pixels in it since the wvkbd port landed, and the obvious
-# move was to take that module out into a crate everything shares. It is not
-# ours to take: that crate is GPL-3.0-or-later because it is a derivative of
-# someone else's keyboard, this workspace is AGPL-3.0-or-later, and the AGPL
-# is not a later GPL. So the protocol is written again here from the XML, which
-# no one owns, and the keyboard keeps its license and its own copy until it is
-# the last caller and can be asked to change it.
-
 [lib]
 name = "console_draw_surface"
 path = "src/lib.rs"
 
-# Not a program on the device. A rectangle, the palette's own, put on the
-# screen at whatever scale the compositor says -- which is the one question
-# this crate exists to answer and the one nothing here could ask before.
 [[bin]]
 name = "surface-spike"
 path = "src/bin/surface-spike.rs"
 
 [dependencies]
 console-core-geometry.workspace = true
-# The spike's, and not the library's. What size a surface is comes back from the
-# compositor in the configure and nothing above it has to know the screen; what
-# the spike is for is holding that beside the panel this machine says it is
-# driving, because the two disagreeing is the fault it was written to catch.
 console-screen.workspace = true
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true
-# Where how evenly a surface kept up with the screen is written down: the one
-# stopwatch every wait on this machine already goes through, so a late frame
-# lands in the same store as a slow opening and is read by the same reader.
 console-response-times.workspace = true
 
-# memfd_create, ftruncate, mmap and poll. The buffer the compositor reads is
-# shared memory and there is no way to ask for one in the standard library.
 rustix.workspace = true
 
-# The compositor. The object lifetimes are in the type system rather than in
-# the reviewer's head, which is the whole reason this is not the C bindings.
 wayland-client = "0.31"
 
-# `wp_viewporter` and `wp_fractional_scale_v1`, which are the two halves of
-# 2.5 and the reason this crate is first.
 wayland-protocols = { version = "0.32", features = ["client", "staging"] }
 
-# The layer shell. A window is in the tiling layout and takes the focus; every
-# surface this desktop puts over the desktop is neither.
 wayland-protocols-wlr = { version = "0.3", features = ["client"] }
 
-# What a key is. The compositor hands over a keymap and a keycode, and the
-# keysym a panel reads its d-pad as is what that keymap says the code means --
-# which is a question about the person's own layout and not one to answer with
-# a table. The same library composes the on-screen keyboard's maps.
 xkbcommon = "0.9"
 
 [lints]

@@ -35,28 +35,28 @@ fn sorted(mut every: Vec<u16>) -> Result<Vec<u16>, Never> {
 fn described(device: &Device) -> Result<Descriptor, Unread> {
     let id = device.id;
     let axes = device.absolute().map_err(Unread)?;
-    let mut abs: Vec<Axis> = axes
+    let mut absolute: Vec<Axis> = axes
         .into_iter()
-        .map(|(AbsoluteAxisCode(code), info)| Axis {
+        .map(|(AbsoluteAxisCode(code), information)| Axis {
             code,
-            flat: info.flat,
-            fuzz: info.fuzz,
-            max: info.maximum,
-            min: info.minimum,
-            resolution: info.resolution,
+            flat: information.flat,
+            fuzz: information.fuzz,
+            maximum: information.maximum,
+            minimum: information.minimum,
+            resolution: information.resolution,
         })
         .collect();
-    abs.sort_unstable_by_key(|axis| axis.code);
+    absolute.sort_unstable_by_key(|axis| axis.code);
 
-    let Ok(ff) = sorted(device.force_feedback.iter().map(|effect| effect.0).collect());
+    let Ok(force_feedback) = sorted(device.force_feedback.iter().map(|effect| effect.0).collect());
     let Ok(key) = sorted(device.keys.iter().map(|key| key.0).collect());
-    let Ok(msc) = sorted(device.misc.iter().map(|misc| misc.0).collect());
-    let Ok(rel) = sorted(device.relative_axes.iter().map(|axis| axis.0).collect());
+    let Ok(miscellaneous) = sorted(device.miscellaneous.iter().map(|miscellaneous| miscellaneous.0).collect());
+    let Ok(relative) = sorted(device.relative_axes.iter().map(|axis| axis.0).collect());
     let Ok(properties) = sorted(device.properties.iter().map(|property| property.0).collect());
 
     Ok(Descriptor {
         bustype: id.bus.0,
-        capabilities: Capabilities { abs, ff, key, msc, rel },
+        capabilities: Capabilities { absolute, force_feedback, key, miscellaneous, relative },
         name: {
             let Ok(name) = finding::named(device);
 

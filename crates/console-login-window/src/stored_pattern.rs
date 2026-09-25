@@ -157,7 +157,7 @@ pub fn remove(home: &Path) -> Result<(), PatternStoreError> {
 pub fn matches(letters: &str, hash: &Hash) -> Result<Matched, Never> {
     let setting = match CString::new(hash.0.as_str()) {
         Ok(setting) => setting,
-        Err(_) => return Ok(Matched::No),
+        Err(_holds_a_nul) => return Ok(Matched::No),
     };
     let Ok(again) = crypted(letters, &setting);
 
@@ -200,7 +200,7 @@ pub fn hashed(letters: &str) -> Result<Hash, PatternStoreError> {
 fn crypted(letters: &str, setting: &CStr) -> Result<Option<String>, Never> {
     let phrase = match CString::new(letters) {
         Ok(phrase) => phrase,
-        Err(_) => return Ok(None),
+        Err(_holds_a_nul) => return Ok(None),
     };
     let Ok(room) = index(DATA);
     let mut data = vec![0_u8; room];

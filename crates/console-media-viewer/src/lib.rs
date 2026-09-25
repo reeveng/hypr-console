@@ -45,7 +45,7 @@
 //! -- into the one file those lists read. It was called `console-pictures`
 //! until this crate arrived, which put two unrelated meanings of the word one
 //! `cargo run --bin` apart. It is `panel-pictures` now, which is what
-//! `files-thumbs` is called for doing the same job for the files panel.
+//! `files-thumbnails` is called for doing the same job for the files panel.
 //!
 //! # What a film is drawn on
 //!

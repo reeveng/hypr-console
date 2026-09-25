@@ -54,7 +54,7 @@ use console_program_lifetime::{Detached, let_go, threads};
 use console_response_times::{Note, Wait};
 use console_cpu_boost::{Backoff, Boost};
 use console_input_controller::clock;
-use console_input_controller::effect::Effect;
+use console_input_controller::effect::{Effect, Reconnected};
 use console_input_controller::finding::{DeviceInfo, describe};
 use console_input_controller::actions::{self, Table};
 use console_input_bindings::moved::Rebound;
@@ -316,7 +316,8 @@ fn emptied(from: &OwnedFd) -> Result<Plugging, Never> {
 
     loop {
         match rustix::io::read(from, &mut room) {
-            Ok(0) | Err(_) => return Ok(heard),
+            Ok(0) => return Ok(heard),
+            Err(_the_read_failed) => return Ok(heard),
             Ok(_) => heard = Plugging::Some,
         }
     }
@@ -408,6 +409,7 @@ fn turned(turn: Turn<'_>) -> Result<(), Never> {
 
                 what_for = Decided::ToStart;
             }
+            Effect::Reconnected(_) => {}
             Effect::Frame(_) | Effect::Tell(_) | Effect::Using(_) => {
                 what_for = match what_for {
                     Decided::None => Decided::Some,
@@ -700,7 +702,7 @@ fn closing() -> Result<(), Never> {
                 | CompositorEvent::LayerClosed
                 | CompositorEvent::WorkspaceChanged
                 | CompositorEvent::ScreenFocused
-                | CompositorEvent::ConfigReloaded
+                | CompositorEvent::ConfigurationReloaded
                 | CompositorEvent::Ignored => {},
             }
         }
@@ -753,9 +755,9 @@ impl Plugged for Machine {
         every
             .iter()
             .map(|device| {
-                let Ok(info) = describe(&device.path.display().to_string(), device);
+                let Ok(information) = describe(&device.path.display().to_string(), device);
 
-                info
+                information
             })
             .collect()
     }
@@ -793,8 +795,8 @@ impl Plugged for Machine {
 
         match device.absolute() {
             Ok(states) => {
-                for (axis, info) in states {
-                    told.insert(axis.0, (info.minimum, info.maximum));
+                for (axis, information) in states {
+                    told.insert(axis.0, (information.minimum, information.maximum));
                 }
             }
             Err(_the_device_went_away) => {},
@@ -973,7 +975,24 @@ fn done(
 
             Ok(None)
         }
+        Effect::Reconnected(back) => {
+            let Ok(()) = reconnected(*back);
+
+            Ok(None)
+        }
     }
+}
+
+fn reconnected(back: Reconnected) -> Result<(), Never> {
+    let Ok(device) = back.device.said();
+
+    eprintln!("controller-desktop: the {device} came back after {:.1?}", back.gone);
+
+    let Ok(mut waiting) = console_response_times::Waiting::here(Wait { who: "controller", what: "reconnected" });
+    let Ok(()) = waiting.taking("gone", back.gone);
+    let Ok(()) = waiting.named(Note { name: "device", said: device });
+
+    waiting.done()
 }
 
 struct Sender {

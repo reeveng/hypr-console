@@ -177,7 +177,7 @@ mod tests {
         let keymaps = result.unwrap();
         let latin = keymaps
             .iter()
-            .find(|k| k.layer == Layer::Latin)
+            .find(|keymap| keymap.layer == Layer::Latin)
             .expect("latin");
         assert!(latin.bytes.starts_with("xkb_keymap {"), "{:?}", &latin.bytes[..40]);
         assert!(
@@ -187,7 +187,7 @@ mod tests {
         eprintln!(
             "xkb keymaps: {} layers, {} bytes total",
             keymaps.len(),
-            keymaps.iter().map(|k| u64::try_from(k.bytes.len()).unwrap()).sum::<u64>()
+            keymaps.iter().map(|keymap| u64::try_from(keymap.bytes.len()).unwrap()).sum::<u64>()
         );
     }
 }

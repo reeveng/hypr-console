@@ -23,6 +23,12 @@
 //! hands the wheel and the repeat is the time since the last one only when one
 //! of them was being looked at across it: a stick pushed after a minute of
 //! nothing is a stick pushed now, not a minute of scrolling owed.
+//!
+//! A device there is one of that went away and was found again is said as an
+//! [`Effect::Reconnected`] with how long it was gone, so a pad that drops
+//! presses is a line somebody can count rather than a feeling. It is said even
+//! on a turn that is otherwise deaf, because the turn after a resume is when
+//! a pad is most likely to be coming back.
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
@@ -31,7 +37,7 @@ use console_core_never::Never;
 use console_input_event_devices::InputEvent;
 
 use crate::clock::Instant;
-use crate::effect::Effect;
+use crate::effect::{Effect, Reconnected};
 use crate::finding::{self, DeviceInfo};
 use crate::actions::Table;
 use crate::reading::{Controller, From, Ranges, Wake, Wants};
@@ -73,6 +79,7 @@ pub struct Turning {
     told: BTreeMap<From, String>,
     open: BTreeMap<From, BTreeSet<String>>,
     hunted: BTreeMap<From, f64>,
+    gone: BTreeMap<From, f64>,
     last: Option<Instant>,
     settling: Option<f64>,
 }
@@ -111,9 +118,9 @@ impl Turning {
             false => self.settling = None,
         }
 
-        let Ok(()) = self.find(machine, now);
+        let Ok(found) = self.find(machine, now);
 
-        let mut effect: Vec<Effect> = Vec::new();
+        let mut effect: Vec<Effect> = found.clone();
 
         for which in READ {
             let paths: Vec<String> = match self.open.get(&which) {
@@ -147,7 +154,7 @@ impl Turning {
                             }
                         }
                         Err(Closed) => {
-                            let Ok(went) = self.went(which, &path);
+                            let Ok(went) = self.went(which, &path, now);
 
                             effect.extend(went);
                             break 'over_tries;
@@ -158,7 +165,7 @@ impl Turning {
         }
 
         match deaf {
-            true => return Ok(Vec::new()),
+            true => return Ok(found),
             false => {},
         }
 
@@ -213,7 +220,7 @@ impl Turning {
             .collect())
     }
 
-    fn went(&mut self, which: From, path: &str) -> Result<Vec<Effect>, Never> {
+    fn went(&mut self, which: From, path: &str, now: f64) -> Result<Vec<Effect>, Never> {
         let empty = match self.open.get_mut(&which) {
             Some(paths) => {
                 let _ = paths.remove(path);
@@ -223,11 +230,17 @@ impl Turning {
             None => false,
         };
 
-        match empty {
-            true => {
+        let Ok(wants) = which.wants();
+
+        match (empty, wants) {
+            (true, Wants::One) => {
+                let _ = self.open.remove(&which);
+                let _ = self.gone.insert(which, now);
+            },
+            (true, Wants::Every) => {
                 let _ = self.open.remove(&which);
             },
-            false => {},
+            (false, Wants::One | Wants::Every) => {},
         }
 
         match which == From::Pad {
@@ -236,7 +249,9 @@ impl Turning {
         }
     }
 
-    fn find(&mut self, machine: &mut impl Plugged, now: f64) -> Result<(), Never> {
+    fn find(&mut self, machine: &mut impl Plugged, now: f64) -> Result<Vec<Effect>, Never> {
+        let mut back = Vec::new();
+
         for which in READ {
             let Ok(wants) = which.wants();
 
@@ -286,6 +301,12 @@ impl Turning {
 
                 let _ = self.open.entry(which).or_default().insert(path);
 
+                match self.gone.remove(&which).map(|lost| std::time::Duration::try_from_secs_f64(now - lost)) {
+                    Some(Ok(gone)) => back.push(Effect::Reconnected(Reconnected { device: which, gone })),
+                    Some(Err(_the_clock_went_backwards)) => {},
+                    None => {},
+                }
+
                 match wants {
                     Wants::One => break 'over_paths,
                     Wants::Every => {},
@@ -293,7 +314,7 @@ impl Turning {
             }
         }
 
-        Ok(())
+        Ok(back)
     }
 
     fn at(&self, machine: &impl Plugged, which: From) -> Result<Vec<String>, Never> {
@@ -408,5 +429,37 @@ mod tests {
         ok(turning.turn(&mut machine, at(1000.2)));
 
         assert_eq!(ok(turning.missing()), [From::Typing]);
+    }
+
+    fn reconnections(effects: &[Effect]) -> Vec<Reconnected> {
+        effects
+            .iter()
+            .filter_map(|effect| match effect {
+                Effect::Reconnected(back) => Some(*back),
+                Effect::Run(_) | Effect::Frame(_) | Effect::Tell(_) | Effect::Using(_) => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_pad_that_went_and_came_back_says_how_long_it_was_gone() {
+        let mut machine = Machine { plugged: told().into_values().collect() };
+        let mut turning = ok(Turning::pointed_at(told()));
+
+        let first = ok(turning.turn(&mut machine, at(1000.0)));
+
+        assert_eq!(reconnections(&first), Vec::new(), "finding it the first time is not coming back");
+
+        machine.plugged.remove(PAD);
+        ok(turning.turn(&mut machine, at(1001.0)));
+        machine.plugged.insert(PAD.to_string());
+
+        let back = ok(turning.turn(&mut machine, at(1004.0)));
+
+        assert_eq!(reconnections(&back), vec![Reconnected { device: From::Pad, gone: std::time::Duration::from_secs(3) }]);
+
+        let after = ok(turning.turn(&mut machine, at(1006.0)));
+
+        assert_eq!(reconnections(&after), Vec::new(), "it came back once");
     }
 }

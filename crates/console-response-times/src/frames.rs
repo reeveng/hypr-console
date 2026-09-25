@@ -36,6 +36,8 @@ use console_core_number_conversion::fitted;
 use crate::line::Value;
 use crate::{FELT, Record, monotonic_now, written_down};
 
+const MONOTONIC: u32 = 1;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Painting(Option<Duration>);
 
@@ -128,9 +130,7 @@ impl Frames {
     }
 
     pub fn presented(&mut self, committed: Committed, presented: Presented) -> Result<(), Never> {
-        let Ok(monotonic) = fitted::<i32, u32>(libc::CLOCK_MONOTONIC);
-
-        match presented.clock == monotonic {
+        match presented.clock == MONOTONIC {
             true => {},
             false => return Ok(()),
         }
@@ -222,6 +222,11 @@ mod tests {
     use super::*;
 
     const AT_144: Duration = Duration::from_nanos(6_944_444);
+
+    #[test]
+    fn the_monotonic_clock_is_the_number_the_kernel_gives_it() {
+        assert_eq!(i64::from(MONOTONIC), rustix::time::ClockId::Monotonic as i64);
+    }
 
     fn timed(painted: u64, composited: u64) -> Timed {
         Timed { painted: Duration::from_micros(painted), composited: Duration::from_micros(composited), refresh: AT_144 }

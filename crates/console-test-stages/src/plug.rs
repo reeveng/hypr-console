@@ -49,7 +49,7 @@ impl Plugged for Plug<'_> {
                     vendor: descriptor.vendor,
                     product: descriptor.product,
                     keys: descriptor.capabilities.key.clone(),
-                    axes: descriptor.capabilities.abs.iter().map(|axis| axis.code).collect(),
+                    axes: descriptor.capabilities.absolute.iter().map(|axis| axis.code).collect(),
                 })
             })
             .collect()
@@ -81,7 +81,7 @@ impl Plugged for Plug<'_> {
 
                 span
             }),
-            trigger: trigger.map_or((0, 1), |axis| (axis.min, axis.max)),
+            trigger: trigger.map_or((0, 1), |axis| (axis.minimum, axis.maximum)),
         }
     }
 

@@ -23,7 +23,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use console_wallpaper::palette;
-use console_screen::{CONFIG, Screen};
+use console_screen::{CONFIGURATION, Screen};
 use console_wallpaper::choose::{Picture, Set};
 use console_wallpaper::grade::{Grade, Ramp, cube};
 use console_wallpaper::render::{self, Stir};
@@ -262,9 +262,9 @@ fn write_cube(ramp: &Ramp, how: &Grade, into: &Path) -> Result<(), Unrendered> {
 }
 
 fn screen() -> Result<Screen, Unrendered> {
-    let config = read(CONFIG)?;
+    let configuration = read(CONFIGURATION)?;
 
-    Screen::read(&config).map_err(Unrendered::Undeclared)
+    Screen::read(&configuration).map_err(Unrendered::Undeclared)
 }
 
 fn write_one(

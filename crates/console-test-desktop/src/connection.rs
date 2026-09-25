@@ -379,8 +379,7 @@ impl Inside {
         let Ok(bars) = self.talking_to(console_onscreen::BAR);
 
         for bar in &bars {
-            // SAFETY: a signal to a process of this session's own, by its pid.
-            unsafe { libc::kill(*bar, libc::SIGTERM) };
+            let Ok(()) = console_program_lifetime::signal(*bar, rustix::process::Signal::TERM);
         }
 
         let Ok(patience) = Schedule::asking_every(A_GOODBYE, Duration::from_millis(50));
@@ -414,7 +413,7 @@ impl Inside {
 
         let all = match std::fs::read_dir("/proc") {
             Ok(all) => all,
-            Err(_fault) => return Ok(Vec::new()),
+            Err(_unreadable) => return Ok(Vec::new()),
         };
 
         Ok(all
@@ -427,12 +426,12 @@ impl Inside {
 
                 let pid = match said.parse::<i32>() {
                     Ok(pid) => pid,
-                    Err(_fault) => return None,
+                    Err(_not_a_pid) => return None,
                 };
 
                 let named = match std::fs::read_to_string(at.join("comm")) {
                     Ok(named) => named,
-                    Err(_fault) => return None,
+                    Err(_unreadable) => return None,
                 };
 
 
@@ -443,7 +442,7 @@ impl Inside {
 
                 let held = match std::fs::read(at.join("environ")) {
                     Ok(held) => held,
-                    Err(_fault) => return None,
+                    Err(_unreadable) => return None,
                 };
 
                 held.split(|byte| *byte == 0)

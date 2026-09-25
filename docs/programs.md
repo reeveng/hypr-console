@@ -40,8 +40,9 @@ it means nothing can be proved about it before it reaches a thumb.
 controller profile is a global variable inside InputPlumber that six programs
 set. `$XDG_RUNTIME_DIR/console/tab` says which tab is in front. Another file
 remembers the profile from before the keyboard came up. The daemon is stopped
-and started with `SIGSTOP` and `SIGCONT` sent at its unit; the keyboard is
-toggled with `SIGRTMIN` sent by name. Every one of these is a variable with no
+and started with `SIGSTOP` and `SIGCONT` sent at its unit; the keyboard was
+toggled with `SIGRTMIN` sent by name, until it listened on a socket of its own
+instead. Every one of these is a variable with no
 owner, and the comments around them are a record of what that has already cost:
 a hook that died between the stop and the start left the daemon stopped for good;
 a profile laid over a stale one left the pad answering to a panel that was not
@@ -754,7 +755,7 @@ daemon reads it off the compositor, which is what `Mode::seen` is.
 
 Some of these programs run, decide, and exit: `console-buttons`,
 `console-put-away`, `downloads-format`, `downloads-find`, `downloads-get`,
-`files-thumbs`, `music-index`, `wallpaper-render`, `console-dictate`,
+`files-thumbnails`, `music-index`, `wallpaper-render`, `console-dictate`,
 `music-cover`, `console-palette`, `console`, `console-engine`,
 `console-battery`. They are already pure functions with a `main` around them. A
 state machine holding one state is ceremony, and ceremony is the thing this

@@ -5,9 +5,6 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
-# Sums done on a keypad the pad walks and a finger taps. The arithmetic is
-# `sum`, which has no screen in it; the card draws it.
-
 [lib]
 name = "console_calculator"
 path = "src/lib.rs"

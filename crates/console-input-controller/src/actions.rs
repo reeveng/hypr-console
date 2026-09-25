@@ -223,7 +223,7 @@ const KEYS: Input = Input::Keyboard;
 const ALONE: &[&str] = &[];
 const L2: &[&str] = &["l2"];
 const SUPER: &[&str] = &["super"];
-const SUPER_CTRL: &[&str] = &["super", "ctrl"];
+const SUPER_CONTROL: &[&str] = &["super", "ctrl"];
 const SUPER_SHIFT: &[&str] = &["super", "shift"];
 
 pub const JOBS: [Task; 76] = [
@@ -278,7 +278,7 @@ pub const JOBS: [Task; 76] = [
         slug: "language-previous",
         action: Action::Language(-1),
         context: Context::Anywhere,
-        bound: &[(KEYS, SUPER_CTRL, "space")],
+        bound: &[(KEYS, SUPER_CONTROL, "space")],
     },
     Task {
         slug: "screenshot",
@@ -362,31 +362,31 @@ pub const JOBS: [Task; 76] = [
         slug: "settings-sound",
         action: Action::SettingsAt("Sound"),
         context: Context::Anywhere,
-        bound: &[(KEYS, SUPER_CTRL, "a")],
+        bound: &[(KEYS, SUPER_CONTROL, "a")],
     },
     Task {
         slug: "settings-bluetooth",
         action: Action::SettingsAt("Bluetooth"),
         context: Context::Anywhere,
-        bound: &[(KEYS, SUPER_CTRL, "b")],
+        bound: &[(KEYS, SUPER_CONTROL, "b")],
     },
     Task {
         slug: "settings-wifi",
         action: Action::SettingsAt("Wi-Fi"),
         context: Context::Anywhere,
-        bound: &[(KEYS, SUPER_CTRL, "w")],
+        bound: &[(KEYS, SUPER_CONTROL, "w")],
     },
     Task {
         slug: "settings-screen",
         action: Action::SettingsAt("Display"),
         context: Context::Anywhere,
-        bound: &[(KEYS, SUPER_CTRL, "d")],
+        bound: &[(KEYS, SUPER_CONTROL, "d")],
     },
     Task {
         slug: "settings-power",
         action: Action::SettingsAt("Battery"),
         context: Context::Anywhere,
-        bound: &[(KEYS, SUPER_CTRL, "p")],
+        bound: &[(KEYS, SUPER_CONTROL, "p")],
     },
     Task { slug: "back", action: Action::Back, context: Context::Anywhere, bound: &[(PAD, ALONE, "b")] },
     Task { slug: "up", action: Action::Up, context: Context::Anywhere, bound: &[(PAD, ALONE, "dpad-up")] },
@@ -927,7 +927,7 @@ fn pressed(code: KeyCode, down: ButtonPress) -> Result<Option<Effect>, Never> {
 }
 
 fn scrolled() -> Result<Option<Effect>, Never> {
-    let Ok(out) = Output::rel(RelativeAxisCode::REL_WHEEL.0, -1);
+    let Ok(out) = Output::relative(RelativeAxisCode::REL_WHEEL.0, -1);
 
     Ok(Some(Effect::Frame(vec![out])))
 }
@@ -981,7 +981,7 @@ pub fn sends() -> Result<Vec<KeyCode>, Never> {
 
             match does {
                 Some(Effect::Frame(frame)) => frame.first().map(|out| KeyCode(out.code)),
-                Some(Effect::Run(_) | Effect::Tell(_) | Effect::Using(_)) | None => None,
+                Some(Effect::Run(_) | Effect::Tell(_) | Effect::Using(_) | Effect::Reconnected(_)) | None => None,
             }
         })
         .collect();

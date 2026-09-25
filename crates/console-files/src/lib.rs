@@ -21,7 +21,7 @@ pub mod open_with;
 pub mod looking;
 pub mod places;
 pub mod standing;
-pub mod thumbs;
+pub mod thumbnails;
 pub mod unzipping;
 pub mod walk;
 

@@ -8,7 +8,7 @@
 //! at the wrong moment.
 
 use indexmap::IndexMap;
-use console_core_color::{self as col, Floor, Short};
+use console_core_color::{self as color, Floor, Short};
 use console_core_never::Never;
 
 use crate::configuration::Color;
@@ -123,12 +123,12 @@ fn waits_on(color: &Color) -> Result<impl Iterator<Item = &str>, Never> {
 }
 
 fn solve(color: &Color, known: &Palette) -> Result<String, Short> {
-    let asked = col::Oklch { lightness: color.lightness, chroma: color.chroma, hue: color.hue };
+    let asked = color::Oklch { lightness: color.lightness, chroma: color.chroma, hue: color.hue };
 
     let least = match &color.least {
         Some(least) => least,
         None => {
-            let Ok(code) = col::hexcode(asked);
+            let Ok(code) = color::hexcode(asked);
 
             return Ok(code);
         }
@@ -142,16 +142,16 @@ fn solve(color: &Color, known: &Palette) -> Result<String, Short> {
     let read_against = match grounds.is_empty() {
         true => color.lightness,
         false => {
-            let floor = both(least.ratio, least.lc, "it is read on")?;
+            let floor = both(least.ratio, least.lightness_contrast, "it is read on")?;
             let Ok(from) = asked.at(0.0);
-            let clearing = col::lightest_clearing(from, &grounds, floor)?;
+            let clearing = color::lightest_clearing(from, &grounds, floor)?;
 
             color.lightness.max(clearing)
         }
     };
 
     let carrying = least.carries.iter().try_fold(read_against, |lightness, name| {
-        let floor = both(least.carries_ratio, least.carries_lc, "it carries")?;
+        let floor = both(least.carries_ratio, least.carries_lightness_contrast, "it carries")?;
         let over = known.must(name)?;
 
         let Ok(at) = asked.at(lightness);
@@ -160,23 +160,23 @@ fn solve(color: &Color, known: &Palette) -> Result<String, Short> {
     })?;
 
     let Ok(shade) = asked.at(carrying);
-    let Ok(code) = col::hexcode(shade);
+    let Ok(code) = color::hexcode(shade);
 
     Ok(code)
 }
 
-fn both(ratio: Option<f64>, lc: Option<f64>, saying: &str) -> Result<Floor, Short> {
-    match (ratio, lc) {
-        (Some(ratio), Some(lc)) => Ok(Floor { ratio, lc }),
+fn both(ratio: Option<f64>, lightness_contrast: Option<f64>, saying: &str) -> Result<Floor, Short> {
+    match (ratio, lightness_contrast) {
+        (Some(ratio), Some(lightness_contrast)) => Ok(Floor { ratio, lightness_contrast }),
         _ => Err(Short(format!(
             "a color says what {saying} and not what that must clear \
-             in both measures: it needs a ratio and an lc"
+             in both measures: it needs a ratio and a lightness contrast"
         ))),
     }
 }
 
 fn settle_until_it_carries(
-    asked: col::Oklch,
+    asked: color::Oklch,
     ink: &str,
     floor: Floor,
 ) -> Result<f64, Short> {
@@ -185,22 +185,22 @@ fn settle_until_it_carries(
     let hue = asked.hue;
     let clears = |lightness: f64| {
         let Ok(at) = asked.at(lightness);
-        let Ok(code) = col::hexcode(at);
-        let Ok(cleared) = floor.cleared_by(col::HexColor(ink), col::Ground(&code));
+        let Ok(code) = color::hexcode(at);
+        let Ok(cleared) = floor.cleared_by(color::HexColor(ink), color::Ground(&code));
 
         cleared
     };
 
     match clears(from) {
-        col::Clears::Yes => return Ok(from),
-        col::Clears::No => {},
+        color::Clears::Yes => return Ok(from),
+        color::Clears::No => {},
     }
 
     std::iter::successors(Some(STEP), |step| Some(step + STEP))
         .take_while(|step| from + step <= 1.0 || from - step >= 0.0)
         .flat_map(|step| [from + step, from - step])
         .filter(|lightness| (0.0..=1.0).contains(lightness))
-        .find(|lightness| clears(*lightness) == col::Clears::Yes)
+        .find(|lightness| clears(*lightness) == color::Clears::Yes)
         .ok_or_else(|| Short(format!("no shade at hue {hue} carries #{ink} at {floor}")))
 }
 
@@ -209,21 +209,21 @@ mod tests {
     use super::*;
 
     fn hexcode(lightness: f64, chroma: f64, hue: f64) -> String {
-        let Ok(code) = col::hexcode(col::Oklch { lightness, chroma, hue });
+        let Ok(code) = color::hexcode(color::Oklch { lightness, chroma, hue });
 
         code
     }
 
     fn contrast(ink: &str, ground: &str) -> f64 {
-        let Ok(contrast) = col::contrast(col::HexColor(ink), col::Ground(ground));
+        let Ok(contrast) = color::contrast(color::HexColor(ink), color::Ground(ground));
 
         contrast
     }
 
-    fn lc(ink: &str, ground: &str) -> f64 {
-        let Ok(lc) = col::lc(col::HexColor(ink), col::Ground(ground));
+    fn lightness_contrast(ink: &str, ground: &str) -> f64 {
+        let Ok(lightness_contrast) = color::lightness_contrast(color::HexColor(ink), color::Ground(ground));
 
-        lc
+        lightness_contrast
     }
 
     fn declared(body: &str) -> IndexMap<String, Color> {
@@ -243,19 +243,19 @@ mod tests {
     fn a_floor_lifts_a_color_to_where_it_can_be_read() {
         let two = declared(&format!(
             "{NIGHT}[text]\nhue = 335\nchroma = 0.022\nlightness = 0.0\n\
-             least = {{ on = [\"night\"], ratio = 10.0, lc = 75.0 }}\n"
+             least = {{ on = [\"night\"], ratio = 10.0, lightness_contrast = 75.0 }}\n"
         ));
         let got = resolve(&two).expect("night comes first");
         let (text, night) = (got.must("text").expect("a declared color"), got.must("night").expect("a declared color"));
         assert!(contrast(text, night) >= 10.0);
-        assert!(lc(text, night).abs() >= 75.0);
+        assert!(lightness_contrast(text, night).abs() >= 75.0);
     }
 
     #[test]
     fn a_floor_never_lowers_a_color_that_already_clears_it() {
         let two = declared(&format!(
             "{NIGHT}[text]\nhue = 335\nchroma = 0.022\nlightness = 0.98\n\
-             least = {{ on = [\"night\"], ratio = 4.5, lc = 45.0 }}\n"
+             least = {{ on = [\"night\"], ratio = 4.5, lightness_contrast = 45.0 }}\n"
         ));
         let got = resolve(&two).expect("night comes first");
         assert_eq!(got.must("text").expect("a declared color"), hexcode(0.98, 0.022, 335.0).as_str());
@@ -265,20 +265,20 @@ mod tests {
     fn a_color_that_carries_ink_is_lifted_until_the_ink_clears() {
         let two = declared(&format!(
             "{NIGHT}[pink]\nhue = 342\nchroma = 0.105\nlightness = 0.5\n\
-             least = {{ on = [\"night\"], ratio = 7.0, lc = 75.0, \
-             carries = [\"night\"], carries_ratio = 7.0, carries_lc = 75.0 }}\n"
+             least = {{ on = [\"night\"], ratio = 7.0, lightness_contrast = 75.0, \
+             carries = [\"night\"], carries_ratio = 7.0, carries_lightness_contrast = 75.0 }}\n"
         ));
         let got = resolve(&two).expect("night comes first");
         let (pink, night) = (got.must("pink").expect("a declared color"), got.must("night").expect("a declared color"));
         assert!(contrast(pink, night) >= 7.0);
-        assert!(lc(night, pink) >= 75.0);
+        assert!(lightness_contrast(night, pink) >= 75.0);
     }
 
     #[test]
     fn colors_are_solved_in_whatever_order_their_floors_need() {
         let two = declared(&format!(
             "[text]\nhue = 335\nchroma = 0.022\n\
-             least = {{ on = [\"night\"], ratio = 7.0, lc = 75.0 }}\n{NIGHT}"
+             least = {{ on = [\"night\"], ratio = 7.0, lightness_contrast = 75.0 }}\n{NIGHT}"
         ));
         let got = resolve(&two).expect("the second pass settles text");
         assert!(contrast(got.must("text").expect("a declared color"), got.must("night").expect("a declared color")) >= 7.0);
@@ -287,8 +287,8 @@ mod tests {
     #[test]
     fn a_cycle_is_named_rather_than_looped_over() {
         let two = declared(
-            "[one]\nhue = 0\nchroma = 0.05\nleast = { on = [\"two\"], ratio = 7.0, lc = 75.0 }\n\
-             [two]\nhue = 0\nchroma = 0.05\nleast = { on = [\"one\"], ratio = 7.0, lc = 75.0 }\n",
+            "[one]\nhue = 0\nchroma = 0.05\nleast = { on = [\"two\"], ratio = 7.0, lightness_contrast = 75.0 }\n\
+             [two]\nhue = 0\nchroma = 0.05\nleast = { on = [\"one\"], ratio = 7.0, lightness_contrast = 75.0 }\n",
         );
         let fault = resolve(&two).expect_err("neither can go first");
         assert!(fault.0.contains("one") && fault.0.contains("two"), "{}", fault.0);
@@ -296,9 +296,9 @@ mod tests {
 
     #[test]
     fn a_shade_that_could_never_carry_the_ink_says_so() {
-        let floor = Floor { ratio: 21.0, lc: 100.0 };
+        let floor = Floor { ratio: 21.0, lightness_contrast: 100.0 };
         let fault = settle_until_it_carries(
-            col::Oklch { lightness: 0.5, chroma: 0.105, hue: 342.0 },
+            color::Oklch { lightness: 0.5, chroma: 0.105, hue: 342.0 },
             "000000",
             floor,
         )
@@ -317,14 +317,14 @@ mod tests {
     }
 
     #[test]
-    fn the_lc_lifts_a_color_the_ratio_alone_would_have_left_where_it_was() {
+    fn the_lightness_contrast_lifts_a_color_the_ratio_alone_would_have_left_where_it_was() {
         let ratio_only = declared(&format!(
             "{NIGHT}[pink]\nhue = 342\nchroma = 0.105\nlightness = 0.72\n\
-             least = {{ on = [\"night\"], ratio = 7.0, lc = 0.0 }}\n"
+             least = {{ on = [\"night\"], ratio = 7.0, lightness_contrast = 0.0 }}\n"
         ));
         let both = declared(&format!(
             "{NIGHT}[pink]\nhue = 342\nchroma = 0.105\nlightness = 0.72\n\
-             least = {{ on = [\"night\"], ratio = 7.0, lc = 75.0 }}\n"
+             least = {{ on = [\"night\"], ratio = 7.0, lightness_contrast = 75.0 }}\n"
         ));
         let (loose, tight) = (
             resolve(&ratio_only).expect("night comes first"),
@@ -336,9 +336,9 @@ mod tests {
         );
         let night = NIGHT_CODE;
         assert!(contrast(&loose, night) >= 7.0, "the ratio alone is already clear");
-        assert!(lc(&loose, night).abs() < 75.0, "and the Contrast alone is not");
+        assert!(lightness_contrast(&loose, night).abs() < 75.0, "and the Contrast alone is not");
         assert_ne!(loose, tight, "so asking for both has to move it");
-        assert!(lc(&tight, night).abs() >= 75.0);
+        assert!(lightness_contrast(&tight, night).abs() >= 75.0);
     }
 
     #[test]

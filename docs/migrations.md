@@ -1,15 +1,16 @@
 # What the manifest cannot say
 
 `desktop.conf` says what must be on this device. It has never said what must not
-be, and the engine has no state for it: `console_manifest_engine::build::State`
-is `Ok`, `Differs`, `Missing` or `Unbuilt`, and every one of those is about a
-name the manifest *does* carry. There is no code path anywhere in the engine
-that unlinks anything. `console check` ending in *The machine matches the
-manifest* means every declared thing is there. It has never meant that nothing
-else is.
+be. For a long time the engine had no state for that either: every state
+`console check` printed was about a name the manifest *does* carry, and nothing
+in the engine unlinked anything. So a name that left the manifest stayed on
+every machine that had ever applied it, and stayed there for good.
 
-So a name that leaves the manifest stays on every machine that ever applied it,
-and stays there for good.
+Two answers now stand where that gap was. The engine takes back, by itself,
+what its own recorded applies placed and today's manifest no longer names --
+*What the engine takes back* below, and the one a removal gets by default. A
+migration is the other, and it is what a removal needs when the work is more
+than moving the thing the line named.
 
 ## What that has cost so far
 
@@ -34,33 +35,40 @@ property of anything.
 
 ## A migration
 
-One file per change, under `migrations/`, named for the unix time of the commit
-that needs it:
+One module per change, under
+`crates/console-manifest-migrations/src/history/`, named for the unix time of
+the commit that needs it and listed in `history::EVERY`:
 
-    migrations/$(git log -1 --format=%cd --date=unix).sh
+    git log -1 --format=%cd --date=unix
 
 The name is omarchy's idea and it is a good one: it sorts into history order
 without a counter for anyone to keep, and two people writing a migration on the
 same afternoon get different names without having to talk to each other.
 
-The top of the file declares what it answers for, and the rest is a shell script
-that does the work:
+The head of the module argues for the sweep, and the rest is a list of steps:
 
-    # sweeps: /usr/local/bin/console-poke
-    # sweeps: enabled legion-bar.service
+    pub const MIGRATION: Migration = Migration {
+        moment: Moment(1790200080),
+        says: "sweeping the thumbnail maker under its old name",
+        steps: &[Step::Attic("/usr/local/bin/files-thumbs")],
+    };
 
-    console-attic /usr/local/bin/console-poke
+A step is data, and `console-manifest-engine` carries it out: a path to the
+attic, a unit stopped or disabled, a process ended, a line in a file rewritten,
+a setting read out of one file into another. What a migration answers for is
+what its steps move and disable, in the words `holds` puts it in, so the gate
+reads the steps and nothing else. They were shell scripts with a `# sweeps:`
+header once, kept apart from the body because a gate that grepped a script
+would go green on one that mentioned a name in a comment. A step has no comment
+to mention it in, and a step the engine does not know is one the compiler
+refuses rather than one bash reaches halfway through.
 
-The `sweeps:` lines are read by the gate and the body never is. That separation
-is on purpose: a script that moves `/usr/local/bin/osk` has not thereby said it
-answers for `osk` leaving `[files]`, and a gate that decided by grepping the body
-would go green on a migration that mentions a name in a comment.
+A module written and not listed is a sweep that never runs, so
+`every_file_is_a_migration_that_runs` fails when the two disagree.
+`console-rename` writes the module for a rename and leaves the listing, and the
+argument, to whoever reads it.
 
-Each is handed `migrations/attic.sh`, which is where `console-attic` and
-`console-unenable` live, along with `CONSOLE_ATTIC` for the directory this run is
-filling and `CONSOLE_HOME` for the home the desktop belongs to.
-
-**Nothing is deleted.** `console-attic` moves. The rename's attic is still on the
+**Nothing is deleted.** `Step::Attic` moves. The rename's attic is still on the
 device, which is the only reason anyone can now say that sweep did what it
 claimed rather than merely that it ran; a deletion is the same operation with
 nothing left to check it by.
@@ -71,22 +79,28 @@ This is the part that is not omarchy's. There, someone has to remember to write
 a migration. Here the manifest is a file in git, so the tree can be asked what
 left it:
 
-    for everything the manifest has ever left on a machine
+    for everything the manifest left on a machine before any machine recorded it
       that it does not leave there now
         a migration must claim it, or someone must have written down why not
 
 `cargo test -p console-manifest-migrations` is that question, and it fails `just
-ready`. Delete a line from `desktop.conf` and the gate says
-*`/usr/local/bin/music-panel` left `[build]` and nothing sweeps it*. The way to
-green is to write the migration in the same commit as the removal, which is the
-only moment anyone knows why the line went.
+ready`. It asks only about what the manifest carried before
+`console_manifest_migrations::RECORDED_SINCE`, the commit time from which every
+apply has been written down with the commit it came from. A name carried at or
+after that moment is one the engine takes back by itself on any machine that
+applied while it was named, so the gate leaves it to the engine. Before it, no
+machine kept the record, and nothing but a sweep written by hand can answer for
+a name that left then -- every one of which is already answered.
 
 The escape is `migrations/left-on-purpose`: one entry a line with the reason
 beside it. It is the right answer when a machine that applied the previous commit
 is genuinely holding nothing -- everything the rename swept is in there, with the
 attic named as the evidence -- and the wrong answer the rest of the time. A name
 in that file is a decision someone made and can be argued with. A name that is
-simply never mentioned is nothing at all.
+simply never mentioned is nothing at all. The engine honours it as well: a name
+in that file is never taken back, which is what keeps the Firefox `profiles.ini`
+the desktop once wrote from being taken from a person who has made profiles
+since.
 
 ## What the rule is actually about
 
@@ -135,9 +149,10 @@ only how far each has got.
 One empty file rather than one list, because a list is a thing to rewrite, and a
 rewrite that is interrupted leaves a machine that has run a migration and
 forgotten or has not run one and thinks it has. Of those two, forgetting is much
-the worse -- every sweep is written to be safe to run twice, and `console-attic`
+the worse -- every sweep is written to be safe to run twice, and `Step::Attic`
 on a path that is not there does nothing -- so the marker is written *after* the
-migration returns.
+migration returns. The markers the scripts wrote carry their `.sh`, and are
+read as the moment in front of it.
 
 An apply runs them before it installs anything, because a migration exists
 precisely because the manifest stopped naming something, and a sweep left until
@@ -147,9 +162,90 @@ only honest one: what comes next is installing over a machine whose state no one
 now knows, and `console apply` is what people reach for when something is
 already wrong.
 
+## What the engine takes back
+
+Nix and Kubernetes' prune compare against what was last applied and remove the
+difference. That needs two things this machine has: a record of which commit
+each apply came from, which is `/var/lib/console/generations`, and the tree that
+commit is in, which is `/etc/console`, a clone holding the whole history because
+a deploy is a push into it. So what the engine placed here is `[build]`,
+`[files]`, `[services]` and `[masked]` at every recorded commit, read with this
+machine's own `machines.conf` block, and what it placed that the manifest has
+stopped naming is that less today's. The engine's `pruning` module is the whole
+of it.
+
+`console check` prints each one under `left` before anything happens, and
+`console apply` takes them straight after the migrations and before anything is
+installed -- after, because a migration that claims a name is what answers for
+it, and before, for the reason migrations run before an install. Taking means
+what the sweeps written by hand have always done:
+
+- a unit that left `[services]` is disabled and stopped, as `disable --now`
+- a unit that left `[masked]` is unmasked
+- a program that left `[build]` and a file that left `[files]` are moved into
+  the same `/var/tmp/console-migration-<when>` attic a sweep uses, and systemd
+  is reloaded when one of them was a unit
+
+Only what the records say this engine put here, and only as it put it there:
+
+- **A file is taken when it still holds what a recorded commit shipped**, with
+  `@user@` filled in. One that holds anything else was edited on the machine;
+  it is printed as *edited, kept* and left for a person, since whether an edit
+  is worth keeping is the question `console save` exists for. A file no
+  recorded commit can show is treated the same way, since nothing can say it is
+  ours.
+- **A `once` file is kept**: something on the machine is meant to rewrite it,
+  so what it holds cannot say whose it is.
+- **Anything a package now owns is kept**, which `pacman -Qo` answers. A
+  package laying its own copy over our path is what took the touchpad once, and
+  the engine taking the package's file would be that fault the other way round.
+  Only pacman naming a package, or saying *No package owns*, is an answer; a
+  pacman that could not run or said anything else leaves the path printed as
+  *owner unknown, kept*, because a question nobody answered is not a no.
+- **A program is taken whatever it holds.** It was compiled here and no commit
+  holds what it was, so whether a package owns it is the only question it can
+  be asked, and the attic is what keeps that from being a guess nobody can undo.
+- **A name a migration claims, or that `left-on-purpose` names, is not
+  touched**, because somebody has said what to do with it.
+
+What this cannot reach is a machine with no record. One that last applied
+before the generations began, and whose next apply comes after a name left,
+never recorded that name and is not asked about it; one whose
+`/var/lib/console/generations` went missing is the same. A recorded commit its
+tree can no longer show -- a history rewritten under it -- is printed as unread
+rather than guessed at.
+
+### What is still written by hand
+
+A migration is what a removal needs when moving the named thing is not the
+whole of it, and most of the ones in the history are that. The player's sweep
+carried the music folder kew had been told into this desktop's own setting
+before it moved kew's configuration. The session keeper's took state
+directories the manifest never named. The move out of `~/.config/hypr`
+rewrote `zz-steamos-autologin.conf` for the session it now logs in through. The
+profile the pad wore while a card was asking was written by the engine and never
+had a line in `[files]` at all. None of that can be derived from a manifest, and
+none of it was caught by the gate either -- it was caught by whoever was writing
+the sweep, because the gate had sent them there. So the question at a removal
+has not changed, only who is made to ask it: the engine moves what the line
+named, and whether anything else is lost is the removal commit's to answer,
+with a migration when the answer is yes.
+
+That was the argument for leaving it as it was, and it is a real cost: a
+removal is green now without anyone having written a word about the machine.
+What it bought was the rest -- `console check` saying what an older manifest
+left rather than only what this one wants, the unit that is still enabled
+being stopped whether or not anyone remembered it was a daemon, and the file
+somebody edited being left where it is instead of moved by a script that could
+not see the edit.
+
+A migration that claims a name keeps it from the engine, which is what to
+write when the named thing must *not* simply go to the attic: a setting read
+out of it first, a process stopped by name, a file edited rather than moved.
+
 ## What is not swept
 
-`[packages]`. pacman already keeps the better answer: a package the manifest
+`[packages]`, by a migration or by the engine. pacman already keeps the better answer: a package the manifest
 stops asking for falls back to being held as a dependency or by nothing, and
 `pacman -Qdtq | pacman -Rns -` is the line that collects it. Sweeping a package
 here would be this tree deciding something pacman decides better, and

@@ -192,7 +192,7 @@ where
 {
     Ok(match T::try_from(value) {
         Ok(value) => value,
-        Err(_) => match value > F::ZERO {
+        Err(_out_of_range) => match value > F::ZERO {
             true => T::HIGH,
             false => T::LOW,
         },

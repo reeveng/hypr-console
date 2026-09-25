@@ -124,7 +124,7 @@ const BUS: (&str, &str, &str) = (
     "org.shadowblip.Input.CompositeDevice",
 );
 
-fn session_env(whom: &str) -> Result<String, Never> {
+fn session_environment(whom: &str) -> Result<String, Never> {
     Ok(format!(
         "export XDG_RUNTIME_DIR=/run/user/$(id -u {whom}); \
          export HYPRLAND_INSTANCE_SIGNATURE=$(ls -1t \"$XDG_RUNTIME_DIR/hypr\" 2>/dev/null | head -1); \
@@ -181,7 +181,7 @@ struct Came {
 pub struct Device {
     pub host: String,
     whom: Option<String>,
-    pub dry: bool,
+    pub dry_run: bool,
     pub done: Vec<String>,
     profiles: BTreeMap<String, Profile>,
     taken: Option<Picture>,
@@ -284,13 +284,13 @@ fn volume_in(said: &str) -> Result<Level, Never> {
 }
 
 impl Device {
-    pub fn new(host: &str, dry: DryRun) -> Result<Self, Error> {
+    pub fn new(host: &str, dry_run: DryRun) -> Result<Self, Error> {
         let Ok(root) = crate::root();
         let profiles = every_profile(&root)?;
 
         Ok(Device {
             host: host.to_string(),
-            dry: dry == DryRun::Pretend,
+            dry_run: dry_run == DryRun::Pretend,
             done: Vec::new(),
             profiles,
             taken: None,
@@ -321,7 +321,7 @@ impl Device {
                 true => None,
                 false => Some(said.trim().to_string()),
             },
-            Err(_) => None,
+            Err(_unset) => None,
         };
 
         let said = match told {
@@ -375,7 +375,7 @@ impl Device {
     pub fn ssh(&mut self, command: &str) -> Result<String, Never> {
         self.done.push(command.to_string());
 
-        match self.dry {
+        match self.dry_run {
             true => return Ok(String::new()),
             false => {},
         }
@@ -409,7 +409,7 @@ impl Device {
 
     pub fn in_session(&mut self, command: &str) -> Result<String, Never> {
         let Ok(whom) = self.whoever();
-        let Ok(session) = session_env(&whom);
+        let Ok(session) = session_environment(&whom);
         let asked = format!("{session} && {command}");
 
         self.user(&asked)
@@ -797,7 +797,7 @@ impl Device {
 
         self.opened.retain(|address| *address != closing);
 
-        match self.dry {
+        match self.dry_run {
             true => return Ok(Outcome::Happened),
             false => {},
         }
@@ -843,7 +843,7 @@ impl Device {
     }
 
     pub fn opening(&mut self, command: &str, seconds: f64) -> Result<Option<String>, Never> {
-        match self.dry {
+        match self.dry_run {
             true => {
                 let Ok(_) = self.exec_cmd(command);
 
@@ -909,7 +909,7 @@ impl Device {
     }
 
     pub fn settle(&mut self, seconds: f64) -> Result<(), Never> {
-        match self.dry {
+        match self.dry_run {
             true => {},
             false => {
                 #[cfg_attr(
@@ -986,7 +986,7 @@ impl Device {
 
     pub fn types(&mut self, words: &str) -> Result<String, Never> {
         let Ok(whom) = self.whoever();
-        let Ok(session) = session_env(&whom);
+        let Ok(session) = session_environment(&whom);
         let Ok(quoted) = quoted(words);
 
         self.user(&format!("{session} && wtype {quoted}"))
@@ -1039,7 +1039,7 @@ impl Device {
     }
 
     pub fn profile(&mut self) -> Result<String, Never> {
-        match self.dry {
+        match self.dry_run {
             true => return Ok(String::new()),
             false => {},
         }
@@ -1303,7 +1303,7 @@ impl Device {
 
     pub fn wallpaper(&mut self) -> Result<String, Never> {
         let Ok(whom) = self.whoever();
-        let Ok(session) = session_env(&whom);
+        let Ok(session) = session_environment(&whom);
 
         self.user(&format!("{session} && awww query"))
     }
@@ -1417,7 +1417,7 @@ impl Device {
         self.taken = None;
         self.screen = None;
 
-        match self.dry {
+        match self.dry_run {
             true => return Ok(()),
             false => {},
         }
@@ -1499,7 +1499,7 @@ pub fn capability_under(here: Option<&Profile>, button: &str) -> Result<Option<S
 
     let named = match here.for_button(button) {
         Ok(named) => named,
-        Err(_fault) => return Ok(itself),
+        Err(_no_such_button) => return Ok(itself),
     };
 
     let sent = named.iter().flat_map(|mapping| &mapping.targets).find_map(|target| {
@@ -1565,7 +1565,7 @@ fn calling(chord: &str) -> Result<String, Never> {
 mod tests {
     use super::*;
 
-    fn dry() -> Device {
+    fn dry_run() -> Device {
         Device::new("root@handheld", DryRun::Pretend).expect("a stage")
     }
 
@@ -1688,7 +1688,7 @@ mod tests {
 
     #[test]
     fn nothing_is_sent_on_a_dry_run() {
-        let mut device = dry();
+        let mut device = dry_run();
         device.press("a");
         assert!(!device.done.is_empty(), "the command is still read");
     }

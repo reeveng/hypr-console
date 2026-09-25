@@ -5,13 +5,6 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
-# What is left on the screen when the desktop did not come up.
-#
-# It depends on nothing that draws. The kernel's own console sets the letters,
-# and the pad is read the way the kernel hands it over, so a broken toolkit, a
-# missing font or a compositor that will not start is not something this has
-# to survive -- it never met them.
-
 [lib]
 name = "console_recovery"
 path = "src/lib.rs"

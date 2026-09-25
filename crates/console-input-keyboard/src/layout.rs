@@ -98,14 +98,14 @@ pub mod key {
     pub const MENU: u32 = 139;
 }
 
-pub mod mods {
+pub mod modifiers {
     pub const NONE: u8 = 0;
     pub const SHIFT: u8 = 1;
-    pub const CAPS: u8 = 2;
-    pub const CTRL: u8 = 4;
+    pub const CAPS_LOCK: u8 = 2;
+    pub const CONTROL: u8 = 4;
     pub const ALT: u8 = 8;
     pub const SUPER: u8 = 64;
-    pub const ALTGR: u8 = 128;
+    pub const ALT_GRAPH: u8 = 128;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -147,7 +147,7 @@ impl Key {
         width: 1.0,
         kind: Kind::Pad,
         scheme: 0,
-        force: mods::NONE,
+        force: modifiers::NONE,
         reset: Drops::None,
     };
 }
@@ -193,18 +193,18 @@ pub fn placed(layout: &Layout, room: Size<f64>) -> Result<Vec<Placed>, Never> {
         let mut x = 0.0;
 
         for (at, key) in row {
-            let w = key.width / across * room.width;
+            let width = key.width / across * room.width;
 
             match matches!(key.kind, Kind::Pad) {
                 true => {},
                 false => {
                     let Ok(row) = down.float();
 
-                    out.push(Placed { at: *at, x, y: row * deep, width: w, height: deep });
+                    out.push(Placed { at: *at, x, y: row * deep, width, height: deep });
                 }
             }
 
-            x += w;
+            x += width;
         }
     }
 
@@ -247,11 +247,11 @@ pub fn rows(layout: &Layout) -> Result<Vec<Vec<(u32, &'static Key)>>, Never> {
 pub fn under(placed: &[Placed], at: Point<f64>) -> Result<Option<Placed>, Never> {
     Ok(placed
         .iter()
-        .find(|k| {
-            at.x >= k.x
-                && at.x < k.x + k.width
-                && at.y >= k.y
-                && at.y < k.y + k.height
+        .find(|key| {
+            at.x >= key.x
+                && at.x < key.x + key.width
+                && at.y >= key.y
+                && at.y < key.y + key.height
         })
         .copied())
 }
@@ -275,25 +275,25 @@ pub fn toward(
     from: Option<u32>,
     step: Point<i32>,
 ) -> Result<Option<u32>, Never> {
-    let sel = match from.and_then(|at| keys.iter().find(|k| k.at == at).copied()) {
-        Some(sel) => sel,
-        None => return Ok(keys.first().map(|k| k.at)),
+    let selected = match from.and_then(|at| keys.iter().find(|key| key.at == at).copied()) {
+        Some(selected) => selected,
+        None => return Ok(keys.first().map(|key| key.at)),
     };
 
-    let middle = (sel.x + sel.width / 2.0, sel.y + sel.height / 2.0);
+    let middle = (selected.x + selected.width / 2.0, selected.y + selected.height / 2.0);
 
-    let scored = |k: &Placed| {
+    let scored = |key: &Placed| {
         let along = match step.x.signum() {
-            1 => k.x - (sel.x + sel.width),
-            -1 => sel.x - (k.x + k.width),
+            1 => key.x - (selected.x + selected.width),
+            -1 => selected.x - (key.x + key.width),
             _ => match step.y > 0 {
-                true => k.y - (sel.y + sel.height),
-                false => sel.y - (k.y + k.height),
+                true => key.y - (selected.y + selected.height),
+                false => selected.y - (key.y + key.height),
             },
         };
         let Ok(across) = match step.x != 0 {
-            true => gap(Between { low: k.y, high: k.y + k.height }, middle.1),
-            false => gap(Between { low: k.x, high: k.x + k.width }, middle.0),
+            true => gap(Between { low: key.y, high: key.y + key.height }, middle.1),
+            false => gap(Between { low: key.x, high: key.x + key.width }, middle.0),
         };
 
         (along, along + across * 3.0)
@@ -302,13 +302,13 @@ pub fn toward(
     for ahead in [true, false] {
         let best = keys
             .iter()
-            .filter(|k| k.at != sel.at)
-            .map(|k| (k.at, scored(k)))
+            .filter(|key| key.at != selected.at)
+            .map(|key| (key.at, scored(key)))
             .filter(|(_, (along, _))| match ahead {
                 true => *along >= 0.0,
                 false => *along < 0.0,
             })
-            .min_by(|a, b| a.1.1.total_cmp(&b.1.1));
+            .min_by(|one, other| one.1.1.total_cmp(&other.1.1));
 
         match best {
             Some((at, _)) => return Ok(Some(at)),
@@ -389,7 +389,7 @@ mod tests {
         let mut at = start;
         for step in 0..8 {
             at = toward(&keys, Some(at), Point { x: 1, y: 0 }).expect("somewhere to the right");
-            let now = keys.iter().find(|k| k.at == at).expect("placed");
+            let now = keys.iter().find(|key| key.at == at).expect("placed");
             assert_eq!(now.y, row, "step {step} left the row it started on");
         }
     }
@@ -398,16 +398,16 @@ mod tests {
     fn up_is_the_row_above_and_not_a_diagonal() {
         let layout = of(named("landscape").expect("landscape"));
         let keys = placed(layout, Size { width: 1892.0, height: 260.0 });
-        let bottom = keys.iter().max_by(|a, b| a.y.total_cmp(&b.y)).expect("a bottom row").y;
-        for key in keys.iter().filter(|k| k.y == bottom) {
+        let bottom = keys.iter().max_by(|one, other| one.y.total_cmp(&other.y)).expect("a bottom row").y;
+        for key in keys.iter().filter(|key| key.y == bottom) {
             let up = toward(&keys, Some(key.at), Point { x: 0, y: -1 }).expect("a key above");
-            let landed = keys.iter().find(|k| k.at == up).expect("placed");
+            let landed = keys.iter().find(|key| key.at == up).expect("placed");
             assert!(landed.y < key.y, "up went sideways");
             let rows: Vec<f64> = {
-                let mut ys: Vec<f64> = keys.iter().map(|k| k.y).collect();
-                ys.sort_by(f64::total_cmp);
-                ys.dedup_by(|a, b| a == b);
-                ys
+                let mut rows: Vec<f64> = keys.iter().map(|key| key.y).collect();
+                rows.sort_by(f64::total_cmp);
+                rows.dedup_by(|one, other| one == other);
+                rows
             };
             let above = rows.iter().rev().find(|y| **y < key.y).expect("a row above");
             assert_eq!(landed.y, *above, "up skipped a row");
@@ -418,9 +418,9 @@ mod tests {
     fn a_direction_wraps_rather_than_stopping_at_the_edge() {
         let layout = of(named("landscape").expect("landscape"));
         let keys = placed(layout, Size { width: 1892.0, height: 260.0 });
-        let top = keys.iter().min_by(|a, b| a.y.total_cmp(&b.y)).expect("a top row").at;
+        let top = keys.iter().min_by(|one, other| one.y.total_cmp(&other.y)).expect("a top row").at;
         let up = toward(&keys, Some(top), Point { x: 0, y: -1 }).expect("wrapped round");
-        let landed = keys.iter().find(|k| k.at == up).expect("placed");
+        let landed = keys.iter().find(|key| key.at == up).expect("placed");
         assert!(landed.y > keys[0].y, "up from the top row came out at the bottom");
     }
 

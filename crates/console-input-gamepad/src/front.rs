@@ -268,7 +268,7 @@ fn buttons(line: &str) -> Result<Buttons, Never> {
 
     Ok(match u64::from_str_radix(word, 16) {
         Ok(bits) => Buttons::Bits(bits),
-        Err(_) => Buttons::ReadFailed,
+        Err(_not_hex) => Buttons::ReadFailed,
     })
 }
 
@@ -286,7 +286,7 @@ fn properties(line: &str) -> Result<Properties, Never> {
 
     Ok(match u64::from_str_radix(hex.trim(), 16) {
         Ok(bits) => Properties::Bits(bits),
-        Err(_) => Properties::ReadFailed,
+        Err(_not_hex) => Properties::ReadFailed,
     })
 }
 

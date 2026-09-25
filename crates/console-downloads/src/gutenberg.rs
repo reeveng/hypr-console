@@ -53,7 +53,8 @@ fn book(entry: Entry) -> Result<Option<Found>, Never> {
 
     let number = match written.map(str::parse::<u64>) {
         Some(Ok(number)) => number,
-        Some(Err(_)) | None => return Ok(None),
+        None => return Ok(None),
+        Some(Err(_not_a_number)) => return Ok(None),
     };
 
     Ok(match entry.title.is_empty() {

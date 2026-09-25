@@ -1397,7 +1397,7 @@ fn kept(message: &mut Message, one: &Value) -> Result<(), Never> {
             message.reply_to = match counted {
                 Some(counted) => match u32::try_from(counted) {
                     Ok(serial) => Some(serial),
-                    Err(_fault) => None,
+                    Err(_too_large) => None,
                 },
                 None => None,
             };

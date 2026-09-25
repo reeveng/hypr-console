@@ -108,7 +108,7 @@ pub fn root() -> Result<PathBuf, Never> {
 pub fn screen() -> Result<console_screen::Screen, Unnested> {
     let Ok(root) = root();
 
-    let at = root.join(console_screen::CONFIG);
+    let at = root.join(console_screen::CONFIGURATION);
     let said = std::fs::read_to_string(&at)
         .map_err(|why| Unnested::Read(at.clone(), why))?;
 
@@ -144,8 +144,7 @@ pub fn runtime() -> Result<PathBuf, Never> {
     Ok(match told {
         Some(told) => told,
         None => {
-            // SAFETY: getuid cannot fail and touches nothing.
-            let uid = unsafe { libc::getuid() };
+            let uid = rustix::process::getuid().as_raw();
 
             PathBuf::from(format!("/run/user/{uid}"))
         }

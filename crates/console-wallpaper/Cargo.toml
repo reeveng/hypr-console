@@ -25,8 +25,6 @@ console-core-places.workspace = true
 console-repository.workspace = true
 console-core-external-programs.workspace = true
 console-core-number-conversion.workspace = true
-# What the compositor is doing, asked of the one program that is subscribed to
-# it rather than of a socket this would otherwise hold open itself.
 console-core-words.workspace = true
 console-events.workspace = true
 console-program-contract.workspace = true

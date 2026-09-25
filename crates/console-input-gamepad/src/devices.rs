@@ -131,7 +131,7 @@ impl<S: Sink> Devices<S> {
         let axis = self.axis(role, code)?;
 
         let Ok(along) =
-            whole_i32(f64::from(axis.min) + amount * f64::from(axis.max.saturating_sub(axis.min)));
+            whole_i32(f64::from(axis.minimum) + amount * f64::from(axis.maximum.saturating_sub(axis.minimum)));
 
         Ok(along)
     }
@@ -178,8 +178,8 @@ mod tests {
     fn a_trigger_runs_from_one_end_of_its_range_to_the_other() {
         let devices = devices();
         let axis = devices.axis("pad", 2).expect("ABS_Z");
-        assert_eq!(devices.along("pad", 2, 0.0).expect("let go"), axis.min);
-        assert_eq!(devices.along("pad", 2, 1.0).expect("pulled"), axis.max);
+        assert_eq!(devices.along("pad", 2, 0.0).expect("let go"), axis.minimum);
+        assert_eq!(devices.along("pad", 2, 1.0).expect("pulled"), axis.maximum);
     }
 
     #[test]

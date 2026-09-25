@@ -95,9 +95,9 @@ pub fn animation(size: Size<i32>, frames: &[Frame]) -> Result<Vec<u8>, Unpainted
         b"VP8X",
         &[[0x02u8, 0, 0, 0].as_slice(), &wide, &tall].concat(),
     )?;
-    let anim = chunk(b"ANIM", &[0, 0, 0, 0, 0, 0])?;
+    let animation = chunk(b"ANIM", &[0, 0, 0, 0, 0, 0])?;
 
-    body.extend(anim);
+    body.extend(animation);
 
     for frame in frames {
         let x = side(frame.x)?;

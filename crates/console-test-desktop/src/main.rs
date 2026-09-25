@@ -622,18 +622,25 @@ fn picturing(
 
 const GOING: Duration = Duration::from_secs(3);
 
+fn asked_to_stop(process: &Child) -> Result<(), Never> {
+    let Ok(which) = fitted(process.id());
+
+    console_program_lifetime::signal(which, rustix::process::Signal::TERM)
+}
+
 fn nothing_left_running(opened: Vec<(String, Child)>) -> Result<(), Never> {
     let mut going: Vec<(String, Child)> = Vec::new();
 
     for (command, mut process) in opened {
         match process.try_wait() {
             Ok(Some(_)) => {}
-            Ok(None) | Err(_) => {
-                let Ok(which) = fitted(process.id());
+            Ok(None) => {
+                let Ok(()) = asked_to_stop(&process);
 
-                // SAFETY: a signal to a process this started, by the pid it
-                // was given when it started.
-                unsafe { libc::kill(which, libc::SIGTERM) };
+                going.push((command, process));
+            }
+            Err(_unasked) => {
+                let Ok(()) = asked_to_stop(&process);
 
                 going.push((command, process));
             }
@@ -680,9 +687,7 @@ fn stop(
     let Ok(()) = inside.stop_the_wallpaper();
     let Ok(()) = inside.stop_the_bar();
     let Ok(which) = fitted(compositor.id());
-
-    // SAFETY: a signal to the compositor this started, by its own pid.
-    unsafe { libc::kill(which, libc::SIGTERM) };
+    let Ok(()) = console_program_lifetime::signal(which, rustix::process::Signal::TERM);
 
     let Ok(patience) = Schedule::asking_every(Duration::from_secs(10), Duration::from_millis(100));
     let Ok(ended) = until_handed(patience, compositor, |compositor| {
@@ -714,7 +719,8 @@ fn say_what_died(opened: &mut [(String, Child)]) -> Result<(), Never> {
     for (command, process) in opened {
         let ended = match process.try_wait() {
             Ok(Some(ended)) => ended,
-            Ok(None) | Err(_) => continue,
+            Ok(None) => continue,
+            Err(_unasked) => continue,
         };
 
         let mut said = String::new();
@@ -778,7 +784,7 @@ fn say_the_colors(
 
     let picture = match Picture::read(shot) {
         Ok(picture) => picture,
-        Err(_fault) => return Ok(()),
+        Err(_unreadable) => return Ok(()),
     };
 
     for place in sample {
@@ -799,7 +805,7 @@ fn say_the_colors(
 
         let (across, down) = match (across.trim().parse::<f64>(), down.trim().parse::<f64>()) {
             (Ok(across), Ok(down)) => (across, down),
-            (Err(_), _) | (_, Err(_)) => continue,
+            (Err(_not_a_number), _) | (_, Err(_not_a_number)) => continue,
         };
 
         match where_(&picture, Point { x: across, y: down }, logical) {

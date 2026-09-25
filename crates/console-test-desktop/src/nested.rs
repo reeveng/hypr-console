@@ -1,4 +1,4 @@
-//! The compositor's config, with the device's screen swapped for this one.
+//! The compositor's configuration, with the device's screen swapped for this one.
 //! Whatever the session starts here, it starts the way the device starts it and
 //! from the same place the device reads. The stage is the device's tree copied
 //! somewhere else with every absolute path inside it pointed back into the
@@ -111,7 +111,7 @@ done
 # notification for every window someone shut. The sessions console-desktop
 # ends itself tell the daemon to go first, and this is the one the compositor's
 # own exit ends, where there is no moment left to say it in -- a shutdown
-# handler in the config was tried, and it runs after the clients are already
+# handler in the configuration was tried, and it runs after the clients are already
 # gone. What Hyprland fills the screen with instead is the device's own night,
 # which is the color this would have painted.
 @ground@
@@ -191,8 +191,8 @@ pub struct Names<'a> {
     pub device: &'a str,
 }
 
-pub fn config(said: Names<'_>, wallpaper: Wallpaper) -> Result<String, Never> {
-    let Names { screen: screen_said, device: device_config } = said;
+pub fn configuration(said: Names<'_>, wallpaper: Wallpaper) -> Result<String, Never> {
+    let Names { screen: screen_said, device: device_configuration } = said;
 
     let ground = match wallpaper {
         Wallpaper::Started => THE_COLOR_NOTHING_IS,
@@ -201,7 +201,7 @@ pub fn config(said: Names<'_>, wallpaper: Wallpaper) -> Result<String, Never> {
 
     Ok(format!(
         "\
--- The device's compositor config, with its screen swapped for this one.
+-- The device's compositor configuration, with its screen swapped for this one.
 --
 -- Nothing else is changed. The window rules, the bindings, the look and the
 -- absence of animation are all read from the file the device reads, so a
@@ -209,9 +209,9 @@ pub fn config(said: Names<'_>, wallpaper: Wallpaper) -> Result<String, Never> {
 
 {screen_said}
 
-dofile(\"{device_config}\")
+dofile(\"{device_configuration}\")
 
--- Said again after the device's config, because that one names the screen the
+-- Said again after the device's configuration, because that one names the screen the
 -- device is mounted on and this is not that screen.
 hl.monitor({{ output = \"eDP-1\", disabled = true }})
 
@@ -253,7 +253,7 @@ mod tests {
 
     #[test]
     fn the_nested_config_reads_the_devices_own() {
-        let said = config(
+        let said = configuration(
             Names { screen: "-- a screen", device: "/somewhere/hyprland.lua" },
             Wallpaper::Started,
         )
@@ -279,7 +279,7 @@ mod tests {
             "a daemon whose only way out is a core file is started here: {alone}"
         );
 
-        let said = config(
+        let said = configuration(
             Names { screen: "-- a screen", device: "/somewhere/hyprland.lua" },
             Wallpaper::LeftOut,
         )

@@ -67,12 +67,12 @@ fn counted(said: &str) -> Result<PacmanOutput, Never> {
 
     let done = match done.trim().parse::<u32>() {
         Ok(done) => done,
-        Err(_fault) => return Ok(PacmanOutput::Other),
+        Err(_not_a_number) => return Ok(PacmanOutput::Other),
     };
 
     let many = match many.trim().parse::<u32>() {
         Ok(many) => many,
-        Err(_fault) => return Ok(PacmanOutput::Other),
+        Err(_not_a_number) => return Ok(PacmanOutput::Other),
     };
 
     let doing = doing.trim();

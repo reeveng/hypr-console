@@ -125,9 +125,9 @@ fn found() -> Result<Option<(String, Device)>, Never> {
             let every: Vec<DeviceInfo> = devices
                 .iter()
                 .map(|device| {
-                    let Ok(info) = describe(&device.path.display().to_string(), device);
+                    let Ok(information) = describe(&device.path.display().to_string(), device);
 
-                    info
+                    information
                 })
                 .collect();
             let Ok(gamepad) = finding::gamepad(&every);

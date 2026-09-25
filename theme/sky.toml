@@ -1,69 +1,9 @@
-# The wallpapers, and which one answers what.
-#
-# A picture is chosen by two things: what part of the day it is, worked out
-# from the sun, and what the weather is, asked of a service that wants no
-# account. `console-wallpaper` does the choosing and `wallpaper-render` writes the pictures.
-#
-# The rule for choosing is that the most particular picture wins. A picture
-# that names a part of the day and a weather beats one that names only a part
-# of the day, which beats one that names nothing. So a picture naming nothing
-# is the one that is up when nothing else fits, and a set is grown by adding a
-# picture rather than by editing the ones already here.
-#
-# Pictures that name the same number of true things take turns, two hours
-# apiece, in the order they are written down here. That is why most of these
-# come in pairs: one picture for a clear day is a picture, and two are a morning
-# and an afternoon.
-#
-# Every picture in this file is by Abi Toads, who gives them away
-# (abitoads.com/pages/animated-wallpapers, through Wallpaper Engine on Steam).
-# They are fetched rather than kept here: this repository is source, the
-# pictures are someone else's work, and `console apply` renders them on the
-# device the way it compiles the programs.
-#
-# The addresses are mirrors rather than hers. She publishes through Wallpaper
-# Engine, which is a Steam program and not a thing this machine can fetch from,
-# so each picture is taken from a site that mirrors her workshop item, and each
-# one here was matched against the workshop item it came from before it was
-# written down. A mirror that moves its addresses breaks the fetch for that one
-# picture and says so; a mirror that quietly hands back something else is what
-# the checksums are for.
-
-# How the pictures move.
-#
-# They loop: the artist's whole animation, over and over, for as long as
-# nothing is in front of it. A loop that stops is stranger to look at than one
-# that does not, and what paid for stopping is now had another way, by not
-# moving at all while a window or a menu is over the picture.
-#
-# `rest_seconds` above zero brings the old behavior back for one picture: a
-# still that holds for that long, then a few seconds of movement, then a snap
-# back to the still. It is here because a picture whose every pixel moves costs
-# the same whether anyone is looking at it or not, and this is the setting
-# that buys that back. `seconds` is how long that movement lasts and is ignored
-# by a picture that loops.
-#
-# Twelve frames a second is the artist's thirty halved and halved again to
-# about a third. These are hand-drawn loops of water and firelight, none of
-# which has an edge sharp enough to judder at twelve.
 [stir]
 rest_seconds = 0
 seconds = 4.0
 frames_per_second = 12
 tolerance = 6
 quality = 82
-
-# --------------------------------------------------------------- the pictures
-#
-# `grade` is how far a picture is brought into this palette. `keep` is how much
-# of the artist's own color survives, `pull` is how much of the theme's color
-# is laid over it, and `ceiling` is where the picture's brightest point lands,
-# which is what leaves the bar something to be read against. `docs/sky.md` has
-# the argument; the numbers here were chosen by looking at a proof sheet.
-#
-# A green daylight picture takes the pull worst, because a bright green scene in
-# a dark plum theme is a contradiction and pulling it hard turns it gray. Those
-# keep more of themselves and give up more of their brightness instead.
 
 [[picture]]
 name = "terrarium"
@@ -72,9 +12,6 @@ by = "Abi Toads"
 from = "https://motionbgs.com/dl/4k/9581/"
 sha256 = "5209739feecabc6b6b640fde57ddfc30156849c503bd5ad6e964c1e409af6ced"
 grade = { keep = 0.50, pull = 0.50, floor = 0.0, ceiling = 0.72 }
-# This one names nothing, so it is what is up when nothing else answers: rain,
-# fog and thunder at any hour. A tank of plants indoors is the right picture
-# for weather you would rather be inside than out in.
 
 [[picture]]
 name = "shelf-of-curiosities"
@@ -83,15 +20,6 @@ by = "Abi Toads"
 from = "https://www.desktophut.com/files/nQcXBjbpWotOMo9_Shelf%20of%20Curiosities%20-%20Abi%20Toads%204K%20Live%20Wallpaper.mp4"
 sha256 = "96d6875213c70d1d2a389ca5a0794054b6f92a50a982ab25e7ee41723e7193b7"
 grade = { keep = 0.40, pull = 0.60, floor = 0.0, ceiling = 0.74 }
-# The other picture that names nothing, so a wet week is two pictures rather
-# than one. A shelf of bottles and books by candlelight is indoors the same way
-# the terrarium is, which is the whole argument for both of them.
-#
-# It is also the dearest picture here by some way. A candle flickering across a
-# painted interior moves nearly the whole frame, so the rectangles that make the
-# other pictures cheap buy nothing at all, and it renders larger than anything
-# else in this file. docs/sky.md says what that costs while it is on the screen.
-# If the device ever wants the memory back, this is the line to take out.
 
 [[picture]]
 name = "lazy-river"
@@ -112,9 +40,6 @@ sha256 = "38b93c74822b76b439ad81d8267f79aa82e63f32d07fa4af94f22645da51aa1f"
 grade = { keep = 0.60, pull = 0.45, floor = 0.0, ceiling = 0.74 }
 sky = ["sunrise", "day"]
 weather = ["clear"]
-# The river's other half. Green hills and a blue sky full of weather that is
-# not going to come to anything, which is the same fine day the river is and
-# does not look like it.
 
 [[picture]]
 name = "lilypad-ride"
@@ -135,10 +60,6 @@ sha256 = "e8c12dbe46e4d34f86c9ef544e22c2f84ec992345109a984cb2d165d9d164309"
 grade = { keep = 0.60, pull = 0.45, floor = 0.0, ceiling = 0.74 }
 sky = ["dawn", "day"]
 weather = ["cloud", "fog"]
-# Takes turns with the lilypads under cloud, and answers the fog on its own.
-# A gorge with the spray hanging in it is the one picture here that is actually
-# in weather you cannot see through, and a foggy morning used to fall all the
-# way through to the terrarium.
 
 [[picture]]
 name = "snow-day"
@@ -159,10 +80,6 @@ sha256 = "c28f0e97f08d03838c781c10aa9bc3f8d429feba5cc6363064a7b74f81b73922"
 grade = { keep = 0.30, pull = 0.70, floor = 0.0, ceiling = 0.52 }
 sky = ["sunrise", "day"]
 weather = ["snow"]
-# The snowy day's afternoon: a frozen lake with the snow still coming down.
-# Graded like the snowy day above it, which gives up more of its brightness than
-# anything else here so that a white picture leaves the bar something to be read
-# against.
 
 [[picture]]
 name = "campfire"
@@ -203,10 +120,6 @@ sha256 = "58c5aae958ff427851d6fac7921a2b7ce1fffd89b1a8943457b159601e925462"
 grade = { keep = 0.40, pull = 0.65, floor = 0.0, ceiling = 0.66 }
 sky = ["night"]
 weather = ["clear", "cloud"]
-# The other half of the night. Glowing bellflowers at ground level, which is
-# the night from underneath where the star ride is the night from above. It
-# names no season, though it is a spring picture: naming one would make it beat
-# the star ride outright in spring rather than take turns with it all year.
 
 [[picture]]
 name = "dancing-frogs"
@@ -218,11 +131,6 @@ grade = { keep = 0.35, pull = 0.70, floor = 0.0, ceiling = 0.70 }
 sky = ["night"]
 weather = ["clear", "cloud"]
 moon = ["full"]
-# The first picture here to use the moon, which has been one of the four things
-# a picture may name since before there was one worth naming it. A full moon
-# over a meadow is a picture of tonight rather than of any night, so it names
-# three things and is up for the whole of a full-moon night rather than taking
-# turns with the two above.
 
 [[picture]]
 name = "cozy-winter"

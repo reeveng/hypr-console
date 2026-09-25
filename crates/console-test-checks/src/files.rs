@@ -196,7 +196,7 @@ fn zipped(holding: &Path, into: &Path) -> Result<Ran, Never> {
 fn landed(folder: &Path) -> Result<Vec<String>, Never> {
     let reading = match std::fs::read_dir(folder) {
         Ok(reading) => reading,
-        Err(_fault) => return Ok(Vec::new()),
+        Err(_unreadable) => return Ok(Vec::new()),
     };
 
     let mut names: Vec<String> =

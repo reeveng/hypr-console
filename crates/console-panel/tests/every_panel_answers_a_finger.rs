@@ -22,8 +22,8 @@ use console_test_stages::panels::{
     every_row_draws_what_it_carries,
 };
 
-fn held_to_the_contract(program: &str, args: &[&str]) {
-    let Ok(mut panel) = Panel::opening(program, args);
+fn held_to_the_contract(program: &str, arguments: &[&str]) {
+    let Ok(mut panel) = Panel::opening(program, arguments);
 
     let every = match panel.drawn() {
         Ok(every) => every,

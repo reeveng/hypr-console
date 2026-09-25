@@ -95,7 +95,7 @@ mod tests {
     fn every_role_is_written_once_as_a_color() {
         let css = spend(&blossom()).expect("every color it spends is declared");
         for name in ROLES {
-            let written: Vec<&str> = css.lines().filter(|l| l.starts_with(&format!("@define-color {name} "))).collect();
+            let written: Vec<&str> = css.lines().filter(|line| line.starts_with(&format!("@define-color {name} "))).collect();
             assert_eq!(written.len(), 1, "{name} is defined as {written:?}");
         }
     }
@@ -104,7 +104,7 @@ mod tests {
     fn only_the_roles_hold_a_hex_and_every_other_name_is_a_reference() {
         let css = spend(&blossom()).expect("every color it spends is declared");
         let holds_hex = |line: &str| line.contains('#');
-        for line in css.lines().filter(|l| l.starts_with("@define-color")).filter(|l| holds_hex(l)) {
+        for line in css.lines().filter(|line| line.starts_with("@define-color")).filter(|line| holds_hex(line)) {
             let name = line.split_whitespace().nth(1).expect("a name");
             assert!(ROLES.contains(&name), "{name} holds a hex and is not a role");
         }
@@ -113,8 +113,8 @@ mod tests {
     #[test]
     fn every_reference_points_at_a_role_that_exists() {
         let css = spend(&blossom()).expect("every color it spends is declared");
-        for line in css.lines().filter(|l| l.contains(" @")) {
-            let role = line.rsplit(" @").next().and_then(|r| r.strip_suffix(';')).expect("a role");
+        for line in css.lines().filter(|line| line.contains(" @")) {
+            let role = line.rsplit(" @").next().and_then(|rest| rest.strip_suffix(';')).expect("a role");
             assert!(ROLES.contains(&role), "{line} points at {role}, which is not a role");
         }
     }

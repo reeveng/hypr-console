@@ -4,12 +4,13 @@
 //!     console-resource-usage note        take one reading and keep it
 //!     console-resource-usage --file PATH somewhere other than the store
 //!
-//! `note` is what the timer runs and no one types; everything else is the
-//! reading. The store is a line per reading and is meant to be read by anything
-//! -- `jq`, a spreadsheet, whatever someone writes once -- and this is the
-//! reading that should not have to be written twice: how much power went
-//! through the machine while it was awake, how much battery that came to, and
-//! which programs were holding the CPU while it happened.
+//! `note` is what the timer runs and no one types, and it keeps nothing while
+//! the `measuring` setting is off; everything else is the reading. The store is
+//! a line per reading and is meant to be read by anything -- `jq`, a
+//! spreadsheet, whatever someone writes once -- and this is the reading that
+//! should not have to be written twice: how much power went through the machine
+//! while it was awake, how much battery that came to, and which programs were
+//! holding the CPU while it happened.
 
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -18,6 +19,7 @@ use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use console_core_never::Never;
+use console_response_times::measuring::{self, Measuring};
 use console_resource_usage::{Moment, between, kept, of, taken, told, where_};
 
 const USAGE: &str = "usage: console-resource-usage [note] [--file PATH]";
@@ -61,6 +63,13 @@ fn main() -> ExitCode {
 
     match note {
         true => {
+            let Ok(chosen) = measuring::chosen();
+
+            match chosen {
+                Measuring::On => {}
+                Measuring::Off => return ExitCode::SUCCESS,
+            }
+
             let now = match SystemTime::now().duration_since(UNIX_EPOCH) {
                 Ok(now) => now.as_secs(),
                 Err(fault) => {

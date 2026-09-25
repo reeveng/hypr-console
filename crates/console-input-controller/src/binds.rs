@@ -146,19 +146,19 @@ impl KeyBinding {
         let Ok(runs) = console_compositor::quoted(&self.runs);
         let Ok(about) = console_compositor::quoted(&self.about);
 
-        let mut opts: Vec<String> = vec![format!("{ABOUT} = {about}")];
+        let mut options: Vec<String> = vec![format!("{ABOUT} = {about}")];
 
         match self.locked {
-            LockBehavior::EvenThen => opts.push(WHILE_LOCKED.to_string()),
+            LockBehavior::EvenThen => options.push(WHILE_LOCKED.to_string()),
             LockBehavior::Unlocked => {},
         }
 
         match self.repeats {
-            RepeatMode::WhileHeld => opts.push(WHILE_HELD.to_string()),
+            RepeatMode::WhileHeld => options.push(WHILE_HELD.to_string()),
             RepeatMode::Once => {},
         }
 
-        Ok(format!("{BIND}({keys}, {RUNS}({runs}), {{ {} }})", opts.join(", ")))
+        Ok(format!("{BIND}({keys}, {RUNS}({runs}), {{ {} }})", options.join(", ")))
     }
 
     pub fn unsaid(&self) -> Result<String, Never> {
@@ -199,7 +199,9 @@ pub fn wanted(table: &Table) -> Result<Vec<KeyBinding>, Never> {
 
             let arguments = match does {
                 Some(Effect::Run(arguments)) => arguments,
-                Some(Effect::Frame(_) | Effect::Tell(_) | Effect::Using(_)) | None => continue 'over_binds,
+                Some(Effect::Frame(_) | Effect::Tell(_) | Effect::Using(_) | Effect::Reconnected(_)) | None => {
+                    continue 'over_binds
+                }
             };
 
             let Ok(runs) = quoted(&arguments);
@@ -249,7 +251,7 @@ pub fn worth_asking_after(line: &str) -> Result<Worth, Never> {
     let Ok(stirred) = console_compositor::events::read(line);
 
     Ok(match stirred {
-        CompositorEvent::ConfigReloaded => Worth::Querying,
+        CompositorEvent::ConfigurationReloaded => Worth::Querying,
         CompositorEvent::WindowOpened(_)
         | CompositorEvent::WindowClosed(_)
         | CompositorEvent::WindowRenamed(_)

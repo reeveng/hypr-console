@@ -29,8 +29,7 @@ fn main() -> ExitCode {
 }
 
 fn whoami() -> Result<String, Never> {
-    // SAFETY: getuid reads this process's own real user id and touches nothing else.
-    let uid = unsafe { libc::getuid() };
+    let uid = rustix::process::getuid().as_raw();
 
     Ok(uid.to_string())
 }
@@ -48,7 +47,7 @@ fn sudoer() -> Result<Option<String>, Never> {
             true => {},
             false => return Ok(Some(whom)),
         },
-        Err(_) => {},
+        Err(_unset) => {},
     }
 
     Ok(match std::env::var("USER") {
@@ -56,6 +55,6 @@ fn sudoer() -> Result<Option<String>, Never> {
             true => Some(whom),
             false => None,
         },
-        Err(_) => None,
+        Err(_unset) => None,
     })
 }

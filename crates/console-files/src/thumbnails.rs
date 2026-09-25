@@ -5,7 +5,7 @@
 //! the cache, a picture is named for the address of the thing it is of, and one
 //! made before the thing last changed is out of date.
 //!
-//! Nothing here makes one. That is `files-thumbs`, which runs off the panel:
+//! Nothing here makes one. That is `files-thumbnails`, which runs off the panel:
 //! a folder of two hundred photographs takes seconds to work through and a
 //! panel that waited for it would show nothing at all until it was done.
 //!
@@ -51,7 +51,7 @@ pub fn escaped(path: &Path) -> Result<String, Never> {
 pub fn address(path: &Path) -> Result<Option<String>, Never> {
     let real = match path.canonicalize() {
         Ok(real) => real,
-        Err(_) => path.to_path_buf(),
+        Err(_not_resolved) => path.to_path_buf(),
     };
 
     match real.is_absolute() {
@@ -188,12 +188,12 @@ pub fn found(store: &Path, path: &Path) -> Result<Option<PathBuf>, Never> {
 
     let made = match picture.metadata().and_then(|held| held.modified()) {
         Ok(made) => made,
-        Err(_fault) => return Ok(None),
+        Err(_unstamped) => return Ok(None),
     };
 
     let changed = match path.metadata().and_then(|held| held.modified()) {
         Ok(changed) => changed,
-        Err(_fault) => return Ok(None),
+        Err(_unstamped) => return Ok(None),
     };
 
     let fresh = fresh(made, changed)?;
@@ -302,8 +302,8 @@ mod tests {
 
     #[test]
     fn a_thing_reached_through_a_link_has_the_address_of_the_thing() {
-        let real = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/thumbs.rs");
-        let roundabout = real.parent().expect("a folder").join("../src/thumbs.rs");
+        let real = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/thumbnails.rs");
+        let roundabout = real.parent().expect("a folder").join("../src/thumbnails.rs");
         assert_eq!(address(&roundabout), address(&real));
     }
 

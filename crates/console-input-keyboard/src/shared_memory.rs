@@ -20,9 +20,13 @@
 
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
-use std::ffi::CString;
+use std::ffi::c_void;
 use std::io;
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::os::fd::OwnedFd;
+
+use rustix::fs::{MemfdFlags, SealFlags, fcntl_add_seals, ftruncate, memfd_create};
+use rustix::io::Errno;
+use rustix::mm::{MapFlags, ProtFlags, mmap, munmap};
 
 pub fn keymap_file(text: &str) -> io::Result<(OwnedFd, u64)> {
     let Ok(written) = fitted::<_, u64>(text.len());
@@ -48,62 +52,49 @@ pub fn keymap_file(text: &str) -> io::Result<(OwnedFd, u64)> {
         *terminator = 0;
     }
 
-    const F_ADD_SEALS: i32 = 1033;
-    const EVERYTHING: i32 = 0x0001 | 0x0002 | 0x0004 | 0x0008;
+    let everything = SealFlags::SEAL | SealFlags::SHRINK | SealFlags::GROW | SealFlags::WRITE;
 
-    // SAFETY: a flag word against a descriptor this owns.
-    match unsafe { libc::fcntl(held.as_raw_fd(), F_ADD_SEALS, EVERYTHING) } < 0 {
-        true => {
-            let why = io::Error::last_os_error();
-
-            match why.raw_os_error() != Some(libc::EINVAL)
-                && why.raw_os_error() != Some(libc::EPERM)
-            {
-                true => return Err(why),
-                false => {},
-            }
-        }
-        false => {},
+    match fcntl_add_seals(&held, everything) {
+        Ok(()) => {},
+        Err(Errno::INVAL | Errno::PERM) => {},
+        Err(why) => return Err(io::Error::from(why)),
     }
 
     Ok((held, long))
 }
 
-pub fn drawing_buffer(len: u64) -> io::Result<OwnedFd> {
-    let held = made("console-keyboard-pixels", len)?;
-    const F_ADD_SEALS: i32 = 1033;
-    const SHRINK_AND_GROW: i32 = 0x0002 | 0x0004;
+pub fn drawing_buffer(length: u64) -> io::Result<OwnedFd> {
+    let held = made("console-keyboard-pixels", length)?;
 
-    // SAFETY: one call on a descriptor this function owns and is still
-    unsafe { libc::fcntl(held.as_raw_fd(), F_ADD_SEALS, SHRINK_AND_GROW) };
+    match fcntl_add_seals(&held, SealFlags::SHRINK | SealFlags::GROW) {
+        Ok(()) => {},
+        Err(_a_frame_that_can_be_resized_is_still_a_frame) => {},
+    }
 
     Ok(held)
 }
 
 pub struct Mapped {
-    at: *mut libc::c_void,
+    at: *mut c_void,
     long: u64,
 }
 
 impl Mapped {
-    pub fn of(fd: &OwnedFd, len: u64) -> io::Result<Mapped> {
-        Mapped::with(fd, len, libc::PROT_READ | libc::PROT_WRITE)
+    pub fn of(fd: &OwnedFd, length: u64) -> io::Result<Mapped> {
+        Mapped::with(fd, length, ProtFlags::READ | ProtFlags::WRITE)
     }
 
-    pub fn reading(fd: &OwnedFd, len: u64) -> io::Result<Mapped> {
-        Mapped::with(fd, len, libc::PROT_READ)
+    pub fn reading(fd: &OwnedFd, length: u64) -> io::Result<Mapped> {
+        Mapped::with(fd, length, ProtFlags::READ)
     }
 
-    fn with(fd: &OwnedFd, len: u64, protection: libc::c_int) -> io::Result<Mapped> {
-        let Ok(mapping) = index(len);
+    fn with(fd: &OwnedFd, length: u64, protection: ProtFlags) -> io::Result<Mapped> {
+        let Ok(mapping) = index(length);
 
         // SAFETY: the fd is a memfd of at least `len` bytes, and `protection` is what the caller may do with it.
-        let at = unsafe { libc::mmap(std::ptr::null_mut(), mapping, protection, libc::MAP_SHARED, fd.as_raw_fd(), 0) };
+        let at = unsafe { mmap(std::ptr::null_mut(), mapping, protection, MapFlags::SHARED, fd, 0) }?;
 
-        match at == libc::MAP_FAILED {
-            true => Err(io::Error::last_os_error()),
-            false => Ok(Mapped { at, long: len }),
-        }
+        Ok(Mapped { at, long: length })
     }
 
     pub fn bytes(&self) -> Result<&[u8], Never> {
@@ -130,31 +121,14 @@ impl Drop for Mapped {
         let Ok(long) = index(self.long);
 
         // SAFETY: unmapping exactly what was mapped, once.
-        unsafe { libc::munmap(self.at, long) };
+        let _ = unsafe { munmap(self.at, long) };
     }
 }
 
-fn made(called: &str, len: u64) -> io::Result<OwnedFd> {
-    let name = CString::new(called)
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "a name with a nul byte in it"))?;
-    // SAFETY: a name that lives across the call, and a flag word.
-    let raw = unsafe { libc::memfd_create(name.as_ptr(), libc::MFD_CLOEXEC | libc::MFD_ALLOW_SEALING) };
+fn made(called: &str, length: u64) -> io::Result<OwnedFd> {
+    let owned = memfd_create(called, MemfdFlags::CLOEXEC | MemfdFlags::ALLOW_SEALING)?;
 
-    match raw < 0 {
-        true => return Err(io::Error::last_os_error()),
-        false => {},
-    }
-
-    // SAFETY: `raw` is a fresh descriptor this owns.
-    let owned = unsafe { OwnedFd::from_raw_fd(raw) };
-
-    let Ok(long) = fitted::<_, i64>(len);
-
-    // SAFETY: sizing the file this just made.
-    match unsafe { libc::ftruncate(owned.as_raw_fd(), long) } < 0 {
-        true => return Err(io::Error::last_os_error()),
-        false => {},
-    }
+    ftruncate(&owned, length)?;
 
     Ok(owned)
 }
@@ -199,8 +173,7 @@ mod tests {
     #[test]
     fn a_frame_cannot_be_grown_or_shrunk() {
         let held = drawing_buffer(64).expect("a frame");
-        // SAFETY: a size against a descriptor this owns.
-        let shrunk = unsafe { libc::ftruncate(held.as_raw_fd(), 32) };
-        assert_eq!(shrunk, -1, "the frame shrank while the compositor was reading it");
+        let shrunk = ftruncate(&held, 32);
+        assert_eq!(shrunk, Err(Errno::PERM), "the frame shrank while the compositor was reading it");
     }
 }

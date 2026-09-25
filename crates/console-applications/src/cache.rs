@@ -33,7 +33,7 @@ const NO_PICTURE: &str = "";
 
 
 pub struct CachedApplication {
-    pub app: Application,
+    pub application: Application,
     pub picture: String,
 }
 
@@ -42,24 +42,24 @@ fn field(said: &str) -> Result<String, Never> {
 }
 
 pub fn written(
-    apps: &BTreeMap<String, Application>,
+    applications: &BTreeMap<String, Application>,
     icon: &BTreeMap<String, String>,
 ) -> Result<String, Never> {
     let mut said = String::new();
 
-    for app in apps.values() {
-        let terminal = match app.terminal {
+    for application in applications.values() {
+        let terminal = match application.terminal {
             true => "terminal",
             false => "",
         };
-        let picture = match icon.get(&app.name) {
+        let picture = match icon.get(&application.name) {
             Some(picture) => picture.as_str(),
             None => NO_PICTURE,
         };
 
-        let name = field(&app.name)?;
+        let name = field(&application.name)?;
 
-        let command = field(&app.command)?;
+        let command = field(&application.command)?;
 
         let picture = field(picture)?;
 
@@ -86,7 +86,7 @@ pub fn read(said: &str) -> Result<Vec<CachedApplication>, Never> {
             }
 
             Some(CachedApplication {
-                app: Application {
+                application: Application {
                     name: name.to_string(),
                     command: command.to_string(),
                     terminal: *terminal == "terminal",
@@ -118,7 +118,7 @@ mod tests {
     }
 
     fn both() -> (BTreeMap<String, Application>, BTreeMap<String, String>) {
-        let apps = BTreeMap::from([
+        let applications = BTreeMap::from([
             ("LibreWolf".to_string(), one("LibreWolf", "librewolf", false)),
             ("Top".to_string(), one("Top", "htop", true)),
             ("Plain".to_string(), one("Plain", "plain", false)),
@@ -127,27 +127,27 @@ mod tests {
             ("LibreWolf".to_string(), "/usr/share/icons/librewolf.svg".to_string()),
             ("Top".to_string(), "/usr/share/icons/htop.png".to_string()),
         ]);
-        (apps, icon)
+        (applications, icon)
     }
 
     #[test]
     fn what_was_written_is_what_is_read() {
-        let (apps, icon) = both();
-        let back = ok(read(&ok(written(&apps, &icon))));
+        let (applications, icon) = both();
+        let back = ok(read(&ok(written(&applications, &icon))));
         assert_eq!(back.len(), 3);
-        let wolf = back.iter().find(|kept| kept.app.name == "LibreWolf").expect("a row");
-        assert_eq!(wolf.app.command, "librewolf");
-        assert!(!wolf.app.terminal);
+        let wolf = back.iter().find(|kept| kept.application.name == "LibreWolf").expect("a row");
+        assert_eq!(wolf.application.command, "librewolf");
+        assert!(!wolf.application.terminal);
         assert_eq!(wolf.picture, "/usr/share/icons/librewolf.svg");
-        let top = back.iter().find(|kept| kept.app.name == "Top").expect("a row");
-        assert!(top.app.terminal, "a program that wants a terminal round it");
+        let top = back.iter().find(|kept| kept.application.name == "Top").expect("a row");
+        assert!(top.application.terminal, "a program that wants a terminal round it");
     }
 
     #[test]
     fn an_application_with_no_picture_is_still_an_application() {
-        let (apps, icon) = both();
-        let back = ok(read(&ok(written(&apps, &icon))));
-        let plain = back.iter().find(|kept| kept.app.name == "Plain").expect("a row");
+        let (applications, icon) = both();
+        let back = ok(read(&ok(written(&applications, &icon))));
+        let plain = back.iter().find(|kept| kept.application.name == "Plain").expect("a row");
         assert_eq!(plain.picture, "");
     }
 
@@ -163,11 +163,11 @@ mod tests {
 
     #[test]
     fn a_name_with_a_tab_in_it_is_still_one_field() {
-        let apps =
+        let applications =
             BTreeMap::from([("A\tB".to_string(), one("A\tB", "run\tit", false))]);
-        let back = ok(read(&ok(written(&apps, &BTreeMap::new()))));
+        let back = ok(read(&ok(written(&applications, &BTreeMap::new()))));
         assert_eq!(back.len(), 1);
-        assert_eq!(back[0].app.name, "A B");
-        assert_eq!(back[0].app.command, "run it");
+        assert_eq!(back[0].application.name, "A B");
+        assert_eq!(back[0].application.command, "run it");
     }
 }

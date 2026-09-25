@@ -29,7 +29,7 @@ pub fn run(arguments: &[&str]) -> Result<Output, Never> {
 
     Ok(match Command::new(program).args(rest).output() {
         Ok(done) => Output { out: String::from_utf8_lossy(&done.stdout).trim().to_owned() },
-        Err(_) => Output { out: String::new() },
+        Err(_would_not_start) => Output { out: String::new() },
     })
 }
 
@@ -76,7 +76,7 @@ pub fn run_seen(arguments: &[&str]) -> Result<Ran, Never> {
 
     let done = match Command::new(program).args(rest).status() {
         Ok(done) => done.success(),
-        Err(_) => false,
+        Err(_would_not_start) => false,
     };
 
     Ok(match done {
@@ -123,7 +123,7 @@ pub fn run_watched<M>(
 
     let done = match child.waiting() {
         Ok(done) => done.success(),
-        Err(_) => false,
+        Err(_would_not_wait) => false,
     };
 
     Ok(match done {
@@ -157,7 +157,7 @@ pub fn whoever() -> Result<&'static str, Never> {
 fn homes() -> Result<Vec<String>, Never> {
     let reading = match std::fs::read_dir("/home") {
         Ok(reading) => reading,
-        Err(_fault) => return Ok(Vec::new()),
+        Err(_unreadable) => return Ok(Vec::new()),
     };
 
     Ok(reading
@@ -223,24 +223,24 @@ fn the_account_numbered_1000() -> Result<Option<String>, Never> {
     Ok(Some(said))
 }
 
-pub fn user_systemctl(args: &[&str]) -> Result<Output, Never> {
+pub fn user_systemctl(words: &[&str]) -> Result<CommandOutput, Never> {
     let Ok(whoever) = whoever();
     let Ok(systemctl) = Program::Systemctl.name();
 
     let owned = format!("{whoever}@");
     let arguments: Vec<&str> = [systemctl, "--user", "-M", &owned]
         .into_iter()
-        .chain(args.iter().copied())
+        .chain(words.iter().copied())
         .collect();
 
-    run(&arguments)
+    answered(&arguments)
 }
 
-pub fn mine(args: &[&str]) -> Result<Output, Never> {
+pub fn mine(words: &[&str]) -> Result<Output, Never> {
     let Ok(systemctl) = Program::Systemctl.name();
 
     let arguments: Vec<&str> =
-        [systemctl, "--user"].into_iter().chain(args.iter().copied()).collect();
+        [systemctl, "--user"].into_iter().chain(words.iter().copied()).collect();
 
     run(&arguments)
 }
@@ -478,7 +478,7 @@ fn who(user: &str) -> Result<Option<(u32, u32)>, Never> {
 
         let number = match said.out.parse::<u32>() {
             Ok(number) => number,
-            Err(_fault) => return None,
+            Err(_not_a_number) => return None,
         };
 
         Some(number)

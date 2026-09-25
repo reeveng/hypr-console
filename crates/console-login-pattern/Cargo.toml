@@ -5,10 +5,6 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
-# The dots a person connects to log in, and where a press on the pad goes
-# between them. Arithmetic only: the greeter draws it, recovery sets it in
-# text, and both ask the same answers of it.
-
 [lib]
 name = "console_login_pattern"
 path = "src/lib.rs"

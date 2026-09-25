@@ -62,14 +62,15 @@ fn band_of(said: &str) -> Result<Band, Never> {
             true => Band::TwoPointFourGigahertz,
             false => Band::FiveGigahertz,
         },
-        Some(Err(_)) | None => Band::Unknown,
+        None => Band::Unknown,
+        Some(Err(_not_a_number)) => Band::Unknown,
     })
 }
 
 fn signal_of(said: &str) -> Result<i32, Never> {
     let signal = match said.parse::<i32>() {
         Ok(signal) => signal,
-        Err(_) => return Ok(0),
+        Err(_not_a_number) => return Ok(0),
     };
 
     Ok(signal)
@@ -168,7 +169,8 @@ pub fn receiving(link: &str) -> Result<Receiving, Never> {
     Ok(match index {
         Some(Ok(0 | 1)) => Receiving::Slowest,
         Some(Ok(_)) => Receiving::Faster,
-        Some(Err(_)) | None => Receiving::Unknown,
+        None => Receiving::Unknown,
+        Some(Err(_not_a_number)) => Receiving::Unknown,
     })
 }
 
@@ -446,8 +448,8 @@ no:Locked:30:2437 MHz:WPA1 WPA2";
     #[test]
     fn a_network_is_locked_if_it_says_anything_at_all_about_security() {
         let found = networks(SAID).expect("the networks");
-        assert!(!found.iter().find(|n| n.name == "Cafe").expect("cafe").locked);
-        assert!(found.iter().find(|n| n.name == "Locked").expect("locked").locked);
+        assert!(!found.iter().find(|network| network.name == "Cafe").expect("cafe").locked);
+        assert!(found.iter().find(|network| network.name == "Locked").expect("locked").locked);
     }
 
     #[test]

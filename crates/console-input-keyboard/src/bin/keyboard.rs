@@ -2,13 +2,13 @@
 //!
 //! Started once with the session and kept for it. Most of that time there is
 //! nothing of it on the screen: `--hidden` starts it away, and the controller
-//! shows and hides it with a signal, because a keyboard that was started and
+//! shows and hides it with a word down a socket, because a keyboard that was started and
 //! stopped would pay for a compositor connection, ten composed keymaps and a
 //! font every time someone wanted to type a word.
 //!
 //!     console-keyboard --landscape-layers landscape,thai,landscapespecial
 //!
-//! The unit runs this, and `keyboard-toggle` is the signal. It reads the
+//! The unit runs this, and `keyboard-toggle` sends the word. It reads the
 //! palette on the way in rather than being handed it: there was a second
 //! program that did the reading and exec'd this one, from when this one was C
 //! and could not be given a Rust crate to ask. Both ends are Rust in one crate
@@ -35,7 +35,7 @@
 //! A turn also asks what alphabet this keyboard should be wearing, which is a
 //! few bytes under the state directory that `language-switch` writes when the
 //! board someone is typing on moves. KeyboardCommand here rather than waited for: the
-//! keyboard already has three signals and a fourth would be a fourth program
+//! keyboard already hears three words and a fourth would be a fourth program
 //! to send it, and a turn happens when something happened -- a press, a frame,
 //! a wake -- so this is one small read on a loop that is not spinning. What it
 //! costs is that a switch made while the keyboard is up and untouched lands on
@@ -45,6 +45,8 @@
 use console_core_geometry::{Point, Size};
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
+use std::os::fd::{AsFd, BorrowedFd};
+use std::os::unix::net::UnixDatagram;
 use std::process::ExitCode;
 
 use console_core_color::palette::{beside, read};
@@ -54,8 +56,9 @@ use console_input_alphabets::{self as alphabets, Orientation as Holding};
 use console_input_keyboard::configuration::{self, Configuration};
 use console_input_keyboard::drawing::{Stride, Surface};
 use console_input_keyboard::gamepad::{self, KeyboardCommand, PendingRepeat, RepeatMode};
-use console_input_keyboard::layout::{Drops, Kind, LayoutKind, key, mods, named, of, placed, toward, under};
+use console_input_keyboard::layout::{Drops, Kind, LayoutKind, key, modifiers, named, of, placed, toward, under};
 use console_input_keyboard::paint;
+use console_input_keyboard::remote::{self, Command};
 use console_input_keyboard::surface::{Closed, SurfaceError, PointerEvent, Screen, Showing};
 use std::time::Instant;
 use console_input_keyboard::typing::{After, Typist};
@@ -106,7 +109,7 @@ fn main() -> ExitCode {
 
     let Ok(()) = waiting.mark("palette");
 
-    let configuration = match configuration::from_env(&flags) {
+    let configuration = match configuration::from_environment(&flags) {
         Ok(configuration) => configuration,
         Err(why) => {
             eprintln!("console-keyboard: {why:?}");
@@ -171,7 +174,7 @@ fn me() -> Result<std::path::PathBuf, Never> {
 
 struct State<'a> {
     screen: Screen,
-    signals: std::os::fd::RawFd,
+    told: UnixDatagram,
     configuration: &'a Configuration,
     height: u32,
     typist: Typist,
@@ -211,10 +214,10 @@ impl State<'_> {
 
         self.drawing(showing_now)?;
 
-        let sevent = self.waiting_on()?;
+        let events = self.waiting_on()?;
         let now = Instant::now();
 
-        self.signalled(sevent)?;
+        self.asked(events)?;
 
         let Ok(()) = self.wants(now);
         let Ok(()) = self.pointer_events();
@@ -320,7 +323,7 @@ impl State<'_> {
 
     fn waiting_on(&mut self) -> Result<u32, SurfaceError> {
         let now = Instant::now();
-        let mut watching: Vec<std::os::fd::RawFd> = vec![self.signals];
+        let mut watching: Vec<BorrowedFd<'_>> = vec![self.told.as_fd()];
 
         match self.reading.as_ref() {
             Some(reading) => {
@@ -336,27 +339,21 @@ impl State<'_> {
         self.screen.wait_with(&watching, until)
     }
 
-    fn signalled(&mut self, sevent: u32) -> Result<(), SurfaceError> {
-        match sevent & 1 != 0 {
+    fn asked(&mut self, events: u32) -> Result<(), SurfaceError> {
+        match events & 1 != 0 {
             true => {
-                let Ok(woken) = woken(self.signals);
-                let Ok(showing_now) = self.screen.showing();
+                let Ok(heard) = heard(&self.told);
 
-                match woken {
-                    Some(Signal::Show) => match showing_now {
-                        Showing::No => self.onto_the_screen()?,
-                        Showing::Yes => {},
-                    },
-                    Some(Signal::Hide) => {
-                        let Ok(()) = self.away();
-                    },
-                    Some(Signal::Toggle) => match showing_now {
-                        Showing::Yes => {
+                for asked in heard {
+                    let Ok(showing_now) = self.screen.showing();
+
+                    match (asked, showing_now) {
+                        (Command::Show, Showing::No) | (Command::Toggle, Showing::No) => self.onto_the_screen()?,
+                        (Command::Show, Showing::Yes) | (Command::Hide, Showing::No) => {},
+                        (Command::Hide, Showing::Yes) | (Command::Toggle, Showing::Yes) => {
                             let Ok(()) = self.away();
                         },
-                        Showing::No => self.onto_the_screen()?,
-                    },
-                    None => {},
+                    }
                 }
             }
             false => {},
@@ -416,12 +413,12 @@ impl State<'_> {
                 KeyboardCommand::Up | KeyboardCommand::Down | KeyboardCommand::Left | KeyboardCommand::Right => {
                     let Ok(direction) = want.direction();
 
-                    let (dx, dy) = match direction {
+                    let (across, down) = match direction {
                         Some(both) => both,
                         None => NOWHERE,
                     };
 
-                    let Ok(onto) = toward(&keys, self.selected, Point { x: dx, y: dy });
+                    let Ok(onto) = toward(&keys, self.selected, Point { x: across, y: down });
 
                     self.selected = onto;
                 },
@@ -457,12 +454,12 @@ impl State<'_> {
                     let Ok(()) = self.typist.tap(key::ENTER);
                 },
                 KeyboardCommand::Shift => {
-                    let Ok(_) = self.typist.pressed(Kind::Mod(mods::SHIFT), mods::NONE, Drops::None);
+                    let Ok(_) = self.typist.pressed(Kind::Mod(modifiers::SHIFT), modifiers::NONE, Drops::None);
                 },
                 KeyboardCommand::PreviousLanguage | KeyboardCommand::NextLanguage => {
                     let Ok(mut waiting) =
                         Waiting::here(Wait { who: "keyboard", what: "language" });
-                    let Ok(_) = self.typist.pressed(Kind::Language, mods::NONE, Drops::None);
+                    let Ok(_) = self.typist.pressed(Kind::Language, modifiers::NONE, Drops::None);
                     let Ok(()) = waiting.mark("keymap");
                     let Ok(()) = waiting.done();
 
@@ -582,7 +579,8 @@ impl State<'_> {
 enum Unopened {
     NoKeymaps(console_input_keyboard::keymap::Error),
     NoLayer(Vec<String>),
-    NoSignals(std::io::Error),
+    Sessionless,
+    Deaf(std::path::PathBuf, std::io::Error),
     NoTyping,
     Screen(SurfaceError),
 }
@@ -598,7 +596,11 @@ impl std::fmt::Display for Unopened {
                 to,
                 "no layer called any of {asked:?}. --list-layers says what there is"
             ),
-            Unopened::NoSignals(why) => write!(to, "no signals: {why}"),
+            Unopened::Sessionless => write!(
+                to,
+                "XDG_RUNTIME_DIR: nothing says where to listen for being shown or hidden"
+            ),
+            Unopened::Deaf(at, why) => write!(to, "{}: nothing can ask it to show or hide: {why}", at.display()),
             Unopened::NoTyping => write!(
                 to,
                 "this compositor has no zwp_virtual_keyboard_v1, so nothing here could type"
@@ -640,7 +642,7 @@ fn run(configuration: &Configuration, mut waiting: Waiting) -> Result<(), Unopen
         false => {},
     }
 
-    let signals = listening().map_err(Unopened::NoSignals)?;
+    let told = listening()?;
     let mut screen = Screen::connect()?;
 
     let Ok(()) = waiting.mark("compositor");
@@ -664,7 +666,7 @@ fn run(configuration: &Configuration, mut waiting: Waiting) -> Result<(), Unopen
 
     let mut state = State {
         screen,
-        signals,
+        told,
         configuration,
         height,
         typist,
@@ -858,60 +860,51 @@ fn orientation(configuration: &Configuration, shape: Shape) -> Result<(Vec<Strin
     Ok((asked, height))
 }
 
-enum Signal {
-    Show,
-    Hide,
-    Toggle,
+fn listening() -> Result<UnixDatagram, Unopened> {
+    let Ok(at) = remote::socket();
+    let at = at.ok_or(Unopened::Sessionless)?;
+
+    match at.parent() {
+        Some(above) => std::fs::create_dir_all(above).map_err(|why| Unopened::Deaf(above.to_path_buf(), why))?,
+        None => {},
+    }
+
+    match std::fs::remove_file(&at) {
+        Ok(()) => {},
+        Err(_no_keyboard_was_here_before) => {},
+    }
+
+    let told = UnixDatagram::bind(&at).map_err(|why| Unopened::Deaf(at.clone(), why))?;
+
+    told.set_nonblocking(true).map_err(|why| Unopened::Deaf(at, why))?;
+
+    Ok(told)
 }
 
-fn listening() -> Result<std::os::fd::RawFd, std::io::Error> {
-    // SAFETY: a mask on the stack, filled and applied by the calls that own it.
-    unsafe {
-        let mut mask: libc::sigset_t = std::mem::zeroed();
-        libc::sigemptyset(&mut mask);
-        libc::sigaddset(&mut mask, libc::SIGUSR1);
-        libc::sigaddset(&mut mask, libc::SIGUSR2);
-        libc::sigaddset(&mut mask, libc::SIGRTMIN());
+fn heard(told: &UnixDatagram) -> Result<Vec<Command>, Never> {
+    let mut heard = Vec::new();
+    let mut said = [0_u8; 16];
 
-        match libc::pthread_sigmask(libc::SIG_BLOCK, &mask, std::ptr::null_mut()) != 0 {
-            true => return Err(std::io::Error::last_os_error()),
-            false => {},
-        }
+    loop {
+        let bytes = match told.recv(&mut said) {
+            Ok(got) => said.get(..got),
+            Err(_nothing_more_was_said) => return Ok(heard),
+        };
 
-        let fd = libc::signalfd(-1, &mask, libc::SFD_CLOEXEC);
+        let word = match bytes.map(std::str::from_utf8) {
+            Some(Ok(word)) => Some(word),
+            Some(Err(_not_a_word)) => None,
+            None => None,
+        };
 
-        match fd < 0 {
-            true => Err(std::io::Error::last_os_error()),
-            false => Ok(fd),
+        match word {
+            Some(word) => {
+                let Ok(asked) = Command::read(word);
+
+                heard.extend(asked);
+            },
+            None => eprintln!("console-keyboard: something was said that is not a word"),
         }
     }
-}
-
-fn woken(from: std::os::fd::RawFd) -> Result<Option<Signal>, Never> {
-    // SAFETY: a struct the kernel fills, read whole or not at all.
-    let said = unsafe {
-        let mut said: libc::signalfd_siginfo = std::mem::zeroed();
-        let Ok(wanted) = fitted::<_, i64>(std::mem::size_of::<libc::signalfd_siginfo>());
-        let Ok(got) = fitted::<_, i64>(libc::read(
-            from,
-            std::ptr::from_mut(&mut said).cast(),
-            std::mem::size_of::<libc::signalfd_siginfo>(),
-        ));
-
-        match got != wanted {
-            true => return Ok(None),
-            false => {},
-        }
-
-        said
-    };
-
-    let Ok(signal) = fitted::<u32, i32>(said.ssi_signo);
-
-    Ok(match signal {
-        libc::SIGUSR1 => Some(Signal::Hide),
-        libc::SIGUSR2 => Some(Signal::Show),
-        _ => Some(Signal::Toggle),
-    })
 }
 

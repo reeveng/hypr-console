@@ -6,7 +6,7 @@ use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 pub struct Configuration {
-    pub meta: Metadata,
+    pub metadata: Metadata,
     pub color: IndexMap<String, Color>,
     pub terminal: Terminal,
     #[serde(default, rename = "pair")]
@@ -35,11 +35,11 @@ pub struct Least {
     #[serde(default)]
     pub on: Vec<String>,
     pub ratio: Option<f64>,
-    pub lc: Option<f64>,
+    pub lightness_contrast: Option<f64>,
     #[serde(default)]
     pub carries: Vec<String>,
     pub carries_ratio: Option<f64>,
-    pub carries_lc: Option<f64>,
+    pub carries_lightness_contrast: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -57,7 +57,7 @@ pub struct Pair {
     pub front: Names,
     pub back: Vec<String>,
     pub ratio: f64,
-    pub lc: Option<f64>,
+    pub lightness_contrast: Option<f64>,
     #[serde(default)]
     pub kind: String,
     #[serde(rename = "where")]

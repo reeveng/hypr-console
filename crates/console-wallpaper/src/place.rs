@@ -83,7 +83,7 @@ pub fn refresh(picture: &Path) -> Result<(), Never> {
 fn refresh_in(kept: &Path, picture: &Path) -> Result<(), Never> {
     let full = match picture.canonicalize() {
         Ok(full) => full,
-        Err(_fault) => return Ok(()),
+        Err(_not_resolved) => return Ok(()),
     };
 
     let name = kept_as(&full)?;
@@ -95,7 +95,7 @@ fn refresh_in(kept: &Path, picture: &Path) -> Result<(), Never> {
 
     let rendered = match written(&full) {
         Ok(rendered) => rendered,
-        Err(_fault) => return Ok(()),
+        Err(_unwritten) => return Ok(()),
     };
 
     let versions = listed(kept)?;

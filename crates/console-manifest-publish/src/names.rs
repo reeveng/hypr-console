@@ -230,8 +230,8 @@ mod tests {
         let both = leaked("ada on her-laptop", &names);
         let one = leaked("on her-laptop", &names);
 
-        assert_eq!(both.map(|w| w.name.as_str()), Some("ada"));
-        assert_eq!(one.map(|w| w.name.as_str()), Some("her-laptop"));
+        assert_eq!(both.map(|watched| watched.name.as_str()), Some("ada"));
+        assert_eq!(one.map(|watched| watched.name.as_str()), Some("her-laptop"));
     }
 
     #[test]

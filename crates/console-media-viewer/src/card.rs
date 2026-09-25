@@ -118,7 +118,7 @@ fn listing(folder: &Path) -> Result<Vec<(String, String)>, Never> {
         .filter_map(|entry| {
             let name = match entry.file_name().into_string() {
                 Ok(name) => name,
-                Err(_fault) => {
+                Err(_not_text) => {
                     eprintln!("viewer: {:?}: this name is not text", entry.file_name());
 
                     return None;
@@ -527,7 +527,7 @@ fn quietly(held: &Shared, heard: ViewerEvent) -> Result<(), Never> {
 fn rows(held: &Shared) -> Result<Vec<Row>, Never> {
     let mut looking = match held.lock() {
         Ok(looking) => looking,
-        Err(_fault) => return Ok(Vec::new()),
+        Err(_the_lock_is_poisoned) => return Ok(Vec::new()),
     };
 
     let Ok(standing) = looking.at();
@@ -1021,7 +1021,7 @@ fn read_for_the_index(at: &Path) -> Result<Vec<index::Read>, Never> {
         .filter_map(|entry| {
             let name = match entry.file_name().into_string() {
                 Ok(name) => name,
-                Err(_fault) => return None,
+                Err(_not_text) => return None,
             };
             let path = entry.path();
             let folder = path.is_dir();
@@ -1138,7 +1138,7 @@ fn looked_at(held: &Shared, at: &Path, showing: &dyn console_panel::page::Showin
 fn stir(held: &Shared) -> Result<WakeOutcome, Never> {
     let mut looking = match held.lock() {
         Ok(looking) => looking,
-        Err(_fault) => return Ok(WakeOutcome::AlreadyAwake),
+        Err(_the_lock_is_poisoned) => return Ok(WakeOutcome::AlreadyAwake),
     };
 
     let Ok(at) = looking.now();

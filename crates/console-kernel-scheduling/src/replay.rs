@@ -107,7 +107,7 @@ pub fn replay(scheduler: &dyn Scheduler, workload: &Workload) -> Result<Outcome,
 fn count<T>(of: &BTreeMap<TaskId, T>) -> Result<u32, Never> {
     Ok(match u32::try_from(of.len()) {
         Ok(count) => count,
-        Err(_) => u32::MAX,
+        Err(_too_large) => u32::MAX,
     })
 }
 

@@ -38,22 +38,23 @@
 //! outside anyone's session and is never told, so the machine's own answer is
 //! the one below.
 //!
-//! # Why the bar is told rather than asked
+//! # Why the bar hears it rather than asks
 //!
-//! Nothing polls this. The engine signals the bar when the number changes and
-//! the bar reads the file again, so an idle desktop -- which is almost all of
-//! them, almost all the time -- does no work at all for a bar that has nothing
-//! to say. A read every fifth of a second for the life of a session is a
-//! wake-up a battery pays for, on a machine that spends most of its life in
-//! someone's hands doing something else.
+//! Nothing polls this. The bar watches the folder this file is in, and the
+//! kernel tells it when the file is moved into place or thrown away, so an
+//! idle desktop -- which is almost all of them, almost all the time -- does no
+//! work at all for a bar that has nothing to say. A read every fifth of a
+//! second for the life of a session is a wake-up a battery pays for, on a
+//! machine that spends most of its life in someone's hands doing something
+//! else.
 //!
-//! `console_onscreen::wake` is what sends it, because the bar is one program
-//! with several things to be told and an apply is only one of them: which tab
-//! is in front is the other, and the crate that owns both the bar's name and
-//! the note is the one that owns the telling. It is a real-time signal rather
-//! than `SIGUSR1`, and the bar blocks it and reads it off a `signalfd` beside
-//! everything else its loop waits on, so being told is a descriptor becoming
-//! readable rather than a handler running between two lines of drawing.
+//! The engine used to signal the bar after every write: a real-time signal to
+//! the pid the bar had written down, checked against its name first. That is
+//! three things to go wrong -- a pid file left behind, a name cut at fifteen
+//! bytes, a signal that arrives before the bar has said what it does with it,
+//! whose default is to end the bar -- in order to say something the file
+//! changing already says. A check that writes the file over ssh is heard the
+//! same way, with nothing to send.
 
 use std::path::Path;
 use std::path::PathBuf;
@@ -117,7 +118,7 @@ pub fn reading(held: &str) -> Result<Option<Progress>, Never> {
 
     let permille = match permille.parse::<u16>() {
         Ok(permille) => permille,
-        Err(_fault) => return Ok(None),
+        Err(_not_a_number) => return Ok(None),
     };
 
     Ok(match permille <= WHOLE && !label.trim().is_empty() {
@@ -165,18 +166,12 @@ pub fn done() -> Result<(), Never> {
     Ok(())
 }
 
-pub fn wake() -> Result<(), Never> {
-    let Ok(()) = console_onscreen::wake();
-
-    Ok(())
-}
-
 pub fn progress() -> Result<Option<Progress>, Never> {
     let Ok(at) = at();
 
     let said = match std::fs::read_to_string(at) {
         Ok(said) => said,
-        Err(_fault) => return Ok(None),
+        Err(_unreadable) => return Ok(None),
     };
 
     reading(&said)

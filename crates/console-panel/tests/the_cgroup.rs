@@ -49,13 +49,13 @@ fn a_launched_program_is_in_a_scope_of_its_own() {
     );
 }
 
-fn wrap(name: &str, args: &[&str]) -> Option<Vec<String>> {
+fn wrap(name: &str, words: &[&str]) -> Option<Vec<String>> {
     if !scopes_available() {
         eprintln!("skipped: no systemd-run or no user systemd to talk to; scopes cannot be made");
         return None;
     }
     let arguments: Vec<String> = std::iter::once(name.to_string())
-        .chain(args.iter().map(|word| (*word).to_string()))
+        .chain(words.iter().map(|word| (*word).to_string()))
         .collect();
     let Ok((_, wrapped)) = in_a_scope_of_its_own(None, &arguments);
     Some(wrapped)

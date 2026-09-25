@@ -155,7 +155,7 @@ fn run() -> Result<ExitCode, Unspent> {
         .into_iter()
         .filter(|(written, body)| match std::fs::read(&written.path) {
             Ok(held) => held != body.as_bytes(),
-            Err(_) => true,
+            Err(_unreadable) => true,
         })
         .map(|(written, body)| match doing {
             Effect::Check => Ok(written.path.clone()),
@@ -228,11 +228,11 @@ fn falls_short(rows: &[Row]) -> Result<Option<String>, Never> {
                 .map(|row| {
                     let Ok(asked) = report::ratio(row.asked);
 
-                    let Ok(lc) = report::asked_lc(row.asked_lc);
+                    let Ok(lightness_contrast) = report::asked_lightness_contrast(row.asked_lightness_contrast);
 
                     format!(
-                        "  {} on {}: asked {asked}:1 and {lc}, got {:.2}:1 and Contrast {:.1} ({})",
-                        row.front, row.back, row.got, row.got_lc, row.where_
+                        "  {} on {}: asked {asked}:1 and {lightness_contrast}, got {:.2}:1 and Contrast {:.1} ({})",
+                        row.front, row.back, row.got, row.got_lightness_contrast, row.where_
                     )
                 })
                 .chain(["the palette does not clear what it declares; nothing written".to_string()])
@@ -262,7 +262,7 @@ fn say(configuration: &configuration::Configuration, rows: &[Row]) -> Result<(),
 
     println!(
         "{}: {} colors, {} pairings, all clearing both measures.",
-        configuration.meta.name,
+        configuration.metadata.name,
         configuration.color.len(),
         rows.len()
     );
@@ -275,23 +275,23 @@ fn say(configuration: &configuration::Configuration, rows: &[Row]) -> Result<(),
         worst.front, worst.back, worst.got
     );
 
-    let tightest = rows.iter().filter(|row| row.asked_lc > 0.0).min_by(|one, other| {
-        let Ok(one) = one.room_lc();
+    let tightest = rows.iter().filter(|row| row.asked_lightness_contrast > 0.0).min_by(|one, other| {
+        let Ok(one) = one.room_lightness_contrast();
 
-        let Ok(other) = other.room_lc();
+        let Ok(other) = other.room_lightness_contrast();
 
         one.total_cmp(&other)
     });
 
     match tightest {
         Some(tightest) => {
-            let asked = report::asked_lc(tightest.asked_lc)?;
+            let asked = report::asked_lightness_contrast(tightest.asked_lightness_contrast)?;
 
-            let grade = tightest.grade_lc()?;
+            let grade = tightest.grade_lightness_contrast()?;
 
             println!(
                 "  the closest Contrast is {} on {}, asked for {asked} and reaching {:.1} ({grade}).",
-                tightest.front, tightest.back, tightest.got_lc
+                tightest.front, tightest.back, tightest.got_lightness_contrast
             );
         }
         None => {},

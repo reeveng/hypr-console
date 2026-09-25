@@ -99,7 +99,7 @@ pub fn door(arguments: &[String]) -> Result<Door, Never> {
 
 pub fn card(arguments: &[String]) -> Result<Card, Never> {
     let Ok(word) = actor::supervise(|| Word { said: String::new() });
-    let typed = word.addr.clone();
+    let typed = word.address.clone();
     let Ok(going) = asked_for(arguments);
     let kept: Shared = Arc::default();
 
@@ -113,7 +113,7 @@ pub fn card(arguments: &[String]) -> Result<Card, Never> {
 }
 
 struct Everything {
-    apps: BTreeMap<String, entry::Application>,
+    applications: BTreeMap<String, entry::Application>,
     icon: BTreeMap<String, String>,
     order: Vec<String>,
 }
@@ -189,7 +189,7 @@ fn shape() -> Result<Shape, Never> {
 
     match std::fs::read_to_string(at) {
         Ok(said) => Shape::read(&said),
-        Err(_) => Ok(Shape::USUAL),
+        Err(_unreadable) => Ok(Shape::USUAL),
     }
 }
 
@@ -296,13 +296,13 @@ fn everything_before() -> Result<Everything, Never> {
 }
 
 fn counting(found: found::Found) -> Result<Everything, Never> {
-    let names: Vec<String> = found.apps.keys().cloned().collect();
+    let names: Vec<String> = found.applications.keys().cloned().collect();
 
     let counted = found::counted()?;
 
     let order = counts::order(&names, &counted)?;
 
-    Ok(Everything { apps: found.apps, icon: found.icon, order })
+    Ok(Everything { applications: found.applications, icon: found.icon, order })
 }
 
 
@@ -314,7 +314,7 @@ fn all(kept: &Shared) -> Result<&Everything, Never> {
     }))
 }
 
-fn app_row(all: &Everything, name: &str, going: For, on: &HomeScreen) -> Result<Row, Never> {
+fn application_row(all: &Everything, name: &str, going: For, on: &HomeScreen) -> Result<Row, Never> {
     let picture =
         all.icon.get(name).map_or(Picture::Space, |at| Picture::At(PathBuf::from(at)));
     let named = name.to_string();
@@ -330,7 +330,7 @@ fn app_row(all: &Everything, name: &str, going: For, on: &HomeScreen) -> Result<
             row.picturing(picture)
         }
         For::Opening => {
-            let app = all.apps.get(name).cloned();
+            let application = all.applications.get(name).cloned();
             let placed = on.where_(name)?;
 
             let aside = match placed {
@@ -340,7 +340,7 @@ fn app_row(all: &Everything, name: &str, going: For, on: &HomeScreen) -> Result<
             let switching = name.to_string();
 
             let Ok(starts) = Handler::call(move |_| {
-                let Ok(()) = start(app.as_ref(), &named);
+                let Ok(()) = start(application.as_ref(), &named);
                 true
             });
             let Ok(row) = Row::new(name, Aside(aside), starts);
@@ -372,7 +372,7 @@ fn rows(typed: &Typed, all: &Everything, going: For) -> Result<Vec<Row>, Never> 
 
     match typed.ask(Message::Reply) {
         Ok(said) => word = said,
-        Err(_) => {},
+        Err(_the_actor_has_gone) => {},
     }
 
     let Ok(on) = home();
@@ -380,7 +380,7 @@ fn rows(typed: &Typed, all: &Everything, going: For) -> Result<Vec<Row>, Never> 
     let mut rows: Vec<Row> = standing
         .iter()
         .map(|name| {
-            let Ok(row) = app_row(all, name, going, &on);
+            let Ok(row) = application_row(all, name, going, &on);
 
             row
         })
@@ -472,10 +472,10 @@ fn asked_for(asked: &[String]) -> Result<For, Never> {
     })
 }
 
-fn start(app: Option<&entry::Application>, chosen: &str) -> Result<(), Never> {
-    match app {
-        Some(app) => {
-            let command = found::command(app)?;
+fn start(application: Option<&entry::Application>, chosen: &str) -> Result<(), Never> {
+    match application {
+        Some(application) => {
+            let command = found::command(application)?;
 
             match command {
                 Some(arguments) => {

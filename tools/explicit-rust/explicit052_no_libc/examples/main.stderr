@@ -1,0 +1,19 @@
+error: this is the C library's spelling of a system call
+  --> $DIR/main.rs:6:14
+   |
+LL |     unsafe { libc::kill(pid, 15) }
+   |              ^^^^^^^^^^
+   |
+   = help: ask the kernel through rustix, which hands back an owned descriptor and a `Result`; installing a signal handler is the one thing rustix will not do beneath glibc, and `console-signals` is where that is done
+   = note: `#[deny(explicit052_no_libc)]` on by default
+
+error: this is the C library's spelling of a system call
+  --> $DIR/main.rs:11:18
+   |
+LL | fn width(number: libc::c_int) -> i32 {
+   |                  ^^^^^^^^^^^
+   |
+   = help: ask the kernel through rustix, which hands back an owned descriptor and a `Result`; installing a signal handler is the one thing rustix will not do beneath glibc, and `console-signals` is where that is done
+
+error: aborting due to 2 previous errors
+

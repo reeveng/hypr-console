@@ -137,7 +137,7 @@ pub fn places_in(said: &str, roots: &[String]) -> Result<Vec<Place>, Never> {
         .filter_map(|(size, at)| {
             let bytes = match size.trim().parse::<u64>() {
                 Ok(bytes) => bytes,
-                Err(_fault) => return None,
+                Err(_not_a_number) => return None,
             };
 
             let name = at.trim().rsplit('/').next()?;

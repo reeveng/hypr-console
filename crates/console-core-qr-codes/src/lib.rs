@@ -407,7 +407,7 @@ impl Grid {
                         }
                         false => {},
                     },
-                    (Err(_), _) | (_, Err(_)) => {},
+                    (Err(_off_the_grid), _) | (_, Err(_off_the_grid)) => {},
                 }
             }
         }

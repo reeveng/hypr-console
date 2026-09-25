@@ -1,62 +1,123 @@
-//! What a migration says it sweeps, and how the directory is read.
+//! What a migration is, what it says it sweeps, and what it does.
 //!
-//! A migration is a shell script, because what it does is move files someone
-//! installed and there is no better language for that. What it is *for* cannot
-//! be read out of shell, though: a script that moves `/usr/local/bin/osk` has
-//! not thereby said it answers for `osk` leaving `[build]`, and a gate that
-//! guessed by grepping the body would go green on a migration that mentions a
-//! name in a comment.
+//! A migration was a shell script, on the argument that moving files someone
+//! installed has no better language. What nearly every one of them did was
+//! three things -- move a path into the attic, stop a unit, disable one -- and
+//! the few that did more read one line out of one file and wrote it into
+//! another. That is a short list of steps, and a list of steps is data: the
+//! engine carries them out in the same code that takes back what the manifest
+//! stopped naming, and a migration that names a step the engine does not know
+//! is one the compiler refuses rather than one bash reaches halfway through.
 //!
-//! So the claim is declared and the body is free. `# sweeps: NAME` at the top,
-//! one line per entry, each naming the manifest entry it answers for exactly as
-//! `desktop.conf` carried it. The gate reads the claims and never the body; the
-//! machine runs the body and never the claims.
+//! So the claim is no longer written beside the body. What a migration answers
+//! for is what its steps move and stand down, in the words [`holds`] puts it
+//! in -- a path for a file, and what holds a unit there for a unit. The gate
+//! used to read a `# sweeps:` header and never the body, because a script that
+//! mentions a name in a comment has not thereby swept it; a step has no
+//! comment to mention it in, so the body is the claim.
 //!
-//! The file name is the commit's own unix time, which omarchy arrived at for
-//! the reason that matters here too: it sorts into history order without a
-//! counter anyone has to keep, and two people writing a migration on the same
-//! afternoon get different names without talking to each other.
+//! A migration is named for the moment of the commit that needs it, which
+//! omarchy arrived at for the reason that matters here too: it sorts into
+//! history order without a counter anyone has to keep, and two people writing
+//! one on the same afternoon get different moments without talking to each
+//! other.
 //!
-//! It is also what says a file *is* one. `attic.sh` lives in the same directory
-//! and is handed to every migration rather than being one, and the first version
-//! of this took every `.sh` it found and offered to run the helpers as a
-//! migration of their own. A name that is not a moment is not a migration.
+//! `left-on-purpose` stays a file in `migrations/`, read where it is: it is a
+//! list of names with a reason beside each, and the engine reads it on the
+//! machine from the tree it is applying.
 //!
-//! There is one more thing a claim does not carry, and it is the reason.
-//! `console-rename` works out which installed paths a rename moved and writes
-//! the `# sweeps:` lines for them; what it cannot write is why -- what reads
-//! the old name, what a person sees with two of them, what a machine that
-//! misses this is left holding. So the stub it writes leaves
-//! `console_rename::UNSAID` where the argument goes, and
-//! `every_removal_is_swept` refuses a migration still carrying it. The marker
-//! belongs to the tool that writes it rather than to this crate, because this
-//! crate cannot import that one -- the dependency runs the other way, since a
-//! migration has to be found before it can be read.
+//! [`holds`]: crate::holds
 
-use crate::Undone;
+use crate::{Section, holds};
 use console_core_never::Never;
 use std::collections::BTreeSet;
+use std::fmt;
 use std::path::{Path, PathBuf};
 
 pub const UNDER: &str = "migrations";
 
 pub const ON_PURPOSE: &str = "left-on-purpose";
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Migration {
-    pub name: String,
-    pub sweeps: BTreeSet<String>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Moment(pub u64);
+
+impl fmt::Display for Moment {
+    fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(to, "{}", self.0)
+    }
 }
 
-const SAYS: &str = "# sweeps:";
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Migration {
+    pub moment: Moment,
+    pub says: &'static str,
+    pub steps: &'static [Step],
+}
 
-pub fn claimed(said: &str) -> Result<BTreeSet<String>, Never> {
-    Ok(said
-        .lines()
-        .filter_map(|line| line.trim_start().strip_prefix(SAYS))
-        .map(str::trim)
-        .filter(|name| !name.is_empty())
-        .map(str::to_owned)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Step {
+    Attic(&'static str),
+    AtticEach(Each),
+    Stop(&'static str),
+    Disable(&'static str),
+    DisableGlobally(&'static str),
+    Terminate(&'static str),
+    RemoveIfEmpty(&'static str),
+    Rewrite(Rewrite),
+    CopySetting(CopySetting),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Each {
+    pub under: &'static str,
+    pub named: &'static str,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Rewrite {
+    pub at: &'static str,
+    pub was: &'static str,
+    pub becomes: &'static str,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CopySetting {
+    pub from: &'static str,
+    pub key: &'static str,
+    pub into: &'static str,
+}
+
+pub fn sweeps(migration: &Migration) -> Result<BTreeSet<String>, Never> {
+    Ok(migration
+        .steps
+        .iter()
+        .filter_map(|step| {
+            let (section, entry) = match step {
+                Step::Attic(at) => (Section("[files]"), *at),
+                Step::Disable(unit) | Step::DisableGlobally(unit) => (Section("[services]"), *unit),
+                Step::AtticEach(_)
+                | Step::Stop(_)
+                | Step::Terminate(_)
+                | Step::RemoveIfEmpty(_)
+                | Step::Rewrite(_)
+                | Step::CopySetting(_) => return None,
+            };
+
+            let Ok(held) = holds(section, entry);
+
+            held
+        })
+        .collect())
+}
+
+pub fn all_claimed(every: &[Migration]) -> Result<BTreeSet<String>, Never> {
+    Ok(every
+        .iter()
+        .flat_map(|migration| {
+            let Ok(claimed) = sweeps(migration);
+
+            claimed
+        })
         .collect())
 }
 
@@ -69,73 +130,29 @@ pub fn on_purpose(said: &str) -> Result<BTreeSet<String>, Never> {
         .collect())
 }
 
-pub fn every(at: &Path) -> Result<Vec<Migration>, Undone> {
-    let entries = match std::fs::read_dir(at) {
-        Ok(entries) => entries,
-        Err(fault) => match fault.kind() == std::io::ErrorKind::NotFound {
-            true => return Ok(Vec::new()),
-            false => return Err(Undone::Listing(at.to_path_buf(), fault)),
-        },
-    };
-
-    let mut found = Vec::new();
-
-    for entry in entries {
-        let read = entry.map_err(|fault| Undone::Listing(at.to_path_buf(), fault))?;
-
-        let path = read.path();
-
-        let Ok(a_moment) = a_moment(&path);
-
-        let named = a_moment == Named::Yes;
-
-        match named {
-            true => {
-                let said = std::fs::read_to_string(&path)
-                    .map_err(|fault| Undone::Reading(path.clone(), fault))?;
-
-                let name = path
-                    .file_name()
-                    .map(|name| name.to_string_lossy().to_string())
-                    .ok_or_else(|| Undone::Untitled(path.clone()))?;
-
-                let Ok(claimed) = claimed(&said);
-
-                found.push(Migration { name, sweeps: claimed });
-            }
-            false => {},
-        }
-    }
-
-    found.sort();
-
-    Ok(found)
+pub fn setting(said: &str, copy: &CopySetting) -> Result<Option<String>, Never> {
+    Ok(said
+        .lines()
+        .find_map(|line| line.trim_start().strip_prefix(copy.key))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned))
 }
 
-fn a_moment(path: &Path) -> Result<Named, Never> {
-    let sh = path.extension().is_some_and(|it| it == "sh");
+pub fn rewritten(said: &str, rewrite: &Rewrite) -> Result<Option<String>, Never> {
+    let found = said.lines().any(|line| line == rewrite.was);
 
-    let moment = path
-        .file_stem()
-        .map(|stem| stem.to_string_lossy().to_string())
-        .is_some_and(|stem| !stem.is_empty() && stem.chars().all(|one| one.is_ascii_digit()));
-
-    Ok(match sh && moment {
-        true => Named::Yes,
-        false => Named::No,
+    Ok(match found {
+        true => Some(
+            said.split_inclusive('\n')
+                .map(|line| match line.strip_suffix('\n') == Some(rewrite.was) || line == rewrite.was {
+                    true => line.replacen(rewrite.was, rewrite.becomes, 1),
+                    false => line.to_string(),
+                })
+                .collect(),
+        ),
+        false => None,
     })
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Named {
-    Yes,
-    No,
-}
-
-pub fn all_claimed(at: &Path) -> Result<BTreeSet<String>, Undone> {
-    let every = every(at)?;
-
-    Ok(every.into_iter().flat_map(|one| one.sweeps).collect())
 }
 
 pub fn beside(root: &Path) -> Result<PathBuf, Never> {
@@ -146,25 +163,41 @@ pub fn beside(root: &Path) -> Result<PathBuf, Never> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn a_migration_claims_what_its_header_says() {
-        let said = "# sweeps: console-poke\n# sweeps: /etc/udev/rules.d/90-legion.rules\n\nrm -f x\n";
-        let Ok(claimed) = claimed(said);
+    const MUSIC: CopySetting = CopySetting {
+        from: "/home/@user@/.config/kew/kewrc",
+        key: "path=",
+        into: "/home/@user@/.config/console/music",
+    };
 
-        assert!(claimed.contains("console-poke"));
-        assert!(claimed.contains("/etc/udev/rules.d/90-legion.rules"));
+    const AUTOLOGIN: Rewrite = Rewrite {
+        at: "/etc/plasmalogin.conf.d/zz-steamos-autologin.conf",
+        was: "Session=hyprland.desktop",
+        becomes: "Session=console.desktop",
+    };
+
+    fn of(steps: &'static [Step]) -> Migration {
+        Migration { moment: Moment(1), says: "", steps }
     }
 
     #[test]
-    fn a_name_only_in_the_body_is_not_claimed() {
-        let Ok(claimed) = claimed("echo console-poke\nrm -f /usr/local/bin/console-poke\n");
+    fn a_migration_claims_what_it_moves_and_what_it_disables() {
+        let Ok(claimed) = sweeps(&of(&[
+            Step::Attic("/usr/local/bin/console-poke"),
+            Step::Attic("/home/@user@/.config/mako/config"),
+            Step::Disable("console-sky.service"),
+            Step::DisableGlobally("console-well.timer"),
+        ]));
 
-        assert!(claimed.is_empty());
+        assert!(claimed.contains("/usr/local/bin/console-poke"));
+        assert!(claimed.contains("/home/@user@/.config/mako/config"));
+        assert!(claimed.contains("enabled console-sky.service"));
+        assert!(claimed.contains("enabled console-well.timer"));
+        assert_eq!(claimed.len(), 4);
     }
 
     #[test]
-    fn a_name_only_in_an_ordinary_comment_is_not_claimed() {
-        let Ok(claimed) = claimed("# this used to be console-poke\n");
+    fn stopping_a_unit_is_not_claiming_it() {
+        let Ok(claimed) = sweeps(&of(&[Step::Stop("console-session.service"), Step::Terminate("kew")]));
 
         assert!(claimed.is_empty());
     }
@@ -187,15 +220,34 @@ mod tests {
     }
 
     #[test]
-    fn a_name_that_is_not_a_moment_is_not_a_migration() {
-        let Ok(moment) = a_moment(Path::new("migrations/1788609965.sh"));
-        let Ok(helper) = a_moment(Path::new("migrations/attic.sh"));
-        let Ok(list) = a_moment(Path::new("migrations/left-on-purpose"));
-        let Ok(other) = a_moment(Path::new("migrations/1788609965.txt"));
+    fn a_setting_is_read_from_the_first_line_that_says_it() {
+        let Ok(said) = setting("volume=80\n  path= /home/ada/Music \npath=/elsewhere\n", &MUSIC);
 
-        assert_eq!(moment, Named::Yes);
-        assert_eq!(helper, Named::No);
-        assert_eq!(list, Named::No);
-        assert_eq!(other, Named::No);
+        assert_eq!(said.as_deref(), Some("/home/ada/Music"));
+    }
+
+    #[test]
+    fn a_setting_that_is_empty_or_absent_is_not_there() {
+        let Ok(empty) = setting("path=\n", &MUSIC);
+        let Ok(absent) = setting("volume=80\n", &MUSIC);
+
+        assert_eq!(empty, None);
+        assert_eq!(absent, None);
+    }
+
+    #[test]
+    fn a_line_that_says_the_old_session_is_rewritten_and_nothing_else_is() {
+        let Ok(said) = rewritten("[Autologin]\nUser=ada\nSession=hyprland.desktop\n", &AUTOLOGIN);
+
+        assert_eq!(said.as_deref(), Some("[Autologin]\nUser=ada\nSession=console.desktop\n"));
+    }
+
+    #[test]
+    fn a_file_that_already_says_something_else_is_left_as_it_is() {
+        let Ok(gamescope) = rewritten("Session=gamescope-wayland.desktop\n", &AUTOLOGIN);
+        let Ok(longer) = rewritten("Session=hyprland.desktop.old\n", &AUTOLOGIN);
+
+        assert_eq!(gamescope, None);
+        assert_eq!(longer, None);
     }
 }

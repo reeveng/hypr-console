@@ -68,7 +68,7 @@ pub fn leading_to(places: &[Place], path: &Path, folder: Is) -> Result<Option<Le
         .filter_map(|(at, place)| {
             let within = match into.strip_prefix(&place.path) {
                 Ok(within) => within,
-                Err(_fault) => return None,
+                Err(_outside_the_folder) => return None,
             };
 
             Some((at, place, within))

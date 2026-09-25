@@ -114,7 +114,7 @@ const ALIKE: [(&[&str], &str); 9] = [
     ),
 ];
 
-const NOT_YET: [&[&str]; 5] = [
+const NOT_YET: [&[&str]; 4] = [
     &[
         "crates/console-core-places/src/lib.rs::said",
         "crates/console-test-desktop/src/lib.rs::said",
@@ -130,11 +130,6 @@ const NOT_YET: [&[&str]; 5] = [
     &[
         "crates/console-notifications/src/serving.rs::kept",
         "crates/console-notifications/src/updating.rs::at",
-    ],
-    &[
-        "crates/console-panel/src/handoff.rs::answers_being_asked_to_stop",
-        "crates/console-panel/src/picker.rs::showing",
-        "crates/console-test-stages/src/stopping.rs::caught",
     ],
 ];
 

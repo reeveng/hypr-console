@@ -70,7 +70,6 @@ use console_waiting::{Schedule, Ready, Outcome, found_handed, until};
 use console_core_number_conversion::fitted;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicI32, AtomicU64, Ordering};
@@ -145,25 +144,12 @@ impl Drop for Stopwatch {
 
 pub fn showing(pid: i32) -> Result<(), Never> {
     SHOWING.store(pid, Ordering::SeqCst);
-    #[cfg_attr(
-        dylint_lib = "explicit051_no_machine_width",
-        allow(
-            explicit051_no_machine_width,
-            reason = "`signal` takes a `sighandler_t`, which is the machine's width by the C ABI and not by choice here"
-        )
-    )]
-    #[cfg_attr(
-        dylint_lib = "explicit011_no_as_cast",
-        allow(
-            explicit011_no_as_cast,
-            reason = "no trait turns a function into the number `signal` takes; the way out is a signalfd, which is its own decision"
-        )
-    )]
-    let answer = asked as extern "C" fn(libc::c_int) as libc::sighandler_t;
+    // SAFETY: the handler stores nothing and calls nothing that allocates.
+    let answering = unsafe { console_signals::answered(&console_signals::STOPPING, asked) };
 
-    for number in [libc::SIGHUP, libc::SIGINT, libc::SIGTERM] {
-        // SAFETY: the handler stores nothing and calls nothing that allocates.
-        unsafe { libc::signal(number, answer) };
+    match answering {
+        Ok(()) => {},
+        Err(fault) => eprintln!("console-panel: {fault}"),
     }
 
     Ok(())
@@ -175,13 +161,12 @@ pub fn showing_nothing() -> Result<(), Never> {
     Ok(())
 }
 
-extern "C" fn asked(_number: libc::c_int) {
+extern "C" fn asked(_number: core::ffi::c_int) {
     let pid = SHOWING.load(Ordering::SeqCst);
 
     match pid > 0 {
         true => {
-            // SAFETY: a signal to a pid this process started and has not reaped.
-            unsafe { libc::kill(pid, libc::SIGTERM) };
+            let Ok(()) = console_program_lifetime::signal(pid, rustix::process::Signal::TERM);
         }
         false => {},
     }
@@ -208,7 +193,7 @@ fn locked(stem: &str) -> Result<PathBuf, Never> {
     )]
     let screen = match std::env::var("WAYLAND_DISPLAY") {
         Ok(screen) => Some(screen),
-        Err(_) => None,
+        Err(_unset) => None,
     };
 
     under(runtime, screen.as_deref(), stem)
@@ -241,10 +226,9 @@ pub enum Took {
 }
 
 pub fn take(handle: &File) -> Result<Took, Never> {
-    // SAFETY: the descriptor is this file's, and open for as long as the call.
-    Ok(match unsafe { libc::flock(handle.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) == 0 } {
-        true => Took::It,
-        false => Took::Not,
+    Ok(match rustix::fs::flock(handle, rustix::fs::FlockOperation::NonBlockingLockExclusive) {
+        Ok(()) => Took::It,
+        Err(_someone_else_holds_it) => Took::Not,
     })
 }
 
@@ -256,7 +240,7 @@ pub fn holder(said: &str) -> Result<(i32, &str), Never> {
 
     let pid = match pid.parse::<i32>() {
         Ok(pid) => pid,
-        Err(_fault) => return Ok((0, name)),
+        Err(_not_a_pid) => return Ok((0, name)),
     };
 
     Ok((pid, name))
@@ -363,7 +347,8 @@ fn app_on_top(picker: &Path) -> Result<Option<PathBuf>, Never> {
 
         match (holding, std::fs::metadata(&at).and_then(|found| found.modified())) {
             (Owned::Yes, Ok(when)) => held.push((when, at)),
-            (Owned::Yes, Err(_)) | (Owned::No, _) => {},
+            (Owned::No, _) => {},
+            (Owned::Yes, Err(_unstamped)) => {},
         }
     }
 
@@ -388,7 +373,7 @@ fn someone_holds(at: &Path) -> Result<Owned, Never> {
     )]
     let handle = match OpenOptions::new().read(true).open(at) {
         Ok(handle) => handle,
-        Err(_fault) => return Ok(Owned::No),
+        Err(_unreadable) => return Ok(Owned::No),
     };
 
     let Ok(took) = take(&handle);
@@ -409,7 +394,7 @@ fn told_to_go(where_: &Path) -> Result<Away, Never> {
     )]
     let mut handle = match OpenOptions::new().read(true).write(true).open(where_) {
         Ok(handle) => handle,
-        Err(_fault) => return Ok(Away::None),
+        Err(_unreadable) => return Ok(Away::None),
     };
 
     let Ok(took) = take(&handle);
@@ -427,8 +412,7 @@ fn told_to_go(where_: &Path) -> Result<Away, Never> {
         false => {},
     }
 
-    // SAFETY: a signal to a pid, which is what the file said was there.
-    unsafe { libc::kill(pid, libc::SIGTERM) };
+    let Ok(()) = console_program_lifetime::signal(pid, rustix::process::Signal::TERM);
 
     Ok(Away::Notified)
 }
@@ -512,7 +496,7 @@ fn choosing(name: &str, again: Again, handover: Handover, path: &Path) -> Result
 
     let mut handle = match opened {
         Ok(handle) => handle,
-        Err(_fault) => return Ok(Alone::Yes),
+        Err(_unreadable) => return Ok(Alone::Yes),
     };
 
     let Ok(took) = take(&handle);
@@ -583,8 +567,7 @@ fn choosing(name: &str, again: Again, handover: Handover, path: &Path) -> Result
 }
 
 fn freed_from(handle: &File, pid: i32, name: &str) -> Result<Outcome, Never> {
-    // SAFETY: a signal to a pid, which is what the file said was there.
-    unsafe { libc::kill(pid, libc::SIGTERM) };
+    let Ok(()) = console_program_lifetime::signal(pid, rustix::process::Signal::TERM);
 
     let Ok(asked) = given_up(handle, PATIENCE);
 
@@ -595,8 +578,7 @@ fn freed_from(handle: &File, pid: i32, name: &str) -> Result<Outcome, Never> {
 
     eprintln!("{name}: {pid} would not give the screen up, and is taken off it");
 
-    // SAFETY: the same pid the file named, asked once already.
-    unsafe { libc::kill(pid, libc::SIGKILL) };
+    let Ok(()) = console_program_lifetime::signal(pid, rustix::process::Signal::KILL);
 
     let Ok(taken) = given_up(handle, COMING);
 

@@ -74,21 +74,21 @@ fn days(unix: f64) -> Result<f64, Never> {
 }
 
 pub fn height(at: &Where, unix: f64) -> Result<f64, Never> {
-    let n = days(unix)?;
+    let days_since_2000 = days(unix)?;
 
     let turns = |degrees: f64| degrees.rem_euclid(360.0).to_radians();
 
-    let mean_longitude = turns(280.460 + 0.985_647_4 * n);
-    let anomaly = turns(357.528 + 0.985_600_3 * n);
+    let mean_longitude = turns(280.460 + 0.985_647_4 * days_since_2000);
+    let anomaly = turns(357.528 + 0.985_600_3 * days_since_2000);
     let ecliptic = mean_longitude
         + (1.915_f64).to_radians() * anomaly.sin()
         + (0.020_f64).to_radians() * (2.0 * anomaly).sin();
-    let tilt = (23.439 - 0.000_000_4 * n).to_radians();
+    let tilt = (23.439 - 0.000_000_4 * days_since_2000).to_radians();
 
     let right_ascension = (tilt.cos() * ecliptic.sin()).atan2(ecliptic.cos());
     let declination = (tilt.sin() * ecliptic.sin()).asin();
 
-    let sidereal = (18.697_374_558 + 24.065_709_824_419_08 * n).rem_euclid(24.0);
+    let sidereal = (18.697_374_558 + 24.065_709_824_419_08 * days_since_2000).rem_euclid(24.0);
     let local = sidereal * 15.0 + at.longitude;
     let hour_angle = (local - right_ascension.to_degrees()).to_radians();
 
@@ -102,11 +102,11 @@ pub fn height(at: &Where, unix: f64) -> Result<f64, Never> {
 
 
 pub fn along_the_year(unix: f64) -> Result<f64, Never> {
-    let n = days(unix)?;
+    let days_since_2000 = days(unix)?;
 
     let turns = |degrees: f64| degrees.rem_euclid(360.0).to_radians();
-    let anomaly = turns(357.528 + 0.985_600_3 * n);
-    let ecliptic = turns(280.460 + 0.985_647_4 * n)
+    let anomaly = turns(357.528 + 0.985_600_3 * days_since_2000);
+    let ecliptic = turns(280.460 + 0.985_647_4 * days_since_2000)
         + (1.915_f64).to_radians() * anomaly.sin()
         + (0.020_f64).to_radians() * (2.0 * anomaly).sin();
 

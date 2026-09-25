@@ -28,7 +28,6 @@
 
 use std::collections::BTreeSet;
 use std::fs::File;
-use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -48,7 +47,7 @@ pub fn instances() -> Result<BTreeSet<String>, Never> {
 
     let entries = match std::fs::read_dir(runtime.join("hypr")) {
         Ok(entries) => entries,
-        Err(_fault) => return Ok(found),
+        Err(_unreadable) => return Ok(found),
     };
 
     for path in entries.flatten().map(|entry| entry.path()) {
@@ -93,7 +92,7 @@ pub fn display(signature: &str) -> Result<Option<String>, Never> {
         runtime.join("hypr").join(signature).join(WROTE_DOWN),
     ) {
         Ok(said) => said,
-        Err(_fault) => return Ok(None),
+        Err(_unreadable) => return Ok(None),
     };
 
     what_it_bound(&said)
@@ -155,7 +154,7 @@ pub enum Wrote {
 pub fn lines(at: &Path) -> Result<u64, Never> {
     match std::fs::read(at) {
         Ok(read) => console_core_number_conversion::fitted(read.iter().filter(|byte| **byte == b'\n').count()),
-        Err(_fault) => Ok(NOT_A_LINE),
+        Err(_unreadable) => Ok(NOT_A_LINE),
     }
 }
 
@@ -212,7 +211,7 @@ pub fn abandoned() -> Result<Vec<PathBuf>, Never> {
 
     let entries = match std::fs::read_dir(stages) {
         Ok(entries) => entries,
-        Err(_fault) => return Ok(Vec::new()),
+        Err(_unreadable) => return Ok(Vec::new()),
     };
 
     let mut found: Vec<PathBuf> = entries
@@ -296,10 +295,10 @@ impl Starting {
         };
 
         match &held {
-            Some(file) => {
-                // SAFETY: the descriptor is this file's, and open for the call.
-                unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
-            }
+            Some(file) => match rustix::fs::flock(file, rustix::fs::FlockOperation::LockExclusive) {
+                Ok(()) => {},
+                Err(_unlocked) => eprintln!("console-desktop: the lock two sessions start under would not be taken"),
+            },
             None => {},
         }
 
@@ -310,10 +309,10 @@ impl Starting {
 impl Drop for Starting {
     fn drop(&mut self) {
         match &self.held {
-            Some(file) => {
-                // SAFETY: as above, and this is the handle that took it.
-                unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
-            }
+            Some(file) => match rustix::fs::flock(file, rustix::fs::FlockOperation::Unlock) {
+                Ok(()) => {},
+                Err(_still_held) => {},
+            },
             None => {},
         }
     }

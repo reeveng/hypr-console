@@ -242,7 +242,7 @@ impl Backoff {
 
         match wrote_note(&self.note, &taking) {
             Ok(()) => {}
-            Err(_fault) => {
+            Err(_unwritten) => {
                 let Ok(()) = self.complain_about_the_note();
 
                 return Ok(());
@@ -264,7 +264,7 @@ impl Backoff {
                     self.was.push((hint, was));
                     wrote = true;
                 }
-                Err(_fault) => {
+                Err(_unwritten) => {
                     let Ok(()) = self.complain(&hint);
                 }
             }
@@ -299,7 +299,7 @@ impl Backoff {
             )]
             match std::fs::write(&hint, &was) {
                 Ok(()) => {}
-                Err(_fault) => {
+                Err(_unwritten) => {
                     let Ok(()) = self.complain(&hint);
                 }
             }
@@ -315,7 +315,7 @@ impl Backoff {
     fn hints(&self) -> Result<Vec<PathBuf>, Never> {
         let reading = match std::fs::read_dir(&self.cpus) {
             Ok(reading) => reading,
-            Err(_fault) => return Ok(Vec::new()),
+            Err(_unreadable) => return Ok(Vec::new()),
         };
 
         let mut hints: Vec<PathBuf> = reading

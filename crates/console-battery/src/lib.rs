@@ -296,7 +296,7 @@ pub fn charge() -> Result<String, Never> {
 
     let supplies = match std::fs::read_dir(SUPPLIES) {
         Ok(supplies) => supplies,
-        Err(_fault) => return Ok(String::new()),
+        Err(_unreadable) => return Ok(String::new()),
     };
 
     let found = supplies
@@ -311,7 +311,7 @@ pub fn charge() -> Result<String, Never> {
                 std::fs::read_to_string(at.join("status")),
             ) {
                 (Ok(capacity), Ok(status)) => (capacity, status),
-                (Err(_), _) | (_, Err(_)) => return None,
+                (Err(_unreadable), _) | (_, Err(_unreadable)) => return None,
             };
 
             Some(format!("{} {cable} {}", capacity.trim(), status.trim()))

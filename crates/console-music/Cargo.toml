@@ -21,8 +21,6 @@ path = "src/bin/music-panel.rs"
 name = "music-bar"
 path = "src/bin/music-bar.rs"
 
-# Reading the whole library is minutes of ffprobe, so it is a program of its
-# own: the panel starts it and goes on drawing.
 [[bin]]
 name = "music-index"
 path = "src/bin/music-index.rs"
@@ -31,8 +29,6 @@ path = "src/bin/music-index.rs"
 name = "music-onward"
 path = "src/bin/music-onward.rs"
 
-# Draws a cover as characters into a terminal, which is how the port of kew's
-# renderer is checked against kew itself.
 [[bin]]
 name = "music-cover"
 path = "src/bin/music-cover.rs"
@@ -53,8 +49,6 @@ console-core-shapes.workspace = true
 console-pictures.workspace = true
 console-panel.workspace = true
 console-music-player.workspace = true
-# The one subscription per source on this machine. What used to be this
-# program's own connection to the compositor is a line down the pool's socket.
 console-events.workspace = true
 serde_json = "1"
 

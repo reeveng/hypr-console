@@ -1400,7 +1400,8 @@ fn cover_pixel_size(grid: Grid, room: Size<u32>, device: Size<u32>) -> Result<Si
 
     Ok(Side(match scaled {
         Some(Ok(tall)) => tall,
-        None | Some(Err(_)) => grid.cover.height,
+        None => grid.cover.height,
+        Some(Err(_too_tall_to_count)) => grid.cover.height,
     }))
 }
 

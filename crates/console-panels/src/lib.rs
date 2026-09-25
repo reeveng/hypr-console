@@ -278,7 +278,7 @@ enum Free {
 fn no_one_is_there(at: &Path) -> Result<Free, Never> {
     match UnixStream::connect(at) {
         Ok(_answered) => return Ok(Free::Occupied),
-        Err(_) => {},
+        Err(_no_one_is_listening) => {},
     }
 
     let _ = std::fs::remove_file(at);
@@ -311,7 +311,8 @@ fn asked_of(up: &mut Option<Up>, asking: UnixStream) -> Result<(), Never> {
     let mut line = String::new();
 
     match reader.read_line(&mut line) {
-        Ok(0) | Err(_) => return Ok(()),
+        Ok(0) => return Ok(()),
+        Err(_the_read_failed) => return Ok(()),
         Ok(_) => {},
     }
 
@@ -423,7 +424,8 @@ fn a_word(up: &mut Option<Up>) -> Result<Word, Never> {
     };
 
     Ok(match up.reader.read_line(&mut line) {
-        Ok(0) | Err(_) => Word::Closed,
+        Ok(0) => Word::Closed,
+        Err(_the_read_failed) => Word::Closed,
         Ok(_) => match line.trim() == CLOSE {
             true => Word::Close,
             false => Word::None,

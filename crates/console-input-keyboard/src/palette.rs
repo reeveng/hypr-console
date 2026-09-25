@@ -142,7 +142,7 @@ mod tests {
         for (option, _) in COLORS {
             let given = arguments.iter().skip_while(|word| **word != format!("--{option}")).nth(1).map(String::as_str).unwrap_or_default();
             assert_eq!(given.len(), 6, "--{option} is given {given}");
-            assert!(given.chars().all(|l| l.is_ascii_hexdigit()), "--{option} is given {given}");
+            assert!(given.chars().all(|digit| digit.is_ascii_hexdigit()), "--{option} is given {given}");
         }
     }
 

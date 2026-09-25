@@ -139,7 +139,7 @@ pub enum Progress {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Crossed {
     ASecond,
-    Nothing,
+    None,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -473,7 +473,7 @@ fn one(
             Crossed::ASecond => {
                 let Ok(()) = progress(Progress::ASecondPlayed);
             },
-            Crossed::Nothing => {},
+            Crossed::None => {},
         }
 
         match sounded.take() {
@@ -493,7 +493,7 @@ fn wrote(telling: &Arc<Playback>, read: u64) -> Result<Crossed, Never> {
     state.written = state.written.saturating_add(read);
 
     Ok(match before == state.written.checked_div(A_SECOND) {
-        true => Crossed::Nothing,
+        true => Crossed::None,
         false => Crossed::ASecond,
     })
 }
@@ -575,9 +575,9 @@ mod tests {
     fn a_write_that_carries_the_song_past_a_whole_second_says_so_and_one_within_it_does_not() {
         let telling = at(0.0, Wanted::Playing, A_SECOND - 10);
 
-        assert_eq!(wrote(&telling, 5), Ok(Crossed::Nothing));
+        assert_eq!(wrote(&telling, 5), Ok(Crossed::None));
         assert_eq!(wrote(&telling, 10), Ok(Crossed::ASecond));
-        assert_eq!(wrote(&telling, 10), Ok(Crossed::Nothing));
+        assert_eq!(wrote(&telling, 10), Ok(Crossed::None));
     }
 
     #[test]

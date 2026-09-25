@@ -9,8 +9,6 @@ license.workspace = true
 name = "console_status_bar"
 path = "src/lib.rs"
 
-# The bar itself: one process, one layer surface, and every word on it drawn
-# out of the readings this crate already returned.
 [[bin]]
 name = "console-bar"
 path = "src/bin/console-bar.rs"
@@ -18,26 +16,14 @@ path = "src/bin/console-bar.rs"
 [dependencies]
 console-core-fonts.workspace = true
 console-core-words.workspace = true
-# The palette, in the space it was decided in, and the one reader that says
-# which name it does not spend rather than drawing in black.
 console-core-color.workspace = true
 console-core-geometry.workspace = true
-# What workspaces there are and which one you are on, which is the one reading
-# on this bar that was waybar's own.
 console-compositor.workspace = true
-# The list of what this desktop can draw. The bar is a ground, a slab under
-# whatever is lit, and a run of words in each.
 console-core-shapes.workspace = true
-# The layer-shell namespace this surface answers to, which is the same name
-# every other surface here is found by.
 console-onscreen.workspace = true
-# A piece of the screen, and shapes put into it. This is the whole of what
-# waybar used to contribute.
 console-draw-surface.workspace = true
 console-draw-painting.workspace = true
-# What is playing, for the note beside the sound.
 console-music.workspace = true
-# The panels a tap on this bar opens, named rather than spelled.
 console-core-internal-programs.workspace = true
 console-program-lifetime.workspace = true
 console-core-external-programs.workspace = true
@@ -48,26 +34,16 @@ console-core-number-conversion.workspace = true
 console-core-reconnect.workspace = true
 console-default-applications.workspace = true
 console-notifications.workspace = true
-# Waiting for the minute to turn rather than for a number of seconds.
 console-waiting.workspace = true
 console-panel.workspace = true
-# The one subscription per source on this machine. What used to be this
-# program's own connection to the compositor is a line down the pool's socket.
 console-events.workspace = true
-# What the door cost between the compositor saying so and the line being
-# printed, which is the only half of that stretch this repository compiles.
 console-response-times.workspace = true
-# `Topic`, so a reading that has a source in the pool names it rather than
-# spelling out someone else's program.
 console-program-contract.workspace = true
 serde_json = "1"
-# The signal an apply sends, blocked and read off a descriptor beside the
-# compositor's socket rather than caught in a handler.
-libc = "0.2"
+rustix.workspace = true
 
 [lints]
 workspace = true
 
 [dev-dependencies]
-# The tabs the four readings open, to hold the bar's list against the panel's.
 console-settings.workspace = true

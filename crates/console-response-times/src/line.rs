@@ -38,7 +38,7 @@ pub struct Entry {
     pub notes: Vec<(String, Value)>,
 }
 
-pub fn ms(took: Duration) -> Result<f64, Never> {
+pub fn milliseconds(took: Duration) -> Result<f64, Never> {
     Ok((took.as_secs_f64() * 10_000.0).round() / 10.0)
 }
 
@@ -49,7 +49,7 @@ fn quoted(said: &str) -> Result<String, Never> {
 pub fn written(entry: &Entry) -> Result<String, Never> {
     let Ok(who) = quoted(&entry.who);
     let Ok(what) = quoted(&entry.what);
-    let Ok(waited) = ms(entry.waited);
+    let Ok(waited) = milliseconds(entry.waited);
 
     let mut said = format!(
         "{{\"at\":{},\"up\":{:.1},\"load\":{:.2},\"who\":{who},\"what\":{what},\"waited\":{waited:.1}",
@@ -58,7 +58,7 @@ pub fn written(entry: &Entry) -> Result<String, Never> {
 
     for (name, took) in &entry.marks {
         let Ok(name) = quoted(name);
-        let Ok(took) = ms(*took);
+        let Ok(took) = milliseconds(*took);
 
         said.push_str(&format!(",{name}:{took:.1}"));
     }
@@ -101,8 +101,8 @@ pub fn written(entry: &Entry) -> Result<String, Never> {
 
 pub fn read(said: &str) -> Result<Option<Entry>, Never> {
     let held: serde_json::Value = match serde_json::from_str(said) {
-        Ok(v) => v,
-        Err(_) => return Ok(None),
+        Ok(held) => held,
+        Err(_not_json) => return Ok(None),
     };
 
     let object = match held.as_object() {
@@ -127,7 +127,7 @@ pub fn read(said: &str) -> Result<Option<Entry>, Never> {
     };
 
     let at = match when {
-        serde_json::Value::Number(n) => match n.as_u64() {
+        serde_json::Value::Number(number) => match number.as_u64() {
             Some(at) => at,
             None => return Ok(None),
         },
@@ -280,7 +280,7 @@ mod tests {
 
         assert_eq!(back.who, entry.who);
         assert_eq!(back.what, entry.what);
-        assert_eq!(ms(back.waited), ms(entry.waited));
+        assert_eq!(milliseconds(back.waited), milliseconds(entry.waited));
         assert!(back.notes.contains(&("rows".to_string(), Value::Count(73))));
         assert!(back.notes.contains(&("door".to_string(), Value::Word("menu".to_string()))));
         let named: Vec<&str> = back.marks.iter().map(|(name, _)| name.as_str()).collect();

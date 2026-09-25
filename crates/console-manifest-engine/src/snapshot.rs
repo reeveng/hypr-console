@@ -41,15 +41,15 @@ pub const KEPT: [&str; 2] = ["root", "home"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Snapshot {
-    Made { config: String, number: String },
-    Not { config: String, why: String },
+    Made { configuration: String, number: String },
+    Not { configuration: String, why: String },
 }
 
 impl Snapshot {
     pub fn said(&self) -> Result<String, Never> {
         Ok(match self {
-            Snapshot::Made { config, number } => format!("{config} #{number}"),
-            Snapshot::Not { config, why } => format!("{config}: {why}"),
+            Snapshot::Made { configuration, number } => format!("{configuration} #{number}"),
+            Snapshot::Not { configuration, why } => format!("{configuration}: {why}"),
         })
     }
 }
@@ -57,8 +57,8 @@ impl Snapshot {
 pub fn before(what: &str) -> Result<Vec<Snapshot>, Never> {
     Ok(KEPT
         .into_iter()
-        .map(|config| {
-            let Ok(made) = made(config, &["--type", "pre"], Description(what));
+        .map(|configuration| {
+            let Ok(made) = made(configuration, &["--type", "pre"], Description(what));
 
             made
         })
@@ -69,8 +69,8 @@ pub fn after(before: &[Snapshot], what: &str) -> Result<Vec<Snapshot>, Never> {
     Ok(before
         .iter()
         .filter_map(|held| match held {
-            Snapshot::Made { config, number } => {
-                let Ok(made) = made(config, &["--type", "post", "--pre-number", number], Description(what));
+            Snapshot::Made { configuration, number } => {
+                let Ok(made) = made(configuration, &["--type", "post", "--pre-number", number], Description(what));
 
                 Some(made)
             }
@@ -82,10 +82,10 @@ pub fn after(before: &[Snapshot], what: &str) -> Result<Vec<Snapshot>, Never> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Description<'a>(&'a str);
 
-fn made(config: &str, kind: &[&str], what: Description<'_>) -> Result<Snapshot, Never> {
+fn made(configuration: &str, kind: &[&str], what: Description<'_>) -> Result<Snapshot, Never> {
     let Ok(snapper) = Program::Snapper.name();
 
-    let arguments: Vec<&str> = [snapper, "-c", config, "create"]
+    let arguments: Vec<&str> = [snapper, "-c", configuration, "create"]
         .into_iter()
         .chain(kind.iter().copied())
         .chain(["--cleanup-algorithm", "number", "--print-number", "--description", what.0])
@@ -98,16 +98,16 @@ fn made(config: &str, kind: &[&str], what: Description<'_>) -> Result<Snapshot, 
         Ran::Badly => {
             let Ok(why) = why(&answered.said);
 
-            return Ok(Snapshot::Not { config: config.to_string(), why });
+            return Ok(Snapshot::Not { configuration: configuration.to_string(), why });
         }
     }
 
     Ok(match answered.out.trim().is_empty() {
         true => Snapshot::Not {
-            config: config.to_string(),
+            configuration: configuration.to_string(),
             why: "snapper took it and would not say which one".to_string(),
         },
-        false => Snapshot::Made { config: config.to_string(), number: answered.out.trim().to_string() },
+        false => Snapshot::Made { configuration: configuration.to_string(), number: answered.out.trim().to_string() },
     })
 }
 
@@ -124,7 +124,7 @@ mod tests {
 
     #[test]
     fn a_configuration_that_was_taken_is_named_by_its_number() {
-        let held = Snapshot::Made { config: "root".into(), number: "412".into() };
+        let held = Snapshot::Made { configuration: "root".into(), number: "412".into() };
         let Ok(said) = held.said();
 
         assert_eq!(said, "root #412");
@@ -132,7 +132,7 @@ mod tests {
 
     #[test]
     fn a_configuration_that_was_not_taken_carries_the_reason() {
-        let held = Snapshot::Not { config: "home".into(), why: "Unknown config.".into() };
+        let held = Snapshot::Not { configuration: "home".into(), why: "Unknown config.".into() };
         let Ok(said) = held.said();
 
         assert_eq!(said, "home: Unknown config.");
@@ -141,8 +141,8 @@ mod tests {
     #[test]
     fn the_end_is_only_asked_of_the_configurations_that_had_a_beginning() {
         let before = vec![
-            Snapshot::Not { config: "root".into(), why: "Unknown config.".into() },
-            Snapshot::Not { config: "home".into(), why: "Unknown config.".into() },
+            Snapshot::Not { configuration: "root".into(), why: "Unknown config.".into() },
+            Snapshot::Not { configuration: "home".into(), why: "Unknown config.".into() },
         ];
 
         let Ok(after) = after(&before, "console apply");

@@ -124,7 +124,7 @@ pub fn here(target: &str) -> Result<Session, Never> {
     Ok(match asked.map(|how| how.success()) {
         Ok(true) => Session::Game,
         Ok(false) => Session::Desktop,
-        Err(_) => Session::Desktop,
+        Err(_would_not_start) => Session::Desktop,
     })
 }
 

@@ -43,7 +43,7 @@ fn buzzed(buzz: Buzz) -> Result<(), Never> {
 
     let devices = match std::fs::read_dir(HID) {
         Ok(devices) => devices,
-        Err(_) => return Ok(()),
+        Err(_no_hid_devices) => return Ok(()),
     };
 
     for device in devices.flatten() {

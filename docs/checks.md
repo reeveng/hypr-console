@@ -3,7 +3,7 @@
     just checks                             here, against the emulator
     console-check --list                    what there is
     console-check brightness                only the checks about that
-    console-check --stage device --dry      what it would do to the device
+    console-check --stage device --dry-run  what it would do to the device
     console-check --stage device --yes      do it
     console-check --stage device --yes --all   every check written for it
 
@@ -349,7 +349,7 @@ of a run rather than asking anyone to remember a flag.
 
 ## It is someone's machine
 
-`--stage device` does nothing without `--yes`, and `--dry` prints what it would
+`--stage device` does nothing without `--yes`, and `--dry-run` prints what it would
 send. Some checks open menus, move between workspaces and close windows. Read a
 dry run first.
 

@@ -5,9 +5,6 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
-# The screen the way in is drawn on: the dots, drawn straight to the display
-# with no compositor, and the pad read straight off the kernel.
-
 [lib]
 name = "console_login_greeter"
 path = "src/lib.rs"

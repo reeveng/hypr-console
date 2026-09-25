@@ -10,10 +10,6 @@ name = "console_input_focus"
 path = "src/lib.rs"
 
 [dependencies]
-# Which device is the pad and which is the keyboard beside it, and what each
-# code coming off them is called. Both are the daemon's rules rather than ones
-# of this crate's own: a claim that found a different pad than the daemon reads
-# would be a claim over the wrong device, which is the fault it exists to stop.
 console-core-words.workspace = true
 console-input-gamepad.workspace = true
 console-core-never.workspace = true

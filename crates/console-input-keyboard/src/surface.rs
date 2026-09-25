@@ -60,7 +60,9 @@
 use console_core_geometry::Size;
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
-use std::os::fd::{AsFd, OwnedFd};
+use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
+
+use rustix::event::{Nsecs, PollFd, PollFlags, Secs, Timespec, poll};
 
 use wayland_client::globals::{GlobalListContents, registry_queue_init};
 use wayland_client::protocol::{
@@ -330,7 +332,7 @@ impl Screen {
         let across = wide.saturating_mul(many);
         let down = tall.saturating_mul(many);
 
-        let stale = self.board.frame.as_ref().is_none_or(|f| f.width != across || f.height != down);
+        let stale = self.board.frame.as_ref().is_none_or(|frame| frame.width != across || frame.height != down);
 
         match stale {
             true => {
@@ -363,11 +365,9 @@ impl Screen {
 
     pub fn wait_with(
         &mut self,
-        also: &[std::os::fd::RawFd],
+        also: &[BorrowedFd<'_>],
         until: Option<std::time::Duration>,
     ) -> Result<u32, SurfaceError> {
-        use std::os::fd::AsRawFd;
-
         self.queue.dispatch_pending(&mut self.board).map_err(SurfaceError::Closed)?;
         let _ = self.connection.flush();
 
@@ -379,30 +379,26 @@ impl Screen {
             }
         };
 
-        let socket = self.connection.as_fd().as_raw_fd();
-        let mut watch = vec![libc::pollfd { fd: socket, events: libc::POLLIN, revents: 0 }];
-        watch.extend(
-            also.iter().map(|fd| libc::pollfd { fd: *fd, events: libc::POLLIN, revents: 0 }),
-        );
+        let socket = self.connection.as_fd();
+        let mut watch = vec![PollFd::from_borrowed_fd(socket, PollFlags::IN)];
+        watch.extend(also.iter().map(|fd| PollFd::from_borrowed_fd(*fd, PollFlags::IN)));
         let wait = match until {
-            None => -1,
-            Some(d) => {
-                let Ok(many) = fitted::<u128, i32>(d.as_millis());
+            None => None,
+            Some(duration) => {
+                let long = duration.max(std::time::Duration::from_millis(1));
+                let Ok(seconds) = fitted::<u64, Secs>(long.as_secs());
+                let Ok(nanoseconds) = fitted::<u32, Nsecs>(long.subsec_nanos());
 
-                many.max(1)
+                Some(Timespec { tv_sec: seconds, tv_nsec: nanoseconds })
             }
         };
-        let Ok(many) = fitted(watch.len());
 
-        // SAFETY: descriptors this process owns, and a count that matches.
-        let ready = unsafe { libc::poll(watch.as_mut_ptr(), many, wait) };
-
-        match ready < 0 {
-            true => {
+        match poll(&mut watch, wait.as_ref()) {
+            Ok(_ready) => {},
+            Err(_the_poll_failed) => {
                 drop(guard);
                 return Ok(0);
             }
-            false => {},
         }
 
         let answer = match watch.first() {
@@ -413,7 +409,7 @@ impl Screen {
             }
         };
 
-        match answer.revents & libc::POLLIN != 0 {
+        match answer.revents().contains(PollFlags::IN) {
             true => {
                 match guard.read() {
                     Ok(_) => {},
@@ -435,7 +431,7 @@ impl Screen {
 
         self.queue.dispatch_pending(&mut self.board).map_err(SurfaceError::Closed)?;
 
-        match answer.revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0 {
+        match answer.revents().intersects(PollFlags::HUP | PollFlags::ERR | PollFlags::NVAL) {
             true => return Err(SurfaceError::Hung),
             false => {},
         }
@@ -443,7 +439,7 @@ impl Screen {
         let mut spoke = 0u32;
 
         for (bit, polled) in watch.iter().skip(1).enumerate() {
-            match polled.revents & libc::POLLIN != 0 {
+            match polled.revents().contains(PollFlags::IN) {
                 true => {
                     let Ok(bit) = fitted::<_, u32>(bit);
 

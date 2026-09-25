@@ -168,7 +168,7 @@ fn property(name: &str) -> Result<Option<Value>, Never> {
 
     let held = match serde_json::from_str::<Value>(&said) {
         Ok(held) => held,
-        Err(_fault) => return Ok(None),
+        Err(_not_json) => return Ok(None),
     };
 
     Ok(held.get("data").cloned())
@@ -227,7 +227,7 @@ fn unescaped(said: &str) -> Result<String, Never> {
 
             let byte = match u8::from_str_radix(&format!("{high}{low}"), 16) {
                 Ok(byte) => byte,
-                Err(_fault) => return None,
+                Err(_not_hex) => return None,
             };
 
             Some(char::from(byte))

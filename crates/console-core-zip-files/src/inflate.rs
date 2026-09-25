@@ -252,8 +252,8 @@ fn compressed_block(bits: &mut BitReader<'_>, output: &mut Output, codes: &Table
 
         match (symbol, u8::try_from(symbol)) {
             (_, Ok(byte)) => output.push(byte)?,
-            (END_OF_BLOCK, Err(_)) => return Ok(()),
-            (_, Err(_)) => {
+            (END_OF_BLOCK, Err(_past_a_byte)) => return Ok(()),
+            (_, Err(_past_a_byte)) => {
                 let long = read_extra(bits, &LENGTH_BASE, &LENGTH_EXTRA, symbol.saturating_sub(FIRST_LENGTH))?;
                 let near = decode_symbol(bits, &codes.distances)?;
                 let back = read_extra(bits, &DISTANCE_BASE, &DISTANCE_EXTRA, near)?;

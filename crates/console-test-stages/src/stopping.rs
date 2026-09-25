@@ -42,39 +42,28 @@ pub enum Stop {
 }
 
 pub fn caught() -> Result<(), Never> {
-    #[cfg_attr(
-        dylint_lib = "explicit051_no_machine_width",
-        allow(
-            explicit051_no_machine_width,
-            reason = "`signal` takes a `sighandler_t`, which is the machine's width by the C ABI and not by choice here"
-        )
-    )]
-    #[cfg_attr(
-        dylint_lib = "explicit011_no_as_cast",
-        allow(
-            explicit011_no_as_cast,
-            reason = "no trait turns a function into the number `signal` takes; the way out is a signalfd, which is its own decision and is the one `console-panel` did not take either"
-        )
-    )]
-    let answer = answered as extern "C" fn(libc::c_int) as libc::sighandler_t;
+    // SAFETY: the handler stores one flag, and the second time puts the
+    // default back and sends the signal again, all of it through calls that
+    // allocate nothing.
+    let answering = unsafe { console_signals::answered(&console_signals::STOPPING, answered) };
 
-    for number in [libc::SIGHUP, libc::SIGINT, libc::SIGTERM] {
-        // SAFETY: the handler stores one flag and calls nothing that allocates.
-        unsafe { libc::signal(number, answer) };
+    match answering {
+        Ok(()) => {},
+        Err(fault) => eprintln!("console-check: an interrupted run will not hand the device back: {fault}"),
     }
 
     Ok(())
 }
 
-extern "C" fn answered(number: libc::c_int) {
+extern "C" fn answered(number: core::ffi::c_int) {
     match ASKED.swap(true, Ordering::SeqCst) {
-        true => {
-            // SAFETY: the default disposition put back and the same signal
-            unsafe {
-                libc::signal(number, libc::SIG_DFL);
-                libc::raise(number);
-            }
-        }
+        true => match rustix::process::Signal::from_named_raw(number) {
+            Some(again) => {
+                let _ = console_signals::defaulted(again);
+                let _ = rustix::process::kill_process(rustix::process::getpid(), again);
+            },
+            None => {},
+        },
         false => {},
     }
 }

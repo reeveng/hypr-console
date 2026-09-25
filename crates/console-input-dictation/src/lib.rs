@@ -81,7 +81,7 @@ pub fn told_by(note: &str) -> Result<Option<(i32, u32)>, Never> {
 
     let recorder = match first.parse() {
         Ok(recorder) => recorder,
-        Err(_fault) => return Ok(None),
+        Err(_not_a_number) => return Ok(None),
     };
 
     let second = match words.next() {
@@ -91,7 +91,7 @@ pub fn told_by(note: &str) -> Result<Option<(i32, u32)>, Never> {
 
     let press = match second.parse() {
         Ok(press) => press,
-        Err(_fault) => return Ok(None),
+        Err(_not_a_number) => return Ok(None),
     };
 
     Ok(Some((recorder, press)))

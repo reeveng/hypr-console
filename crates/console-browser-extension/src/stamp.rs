@@ -51,7 +51,7 @@ pub fn next(was: Option<&str>) -> Result<String, Never> {
             Some(next) => format!("{front}.{next}"),
             None => FIRST.to_string(),
         },
-        Err(_) => FIRST.to_string(),
+        Err(_not_a_number) => FIRST.to_string(),
     })
 }
 

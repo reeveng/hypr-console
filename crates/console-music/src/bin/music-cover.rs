@@ -74,12 +74,12 @@ fn drawn() -> Result<(), Hidden> {
         None => return Err(Hidden::NoPicture(path)),
     };
 
-    let Ok(cols) = console_core_number_conversion::index(cover.cols);
+    let Ok(columns) = console_core_number_conversion::index(cover.columns);
 
-    for line in cover.cells.chunks(cols) {
+    for line in cover.cells.chunks(columns) {
         for cell in line {
-            let (r, g, b) = cell.rgb;
-            print!("\x1b[1;38;2;{r};{g};{b}m{}", cell.ch);
+            let (red, green, blue) = cell.rgb;
+            print!("\x1b[1;38;2;{red};{green};{blue}m{}", cell.character);
         }
 
         println!("\x1b[0m");

@@ -11,8 +11,8 @@
 //!
 //! This is what the immutable systems buy with a read-only root, and it is the
 //! part of it worth having: not that the machine cannot be written to, but that
-//! what it is can be said out loud and put back. `desktop.conf` and
-//! `migrations/` already describe the machine; what was missing was the
+//! what it is can be said out loud and put back. `desktop.conf` and the
+//! migrations already describe the machine; what was missing was the
 //! numbering.
 //!
 //! One file per generation, named for its number, holding the commit and a
@@ -159,7 +159,7 @@ pub fn read(at: &Path) -> Result<Vec<Generation>, Unapplied> {
     for entry in entries.flatten() {
         let number = match entry.file_name().to_string_lossy().parse::<u32>() {
             Ok(number) => number,
-            Err(_) => continue,
+            Err(_not_a_generation) => continue,
         };
         let Ok(held) = console_core_atomic_writes::read(&entry.path());
 

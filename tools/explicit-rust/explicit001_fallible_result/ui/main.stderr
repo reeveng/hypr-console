@@ -23,5 +23,37 @@ LL |     Ok(fallible().unwrap_or(0))
    |
    = help: propagate it with `?`, or `match` both ways and name the failing one
 
-error: aborting due to 3 previous errors
+error: an `Err` arm that does not say what went wrong turns a failure into a value with nothing said
+  --> $DIR/main.rs:38:9
+   |
+LL |         Err(_) => 0,
+   |         ^^^^^^
+   |
+   = help: name what went wrong in the binding, match the fault's own variants, or hand it on as `Err`
+
+error: an `Err` arm that does not say what went wrong turns a failure into a value with nothing said
+  --> $DIR/main.rs:47:9
+   |
+LL |         Err(..) => return Ok(0),
+   |         ^^^^^^^
+   |
+   = help: name what went wrong in the binding, match the fault's own variants, or hand it on as `Err`
+
+error: an `Err` arm that does not say what went wrong turns a failure into a value with nothing said
+  --> $DIR/main.rs:57:9
+   |
+LL |         Ok(None) | Err(_) => 0,
+   |         ^^^^^^^^^^^^^^^^^
+   |
+   = help: name what went wrong in the binding, match the fault's own variants, or hand it on as `Err`
+
+error: an `Err` arm that does not say what went wrong turns a failure into a value with nothing said
+  --> $DIR/main.rs:66:9
+   |
+LL |         Err(_fault) => 0,
+   |         ^^^^^^^^^^^
+   |
+   = help: name what went wrong in the binding, match the fault's own variants, or hand it on as `Err`
+
+error: aborting due to 7 previous errors
 

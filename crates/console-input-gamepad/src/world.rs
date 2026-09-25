@@ -77,7 +77,7 @@ impl World {
     }
 
     pub fn plugged(&self) -> Result<Vec<String>, Never> {
-        Ok(self.devices.values().filter(|device| device.plugged).map(|d| d.path.clone()).collect())
+        Ok(self.devices.values().filter(|device| device.plugged).map(|device| device.path.clone()).collect())
     }
 
     pub fn role_at(&self, path: &str) -> Result<Option<&str>, Never> {
@@ -169,7 +169,7 @@ mod tests {
     #[test]
     fn every_device_gets_a_path_of_its_own() {
         let world = world();
-        let mut paths: Vec<String> = world.devices.values().map(|d| d.path.clone()).collect();
+        let mut paths: Vec<String> = world.devices.values().map(|device| device.path.clone()).collect();
         paths.sort();
         paths.dedup();
         assert_eq!(paths.len(), world.devices.len());

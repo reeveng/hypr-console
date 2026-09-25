@@ -205,7 +205,7 @@ fn listening(hearing: Receiver) -> Result<Queue, Cannot> {
 
                         match over.lock() {
                             Ok(mut over) => *over = Ended::Yes,
-                            Err(_) => {},
+                            Err(_the_lock_is_poisoned) => {},
                         }
 
                         let _ = writing.write_all(&[1]);
@@ -216,12 +216,12 @@ fn listening(hearing: Receiver) -> Result<Queue, Cannot> {
 
                 match held.lock() {
                     Ok(mut held) => held.push_back(message),
-                    Err(_) => return,
+                    Err(_the_lock_is_poisoned) => return,
                 }
 
                 match writing.write_all(&[1]) {
                     Ok(()) => {}
-                    Err(_) => return,
+                    Err(_no_one_is_listening) => return,
                 }
             }
     });
@@ -303,7 +303,7 @@ fn standing(
 fn ending(queue: &Queue) -> Result<Ended, Never> {
     Ok(match queue.ended.lock() {
         Ok(ended) => *ended,
-        Err(_) => Ended::Yes,
+        Err(_the_lock_is_poisoned) => Ended::Yes,
     })
 }
 
@@ -318,7 +318,7 @@ fn drained(
     loop {
         let message = match queue.heard.lock() {
             Ok(mut held) => held.pop_front(),
-            Err(_) => None,
+            Err(_the_lock_is_poisoned) => None,
         };
         let message = match message {
             Some(message) => message,

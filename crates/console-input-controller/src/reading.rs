@@ -970,10 +970,10 @@ mod tests {
         let turned = ok(held.tick(1.0));
         let notches = match turned.first() {
             Some(Effect::Frame(notches)) => notches,
-            Some(Effect::Run(_) | Effect::Tell(_) | Effect::Using(_)) | None => {
+            Some(Effect::Run(_) | Effect::Tell(_) | Effect::Using(_) | Effect::Reconnected(_)) | None => {
                 panic!("a frame of notches")
             }
         };
-        assert!(notches.contains(&ok(Output::rel(RelativeAxisCode::REL_HWHEEL.0, 1))));
+        assert!(notches.contains(&ok(Output::relative(RelativeAxisCode::REL_HWHEEL.0, 1))));
     }
 }

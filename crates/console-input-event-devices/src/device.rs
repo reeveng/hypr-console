@@ -44,7 +44,7 @@ pub struct Device {
     pub keys: Vec<KeyCode>,
     pub relative_axes: Vec<RelativeAxisCode>,
     pub absolute_axes: Vec<AbsoluteAxisCode>,
-    pub misc: Vec<MiscCode>,
+    pub miscellaneous: Vec<MiscCode>,
     pub force_feedback: Vec<ForceFeedbackCode>,
     pub properties: Vec<PropType>,
     file: File,
@@ -57,7 +57,7 @@ impl Device {
         let keys = bits(&file, kernel::GET_KEYS)?;
         let relative_axes = bits(&file, kernel::GET_RELATIVE_AXES)?;
         let absolute_axes = bits(&file, kernel::GET_ABSOLUTE_AXES)?;
-        let misc = bits(&file, kernel::GET_MISC)?;
+        let miscellaneous = bits(&file, kernel::GET_MISC)?;
         let force_feedback = bits(&file, kernel::GET_FORCE_FEEDBACK)?;
         let properties = bits(&file, kernel::GET_PROPERTIES)?;
         let Ok(name) = text(&file, kernel::GET_NAME);
@@ -71,7 +71,7 @@ impl Device {
             keys: keys.into_iter().map(KeyCode).collect(),
             relative_axes: relative_axes.into_iter().map(RelativeAxisCode).collect(),
             absolute_axes: absolute_axes.into_iter().map(AbsoluteAxisCode).collect(),
-            misc: misc.into_iter().map(MiscCode).collect(),
+            miscellaneous: miscellaneous.into_iter().map(MiscCode).collect(),
             force_feedback: force_feedback.into_iter().map(ForceFeedbackCode).collect(),
             properties: properties.into_iter().map(PropType).collect(),
             file,
@@ -81,7 +81,7 @@ impl Device {
     pub fn every() -> Result<Vec<Device>, Never> {
         let entries = match fs::read_dir(INPUT) {
             Ok(entries) => entries,
-            Err(_) => return Ok(Vec::new()),
+            Err(_no_input_devices) => return Ok(Vec::new()),
         };
         let mut paths: Vec<PathBuf> = entries
             .flatten()
@@ -95,7 +95,7 @@ impl Device {
             .iter()
             .filter_map(|path| match Device::open(path) {
                 Ok(device) => Some(device),
-                Err(_) => None,
+                Err(_would_not_open) => None,
             })
             .collect())
     }
@@ -104,15 +104,15 @@ impl Device {
         let mut every = Vec::new();
 
         for axis in &self.absolute_axes {
-            let mut info = AbsInfo::default();
+            let mut information = AbsInfo::default();
             let request = kernel::GET_ABSOLUTE | std::ffi::c_ulong::from(axis.0);
 
             // SAFETY: an open file, and a struct the size the request
             // number says, which the kernel writes into and nothing else holds.
-            let asked = unsafe { ioctl(self.file.as_raw_fd(), request, &raw mut info) };
+            let asked = unsafe { ioctl(self.file.as_raw_fd(), request, &raw mut information) };
 
             checked(asked)?;
-            every.push((*axis, info));
+            every.push((*axis, information));
         }
 
         Ok(every)
@@ -201,7 +201,7 @@ fn text(file: &File, request: std::ffi::c_ulong) -> Result<Option<String>, Never
             .next()
             .filter(|said| !said.is_empty())
             .map(|said| String::from_utf8_lossy(said).into_owned()),
-        Err(_) => None,
+        Err(_the_kernel_would_not_say) => None,
     })
 }
 

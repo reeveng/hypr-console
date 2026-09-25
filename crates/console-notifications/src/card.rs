@@ -80,14 +80,14 @@ type ActorAddress = Address<Message>;
 fn looking_at(held: &ActorAddress) -> Result<Destination, Never> {
     Ok(match held.ask(Message::At) {
         Ok(onto) => onto,
-        Err(_) => Destination::List,
+        Err(_the_actor_has_gone) => Destination::List,
     })
 }
 
 fn press(held: &ActorAddress, heard: NotificationsEvent, showing: &dyn Showing) -> Result<(), Never> {
     let effects = match held.ask(|answer| Message::Event(heard, answer)) {
         Ok(effects) => effects,
-        Err(_) => {
+        Err(_the_actor_has_gone) => {
             eprintln!("notifications-panel: the panel's own state is missing, so the press did nothing");
 
             Vec::new()
@@ -254,9 +254,9 @@ pub fn card(arguments: &[String]) -> Result<Card, Never> {
     let tab = arguments.first().cloned();
     let Ok(opened) = Arguments::of(&tab.as_deref().into_iter().collect::<Vec<&str>>());
 
-    let init = Notifications::init(&opened);
-    let Ok(looking) = actor::supervise(move || Looking { onto: init.state });
-    let held = looking.addr.clone();
+    let initial = Notifications::init(&opened);
+    let Ok(looking) = actor::supervise(move || Looking { onto: initial.state });
+    let held = looking.address.clone();
 
     let Ok(card) = Card::new(Arc::new(move || {
         let Ok(pages) = pages(&held);

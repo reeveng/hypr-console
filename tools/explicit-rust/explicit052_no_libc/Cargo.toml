@@ -1,0 +1,26 @@
+[package]
+name = "explicit052_no_libc"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+clippy_utils = { workspace = true }
+dylint_linting = { workspace = true }
+
+[dev-dependencies]
+dylint_testing = { workspace = true }
+libc = "0.2"
+
+
+[[example]]
+name = "main"
+path = "examples/main.rs"
+
+[package.metadata.rust-analyzer]
+rustc_private = true

@@ -100,7 +100,7 @@ fn found(at: &std::path::Path) -> Result<Found, Never> {
     use std::os::unix::fs::PermissionsExt;
 
     Ok(match std::fs::metadata(at) {
-        Err(_) => Found::Absent,
+        Err(_not_there) => Found::Absent,
         Ok(what) => match (what.is_file(), what.permissions().mode() & 0o111) {
             (true, 0) | (false, _) => Found::There,
             (true, _) => Found::Runnable,
@@ -127,7 +127,7 @@ fn said(arguments: &[String]) -> Result<String, Never> {
     Ok(match starting {
         None => String::new(),
         Some(mut starting) => match starting.stderr(Stdio::piped()).output() {
-            Err(_) => String::new(),
+            Err(_would_not_start) => String::new(),
             Ok(done) => format!(
                 "{}{}",
                 String::from_utf8_lossy(&done.stdout),
@@ -150,7 +150,7 @@ fn timed(arguments: &[String]) -> Result<Timing, Never> {
         heard = match starting {
             None => String::new(),
             Some(mut starting) => match starting.stderr(Stdio::null()).output() {
-                Err(_) => String::new(),
+                Err(_would_not_start) => String::new(),
                 Ok(done) => String::from_utf8_lossy(&done.stdout).to_string(),
             },
         };

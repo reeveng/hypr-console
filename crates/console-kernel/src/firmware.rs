@@ -208,7 +208,8 @@ pub fn pool_allocate(layout: Layout) -> Result<*mut u8, Never> {
             },
             false => ptr::null_mut(),
         },
-        (true, _, _) | (false, Err(_), _) | (false, _, Err(_)) => ptr::null_mut(),
+        (true, _, _) => ptr::null_mut(),
+        (false, Err(_too_large), _) | (false, _, Err(_too_large)) => ptr::null_mut(),
     })
 }
 

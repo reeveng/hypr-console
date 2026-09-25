@@ -62,7 +62,7 @@ fn parse_line(text: &str) -> Result<Option<(String, Location)>, Never> {
 
     Ok(match (percent.parse::<u32>(), section.parse::<u32>(), through.parse::<u32>()) {
         (Ok(percent), Ok(section), Ok(through)) => Some((name.to_string(), Location { section, fraction: through, percent })),
-        (Err(_), _, _) | (_, Err(_), _) | (_, _, Err(_)) => None,
+        (Err(_not_a_number), _, _) | (_, Err(_not_a_number), _) | (_, _, Err(_not_a_number)) => None,
     })
 }
 

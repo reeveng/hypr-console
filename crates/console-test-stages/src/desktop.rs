@@ -135,7 +135,7 @@ const ADDRESS: &str = "DBUS_SESSION_BUS_ADDRESS";
 
 const LISTENING: Duration = Duration::from_secs(10);
 
-const CONFIG: &str = r#"<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN"
+const CONFIGURATION: &str = r#"<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN"
  "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
 <busconfig>
   <type>session</type>
@@ -224,7 +224,7 @@ impl Desktop {
         let address = format!("unix:path={}", socket.display());
         let at = self.here.join(SESSION);
 
-        console_core_atomic_writes::whole(&at, CONFIG.replace("@address@", &address).as_bytes())
+        console_core_atomic_writes::whole(&at, CONFIGURATION.replace("@address@", &address).as_bytes())
             .map_err(Error::Unwritten)?;
 
         let Ok(mut asking) = Program::DbusDaemon.command();

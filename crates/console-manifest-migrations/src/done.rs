@@ -6,7 +6,10 @@
 //! each has got. A tree that tried to remember would be remembering on behalf
 //! of a machine it cannot see.
 //!
-//! One empty file per migration, named for it. A file rather than a list,
+//! One empty file per migration, named for its moment. A migration was a
+//! script once and the markers written then carry its `.sh`, so a marker is
+//! read as the moment it begins with and a device that ran the scripts does
+//! not run them again as steps. A file rather than a list,
 //! because a list is a thing to rewrite and a rewrite that is interrupted is a
 //! machine that has run a migration and forgotten, or not run one and thinks it
 //! has. Of the two, forgetting is much the worse: a migration is written to be
@@ -34,35 +37,45 @@
 //! they sweep.
 
 use crate::Undone;
+use crate::sweeping::{Migration, Moment};
 use console_core_never::Never;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 pub const KEPT: &str = "/var/lib/console/migrations";
 
+const SCRIPT: &str = ".sh";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Applied {
-    Before(BTreeSet<String>),
+    Before(BTreeSet<Moment>),
     Never,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outstanding {
-    Run(Vec<String>),
-    Remember(Vec<String>),
+    Run(Vec<Migration>),
+    Remember(Vec<Migration>),
 }
 
-pub fn pending(
-    every: &[crate::sweeping::Migration],
-    applied: &Applied,
-) -> Result<Outstanding, Never> {
-    let names: Vec<String> = every.iter().map(|one| one.name.clone()).collect();
-
+pub fn pending(every: &[Migration], applied: &Applied) -> Result<Outstanding, Never> {
     Ok(match applied {
-        Applied::Never => Outstanding::Remember(names),
+        Applied::Never => Outstanding::Remember(every.to_vec()),
         Applied::Before(done) => {
-            Outstanding::Run(names.into_iter().filter(|name| !done.contains(name)).collect())
+            Outstanding::Run(every.iter().filter(|one| !done.contains(&one.moment)).copied().collect())
         }
+    })
+}
+
+pub fn moment(marker: &str) -> Result<Option<Moment>, Never> {
+    let named = match marker.strip_suffix(SCRIPT) {
+        Some(named) => named,
+        None => marker,
+    };
+
+    Ok(match named.parse::<u64>() {
+        Ok(moment) => Some(Moment(moment)),
+        Err(_not_a_moment) => None,
     })
 }
 
@@ -78,19 +91,23 @@ pub fn already(at: &Path) -> Result<Applied, Undone> {
     Ok(Applied::Before(
         entries
             .flatten()
-            .map(|entry| entry.file_name().to_string_lossy().to_string())
+            .filter_map(|entry| {
+                let Ok(moment) = moment(&entry.file_name().to_string_lossy());
+
+                moment
+            })
             .collect(),
     ))
 }
 
-pub fn marker(at: &Path, name: &str) -> Result<PathBuf, Never> {
-    Ok(at.join(name))
+pub fn marker(at: &Path, moment: Moment) -> Result<PathBuf, Never> {
+    Ok(at.join(moment.to_string()))
 }
 
-pub fn remember(at: &Path, name: &str) -> Result<(), Undone> {
+pub fn remember(at: &Path, moment: Moment) -> Result<(), Undone> {
     std::fs::create_dir_all(at).map_err(|fault| Undone::Holding(at.to_path_buf(), fault))?;
 
-    let Ok(marker) = marker(at, name);
+    let Ok(marker) = marker(at, moment);
 
     console_core_atomic_writes::whole(&marker, b"").map_err(Undone::Marking)
 }
@@ -102,66 +119,80 @@ pub fn attic(when: &str) -> Result<PathBuf, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sweeping::Migration;
 
-    fn one(name: &str) -> Migration {
-        Migration { name: name.to_string(), sweeps: BTreeSet::new() }
+    fn one(moment: u64) -> Migration {
+        Migration { moment: Moment(moment), says: "", steps: &[] }
     }
 
-    fn done(names: &[&str]) -> Applied {
-        Applied::Before(names.iter().map(|name| (*name).to_string()).collect())
+    fn done(moments: &[u64]) -> Applied {
+        Applied::Before(moments.iter().map(|moment| Moment(*moment)).collect())
     }
 
-    fn runs(names: &[&str]) -> Outstanding {
-        Outstanding::Run(names.iter().map(|name| (*name).to_string()).collect())
+    fn runs(moments: &[u64]) -> Outstanding {
+        Outstanding::Run(moments.iter().map(|moment| one(*moment)).collect())
     }
 
     #[test]
     fn a_machine_that_has_applied_and_run_nothing_has_all_of_them_pending() {
-        let every = [one("1780294774.sh"), one("1784767406.sh")];
+        let every = [one(1780294774), one(1784767406)];
 
         let Ok(outstanding) = pending(&every, &done(&[]));
 
-        assert_eq!(outstanding, runs(&["1780294774.sh", "1784767406.sh"]));
+        assert_eq!(outstanding, runs(&[1780294774, 1784767406]));
     }
 
     #[test]
     fn one_already_run_is_not_run_again() {
-        let every = [one("1780294774.sh"), one("1784767406.sh")];
+        let every = [one(1780294774), one(1784767406)];
 
-        let Ok(outstanding) = pending(&every, &done(&["1780294774.sh"]));
+        let Ok(outstanding) = pending(&every, &done(&[1780294774]));
 
-        assert_eq!(outstanding, runs(&["1784767406.sh"]));
+        assert_eq!(outstanding, runs(&[1784767406]));
     }
 
     #[test]
     fn what_is_pending_comes_back_oldest_first() {
-        let every = [one("1780294774.sh"), one("1784767406.sh"), one("1787618700.sh")];
+        let every = [one(1780294774), one(1784767406), one(1787618700)];
 
-        let Ok(outstanding) = pending(&every, &done(&["1784767406.sh"]));
+        let Ok(outstanding) = pending(&every, &done(&[1784767406]));
 
-        assert_eq!(outstanding, runs(&["1780294774.sh", "1787618700.sh"]));
+        assert_eq!(outstanding, runs(&[1780294774, 1787618700]));
     }
 
     #[test]
     fn a_machine_that_has_run_them_all_has_nothing_pending() {
-        let every = [one("1780294774.sh")];
+        let every = [one(1780294774)];
 
-        let Ok(outstanding) = pending(&every, &done(&["1780294774.sh"]));
+        let Ok(outstanding) = pending(&every, &done(&[1780294774]));
 
         assert_eq!(outstanding, runs(&[]));
     }
 
     #[test]
     fn a_machine_that_has_never_applied_remembers_every_one_and_runs_none() {
-        let every = [one("1780294774.sh"), one("1784767406.sh")];
+        let every = [one(1780294774), one(1784767406)];
 
         let Ok(outstanding) = pending(&every, &Applied::Never);
 
-        assert_eq!(
-            outstanding,
-            Outstanding::Remember(vec!["1780294774.sh".to_string(), "1784767406.sh".to_string()])
-        );
+        assert_eq!(outstanding, Outstanding::Remember(vec![one(1780294774), one(1784767406)]));
+    }
+
+    #[test]
+    fn a_marker_the_scripts_wrote_is_the_same_migration_as_one_written_now() {
+        let Ok(script) = moment("1788609965.sh");
+        let Ok(step) = moment("1788609965");
+
+        assert_eq!(script, Some(Moment(1788609965)));
+        assert_eq!(step, script);
+    }
+
+    #[test]
+    fn a_marker_that_is_not_a_moment_is_not_a_migration() {
+        let Ok(helper) = moment("attic.sh");
+        let Ok(longer) = moment("1788609965.sh.bak");
+
+        assert_eq!(helper, None);
+        assert_eq!(longer, None);
     }
 
     #[test]

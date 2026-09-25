@@ -62,8 +62,8 @@ pub fn beside(program: &Path) -> Result<PathBuf, Never> {
 pub fn read(said: &str) -> Result<BTreeMap<String, String>, Never> {
     Ok(said.lines()
         .filter_map(|line| line.trim_end().split_once('='))
-        .filter(|(name, _)| !name.is_empty() && name.chars().all(|l| l.is_alphanumeric() || l == '_'))
-        .filter(|(_, color)| color.len() == 6 && color.chars().all(|l| l.is_ascii_hexdigit()))
+        .filter(|(name, _)| !name.is_empty() && name.chars().all(|letter| letter.is_alphanumeric() || letter == '_'))
+        .filter(|(_, color)| color.len() == 6 && color.chars().all(|letter| letter.is_ascii_hexdigit()))
         .map(|(name, color)| (name.to_string(), color.to_lowercase()))
         .collect())
 }

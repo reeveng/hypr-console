@@ -265,7 +265,7 @@ pub fn device(check: &Check, stage: &mut Device) -> Result<How, Never> {
 
     let Ok(()) = stage.fresh();
 
-    match (stage.dry, body(stage)) {
+    match (stage.dry_run, body(stage)) {
         (true, Err(Why::Cannot(why))) => Ok(How::Skipped(why)),
         (true, _) => Ok(How::Would),
         (false, done) => ended(done),
@@ -396,8 +396,8 @@ mod tests {
             bodies: &[Body::Device(|_| cannot("a thumb is wanted"))],
         };
         const FAILS: Check = Check { bodies: &[Body::Device(|_| failed("no".to_string()))], ..ONE };
-        let mut dry = Device::new("nowhere", DryRun::Pretend).expect("a stage");
-        assert_eq!(device(&CANNOT, &mut dry), How::Skipped("a thumb is wanted".to_string()));
-        assert_eq!(device(&FAILS, &mut dry), How::Would);
+        let mut dry_run = Device::new("nowhere", DryRun::Pretend).expect("a stage");
+        assert_eq!(device(&CANNOT, &mut dry_run), How::Skipped("a thumb is wanted".to_string()));
+        assert_eq!(device(&FAILS, &mut dry_run), How::Would);
     }
 }

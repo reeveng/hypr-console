@@ -310,7 +310,8 @@ fn portable_pixmap_header(bytes: &[u8]) -> Result<Option<ImageHeader<'_>>, Never
 
         let number = match std::str::from_utf8(word).map(str::parse::<u32>) {
             Ok(Ok(number)) => number,
-            Ok(Err(_)) | Err(_) => return Ok(None),
+            Ok(Err(_not_a_number)) => return Ok(None),
+            Err(_not_text) => return Ok(None),
         };
 
         numbers.push(number);

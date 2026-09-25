@@ -23,9 +23,11 @@
 //! simply change. An apply installs what the manifest names and has never
 //! removed what it stopped naming, so a renamed file arrives beside the old one
 //! rather than instead of it. Every moved path under `files/` is therefore
-//! collected, and a migration is written claiming each of them, because the
-//! sweep gate reads those claims and a rename with no migration is exactly what
-//! it is there to catch.
+//! collected, and a migration is written moving each of them to the attic,
+//! because the sweep gate reads what a migration moves as what it claims and a
+//! rename with no migration is exactly what it is there to catch. The module is
+//! written and not listed: listing it in `history.rs` is the moment somebody
+//! has read it, and a module left unlisted fails a test there.
 //!
 //! What is deliberately not written is the reason. A migration in this tree
 //! argues for itself -- what was left behind, why it cannot stay, what happens
@@ -37,6 +39,7 @@
 
 use console_core_external_programs::Program;
 use console_core_never::Never;
+use console_manifest_migrations::history::{CRATE, DIRECTORY, PREFIX};
 use std::path::{Path, PathBuf};
 
 pub const UNSAID: &str = "WHY THIS CANNOT BE LEFT ON THE DEVICE IS NOT WRITTEN YET";
@@ -164,26 +167,33 @@ pub fn installed(root: &Path, at: &Path) -> Result<Option<String>, Never> {
     })
 }
 
-pub fn stub(sweeping: &[String]) -> Result<String, Never> {
-    let claims: String =
-        sweeping.iter().map(|path| format!("# sweeps: {path}\n")).collect();
+pub fn stub(sweeping: &[String], when: u64) -> Result<String, Never> {
     let attic: String =
-        sweeping.iter().map(|path| format!("console-attic {path}\n")).collect();
+        sweeping.iter().map(|path| format!("        Step::Attic(\"{path}\"),\n")).collect();
 
     Ok(format!(
-        "# {UNSAID}\n\
-         #\n\
-         # A path below left the manifest under one name and arrived under another.\n\
-         # An apply installs what it is told and removes nothing, so both are on\n\
-         # every machine that applied the old one. Say here what that costs -- what\n\
-         # reads the old name, what a person would see with two of them, and why the\n\
-         # one being swept cannot simply be left.\n\
-         #\n\
-         {claims}\n\
-         echo \"sweeping what the rename left behind\"\n\
+        "//! {UNSAID}\n\
+         //!\n\
+         //! A path below left the manifest under one name and arrived under another.\n\
+         //! An apply installs what it is told and removes nothing, so both are on\n\
+         //! every machine that applied the old one. Say here what that costs -- what\n\
+         //! reads the old name, what a person would see with two of them, and why the\n\
+         //! one being swept cannot simply be left.\n\
          \n\
-         {attic}"
+         use crate::sweeping::{{Migration, Moment, Step}};\n\
+         \n\
+         pub const MIGRATION: Migration = Migration {{\n\
+         \x20   moment: Moment({when}),\n\
+         \x20   says: \"sweeping what the rename left behind\",\n\
+         \x20   steps: &[\n\
+         {attic}\
+         \x20   ],\n\
+         }};\n"
     ))
+}
+
+pub fn written_at(root: &Path, when: u64) -> Result<PathBuf, Never> {
+    Ok(root.join(CRATE).join(DIRECTORY).join(format!("{PREFIX}{when}.rs")))
 }
 
 #[cfg(test)]
@@ -247,10 +257,10 @@ mod tests {
 
     #[test]
     fn a_stub_claims_every_path_it_moved_and_says_the_reason_is_missing() {
-        let Ok(said) = stub(&["/usr/share/applications/a.desktop".to_string()]);
+        let Ok(said) = stub(&["/usr/share/applications/a.desktop".to_string()], 1790300000);
 
-        assert!(said.contains("# sweeps: /usr/share/applications/a.desktop"));
-        assert!(said.contains("console-attic /usr/share/applications/a.desktop"));
+        assert!(said.contains("Step::Attic(\"/usr/share/applications/a.desktop\")"));
+        assert!(said.contains("moment: Moment(1790300000)"));
         assert!(said.contains(UNSAID));
     }
 }

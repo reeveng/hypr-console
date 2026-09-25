@@ -189,7 +189,7 @@ pub fn read(bytes: &[u8]) -> Result<Option<BTreeMap<String, Where>>, Never> {
 
         let of = match String::from_utf8(name.to_vec()) {
             Ok(of) => of,
-            Err(_fault) => return Ok(None),
+            Err(_not_text) => return Ok(None),
         };
 
         let (wide, after) = match number(after) {
@@ -212,12 +212,12 @@ pub fn read(bytes: &[u8]) -> Result<Option<BTreeMap<String, Where>>, Never> {
             Ok(None) | Err(_) => return Ok(None),
         };
 
-        let (len, after) = match number(after) {
-            Ok(Some((len, after))) => (len, after),
+        let (length, after) = match number(after) {
+            Ok(Some((length, after))) => (length, after),
             Ok(None) | Err(_) => return Ok(None),
         };
 
-        entries.push((of, wide, tall, stride, at, len));
+        entries.push((of, wide, tall, stride, at, length));
         rest = after;
     }
 
@@ -412,7 +412,7 @@ pub fn make_at(wanted: &[String], side: Side) -> Result<(), Never> {
 
     let mut asked = match ASKED.lock() {
         Ok(asked) => asked,
-        Err(_fault) => return Ok(()),
+        Err(_the_lock_is_poisoned) => return Ok(()),
     };
 
     let asked = asked.get_or_insert_with(std::collections::BTreeSet::new);

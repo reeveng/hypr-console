@@ -48,7 +48,7 @@ pub fn now() -> Result<Instant, Never> {
 pub fn since_boot() -> Result<f64, Never> {
     let when = match clock_gettime_dynamic(DynamicClockId::Boottime) {
         Ok(when) => when,
-        Err(_) => return monotonic(),
+        Err(_no_boot_clock) => return monotonic(),
     };
 
     let Ok(seconds) = when.tv_sec.float();

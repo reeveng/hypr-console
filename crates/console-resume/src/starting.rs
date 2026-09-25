@@ -145,7 +145,7 @@ const ASKING: [Describe; 4] = [
 pub fn from_desktop_files() -> Result<HashMap<String, String>, Never> {
     let found = console_applications::found::machine()?;
 
-    Ok(found.apps.into_iter().map(|(name, app)| (name, app.command)).collect())
+    Ok(found.applications.into_iter().map(|(name, application)| (name, application.command)).collect())
 }
 
 pub fn what_starts_it(

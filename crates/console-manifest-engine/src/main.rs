@@ -24,6 +24,7 @@ mod laying;
 mod machine;
 mod migrating;
 mod packages;
+mod pruning;
 mod snapshot;
 mod room;
 mod screen;
@@ -119,7 +120,7 @@ fn main() -> ExitCode {
             return said;
         }
         "migrate" => {
-            let Ok(said) = report(migrate(&root, rest));
+            let Ok(said) = report(migrate(rest));
 
             return said;
         }
@@ -276,6 +277,11 @@ fn check(root: &Path, manifest: &Manifest) -> Result<ExitCode, Never> {
         }),
         units_drift(services),
         masked_drift(masked),
+        confirmation::to("left", || {
+            let Ok(drift) = left_drift(root, manifest, whoever);
+
+            drift
+        }),
     ]
     .into_iter()
     .map(|drift| {
@@ -315,6 +321,150 @@ fn units_drift(services: &[String]) -> Result<u32, Never> {
 
         drift
     })
+}
+
+fn left_drift(root: &Path, manifest: &Manifest, whoever: &str) -> Result<u32, Never> {
+    let pending = match pruning::pending(root, manifest, User(whoever)) {
+        Ok(pending) => pending,
+        Err(fault) => {
+            println!("{YELLOW}left{OFF}");
+            println!("  {RED}{fault}{OFF}\n");
+
+            return Ok(1);
+        }
+    };
+
+    let showing: Vec<&(pruning::Left, pruning::Standing)> = pending
+        .left
+        .iter()
+        .filter(|(_, stands)| *stands != pruning::Standing::Gone)
+        .collect();
+
+    match showing.is_empty() && pending.unread.is_empty() {
+        true => return Ok(0),
+        false => {},
+    }
+
+    println!("{YELLOW}left{OFF}");
+
+    for unread in &pending.unread {
+        println!("  {YELLOW}{unread}{OFF}");
+    }
+
+    let mut drift = 0_u32;
+
+    for (placed, stands) in showing {
+        let Ok(said) = stands.name();
+        let Ok(about) = placed.about();
+
+        let color = match stands {
+            pruning::Standing::Left => {
+                drift = drift.saturating_add(1);
+
+                RED
+            }
+            pruning::Standing::Gone
+            | pruning::Standing::Edited
+            | pruning::Standing::WrittenOnce
+            | pruning::Standing::Packaged
+            | pruning::Standing::Invalid
+            | pruning::Standing::OwnerUnknown => YELLOW,
+        };
+
+        let Ok(()) = line(color, StatusLine { state: said, about });
+    }
+
+    println!();
+
+    Ok(drift)
+}
+
+fn pruned(root: &Path, manifest: &Manifest, whoever: &str) -> Result<(), Unapplied> {
+    let pending = pruning::pending(root, manifest, User(whoever))?;
+
+    for unread in &pending.unread {
+        println!("{YELLOW}{unread}{OFF}");
+    }
+
+    let mut attic: Option<PathBuf> = None;
+    let mut taken: Vec<String> = Vec::new();
+
+    for (placed, stands) in &pending.left {
+        let Ok(about) = placed.about();
+
+        match (placed, stands) {
+            (pruning::Left::Enabled(unit), pruning::Standing::Left) => {
+                let Ok(()) = line(YELLOW, StatusLine { state: "disabling", about });
+                let Ok(_) = machine::user_systemctl(&["disable", "--now", unit]);
+            }
+            (pruning::Left::Masked(unit), pruning::Standing::Left) => {
+                let Ok(()) = line(YELLOW, StatusLine { state: "unmasking", about });
+                let Ok(_) = machine::user_systemctl(&["unmask", unit]);
+            }
+            (pruning::Left::Program(_) | pruning::Left::File { .. }, _)
+            | (pruning::Left::Enabled(_) | pruning::Left::Masked(_), pruning::Standing::Gone
+                | pruning::Standing::Edited
+                | pruning::Standing::WrittenOnce
+                | pruning::Standing::Packaged
+                | pruning::Standing::Invalid
+            | pruning::Standing::OwnerUnknown) => {},
+        }
+    }
+
+    for (placed, stands) in &pending.left {
+        let Ok(about) = placed.about();
+
+        let on = match placed {
+            pruning::Left::Program(live) => live.clone(),
+            pruning::Left::File { declared, .. } => {
+                let Ok(on) = install::on_machine(declared, User(whoever));
+
+                on
+            }
+            pruning::Left::Enabled(_) | pruning::Left::Masked(_) => continue,
+        };
+
+        match stands {
+            pruning::Standing::Left => {},
+            pruning::Standing::Gone => continue,
+            pruning::Standing::Edited
+            | pruning::Standing::WrittenOnce
+            | pruning::Standing::Packaged
+            | pruning::Standing::Invalid
+            | pruning::Standing::OwnerUnknown => {
+                let Ok(said) = stands.name();
+                let Ok(()) = line(YELLOW, StatusLine { state: said, about });
+
+                continue;
+            }
+        }
+
+        let into = match &attic {
+            Some(into) => into.clone(),
+            None => {
+                let into = migrating::attic()?;
+
+                attic = Some(into.clone());
+
+                into
+            }
+        };
+
+        let under = pruning::take(Path::new(&on), &into)?;
+
+        println!("  {on} -> {}", under.display());
+
+        taken.push(on);
+    }
+
+    match taken.iter().any(|on| on.contains("/systemd/")) {
+        true => {
+            let Ok(_) = machine::user_systemctl(&["daemon-reload"]);
+        }
+        false => {},
+    }
+
+    Ok(())
 }
 
 fn masked_drift(masked: &[String]) -> Result<u32, Never> {
@@ -614,7 +764,7 @@ fn standing(root: &Path, manifest: &Manifest) -> Result<health::Standing, Unappl
 
                 standing.restarted.push((piece, times));
             }
-            Err(_) => eprintln!("console health: {unit} would not say how often it has restarted"),
+            Err(_not_a_number) => eprintln!("console health: {unit} would not say how often it has restarted"),
         }
     }
 
@@ -737,17 +887,17 @@ fn health(root: &Path, manifest: &Manifest) -> Result<ExitCode, Never> {
     Ok(ExitCode::FAILURE)
 }
 
-fn migrate(root: &Path, rest: &[String]) -> Result<(), Unapplied> {
+fn migrate(rest: &[String]) -> Result<(), Unapplied> {
     let asking = rest.iter().any(|word| word == "--pending" || word == "--check");
 
     match asking {
         true => {
-            let pending = migrating::outstanding(root)?;
+            let pending = migrating::outstanding()?;
 
             match pending {
-                Outstanding::Run(names) => {
-                    for name in names {
-                        println!("{name}");
+                Outstanding::Run(migrations) => {
+                    for migration in migrations {
+                        println!("{} {}", migration.moment, migration.says);
                     }
                 }
                 Outstanding::Remember(_every_one_of_them) => {
@@ -770,7 +920,7 @@ fn migrate(root: &Path, rest: &[String]) -> Result<(), Unapplied> {
 
             let Ok(whoever) = machine::whoever();
 
-            migrating::run(root, whoever)
+            migrating::run(User(whoever))
         }
     }
 }
@@ -819,9 +969,11 @@ fn apply(root: &Path, manifest: &Manifest) -> Result<(), Unapplied> {
     let Ok(()) = line(YELLOW, StatusLine { state: "generation", about: &about });
     let Ok(whoever) = machine::whoever();
 
-    migrating::run(root, whoever)?;
+    migrating::run(User(whoever))?;
+    pruned(root, manifest, whoever)?;
 
     let Ok(saying) = Updating::started();
+    let Ok(applying) = confirmation::started();
     let Ok(mut going) = going::Going::starting();
 
     packages_held(&mut going, manifest)?;
@@ -906,13 +1058,20 @@ fn apply(root: &Path, manifest: &Manifest) -> Result<(), Unapplied> {
 
     generations::remember(Path::new(generations::KEPT), &done)?;
 
-    let Ok(()) = going.done();
+    let Ok(()) = timed(going, applying, whoever);
     let Ok(()) = saying.done();
     let Ok(()) = told_the_front(root);
 
     println!("\n{GREEN}Done.{OFF}");
 
     Ok(())
+}
+
+fn timed(going: going::Going, applying: std::time::Instant, whoever: &str) -> Result<(), Never> {
+    let Ok(stages) = going.done();
+    let Ok(took) = confirmation::ended("apply", applying);
+
+    confirmation::kept(&Path::new("/home").join(whoever), &stages, took)
 }
 
 fn enough_to_apply(root: &Path) -> Result<(), Unapplied> {
@@ -1328,7 +1487,7 @@ fn restarted_by(source: &Path, unit: &str, written: &[String]) -> Result<Restart
     let Ok(from) = install::source_of(source, &its_own);
     let held = match std::fs::read_to_string(from) {
         Ok(said) => said,
-        Err(_) => return Ok(Restart::Wanted),
+        Err(_unreadable) => return Ok(Restart::Wanted),
     };
     let Ok(named) = units::named_by(&held);
     #[cfg_attr(

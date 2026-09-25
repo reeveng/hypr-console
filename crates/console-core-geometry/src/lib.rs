@@ -4,7 +4,7 @@
 //! pair of numbers the compiler will take in either order. `tap(x, y)`,
 //! `at(across, down)`, `swept(across, down)`, `moved(across, down)` are one
 //! thing; `whole(wide, tall)`, `animation(width, height, …)`,
-//! `landscape(wide, tall)`, `laid_out(picture, cols, rows)` are the other. A
+//! `landscape(wide, tall)`, `laid_out(picture, columns, rows)` are the other. A
 //! call that got either backwards compiled, ran, and drew something in the
 //! wrong place, which is the fault EXPLICIT024 exists to make impossible.
 //!

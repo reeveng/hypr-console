@@ -37,7 +37,7 @@ impl Interpreter for Locking {
 
                     vec![Event::Custom(DeployingEvent::Took)]
                 }
-                Err(_) => vec![Event::Custom(DeployingEvent::Busy)],
+                Err(_already_held) => vec![Event::Custom(DeployingEvent::Busy)],
             },
 
             DeployingEffect::Mine(at) => {

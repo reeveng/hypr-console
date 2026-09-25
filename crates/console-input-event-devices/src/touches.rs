@@ -83,7 +83,7 @@ impl Touchscreen {
 
         let axes = match device.absolute() {
             Ok(axes) => axes,
-            Err(_) => return Ok(None),
+            Err(_no_absolute_axes) => return Ok(None),
         };
         let span_of = |wanted: AbsoluteAxisCode| {
             axes.iter().find(|(axis, _)| *axis == wanted).map(|(_, info)| {

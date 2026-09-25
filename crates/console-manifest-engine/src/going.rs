@@ -80,6 +80,8 @@
 //! same argument.
 
 
+use std::time::Duration;
+
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, toward_zero_u16};
 use console_how_far::{Bar, Progress, Now};
@@ -145,7 +147,6 @@ pub enum Audience {
 
 fn tell(permille: u16, label: &str) -> Result<(), Never> {
     let Ok(()) = updating::wrote(&updating::Progress { permille, label: label.to_string() });
-    let Ok(()) = updating::wake();
 
     Ok(())
 }
@@ -155,6 +156,7 @@ pub struct Going {
     done: u16,
     bar: Bar,
     told: Audience,
+    took: Vec<(&'static str, Duration)>,
 }
 
 pub struct Moving<'a> {
@@ -186,7 +188,7 @@ impl Going {
         let Ok(many) = fitted::<_, u32>(STAGES.len());
         let Ok(bar) = Bar::of(many);
 
-        Ok(Going { done: 0, bar, told: Audience::Bar })
+        Ok(Going { done: 0, bar, told: Audience::Bar, took: Vec::new() })
     }
 
     #[cfg(test)]
@@ -194,7 +196,7 @@ impl Going {
         let Ok(many) = fitted::<_, u32>(STAGES.len());
         let Ok(bar) = Bar::unwatched(many);
 
-        Going { done: 0, bar, told: Audience::NoOne }
+        Going { done: 0, bar, told: Audience::NoOne, took: Vec::new() }
     }
 
     pub fn through<T>(&mut self, label: &'static str, work: impl FnOnce() -> T) -> Result<T, Never> {
@@ -210,7 +212,10 @@ impl Going {
         let Ok(()) = self.bar.on(label);
         let Ok(started) = confirmation::started();
         let done = work(handed);
-        let Ok(()) = confirmation::ended(label, started);
+        let Ok(took) = confirmation::ended(label, started);
+
+        self.took.push((label, took));
+
         let Ok(()) = self.arrived(label);
 
         Ok(done)
@@ -242,8 +247,9 @@ impl Going {
             work(handed, &mut moving)
         };
 
-        let Ok(()) = confirmation::ended(label, started);
+        let Ok(took) = confirmation::ended(label, started);
 
+        self.took.push((label, took));
         self.done = start;
 
         let Ok(()) = self.arrived(label);
@@ -311,7 +317,7 @@ impl Going {
         Ok(self.done)
     }
 
-    pub fn done(mut self) -> Result<(), Never> {
+    pub fn done(mut self) -> Result<Vec<(&'static str, Duration)>, Never> {
         self.done = WHOLE;
 
         let Ok(()) = self.bar.wiped();
@@ -319,12 +325,11 @@ impl Going {
         match self.told == Audience::Bar {
             true => {
                 let Ok(()) = updating::done();
-                let Ok(()) = updating::wake();
             }
             false => {},
         }
 
-        Ok(())
+        Ok(self.took)
     }
 }
 
@@ -497,7 +502,7 @@ mod tests {
         }
         assert!(far(&going) < WHOLE, "nothing was skipped");
 
-        let Ok(()) = going.done();
+        let Ok(_) = going.done();
     }
 
     #[test]

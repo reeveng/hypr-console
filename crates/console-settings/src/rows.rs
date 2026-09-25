@@ -18,6 +18,7 @@ use console_core_localization::text;
 
 use crate::words::Word;
 use console_notifications::reading::DoNotDisturb;
+use console_response_times::measuring::{self, Measuring};
 use console_books::appearance::{self, Appearance, Paint, ColorRole, Typeface, TYPEFACES};
 use console_panel::page::{Aside, ButtonPress, Handler, Active, Level, NOW, Row, Showing, Subject, YET};
 use crate::introducing;
@@ -827,6 +828,33 @@ pub fn login_rows() -> Result<Vec<Row>, Never> {
     }
 }
 
+const MEASUREMENTS: &str = "Measurements";
+
+pub fn measurements(measuring: Measuring) -> Result<Row, Never> {
+    let state = match measuring {
+        Measuring::On => ON,
+        Measuring::Off => OFF,
+    };
+    let Ok(turning) = Handler::and_stay(move |showing| {
+        let Ok(turned) = measuring.flipped();
+        let Ok(()) = measuring::choose(turned);
+
+        showing.refresh();
+    });
+
+    Row::new(MEASUREMENTS, Aside(state), turning)
+}
+
+pub fn security_rows() -> Result<Vec<Row>, Never> {
+    let Ok(mut rows) = login_rows();
+    let Ok(measuring) = measuring::chosen();
+    let Ok(switch) = measurements(measuring);
+
+    rows.push(switch);
+
+    Ok(rows)
+}
+
 pub const QUIETEN: &str = "Quieten";
 
 const NOTIFICATIONS: &str = "Notifications";
@@ -1240,6 +1268,16 @@ mod tests {
         let Ok(rows) = sound_rows(sinks, playing, default, silence, turning);
 
         rows
+    }
+
+    #[test]
+    fn measurements_say_whether_they_are_on() {
+        let Ok(off) = measurements(Measuring::Off);
+        let Ok(on) = measurements(Measuring::On);
+
+        assert_eq!((off.says.as_str(), off.aside.as_str()), ("Measurements", OFF));
+        assert_eq!(on.aside, ON);
+        assert!(off.does.is_some(), "the row is a switch someone can press");
     }
 
     #[test]

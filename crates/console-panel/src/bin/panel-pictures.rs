@@ -2,7 +2,7 @@
 //!
 //!     panel-pictures --side 32 /usr/share/icons/.../firefox.svg /usr/share/pixmaps/x.png
 //!
-//! Off the panel, like `files-thumbs` and for the same reason: this is the work
+//! Off the panel, like `files-thumbnails` and for the same reason: this is the work
 //! that was making the menu slow to appear, and doing it where the panel draws
 //! is doing it in the one place where nothing else can happen. The panel that
 //! asks for it is already on the screen and goes on answering buttons; what
@@ -17,6 +17,10 @@
 //! and everything else in the store whose file still exists is kept. So a
 //! package that adds an application costs one rebuild of the pictures that
 //! application's list wanted, and one that removes it leaves nothing behind.
+//!
+//! Every picture asked for is decoded at once, one per core, through
+//! `console_concurrency`: a list of sixty is sixty SVGs rasterised, none of them
+//! reading another. The store is still written once, after the last of them.
 //!
 //! `console_panel::pictures` is the file's shape, who reads it and why.
 
@@ -46,9 +50,20 @@ fn main() -> ExitCode {
 
     let Ok(mut made) = kept();
 
-    for of in wanted {
-        let Ok(named) = pictures::keyed(&of, side);
-        let Ok(drawn) = drawn(&of, side);
+    let every = console_concurrency::map(&wanted, |of| drawn(of, side));
+
+    let every = match every {
+        Ok(every) => every,
+        Err(fault) => {
+            eprintln!("panel-pictures: {fault}");
+
+            return ExitCode::FAILURE;
+        }
+    };
+
+    for (of, drawn) in wanted.iter().zip(every) {
+        let Ok(named) = pictures::keyed(of, side);
+        let Ok(drawn) = drawn;
 
         match drawn {
             Some(picture) => {
@@ -107,7 +122,7 @@ fn kept() -> Result<BTreeMap<String, Picture>, Never> {
 
     let bytes = match std::fs::read(store) {
         Ok(bytes) => bytes,
-        Err(_fault) => return Ok(BTreeMap::new()),
+        Err(_unreadable) => return Ok(BTreeMap::new()),
     };
 
     let index = match pictures::read(&bytes) {

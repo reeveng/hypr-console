@@ -188,12 +188,14 @@ impl Levels {
 
             let which = match said.next().map(str::parse::<u32>) {
                 Some(Ok(which)) => which,
-                Some(Err(_)) | None => return levels,
+                None => return levels,
+                Some(Err(_not_a_number)) => return levels,
             };
 
             let level = match said.next().map(str::parse::<i64>) {
                 Some(Ok(level)) => level,
-                Some(Err(_)) | None => return levels,
+                None => return levels,
+                Some(Err(_not_a_number)) => return levels,
             };
 
             let mut bands = levels.bands.clone();

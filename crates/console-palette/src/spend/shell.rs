@@ -28,7 +28,7 @@ mod tests {
 
     #[test]
     fn nothing_is_padded_before_the_equals_sign() {
-        for line in spend(&blossom()).expect("every color it spends is declared").lines().filter(|l| l.contains('=')) {
+        for line in spend(&blossom()).expect("every color it spends is declared").lines().filter(|line| line.contains('=')) {
             let (name, _) = line.split_once('=').expect("an assignment");
             assert!(!name.ends_with(' '), "{line:?} pads before the equals sign");
             assert!(!name.starts_with(' '), "{line:?} is indented");
@@ -39,17 +39,17 @@ mod tests {
     fn every_role_is_assigned_once() {
         let sh = spend(&blossom()).expect("every color it spends is declared");
         for name in ROLES {
-            let assigned: Vec<&str> = sh.lines().filter(|l| l.starts_with(&format!("{name}="))).collect();
+            let assigned: Vec<&str> = sh.lines().filter(|line| line.starts_with(&format!("{name}="))).collect();
             assert_eq!(assigned.len(), 1, "{name} is assigned as {assigned:?}");
         }
     }
 
     #[test]
     fn a_value_is_six_hex_digits_with_no_hash_and_no_quotes() {
-        for line in spend(&blossom()).expect("every color it spends is declared").lines().filter(|l| l.contains('=')) {
+        for line in spend(&blossom()).expect("every color it spends is declared").lines().filter(|line| line.contains('=')) {
             let (_, value) = line.split_once('=').expect("an assignment");
             assert_eq!(value.len(), 6, "{line:?}");
-            assert!(value.chars().all(|c| c.is_ascii_hexdigit()), "{line:?}");
+            assert!(value.chars().all(|digit| digit.is_ascii_hexdigit()), "{line:?}");
         }
     }
 }

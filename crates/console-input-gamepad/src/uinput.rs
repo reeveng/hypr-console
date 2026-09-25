@@ -48,25 +48,25 @@ fn built(descriptor: &Descriptor) -> Result<Made, GamepadError> {
             false => Some(descriptor.phys.clone()),
         },
         keys: descriptor.capabilities.key.iter().map(|code| KeyCode(*code)).collect(),
-        relative_axes: descriptor.capabilities.rel.iter().map(|code| RelativeAxisCode(*code)).collect(),
+        relative_axes: descriptor.capabilities.relative.iter().map(|code| RelativeAxisCode(*code)).collect(),
         absolute_axes: descriptor
             .capabilities
-            .abs
+            .absolute
             .iter()
             .map(|axis| {
-                let info = AbsInfo {
+                let information = AbsInfo {
                     value: 0,
-                    minimum: axis.min,
-                    maximum: axis.max,
+                    minimum: axis.minimum,
+                    maximum: axis.maximum,
                     fuzz: axis.fuzz,
                     flat: axis.flat,
                     resolution: axis.resolution,
                 };
 
-                (AbsoluteAxisCode(axis.code), info)
+                (AbsoluteAxisCode(axis.code), information)
             })
             .collect(),
-        misc: descriptor.capabilities.msc.iter().map(|code| MiscCode(*code)).collect(),
+        miscellaneous: descriptor.capabilities.miscellaneous.iter().map(|code| MiscCode(*code)).collect(),
         properties: descriptor.properties.iter().map(|code| PropType(*code)).collect(),
     };
     let device = VirtualDevice::create(&setup).map_err(GamepadError::Device)?;

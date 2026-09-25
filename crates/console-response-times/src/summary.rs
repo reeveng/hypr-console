@@ -18,7 +18,7 @@ use std::collections::BTreeMap;
 use std::cmp::Reverse;
 use std::time::Duration;
 
-use crate::line::{Entry, ms};
+use crate::line::{Entry, milliseconds};
 
 pub const ENOUGH: u32 = 10;
 
@@ -133,11 +133,11 @@ fn stretches(entries: &[&Entry]) -> Result<Vec<(String, Spread)>, Never> {
 }
 
 pub fn told(about: &About) -> Result<String, Never> {
-    let Ok(middle) = ms(about.waited.middle);
-    let Ok(worst) = ms(about.waited.worst);
+    let Ok(middle) = milliseconds(about.waited.middle);
+    let Ok(worst) = milliseconds(about.waited.worst);
     let slow = match about.waited.high {
         Some(high) => {
-            let Ok(high) = ms(high);
+            let Ok(high) = milliseconds(high);
 
             format!(", slow tenth {high:.0}ms")
         }
@@ -158,14 +158,14 @@ pub fn told(about: &About) -> Result<String, Never> {
     }
 
     for (name, spread) in &about.marks {
-        let Ok(middle) = ms(spread.middle);
+        let Ok(middle) = milliseconds(spread.middle);
         let over = match spread.worst.checked_sub(spread.middle) {
             Some(over) => {
-                let Ok(over) = ms(over);
+                let Ok(over) = milliseconds(over);
 
                 match over >= 1.0 {
                     true => {
-                        let Ok(worst) = ms(spread.worst);
+                        let Ok(worst) = milliseconds(spread.worst);
 
                         format!("   worst {worst:.0}ms")
                     }
@@ -185,8 +185,8 @@ pub fn told(about: &About) -> Result<String, Never> {
 mod tests {
     use super::*;
 
-    fn waits(ms: &[u64]) -> Vec<Duration> {
-        ms.iter().map(|each| Duration::from_millis(*each)).collect()
+    fn waits(milliseconds: &[u64]) -> Vec<Duration> {
+        milliseconds.iter().map(|each| Duration::from_millis(*each)).collect()
     }
 
     fn opening(who: &str, waited: u64, marks: &[(&str, u64)]) -> Entry {

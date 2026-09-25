@@ -188,7 +188,7 @@ fn way_out(effect: &Effect) -> Result<Vec<Wanted<Never>>, Never> {
                 false => Vec::new(),
             }
         }
-        Effect::Frame(_) | Effect::Tell(_) | Effect::Using(_) => Vec::new(),
+        Effect::Frame(_) | Effect::Tell(_) | Effect::Using(_) | Effect::Reconnected(_) => Vec::new(),
     })
 }
 

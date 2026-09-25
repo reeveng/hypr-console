@@ -114,7 +114,8 @@ fn edited_from(stem: &str) -> Result<&str, Never> {
     Ok(match stem.rsplit_once(' ') {
         Some((before, count)) => match (count.parse::<u32>(), before.strip_suffix(EDITED)) {
             (Ok(_), Some(from)) => from,
-            (Ok(_), None) | (Err(_), _) => stem,
+            (Ok(_), None) => stem,
+            (Err(_not_a_number), _) => stem,
         },
         None => stem,
     })

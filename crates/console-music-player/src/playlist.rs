@@ -27,13 +27,13 @@
 //!
 //! The shuffle is seeded so a test can press it. What seeds it is the clock, at
 //! the call site: a player that shuffled the same way every morning would be
-//! worse than one nobody can check.
+//! worse than one no one can check.
 
 use console_core_never::Never;
-use console_core_number_conversion::fitted;
+use console_core_number_conversion::{fitted, index};
 use std::path::{Path, PathBuf};
 
-const THE_FRONT_OF_THE_LIST: usize = 0;
+const THE_FRONT_OF_THE_LIST: u32 = 0;
 
 const NOTHING_TO_CHOOSE_FROM: u64 = 0;
 
@@ -62,15 +62,16 @@ pub enum Moved {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Playlist {
     songs: Vec<PathBuf>,
-    order: Vec<usize>,
-    at: usize,
+    order: Vec<u32>,
+    at: u32,
     ordered: Order,
     over: Over,
 }
 
 impl Playlist {
     pub fn of(songs: Vec<PathBuf>) -> Result<Playlist, Never> {
-        let Ok(order) = listed(songs.len());
+        let Ok(many) = fitted::<_, u32>(songs.len());
+        let Ok(order) = listed(many);
 
         Ok(Playlist { songs, order, at: 0, ordered: Order::AsListed, over: Over::default() })
     }
@@ -83,10 +84,16 @@ impl Playlist {
     }
 
     pub fn song(&self) -> Result<Option<&Path>, Never> {
+        let Ok(at) = index(self.at);
+
         Ok(self
             .order
-            .get(self.at)
-            .and_then(|held| self.songs.get(*held))
+            .get(at)
+            .and_then(|held| {
+                let Ok(held) = index(*held);
+
+                self.songs.get(held)
+            })
             .map(PathBuf::as_path))
     }
 
@@ -104,7 +111,8 @@ impl Playlist {
             false => {},
         }
 
-        let last = self.order.len().saturating_sub(1);
+        let Ok(many) = fitted::<_, u32>(self.order.len());
+        let last = many.saturating_sub(1);
 
         match self.at < last {
             true => {
@@ -128,7 +136,11 @@ impl Playlist {
 
                 Ok(Moved::Yes)
             },
-            false => self.round_to(self.order.len().saturating_sub(1)),
+            false => {
+                let Ok(many) = fitted::<_, u32>(self.order.len());
+
+                self.round_to(many.saturating_sub(1))
+            },
         }
     }
 
@@ -148,9 +160,10 @@ impl Playlist {
         let Ok(playing) = self.song();
         let held = playing.map(Path::to_path_buf);
 
+        let Ok(many) = fitted::<_, u32>(self.songs.len());
         let Ok(ordered) = match order {
-            Order::AsListed => listed(self.songs.len()),
-            Order::Any => shuffled(self.songs.len(), seed),
+            Order::AsListed => listed(many),
+            Order::Any => shuffled(many, seed),
         };
 
         self.order = ordered;
@@ -172,7 +185,7 @@ impl Playlist {
         Ok(())
     }
 
-    fn round_to(&mut self, at: usize) -> Result<Moved, Never> {
+    fn round_to(&mut self, at: u32) -> Result<Moved, Never> {
         match self.over {
             Over::Round | Over::Again => {
                 self.at = at;
@@ -183,24 +196,25 @@ impl Playlist {
         }
     }
 
-    fn holding(&self, song: &Path) -> Result<usize, Never> {
-        let found = self
-            .order
-            .iter()
-            .position(|held| self.songs.get(*held).map(PathBuf::as_path) == Some(song));
+    fn holding(&self, song: &Path) -> Result<u32, Never> {
+        let found = (0..).zip(&self.order).find(|(_, held)| {
+            let Ok(held) = index(**held);
+
+            self.songs.get(held).map(PathBuf::as_path) == Some(song)
+        });
 
         Ok(match found {
-            Some(at) => at,
+            Some((at, _)) => at,
             None => THE_FRONT_OF_THE_LIST,
         })
     }
 }
 
-fn listed(songs: usize) -> Result<Vec<usize>, Never> {
+fn listed(songs: u32) -> Result<Vec<u32>, Never> {
     Ok((0..songs).collect())
 }
 
-fn shuffled(songs: usize, seed: u64) -> Result<Vec<usize>, Never> {
+fn shuffled(songs: u32, seed: u64) -> Result<Vec<u32>, Never> {
     let Ok(mut order) = listed(songs);
     let Ok(mut rolling) = Rolling::from(seed);
 
@@ -210,8 +224,10 @@ fn shuffled(songs: usize, seed: u64) -> Result<Vec<usize>, Never> {
         at = at.saturating_sub(1);
 
         let Ok(other) = rolling.under(at.saturating_add(1));
+        let Ok(here) = index(at);
+        let Ok(there) = index(other);
 
-        order.swap(at, other);
+        order.swap(here, there);
     }
 
     Ok(order)
@@ -235,14 +251,14 @@ impl Rolling {
         Ok(held.wrapping_mul(0x2545_F491_4F6C_DD1D))
     }
 
-    fn under(&mut self, bound: usize) -> Result<usize, Never> {
+    fn under(&mut self, bound: u32) -> Result<u32, Never> {
         let Ok(rolled) = self.rolled();
-        let Ok(held) = fitted::<usize, u64>(bound);
+        let held = u64::from(bound);
         let under = match rolled.checked_rem(held) {
             Some(under) => under,
             None => NOTHING_TO_CHOOSE_FROM,
         };
 
-        fitted::<u64, usize>(under)
+        fitted::<u64, u32>(under)
     }
 }

@@ -32,34 +32,38 @@
 //! have says nothing about what a rebuilt one will have, and the rebuilt one
 //! is the machine this file is about.
 //!
-//! # Why glycin, and what would change it
+//! # Why ffmpeg, and what it replaced
 //!
-//! It was not chosen so much as inherited: every picture on this desktop
-//! already goes through gdk-pixbuf -- the row squares, the thumbnails, the
-//! sleeve on the now-playing card -- and a viewer that decoded some other way
-//! would be a second picture path in a tree whose whole habit is one place for
-//! one thing.
+//! It was glycin, which was not chosen so much as inherited: every picture on
+//! this desktop went through gdk-pixbuf -- the row squares, the thumbnails, the
+//! sleeve on the now-playing card -- and gdk-pixbuf now decodes through glycin,
+//! in a sandbox, with libheif beside it for what a phone camera writes.
 //!
-//! The argument found afterwards is the better one. `gdk-pixbuf2` now depends
-//! on glycin, which decodes in a sandbox: bubblewrap and seccomp are hard
-//! dependencies of it. Image decoders have a long history of being the way in,
-//! and this device opens files that came off the net through the download
-//! panel, so decoding them in a sandbox is worth something and is already paid
-//! for.
+//! The toolkit went, and the sandbox and the loader framework were the
+//! toolkit's. What replaced them is what was already here for films: ffmpeg
+//! reads every one of these types, scales while it reads, and writes out the
+//! run of RGBA a surface puts in a buffer -- so one package decodes the whole
+//! list, `console-pictures` is the one place that calls it, and the types a
+//! phone writes are read by dav1d and hevc rather than by an optional
+//! dependency of a dependency.
+//!
+//! What was lost with glycin is the sandbox, and it is worth writing down
+//! rather than discovering: a decoder is a way in, and this device opens files
+//! that came off the net through the download panel. ffmpeg runs as its own
+//! process here, which is the boundary a crash stops at but not the one an
+//! exploit does. Putting that process under the same seccomp and namespace
+//! rules the notifications daemon already has is the backlog's, and it is one
+//! unit file rather than a library choice.
 //!
 //! libvips was considered and is not being used. It is a processing library
-//! and not a drawing one -- it hands out pixels and something else has to put
-//! them on a screen -- so it would sit behind this rather than replace it, and
-//! it would want a bridge into `GdkTexture` that gdk-pixbuf does not need.
-//!
+//! and not a drawing one, so it would sit behind this rather than replace it.
 //! What would change the answer is one measurement, and it is a device
 //! measurement: a photograph at *its own size* or *four times* is held whole,
 //! which for one off this machine's camera is the better part of a hundred
 //! megabytes on an APU sharing its memory with the screen. libvips would pull
 //! only the tile being looked at. If panning a zoomed photograph on the device
 //! is slow, or the panel's RSS is ugly while one is open, that is the finding
-//! that justifies it -- and it would be worth adding for the zoomed path
-//! alone, not for the whole desktop's pictures. Nothing here has measured it.
+//! that justifies it. Nothing here has measured it.
 
 use console_core_never::Never;
 
@@ -70,70 +74,32 @@ pub struct Decoder {
     pub because: &'static str,
 }
 
+const READS_IT: &str = "one decoder for the whole list, already here for films";
+
+const A_PHONE_WRITES_IT: &str = "read by dav1d and hevc inside ffmpeg, rather than by an optional dependency";
+
+const A_DEMUXER: &str = "the container, opened by the same program that decodes what is in it";
+
 pub const DECODERS: [Decoder; 14] = [
-    Decoder {
-        mime: "image/png",
-        package: "glycin",
-        because: "gdk-pixbuf's loader framework; glycin-image-rs reads it",
-    },
-    Decoder {
-        mime: "image/jpeg",
-        package: "glycin",
-        because: "gdk-pixbuf's loader framework; glycin-image-rs reads it",
-    },
-    Decoder {
-        mime: "image/webp",
-        package: "glycin",
-        because: "gdk-pixbuf's loader framework; glycin-image-rs reads it",
-    },
-    Decoder {
-        mime: "image/gif",
-        package: "glycin",
-        because: "gdk-pixbuf's loader framework; glycin-image-rs reads it",
-    },
-    Decoder {
-        mime: "image/tiff",
-        package: "glycin",
-        because: "gdk-pixbuf's loader framework; glycin-image-rs reads it",
-    },
-    Decoder {
-        mime: "image/avif",
-        package: "libheif",
-        because: "an optional dependency of glycin, so not installed unless asked for",
-    },
-    Decoder {
-        mime: "image/heif",
-        package: "libheif",
-        because: "an optional dependency of glycin, so not installed unless asked for",
-    },
-    Decoder {
-        mime: "video/mp4",
-        package: "gst-libav",
-        because: "the ffmpeg decoders, as GStreamer elements",
-    },
-    Decoder {
-        mime: "video/matroska",
-        package: "gst-plugins-good",
-        because: "the matroska demuxer",
-    },
-    Decoder {
-        mime: "video/x-matroska",
-        package: "gst-plugins-good",
-        because: "the matroska demuxer, under the name half the machine still spells it",
-    },
-    Decoder { mime: "video/webm", package: "gst-plugins-good", because: "the matroska demuxer" },
-    Decoder {
-        mime: "video/quicktime",
-        package: "gst-plugins-good",
-        because: "the quicktime demuxer",
-    },
-    Decoder { mime: "video/vnd.avi", package: "gst-plugins-good", because: "the avi demuxer" },
-    Decoder { mime: "video/ogg", package: "gst-plugins-base", because: "the ogg demuxer" },
+    Decoder { mime: "image/png", package: "ffmpeg", because: READS_IT },
+    Decoder { mime: "image/jpeg", package: "ffmpeg", because: READS_IT },
+    Decoder { mime: "image/webp", package: "ffmpeg", because: READS_IT },
+    Decoder { mime: "image/gif", package: "ffmpeg", because: READS_IT },
+    Decoder { mime: "image/tiff", package: "ffmpeg", because: READS_IT },
+    Decoder { mime: "image/avif", package: "ffmpeg", because: A_PHONE_WRITES_IT },
+    Decoder { mime: "image/heif", package: "ffmpeg", because: A_PHONE_WRITES_IT },
+    Decoder { mime: "video/mp4", package: "ffmpeg", because: A_DEMUXER },
+    Decoder { mime: "video/matroska", package: "ffmpeg", because: A_DEMUXER },
+    Decoder { mime: "video/x-matroska", package: "ffmpeg", because: A_DEMUXER },
+    Decoder { mime: "video/webm", package: "ffmpeg", because: A_DEMUXER },
+    Decoder { mime: "video/quicktime", package: "ffmpeg", because: A_DEMUXER },
+    Decoder { mime: "video/vnd.avi", package: "ffmpeg", because: A_DEMUXER },
+    Decoder { mime: "video/ogg", package: "ffmpeg", because: A_DEMUXER },
 ];
 
 pub const DRAWING: [Needed; 1] = [Needed {
-    package: "gst-plugin-gtk4",
-    because: "the sink that hands back a paintable; GTK here is built with no media backend",
+    package: "librsvg",
+    because: "the one thing ffmpeg does not read, which is most of an icon theme",
 }];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -172,8 +138,8 @@ mod tests {
 
     #[test]
     fn the_two_a_phone_writes_are_not_left_to_luck() {
-        assert_eq!(decoder("image/avif").map(|one| one.map(|one| one.package)), Ok(Some("libheif")));
-        assert_eq!(decoder("image/heif").map(|one| one.map(|one| one.package)), Ok(Some("libheif")));
+        assert_eq!(decoder("image/avif").map(|one| one.map(|one| one.package)), Ok(Some("ffmpeg")));
+        assert_eq!(decoder("image/heif").map(|one| one.map(|one| one.package)), Ok(Some("ffmpeg")));
     }
 
     #[test]
@@ -183,26 +149,18 @@ mod tests {
         sorted.sort_unstable();
         sorted.dedup();
         assert_eq!(every, sorted);
-        assert!(every.contains(&"libheif"));
-        assert!(every.contains(&"glycin"));
+        assert!(every.contains(&"ffmpeg"));
     }
 
     #[test]
-    fn what_a_film_is_drawn_on_is_asked_for_as_well_as_what_reads_it() {
+    fn what_draws_an_icon_is_asked_for_as_well_as_what_reads_a_photograph() {
         let Ok(every) = packages();
 
-        assert!(every.contains(&"gst-plugin-gtk4"), "{every:?}");
+        assert!(every.contains(&"librsvg"), "{every:?}");
 
         for one in DRAWING {
             assert!(!one.package.is_empty());
             assert!(!one.because.is_empty(), "{} says no reason", one.package);
-        }
-    }
-
-    #[test]
-    fn the_surface_is_not_named_as_a_decoder_for_anything() {
-        for one in DECODERS {
-            assert_ne!(one.package, "gst-plugin-gtk4", "{}", one.mime);
         }
     }
 

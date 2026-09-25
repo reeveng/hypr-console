@@ -1,18 +1,18 @@
-//! Where a person's things are, and where the machine keeps what everybody shares.
+//! Where a person's things are, and where the machine keeps what everyone shares.
 //!
 //! Three crates each wrote out the directories a `.desktop` file can be in and
 //! the three lists had drifted apart. Two of them read `XDG_DATA_DIRS` and the
 //! third spelled out three directories, so a machine that set the variable
 //! offered a different set of applications on the settings tab than in the
-//! menu -- one fault with no argument behind it, because nobody had decided
+//! menu -- one fault with no argument behind it, because no one had decided
 //! twice, they had written the same thing twice and only fixed one.
 //!
 //! Where a person's home is had gone the same way, and worse: of the crates
 //! that worked it out, two answered `/root` when `HOME` was unset. That is the
-//! one nobody would defend out loud. It does not fail, it succeeds against the
+//! one no one would defend out loud. It does not fail, it succeeds against the
 //! wrong person's dotfiles, and on a machine where the desktop belongs to
-//! somebody who is not root it reads settings nobody wrote and writes settings
-//! nobody will find. So `home` is an `Option` here and absent stays absent:
+//! someone who is not root it reads settings no one wrote and writes settings
+//! no one will find. So `home` is an `Option` here and absent stays absent:
 //! meeting the `None` is the caller saying what it does without a home, which
 //! is usually nothing, and nothing is the right amount.
 //!
@@ -24,7 +24,7 @@
 //! its own filename onto its own guess, and the guesses disagreed about the
 //! two questions that matter. An unset `HOME` sent two of them to `/tmp`, which
 //! is `/root` again with a different address: a model downloaded there is a
-//! download nobody will find twice, and a directory there is one anybody can
+//! download no one will find twice, and a directory there is one anyone can
 //! stand in front of. And an `XDG_*_HOME` that is set to nothing was a
 //! directory to two of them and no directory to three, so the same empty
 //! variable put a panel's notes in the person's home in one program and in
@@ -34,7 +34,7 @@
 //! what it is when nothing is said. The standard's own rule settles the second
 //! question and does it without a case of its own: a value that is not an
 //! absolute path is not a directory, so it is ignored and the usual one is
-//! used. Empty is not absolute, and neither is the relative path somebody meant
+//! used. Empty is not absolute, and neither is the relative path someone meant
 //! to make absolute.
 //!
 //! `ours` is the desktop's own directory under a base, and it is one word --
@@ -60,8 +60,34 @@
 //! `/run/user/{whoever}`, whatever `TMPDIR` says, and nothing at all. That is
 //! the drift the top of this file is about, arrived at a fourth time, and the
 //! worst of the five is the one that matches the `/root` story exactly --
-//! recordings of somebody's voice written to a directory anybody can stand in
+//! recordings of someone's voice written to a directory anyone can stand in
 //! front of, because a variable was unset.
+//!
+//! ## The folders a person has, as against the bases the desktop writes in
+//!
+//! [`Base`] is where programs put things. [`Folder`] is the other half of the
+//! same standard: where the person keeps hers, which is a different list, said
+//! in a different file, and the one thing in this area that is hers to rename.
+//! `~/.config/user-dirs.dirs` is what says so, and until now it was read in one
+//! panel while three other crates asked glib the same question -- which is the
+//! drift the top of this file is about, arrived at once more and this time with
+//! a toolkit absorbing it. What glib answered with a `GUserDirectory` is a
+//! variant here with the variable and the usual folder written on it, so a call
+//! site names a folder rather than spelling `XDG_VIDEOS_DIR` and `"Videos"` two
+//! inches apart and hoping they agree.
+//!
+//! An absent line and an empty one are both nothing said, and nothing said is
+//! the usual folder under the home -- which is what the standard's own tool
+//! writes when it has never been asked.
+//!
+//! [`kept`] is every folder she keeps things in, as one list: the eight the
+//! standard names and `Books`, which it does not and which the library, the
+//! downloads and the pool all needed spelled the same way. It is what the pool
+//! is asked to watch, so a folder that turns out to be the home itself -- a
+//! `user-dirs.dirs` that puts the desktop at `$HOME` is the standard's own
+//! example -- is left out rather than watched whole: the home holds a game's
+//! textures and a browser's cache, and a watch over it would be a watch over
+//! everything the machine writes.
 //!
 //! So [`runtime`] is here now, and it answers the way [`home`] does: absent
 //! stays absent, and it is the caller that says what it does without one. The
@@ -73,6 +99,7 @@
 
 use std::path::{Path, PathBuf};
 
+use console_core_atomic_writes::Stored;
 use console_core_never::Never;
 use console_core_words::Words;
 
@@ -122,7 +149,7 @@ pub fn runtime_ours() -> Result<Option<PathBuf>, Never> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Words)]
 pub enum Base {
     #[words(called = "XDG_CONFIG_HOME", usual = ".config")]
-    Config,
+    Configuration,
     #[words(called = "XDG_STATE_HOME", usual = ".local/state")]
     State,
     #[words(called = "XDG_DATA_HOME", usual = ".local/share")]
@@ -132,7 +159,7 @@ pub enum Base {
 }
 
 impl Base {
-    pub const EVERY: [Base; 4] = [Base::Config, Base::State, Base::Share, Base::Cache];
+    pub const EVERY: [Base; 4] = [Base::Configuration, Base::State, Base::Share, Base::Cache];
 
     pub fn told(self, home: Option<&Path>, said: Option<&str>) -> Result<Option<PathBuf>, Never> {
         let told = said.map(Path::new).filter(|at| at.is_absolute());
@@ -172,6 +199,143 @@ impl Base {
 
         Ok(under.join(OURS))
     }
+}
+
+pub const USER_DIRS: &str = "user-dirs.dirs";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Words)]
+pub enum Folder {
+    #[words(called = "XDG_DESKTOP_DIR", usual = "Desktop")]
+    Desktop,
+    #[words(called = "XDG_DOCUMENTS_DIR", usual = "Documents")]
+    Documents,
+    #[words(called = "XDG_DOWNLOAD_DIR", usual = "Downloads")]
+    Downloads,
+    #[words(called = "XDG_MUSIC_DIR", usual = "Music")]
+    Music,
+    #[words(called = "XDG_PICTURES_DIR", usual = "Pictures")]
+    Pictures,
+    #[words(called = "XDG_PUBLICSHARE_DIR", usual = "Public")]
+    Public,
+    #[words(called = "XDG_TEMPLATES_DIR", usual = "Templates")]
+    Templates,
+    #[words(called = "XDG_VIDEOS_DIR", usual = "Videos")]
+    Videos,
+}
+
+impl Folder {
+    pub const EVERY: [Folder; 8] = [
+        Folder::Desktop,
+        Folder::Documents,
+        Folder::Downloads,
+        Folder::Music,
+        Folder::Pictures,
+        Folder::Public,
+        Folder::Templates,
+        Folder::Videos,
+    ];
+
+    pub fn told(self, home: &Path, held: &str) -> Result<Option<PathBuf>, Never> {
+        let Ok(called) = self.called();
+
+        let wanted = format!("{called}=");
+
+        let found = held
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.starts_with('#'))
+            .find_map(|line| line.strip_prefix(&wanted));
+
+        let found = match found {
+            Some(found) => found,
+            None => return Ok(None),
+        };
+
+        let said = found.trim().trim_matches('"');
+
+        Ok(match said {
+            "" => None,
+            said => Some(match said.strip_prefix("$HOME/") {
+                Some(rest) => home.join(rest),
+                None => PathBuf::from(said),
+            }),
+        })
+    }
+
+    pub fn under(self, home: &Path) -> Result<PathBuf, Never> {
+        let Ok(configuration) = Base::Configuration.under(home);
+
+        let at = configuration.join(USER_DIRS);
+
+        let Ok(read) = console_core_atomic_writes::read(&at);
+
+        let held = match read {
+            Stored::Text(held) => held,
+
+            Stored::Absent => String::new(),
+
+            Stored::Failed(fault) => {
+                eprintln!(
+                    "console: {}: reading where this account keeps its folders: {fault}",
+                    at.display()
+                );
+
+                String::new()
+            }
+        };
+
+        let told = self.told(home, &held)?;
+
+        let Ok(usual) = self.usual();
+
+        Ok(match told {
+            Some(told) => told,
+            None => home.join(usual),
+        })
+    }
+
+    pub fn hers(self) -> Result<Option<PathBuf>, Never> {
+        let home = home()?;
+
+        match home {
+            Some(home) => self.under(&home).map(Some),
+            None => Ok(None),
+        }
+    }
+}
+
+pub const BOOKS: &str = "Books";
+
+pub fn books_under(home: &Path) -> Result<PathBuf, Never> {
+    Ok(home.join(BOOKS))
+}
+
+pub fn kept_under(home: &Path) -> Result<Vec<PathBuf>, Never> {
+    let mut kept: Vec<PathBuf> = Vec::new();
+
+    for folder in Folder::EVERY {
+        let Ok(at) = folder.under(home);
+
+        kept.push(at);
+    }
+
+    let Ok(books) = books_under(home);
+
+    kept.push(books);
+    kept.retain(|at| !home.starts_with(at));
+    kept.sort();
+    kept.dedup();
+
+    Ok(kept)
+}
+
+pub fn kept() -> Result<Vec<PathBuf>, Never> {
+    let home = home()?;
+
+    Ok(match home {
+        Some(home) => kept_under(&home)?,
+        None => Vec::new(),
+    })
 }
 
 pub fn data_under(
@@ -226,7 +390,68 @@ mod tests {
     }
 
     fn hers() -> PathBuf {
-        PathBuf::from("/home/somebody")
+        PathBuf::from("/home/someone")
+    }
+
+    #[test]
+    fn where_the_home_directory_says_its_pictures_are() {
+        assert_eq!(
+            ok(Folder::Pictures.told(&hers(), "XDG_PICTURES_DIR=\"$HOME/Bilder\"\n")),
+            Some(hers().join("Bilder"))
+        );
+    }
+
+    #[test]
+    fn a_folder_that_is_not_under_the_home_directory_is_taken_as_it_is() {
+        assert_eq!(
+            ok(Folder::Pictures.told(&hers(), "XDG_PICTURES_DIR=\"/data/pictures\"\n")),
+            Some(PathBuf::from("/data/pictures"))
+        );
+    }
+
+    #[test]
+    fn a_folder_the_file_says_nothing_about_is_nothing_said() {
+        assert_eq!(ok(Folder::Pictures.told(&hers(), "XDG_MUSIC_DIR=\"$HOME/Music\"\n")), None);
+        assert_eq!(ok(Folder::Pictures.told(&hers(), "")), None);
+        assert_eq!(ok(Folder::Pictures.told(&hers(), "XDG_PICTURES_DIR=\"\"")), None);
+    }
+
+    #[test]
+    fn what_is_commented_out_is_not_read() {
+        let held = "# XDG_PICTURES_DIR=\"$HOME/Error\"\nXDG_PICTURES_DIR=\"$HOME/Right\"\n";
+
+        assert_eq!(ok(Folder::Pictures.told(&hers(), held)), Some(hers().join("Right")));
+    }
+
+    #[test]
+    fn every_folder_names_its_own_variable_and_its_own_usual_name() {
+        let mut called: Vec<&str> =
+            Folder::EVERY.into_iter().map(|folder| {
+                let Ok(called) = folder.called();
+
+                called
+            }).collect();
+        called.sort_unstable();
+        let mut once = called.clone();
+        once.dedup();
+
+        assert_eq!(once, called, "two folders reading one variable");
+    }
+
+    #[test]
+    fn a_folder_that_is_the_home_itself_is_not_one_she_keeps_things_in() {
+        let home = std::env::temp_dir().join(format!("console-places-kept-{}", std::process::id()));
+        let told = ok(Base::Configuration.under(&home));
+        std::fs::create_dir_all(&told).expect("a configuration folder");
+        std::fs::write(told.join(USER_DIRS), "XDG_DESKTOP_DIR=\"$HOME/\"\n").expect("user-dirs.dirs");
+
+        let kept = ok(kept_under(&home));
+
+        std::fs::remove_dir_all(&home).expect("the made-up home taken away");
+
+        assert!(kept.contains(&home.join("Books")), "{kept:?}");
+        assert!(kept.contains(&home.join("Music")), "{kept:?}");
+        assert!(!kept.iter().any(|at| home.starts_with(at)), "the home is watched whole: {kept:?}");
     }
 
     #[test]
@@ -235,7 +460,7 @@ mod tests {
 
         assert_eq!(
             every,
-            vec![PathBuf::from("/home/somebody/.local/share"), PathBuf::from("/usr/share")],
+            vec![PathBuf::from("/home/someone/.local/share"), PathBuf::from("/usr/share")],
             "hers is first because hers is the one that wins"
         );
     }
@@ -247,7 +472,7 @@ mod tests {
         assert_eq!(
             every,
             vec![
-                PathBuf::from("/home/somebody/.local/share"),
+                PathBuf::from("/home/someone/.local/share"),
                 PathBuf::from("/usr/local/share"),
                 PathBuf::from("/usr/share"),
             ]
@@ -298,7 +523,7 @@ mod tests {
         assert_eq!(
             every,
             vec![
-                PathBuf::from("/home/somebody/.local/share/applications"),
+                PathBuf::from("/home/someone/.local/share/applications"),
                 PathBuf::from("/usr/share/applications"),
             ]
         );
@@ -314,17 +539,17 @@ mod tests {
         assert_eq!(
             every,
             vec![
-                PathBuf::from("/home/somebody/.config"),
-                PathBuf::from("/home/somebody/.local/state"),
-                PathBuf::from("/home/somebody/.local/share"),
-                PathBuf::from("/home/somebody/.cache"),
+                PathBuf::from("/home/someone/.config"),
+                PathBuf::from("/home/someone/.local/state"),
+                PathBuf::from("/home/someone/.local/share"),
+                PathBuf::from("/home/someone/.cache"),
             ]
         );
     }
 
     #[test]
     fn a_base_that_is_said_is_taken_as_it_is() {
-        let at = ok(Base::Config.told(Some(&hers()), Some("/elsewhere/config")));
+        let at = ok(Base::Configuration.told(Some(&hers()), Some("/elsewhere/config")));
 
         assert_eq!(at, Some(PathBuf::from("/elsewhere/config")));
     }
@@ -336,7 +561,7 @@ mod tests {
 
             assert_eq!(
                 at,
-                Some(PathBuf::from("/home/somebody/.cache")),
+                Some(PathBuf::from("/home/someone/.cache")),
                 "{said:?} is not an absolute path and cannot be a base"
             );
         }

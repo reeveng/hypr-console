@@ -201,7 +201,7 @@ fn reads_as_gap_below(line: &str) -> bool {
 /// The two halves of the rule, applied to one span.
 ///
 /// `what` names the construct so the message says `if` or `for` rather than
-/// "block", which is the difference between a warning somebody acts on and one
+/// "block", which is the difference between a warning someone acts on and one
 /// they read twice.
 fn check_room(cx: &EarlyContext<'_>, span: Span, what: &str) {
     if span.from_expansion() {
@@ -295,7 +295,7 @@ fn stated(stmt: &Stmt) -> Option<&Expr> {
 ///
 /// Three things arrive here that `control_flow` does not name. A `let … else`
 /// is a branch wearing a `let`, and this workspace writes a great many of
-/// them. A bare block is a scope somebody opened on purpose. An `unsafe` block
+/// them. A bare block is a scope someone opened on purpose. An `unsafe` block
 /// is the loudest of the three, and EXPLICIT012 already asks it for a
 /// sentence -- this asks it for the room to be seen.
 fn decides(stmt: &Stmt) -> Option<&'static str> {
@@ -325,7 +325,7 @@ fn decides(stmt: &Stmt) -> Option<&'static str> {
 /// `use`, `extern crate`, `const`, `static` and `type` are left out on
 /// purpose. Those are written as packed lists -- a wall of `use` lines at the
 /// top of a file, a table of constants above the code that spends them -- and
-/// a blank line between every one of them would take a block somebody reads as
+/// a blank line between every one of them would take a block someone reads as
 /// a unit and shake it apart. What is asked for room is what has a body:
 /// something with a `{ … }` under it that a reader has to step into.
 ///
@@ -347,7 +347,7 @@ fn declares(item: &Item) -> Option<&'static str> {
         // has read air.rs -- so asking only `Loaded` puts a blank line between
         // every line of the module list every crate opens with, which is the
         // packed list this rule exists to leave alone. `Inline::Yes` is the
-        // one that means somebody wrote `mod name { … }` here.
+        // one that means someone wrote `mod name { … }` here.
         ItemKind::Mod(_, _, ModKind::Loaded(_, Inline::Yes, _)) => Some("mod"),
         _ => None,
     }

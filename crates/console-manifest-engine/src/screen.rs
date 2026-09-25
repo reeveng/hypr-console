@@ -7,11 +7,11 @@
 //! `hyprland.lua` was, and it is left there as the seed this is read after.
 //!
 //! An apply is where it belongs because an apply is the one thing that happens
-//! on a machine before anybody logs into it. A session could write it, and the
-//! first login would already have been on somebody else's panel by then.
+//! on a machine before anyone logs into it. A session could write it, and the
+//! first login would already have been on someone else's panel by then.
 //!
 //! The file is in a person's home and this runs as root, so it is handed over
-//! afterwards. A config file in somebody's home owned by root is a file they
+//! afterwards. A config file in someone's home owned by root is a file they
 //! cannot edit and a directory the next thing cannot write into, which is the
 //! same fault `install` already answers for everything the manifest names.
 

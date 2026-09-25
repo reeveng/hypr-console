@@ -2,7 +2,7 @@
 //!
 //! Every other surface on this desktop has a check that it draws. This one had
 //! none, and that is how a release shipped with a strip that filled to nothing:
-//! back when the bar was waybar, a GTK stylesheet naming a colour nobody
+//! back when the bar was waybar, a GTK stylesheet naming a color no one
 //! defined dropped the declaration and carried on, so the file parsed, the
 //! widget laid out, the bar exited 0 and the journal was empty. Asked three
 //! ways the machine said it worked, and all three answers were about the
@@ -27,13 +27,13 @@
 //! bottom of the strip and counts its own margin from there -- which is why the
 //! notification card's forty-four is not forty-four from the top of the screen.
 
-use console_core_geometry::{Point, Size};
+use console_core_geometry::Point;
 use console_core_never::Never;
-use console_notifications::updating::Far;
+use console_notifications::updating::Progress;
 use console_status_bar::showing::Fitting;
-use console_test_stages::checking::{Body, Check, Done, seen};
+use console_test_stages::checking::{Body, Check, CheckResult, seen};
 use console_test_stages::desktop::Desktop;
-use console_test_stages::device::Seen;
+use console_test_stages::device::Ready;
 use console_test_stages::palette::palette;
 
 use crate::Unchecked;
@@ -60,8 +60,8 @@ const RIGHT: f64 = 0.85;
 
 const EVERY: f64 = 0.5;
 
-fn fitting(room: Size<u32>) -> Result<Fitting, Never> {
-    Fitting::of(room)
+fn fitting() -> Result<Fitting, Never> {
+    Fitting::of_em()
 }
 
 pub fn rows(fitting: Fitting) -> Result<Vec<f64>, Never> {
@@ -79,11 +79,9 @@ pub fn rows(fitting: Fitting) -> Result<Vec<f64>, Never> {
     Ok(down)
 }
 
-pub fn reserved() -> Result<f64, Unchecked> {
-    let screen = console_screen::declared().map_err(Unchecked::Undeclared)?;
-    let Ok(room) = screen.logical();
-    let Ok(fitting) = fitting(room);
-    let Ok(tall) = fitting.tall();
+pub fn reserved() -> Result<f64, Never> {
+    let Ok(fitting) = fitting();
+    let Ok(tall) = fitting.height();
 
     Ok(f64::from(tall))
 }
@@ -91,27 +89,27 @@ pub fn reserved() -> Result<f64, Unchecked> {
 fn spent(name: &str) -> Result<String, Unchecked> {
     let Ok(wanted) = palette();
 
-    wanted.get(name).cloned().ok_or_else(|| Unchecked::NoColour(name.to_string()))
+    wanted.get(name).cloned().ok_or_else(|| Unchecked::NoColor(name.to_string()))
 }
 
-fn fills(stage: &mut Desktop) -> Done {
-    stage.filling(&Far { thousandths: HOW_FAR, doing: DOING.to_string() })?;
+fn fills(stage: &mut Desktop) -> CheckResult {
+    stage.filling(&Progress { permille: HOW_FAR, label: DOING.to_string() })?;
 
     let fill = spent("fill")?;
     let ground = spent("ground")?;
     let room = stage.logical()?;
-    let Ok(fitting) = fitting(room);
+    let Ok(fitting) = fitting();
     let Ok(down) = rows(fitting);
-    let across = |part: f64| f64::from(room.wide) * part;
+    let across = |part: f64| f64::from(room.width) * part;
 
     let mut saw = Vec::new();
-    let mut filled = Seen::NotYet;
+    let mut filled = Ready::NotYet;
 
     for row in down {
         let mut read: Vec<String> = Vec::new();
 
         for part in [LEFT, NEARLY, PAST, RIGHT] {
-            let said = stage.colour(Point { across: across(part), down: row })?;
+            let said = stage.color(Point { x: across(part), y: row })?;
 
             read.push(said);
         }
@@ -122,7 +120,7 @@ fn fills(stage: &mut Desktop) -> Done {
                     *left == fill && *nearly == fill && *past == ground && *right == ground;
 
                 match painted {
-                    true => filled = Seen::Yes,
+                    true => filled = Ready::Yes,
                     false => {},
                 }
 
@@ -149,14 +147,12 @@ fn fills(stage: &mut Desktop) -> Done {
 mod tests {
     use super::*;
 
-    const SCREEN: Size<u32> = Size { wide: 1024, tall: 640 };
-
     #[test]
     fn every_row_looked_at_is_one_the_strip_covers() {
-        let Ok(fitting) = fitting(SCREEN);
+        let Ok(fitting) = fitting();
         let Ok(rows) = rows(fitting);
         let deep = f64::from(fitting.deep);
-        let Ok(tall) = fitting.tall();
+        let Ok(tall) = fitting.height();
         let bottom = f64::from(tall);
 
         assert!(rows.iter().all(|row| (deep..bottom).contains(row)), "{rows:?}");
@@ -165,8 +161,8 @@ mod tests {
 
     #[test]
     fn the_rows_under_the_bar_are_the_bars_own_arithmetic() {
-        let Ok(fitting) = fitting(SCREEN);
-        let Ok(tall) = fitting.tall();
+        let Ok(fitting) = fitting();
+        let Ok(tall) = fitting.height();
 
         assert_eq!(
             fitting.deep.saturating_add(fitting.thin),

@@ -19,12 +19,7 @@
 use console_core_never::Never;
 use console_core_number_conversion::toward_zero_u32;
 use console_core_words::Words;
-
-#[derive(Debug, Clone, Copy, PartialEq, serde::Deserialize)]
-pub struct Where {
-    pub latitude: f64,
-    pub longitude: f64,
-}
+use console_weather::here::Where;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Words)]
 pub enum Sky {
@@ -47,18 +42,7 @@ impl Sky {
         [Sky::Dawn, Sky::Day, Sky::Dusk, Sky::Night, Sky::Sunrise, Sky::Sunset];
 
     pub fn of(word: &str) -> Result<Option<Self>, Never> {
-        let word = word.trim().to_lowercase();
-
-        for sky in Sky::EVERY {
-            let said = sky.word()?;
-
-            match said == word {
-                true => return Ok(Some(sky)),
-                false => {},
-            }
-        }
-
-        Ok(None)
+        Sky::from_word(&word.trim().to_lowercase())
     }
 }
 
@@ -79,18 +63,7 @@ impl Season {
         [Season::Autumn, Season::Spring, Season::Summer, Season::Winter];
 
     pub fn of(word: &str) -> Result<Option<Self>, Never> {
-        let word = word.trim().to_lowercase();
-
-        for season in Season::EVERY {
-            let said = season.word()?;
-
-            match said == word {
-                true => return Ok(Some(season)),
-                false => {},
-            }
-        }
-
-        Ok(None)
+        Season::from_word(&word.trim().to_lowercase())
     }
 }
 

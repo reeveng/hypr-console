@@ -15,7 +15,7 @@ console-core-ini-files.workspace = true
 console-core-places.workspace = true
 console-core-atomic-writes.workspace = true
 console-core-never.workspace = true
-console-panel.workspace = true
+console-core-number-conversion.workspace = true
 
 [lints]
 workspace = true

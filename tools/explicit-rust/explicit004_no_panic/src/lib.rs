@@ -13,7 +13,7 @@ use rustc_lint::{LateContext, LateLintPass, LintContext};
 dylint_linting::declare_late_lint! {
     /// EXPLICIT004: `unwrap`, `expect`, `panic!`, `todo!`, `unimplemented!`,
     /// and `unreachable!` are forbidden. They turn a typed error path into an
-    /// implicit one — exactly the behaviour the Explicit-Rust suite forbids.
+    /// implicit one — exactly the behavior the Explicit-Rust suite forbids.
     ///
     /// The two halves are found two different ways. `unwrap` and `expect` are
     /// method calls and are matched by name. The four macros are matched on
@@ -25,7 +25,7 @@ dylint_linting::declare_late_lint! {
 }
 
 // Tests are exempt. A test that panics is a test that fails, which is what a
-// test is for, and `as` in a fixture is arithmetic nobody ships. `opts.test`
+// test is for, and `as` in a fixture is arithmetic no one ships. `opts.test`
 // is true only for the harness build of a target -- the ordinary build of the
 // same library is linted as production, so nothing real is lost by skipping
 // this one.
@@ -57,7 +57,7 @@ impl<'tcx> LateLintPass<'tcx> for Explicit004NoPanic {
         // and what they lower to is the compiler's business and has changed
         // under this lint before: matching the callee symbol quietly stopped
         // catching three of the four. So they are read off the macro backtrace
-        // instead, which is the name somebody actually wrote.
+        // instead, which is the name someone actually wrote.
         if let Some(call) = root_macro_call_first_node(cx, expr) {
             let named = cx.tcx.get_diagnostic_name(call.def_id);
             let macro_name = if is_panic(cx, call.def_id) {

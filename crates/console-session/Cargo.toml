@@ -31,6 +31,7 @@ console-core-atomic-writes.workspace = true
 console-core-external-programs.workspace = true
 console-core-places.workspace = true
 console-core-never.workspace = true
+console-core-internal-programs.workspace = true
 console-core-words.workspace = true
 console-response-times.workspace = true
 

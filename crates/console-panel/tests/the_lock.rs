@@ -1,15 +1,15 @@
-//! Only one chooser is ever up, and it is the last one asked for.
+//! Only one picker is ever up, and it is the last one asked for.
 //!
 //! The menu is on a button, on a paddle and on a key; the settings are on a
 //! button and on four of the bar's icons. Every one of those roads starts a
-//! process that knows nothing about the others, and two choosers at once take
+//! process that knows nothing about the others, and two pickers at once take
 //! each other's controller profile: the second to open claims it, the first to
 //! close hands the desktop's buttons back while the other is still on screen.
 //! Since both are drawn in the same place, backing out of one leaves you
-//! looking at what appears to be the same chooser refusing to close.
+//! looking at what appears to be the same picker refusing to close.
 //!
 //! Turning the second one away instead would be worse in the one case that
-//! matters: the bar is reachable with a finger while a chooser is up, and an
+//! matters: the bar is reachable with a finger while a picker is up, and an
 //! icon that does nothing at all reads as a broken bar. So the one on screen
 //! goes. Ask through the door it came out of and nothing replaces it, which is
 //! how a finger closes a panel it opened from the bar.
@@ -19,15 +19,12 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-const OTHER: &str = env!("CARGO_BIN_EXE_second-chooser");
+const OTHER: &str = env!("CARGO_BIN_EXE_second-picker");
 
 const PATIENCE: Duration = Duration::from_secs(5);
 
 fn runtime(what: &str) -> PathBuf {
-    let here = std::env::temp_dir().join(format!("console-lock-{}-{what}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&here);
-    std::fs::create_dir_all(&here).expect("somewhere to keep a lock");
-    here
+    console_core_temporary_directories::fresh(&format!("lock-{what}")).expect("somewhere to keep a lock")
 }
 
 fn already_up(runtime: &Path, name: &str) -> Child {
@@ -52,7 +49,7 @@ fn holding(runtime: &Path, how: &str, name: &str) -> Child {
         .env("XDG_RUNTIME_DIR", runtime)
         .stdout(Stdio::piped())
         .spawn()
-        .expect("a chooser");
+        .expect("a picker");
     let mut said = String::new();
     BufReader::new(child.stdout.take().expect("its voice"))
         .read_line(&mut said)
@@ -70,7 +67,7 @@ fn asking(runtime: &Path, how: &str, name: &str) -> String {
     String::from_utf8_lossy(&done.stdout).trim().to_string()
 }
 
-fn gone(up: &mut Child) -> bool {
+fn ended(up: &mut Child) -> bool {
     let by = Instant::now() + PATIENCE;
     while Instant::now() < by {
         if up.try_wait().is_ok_and(|ended| ended.is_some()) {
@@ -87,15 +84,15 @@ fn the_door_that_opened_it_closes_it() {
     let runtime = runtime("same-door");
     let mut up = already_up(&runtime, "settings Sound");
     assert_eq!(asking(&runtime, "ask", "settings Sound"), "no");
-    assert!(gone(&mut up), "the panel that was up is still up");
+    assert!(ended(&mut up), "the panel that was up is still up");
 }
 
 #[test]
 fn a_door_that_names_no_tab_is_still_the_door_it_came_out_of() {
     let runtime = runtime("no-tab");
-    let mut up = already_up(&runtime, "notices ");
-    assert_eq!(asking(&runtime, "ask", "notices "), "no");
-    assert!(gone(&mut up), "the bell opened again the panel it had just put away");
+    let mut up = already_up(&runtime, "notifications ");
+    assert_eq!(asking(&runtime, "ask", "notifications "), "no");
+    assert!(ended(&mut up), "the bell opened again the panel it had just put away");
 }
 
 #[test]
@@ -103,7 +100,7 @@ fn another_door_takes_its_place() {
     let runtime = runtime("other-door");
     let mut up = already_up(&runtime, "settings Sound");
     assert_eq!(asking(&runtime, "ask", "settings Battery"), "yes");
-    assert!(gone(&mut up), "two panels are up at once");
+    assert!(ended(&mut up), "two panels are up at once");
 }
 
 #[test]
@@ -124,14 +121,14 @@ fn the_one_that_holds_it_may_ask_twice() {
 }
 
 #[test]
-fn a_chooser_that_dies_does_not_keep_the_lock() {
+fn a_picker_that_dies_does_not_keep_the_lock() {
     let runtime = runtime("died");
     assert_eq!(asking(&runtime, "ask", "menu"), "yes");
     assert_eq!(asking(&runtime, "ask", "menu"), "yes");
 }
 
 #[test]
-fn a_chooser_on_its_way_is_left_to_come() {
+fn a_picker_on_its_way_is_left_to_come() {
     let runtime = runtime("coming");
     let mut coming = on_its_way(&runtime, "menu");
     assert_eq!(asking(&runtime, "ask", "menu"), "no");
@@ -143,7 +140,7 @@ fn a_chooser_on_its_way_is_left_to_come() {
 }
 
 #[test]
-fn a_chooser_whose_window_has_gone_hands_the_screen_over() {
+fn a_picker_whose_window_has_gone_hands_the_screen_over() {
     let runtime = runtime("going");
     let mut last = going(&runtime, "menu");
     assert_eq!(asking(&runtime, "ask", "menu"), "yes");
@@ -152,7 +149,7 @@ fn a_chooser_whose_window_has_gone_hands_the_screen_over() {
 }
 
 #[test]
-fn a_chooser_that_never_draws_is_taken_over() {
+fn a_picker_that_never_draws_is_taken_over() {
     let runtime = runtime("stuck");
     let mut never = stuck(&runtime, "menu");
     assert_eq!(asking(&runtime, "ask", "menu"), "yes");

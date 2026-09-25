@@ -12,7 +12,7 @@ fn silent() {
     counted();
 }
 
-// GOOD — the discard is a decision somebody wrote down.
+// GOOD — the discard is a decision someone wrote down.
 fn deliberate() {
     let _ = counted();
 }

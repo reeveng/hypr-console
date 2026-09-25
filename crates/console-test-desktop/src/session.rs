@@ -10,7 +10,7 @@
 //!
 //! What this used to do was watch the runtime directory for a `wayland-` name
 //! that had not been there before, which is only sound about a compositor
-//! nobody killed. libwayland takes the lowest name whose lock is free and
+//! no one killed. libwayland takes the lowest name whose lock is free and
 //! unlinks whatever socket is sitting on it, so a compositor that was killed
 //! leaves its name in that directory for good -- and killing one is exactly
 //! what this does to a session it decides never came up. The next session
@@ -34,7 +34,7 @@ use std::time::Duration;
 
 use console_core_external_programs::Program;
 use console_core_never::Never;
-use console_waiting::Patience;
+use console_waiting::Schedule;
 
 use crate::{runtime, stages};
 
@@ -117,7 +117,7 @@ fn until<T>(
     patience: Duration,
     mut look: impl FnMut() -> Option<T>,
 ) -> Result<Option<T>, Never> {
-    let Ok(patience) = Patience::asking_every(patience, BREATH);
+    let Ok(patience) = Schedule::asking_every(patience, BREATH);
 
     console_waiting::found_handed(patience, &mut look, |look| Ok(look()))
 }
@@ -148,20 +148,20 @@ pub const A_LINE: Duration = Duration::from_secs(15);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Wrote {
-    Something,
-    Nothing,
+    Some,
+    None,
 }
 
-pub fn lines(at: &Path) -> Result<usize, Never> {
-    Ok(match std::fs::read(at) {
-        Ok(read) => read.iter().filter(|byte| **byte == b'\n').count(),
-        Err(_fault) => NOT_A_LINE,
-    })
+pub fn lines(at: &Path) -> Result<u64, Never> {
+    match std::fs::read(at) {
+        Ok(read) => console_core_number_conversion::fitted(read.iter().filter(|byte| **byte == b'\n').count()),
+        Err(_fault) => Ok(NOT_A_LINE),
+    }
 }
 
-const NOT_A_LINE: usize = 0;
+const NOT_A_LINE: u64 = 0;
 
-pub fn wait_for_more_than(at: &Path, already: usize, patience: Duration) -> Result<Wrote, Never> {
+pub fn wait_for_more_than(at: &Path, already: u64, patience: Duration) -> Result<Wrote, Never> {
     let Ok(found) = until(patience, || {
         let Ok(now) = lines(at);
 
@@ -172,8 +172,8 @@ pub fn wait_for_more_than(at: &Path, already: usize, patience: Duration) -> Resu
     });
 
     Ok(match found {
-        Some(()) => Wrote::Something,
-        None => Wrote::Nothing,
+        Some(()) => Wrote::Some,
+        None => Wrote::None,
     })
 }
 
@@ -242,7 +242,7 @@ pub fn abandoned() -> Result<Vec<PathBuf>, Never> {
     dylint_lib = "explicit029_no_asking_per_item",
     allow(
         explicit029_no_asking_per_item,
-        reason = "a compositor is asked whether it is still there one at a time because there is nobody to ask about all of them at once, and the list is the sessions left behind on this machine"
+        reason = "a compositor is asked whether it is still there one at a time because there is no one to ask about all of them at once, and the list is the sessions left behind on this machine"
     )
 )]
 pub fn dead_instances() -> Result<Vec<PathBuf>, Never> {

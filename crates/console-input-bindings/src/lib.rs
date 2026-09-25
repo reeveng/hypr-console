@@ -7,7 +7,7 @@
 //! So the shape of an answer lives here, and each input's own vocabulary stays
 //! with the thing that understands it -- `console_input_gamepad::vocabulary`
 //! for what is on the front of the machine, [`keys`] for what is under
-//! somebody's fingers.
+//! someone's fingers.
 //!
 //! A binding is an input, whatever is held, and the one thing pressed. It is
 //! written the way it is said -- `l2 + right-paddle-bottom` on the pad, and
@@ -17,7 +17,7 @@
 //! written down here, because a person moving a job onto a key is not choosing
 //! between a daemon and a compositor.
 //!
-//! The other half is [`moved`], which is the file in somebody's home holding
+//! The other half is [`moved`], which is the file in someone's home holding
 //! only what they moved. Both halves are shared by four programs -- the daemon
 //! matches presses against them, the setup screen writes them, the card reads a
 //! press into one, and the guide says them out loud -- and a copy of either in
@@ -32,7 +32,7 @@ pub mod keys;
 pub mod moved;
 
 pub use bound::{Binding, Fits, Input, NOTHING, Played};
-pub use moved::{Jobs, Moved, NAMED, Rebound, path_in};
+pub use moved::{Tasks, Moved, NAMED, Rebound, path_in};
 
 #[derive(Debug)]
 pub enum Unbound {

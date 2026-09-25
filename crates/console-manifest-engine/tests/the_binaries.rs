@@ -1,9 +1,9 @@
 //! What a program in `[build]` is called, and which crate it came out of.
 //!
 //! There are two kinds of name in that list and only one of them ever had a
-//! rule. A binary is named for what somebody types is true of `console` itself
+//! rule. A binary is named for what someone types is true of `console` itself
 //! and of the handful a person reaches for by hand, and false of `bar-clock`,
-//! `home-square`, `panel-pictures` and `files-thumbs`, which nobody has ever
+//! `home-square`, `panel-pictures` and `files-thumbs`, which no one has ever
 //! typed: they are reached for by a unit, by the bar's configuration, by a
 //! keybinding or by another program of ours. With no rule covering them each
 //! was named by whoever wrote it, which is the whole of why `[build]` reads
@@ -32,6 +32,9 @@
 //! the rest. That is the same half a name test always leaves behind, and it is
 //! the reason the crate rule is a walk rather than a lint.
 
+mod reading;
+
+use reading::section;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -47,24 +50,6 @@ fn root() -> PathBuf {
 
 fn manifest() -> String {
     std::fs::read_to_string(root().join("desktop.conf")).expect("desktop.conf")
-}
-
-fn section(held: &str, wanted: &str) -> Vec<String> {
-    held.lines()
-        .map(|line| line.split('#').next().unwrap_or("").trim())
-        .filter(|line| !line.is_empty())
-        .fold((Vec::new(), None), |(mut out, at), line| {
-            match line.strip_prefix('[').and_then(|rest| rest.strip_suffix(']')) {
-                Some(name) => (out, Some(name.to_string())),
-                None => {
-                    if at.as_deref() == Some(wanted) {
-                        out.push(line.split_whitespace().next().unwrap_or("").to_string());
-                    }
-                    (out, at)
-                }
-            }
-        })
-        .0
 }
 
 fn built_by() -> BTreeMap<String, String> {

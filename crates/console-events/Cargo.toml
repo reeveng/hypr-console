@@ -28,13 +28,19 @@ console-onscreen.workspace = true
 # What reaches for the pool again when it has gone, on both sides, and what
 # reaches for a source that has stopped saying anything.
 console-core-reconnect.workspace = true
-# A source that is somebody else's program is named here rather than spelled at
+# A source that is someone else's program is named here rather than spelled at
 # the call site.
 console-core-external-programs.workspace = true
 # `alongside`, so a source dies with the pool that is the only thing holding
 # it. A pool that left a `pactl subscribe` behind would be the fault this crate
 # exists to end, committed by the crate itself.
 console-program-lifetime.workspace = true
+# A byte count held at a width that says how far it can go, and taken off a
+# `len()` by name rather than read at whatever width the machine is.
+console-core-number-conversion.workspace = true
+# inotify, which is what a folder being watched is. The kernel already says
+# when a file changes, and rustix is already how this tree asks it things.
+rustix.workspace = true
 
 [lints]
 workspace = true

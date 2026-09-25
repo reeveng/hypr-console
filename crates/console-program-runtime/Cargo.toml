@@ -16,7 +16,7 @@ console-core-atomic-writes.workspace = true
 console-program-contract.workspace = true
 # What a program is allowed to name when it wants something run.
 console-core-external-programs.workspace = true
-# A child started on somebody's behalf is theirs, and is never ended by us.
+# A child started on someone's behalf is theirs, and is never ended by us.
 console-program-lifetime.workspace = true
 # The error of a program that cannot have one of its own.
 console-core-never.workspace = true

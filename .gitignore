@@ -10,6 +10,7 @@ desktop.png
 # The lint suite is a workspace of its own, so it builds into a target of its
 # own, on a nightly of its own. Nothing built is kept here either.
 /tools/explicit-rust/target/
+/tools/rename-words/target/
 
 # Where the sessions working on this tree keep their state, and where each of
 # them puts a worktree of its own -- so this directory contains whole checkouts
@@ -22,7 +23,7 @@ desktop.png
 .claude/
 
 # The device this checkout talks to, set by direnv on entering the directory.
-# An address is somebody's machine; the tree does not carry one.
+# An address is someone's machine; the tree does not carry one.
 .envrc
 .direnv/
 
@@ -33,7 +34,7 @@ desktop.png
 # rather than anything the desktop is made of. What this tree owes a reader is
 # README.md and docs/, which argue in public and are held to it -- a second
 # account of the same decisions, kept beside them and read by something else,
-# is the arrangement where the two come to disagree and nobody finds out.
+# is the arrangement where the two come to disagree and no one finds out.
 #
 # It is also the only file here that would name the device by model. Everything
 # published says what the machine is because the buttons are named for it;

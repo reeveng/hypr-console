@@ -6,7 +6,7 @@
 //! no file manager and no terminal means putting a file in a directory and
 //! being told what happened to it.
 //!
-//! Adding is the part worth explaining. `wallpaper-press` does the work, and what
+//! Adding is the part worth explaining. `wallpaper-render` does the work, and what
 //! it does is not copying: a picture is decoded, brought into this palette, cut to
 //! the shape of this screen, and written out as something that rests and then
 //! stirs. So the row does not say "copy" and it does not say "import", it says
@@ -17,7 +17,7 @@
 //! would show without a machine to ask.
 
 use console_core_never::Never;
-use console_panel::page::{Aside, Does, NOW, Row};
+use console_panel::page::{Aside, Handler, NOW, Row};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Offered {
@@ -50,15 +50,15 @@ pub struct Found<'a> {
     pub pictures: &'a [Offered],
     pub following: bool,
     pub up: &'a str,
-    pub dropped: usize,
+    pub dropped: u32,
 }
 
 pub fn wallpaper_rows(
     found: &Found<'_>,
-    follow: impl Fn(bool) -> Does,
-    show: impl Fn(&str) -> Does,
-    take: Does,
-    find: Does,
+    follow: impl Fn(bool) -> Handler,
+    show: impl Fn(&str) -> Handler,
+    take: Handler,
+    find: Handler,
 ) -> Result<Vec<Row>, Never> {
     let &Found { pictures, following, up, dropped } = found;
     let Ok(weather) = Row::new(
@@ -118,7 +118,7 @@ pub fn wallpaper_rows(
 
 #[cfg(test)]
 mod tests {
-    use console_panel::page::{Acts, InEffect};
+    use console_panel::page::{Action, Active};
     use super::*;
 
     fn of(name: &str) -> Offered {
@@ -127,19 +127,19 @@ mod tests {
         offered
     }
 
-    fn nothing() -> Does {
-        let Ok(does) = Does::and_stay(|_| ());
+    fn nothing() -> Handler {
+        let Ok(does) = Handler::and_stay(|_| ());
 
         does
     }
 
-    fn now(row: &Row) -> InEffect {
+    fn now(row: &Row) -> Active {
         let Ok(now) = row.now();
 
         now
     }
 
-    fn acts(row: &Row) -> Acts {
+    fn acts(row: &Row) -> Action {
         let Ok(acts) = row.acts();
 
         acts
@@ -156,7 +156,7 @@ mod tests {
         ]
     }
 
-    fn rows(following: bool, up: &str, dropped: usize) -> Vec<Row> {
+    fn rows(following: bool, up: &str, dropped: u32) -> Vec<Row> {
         let set = set();
         let found = Found { pictures: &set, following, up, dropped };
         let Ok(rows) = wallpaper_rows(&found, |_| nothing(), |_| nothing(), nothing(), nothing());
@@ -177,16 +177,16 @@ mod tests {
 
     #[test]
     fn following_the_weather_is_marked_when_it_is_what_is_happening() {
-        assert_eq!(now(&rows(true, "star-ride", 0)[0]), InEffect::Yes);
-        assert_eq!(now(&rows(false, "star-ride", 0)[0]), InEffect::No);
+        assert_eq!(now(&rows(true, "star-ride", 0)[0]), Active::Yes);
+        assert_eq!(now(&rows(false, "star-ride", 0)[0]), Active::No);
     }
 
     #[test]
     fn the_picture_on_the_screen_is_marked_however_it_was_chosen() {
         let following = rows(true, "star-ride", 0);
-        assert_eq!(now(&following[1]), InEffect::Yes, "{:?}", says(&following));
+        assert_eq!(now(&following[1]), Active::Yes, "{:?}", says(&following));
         let pinned = rows(false, "her-own-photo", 0);
-        assert_eq!(now(&pinned[2]), InEffect::Yes, "{:?}", says(&pinned));
+        assert_eq!(now(&pinned[2]), Active::Yes, "{:?}", says(&pinned));
     }
 
     #[test]
@@ -207,7 +207,7 @@ mod tests {
     fn every_row_on_the_tab_does_something() {
         for dropped in [0, 1, 4] {
             for row in rows(true, "star-ride", dropped) {
-                assert_eq!(acts(&row), Acts::Yes, "{:?} does nothing", row.says);
+                assert_eq!(acts(&row), Action::Yes, "{:?} does nothing", row.says);
             }
         }
     }

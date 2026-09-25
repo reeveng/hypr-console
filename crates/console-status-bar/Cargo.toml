@@ -16,10 +16,11 @@ name = "console-bar"
 path = "src/bin/console-bar.rs"
 
 [dependencies]
+console-core-fonts.workspace = true
 console-core-words.workspace = true
 # The palette, in the space it was decided in, and the one reader that says
 # which name it does not spend rather than drawing in black.
-console-core-colour.workspace = true
+console-core-color.workspace = true
 console-core-geometry.workspace = true
 # What workspaces there are and which one you are on, which is the one reading
 # on this bar that was waybar's own.
@@ -37,10 +38,12 @@ console-draw-painting.workspace = true
 # What is playing, for the note beside the sound.
 console-music.workspace = true
 # The panels a tap on this bar opens, named rather than spelled.
-console-core-our-programs.workspace = true
+console-core-internal-programs.workspace = true
 console-program-lifetime.workspace = true
 console-core-external-programs.workspace = true
 console-core-never.workspace = true
+console-battery.workspace = true
+console-defaults.workspace = true
 console-core-number-conversion.workspace = true
 console-core-reconnect.workspace = true
 console-default-applications.workspace = true
@@ -55,7 +58,7 @@ console-events.workspace = true
 # printed, which is the only half of that stretch this repository compiles.
 console-response-times.workspace = true
 # `Topic`, so a reading that has a source in the pool names it rather than
-# spelling out somebody else's program.
+# spelling out someone else's program.
 console-program-contract.workspace = true
 serde_json = "1"
 # The signal an apply sends, blocked and read off a descriptor beside the

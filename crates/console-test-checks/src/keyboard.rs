@@ -4,9 +4,9 @@ use console_core_geometry::Point;
 use std::collections::BTreeSet;
 
 use console_core_never::Never;
-use console_test_stages::checking::{Body, Check, Done, empty, failed, happened};
+use console_test_stages::checking::{Body, Check, CheckResult, empty, failed, happened};
 use console_test_stages::desktop::Desktop;
-use console_test_stages::device::{Device, Seen, Waited};
+use console_test_stages::device::{Device, Ready, Outcome};
 use console_test_stages::palette::palette;
 
 pub const KEYBOARD: Check = Check {
@@ -25,26 +25,26 @@ pub const DRAWS: Check = Check {
     bodies: &[Body::Desktop(draws)],
 };
 
-const ACROSS: (i32, i32, usize) = (20, 1010, 14);
-const DOWN: (i32, i32, usize) = (390, 636, 12);
+const ACROSS: (i32, i32, u32) = (20, 1010, 14);
+const DOWN: (i32, i32, u32) = (390, 636, 12);
 
 const SHADES: [&str; 3] = ["ground", "night", "panel"];
 
-fn away(seen: &mut Device) -> Result<Seen, Never> {
+fn away(seen: &mut Device) -> Result<Ready, Never> {
     let Ok(up) = seen.keyboard();
 
     up.flipped()
 }
 
-fn there(stage: &mut Device) -> Done {
+fn there(stage: &mut Device) -> CheckResult {
     let Ok(up) = stage.keyboard();
 
     match up {
-        Seen::Yes => {
+        Ready::Yes => {
             let Ok(()) = stage.press("x");
             let Ok(_) = stage.until(away, ANSWERS);
         }
-        Seen::NotYet => {}
+        Ready::NotYet => {}
     }
 
     let Ok(()) = stage.press("x");
@@ -58,24 +58,26 @@ fn there(stage: &mut Device) -> Done {
     happened(went, || "the keyboard would not go away".to_string())
 }
 
-fn draws(stage: &mut Desktop) -> Done {
+fn draws(stage: &mut Desktop) -> CheckResult {
     let Ok(wanted) = palette();
 
     stage.open("keyboard-toggle")?;
 
     let mut there = BTreeSet::new();
+    let Ok(across_by) = console_core_number_conversion::index(ACROSS.2);
+    let Ok(down_by) = console_core_number_conversion::index(DOWN.2);
 
-    for across in (ACROSS.0..ACROSS.1).step_by(ACROSS.2) {
-        for down in (DOWN.0..DOWN.1).step_by(DOWN.2) {
-            let colour = stage.colour(Point { across: f64::from(across), down: f64::from(down) })?;
-            there.insert(colour);
+    for across in (ACROSS.0..ACROSS.1).step_by(across_by) {
+        for down in (DOWN.0..DOWN.1).step_by(down_by) {
+            let color = stage.color(Point { x: f64::from(across), y: f64::from(down) })?;
+            there.insert(color);
         }
     }
 
     let missing: Vec<&str> = SHADES
         .into_iter()
         .filter(|name| match wanted.get(*name) {
-            Some(colour) => !there.contains(colour),
+            Some(color) => !there.contains(color),
             None => true,
         })
         .collect();
@@ -97,22 +99,22 @@ pub const EVERY_TIME: Check = Check {
     bodies: &[Body::Device(every_time)],
 };
 
-const RESTARTS: usize = 20;
+const RESTARTS: u32 = 20;
 
 const UP: f64 = 90.0;
 
 const ANSWERS: f64 = 4.0;
 
-fn routing(stage: &mut Device) -> Result<Seen, Never> {
+fn routing(stage: &mut Device) -> Result<Ready, Never> {
     let Ok(worn) = stage.profile();
 
     Ok(match worn.as_str() {
-        "Router" => Seen::Yes,
-        _ => Seen::NotYet,
+        "Router" => Ready::Yes,
+        _ => Ready::NotYet,
     })
 }
 
-fn every_time(stage: &mut Device) -> Done {
+fn every_time(stage: &mut Device) -> CheckResult {
     for round in 1..=RESTARTS {
         let Ok(_) = stage.user("systemctl --user restart console.target");
         let Ok(up) = stage.until(routing, UP);
@@ -127,11 +129,11 @@ fn every_time(stage: &mut Device) -> Done {
         let Ok(already) = stage.keyboard();
 
         match already {
-            Seen::Yes => {
+            Ready::Yes => {
                 let Ok(()) = stage.press("x");
                 let Ok(_) = stage.until(away, ANSWERS);
             }
-            Seen::NotYet => {}
+            Ready::NotYet => {}
         }
 
         let Ok(()) = stage.press("x");
@@ -182,16 +184,16 @@ const OPENS: f64 = 45.0;
 
 const ARRIVES: f64 = 6.0;
 
-fn titled(stage: &mut Device, part: &str) -> Result<Seen, Never> {
+fn titled(stage: &mut Device, part: &str) -> Result<Ready, Never> {
     let Ok(titles) = stage.titles();
 
     Ok(match titles.iter().any(|title| title.contains(part)) {
-        true => Seen::Yes,
-        false => Seen::NotYet,
+        true => Ready::Yes,
+        false => Ready::NotYet,
     })
 }
 
-fn in_a_page(stage: &mut Device) -> Done {
+fn in_a_page(stage: &mut Device) -> CheckResult {
     let Ok(home) = stage.home();
     let at = format!("{home}/.cache/console-keyboard-check.html");
     let Ok(_) = stage.user(&format!("mkdir -p {home}/.cache && printf %s '{PAGE}' > {at}"));
@@ -211,8 +213,8 @@ fn in_a_page(stage: &mut Device) -> Done {
     let Ok(page) = stage.until(|stage| titled(stage, "keyboard-check"), OPENS);
 
     match page {
-        Waited::Happened => {},
-        Waited::RanOut => {
+        Outcome::Happened => {},
+        Outcome::RanOut => {
             let Ok(_) = stage.close_window(&ours);
             let Ok(_) = stage.user(&format!("rm -f {at}"));
 
@@ -226,11 +228,11 @@ fn in_a_page(stage: &mut Device) -> Done {
     let Ok(already) = stage.keyboard();
 
     match already {
-        Seen::Yes => {
+        Ready::Yes => {
             let Ok(()) = stage.press("x");
             let Ok(_) = stage.until(away, ARRIVES);
         }
-        Seen::NotYet => {}
+        Ready::NotYet => {}
     }
 
     let Ok(()) = stage.press("x");

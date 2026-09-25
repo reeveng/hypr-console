@@ -14,7 +14,7 @@
 //! things that are true. A picture for a full-moon winter night beats one for
 //! any winter night, which beats one for any night, which beats one that names
 //! nothing at all. That makes a set easy to grow, because a picture for a case
-//! nobody has covered yet can be added without a line of any other picture
+//! no one has covered yet can be added without a line of any other picture
 //! changing.
 //!
 //! Pictures that are equally particular take turns. The turn is the clock cut
@@ -22,20 +22,23 @@
 //! next of the same standing takes it from there, and the set of them comes
 //! round again by the end of the day. That is what makes a set worth growing
 //! sideways as well as downwards: a second picture for a clear summer day is
-//! half of the clear summer days rather than a picture nobody ever sees.
+//! half of the clear summer days rather than a picture no one ever sees.
 //!
 //! Which of them goes first is the order they are written down in. It is
-//! arbitrary, and it is arbitrary in a way somebody can see and reorder, which
+//! arbitrary, and it is arbitrary in a way someone can see and reorder, which
 //! is more than picking at random would give them.
 
 
-use console_core_atomic_writes::Held;
+use std::path::PathBuf;
+
+use console_core_atomic_writes::Stored;
 use console_core_never::Never;
-use console_core_number_conversion::{fitted, toward_zero_u64};
+use console_core_number_conversion::{fitted, index, toward_zero_u64};
 use crate::moon::Moon;
-use crate::press::Stir;
+use crate::render::Stir;
 use crate::sun::{Season, Sky};
-use crate::weather::Weather;
+use console_weather::conditions::Weather;
+use console_weather::here::Where;
 
 const NONE_OF_THEM: u64 = 0;
 
@@ -59,6 +62,16 @@ pub struct Outside {
     pub season: Season,
     pub moon: Moon,
     pub weather: Option<Weather>,
+}
+
+impl Outside {
+    pub fn at(here: &Where, seconds: f64, weather: Option<Weather>) -> Result<Outside, Never> {
+        let Ok(moon) = crate::moon::moon(seconds);
+        let Ok(season) = crate::sun::season(here, seconds);
+        let Ok(sky) = crate::sun::sky(here, seconds);
+
+        Ok(Outside { sky, season, moon, weather })
+    }
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -145,10 +158,10 @@ impl Picture {
         Ok(Answers::Yes)
     }
 
-    fn particular(&self, outside: &Outside) -> Result<usize, Never> {
+    fn particular(&self, outside: &Outside) -> Result<u32, Never> {
         let against = self.against(outside)?;
 
-        Ok(against.iter().filter(|(list, _)| !list.is_empty()).count())
+        fitted(against.iter().filter(|(list, _)| !list.is_empty()).count())
     }
 }
 
@@ -161,7 +174,7 @@ pub struct Set {
 }
 
 fn standing<'a>(pictures: &'a [Picture], outside: &Outside) -> Result<Vec<&'a Picture>, Never> {
-    let mut answering: Vec<(&Picture, usize)> = Vec::new();
+    let mut answering: Vec<(&Picture, u32)> = Vec::new();
 
     for picture in pictures {
         let answers = picture.answers(outside)?;
@@ -194,13 +207,13 @@ pub fn choose<'a>(
     turn: Turn,
 ) -> Result<Option<&'a Picture>, Never> {
     let standing = standing(pictures, outside)?;
-    let Ok(count) = fitted::<usize, u64>(standing.len().max(1));
+    let Ok(count) = fitted::<_, u64>(standing.len().max(1));
     let round = match turn.0.checked_rem(count) {
         Some(round) => round,
         None => NONE_OF_THEM,
     };
 
-    let Ok(at) = fitted::<u64, usize>(round);
+    let Ok(at) = index(round);
 
     Ok(standing.get(at).copied())
 }
@@ -253,9 +266,9 @@ impl Wanted {
         let Ok(said) = console_core_atomic_writes::read(&at);
 
         match said {
-            Held::Said(held) => Wanted::read(&held),
-            Held::Nothing => Ok(Wanted::default()),
-            Held::Unreadable(fault) => {
+            Stored::Text(held) => Wanted::read(&held),
+            Stored::Absent => Ok(Wanted::default()),
+            Stored::Failed(fault) => {
                 eprintln!("console-wallpaper: {}: {fault}", at.display());
 
                 Ok(Wanted::default())
@@ -280,6 +293,38 @@ pub fn pinned<'a>(pictures: &'a [Picture], asked: &Wanted) -> Result<Option<&'a 
         true => None,
         false => pictures.iter().find(|picture| picture.name == asked.picture),
     })
+}
+
+pub fn still(outside: &Outside, turn: Turn) -> Result<Option<PathBuf>, Never> {
+    let Ok(table) = crate::place::table();
+    let Ok(held) = console_core_atomic_writes::read(&table);
+
+    let set = match held {
+        Stored::Text(held) => Set::read(&held)?,
+        Stored::Absent => None,
+        Stored::Failed(fault) => {
+            eprintln!("console-wallpaper: {}: {fault}", table.display());
+
+            None
+        }
+    };
+
+    let set = match set {
+        Some(set) => set,
+        None => return Ok(None),
+    };
+
+    let chosen = choose(&set.pictures, outside, turn)?;
+
+    let found = match chosen.or_else(|| set.pictures.first()) {
+        Some(picture) => crate::place::picture(&picture.name)?,
+        None => None,
+    };
+
+    Ok(found.map(|(moving, still)| match still.is_file() {
+        true => still,
+        false => moving,
+    }))
 }
 
 pub fn wanted<'a>(
@@ -430,7 +475,7 @@ mod tests {
     #[test]
     fn a_sunset_and_the_dusk_after_it_are_different_outsides() {
         let mut golden = picture("golden", &["sunrise", "sunset"], &[]);
-        golden.by = "nobody".to_string();
+        golden.by = "no one".to_string();
         let set = vec![picture("terrarium", &[], &[]), golden];
         assert_eq!(
             chosen(&set, &outside(Sky::Sunset, None), FIRST).expect("a picture").name,

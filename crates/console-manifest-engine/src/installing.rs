@@ -1,13 +1,13 @@
 //! What pacman says while it installs, read for how far it has got.
 //!
-//! The packages stretch is nothing on almost every apply and minutes on the one
-//! after somebody adds a package, and for those minutes the line under it did
+//! The packages stage is nothing on almost every apply and minutes on the one
+//! after someone adds a package, and for those minutes the line under it did
 //! not move: pacman was told to be quiet, its output went to the terminal
 //! unread, and nothing here knew whether it was fetching, unpacking or hung.
 //!
 //! Pacman is read instead of guessed at. Two of the lines it prints say where
 //! it is and both are stable enough to lean on -- ` name downloading...` while
-//! it fetches, which is the shape it takes when nobody is watching it from a
+//! it fetches, which is the shape it takes when no one is watching it from a
 //! terminal, and `(2/3) installing name` while it writes, which carries its own
 //! count and its own total. Everything else it says is passed through to the
 //! screen and counted as nothing: the keyring, the integrity check and the file
@@ -23,7 +23,7 @@
 use console_core_never::Never;
 
 use console_how_far as how_far;
-use console_how_far::Far;
+use console_how_far::Progress;
 
 pub const FETCHING: f64 = 0.5;
 
@@ -31,71 +31,71 @@ const VERBS: [&str; 5] =
     ["installing", "upgrading", "reinstalling", "downgrading", "removing"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Said {
-    Fetching(String),
-    Doing { done: usize, many: usize, name: String },
-    Nothing,
+pub enum PacmanOutput {
+    Downloading(String),
+    Installing { done: u32, many: u32, name: String },
+    Other,
 }
 
-pub fn said(line: &str) -> Result<Said, Never> {
+pub fn said(line: &str) -> Result<PacmanOutput, Never> {
     let Ok(plain) = how_far::plain(line);
     let said = plain.trim();
 
-    let fetching = match said.strip_suffix("downloading...") {
-        Some(fetching) => fetching,
+    let downloading = match said.strip_suffix("downloading...") {
+        Some(downloading) => downloading,
         None => return counted(said),
     };
 
-    Ok(Said::Fetching(fetching.trim().to_string()))
+    Ok(PacmanOutput::Downloading(downloading.trim().to_string()))
 }
 
-fn counted(said: &str) -> Result<Said, Never> {
+fn counted(said: &str) -> Result<PacmanOutput, Never> {
     let rest = match said.strip_prefix('(') {
         Some(rest) => rest,
-        None => return Ok(Said::Nothing),
+        None => return Ok(PacmanOutput::Other),
     };
 
     let (count, doing) = match rest.split_once(')') {
         Some((count, doing)) => (count, doing),
-        None => return Ok(Said::Nothing),
+        None => return Ok(PacmanOutput::Other),
     };
 
     let (done, many) = match count.split_once('/') {
         Some((done, many)) => (done, many),
-        None => return Ok(Said::Nothing),
+        None => return Ok(PacmanOutput::Other),
     };
 
-    let done = match done.trim().parse::<usize>() {
+    let done = match done.trim().parse::<u32>() {
         Ok(done) => done,
-        Err(_fault) => return Ok(Said::Nothing),
+        Err(_fault) => return Ok(PacmanOutput::Other),
     };
 
-    let many = match many.trim().parse::<usize>() {
+    let many = match many.trim().parse::<u32>() {
         Ok(many) => many,
-        Err(_fault) => return Ok(Said::Nothing),
+        Err(_fault) => return Ok(PacmanOutput::Other),
     };
 
     let doing = doing.trim();
 
     let verb = match VERBS.iter().find(|verb| doing.starts_with(*verb)) {
         Some(verb) => verb,
-        None => return Ok(Said::Nothing),
+        None => return Ok(PacmanOutput::Other),
     };
 
-    Ok(Said::Doing {
+    Ok(PacmanOutput::Installing {
         done,
         many,
         name: doing.trim_start_matches(*verb).trim().to_string(),
     })
 }
 
-pub fn fetched(far: Far) -> Result<f64, Never> {
+pub fn fetched(far: Progress) -> Result<f64, Never> {
     let Ok(part) = how_far::fraction(far);
 
     Ok(part * FETCHING)
 }
 
-pub fn done(far: Far) -> Result<f64, Never> {
+pub fn done(far: Progress) -> Result<f64, Never> {
     let Ok(part) = how_far::fraction(far);
 
     Ok(FETCHING + part * (1.0 - FETCHING))
@@ -105,7 +105,7 @@ pub fn done(far: Far) -> Result<f64, Never> {
 mod tests {
     use super::*;
 
-    fn read(line: &str) -> Said {
+    fn read(line: &str) -> PacmanOutput {
         let Ok(said) = said(line);
 
         said
@@ -115,11 +115,11 @@ mod tests {
     fn the_line_that_names_a_package_being_written_carries_its_own_count() {
         assert_eq!(
             read("(2/3) installing console-fonts"),
-            Said::Doing { done: 2, many: 3, name: "console-fonts".to_string() }
+            PacmanOutput::Installing { done: 2, many: 3, name: "console-fonts".to_string() }
         );
         assert_eq!(
             read("( 7/12) upgrading linux-firmware"),
-            Said::Doing { done: 7, many: 12, name: "linux-firmware".to_string() }
+            PacmanOutput::Installing { done: 7, many: 12, name: "linux-firmware".to_string() }
         );
     }
 
@@ -132,23 +132,23 @@ mod tests {
             "(3/3) checking for file conflicts",
             "(1/1) checking available disk space",
         ] {
-            assert_eq!(read(line), Said::Nothing, "{line} was counted");
+            assert_eq!(read(line), PacmanOutput::Other, "{line} was counted");
         }
     }
 
     #[test]
-    fn the_line_pacman_prints_when_nobody_is_watching_it_names_a_download() {
+    fn the_line_pacman_prints_when_no_one_is_watching_it_names_a_download() {
         assert_eq!(
             read(" linux-firmware-20240909.1-1-any downloading..."),
-            Said::Fetching("linux-firmware-20240909.1-1-any".to_string())
+            PacmanOutput::Downloading("linux-firmware-20240909.1-1-any".to_string())
         );
     }
 
     #[test]
-    fn what_it_says_in_colour_is_read_the_same_as_what_it_says_plain() {
+    fn what_it_says_in_color_is_read_the_same_as_what_it_says_plain() {
         assert_eq!(
             read("\u{1b}[0;1m(2/3)\u{1b}[0m installing console-fonts"),
-            Said::Doing { done: 2, many: 3, name: "console-fonts".to_string() }
+            PacmanOutput::Installing { done: 2, many: 3, name: "console-fonts".to_string() }
         );
     }
 
@@ -163,21 +163,21 @@ mod tests {
             "(x/3) installing nothing",
             "(1/) installing nothing",
         ] {
-            assert_eq!(read(line), Said::Nothing, "{line:?} was read as progress");
+            assert_eq!(read(line), PacmanOutput::Other, "{line:?} was read as progress");
         }
     }
 
     #[test]
     fn fetching_has_the_first_half_and_writing_the_second() {
-        assert_eq!(fetched(Far { done: 0, many: 4 }), Ok(0.0));
-        assert_eq!(fetched(Far { done: 4, many: 4 }), Ok(FETCHING));
-        assert_eq!(done(Far { done: 0, many: 4 }), Ok(FETCHING));
-        assert_eq!(done(Far { done: 4, many: 4 }), Ok(1.0));
+        assert_eq!(fetched(Progress { done: 0, many: 4 }), Ok(0.0));
+        assert_eq!(fetched(Progress { done: 4, many: 4 }), Ok(FETCHING));
+        assert_eq!(done(Progress { done: 0, many: 4 }), Ok(FETCHING));
+        assert_eq!(done(Progress { done: 4, many: 4 }), Ok(1.0));
     }
 
     #[test]
-    fn a_stretch_with_no_packages_in_it_divides_by_nothing_and_says_nothing() {
-        assert_eq!(fetched(Far { done: 0, many: 0 }), Ok(0.0));
-        assert_eq!(done(Far { done: 0, many: 0 }), Ok(FETCHING));
+    fn a_stage_with_no_packages_in_it_divides_by_nothing_and_says_nothing() {
+        assert_eq!(fetched(Progress { done: 0, many: 0 }), Ok(0.0));
+        assert_eq!(done(Progress { done: 0, many: 0 }), Ok(FETCHING));
     }
 }

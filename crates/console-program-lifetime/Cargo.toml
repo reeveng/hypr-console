@@ -12,7 +12,9 @@ path = "src/lib.rs"
 [dependencies]
 console-core-never.workspace = true
 console-core-external-programs.workspace = true
-libc = "0.2"
+
+[dev-dependencies]
+console-waiting.workspace = true
 
 [lints]
 workspace = true

@@ -1,31 +1,31 @@
 //! How far into the build cargo has got, from what it says while it does it.
 //!
-//! Building is sixty of an apply's hundred and it is one stretch, so the strip
+//! Building is sixty of an apply's hundred and it is one stage, so the strip
 //! under the bar stood at ten per cent for the whole of the longest thing an
 //! apply does and then jumped to seventy. A bar that does not move for two
-//! minutes is a bar that says nothing at all: somebody standing over the device
+//! minutes is a bar that says nothing at all: someone standing over the device
 //! cannot tell an apply that is compiling from an apply that has hung, which is
 //! the one question the strip exists to answer.
 //!
 //! Cargo says what it is doing as it does it -- a line per crate it starts --
 //! so the apply reads those as they go past and moves the strip on each one.
-//! The line is read through `how_far::plain`, because cargo is asked for colour
+//! The line is read through `how_far::plain`, because cargo is asked for color
 //! when a person is watching and the word it is being read for arrives wrapped
-//! in escapes on exactly the runs where somebody is looking at the bar.
+//! in escapes on exactly the runs where someone is looking at the bar.
 //!
-//! # Why it does not count towards a total
+//! # Why it does not count toward a total
 //!
-//! Because there is no honest total to count towards. How many crates a build
+//! Because there is no honest total to count toward. How many crates a build
 //! compiles depends on what is already built, which depends on what changed,
 //! and asking cargo in advance means running the whole resolver twice. What is
 //! remembered from the last apply is no better: the apply that matters is the
-//! one after somebody edited one file, and the one after somebody bumped a
+//! one after someone edited one file, and the one after someone bumped a
 //! dependency, and those two builds are twenty crates apart.
 //!
 //! So it moves and it does not pretend. Each crate carries the strip a share of
-//! what is left of the stretch, so it always moves forward, moves most at the
+//! what is left of the stage, so it always moves forward, moves most at the
 //! start where a person is deciding whether anything is happening, and never
-//! reaches the end of the stretch before the stretch is over. The end is not a
+//! reaches the end of the stage before the stage is over. The end is not a
 //! guess: it arrives when the build does.
 
 use console_core_never::Never;
@@ -99,11 +99,11 @@ mod tests {
     }
 
     #[test]
-    fn a_crate_started_in_colour_is_the_same_crate() {
+    fn a_crate_started_in_color_is_the_same_crate() {
         assert_eq!(
             names("\u{1b}[0m\u{1b}[1m\u{1b}[32m   Compiling\u{1b}[0m console-panel v0.1.0"),
             Names::ACrate("console-panel".to_string()),
-            "cargo colours its own output and the line stopped being read"
+            "cargo colors its own output and the line stopped being read"
         );
     }
 
@@ -129,7 +129,7 @@ mod tests {
     }
 
     #[test]
-    fn it_never_reaches_the_end_of_the_stretch_on_its_own() {
+    fn it_never_reaches_the_end_of_the_stage_on_its_own() {
         assert!(along(1_000_000.0) < 1.0);
         assert!(along(60.0) < 0.8, "it spends its last quarter too early");
     }

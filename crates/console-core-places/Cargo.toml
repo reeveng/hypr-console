@@ -10,6 +10,7 @@ name = "console_core_places"
 path = "src/lib.rs"
 
 [dependencies]
+console-core-atomic-writes.workspace = true
 console-core-never.workspace = true
 console-core-words.workspace = true
 

@@ -2,7 +2,7 @@
 //!
 //! Everything `console-say` is called from is a loop of some kind: a service
 //! that restarts, a daemon that comes round every five minutes, an apply that
-//! walks a list. The first few notifications tell somebody something is wrong.
+//! walks a list. The first few notifications tell someone something is wrong.
 //! The two hundredth is a machine shouting over itself, and the way that ends
 //! is with notifications turned off and the fault still there.
 //!
@@ -22,22 +22,22 @@ use std::process::Command;
 use console_core_external_programs::Program;
 
 const SAY: &str = env!("CARGO_BIN_EXE_console-say");
-const FELL: &str = env!("CARGO_BIN_EXE_console-fell");
+const REPORT_CRASH: &str = env!("CARGO_BIN_EXE_console-report-crash");
 
-const LOUD: usize = 5;
+const LOUD: u32 = 5;
 
-struct Listening {
+struct Subscriber {
     here: PathBuf,
 }
 
-impl Listening {
+impl Subscriber {
     fn new(named: &str) -> Self {
         let named = format!("legion-saying-{named}-{}", std::process::id());
         let here = std::env::temp_dir().join(named);
         let _ = std::fs::remove_dir_all(&here);
         std::fs::create_dir_all(here.join("bin")).expect("somewhere to listen");
         std::fs::create_dir_all(here.join("run")).expect("somewhere to count");
-        let listening = Listening { here };
+        let listening = Subscriber { here };
         listening.stub("notify-send", "shown");
         let Ok(logger) = Program::Logger.name();
 
@@ -55,7 +55,7 @@ impl Listening {
         std::fs::set_permissions(&at, std::fs::Permissions::from_mode(0o755)).expect("runnable");
     }
 
-    fn run(&self, program: &str, argv: &[&str], result: Option<&str>) {
+    fn run(&self, program: &str, arguments: &[&str], result: Option<&str>) {
         let path = format!(
             "{}:{}",
             self.here.join("bin").display(),
@@ -63,7 +63,7 @@ impl Listening {
         );
         let mut running = Command::new(program);
         running
-            .args(argv)
+            .args(arguments)
             .env("PATH", path)
             .env("XDG_RUNTIME_DIR", self.here.join("run"));
         if let Some(result) = result {
@@ -76,15 +76,12 @@ impl Listening {
         self.run(SAY, &[kind, summary, "the body"], None);
     }
 
-    fn counted(&self, what: &str) -> usize {
-        std::fs::read_to_string(self.here.join(what))
-            .unwrap_or_default()
-            .lines()
-            .count()
+    fn counted(&self, what: &str) -> u32 {
+        u32::try_from(std::fs::read_to_string(self.here.join(what)).unwrap_or_default().lines().count()).unwrap()
     }
 }
 
-impl Drop for Listening {
+impl Drop for Subscriber {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.here);
     }
@@ -92,7 +89,7 @@ impl Drop for Listening {
 
 #[test]
 fn a_fault_that_keeps_happening_is_shown_a_few_times_and_written_down_every_time() {
-    let listening = Listening::new("again");
+    let listening = Subscriber::new("again");
     for _ in 0..LOUD + 3 {
         listening.say("wallpaper-choice", "The wallpaper was not changed");
     }
@@ -102,7 +99,7 @@ fn a_fault_that_keeps_happening_is_shown_a_few_times_and_written_down_every_time
 
 #[test]
 fn the_last_one_shown_says_that_it_is_the_last() {
-    let listening = Listening::new("last");
+    let listening = Subscriber::new("last");
     for _ in 0..LOUD {
         listening.say("wallpaper-choice", "The wallpaper was not changed");
     }
@@ -116,7 +113,7 @@ fn the_last_one_shown_says_that_it_is_the_last() {
 
 #[test]
 fn two_kinds_of_fault_are_counted_apart() {
-    let listening = Listening::new("kinds");
+    let listening = Subscriber::new("kinds");
     for _ in 0..LOUD {
         listening.say("wallpaper-choice", "The wallpaper was not changed");
     }
@@ -126,16 +123,16 @@ fn two_kinds_of_fault_are_counted_apart() {
 
 #[test]
 fn a_service_that_was_asked_to_stop_says_nothing() {
-    let listening = Listening::new("clean");
-    listening.run(FELL, &["console-paper.service"], Some("success"));
+    let listening = Subscriber::new("clean");
+    listening.run(REPORT_CRASH, &["console-paper.service"], Some("success"));
     assert_eq!(listening.counted("shown"), 0);
     assert_eq!(listening.counted("written"), 0);
 }
 
 #[test]
 fn a_service_that_fell_over_says_which_one_it_was() {
-    let listening = Listening::new("fell");
-    listening.run(FELL, &["console-paper.service"], Some("core-dump"));
+    let listening = Subscriber::new("crash");
+    listening.run(REPORT_CRASH, &["console-paper.service"], Some("core-dump"));
     let shown = std::fs::read_to_string(listening.here.join("shown")).expect("something shown");
     assert!(
         shown.contains("console-paper.service"),

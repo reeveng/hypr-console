@@ -12,7 +12,7 @@
 //! suggests and not what most pads do. It is written down here rather than
 //! remembered.
 //!
-//! Keys are here for one reason and it is worth knowing before somebody widens
+//! Keys are here for one reason and it is worth knowing before someone widens
 //! it. InputPlumber holds a keyboard of its own, and a chord sent to it is a
 //! key event from a real device -- which is the only way anything here can
 //! press a key the compositor's binds will answer, because a Wayland client
@@ -29,9 +29,9 @@
 use std::str::FromStr;
 
 use console_core_never::Never;
-use evdev::{AbsoluteAxisCode, KeyCode};
+use console_input_event_devices::{AbsoluteAxisCode, KeyCode};
 
-use crate::Unpressed;
+use crate::GamepadError;
 
 pub const BUTTON: &str = "Gamepad:Button:";
 pub const AXIS: &str = "Gamepad:Axis:";
@@ -205,19 +205,19 @@ pub enum Names {
     AButton,
 }
 
-pub fn key_code(name: &str) -> Result<KeyCode, Unpressed> {
+pub fn key_code(name: &str) -> Result<KeyCode, GamepadError> {
     let tail = name
         .strip_prefix("Key")
-        .ok_or_else(|| Unpressed::NotAKeyName(name.to_string()))?;
+        .ok_or_else(|| GamepadError::NotAKeyName(name.to_string()))?;
 
     KeyCode::from_str(&format!("KEY_{}", tail.to_uppercase()))
-        .map_err(|_| Unpressed::NoSuchKey(name.to_string()))
+        .map_err(|_| GamepadError::NoSuchKey(name.to_string()))
 }
 
-pub fn button_name(spoken: &str) -> Result<&'static str, Unpressed> {
+pub fn button_name(spoken: &str) -> Result<&'static str, GamepadError> {
     let Ok(found) = found(&BUTTONS, spoken);
 
-    found.ok_or_else(|| Unpressed::NoSuchButton(spoken.to_string()))
+    found.ok_or_else(|| GamepadError::NoSuchButton(spoken.to_string()))
 }
 
 pub fn spoken_for(profile_name: &str) -> Result<&str, Never> {

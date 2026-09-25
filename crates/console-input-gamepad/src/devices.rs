@@ -10,9 +10,9 @@ use console_core_never::Never;
 use console_core_number_conversion::whole_i32;
 use std::collections::BTreeMap;
 
-use evdev::EventType;
+use console_input_event_devices::EventType;
 
-use crate::Unpressed;
+use crate::GamepadError;
 use crate::capture::{Axis, Descriptor};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -104,7 +104,7 @@ impl<S: Sink> Devices<S> {
         Ok(())
     }
 
-    pub fn axis(&self, role: &str, code: u16) -> Result<Axis, Unpressed> {
+    pub fn axis(&self, role: &str, code: u16) -> Result<Axis, GamepadError> {
         let held = match self.descriptors.get(role) {
             Some(found) => {
                 let Ok(axis) = found.axis(code);
@@ -114,10 +114,10 @@ impl<S: Sink> Devices<S> {
             None => None,
         };
 
-        held.ok_or_else(|| Unpressed::NoAxis(role.to_string(), code))
+        held.ok_or_else(|| GamepadError::NoAxis(role.to_string(), code))
     }
 
-    pub fn absolute(&self, role: &str, code: u16, amount: f64) -> Result<i32, Unpressed> {
+    pub fn absolute(&self, role: &str, code: u16, amount: f64) -> Result<i32, GamepadError> {
         let axis = self.axis(role, code)?;
 
         let Ok(span) = axis.span();
@@ -127,7 +127,7 @@ impl<S: Sink> Devices<S> {
         Ok(along)
     }
 
-    pub fn along(&self, role: &str, code: u16, amount: f64) -> Result<i32, Unpressed> {
+    pub fn along(&self, role: &str, code: u16, amount: f64) -> Result<i32, GamepadError> {
         let axis = self.axis(role, code)?;
 
         let Ok(along) =

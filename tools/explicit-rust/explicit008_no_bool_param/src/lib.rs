@@ -28,7 +28,7 @@ fn hir_ty_is_bool(ty: &Ty<'_>) -> bool {
 }
 
 // Tests are exempt. A test that panics is a test that fails, which is what a
-// test is for, and `as` in a fixture is arithmetic nobody ships. `opts.test`
+// test is for, and `as` in a fixture is arithmetic no one ships. `opts.test`
 // is true only for the harness build of a target -- the ordinary build of the
 // same library is linted as production, so nothing real is lost by skipping
 // this one.
@@ -37,7 +37,7 @@ fn is_test_build(cx: &LateContext<'_>) -> bool {
 }
 
 // A method that implements a trait did not choose its own signature. The rule
-// is about a choice, and in an impl of somebody else's trait there is none:
+// is about a choice, and in an impl of someone else's trait there is none:
 // `PartialEq::eq` answers with a `bool` because the trait says it does, and a
 // type that wants to be compared has no other way to say so. The place the
 // choice was made is the trait, which is where the rule is worth asking.

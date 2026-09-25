@@ -18,7 +18,7 @@
 //! program a running service is executing goes on being the program it is
 //! executing, and putting it back is another rename rather than a restore. A
 //! copy would be a second file that merely resembles it, and the day the two
-//! stopped resembling each other is the day nobody could tell.
+//! stopped resembling each other is the day no one could tell.
 
 use std::path::{Path, PathBuf};
 
@@ -49,8 +49,8 @@ pub fn kept(live: &Path) -> Result<Option<PathBuf>, Never> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Back {
-    Kept,
-    Gone,
+    Retained,
+    Closed,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -214,9 +214,9 @@ mod tests {
 
     #[test]
     fn undoing_a_file_that_replaced_nothing_removes_it() {
-        let laid = Laid { at: "/usr/local/bin/new-thing".into(), back: Back::Gone };
+        let laid = Laid { at: "/usr/local/bin/new-thing".into(), back: Back::Closed };
         assert_eq!(undoing(std::slice::from_ref(&laid)), vec![&laid]);
-        assert_eq!(laid.back, Back::Gone);
+        assert_eq!(laid.back, Back::Closed);
     }
 
     #[test]
@@ -306,10 +306,10 @@ mod tests {
             }
             let coming = self.waiting.remove(live).expect("something staged");
             let back = match self.on.insert(live.to_string(), coming) {
-                None => Back::Gone,
+                None => Back::Closed,
                 Some(was) => {
                     self.aside.insert(live.to_string(), was);
-                    Back::Kept
+                    Back::Retained
                 }
             };
             Ok(back)
@@ -324,11 +324,11 @@ mod tests {
                 false => {},
             }
             match laid.back {
-                Back::Kept => {
+                Back::Retained => {
                     let was = self.aside.remove(&laid.at).expect("something kept");
                     self.on.insert(laid.at.clone(), was);
                 }
-                Back::Gone => {
+                Back::Closed => {
                     self.on.remove(&laid.at);
                 }
             }
@@ -347,8 +347,8 @@ mod tests {
 
         fn standing(&self, live: &str) -> Back {
             match self.on.contains_key(live) {
-                true => Back::Kept,
-                false => Back::Gone,
+                true => Back::Retained,
+                false => Back::Closed,
             }
         }
 
@@ -506,8 +506,8 @@ mod tests {
         assert_eq!(
             paper.noted,
             [
-                Laid { at: "/bin/one".into(), back: Back::Kept },
-                Laid { at: "/bin/two".into(), back: Back::Gone },
+                Laid { at: "/bin/one".into(), back: Back::Retained },
+                Laid { at: "/bin/two".into(), back: Back::Closed },
             ]
         );
     }
@@ -515,8 +515,8 @@ mod tests {
     #[test]
     fn the_plan_says_which_files_replaced_something_and_which_replaced_nothing() {
         let paper = machine_with(&[("/bin/one", "old one")]);
-        assert_eq!(paper.standing("/bin/one"), Back::Kept);
-        assert_eq!(paper.standing("/bin/two"), Back::Gone);
+        assert_eq!(paper.standing("/bin/one"), Back::Retained);
+        assert_eq!(paper.standing("/bin/two"), Back::Closed);
     }
 
     #[test]
@@ -551,8 +551,8 @@ mod tests {
     #[test]
     fn an_apply_is_undone_in_the_order_it_was_done_in_reversed() {
         let laid = [
-            Laid { at: "/usr/local/bin/one".into(), back: Back::Kept },
-            Laid { at: "/usr/local/bin/two".into(), back: Back::Gone },
+            Laid { at: "/usr/local/bin/one".into(), back: Back::Retained },
+            Laid { at: "/usr/local/bin/two".into(), back: Back::Closed },
         ];
         let order: Vec<&str> = undoing(&laid).iter().map(|one| one.at.as_str()).collect();
         assert_eq!(order, ["/usr/local/bin/two", "/usr/local/bin/one"]);

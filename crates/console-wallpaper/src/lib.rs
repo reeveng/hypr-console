@@ -1,10 +1,10 @@
 //! The sky: which wallpaper is up, and why.
 //!
-//! One picture on the screen all day is a picture nobody sees after the first
+//! One picture on the screen all day is a picture no one sees after the first
 //! week. This chooses between several, by the hour and by the weather outside,
 //! and hands the answer to the wallpaper daemon.
 //!
-//! `grade` is how somebody else's picture is brought into this palette.
+//! `grade` is how someone else's picture is brought into this palette.
 //!
 //! One fault for the crate, because one wallpaper walks all of it: a picture is
 //! fetched, decoded frame by frame through ffmpeg, graded into the palette and
@@ -20,40 +20,37 @@ use std::path::PathBuf;
 pub mod choose;
 pub mod covered;
 pub mod grade;
-pub mod here;
 pub mod keeping;
 pub mod loops;
 pub mod moon;
 pub mod palette;
 pub mod place;
-pub mod press;
+pub mod render;
 pub mod source;
 pub mod sun;
-pub mod weather;
 pub mod webp;
 
 #[derive(Debug)]
 pub enum Unpainted {
-    NoColour(String),
-    NoColours,
+    NoColor(String),
+    NoColors,
     NotTheRamp,
-    NothingPressed,
-    Unreadable(PathBuf, std::io::Error),
+    NothingRendered,
+    Read(PathBuf, std::io::Error),
     Holding(PathBuf, std::io::Error),
     NoCurl(std::io::Error),
     Unfetched(String, String),
     Unplaced(PathBuf, std::io::Error),
-    ChunkTooBig(usize),
+    ChunkTooBig(u64),
     NotASide(i32),
     CutShort,
-    ChunkTooLong,
     NoPicture,
     NoFfmpeg(std::io::Error),
     NoPipeOut,
     NoPipeIn,
     Stopped(std::io::Error),
     Unfinished(std::io::Error),
-    Refused(PathBuf, String),
+    Rejected(PathBuf, String),
     RefusedAFrame(String),
     DecodedToNothing(PathBuf),
     Untaken(std::io::Error),
@@ -62,15 +59,15 @@ pub enum Unpainted {
 impl fmt::Display for Unpainted {
     fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Unpainted::NoColour(name) => write!(to, "the palette names no {name}"),
-            Unpainted::NoColours => {
-                write!(to, "theme/report.md holds no colours; run `just theme`")
+            Unpainted::NoColor(name) => write!(to, "the palette names no {name}"),
+            Unpainted::NoColors => {
+                write!(to, "theme/report.md holds no colors; run `just theme`")
             }
             Unpainted::NotTheRamp => {
-                write!(to, "the ramp is not the colours it is made of")
+                write!(to, "the ramp is not the colors it is made of")
             }
-            Unpainted::NothingPressed => write!(to, "nothing was pressed"),
-            Unpainted::Unreadable(at, fault) => {
+            Unpainted::NothingRendered => write!(to, "nothing was rendered"),
+            Unpainted::Read(at, fault) => {
                 write!(to, "{} could not be read: {fault}", at.display())
             }
             Unpainted::Holding(at, fault) => {
@@ -88,17 +85,13 @@ impl fmt::Display for Unpainted {
                 write!(to, "{pixels} is not a size a WebP can hold")
             }
             Unpainted::CutShort => write!(to, "that WebP is cut short"),
-            Unpainted::ChunkTooLong => write!(
-                to,
-                "that WebP holds a chunk longer than this machine can address"
-            ),
             Unpainted::NoPicture => write!(to, "that WebP holds no picture"),
             Unpainted::NoFfmpeg(fault) => write!(to, "ffmpeg would not run: {fault}"),
             Unpainted::NoPipeOut => write!(to, "ffmpeg gave no pipe"),
             Unpainted::NoPipeIn => write!(to, "ffmpeg took no pipe"),
             Unpainted::Stopped(fault) => write!(to, "ffmpeg stopped talking: {fault}"),
             Unpainted::Unfinished(fault) => write!(to, "ffmpeg would not finish: {fault}"),
-            Unpainted::Refused(source, said) => {
+            Unpainted::Rejected(source, said) => {
                 write!(to, "ffmpeg refused {}: {said}", source.display())
             }
             Unpainted::RefusedAFrame(said) => write!(to, "ffmpeg refused a frame: {said}"),

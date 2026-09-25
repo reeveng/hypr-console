@@ -184,11 +184,10 @@ mod tests {
             latin.bytes.contains("xkb_symbols"),
             "the serialised keymap has no symbols section"
         );
-        let total: usize = keymaps.iter().map(|k| k.bytes.len()).sum();
         eprintln!(
             "xkb keymaps: {} layers, {} bytes total",
             keymaps.len(),
-            total
+            keymaps.iter().map(|k| u64::try_from(k.bytes.len()).unwrap()).sum::<u64>()
         );
     }
 }

@@ -20,11 +20,11 @@
 //! **Everything is read and only what this desktop sends is written.** A
 //! notification carries a dictionary of hints whose values are variants, and a
 //! variant is whatever the sender felt like putting inside one -- a byte, a
-//! list of bytes, a structure of four integers naming a colour. So the reader
+//! list of bytes, a structure of four integers naming a color. So the reader
 //! has to know the whole of the type system in order to walk past a hint it
 //! does not care about, and a reader that met an unknown one by stopping would
-//! be a notification daemon that dropped a card because somebody else's
-//! program had an opinion about its colour. The writer knows only what leaves
+//! be a notification daemon that dropped a card because someone else's
+//! program had an opinion about its color. The writer knows only what leaves
 //! here: an id, a pair of ids, a list of words, four words, and the variants
 //! the header itself is made of.
 //!
@@ -43,12 +43,11 @@
 //! type.
 
 use std::fmt;
-use std::str::Chars;
 
 use console_core_never::Never;
-use console_core_number_conversion::fitted;
+use console_core_number_conversion::{fitted, index};
 
-pub const HEAD: usize = 16;
+pub const HEAD: u32 = 16;
 
 const LITTLE: u8 = b'l';
 
@@ -65,8 +64,8 @@ pub enum Order {
 }
 
 impl Order {
-    pub fn marked(said: u8) -> Result<Option<Order>, Never> {
-        Ok(match said {
+    pub fn marked(marker: u8) -> Result<Option<Order>, Never> {
+        Ok(match marker {
             LITTLE => Some(Order::Little),
             BIG => Some(Order::Big),
             _ => None,
@@ -83,7 +82,7 @@ pub enum Edge {
 }
 
 impl Edge {
-    fn wide(self) -> Result<usize, Never> {
+    fn size(self) -> Result<u32, Never> {
         Ok(match self {
             Edge::One => 1,
             Edge::Two => 2,
@@ -98,7 +97,7 @@ pub enum Kind {
     #[default]
     Call,
     Answer,
-    Fault,
+    ErrorReply,
     Signal,
 }
 
@@ -107,7 +106,7 @@ impl Kind {
         Ok(match self {
             Kind::Call => 1,
             Kind::Answer => 2,
-            Kind::Fault => 3,
+            Kind::ErrorReply => 3,
             Kind::Signal => 4,
         })
     }
@@ -116,7 +115,7 @@ impl Kind {
         Ok(match code {
             1 => Some(Kind::Call),
             2 => Some(Kind::Answer),
-            3 => Some(Kind::Fault),
+            3 => Some(Kind::ErrorReply),
             4 => Some(Kind::Signal),
             _ => None,
         })
@@ -171,7 +170,7 @@ pub enum Truth {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum Said {
+pub enum Value {
     Byte(u8),
     Truth(Truth),
     Signed16(i16),
@@ -184,75 +183,89 @@ pub enum Said {
     Word(String),
     Path(String),
     Shape(String),
-    List(Vec<Said>),
-    Group(Vec<Said>),
-    Held { shape: String, said: Box<Said> },
+    List(Vec<Value>),
+    Group(Vec<Value>),
+    Variant { shape: String, value: Box<Value> },
 }
 
-impl Said {
-    pub fn word(said: &str) -> Result<Said, Never> {
-        Ok(Said::Word(said.to_string()))
+impl Value {
+    pub fn word(text: &str) -> Result<Value, Never> {
+        Ok(Value::Word(text.to_string()))
     }
 
-    pub fn held(shape: &str, said: Said) -> Result<Said, Never> {
-        Ok(Said::Held { shape: shape.to_string(), said: Box::new(said) })
+    pub fn held(shape: &str, value: Value) -> Result<Value, Never> {
+        Ok(Value::Variant { shape: shape.to_string(), value: Box::new(value) })
     }
 
-    pub fn saying(&self) -> Result<Option<&str>, Never> {
-        Ok(match self {
-            Said::Word(said) | Said::Path(said) | Said::Shape(said) => Some(said),
-            Said::Held { said, .. } => return said.saying(),
-            Said::Byte(_)
-            | Said::Truth(_)
-            | Said::Signed16(_)
-            | Said::Unsigned16(_)
-            | Said::Signed32(_)
-            | Said::Unsigned32(_)
-            | Said::Signed64(_)
-            | Said::Unsigned64(_)
-            | Said::Fraction(_)
-            | Said::List(_)
-            | Said::Group(_) => None,
+    fn unheld(&self) -> Result<&Value, Never> {
+        let mut here = self;
+
+        while let Value::Variant { value, .. } = here {
+            here = value;
+        }
+
+        Ok(here)
+    }
+
+    pub fn text(&self) -> Result<Option<&str>, Never> {
+        let Ok(here) = self.unheld();
+
+        Ok(match here {
+            Value::Word(text) | Value::Path(text) | Value::Shape(text) => Some(text),
+            Value::Variant { .. }
+            | Value::Byte(_)
+            | Value::Truth(_)
+            | Value::Signed16(_)
+            | Value::Unsigned16(_)
+            | Value::Signed32(_)
+            | Value::Unsigned32(_)
+            | Value::Signed64(_)
+            | Value::Unsigned64(_)
+            | Value::Fraction(_)
+            | Value::List(_)
+            | Value::Group(_) => None,
         })
     }
 
-    pub fn listed(&self) -> Result<Option<&[Said]>, Never> {
-        Ok(match self {
-            Said::List(held) => Some(held),
-            Said::Held { said, .. } => return said.listed(),
-            Said::Byte(_)
-            | Said::Truth(_)
-            | Said::Signed16(_)
-            | Said::Unsigned16(_)
-            | Said::Signed32(_)
-            | Said::Unsigned32(_)
-            | Said::Signed64(_)
-            | Said::Unsigned64(_)
-            | Said::Fraction(_)
-            | Said::Word(_)
-            | Said::Path(_)
-            | Said::Shape(_)
-            | Said::Group(_) => None,
+    pub fn listed(&self) -> Result<Option<&[Value]>, Never> {
+        let Ok(here) = self.unheld();
+
+        Ok(match here {
+            Value::List(held) => Some(held),
+            Value::Variant { .. }
+            | Value::Byte(_)
+            | Value::Truth(_)
+            | Value::Signed16(_)
+            | Value::Unsigned16(_)
+            | Value::Signed32(_)
+            | Value::Unsigned32(_)
+            | Value::Signed64(_)
+            | Value::Unsigned64(_)
+            | Value::Fraction(_)
+            | Value::Word(_)
+            | Value::Path(_)
+            | Value::Shape(_)
+            | Value::Group(_) => None,
         })
     }
 
-    pub fn pair(&self) -> Result<Option<(&Said, &Said)>, Never> {
+    pub fn pair(&self) -> Result<Option<(&Value, &Value)>, Never> {
         let held = match self {
-            Said::Group(held) => held,
-            Said::Byte(_)
-            | Said::Truth(_)
-            | Said::Signed16(_)
-            | Said::Unsigned16(_)
-            | Said::Signed32(_)
-            | Said::Unsigned32(_)
-            | Said::Signed64(_)
-            | Said::Unsigned64(_)
-            | Said::Fraction(_)
-            | Said::Word(_)
-            | Said::Path(_)
-            | Said::Shape(_)
-            | Said::List(_)
-            | Said::Held { .. } => return Ok(None),
+            Value::Group(held) => held,
+            Value::Byte(_)
+            | Value::Truth(_)
+            | Value::Signed16(_)
+            | Value::Unsigned16(_)
+            | Value::Signed32(_)
+            | Value::Unsigned32(_)
+            | Value::Signed64(_)
+            | Value::Unsigned64(_)
+            | Value::Fraction(_)
+            | Value::Word(_)
+            | Value::Path(_)
+            | Value::Shape(_)
+            | Value::List(_)
+            | Value::Variant { .. } => return Ok(None),
         };
 
         Ok(match (held.first(), held.get(1)) {
@@ -262,32 +275,34 @@ impl Said {
     }
 
     pub fn counted(&self) -> Result<Option<i64>, Never> {
-        Ok(match self {
-            Said::Byte(said) => Some(i64::from(*said)),
-            Said::Signed16(said) => Some(i64::from(*said)),
-            Said::Unsigned16(said) => Some(i64::from(*said)),
-            Said::Signed32(said) => Some(i64::from(*said)),
-            Said::Unsigned32(said) => Some(i64::from(*said)),
-            Said::Signed64(said) => Some(*said),
-            Said::Unsigned64(said) => {
-                let Ok(said) = fitted::<u64, i64>(*said);
+        let Ok(here) = self.unheld();
 
-                Some(said)
+        Ok(match here {
+            Value::Byte(value) => Some(i64::from(*value)),
+            Value::Signed16(value) => Some(i64::from(*value)),
+            Value::Unsigned16(value) => Some(i64::from(*value)),
+            Value::Signed32(value) => Some(i64::from(*value)),
+            Value::Unsigned32(value) => Some(i64::from(*value)),
+            Value::Signed64(value) => Some(*value),
+            Value::Unsigned64(value) => {
+                let Ok(value) = fitted::<u64, i64>(*value);
+
+                Some(value)
             }
-            Said::Held { said, .. } => return said.counted(),
-            Said::Truth(_)
-            | Said::Fraction(_)
-            | Said::Word(_)
-            | Said::Path(_)
-            | Said::Shape(_)
-            | Said::List(_)
-            | Said::Group(_) => None,
+            Value::Variant { .. }
+            | Value::Truth(_)
+            | Value::Fraction(_)
+            | Value::Word(_)
+            | Value::Path(_)
+            | Value::Shape(_)
+            | Value::List(_)
+            | Value::Group(_) => None,
         })
     }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum Torn {
+pub enum Error {
     Short,
     Shape(char),
     Order(u8),
@@ -298,97 +313,152 @@ pub enum Torn {
     Mismatched(char),
 }
 
-impl fmt::Display for Torn {
+impl fmt::Display for Error {
     fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Torn::Short => write!(to, "the message stops in the middle of a value"),
-            Torn::Shape(head) => write!(to, "a signature this reads nothing for: {head}"),
-            Torn::Order(said) => write!(to, "a byte order that is neither l nor B: {said}"),
-            Torn::Version(said) => write!(to, "a protocol this does not speak: {said}"),
-            Torn::Kind(said) => write!(to, "a kind of message with no name here: {said}"),
-            Torn::Unterminated => write!(to, "a string with no nul after it"),
-            Torn::NotUtf8 => write!(to, "a string that is not utf-8"),
-            Torn::Mismatched(head) => write!(to, "a value that is not the {head} its signature promised"),
+            Error::Short => write!(to, "the message stops in the middle of a value"),
+            Error::Shape(head) => write!(to, "a signature this reads nothing for: {head}"),
+            Error::Order(value) => write!(to, "a byte order that is neither l nor B: {value}"),
+            Error::Version(value) => write!(to, "a protocol this does not speak: {value}"),
+            Error::Kind(value) => write!(to, "a kind of message with no name here: {value}"),
+            Error::Unterminated => write!(to, "a string with no nul after it"),
+            Error::NotUtf8 => write!(to, "a string that is not utf-8"),
+            Error::Mismatched(head) => write!(to, "a value that is not the {head} its signature promised"),
         }
     }
 }
 
-impl std::error::Error for Torn {}
+impl std::error::Error for Error {}
 
-fn edge(head: char) -> Result<Edge, Torn> {
+fn edge(head: char) -> Result<Edge, Error> {
     Ok(match head {
         'y' | 'g' | 'v' => Edge::One,
         'n' | 'q' => Edge::Two,
         'b' | 'i' | 'u' | 's' | 'o' | 'a' | 'h' => Edge::Four,
         'x' | 't' | 'd' | '(' | '{' => Edge::Eight,
-        other => return Err(Torn::Shape(other)),
+        other => return Err(Error::Shape(other)),
     })
 }
 
-fn onward(shape: &mut Chars<'_>) -> Result<(), Torn> {
-    let head = match shape.next() {
-        Some(head) => head,
-        None => return Err(Torn::Short),
-    };
+#[derive(Clone, Debug)]
+struct Walk {
+    rest: Vec<char>,
+}
 
-    match head {
-        'a' => onward(shape),
-        '(' => onward_past(shape, ')'),
-        '{' => onward_past(shape, '}'),
+impl Walk {
+    fn over(shape: &str) -> Result<Walk, Never> {
+        let mut rest: Vec<char> = shape.chars().collect();
+        rest.reverse();
 
-        other => {
-            let _ = edge(other)?;
+        Ok(Walk { rest })
+    }
 
-            Ok(())
+    fn head(&mut self) -> Result<char, Error> {
+        match self.rest.pop() {
+            Some(head) => Ok(head),
+            None => Err(Error::Short),
         }
     }
 }
 
-fn onward_past(shape: &mut Chars<'_>, close: char) -> Result<(), Torn> {
+impl Iterator for Walk {
+    type Item = char;
+
+    fn next(&mut self) -> Option<char> {
+        self.rest.pop()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Opening {
+    List,
+    Group(char),
+}
+
+fn onward(shape: &mut Walk) -> Result<(), Error> {
+    let mut open: Vec<Opening> = Vec::new();
+
     loop {
-        let head = match shape.clone().next() {
-            Some(head) => head,
-            None => return Err(Torn::Short),
-        };
+        let head = shape.head()?;
 
-        match head == close {
-            true => {
-                let _ = shape.next();
+        match head {
+            'a' => open.push(Opening::List),
+            '(' => open.push(Opening::Group(')')),
+            '{' => open.push(Opening::Group('}')),
 
-                return Ok(());
+            other => {
+                match open.last() == Some(&Opening::Group(other)) {
+                    true => {
+                        let _ = open.pop();
+                    }
+                    false => {
+                        let _ = edge(other)?;
+                    }
+                }
+
+                while open.last() == Some(&Opening::List) {
+                    let _ = open.pop();
+                }
+
+                match open.is_empty() {
+                    true => return Ok(()),
+                    false => {}
+                }
             }
-            false => onward(shape)?,
         }
     }
+}
+
+#[derive(Clone, Debug)]
+enum ReadFrame {
+    Body,
+    List { element: Walk, end: u32 },
+    Group { close: char },
+    Variant { shape: String },
+}
+
+struct Reads {
+    frame: ReadFrame,
+    walking: Walk,
+    held: Vec<Value>,
+}
+
+enum ReadStep {
+    Opened(Reads),
+    Read(Value),
+    Closed,
 }
 
 struct Reading<'a> {
     bytes: &'a [u8],
-    at: usize,
+    at: u32,
     order: Order,
 }
 
 impl<'a> Reading<'a> {
-    fn onto(&mut self, edge: Edge) -> Result<(), Torn> {
-        let Ok(wide) = edge.wide();
+    fn onto(&mut self, edge: Edge) -> Result<(), Error> {
+        let Ok(wide) = edge.size();
 
         self.at = match self.at.checked_next_multiple_of(wide) {
             Some(at) => at,
-            None => return Err(Torn::Short),
+            None => return Err(Error::Short),
         };
 
         Ok(())
     }
 
-    fn taking(&mut self, many: usize) -> Result<&'a [u8], Torn> {
+    fn taking(&mut self, many: u32) -> Result<&'a [u8], Error> {
         let to = match self.at.checked_add(many) {
             Some(to) => to,
-            None => return Err(Torn::Short),
+            None => return Err(Error::Short),
         };
 
-        let taken = match self.bytes.get(self.at..to) {
+        let Ok(from) = index(self.at);
+        let Ok(until) = index(to);
+
+        let taken = match self.bytes.get(from..until) {
             Some(taken) => taken,
-            None => return Err(Torn::Short),
+            None => return Err(Error::Short),
         };
 
         self.at = to;
@@ -396,46 +466,46 @@ impl<'a> Reading<'a> {
         Ok(taken)
     }
 
-    fn byte(&mut self) -> Result<u8, Torn> {
+    fn byte(&mut self) -> Result<u8, Error> {
         let taken = self.taking(1)?;
 
         match taken.first() {
             Some(byte) => Ok(*byte),
-            None => Err(Torn::Short),
+            None => Err(Error::Short),
         }
     }
 
-    fn two(&mut self) -> Result<[u8; 2], Torn> {
+    fn two(&mut self) -> Result<[u8; 2], Error> {
         self.onto(Edge::Two)?;
         let taken = self.taking(2)?;
 
         match <[u8; 2]>::try_from(taken) {
             Ok(taken) => Ok(taken),
-            Err(_fault) => Err(Torn::Short),
+            Err(_fault) => Err(Error::Short),
         }
     }
 
-    fn four(&mut self) -> Result<[u8; 4], Torn> {
+    fn four(&mut self) -> Result<[u8; 4], Error> {
         self.onto(Edge::Four)?;
         let taken = self.taking(4)?;
 
         match <[u8; 4]>::try_from(taken) {
             Ok(taken) => Ok(taken),
-            Err(_fault) => Err(Torn::Short),
+            Err(_fault) => Err(Error::Short),
         }
     }
 
-    fn eight(&mut self) -> Result<[u8; 8], Torn> {
+    fn eight(&mut self) -> Result<[u8; 8], Error> {
         self.onto(Edge::Eight)?;
         let taken = self.taking(8)?;
 
         match <[u8; 8]>::try_from(taken) {
             Ok(taken) => Ok(taken),
-            Err(_fault) => Err(Torn::Short),
+            Err(_fault) => Err(Error::Short),
         }
     }
 
-    fn unsigned32(&mut self) -> Result<u32, Torn> {
+    fn unsigned32(&mut self) -> Result<u32, Error> {
         let taken = self.four()?;
 
         Ok(match self.order {
@@ -444,214 +514,248 @@ impl<'a> Reading<'a> {
         })
     }
 
-    fn word(&mut self) -> Result<String, Torn> {
+    fn word(&mut self) -> Result<String, Error> {
         let many = self.unsigned32()?;
-        let Ok(many) = fitted::<u32, usize>(many);
 
-        self.said(many)
+        self.text(many)
     }
 
-    fn shape(&mut self) -> Result<String, Torn> {
+    fn shape(&mut self) -> Result<String, Error> {
         let many = self.byte()?;
 
-        self.said(usize::from(many))
+        self.text(u32::from(many))
     }
 
-    fn said(&mut self, many: usize) -> Result<String, Torn> {
+    fn text(&mut self, many: u32) -> Result<String, Error> {
         let taken = self.taking(many)?;
-        let said = match std::str::from_utf8(taken) {
-            Ok(said) => said.to_string(),
-            Err(_fault) => return Err(Torn::NotUtf8),
+        let text = match std::str::from_utf8(taken) {
+            Ok(text) => text.to_string(),
+            Err(_fault) => return Err(Error::NotUtf8),
         };
 
         let nul = self.byte()?;
 
         match nul == NUL {
-            true => Ok(said),
-            false => Err(Torn::Unterminated),
+            true => Ok(text),
+            false => Err(Error::Unterminated),
         }
     }
 
-    fn values(&mut self, shape: &str) -> Result<Vec<Said>, Torn> {
-        let mut walking = shape.chars();
-        let mut held: Vec<Said> = Vec::new();
+    fn values(&mut self, shape: &str) -> Result<Vec<Value>, Error> {
+        let Ok(walking) = Walk::over(shape);
+        let mut open = vec![Reads { frame: ReadFrame::Body, walking, held: Vec::new() }];
 
         loop {
-            let head = match walking.next() {
-                Some(head) => head,
-                None => return Ok(held),
+            let top = match open.last_mut() {
+                Some(top) => top,
+                None => return Err(Error::Short),
             };
 
-            let said = self.one(head, &mut walking)?;
+            let step = self.step(top)?;
 
-            held.push(said);
+            match step {
+                ReadStep::Opened(inner) => open.push(inner),
+                ReadStep::Read(value) => top.held.push(value),
+                ReadStep::Closed => {
+                    let finished = closed(&mut open)?;
+
+                    match finished {
+                        Some(held) => return Ok(held),
+                        None => {}
+                    }
+                }
+            }
         }
     }
 
-    fn value(&mut self, shape: &mut Chars<'_>) -> Result<Said, Torn> {
-        let head = match shape.next() {
-            Some(head) => head,
-            None => return Err(Torn::Short),
-        };
+    fn step(&mut self, top: &mut Reads) -> Result<ReadStep, Error> {
+        match &top.frame {
+            ReadFrame::Body => match top.walking.next() {
+                Some(head) => self.one(head, &mut top.walking),
+                None => Ok(ReadStep::Closed),
+            },
+            ReadFrame::Group { close } => {
+                let head = top.walking.head()?;
 
-        self.one(head, shape)
+                match head == *close {
+                    true => Ok(ReadStep::Closed),
+                    false => self.one(head, &mut top.walking),
+                }
+            }
+            ReadFrame::List { element, end } => match self.at.cmp(end) {
+                std::cmp::Ordering::Less => {
+                    top.walking = element.clone();
+                    let head = top.walking.head()?;
+
+                    self.one(head, &mut top.walking)
+                }
+                std::cmp::Ordering::Equal => Ok(ReadStep::Closed),
+                std::cmp::Ordering::Greater => Err(Error::Short),
+            },
+            ReadFrame::Variant { .. } => match top.held.is_empty() {
+                true => {
+                    let head = top.walking.head()?;
+
+                    self.one(head, &mut top.walking)
+                }
+                false => Ok(ReadStep::Closed),
+            },
+        }
     }
 
-    fn one(&mut self, head: char, shape: &mut Chars<'_>) -> Result<Said, Torn> {
+    fn one(&mut self, head: char, shape: &mut Walk) -> Result<ReadStep, Error> {
         match head {
             'y' => {
-                let said = self.byte()?;
+                let value = self.byte()?;
 
-                Ok(Said::Byte(said))
+                Ok(ReadStep::Read(Value::Byte(value)))
             }
             'b' => {
-                let said = self.unsigned32()?;
+                let value = self.unsigned32()?;
 
-                Ok(Said::Truth(match said {
+                Ok(ReadStep::Read(Value::Truth(match value {
                     0 => Truth::No,
                     _ => Truth::Yes,
-                }))
+                })))
             }
             'n' => {
                 let taken = self.two()?;
 
-                Ok(Said::Signed16(match self.order {
+                Ok(ReadStep::Read(Value::Signed16(match self.order {
                     Order::Little => i16::from_le_bytes(taken),
                     Order::Big => i16::from_be_bytes(taken),
-                }))
+                })))
             }
             'q' => {
                 let taken = self.two()?;
 
-                Ok(Said::Unsigned16(match self.order {
+                Ok(ReadStep::Read(Value::Unsigned16(match self.order {
                     Order::Little => u16::from_le_bytes(taken),
                     Order::Big => u16::from_be_bytes(taken),
-                }))
+                })))
             }
             'i' => {
                 let taken = self.four()?;
 
-                Ok(Said::Signed32(match self.order {
+                Ok(ReadStep::Read(Value::Signed32(match self.order {
                     Order::Little => i32::from_le_bytes(taken),
                     Order::Big => i32::from_be_bytes(taken),
-                }))
+                })))
             }
             'u' | 'h' => {
-                let said = self.unsigned32()?;
+                let value = self.unsigned32()?;
 
-                Ok(Said::Unsigned32(said))
+                Ok(ReadStep::Read(Value::Unsigned32(value)))
             }
             'x' => {
                 let taken = self.eight()?;
 
-                Ok(Said::Signed64(match self.order {
+                Ok(ReadStep::Read(Value::Signed64(match self.order {
                     Order::Little => i64::from_le_bytes(taken),
                     Order::Big => i64::from_be_bytes(taken),
-                }))
+                })))
             }
             't' => {
                 let taken = self.eight()?;
 
-                Ok(Said::Unsigned64(match self.order {
+                Ok(ReadStep::Read(Value::Unsigned64(match self.order {
                     Order::Little => u64::from_le_bytes(taken),
                     Order::Big => u64::from_be_bytes(taken),
-                }))
+                })))
             }
             'd' => {
                 let taken = self.eight()?;
 
-                Ok(Said::Fraction(match self.order {
+                Ok(ReadStep::Read(Value::Fraction(match self.order {
                     Order::Little => f64::from_le_bytes(taken),
                     Order::Big => f64::from_be_bytes(taken),
-                }))
+                })))
             }
             's' => {
-                let said = self.word()?;
+                let value = self.word()?;
 
-                Ok(Said::Word(said))
+                Ok(ReadStep::Read(Value::Word(value)))
             }
             'o' => {
-                let said = self.word()?;
+                let value = self.word()?;
 
-                Ok(Said::Path(said))
+                Ok(ReadStep::Read(Value::Path(value)))
             }
             'g' => {
-                let said = self.shape()?;
+                let value = self.shape()?;
 
-                Ok(Said::Shape(said))
+                Ok(ReadStep::Read(Value::Shape(value)))
             }
             'a' => self.list(shape),
             '(' => self.group(shape, ')'),
             '{' => self.group(shape, '}'),
             'v' => {
                 let shape = self.shape()?;
-                let mut walking = shape.chars();
-                let said = self.value(&mut walking)?;
+                let Ok(walking) = Walk::over(&shape);
 
-                Ok(Said::Held { shape, said: Box::new(said) })
+                Ok(ReadStep::Opened(Reads { frame: ReadFrame::Variant { shape }, walking, held: Vec::new() }))
             }
-            other => Err(Torn::Shape(other)),
+            other => Err(Error::Shape(other)),
         }
     }
 
-    fn list(&mut self, shape: &mut Chars<'_>) -> Result<Said, Torn> {
+    fn list(&mut self, shape: &mut Walk) -> Result<ReadStep, Error> {
         let many = self.unsigned32()?;
         let element = shape.clone();
 
         onward(shape)?;
 
-        let head = match element.clone().next() {
-            Some(head) => head,
-            None => return Err(Torn::Short),
-        };
-
+        let head = element.clone().head()?;
         let edge = edge(head)?;
 
         self.onto(edge)?;
 
-        let Ok(many) = fitted::<u32, usize>(many);
-
         let end = match self.at.checked_add(many) {
             Some(end) => end,
-            None => return Err(Torn::Short),
+            None => return Err(Error::Short),
         };
 
-        let mut held: Vec<Said> = Vec::new();
-
-        while self.at < end {
-            let mut walking = element.clone();
-            let said = self.value(&mut walking)?;
-
-            held.push(said);
-        }
-
-        match self.at == end {
-            true => Ok(Said::List(held)),
-            false => Err(Torn::Short),
-        }
+        Ok(ReadStep::Opened(Reads { frame: ReadFrame::List { element, end }, walking: shape.clone(), held: Vec::new() }))
     }
 
-    fn group(&mut self, shape: &mut Chars<'_>, close: char) -> Result<Said, Torn> {
+    fn group(&mut self, shape: &mut Walk, close: char) -> Result<ReadStep, Error> {
         self.onto(Edge::Eight)?;
 
-        let mut held: Vec<Said> = Vec::new();
-
-        loop {
-            let head = match shape.next() {
-                Some(head) => head,
-                None => return Err(Torn::Short),
-            };
-
-            match head == close {
-                true => return Ok(Said::Group(held)),
-                false => {
-                    let said = self.one(head, shape)?;
-
-                    held.push(said);
-                }
-            }
-        }
+        Ok(ReadStep::Opened(Reads { frame: ReadFrame::Group { close }, walking: shape.clone(), held: Vec::new() }))
     }
+}
+
+fn closed(open: &mut Vec<Reads>) -> Result<Option<Vec<Value>>, Error> {
+    let done = match open.pop() {
+        Some(done) => done,
+        None => return Err(Error::Short),
+    };
+
+    let mut held = done.held;
+
+    let (value, walked) = match done.frame {
+        ReadFrame::Body => return Ok(Some(held)),
+        ReadFrame::List { .. } => (Value::List(held), None),
+        ReadFrame::Group { .. } => (Value::Group(held), Some(done.walking)),
+        ReadFrame::Variant { shape } => match held.pop() {
+            Some(value) => (Value::Variant { shape, value: Box::new(value) }, None),
+            None => return Err(Error::Short),
+        },
+    };
+
+    let parent = match open.last_mut() {
+        Some(parent) => parent,
+        None => return Err(Error::Short),
+    };
+
+    match walked {
+        Some(walked) => parent.walking = walked,
+        None => {}
+    }
+
+    parent.held.push(value);
+
+    Ok(None)
 }
 
 struct Writing {
@@ -663,214 +767,280 @@ impl Writing {
         Ok(Writing { bytes: Vec::new() })
     }
 
-    fn pad(&mut self, edge: Edge) -> Result<(), Torn> {
-        let Ok(wide) = edge.wide();
+    fn pad(&mut self, edge: Edge) -> Result<(), Error> {
+        let Ok(wide) = edge.size();
+        let Ok(written) = fitted::<_, u32>(self.bytes.len());
 
-        let to = match self.bytes.len().checked_next_multiple_of(wide) {
+        let to = match written.checked_next_multiple_of(wide) {
             Some(to) => to,
-            None => return Err(Torn::Short),
+            None => return Err(Error::Short),
         };
+
+        let Ok(to) = index(to);
 
         self.bytes.resize(to, NUL);
 
         Ok(())
     }
 
-    fn byte(&mut self, said: u8) -> Result<(), Never> {
-        self.bytes.push(said);
+    fn byte(&mut self, value: u8) -> Result<(), Never> {
+        self.bytes.push(value);
 
         Ok(())
     }
 
-    fn unsigned32(&mut self, said: u32) -> Result<(), Torn> {
+    fn unsigned32(&mut self, value: u32) -> Result<(), Error> {
         self.pad(Edge::Four)?;
-        self.bytes.extend_from_slice(&said.to_le_bytes());
+        self.bytes.extend_from_slice(&value.to_le_bytes());
 
         Ok(())
     }
 
-    fn word(&mut self, said: &str) -> Result<(), Torn> {
-        let Ok(many) = fitted::<usize, u32>(said.len());
+    fn word(&mut self, value: &str) -> Result<(), Error> {
+        let Ok(many) = fitted::<_, u32>(value.len());
 
         self.unsigned32(many)?;
-        self.bytes.extend_from_slice(said.as_bytes());
+        self.bytes.extend_from_slice(value.as_bytes());
         self.bytes.push(NUL);
 
         Ok(())
     }
 
-    fn shape(&mut self, said: &str) -> Result<(), Never> {
-        let Ok(many) = fitted::<usize, u8>(said.len());
+    fn shape(&mut self, value: &str) -> Result<(), Never> {
+        let Ok(many) = fitted::<_, u8>(value.len());
 
         self.bytes.push(many);
-        self.bytes.extend_from_slice(said.as_bytes());
+        self.bytes.extend_from_slice(value.as_bytes());
         self.bytes.push(NUL);
 
         Ok(())
     }
 
-    fn values(&mut self, shape: &str, said: &[Said]) -> Result<(), Torn> {
-        let mut walking = shape.chars();
-        let mut items = said.iter();
+    fn values(&mut self, shape: &str, value: &[Value]) -> Result<(), Error> {
+        let Ok(walking) = Walk::over(shape);
+        let mut open = vec![Writes { frame: WriteFrame::Body, walking, items: value.iter() }];
 
         loop {
-            let head = match walking.next() {
-                Some(head) => head,
-                None => return Ok(()),
+            let top = match open.last_mut() {
+                Some(top) => top,
+                None => return Err(Error::Short),
             };
 
-            let said = match items.next() {
-                Some(said) => said,
-                None => return Err(Torn::Short),
-            };
+            let step = self.step(top)?;
 
-            self.one(head, &mut walking, said)?;
-        }
-    }
+            match step {
+                WriteStep::Opened(inner) => open.push(inner),
+                WriteStep::Wrote => {}
+                WriteStep::Closed => {
+                    let finished = self.closed(&mut open)?;
 
-    fn value(&mut self, shape: &mut Chars<'_>, said: &Said) -> Result<(), Torn> {
-        let head = match shape.next() {
-            Some(head) => head,
-            None => return Err(Torn::Short),
-        };
-
-        self.one(head, shape, said)
-    }
-
-    fn one(&mut self, head: char, shape: &mut Chars<'_>, said: &Said) -> Result<(), Torn> {
-        match (head, said) {
-            ('y', Said::Byte(said)) => {
-                let Ok(()) = self.byte(*said);
-
-                Ok(())
-            }
-            ('b', Said::Truth(said)) => self.unsigned32(match said {
-                Truth::Yes => 1,
-                Truth::No => 0,
-            }),
-            ('n', Said::Signed16(said)) => {
-                self.pad(Edge::Two)?;
-                self.bytes.extend_from_slice(&said.to_le_bytes());
-
-                Ok(())
-            }
-            ('q', Said::Unsigned16(said)) => {
-                self.pad(Edge::Two)?;
-                self.bytes.extend_from_slice(&said.to_le_bytes());
-
-                Ok(())
-            }
-            ('i', Said::Signed32(said)) => {
-                self.pad(Edge::Four)?;
-                self.bytes.extend_from_slice(&said.to_le_bytes());
-
-                Ok(())
-            }
-            ('u', Said::Unsigned32(said)) | ('h', Said::Unsigned32(said)) => self.unsigned32(*said),
-            ('x', Said::Signed64(said)) => {
-                self.pad(Edge::Eight)?;
-                self.bytes.extend_from_slice(&said.to_le_bytes());
-
-                Ok(())
-            }
-            ('t', Said::Unsigned64(said)) => {
-                self.pad(Edge::Eight)?;
-                self.bytes.extend_from_slice(&said.to_le_bytes());
-
-                Ok(())
-            }
-            ('d', Said::Fraction(said)) => {
-                self.pad(Edge::Eight)?;
-                self.bytes.extend_from_slice(&said.to_le_bytes());
-
-                Ok(())
-            }
-            ('s', Said::Word(said)) | ('o', Said::Path(said)) => self.word(said),
-            ('g', Said::Shape(said)) => {
-                let Ok(()) = self.shape(said);
-
-                Ok(())
-            }
-            ('a', Said::List(held)) => self.list(shape, held),
-            ('(', Said::Group(held)) => self.group(shape, held, ')'),
-            ('{', Said::Group(held)) => self.group(shape, held, '}'),
-            ('v', Said::Held { shape, said }) => self.held(shape, said),
-            (head, _said) => Err(Torn::Mismatched(head)),
-        }
-    }
-
-    fn held(&mut self, shape: &str, said: &Said) -> Result<(), Torn> {
-        let Ok(()) = self.shape(shape);
-
-        let mut walking = shape.chars();
-
-        self.value(&mut walking, said)
-    }
-
-    fn list(&mut self, shape: &mut Chars<'_>, held: &[Said]) -> Result<(), Torn> {
-        let element = shape.clone();
-
-        onward(shape)?;
-
-        let head = match element.clone().next() {
-            Some(head) => head,
-            None => return Err(Torn::Short),
-        };
-
-        let edge = edge(head)?;
-
-        self.pad(Edge::Four)?;
-
-        let at = self.bytes.len();
-
-        self.bytes.extend_from_slice(&0u32.to_le_bytes());
-        self.pad(edge)?;
-
-        let from = self.bytes.len();
-
-        for said in held {
-            let mut walking = element.clone();
-
-            self.value(&mut walking, said)?;
-        }
-
-        let many = self.bytes.len().saturating_sub(from);
-        let Ok(many) = fitted::<usize, u32>(many);
-
-        let to = at.saturating_add(4);
-
-        match self.bytes.get_mut(at..to) {
-            Some(room) => room.copy_from_slice(&many.to_le_bytes()),
-            None => return Err(Torn::Short),
-        }
-
-        Ok(())
-    }
-
-    fn group(&mut self, shape: &mut Chars<'_>, held: &[Said], close: char) -> Result<(), Torn> {
-        self.pad(Edge::Eight)?;
-
-        let mut items = held.iter();
-
-        loop {
-            let head = match shape.next() {
-                Some(head) => head,
-                None => return Err(Torn::Short),
-            };
-
-            match head == close {
-                true => return Ok(()),
-                false => {
-                    let said = match items.next() {
-                        Some(said) => said,
-                        None => return Err(Torn::Short),
-                    };
-
-                    self.one(head, shape, said)?;
+                    match finished {
+                        Finished::Whole => return Ok(()),
+                        Finished::Part => {}
+                    }
                 }
             }
         }
     }
+
+    fn step<'v>(&mut self, top: &mut Writes<'v>) -> Result<WriteStep<'v>, Error> {
+        match &top.frame {
+            WriteFrame::Body => match top.walking.next() {
+                Some(head) => {
+                    let value = next_item(&mut top.items)?;
+
+                    self.one(head, &mut top.walking, value)
+                }
+                None => Ok(WriteStep::Closed),
+            },
+            WriteFrame::Group { close } => {
+                let head = top.walking.head()?;
+
+                match head == *close {
+                    true => Ok(WriteStep::Closed),
+                    false => {
+                        let value = next_item(&mut top.items)?;
+
+                        self.one(head, &mut top.walking, value)
+                    }
+                }
+            }
+            WriteFrame::List { element, .. } => match top.items.next() {
+                Some(value) => {
+                    top.walking = element.clone();
+                    let head = top.walking.head()?;
+
+                    self.one(head, &mut top.walking, value)
+                }
+                None => Ok(WriteStep::Closed),
+            },
+            WriteFrame::Variant => match top.items.next() {
+                Some(value) => {
+                    let head = top.walking.head()?;
+
+                    self.one(head, &mut top.walking, value)
+                }
+                None => Ok(WriteStep::Closed),
+            },
+        }
+    }
+
+    fn closed(&mut self, open: &mut Vec<Writes<'_>>) -> Result<Finished, Error> {
+        let done = match open.pop() {
+            Some(done) => done,
+            None => return Err(Error::Short),
+        };
+
+        match done.frame {
+            WriteFrame::Body => return Ok(Finished::Whole),
+            WriteFrame::List { length, .. } => self.counted(length)?,
+            WriteFrame::Group { .. } => match open.last_mut() {
+                Some(parent) => parent.walking = done.walking,
+                None => return Err(Error::Short),
+            },
+            WriteFrame::Variant => {}
+        }
+
+        Ok(Finished::Part)
+    }
+
+    fn one<'v>(&mut self, head: char, shape: &mut Walk, value: &'v Value) -> Result<WriteStep<'v>, Error> {
+        match (head, value) {
+            ('y', Value::Byte(value)) => {
+                let Ok(()) = self.byte(*value);
+
+                Ok(WriteStep::Wrote)
+            }
+            ('b', Value::Truth(value)) => {
+                self.unsigned32(match value {
+                    Truth::Yes => 1,
+                    Truth::No => 0,
+                })?;
+
+                Ok(WriteStep::Wrote)
+            }
+            ('n', Value::Signed16(value)) => self.laid(Edge::Two, &value.to_le_bytes()),
+            ('q', Value::Unsigned16(value)) => self.laid(Edge::Two, &value.to_le_bytes()),
+            ('i', Value::Signed32(value)) => self.laid(Edge::Four, &value.to_le_bytes()),
+            ('u', Value::Unsigned32(value)) | ('h', Value::Unsigned32(value)) => self.laid(Edge::Four, &value.to_le_bytes()),
+            ('x', Value::Signed64(value)) => self.laid(Edge::Eight, &value.to_le_bytes()),
+            ('t', Value::Unsigned64(value)) => self.laid(Edge::Eight, &value.to_le_bytes()),
+            ('d', Value::Fraction(value)) => self.laid(Edge::Eight, &value.to_le_bytes()),
+            ('s', Value::Word(value)) | ('o', Value::Path(value)) => {
+                self.word(value)?;
+
+                Ok(WriteStep::Wrote)
+            }
+            ('g', Value::Shape(value)) => {
+                let Ok(()) = self.shape(value);
+
+                Ok(WriteStep::Wrote)
+            }
+            ('a', Value::List(held)) => self.list(shape, held),
+            ('(', Value::Group(held)) => self.group(shape, held, ')'),
+            ('{', Value::Group(held)) => self.group(shape, held, '}'),
+            ('v', Value::Variant { shape, value }) => {
+                let Ok(()) = self.shape(shape);
+                let Ok(walking) = Walk::over(shape);
+                let items = std::slice::from_ref(value.as_ref()).iter();
+
+                Ok(WriteStep::Opened(Writes { frame: WriteFrame::Variant, walking, items }))
+            }
+            (head, _value) => Err(Error::Mismatched(head)),
+        }
+    }
+
+    fn laid<'v>(&mut self, edge: Edge, bytes: &[u8]) -> Result<WriteStep<'v>, Error> {
+        self.pad(edge)?;
+        self.bytes.extend_from_slice(bytes);
+
+        Ok(WriteStep::Wrote)
+    }
+
+    fn list<'v>(&mut self, shape: &mut Walk, held: &'v [Value]) -> Result<WriteStep<'v>, Error> {
+        let element = shape.clone();
+
+        onward(shape)?;
+
+        let head = element.clone().head()?;
+        let edge = edge(head)?;
+
+        self.pad(Edge::Four)?;
+
+        let Ok(length_at) = fitted::<_, u32>(self.bytes.len());
+
+        self.bytes.extend_from_slice(&0u32.to_le_bytes());
+        self.pad(edge)?;
+
+        let Ok(from) = fitted::<_, u32>(self.bytes.len());
+        let frame = WriteFrame::List { element, length: Length { at: length_at, from } };
+
+        Ok(WriteStep::Opened(Writes { frame, walking: shape.clone(), items: held.iter() }))
+    }
+
+    fn counted(&mut self, length: Length) -> Result<(), Error> {
+        let Length { at: length_at, from } = length;
+        let Ok(written) = fitted::<_, u32>(self.bytes.len());
+        let many = written.saturating_sub(from);
+
+        let to = length_at.saturating_add(4);
+        let Ok(length_at) = index(length_at);
+        let Ok(to) = index(to);
+
+        match self.bytes.get_mut(length_at..to) {
+            Some(room) => room.copy_from_slice(&many.to_le_bytes()),
+            None => return Err(Error::Short),
+        }
+
+        Ok(())
+    }
+
+    fn group<'v>(&mut self, shape: &mut Walk, held: &'v [Value], close: char) -> Result<WriteStep<'v>, Error> {
+        self.pad(Edge::Eight)?;
+
+        let frame = WriteFrame::Group { close };
+
+        Ok(WriteStep::Opened(Writes { frame, walking: shape.clone(), items: held.iter() }))
+    }
+}
+
+fn next_item<'v>(items: &mut std::slice::Iter<'v, Value>) -> Result<&'v Value, Error> {
+    match items.next() {
+        Some(value) => Ok(value),
+        None => Err(Error::Short),
+    }
+}
+
+#[derive(Clone, Debug)]
+enum WriteFrame {
+    Body,
+    List { element: Walk, length: Length },
+    Group { close: char },
+    Variant,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct Length {
+    at: u32,
+    from: u32,
+}
+
+struct Writes<'v> {
+    frame: WriteFrame,
+    walking: Walk,
+    items: std::slice::Iter<'v, Value>,
+}
+
+enum WriteStep<'v> {
+    Opened(Writes<'v>),
+    Wrote,
+    Closed,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Finished {
+    Whole,
+    Part,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -882,27 +1052,31 @@ pub struct Whom<'a> {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Saying<'a> {
+pub struct Signal<'a> {
     pub at: &'a str,
     pub on: &'a str,
-    pub saying: &'a str,
+    pub name: &'a str,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Complaint {
+pub enum ValidationError {
     Failed,
     UnknownMethod,
     UnknownInterface,
+    UnknownProperty,
+    PropertyReadOnly,
     InvalidArgs,
 }
 
-impl Complaint {
+impl ValidationError {
     pub fn named(self) -> Result<&'static str, Never> {
         Ok(match self {
-            Complaint::Failed => "org.freedesktop.DBus.Error.Failed",
-            Complaint::UnknownMethod => "org.freedesktop.DBus.Error.UnknownMethod",
-            Complaint::UnknownInterface => "org.freedesktop.DBus.Error.UnknownInterface",
-            Complaint::InvalidArgs => "org.freedesktop.DBus.Error.InvalidArgs",
+            ValidationError::Failed => "org.freedesktop.DBus.Error.Failed",
+            ValidationError::UnknownMethod => "org.freedesktop.DBus.Error.UnknownMethod",
+            ValidationError::UnknownInterface => "org.freedesktop.DBus.Error.UnknownInterface",
+            ValidationError::UnknownProperty => "org.freedesktop.DBus.Error.UnknownProperty",
+            ValidationError::PropertyReadOnly => "org.freedesktop.DBus.Error.PropertyReadOnly",
+            ValidationError::InvalidArgs => "org.freedesktop.DBus.Error.InvalidArgs",
         })
     }
 }
@@ -919,7 +1093,7 @@ pub struct Message {
     pub destination: Option<String>,
     pub sender: Option<String>,
     pub shape: String,
-    pub said: Vec<Said>,
+    pub values: Vec<Value>,
 }
 
 impl Message {
@@ -934,12 +1108,12 @@ impl Message {
         })
     }
 
-    pub fn signal(saying: &Saying<'_>) -> Result<Message, Never> {
+    pub fn signal(signal: &Signal<'_>) -> Result<Message, Never> {
         Ok(Message {
             kind: Kind::Signal,
-            path: Some(saying.at.to_string()),
-            interface: Some(saying.on.to_string()),
-            member: Some(saying.saying.to_string()),
+            path: Some(signal.at.to_string()),
+            interface: Some(signal.on.to_string()),
+            member: Some(signal.name.to_string()),
             ..Message::default()
         })
     }
@@ -953,34 +1127,34 @@ impl Message {
         })
     }
 
-    pub fn complaining(&self, complaint: Complaint, why: &str) -> Result<Message, Never> {
-        let Ok(said) = Said::word(why);
+    pub fn complaining(&self, complaint: ValidationError, why: &str) -> Result<Message, Never> {
+        let Ok(value) = Value::word(why);
         let Ok(named) = complaint.named();
 
         Ok(Message {
-            kind: Kind::Fault,
+            kind: Kind::ErrorReply,
             reply_to: Some(self.serial),
             destination: self.sender.clone(),
             fault: Some(named.to_string()),
             shape: "s".to_string(),
-            said: vec![said],
+            values: vec![value],
             ..Message::default()
         })
     }
 
-    pub fn carrying(mut self, shape: &str, said: Vec<Said>) -> Result<Message, Never> {
+    pub fn carrying(mut self, shape: &str, values: Vec<Value>) -> Result<Message, Never> {
         self.shape = shape.to_string();
-        self.said = said;
+        self.values = values;
 
         Ok(self)
     }
 
-    pub fn bytes(&self, serial: u32) -> Result<Vec<u8>, Torn> {
+    pub fn bytes(&self, serial: u32) -> Result<Vec<u8>, Error> {
         let Ok(mut body) = Writing::new();
 
-        body.values(&self.shape, &self.said)?;
+        body.values(&self.shape, &self.values)?;
 
-        let Ok(length) = fitted::<usize, u32>(body.bytes.len());
+        let Ok(length) = fitted::<_, u32>(body.bytes.len());
         let Ok(kind) = self.kind.code();
 
         let Ok(mut whole) = Writing::new();
@@ -992,9 +1166,9 @@ impl Message {
         whole.unsigned32(length)?;
         whole.unsigned32(serial)?;
 
-        let mut fields: Vec<Said> = Vec::new();
+        let mut fields: Vec<Value> = Vec::new();
 
-        for (field, said) in [
+        for (field, value) in [
             (Field::Path, &self.path),
             (Field::Interface, &self.interface),
             (Field::Member, &self.member),
@@ -1002,8 +1176,8 @@ impl Message {
             (Field::Destination, &self.destination),
             (Field::Sender, &self.sender),
         ] {
-            let said = match said {
-                Some(said) => said,
+            let value = match value {
+                Some(value) => value,
                 None => continue,
             };
 
@@ -1017,27 +1191,27 @@ impl Message {
             };
 
             let carried = match field {
-                Field::Path => Said::Path(said.to_string()),
+                Field::Path => Value::Path(value.to_string()),
                 Field::Interface
                 | Field::Member
                 | Field::FaultName
                 | Field::Destination
                 | Field::Sender
                 | Field::ReplyTo
-                | Field::Shape => Said::Word(said.to_string()),
+                | Field::Shape => Value::Word(value.to_string()),
             };
 
-            let Ok(held) = Said::held(shape, carried);
+            let Ok(held) = Value::held(shape, carried);
 
-            fields.push(Said::Group(vec![Said::Byte(code), held]));
+            fields.push(Value::Group(vec![Value::Byte(code), held]));
         }
 
         match self.reply_to {
             Some(serial) => {
                 let Ok(code) = Field::ReplyTo.code();
-                let Ok(held) = Said::held("u", Said::Unsigned32(serial));
+                let Ok(held) = Value::held("u", Value::Unsigned32(serial));
 
-                fields.push(Said::Group(vec![Said::Byte(code), held]));
+                fields.push(Value::Group(vec![Value::Byte(code), held]));
             }
             None => {}
         }
@@ -1046,13 +1220,13 @@ impl Message {
             true => {}
             false => {
                 let Ok(code) = Field::Shape.code();
-                let Ok(held) = Said::held("g", Said::Shape(self.shape.clone()));
+                let Ok(held) = Value::held("g", Value::Shape(self.shape.clone()));
 
-                fields.push(Said::Group(vec![Said::Byte(code), held]));
+                fields.push(Value::Group(vec![Value::Byte(code), held]));
             }
         }
 
-        whole.values("a(yv)", &[Said::List(fields)])?;
+        whole.values("a(yv)", &[Value::List(fields)])?;
         whole.pad(Edge::Eight)?;
         whole.bytes.extend_from_slice(&body.bytes);
 
@@ -1060,69 +1234,66 @@ impl Message {
     }
 }
 
-pub fn length(bytes: &[u8]) -> Result<usize, Torn> {
+pub fn length(bytes: &[u8]) -> Result<u32, Error> {
     let order = order(bytes)?;
     let mut reading = Reading { bytes, at: 4, order };
     let body = reading.unsigned32()?;
     let _serial = reading.unsigned32()?;
     let fields = reading.unsigned32()?;
 
-    let Ok(body) = fitted::<u32, usize>(body);
-    let Ok(fields) = fitted::<u32, usize>(fields);
-
     let to = match HEAD.checked_add(fields) {
         Some(to) => to,
-        None => return Err(Torn::Short),
+        None => return Err(Error::Short),
     };
 
     let to = match to.checked_next_multiple_of(8) {
         Some(to) => to,
-        None => return Err(Torn::Short),
+        None => return Err(Error::Short),
     };
 
     match to.checked_add(body) {
         Some(whole) => Ok(whole),
-        None => Err(Torn::Short),
+        None => Err(Error::Short),
     }
 }
 
-fn order(bytes: &[u8]) -> Result<Order, Torn> {
+fn order(bytes: &[u8]) -> Result<Order, Error> {
     let mark = match bytes.first() {
         Some(mark) => *mark,
-        None => return Err(Torn::Short),
+        None => return Err(Error::Short),
     };
 
     let Ok(order) = Order::marked(mark);
 
     match order {
         Some(order) => Ok(order),
-        None => Err(Torn::Order(mark)),
+        None => Err(Error::Order(mark)),
     }
 }
 
-pub fn read(bytes: &[u8]) -> Result<Message, Torn> {
+pub fn read(bytes: &[u8]) -> Result<Message, Error> {
     let order = order(bytes)?;
 
     let code = match bytes.get(1) {
         Some(code) => *code,
-        None => return Err(Torn::Short),
+        None => return Err(Error::Short),
     };
 
     let version = match bytes.get(3) {
         Some(version) => *version,
-        None => return Err(Torn::Short),
+        None => return Err(Error::Short),
     };
 
     match version == VERSION {
         true => {}
-        false => return Err(Torn::Version(version)),
+        false => return Err(Error::Version(version)),
     }
 
     let Ok(kind) = Kind::of(code);
 
     let kind = match kind {
         Some(kind) => kind,
-        None => return Err(Torn::Kind(code)),
+        None => return Err(Error::Kind(code)),
     };
 
     let mut reading = Reading { bytes, at: 4, order };
@@ -1134,21 +1305,21 @@ pub fn read(bytes: &[u8]) -> Result<Message, Torn> {
 
     for held in fields {
         let held = match held {
-            Said::List(held) => held,
-            Said::Byte(_)
-            | Said::Truth(_)
-            | Said::Signed16(_)
-            | Said::Unsigned16(_)
-            | Said::Signed32(_)
-            | Said::Unsigned32(_)
-            | Said::Signed64(_)
-            | Said::Unsigned64(_)
-            | Said::Fraction(_)
-            | Said::Word(_)
-            | Said::Path(_)
-            | Said::Shape(_)
-            | Said::Group(_)
-            | Said::Held { .. } => return Err(Torn::Mismatched('a')),
+            Value::List(held) => held,
+            Value::Byte(_)
+            | Value::Truth(_)
+            | Value::Signed16(_)
+            | Value::Unsigned16(_)
+            | Value::Signed32(_)
+            | Value::Unsigned32(_)
+            | Value::Signed64(_)
+            | Value::Unsigned64(_)
+            | Value::Fraction(_)
+            | Value::Word(_)
+            | Value::Path(_)
+            | Value::Shape(_)
+            | Value::Group(_)
+            | Value::Variant { .. } => return Err(Error::Mismatched('a')),
         };
 
         for one in held {
@@ -1160,39 +1331,39 @@ pub fn read(bytes: &[u8]) -> Result<Message, Torn> {
 
     let shape = message.shape.clone();
 
-    let said = reading.values(&shape)?;
+    let values = reading.values(&shape)?;
 
-    message.said = said;
+    message.values = values;
 
     Ok(message)
 }
 
-fn kept(message: &mut Message, one: &Said) -> Result<(), Never> {
+fn kept(message: &mut Message, one: &Value) -> Result<(), Never> {
     let held = match one {
-        Said::Group(held) => held,
-        Said::Byte(_)
-        | Said::Truth(_)
-        | Said::Signed16(_)
-        | Said::Unsigned16(_)
-        | Said::Signed32(_)
-        | Said::Unsigned32(_)
-        | Said::Signed64(_)
-        | Said::Unsigned64(_)
-        | Said::Fraction(_)
-        | Said::Word(_)
-        | Said::Path(_)
-        | Said::Shape(_)
-        | Said::List(_)
-        | Said::Held { .. } => return Ok(()),
+        Value::Group(held) => held,
+        Value::Byte(_)
+        | Value::Truth(_)
+        | Value::Signed16(_)
+        | Value::Unsigned16(_)
+        | Value::Signed32(_)
+        | Value::Unsigned32(_)
+        | Value::Signed64(_)
+        | Value::Unsigned64(_)
+        | Value::Fraction(_)
+        | Value::Word(_)
+        | Value::Path(_)
+        | Value::Shape(_)
+        | Value::List(_)
+        | Value::Variant { .. } => return Ok(()),
     };
 
     let code = match held.first() {
-        Some(Said::Byte(code)) => *code,
+        Some(Value::Byte(code)) => *code,
         Some(_) | None => return Ok(()),
     };
 
-    let said = match held.get(1) {
-        Some(said) => said,
+    let value = match held.get(1) {
+        Some(value) => value,
         None => return Ok(()),
     };
 
@@ -1203,8 +1374,8 @@ fn kept(message: &mut Message, one: &Said) -> Result<(), Never> {
         None => return Ok(()),
     };
 
-    let Ok(saying) = said.saying();
-    let word = saying.map(str::to_string);
+    let Ok(text) = value.text();
+    let word = text.map(str::to_string);
 
     match field {
         Field::Path => message.path = word,
@@ -1221,7 +1392,7 @@ fn kept(message: &mut Message, one: &Said) -> Result<(), Never> {
         }
 
         Field::ReplyTo => {
-            let Ok(counted) = said.counted();
+            let Ok(counted) = value.counted();
 
             message.reply_to = match counted {
                 Some(counted) => match u32::try_from(counted) {
@@ -1248,22 +1419,22 @@ mod tests {
             calling: "Notify",
         });
 
-        let hints = Said::List(vec![Said::Group(vec![
-            Said::Word("urgency".to_string()),
-            Said::Held { shape: "y".to_string(), said: Box::new(Said::Byte(2)) },
+        let hints = Value::List(vec![Value::Group(vec![
+            Value::Word("urgency".to_string()),
+            Value::Variant { shape: "y".to_string(), value: Box::new(Value::Byte(2)) },
         ])]);
 
         let Ok(call) = call.carrying(
             "susssasa{sv}i",
             vec![
-                Said::Word("Console".to_string()),
-                Said::Unsigned32(0),
-                Said::Word(String::new()),
-                Said::Word("Notifications fell over".to_string()),
-                Said::Word("console-notify.service stopped".to_string()),
-                Said::List(Vec::new()),
+                Value::Word("Console".to_string()),
+                Value::Unsigned32(0),
+                Value::Word(String::new()),
+                Value::Word("Notifications fell over".to_string()),
+                Value::Word("console-notify.service stopped".to_string()),
+                Value::List(Vec::new()),
                 hints,
-                Said::Signed32(0),
+                Value::Signed32(0),
             ],
         );
 
@@ -1281,32 +1452,33 @@ mod tests {
         assert_eq!(heard.member.as_deref(), Some("Notify"));
         assert_eq!(heard.path.as_deref(), Some("/org/freedesktop/Notifications"));
         assert_eq!(heard.shape, "susssasa{sv}i");
-        assert_eq!(heard.said, call.said);
+        assert_eq!(heard.values, call.values);
     }
 
     #[test]
     fn the_length_in_the_head_is_the_length_of_the_whole_message() {
-        let saying = Saying { at: "/a", on: "b.c", saying: "D" };
+        let signal = Signal { at: "/a", on: "b.c", name: "D" };
 
-        for message in [notifying(), Message::signal(&saying).unwrap()] {
+        for message in [notifying(), Message::signal(&signal).unwrap()] {
             let bytes = message.bytes(3).unwrap();
 
-            assert_eq!(length(&bytes), Ok(bytes.len()));
+            assert_eq!(length(&bytes), Ok(u32::try_from(bytes.len()).unwrap()));
         }
     }
 
     #[test]
     fn a_body_starts_at_a_multiple_of_eight() {
         let bytes = notifying().bytes(1).unwrap();
-        let fields = u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]) as usize;
+        let fields = u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]);
         let body = HEAD + fields;
+        let whole = u32::try_from(bytes.len()).unwrap();
 
-        assert_eq!(length(&bytes).unwrap() - bytes.len(), 0);
-        assert!(body <= bytes.len());
-        assert_eq!(bytes.len() - body.next_multiple_of(8), {
+        assert_eq!(length(&bytes).unwrap(), whole);
+        assert!(body <= whole);
+        assert_eq!(whole - body.next_multiple_of(8), {
             let mut counting = Writing::new().unwrap();
-            counting.values("susssasa{sv}i", &notifying().said).unwrap();
-            counting.bytes.len()
+            counting.values("susssasa{sv}i", &notifying().values).unwrap();
+            u32::try_from(counting.bytes.len()).unwrap()
         });
     }
 
@@ -1314,7 +1486,7 @@ mod tests {
     fn a_string_carries_its_length_and_its_nul() {
         let mut writing = Writing::new().unwrap();
 
-        writing.values("s", &[Said::Word("ok".to_string())]).unwrap();
+        writing.values("s", &[Value::Word("ok".to_string())]).unwrap();
 
         assert_eq!(writing.bytes, vec![2, 0, 0, 0, b'o', b'k', 0]);
     }
@@ -1323,7 +1495,7 @@ mod tests {
     fn a_number_after_a_byte_is_padded_out_to_its_own_width() {
         let mut writing = Writing::new().unwrap();
 
-        writing.values("yu", &[Said::Byte(1), Said::Unsigned32(2)]).unwrap();
+        writing.values("yu", &[Value::Byte(1), Value::Unsigned32(2)]).unwrap();
 
         assert_eq!(writing.bytes, vec![1, 0, 0, 0, 2, 0, 0, 0]);
     }
@@ -1331,9 +1503,9 @@ mod tests {
     #[test]
     fn a_structure_after_a_byte_starts_eight_along() {
         let mut writing = Writing::new().unwrap();
-        let group = Said::Group(vec![Said::Byte(9)]);
+        let group = Value::Group(vec![Value::Byte(9)]);
 
-        writing.values("y(y)", &[Said::Byte(1), group]).unwrap();
+        writing.values("y(y)", &[Value::Byte(1), group]).unwrap();
 
         assert_eq!(writing.bytes, vec![1, 0, 0, 0, 0, 0, 0, 0, 9]);
     }
@@ -1342,7 +1514,7 @@ mod tests {
     fn an_empty_list_is_a_length_of_nothing() {
         let mut writing = Writing::new().unwrap();
 
-        writing.values("as", &[Said::List(Vec::new())]).unwrap();
+        writing.values("as", &[Value::List(Vec::new())]).unwrap();
 
         assert_eq!(writing.bytes, vec![0, 0, 0, 0]);
     }
@@ -1350,7 +1522,7 @@ mod tests {
     #[test]
     fn a_list_says_how_long_its_contents_are_and_not_how_many_there_are() {
         let mut writing = Writing::new().unwrap();
-        let held = Said::List(vec![Said::Unsigned32(1), Said::Unsigned32(2)]);
+        let held = Value::List(vec![Value::Unsigned32(1), Value::Unsigned32(2)]);
 
         writing.values("au", &[held]).unwrap();
 
@@ -1360,7 +1532,7 @@ mod tests {
     #[test]
     fn a_list_of_structures_is_padded_before_the_first_one_is_written() {
         let mut writing = Writing::new().unwrap();
-        let held = Said::List(vec![Said::Group(vec![Said::Byte(7)])]);
+        let held = Value::List(vec![Value::Group(vec![Value::Byte(7)])]);
 
         writing.values("a(y)", &[held]).unwrap();
 
@@ -1370,7 +1542,7 @@ mod tests {
     #[test]
     fn a_variant_carries_the_shape_of_what_is_in_it() {
         let mut writing = Writing::new().unwrap();
-        let held = Said::Held { shape: "u".to_string(), said: Box::new(Said::Unsigned32(5)) };
+        let held = Value::Variant { shape: "u".to_string(), value: Box::new(Value::Unsigned32(5)) };
 
         writing.values("v", std::slice::from_ref(&held)).unwrap();
 
@@ -1384,20 +1556,20 @@ mod tests {
     #[test]
     fn a_hint_this_knows_nothing_about_is_walked_past_rather_than_stopping_the_message() {
         let mut writing = Writing::new().unwrap();
-        let odd = Said::Held {
+        let odd = Value::Variant {
             shape: "(iiii)".to_string(),
-            said: Box::new(Said::Group(vec![
-                Said::Signed32(1),
-                Said::Signed32(2),
-                Said::Signed32(3),
-                Said::Signed32(4),
+            value: Box::new(Value::Group(vec![
+                Value::Signed32(1),
+                Value::Signed32(2),
+                Value::Signed32(3),
+                Value::Signed32(4),
             ])),
         };
-        let hints = Said::List(vec![
-            Said::Group(vec![Said::Word("colour".to_string()), odd]),
-            Said::Group(vec![
-                Said::Word("value".to_string()),
-                Said::Held { shape: "i".to_string(), said: Box::new(Said::Signed32(40)) },
+        let hints = Value::List(vec![
+            Value::Group(vec![Value::Word("color".to_string()), odd]),
+            Value::Group(vec![
+                Value::Word("value".to_string()),
+                Value::Variant { shape: "i".to_string(), value: Box::new(Value::Signed32(40)) },
             ]),
         ]);
 
@@ -1422,14 +1594,14 @@ mod tests {
             big[at..at + 4].copy_from_slice(&swapped);
         }
 
-        assert_eq!(length(&big), Ok(big.len()));
+        assert_eq!(length(&big), Ok(u32::try_from(big.len()).unwrap()));
     }
 
     #[test]
     fn a_signature_with_nothing_written_for_it_says_which_letter() {
         let mut reading = Reading { bytes: &[0, 0, 0, 0], at: 0, order: Order::Little };
 
-        assert_eq!(reading.values("Z"), Err(Torn::Shape('Z')));
+        assert_eq!(reading.values("Z"), Err(Error::Shape('Z')));
     }
 
     #[test]
@@ -1445,23 +1617,23 @@ mod tests {
     fn a_reply_says_what_it_is_replying_to() {
         let call = notifying();
         let Ok(answer) = call.answering();
-        let Ok(answer) = answer.carrying("u", vec![Said::Unsigned32(4)]);
+        let Ok(answer) = answer.carrying("u", vec![Value::Unsigned32(4)]);
         let bytes = answer.bytes(2).unwrap();
         let heard = read(&bytes).unwrap();
 
         assert_eq!(heard.kind, Kind::Answer);
         assert_eq!(heard.reply_to, Some(call.serial));
-        assert_eq!(heard.said, vec![Said::Unsigned32(4)]);
+        assert_eq!(heard.values, vec![Value::Unsigned32(4)]);
     }
 
     #[test]
     fn a_complaint_carries_a_name_and_a_sentence() {
-        let Ok(fault) = notifying().complaining(Complaint::Failed, "no");
+        let Ok(fault) = notifying().complaining(ValidationError::Failed, "no");
         let bytes = fault.bytes(2).unwrap();
         let heard = read(&bytes).unwrap();
 
-        assert_eq!(heard.kind, Kind::Fault);
+        assert_eq!(heard.kind, Kind::ErrorReply);
         assert_eq!(heard.fault.as_deref(), Some("org.freedesktop.DBus.Error.Failed"));
-        assert_eq!(heard.said, vec![Said::Word("no".to_string())]);
+        assert_eq!(heard.values, vec![Value::Word("no".to_string())]);
     }
 }

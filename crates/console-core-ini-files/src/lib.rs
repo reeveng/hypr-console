@@ -18,7 +18,7 @@
 //!     which is what the desktop entry specification says and what only one of
 //!     the three did;
 //!   - the first value given for a key is the one kept, because a file that
-//!     says a thing twice was written by somebody who thought they were saying
+//!     says a thing twice was written by someone who thought they were saying
 //!     it once, and the reading that quietly prefers the last is the one that
 //!     is hard to see.
 //!
@@ -31,7 +31,7 @@
 //! `headings` is the file read from the other end, for a reader that does not
 //! know what it will find: `words.conf` keeps a vocabulary under headings that
 //! are the argument for the words beneath them, so the headings themselves are
-//! content rather than a key somebody already has. It is the same walk as
+//! content rather than a key someone already has. It is the same walk as
 //! `lines` looked at one line at a time, which is why it is here and not a
 //! second reading of the format somewhere else.
 //!
@@ -44,7 +44,7 @@
 //! applied by `lines`, which only drops a line that opens with one. That is
 //! deliberate and it is about values rather than about comments: a `.desktop`
 //! `Exec=` carries a `#` in a URL and a stylesheet carries one in front of
-//! every colour, so a reader that stripped from the first `#` on every line
+//! every color, so a reader that stripped from the first `#` on every line
 //! would quietly shorten both. `desktop.conf` and `machines.conf` are this
 //! desktop's own and do put comments after a value, so they ask for it by name.
 
@@ -131,7 +131,7 @@ Type=Application
 Name=Firefox
 Exec=firefox %u
 
-[Desktop Action new-window]
+[Desktop Effect new-window]
 Name=New Window
 ";
 
@@ -143,7 +143,7 @@ Name=New Window
 
     #[test]
     fn every_heading_is_found_in_the_order_the_file_puts_them_in() {
-        assert_eq!(ok(headings(SAID)), vec!["Desktop Entry", "Desktop Action new-window"]);
+        assert_eq!(ok(headings(SAID)), vec!["Desktop Entry", "Desktop Effect new-window"]);
     }
 
     #[test]
@@ -189,7 +189,7 @@ Name=New Window
 
     #[test]
     fn the_next_heading_ends_it() {
-        assert_eq!(ok(lines(SAID, Under("Desktop Action new-window"))), vec!["Name=New Window"]);
+        assert_eq!(ok(lines(SAID, Under("Desktop Effect new-window"))), vec!["Name=New Window"]);
         assert_eq!(said(SAID, "Desktop Entry").get("Name"), Some(&"Firefox"));
     }
 
@@ -201,7 +201,7 @@ Name=New Window
 
     #[test]
     fn what_is_said_before_the_first_heading_belongs_to_no_heading() {
-        assert_eq!(said("Name=Nobody\n[Desktop Entry]\nName=Firefox\n", "Desktop Entry"), said(
+        assert_eq!(said("Name=NoOne\n[Desktop Entry]\nName=Firefox\n", "Desktop Entry"), said(
             "[Desktop Entry]\nName=Firefox\n",
             "Desktop Entry"
         ));

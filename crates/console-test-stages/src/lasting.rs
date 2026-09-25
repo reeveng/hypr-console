@@ -1,17 +1,17 @@
 //! How long each check took last time, and the order that makes.
 //!
-//! A device run is minutes of somebody's handheld, and until now the only
-//! thing that said how many was somebody who had watched one. The strip under
+//! A device run is minutes of someone's handheld, and until now the only
+//! thing that said how many was someone who had watched one. The strip under
 //! the bar can say it while it happens -- `console_notifications::updating` is
 //! the file, and an apply already fills it -- but a bar needs to know what
 //! fraction of the run each check is, and nothing here knew.
 //!
 //! ## Measured, not declared
-//!  `console_manifest_engine::going` gives each stretch of an apply a share
+//!  `console_manifest_engine::going` gives each stage of an apply a weight
 //! written down in its source, said to be an estimate, corrected by hand off a
-//! run with `CONSOLE_TIMINGS=1`. A handful of stretches can be kept honest that
+//! run with `CONSOLE_TIMINGS=1`. A handful of stages can be kept honest that
 //! way. The checks cannot: there are dozens of them, they arrive one or two at
-//! a time, and a number nobody updates is a bar that lies about a run somebody
+//! a time, and a number no one updates is a bar that lies about a run someone
 //! is watching -- which is worse than no bar, because it was asked to be
 //! believed.  So nothing is declared. Every check is timed as it runs, and what
 //! it took is kept, and the next run reads it back.
@@ -20,7 +20,7 @@
 //!
 //! What that leaves is the first run on a machine, which knows nothing at all
 //! -- and that is the run most likely to be watched, because it is the one on a
-//! device somebody has just put back together. It used to count checks, which
+//! device someone has just put back together. It used to count checks, which
 //! tells a person the two-second one and the three-minute one are the same
 //! wait.
 //!
@@ -43,7 +43,7 @@
 //! -- so the bar on the next run is confidently wrong about the longest thing
 //! in it, and it was a failure that made it so. A skipped one has not run at
 //! all. Neither is a measurement of anything, and a table is worth more with a
-//! gap in it than with a number nobody should believe.
+//! gap in it than with a number no one should believe.
 //!
 //! ## And a third correction, while the run is happening
 //!
@@ -61,7 +61,7 @@
 //! run the bar says forty per cent, and it catches up as it goes. That is
 //! deliberate and it is not decoration. A bar that runs ahead of the work
 //! arrives at ninety-eight and stops there, and the last two per cent taking a
-//! third of the wait is the exact thing that makes somebody stop believing a
+//! third of the wait is the exact thing that makes someone stop believing a
 //! bar -- once, and then for every bar after it. A bar that lags and then
 //! gathers speed is never wrong in the direction that costs anything.
 //! ## Kept on the device
@@ -81,7 +81,7 @@
 //!
 //! The checks run in the order they grew everywhere else, and that order says
 //! something -- it walks the desktop the way it was built. On the device it
-//! says nothing anybody watching needs, and it makes the bar crawl and jump by
+//! says nothing anyone watching needs, and it makes the bar crawl and jump by
 //! turns. Longest first front-loads the wait, so the strip slows early and runs
 //! at the end, which is what `going` says an apply's weights do and for the
 //! same reason: it is what the run actually does, rather than a trick played on
@@ -123,10 +123,10 @@ use std::cmp::Reverse;
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use console_core_number_conversion::{Float, toward_zero_u16};
+use console_core_number_conversion::{fitted, toward_zero_u16};
 
 use console_core_never::Never;
-use console_how_far::Far;
+use console_how_far::Progress;
 
 use crate::checking::Check;
 use crate::device::{Device, quoted};
@@ -155,8 +155,8 @@ impl Lengths {
         Ok(())
     }
 
-    pub fn known(&self) -> Result<usize, Never> {
-        Ok(self.took.len())
+    pub fn known(&self) -> Result<u32, Never> {
+        fitted(self.took.len())
     }
 
     pub fn names(&self) -> Result<Vec<String>, Never> {
@@ -168,7 +168,8 @@ impl Lengths {
 
         every.sort_unstable();
 
-        let at = every.len() / HALVED;
+        let Ok(many) = fitted::<_, u32>(every.len());
+        let Ok(at) = console_core_number_conversion::index(many / HALVED);
 
         Ok(match every.get(at).copied() {
             Some(took) => took,
@@ -278,8 +279,8 @@ pub struct Ahead {
     passed: Duration,
     whole: Duration,
     took: Duration,
-    done: usize,
-    many: usize,
+    done: u32,
+    many: u32,
 }
 
 impl Ahead {
@@ -307,13 +308,15 @@ impl Ahead {
 
         expecting.reverse();
 
+        let Ok(many) = fitted(running.len());
+
         Ok(Ahead {
             expecting,
             passed: Duration::ZERO,
             whole,
             took: Duration::ZERO,
             done: 0,
-            many: running.len(),
+            many,
         })
     }
 
@@ -330,7 +333,9 @@ impl Ahead {
 
     pub fn far(&self) -> Result<u16, Never> {
         match self.whole.is_zero() {
-            true => counted(Far { done: self.done, many: self.many }),
+            true => {
+                counted(Progress { done: self.done, many: self.many })
+            }
             false => {
                 let Ok(leaning) =
                     leaning(self.passed.as_secs_f64() / self.whole.as_secs_f64());
@@ -341,11 +346,13 @@ impl Ahead {
         }
     }
 
-    pub fn along(&self, gone: Duration) -> Result<u16, Never> {
+    pub fn along(&self, elapsed: Duration) -> Result<u16, Never> {
         match self.whole.is_zero() {
-            true => counted(Far { done: self.done, many: self.many }),
+            true => {
+                counted(Progress { done: self.done, many: self.many })
+            }
             false => {
-                let Ok(inside) = self.inside(gone);
+                let Ok(inside) = self.inside(elapsed);
                 let at = self.passed.saturating_add(inside);
                 let Ok(leaning) = leaning(at.as_secs_f64() / self.whole.as_secs_f64());
                 let Ok(along) = toward_zero_u16(leaning * f64::from(WHOLE));
@@ -355,26 +362,26 @@ impl Ahead {
         }
     }
 
-    fn part(&self, gone: Duration) -> Result<f64, Never> {
+    fn part(&self, elapsed: Duration) -> Result<f64, Never> {
         let Ok(pace) = self.pace();
         let Ok(one) = self.expecting();
 
-        crept(gone.div_f64(pace), one)
+        crept(elapsed.div_f64(pace), one)
     }
 
-    fn inside(&self, gone: Duration) -> Result<Duration, Never> {
-        let Ok(part) = self.part(gone);
+    fn inside(&self, elapsed: Duration) -> Result<Duration, Never> {
+        let Ok(part) = self.part(elapsed);
         let Ok(one) = self.expecting();
 
         Ok(one.mul_f64(part))
     }
 
-    pub fn left(&self, gone: Duration) -> Result<Option<Duration>, Never> {
+    pub fn left(&self, elapsed: Duration) -> Result<Option<Duration>, Never> {
         match self.whole.is_zero() {
             true => Ok(None),
             false => {
                 let Ok(pace) = self.pace();
-                let Ok(inside) = self.inside(gone);
+                let Ok(inside) = self.inside(elapsed);
                 let at = self.passed.saturating_add(inside);
 
                 Ok(Some(self.whole.saturating_sub(at).mul_f64(pace)))
@@ -399,7 +406,7 @@ impl Ahead {
     pub fn span(&self) -> Result<u16, Never> {
         match self.whole.is_zero() {
             true => {
-                let Ok(one) = counted(Far { done: 1, many: self.many });
+                let Ok(one) = counted(Progress { done: 1, many: self.many });
 
                 Ok(one)
             }
@@ -439,18 +446,18 @@ pub fn leaning(part: f64) -> Result<f64, Never> {
 
 pub const BY_THE_CLOCK: f64 = 0.9;
 
-pub fn over(gone: Duration, expecting: Duration) -> Result<Option<Duration>, Never> {
-    Ok(match expecting.is_zero() || gone <= expecting {
+pub fn over(elapsed: Duration, expecting: Duration) -> Result<Option<Duration>, Never> {
+    Ok(match expecting.is_zero() || elapsed <= expecting {
         true => None,
-        false => Some(gone),
+        false => Some(elapsed),
     })
 }
 
-pub fn crept(gone: Duration, expecting: Duration) -> Result<f64, Never> {
+pub fn crept(elapsed: Duration, expecting: Duration) -> Result<f64, Never> {
     match expecting.is_zero() {
         true => Ok(0.0),
         false => {
-            let along = gone.as_secs_f64() / expecting.as_secs_f64();
+            let along = elapsed.as_secs_f64() / expecting.as_secs_f64();
 
             Ok(match along < 1.0 {
                 true => along * BY_THE_CLOCK,
@@ -464,15 +471,13 @@ pub fn crept(gone: Duration, expecting: Duration) -> Result<f64, Never> {
     }
 }
 
-fn counted(far: Far) -> Result<u16, Never> {
-    let Far { done, many } = far;
+fn counted(far: Progress) -> Result<u16, Never> {
+    let Progress { done, many } = far;
 
     Ok(match many {
         0 => 0,
         many => {
-            let Ok(passed) = done.float();
-            let Ok(whole) = many.float();
-            let Ok(along) = toward_zero_u16(passed / whole * f64::from(WHOLE));
+            let Ok(along) = toward_zero_u16(f64::from(done) / f64::from(many) * f64::from(WHOLE));
 
             along.min(WHOLE)
         }
@@ -484,9 +489,9 @@ const A_MINUTE: std::num::NonZeroU64 = match std::num::NonZeroU64::new(60) {
     None => std::num::NonZeroU64::MIN,
 };
 
-const HALVED: std::num::NonZeroUsize = match std::num::NonZeroUsize::new(2) {
+const HALVED: std::num::NonZeroU32 = match std::num::NonZeroU32::new(2) {
     Some(half) => half,
-    None => std::num::NonZeroUsize::MIN,
+    None => std::num::NonZeroU32::MIN,
 };
 
 pub fn about(long: Duration) -> Result<String, Never> {
@@ -535,7 +540,7 @@ pub fn keep(device: &mut Device, lengths: &Lengths) -> Result<(), Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::checking::{Body, Done};
+    use crate::checking::{Body, CheckResult};
 
     #[test]
     fn the_bar_leans_behind_early_rather_than_stalling_late() {
@@ -598,7 +603,7 @@ mod tests {
     }
 
     #[test]
-    fn a_check_nobody_has_ever_timed_is_not_pretended_to_be_measured() {
+    fn a_check_no_one_has_ever_timed_is_not_pretended_to_be_measured() {
         assert_eq!(crept(Duration::from_secs(30), Duration::ZERO), Ok(0.0));
     }
 
@@ -620,7 +625,7 @@ mod tests {
         assert_eq!(ahead.span(), Ok(500));
     }
 
-    fn nothing(_device: &mut Device) -> Done {
+    fn nothing(_device: &mut Device) -> CheckResult {
         Ok(())
     }
 
@@ -670,7 +675,7 @@ mod tests {
         said
     }
 
-    fn known(lengths: &Lengths) -> usize {
+    fn known(lengths: &Lengths) -> u32 {
         let Ok(known) = lengths.known();
 
         known
@@ -753,7 +758,7 @@ mod tests {
     }
 
     #[test]
-    fn a_machine_nobody_has_timed_is_given_the_table_that_travels() {
+    fn a_machine_no_one_has_timed_is_given_the_table_that_travels() {
         let mut ahead = ahead(&Lengths::default(), &every());
 
         assert_eq!(far(&ahead), 0);
@@ -852,11 +857,11 @@ mod tests {
         assert_eq!(left(&ahead), Some(Duration::ZERO));
         finished(&mut ahead);
 
-        assert_eq!(far(&ahead), WHOLE, "a check nobody expected pushed the strip off the end");
+        assert_eq!(far(&ahead), WHOLE, "a check no one expected pushed the strip off the end");
     }
 
     #[test]
-    fn a_length_is_said_the_way_somebody_waiting_would_say_it() {
+    fn a_length_is_said_the_way_someone_waiting_would_say_it() {
         assert_eq!(about(Duration::from_secs(40)), "40 seconds");
         assert_eq!(about(Duration::from_secs(75)), "a minute");
         assert_eq!(about(Duration::from_secs(400)), "6 minutes");

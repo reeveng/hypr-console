@@ -1,7 +1,7 @@
 //! EXPLICIT025: a value may not carry a secret meaning.
 //!
 //! `-1` for invalid, `0` for nothing, `MAX` for unlimited. A sentinel is a
-//! variant nobody declared: the type says `i32` and the code says one of these
+//! variant no one declared: the type says `i32` and the code says one of these
 //! numbers is not a number at all, and because the variant was never declared
 //! nothing counts the arms of it and nothing fails when a second one is needed.
 //! The day *unlimited* has to be told apart from *unset*, there is no compiler
@@ -15,7 +15,7 @@
 //! EXPLICIT015 has already made this rarer than it would otherwise be.
 //! Arithmetic that must name its policy reaches for `saturating_add` rather
 //! than for a hand-written clamp against `MAX`, so the sentinels that survive
-//! are the ones somebody meant.
+//! are the ones someone meant.
 //!
 //! What is narrow enough to ask for: a `MAX` or `MIN` associated constant, or
 //! a negative integer literal, standing as the operand of a comparison or as a
@@ -36,7 +36,7 @@
 //!
 //! It arrived `Deny`, which no rule here has managed since 018. The tree was
 //! already keeping it, and for the reason the argument gives: EXPLICIT015 sent
-//! every clamp to `saturating_*` before anybody thought to write this down.
+//! every clamp to `saturating_*` before anyone thought to write this down.
 #![feature(rustc_private)]
 #![warn(unused_extern_crates)]
 
@@ -54,7 +54,7 @@ use rustc_span::Span;
 extern crate rustc_span;
 
 dylint_linting::declare_late_lint! {
-    /// EXPLICIT025: a sentinel value is a variant nobody declared. `-1` for
+    /// EXPLICIT025: a sentinel value is a variant no one declared. `-1` for
     /// invalid and `usize::MAX` for unlimited are cases the type does not
     /// have, so nothing counts them and nothing fails when a second one is
     /// needed. `Option` says absence and an enum says unlimited, and the
@@ -83,7 +83,7 @@ fn is_end_of_type(cx: &LateContext<'_>, expr: &Expr<'_>) -> Option<String> {
     let named = cx.tcx.item_name(id);
 
     // The resolved path of `usize::MAX` prints as the impl it was declared in,
-    // which is not what anybody wrote. What was written is on the screen.
+    // which is not what anyone wrote. What was written is on the screen.
     match named.as_str() {
         "MAX" | "MIN" => Some(format!("`{}`", snippet(cx, expr.span, "the end of the type"))),
         _ => None,

@@ -9,13 +9,13 @@
 //! console-check --stage device --yes --all   every check written for it
 //! ```
 //!
-//! The device is the last stage and it is somebody's machine. Nothing is sent to
+//! The device is the last stage and it is someone's machine. Nothing is sent to
 //! it without --yes, and --dry prints every command first so it can be read
 //! before it is run. The pressing goes through InputPlumber's own SendEvent,
 //! which is how the hardware's own buttons arrive, so nothing is created on the
 //! device and nothing is left behind if this stops halfway.
 //!
-//! It is somebody's machine in the other sense too, so the run gives it back
+//! It is someone's machine in the other sense too, so the run gives it back
 //! the way it found it. What was true before the first press -- the workspace,
 //! the brightness, the volume, the profile -- is read once and put back after
 //! the last check, along with anything the run opened, and the last line says
@@ -40,14 +40,14 @@ use console_test_checks::Unchecked;
 use console_core_never::Never;
 use console_test_stages::checking::{self, Check, How, Stage};
 use console_test_stages::desktop::Desktop;
-use console_test_stages::device::{self, Device, Dry};
+use console_test_stages::device::{self, Device, DryRun};
 use console_test_stages::lasting::{self, Ahead};
 use console_test_stages::putting_back;
 use console_test_stages::stopping::{self, Stop};
 use console_test_stages::watching;
 use console_test_stages::here::Here;
 
-const NONE_OF_THEM: usize = 0;
+const NONE_OF_THEM: u32 = 0;
 
 const HERE: &str = "here";
 
@@ -56,10 +56,10 @@ const HERE: &str = "here";
     dylint_lib = "explicit048_no_unreal_state",
     allow(
         explicit048_no_unreal_state,
-        reason = "four flags somebody typed, and every combination of them is a command line: `--list --all`, `--dry --yes`, none of them"
+        reason = "four flags someone typed, and every combination of them is a command line: `--list --all`, `--dry --yes`, none of them"
     )
 )]
-struct Asked {
+struct Arguments {
     only: Vec<String>,
     stage: String,
     list: bool,
@@ -68,7 +68,7 @@ struct Asked {
     all: bool,
 }
 
-fn asked(words: Vec<String>) -> Result<Asked, Never> {
+fn asked(words: Vec<String>) -> Result<Arguments, Never> {
     let said = |what: &str| words.iter().any(|word| word == what);
     let after = |what: &str| {
         words
@@ -77,7 +77,7 @@ fn asked(words: Vec<String>) -> Result<Asked, Never> {
             .and_then(|at| words.get(at.saturating_add(1)))
             .cloned()
     };
-    Ok(Asked {
+    Ok(Arguments {
         only: words
             .iter()
             .filter(|word| !word.starts_with("--"))
@@ -95,7 +95,7 @@ fn asked(words: Vec<String>) -> Result<Asked, Never> {
     })
 }
 
-struct Ink {
+struct HexColor {
     green: &'static str,
     red: &'static str,
     dim: &'static str,
@@ -103,25 +103,25 @@ struct Ink {
     off: &'static str,
 }
 
-const COLOURED: Ink =
-    Ink { green: "\x1b[32m", red: "\x1b[31m", dim: "\x1b[2m", yellow: "\x1b[33m", off: "\x1b[0m" };
-const PLAIN: Ink = Ink { green: "", red: "", dim: "", yellow: "", off: "" };
+const COLORED: HexColor =
+    HexColor { green: "\x1b[32m", red: "\x1b[31m", dim: "\x1b[2m", yellow: "\x1b[33m", off: "\x1b[0m" };
+const PLAIN: HexColor = HexColor { green: "", red: "", dim: "", yellow: "", off: "" };
 
-impl Ink {
+impl HexColor {
     fn mark(&self, how: &How) -> Result<String, Never> {
-        let (colour, said) = match how {
+        let (color, said) = match how {
             How::Ok => (self.green, "ok"),
             How::Failed(_) => (self.red, "failed"),
             How::Skipped(_) => (self.dim, "skipped"),
             How::Would => (self.yellow, "would run"),
         };
-        Ok(format!("{colour}{said:<9}{}", self.off))
+        Ok(format!("{color}{said:<9}{}", self.off))
     }
 }
 
 fn main() -> std::process::ExitCode {
     let ink = match std::io::stdout().is_terminal() {
-        true => COLOURED,
+        true => COLORED,
         false => PLAIN,
     };
 
@@ -154,8 +154,8 @@ fn spared(check: &Check, tier: Tier) -> Result<Option<Stage>, Never> {
 }
 
 fn say(
-    counted: &mut BTreeMap<&'static str, usize>,
-    ink: &Ink,
+    counted: &mut BTreeMap<&'static str, u32>,
+    ink: &HexColor,
     check: &Check,
     how: How,
 ) -> Result<(), Never> {
@@ -176,18 +176,36 @@ fn say(
     Ok(())
 }
 
+fn kept_up(host: &str, touching: DryRun) -> Result<Option<console_awake::Staying>, Never> {
+    let asked = match touching {
+        DryRun::Pretend => return Ok(None),
+        DryRun::Really => console_awake::taking_on(host, console_awake::InhibitReason::FromChecking),
+    };
+    let Ok(asked) = asked;
+
+    Ok(match asked {
+        console_awake::InhibitResult::Acquired(staying) => Some(staying),
+        console_awake::InhibitResult::Failed(said) => {
+            eprintln!("console-check: {said}");
+
+            None
+        }
+    })
+}
+
 fn on_the_device(
-    asked: &Asked,
+    asked: &Arguments,
     checks: Vec<&'static Check>,
-    ink: &Ink,
-    counted: &mut BTreeMap<&'static str, usize>,
+    ink: &HexColor,
+    counted: &mut BTreeMap<&'static str, u32>,
 ) -> Result<(), Unchecked> {
     let touching = match asked.dry {
-        true => Dry::Pretend,
-        false => Dry::Really,
+        true => DryRun::Pretend,
+        false => DryRun::Really,
     };
     let host = device::host()?;
     let mut stage = Device::new(&host, touching)?;
+    let Ok(_kept_up) = kept_up(&host, touching);
     let tier = match asked.all || !asked.only.is_empty() {
         true => Tier::Whole,
         false => Tier::WhatNothingElseCanAnswer,
@@ -231,12 +249,13 @@ fn on_the_device(
             Some(was)
         }
     };
-    let Ok(starting) = watching::starting(ordered.len(), &ahead);
+    let Ok(many) = console_core_number_conversion::fitted::<_, u32>(ordered.len());
+    let Ok(starting) = watching::starting(many, &ahead);
     let Ok(card) = watching::said(&mut stage, &starting);
     let began = Instant::now();
-    let mut passed: usize = 0;
+    let mut passed: u32 = 0;
     let mut failed: Vec<String> = Vec::new();
-    let Ok(watch) = watching::Watching::of(ordered.len());
+    let Ok(watch) = watching::Watching::of(many);
     let watch = std::sync::Arc::new(std::sync::Mutex::new(watch));
     let Ok(()) = stage.watching(std::sync::Arc::clone(&watch));
     let Ok(drawing) = watching::drawing(std::sync::Arc::clone(&watch));
@@ -251,7 +270,7 @@ fn on_the_device(
         let Ok(stop) = stopping::asked();
 
         match stop {
-            Stop::Asked => {
+            Stop::Requested => {
                 let Ok(()) = watching::quietly_handed(&watch, counted, |counted| {
                     let Ok(()) = say(counted, ink, check, How::Skipped("stopped".to_string()));
                 });
@@ -321,7 +340,7 @@ fn on_the_device(
     Ok(())
 }
 
-fn run(asked: Asked, ink: &Ink) -> Result<std::process::ExitCode, Unchecked> {
+fn run(asked: Arguments, ink: &HexColor) -> Result<std::process::ExitCode, Unchecked> {
     let Ok(checks) = chosen(&asked.only);
 
     match checks.is_empty() {
@@ -340,16 +359,16 @@ fn run(asked: Asked, ink: &Ink) -> Result<std::process::ExitCode, Unchecked> {
         false => {}
     }
 
-    let somebodys_machine = asked.stage == "device" && !(asked.yes || asked.dry);
+    let someones_machine = asked.stage == "device" && !(asked.yes || asked.dry);
 
-    match somebodys_machine {
+    match someones_machine {
         true => {
-            return Err(Unchecked::SomebodysMachine);
+            return Err(Unchecked::SomeonesMachine);
         }
         false => {}
     }
 
-    let mut counted: BTreeMap<&'static str, usize> = BTreeMap::new();
+    let mut counted: BTreeMap<&'static str, u32> = BTreeMap::new();
 
     match asked.stage.as_str() {
         "device" => {

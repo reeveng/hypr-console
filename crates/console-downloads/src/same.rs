@@ -12,9 +12,9 @@
 //! nothing is decoded, nothing is lost, and a gigabyte takes a second. Sound is
 //! re-encoded, which is a real loss -- an mp3 made opus has been through two
 //! lossy encoders -- and it is done anyway because 128k opus off a 320k mp3 is
-//! a thing nobody can hear the bottom of, and because the alternative is the
+//! a thing no one can hear the bottom of, and because the alternative is the
 //! folder staying nine formats forever. What is replaced goes to the
-//! wastebasket rather than being unlinked, so a conversion somebody regrets is
+//! wastebasket rather than being unlinked, so a conversion someone regrets is
 //! an hour's walk back rather than a loss.
 
 
@@ -34,7 +34,7 @@ pub const BITRATE: &str = "128k";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Wants {
-    Nothing,
+    None,
     Leave,
     Ask,
     Made(Kind),
@@ -56,7 +56,7 @@ pub fn wants(name: &str) -> Result<Wants, Never> {
     let end = end.to_lowercase();
 
     match end == "opus" || end == "mkv" {
-        true => return Ok(Wants::Nothing),
+        true => return Ok(Wants::None),
         false => {},
     }
 
@@ -80,6 +80,7 @@ pub fn beside(path: &Path, kind: Kind) -> Result<PathBuf, Never> {
     Ok(path.with_extension(match kind {
         Kind::Sound => crate::getting::SOUND,
         Kind::Film => crate::getting::FILM,
+        Kind::Book => crate::getting::BOOK,
     }))
 }
 
@@ -123,26 +124,25 @@ pub fn about(path: &Path) -> Result<Vec<String>, Never> {
     ])
 }
 
+fn ffmpeg(from: &Path, to: &Path, between: &[&str]) -> Result<Vec<String>, Never> {
+    let said = |word: &&str| word.to_string();
+
+    Ok(["ffmpeg", "-loglevel", "error", "-y", "-i"]
+        .iter()
+        .map(said)
+        .chain(std::iter::once(from.to_string_lossy().to_string()))
+        .chain(between.iter().map(said))
+        .chain(std::iter::once(to.to_string_lossy().to_string()))
+        .collect())
+}
+
 pub fn cover(from: &Path, to: &Path) -> Result<Vec<String>, Never> {
-    let said = |word: &str| word.to_string();
-    Ok(vec![
-        said("ffmpeg"),
-        said("-loglevel"),
-        said("error"),
-        said("-y"),
-        said("-i"),
-        from.to_string_lossy().to_string(),
-        said("-map"),
-        said("0:v"),
-        said("-frames:v"),
-        said("1"),
-        to.to_string_lossy().to_string(),
-    ])
+    ffmpeg(from, to, &["-map", "0:v", "-frames:v", "1"])
 }
 
 pub fn sound(from: &Path, to: &Path, picture: Option<&str>) -> Result<Vec<String>, Never> {
     let said = |word: &str| word.to_string();
-    let mut argv = vec![
+    let mut arguments = vec![
         said("ffmpeg"),
         said("-loglevel"),
         said("error"),
@@ -161,37 +161,24 @@ pub fn sound(from: &Path, to: &Path, picture: Option<&str>) -> Result<Vec<String
 
     match picture {
         Some(picture) => {
-            argv.push(said("-metadata"));
-            argv.push(format!("METADATA_BLOCK_PICTURE={picture}"));
+            arguments.push(said("-metadata"));
+            arguments.push(format!("METADATA_BLOCK_PICTURE={picture}"));
         }
         None => {},
     }
 
-    argv.push(to.to_string_lossy().to_string());
-    Ok(argv)
+    arguments.push(to.to_string_lossy().to_string());
+    Ok(arguments)
 }
 
 pub fn film(from: &Path, to: &Path) -> Result<Vec<String>, Never> {
-    let said = |word: &str| word.to_string();
-    Ok(vec![
-        said("ffmpeg"),
-        said("-loglevel"),
-        said("error"),
-        said("-y"),
-        said("-i"),
-        from.to_string_lossy().to_string(),
-        said("-map"),
-        said("0"),
-        said("-c"),
-        said("copy"),
-        to.to_string_lossy().to_string(),
-    ])
+    ffmpeg(from, to, &["-map", "0", "-c", "copy"])
 }
 
 pub fn block(mime: &str, picture: &[u8]) -> Result<String, Never> {
     const FRONT_COVER: u32 = 3;
     let mut held = Vec::new();
-    let Ok(wide) = fitted::<usize, u32>(mime.len());
+    let Ok(wide) = fitted::<_, u32>(mime.len());
 
     held.extend_from_slice(&FRONT_COVER.to_be_bytes());
     held.extend_from_slice(&wide.to_be_bytes());
@@ -201,7 +188,7 @@ pub fn block(mime: &str, picture: &[u8]) -> Result<String, Never> {
         held.extend_from_slice(&0u32.to_be_bytes());
     }
 
-    let Ok(many) = fitted::<usize, u32>(picture.len());
+    let Ok(many) = fitted::<_, u32>(picture.len());
 
     held.extend_from_slice(&many.to_be_bytes());
     held.extend_from_slice(picture);
@@ -215,7 +202,7 @@ pub fn sixty_four(held: &[u8]) -> Result<String, Never> {
     let mut said = String::with_capacity(held.len().div_ceil(3).saturating_mul(4));
 
     for lot in held.chunks(3) {
-        let Ok(pad) = fitted::<usize, u32>(3usize.saturating_sub(lot.len()).saturating_mul(8));
+        let Ok(pad) = fitted::<_, u32>(3usize.saturating_sub(lot.len()).saturating_mul(8));
         let held = lot.iter().fold(0u32, |held, byte| held.wrapping_shl(8) | u32::from(*byte));
         let held = held.wrapping_shl(pad);
 
@@ -223,8 +210,8 @@ pub fn sixty_four(held: &[u8]) -> Result<String, Never> {
             match at <= lot.len() {
                 true => {
                     let Ok(down) =
-                        fitted::<usize, u32>(18usize.saturating_sub(at.saturating_mul(6)));
-                    let Ok(which) = fitted::<u32, usize>(held.wrapping_shr(down) & 63);
+                        fitted::<_, u32>(18usize.saturating_sub(at.saturating_mul(6)));
+                    let Ok(which) = console_core_number_conversion::index(held.wrapping_shr(down) & 63);
 
                     match ALPHABET.get(which) {
                         Some(letter) => said.push(char::from(*letter)),
@@ -245,8 +232,8 @@ mod tests {
 
     #[test]
     fn what_is_already_the_one_format_is_left_where_it_is() {
-        assert_eq!(wants("Africa [x].opus"), Ok(Wants::Nothing));
-        assert_eq!(wants("Africa [x].mkv"), Ok(Wants::Nothing));
+        assert_eq!(wants("Africa [x].opus"), Ok(Wants::None));
+        assert_eq!(wants("Africa [x].mkv"), Ok(Wants::None));
     }
 
     #[test]
@@ -288,10 +275,10 @@ mod tests {
 
     #[test]
     fn a_film_is_moved_rather_than_decoded() {
-        let Ok(argv) = film(Path::new("/a/one.mp4"), Path::new("/a/one.mkv"));
-        let at = argv.iter().position(|word| word == "-c").expect("how it is coded");
+        let Ok(arguments) = film(Path::new("/a/one.mp4"), Path::new("/a/one.mkv"));
+        let coded = arguments.iter().skip_while(|word| *word != "-c").nth(1).expect("how it is coded");
 
-        assert_eq!(argv.get(at + 1).map(String::as_str), Some("copy"));
+        assert_eq!(coded, "copy");
     }
 
     #[test]
@@ -306,7 +293,7 @@ mod tests {
     }
 
     #[test]
-    fn base_sixty_four_is_written_the_way_everybody_else_writes_it() {
+    fn base_sixty_four_is_written_the_way_everyone_else_writes_it() {
         assert_eq!(sixty_four(b""), Ok(String::new()));
         assert_eq!(sixty_four(b"f"), Ok("Zg==".to_string()));
         assert_eq!(sixty_four(b"fo"), Ok("Zm8=".to_string()));

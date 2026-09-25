@@ -10,8 +10,8 @@ name = "console_files"
 path = "src/lib.rs"
 
 [[bin]]
-name = "files-panel"
-path = "src/bin/files-panel.rs"
+name = "files"
+path = "src/bin/files.rs"
 
 [[bin]]
 name = "files-thumbs"
@@ -27,13 +27,15 @@ path = "src/bin/console-screenshot.rs"
 
 [dependencies]
 console-core-atomic-writes.workspace = true
+console-applications.workspace = true
+console-content-types.workspace = true
+console-core-checksums.workspace = true
 console-core-never.workspace = true
 console-core-places.workspace = true
 console-core-words.workspace = true
 console-program-contract.workspace = true
 console-core-external-programs.workspace = true
 console-core-number-conversion.workspace = true
-gtk4 = "0.11"
 console-panel.workspace = true
 
 [lints]

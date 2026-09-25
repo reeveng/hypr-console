@@ -11,7 +11,7 @@
 //!
 //! Which Hyprland reads as a lock screen. An exclusive layer is handed every
 //! pointer and every touch on the whole screen, wherever they land, and that
-//! is the correct behaviour for the thing it was written for. Held that way,
+//! is the correct behavior for the thing it was written for. Held that way,
 //! the home screen swallowed every tap on the bar: the launcher, the keyboard,
 //! the music, the sound -- none of them opened, and a finger on any of them
 //! reached the home screen instead, which opened whatever the highlight was
@@ -42,14 +42,14 @@
 //! `carrying` is the same note for the other thing nothing outside the home
 //! screen can see. A square picked up is not written down anywhere -- the
 //! arrangement is only kept when the square is put back down -- and it is not
-//! a window, a layer or a process, so a machine asked whether somebody is
+//! a window, a layer or a process, so a machine asked whether someone is
 //! holding an application has had nothing to answer with.
 //!
 //! What made that worth a note is the moment after the card. `home-square`
 //! sends `carry` on its way out, so the card being gone is a moment before the
 //! square is in the hand, and anything that walks the d-pad in that gap moves
 //! the highlight and then lifts whatever it landed on. Read off the screen
-//! that gap is a colour; said out loud it is a file that is there or is not.
+//! that gap is a color; said out loud it is a file that is there or is not.
 //!
 //! `Hand` is here for the reason `Said` is: the home screen and whatever is
 //! asking both have to mean the same thing by it, and neither should carry the
@@ -61,10 +61,10 @@ use std::os::unix::net::UnixDatagram;
 use console_core_never::Never;
 use console_core_words::Words;
 
-use crate::Amiss;
+use crate::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
-pub enum Said {
+pub enum PadInput {
     #[words(word = "up")]
     Up,
     #[words(word = "down")]
@@ -82,63 +82,63 @@ pub enum Said {
     #[words(word = "again")]
     Again,
     #[words(word = "carry")]
-    Carry,
+    Payload,
     #[words(word = "off")]
     Off,
 }
 
-impl Said {
-    pub fn read(word: &str) -> Result<Option<Said>, Never> {
+impl PadInput {
+    pub fn read(word: &str) -> Result<Option<PadInput>, Never> {
         Ok(EVERY.iter().copied().find(|said| {
-            let Ok(spelt) = said.word();
+            let Ok(spelled) = said.word();
 
-            spelt == word.trim()
+            spelled == word.trim()
         }))
     }
 }
 
-pub const EVERY: [Said; 10] = [
-    Said::Up,
-    Said::Down,
-    Said::Left,
-    Said::Right,
-    Said::Pressed,
-    Said::More,
-    Said::Back,
-    Said::Again,
-    Said::Carry,
-    Said::Off,
+pub const EVERY: [PadInput; 10] = [
+    PadInput::Up,
+    PadInput::Down,
+    PadInput::Left,
+    PadInput::Right,
+    PadInput::Pressed,
+    PadInput::More,
+    PadInput::Back,
+    PadInput::Again,
+    PadInput::Payload,
+    PadInput::Off,
 ];
 
-pub fn homeward() -> Result<PathBuf, Amiss> {
+pub fn homeward() -> Result<PathBuf, Error> {
     let runtime = crate::runtime()?;
 
     Ok(runtime.join(console_core_places::OURS).join("home.sock"))
 }
 
-pub fn telling(said: Said) -> Result<(), Amiss> {
+pub fn telling(said: PadInput) -> Result<(), Error> {
     let at = homeward()?;
-    let socket = UnixDatagram::unbound().map_err(Amiss::Unbound)?;
+    let socket = UnixDatagram::unbound().map_err(Error::Unbound)?;
 
     let Ok(word) = said.word();
 
     socket
         .send_to(word.as_bytes(), &at)
         .map(|_| ())
-        .map_err(|fault| Amiss::Telling(at, fault))
+        .map_err(|fault| Error::Sending(at, fault))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Awake {
+pub enum Woken {
     Yes,
     No,
 }
 
-impl Awake {
+impl Woken {
     pub fn asked() -> Result<Self, Never> {
         Ok(match note(AWAKE).is_ok_and(|note| note.exists()) {
-            true => Awake::Yes,
-            false => Awake::No,
+            true => Woken::Yes,
+            false => Woken::No,
         })
     }
 }
@@ -147,44 +147,46 @@ const AWAKE: &str = "home-awake";
 
 const CARRYING: &str = "home-carrying";
 
-fn note(named: &str) -> Result<PathBuf, Amiss> {
+fn note(named: &str) -> Result<PathBuf, Error> {
     let runtime = crate::runtime()?;
 
     Ok(runtime.join(console_core_places::OURS).join(named))
 }
 
 enum Note<'a> {
-    Says(&'a str),
-    Gone,
+    Message(&'a str),
+    Closed,
 }
 
-fn noting(named: &str, said: Note) -> Result<(), Amiss> {
+fn noting(named: &str, said: Note) -> Result<(), Error> {
     let note = note(named)?;
 
     match note.parent() {
         Some(above) => std::fs::create_dir_all(above)
-            .map_err(|fault| Amiss::Making(above.to_path_buf(), fault))?,
+            .map_err(|fault| Error::Making(above.to_path_buf(), fault))?,
         None => {}
     }
 
     match said {
-        Note::Says(word) => {
-            console_core_atomic_writes::whole(&note, word.as_bytes()).map_err(Amiss::Writing)
+        Note::Message(word) => {
+            console_core_atomic_writes::whole(&note, word.as_bytes()).map_err(Error::Writing)
         }
-        Note::Gone => match std::fs::remove_file(&note) {
+        Note::Closed => match std::fs::remove_file(&note) {
             Ok(()) => Ok(()),
-            Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(fault) => Err(Amiss::Removing(note, fault)),
+            Err(fault) => match fault.kind() == std::io::ErrorKind::NotFound {
+                true => Ok(()),
+                false => Err(Error::Removing(note, fault)),
+            },
         },
     }
 }
 
-pub fn waking(awake: Awake) -> Result<(), Amiss> {
+pub fn waking(awake: Woken) -> Result<(), Error> {
     noting(
         AWAKE,
         match awake {
-            Awake::Yes => Note::Says("awake\n"),
-            Awake::No => Note::Gone,
+            Woken::Yes => Note::Message("awake\n"),
+            Woken::No => Note::Closed,
         },
     )
 }
@@ -204,12 +206,12 @@ impl Hand {
     }
 }
 
-pub fn carrying(hand: Hand) -> Result<(), Amiss> {
+pub fn carrying(hand: Hand) -> Result<(), Error> {
     noting(
         CARRYING,
         match hand {
-            Hand::Carries => Note::Says("carrying\n"),
-            Hand::Empty => Note::Gone,
+            Hand::Carries => Note::Message("carrying\n"),
+            Hand::Empty => Note::Closed,
         },
     )
 }
@@ -222,7 +224,7 @@ mod tests {
     fn every_word_reads_back_as_the_thing_that_wrote_it() {
         for said in EVERY {
             let Ok(word) = said.word();
-            let Ok(read) = Said::read(word);
+            let Ok(read) = PadInput::read(word);
 
             assert_eq!(read, Some(said), "{said:?} does not survive the wire");
         }
@@ -241,9 +243,9 @@ mod tests {
     }
 
     #[test]
-    fn a_word_nobody_here_says_is_dropped_rather_than_guessed_at() {
-        let Ok(sideways) = Said::read("sideways");
-        let Ok(nothing) = Said::read("");
+    fn a_word_no_one_here_says_is_dropped_rather_than_guessed_at() {
+        let Ok(sideways) = PadInput::read("sideways");
+        let Ok(nothing) = PadInput::read("");
 
         assert_eq!(sideways, None);
         assert_eq!(nothing, None);
@@ -251,8 +253,8 @@ mod tests {
 
     #[test]
     fn a_word_is_read_however_it_is_spaced() {
-        let Ok(spaced) = Said::read(" up\n");
+        let Ok(spaced) = PadInput::read(" up\n");
 
-        assert_eq!(spaced, Some(Said::Up));
+        assert_eq!(spaced, Some(PadInput::Up));
     }
 }

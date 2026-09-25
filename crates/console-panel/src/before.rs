@@ -18,15 +18,15 @@
 //! its rows out of what was written down.
 //!
 //! The same builder fed an older answer, never a second opinion about what the
-//! tab looks like. A hand-written `meanwhile` is a second list somebody has to
+//! tab looks like. A hand-written `meanwhile` is a second list someone has to
 //! remember to change when the first one changes; this one cannot drift,
 //! because there is only one list and the two readings go into it.
 //!
 //! Under the cache and not beside the [`notes`](crate::notes), deliberately.
 //! A note is something the desktop remembers about itself and could not work
 //! out again -- which tab it was left on, how much room it was granted. This is
-//! the machine's own answer to a question anybody can ask again, so it belongs
-//! where a thing that can be rebuilt belongs. Somebody who clears the cache
+//! the machine's own answer to a question anyone can ask again, so it belongs
+//! where a thing that can be rebuilt belongs. Someone who clears the cache
 //! gets a panel that opens the way it did before there was one, which is the
 //! only thing any of this is allowed to cost.
 
@@ -41,27 +41,11 @@ use crate::running;
 fn beside(note: &str) -> Result<Option<PathBuf>, Never> {
     let ours = Base::Cache.ours()?;
 
-    let Ok(whose) = whose();
+    let Ok(whose) = crate::whose::argv0();
     let Ok(filed) = filed(note);
 
     Ok(ours.map(|ours| ours.join("asked").join(format!("{whose}.{filed}"))))
 }
-
-fn whose() -> Result<String, Never> {
-    let argv0 = std::env::args()
-        .next()
-        .and_then(|argv0| {
-            std::path::Path::new(&argv0).file_name().and_then(|name| name.to_str()).map(str::to_string)
-        })
-        .filter(|name| !name.is_empty());
-
-    Ok(match argv0 {
-        Some(whose) => whose,
-        None => WHAT_THIS_CRATE_IS_CALLED.to_string(),
-    })
-}
-
-const WHAT_THIS_CRATE_IS_CALLED: &str = "console-panel";
 
 fn filed(note: &str) -> Result<String, Never> {
     let filed: String = note
@@ -95,16 +79,16 @@ pub fn last(note: &str) -> Result<String, Never> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Said<'a>(&'a str);
+struct Output<'a>(&'a str);
 
 pub fn said(note: &str, program: Program, rest: &[&str]) -> Result<String, Never> {
     let Ok(said) = running::said(program, rest);
-    let Ok(()) = keep(note, Said(&said));
+    let Ok(()) = keep(note, Output(&said));
 
     Ok(said)
 }
 
-fn keep(note: &str, said: Said<'_>) -> Result<(), Never> {
+fn keep(note: &str, said: Output<'_>) -> Result<(), Never> {
     let Ok(last) = last(note);
 
     match last == said.0 {
@@ -159,7 +143,7 @@ mod tests {
     }
 
     #[test]
-    fn a_question_nobody_has_asked_says_nothing() {
+    fn a_question_no_one_has_asked_says_nothing() {
         assert_eq!(
             last("a question nothing on this machine has ever asked"),
             Ok(String::new())

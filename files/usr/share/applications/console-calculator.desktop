@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Calculator
+Comment=Sums on a keypad, pressed or tapped
+Exec=/usr/local/bin/calculator
+Icon=accessories-calculator
+Terminal=false
+Categories=Utility;Calculator;

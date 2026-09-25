@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+# The library, and the book pressed from the files panel.
+#
+# Pressed from the home screen it opens the library: every book in ~/Books as its
+# cover, the one being read with how far through it is. Handed a file it opens
+# straight onto the page that book was left at, and B goes back to the library.
+Name=Books
+Comment=Books, comics and documents, open where they were left
+Exec=/usr/local/bin/books %f
+Icon=accessories-ebook-reader
+Terminal=false
+Categories=Office;Viewer;
+MimeType=application/epub+zip;application/pdf;application/vnd.comicbook+zip;application/x-cbz;

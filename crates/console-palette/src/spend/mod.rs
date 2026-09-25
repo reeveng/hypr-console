@@ -20,8 +20,9 @@ pub mod librewolf;
 pub mod paper;
 pub mod shell;
 
-use console_core_colour::Short;
+use console_core_color::Short;
 use console_core_never::Never;
+use console_core_number_conversion::fitted;
 use std::path::{Path, PathBuf};
 
 use crate::palette::Palette;
@@ -32,14 +33,18 @@ pub const ROLES: [&str; 17] = [
     "sky", "mint", "leaf", "butter", "peach", "coral",
 ];
 
-pub fn widest<const N: usize>(names: [&str; N]) -> Result<usize, Never> {
+pub fn widest(names: &[&str]) -> Result<u32, Never> {
     Ok(match names.iter().map(|name| name.len()).max() {
-        Some(widest) => widest,
+        Some(widest) => {
+            let Ok(widest) = fitted(widest);
+
+            widest
+        }
         None => NOTHING_TO_LINE_UP,
     })
 }
 
-const NOTHING_TO_LINE_UP: usize = 0;
+const NOTHING_TO_LINE_UP: u32 = 0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum How {
@@ -60,7 +65,7 @@ pub fn everywhere(
     terminal: &Terminal,
 ) -> Result<Vec<Written>, Short> {
     let home = files.join("home/@user@");
-    let Ok(ours) = console_core_places::Base::Config.ours_under(&home);
+    let Ok(ours) = console_core_places::Base::Configuration.ours_under(&home);
     let chrome = home.join(".librewolf/console/chrome");
     let whole = |path: PathBuf, body: String| Written {
         path,
@@ -81,11 +86,11 @@ pub fn everywhere(
     let hypr = hyprland::spend(palette)?;
     let paper = paper::spend(palette)?;
     let icon = icon::spend(palette)?;
-    let Ok(colours) = alacritty::spend(terminal);
+    let Ok(colors) = alacritty::spend(terminal);
 
     Ok(vec![
         whole(ours.join("palette.css"), css),
-        whole(ours.join("palette.toml"), colours),
+        whole(ours.join("palette.toml"), colors),
         whole(chrome.join("palette.css"), stylesheet),
         whole(files.join("usr/local/lib/console/palette.sh"), sh),
         region(home.join(".config/kdeglobals"), kdeglobals),
@@ -99,22 +104,22 @@ pub fn everywhere(
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::spec::Spec;
+    use crate::configuration::Configuration;
 
     const DECLARED: &str = include_str!("../../../../theme/palette.toml");
 
-    pub fn palette_spec() -> Spec {
+    pub fn declared_palette() -> Configuration {
         toml::from_str(DECLARED).expect("theme/palette.toml parses")
     }
 
     pub fn blossom() -> Palette {
-        crate::palette::resolve(&palette_spec().colour).expect("it resolves")
+        crate::palette::resolve(&declared_palette().color).expect("it resolves")
     }
 
     fn spent() -> Vec<Written> {
-        let (spec, palette) = (palette_spec(), blossom());
-        let terminal = Terminal::of(&spec, &palette).expect("the terminal table is declared");
-        everywhere(Path::new("files"), &palette, &terminal).expect("every colour it spends is declared")
+        let (configuration, palette) = (declared_palette(), blossom());
+        let terminal = Terminal::of(&configuration, &palette).expect("the terminal table is declared");
+        everywhere(Path::new("files"), &palette, &terminal).expect("every color it spends is declared")
     }
 
     #[test]
@@ -165,7 +170,7 @@ pub mod tests {
             .iter()
             .map(|w| w.path.display().to_string())
             .collect();
-        let Ok(ours) = console_core_places::Base::Config.ours_under(std::path::Path::new(""));
+        let Ok(ours) = console_core_places::Base::Configuration.ours_under(std::path::Path::new(""));
 
         for wanted in [
             ours.join("palette.css").display().to_string(),

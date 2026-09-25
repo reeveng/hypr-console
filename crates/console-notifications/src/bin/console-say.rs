@@ -1,4 +1,4 @@
-//! Say something went wrong, where somebody who is not in a terminal sees it.
+//! Say something went wrong, where someone who is not in a terminal sees it.
 //!
 //!     console-say KIND SUMMARY [BODY]
 //!
@@ -11,7 +11,7 @@
 //! pictures that will not delete are one kind, and the picture and the
 //! compositor are two.
 
-use console_notifications::saying::{Kept, Said, fault, for_the_journal, journal, raise};
+use console_notifications::saying::{StatePath, Content, fault, for_the_journal, journal, raise};
 
 const NO_BODY: &str = "";
 
@@ -40,15 +40,15 @@ fn main() -> std::process::ExitCode {
         None => NO_BODY,
     };
 
-    let Ok(said) = for_the_journal(kind, Said { summary, body });
+    let Ok(said) = for_the_journal(kind, Content { summary, body });
     let Ok(()) = journal(&said);
-    let Ok(counting) = Kept::counting(kind);
+    let Ok(counting) = StatePath::counting(kind);
     let Ok(again) = counting.again();
-    let Ok(fault) = fault(Said { summary, body }, again);
+    let Ok(fault) = fault(Content { summary, body }, again);
 
     match fault {
-        Some(notice) => {
-            let Ok(_) = raise(&notice);
+        Some(notification) => {
+            let Ok(_) = raise(&notification);
         }
         None => {}
     }

@@ -1,12 +1,17 @@
 //! Decode the pictures a list wants, once, into the one file it reads.
 //!
-//!     panel-pictures /usr/share/icons/.../firefox.svg /usr/share/pixmaps/x.png
+//!     panel-pictures --side 32 /usr/share/icons/.../firefox.svg /usr/share/pixmaps/x.png
 //!
 //! Off the panel, like `files-thumbs` and for the same reason: this is the work
 //! that was making the menu slow to appear, and doing it where the panel draws
 //! is doing it in the one place where nothing else can happen. The panel that
 //! asks for it is already on the screen and goes on answering buttons; what
 //! this is for is the next opening.
+//!
+//! The side is what the caller draws at, and it is half of what the picture is
+//! called: the rows want one size and the home screen wants another, and the
+//! same file at two sizes is two pictures. A run with no `--side` is the rows',
+//! which is the size everything in this store was before there were two.
 //!
 //! What is asked for is decoded again whether or not the store already has it,
 //! and everything else in the store whose file still exists is kept. So a
@@ -16,38 +21,41 @@
 //! `console_panel::pictures` is the file's shape, who reads it and why.
 
 
+use console_core_geometry::Size;
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
 use std::collections::BTreeMap;
+use std::path::Path;
 use std::process::ExitCode;
-
-use gtk4::gdk_pixbuf::{Colorspace, Pixbuf};
 
 use console_panel::pictures::{self, Picture};
 use console_panel::strip::PICTURE;
 
 fn main() -> ExitCode {
-    let wanted: Vec<String> = std::env::args().skip(1).collect();
+    let said: Vec<String> = std::env::args().skip(1).collect();
+    let Ok(asked) = asked(&said);
 
-    match wanted.is_empty() {
-        true => {
-            eprintln!("usage: panel-pictures FILE...");
+    let (side, wanted) = match asked {
+        Some((side, wanted)) => (side, wanted),
+        None => {
+            eprintln!("usage: panel-pictures [--side PIXELS] FILE...");
+
             return ExitCode::FAILURE;
         }
-        false => {},
-    }
+    };
 
     let Ok(mut made) = kept();
 
     for of in wanted {
-        let Ok(drawn) = drawn(&of);
+        let Ok(named) = pictures::keyed(&of, side);
+        let Ok(drawn) = drawn(&of, side);
 
         match drawn {
             Some(picture) => {
-                made.insert(of, picture);
+                made.insert(named.clone(), Picture { of: named, ..picture });
             },
             None => {
-                made.remove(&of);
+                made.remove(&named);
             },
         }
     }
@@ -60,6 +68,33 @@ fn main() -> ExitCode {
         Written::Yes => ExitCode::SUCCESS,
         Written::No => ExitCode::FAILURE,
     }
+}
+
+fn asked(said: &[String]) -> Result<Option<(pictures::Side, Vec<String>)>, Never> {
+    let Ok(rows) = fitted::<i32, u32>(PICTURE);
+    let mut side = pictures::Side(rows);
+    let mut wanted: Vec<String> = Vec::new();
+    let mut words = said.iter();
+
+    while let Some(word) = words.next() {
+        match word.as_str() == pictures::SIDE {
+            true => {
+                let said = match words.next().map(|said| said.parse()) {
+                    Some(Ok(said)) => said,
+                    Some(Err(_not_a_size)) => return Ok(None),
+                    None => return Ok(None),
+                };
+
+                side = pictures::Side(said);
+            }
+            false => wanted.push(word.clone()),
+        }
+    }
+
+    Ok(match wanted.is_empty() {
+        true => None,
+        false => Some((side, wanted)),
+    })
 }
 
 fn kept() -> Result<BTreeMap<String, Picture>, Never> {
@@ -82,51 +117,46 @@ fn kept() -> Result<BTreeMap<String, Picture>, Never> {
 
     Ok(index
         .into_iter()
-        .filter(|(of, _)| std::path::Path::new(of).exists())
+        .filter(|(named, _)| match pictures::unkeyed(named) {
+            Ok(Some((of, _))) => std::path::Path::new(of).exists(),
+            Ok(None) | Err(_) => false,
+        })
         .filter_map(|(of, found)| {
-            let held = bytes.get(found.at..found.at.saturating_add(found.long))?;
+            let Ok(held) = found.in_store(&bytes);
+
+            let held = match held {
+                Some(held) => held,
+                None => return None,
+            };
+
             let pixels = held.to_vec();
             Some((
                 of.clone(),
-                Picture { of, wide: found.wide, tall: found.tall, stride: found.stride, pixels },
+                Picture { of, width: found.width, height: found.height, stride: found.stride, pixels },
             ))
         })
         .collect())
 }
 
-fn drawn(of: &str) -> Result<Option<Picture>, Never> {
-    let held = match Pixbuf::from_file_at_scale(of, PICTURE, PICTURE, true) {
-        Ok(held) => held,
-        Err(_fault) => return Ok(None),
+fn drawn(of: &str, side: pictures::Side) -> Result<Option<Picture>, Never> {
+    let read = console_pictures::decoded(Path::new(of), Size { width: side.0, height: side.0 });
+
+    let held = match read {
+        Ok(Some(held)) => held,
+        Ok(None) => return Ok(None),
+        Err(why) => {
+            eprintln!("panel-pictures: {of}: {why}");
+
+            return Ok(None);
+        }
     };
-
-    let held = match held.has_alpha() {
-        true => held,
-
-        false => match held.add_alpha(false, 0, 0, 0) {
-            Ok(held) => held,
-            Err(_fault) => return Ok(None),
-        },
-    };
-
-    match held.colorspace() != Colorspace::Rgb
-        || held.n_channels() != 4
-        || held.bits_per_sample() != 8
-    {
-        true => return Ok(None),
-        false => {},
-    }
-
-    let Ok(wide) = fitted(held.width());
-    let Ok(tall) = fitted(held.height());
-    let Ok(stride) = fitted(held.rowstride());
 
     Ok(Some(Picture {
         of: of.to_string(),
-        wide,
-        tall,
-        stride,
-        pixels: held.read_pixel_bytes().to_vec(),
+        width: held.width,
+        height: held.height,
+        stride: held.stride,
+        pixels: held.bytes.to_vec(),
     }))
 }
 

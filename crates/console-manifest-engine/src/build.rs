@@ -8,11 +8,10 @@
 use std::path::{Path, PathBuf};
 
 use console_core_never::Never;
+use console_core_internal_programs::EXECUTABLE_DIRECTORY;
 use console_core_words::Words;
 
 use crate::settled::Settled;
-
-pub const BIN: &str = "/usr/local/bin";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
 pub enum State {
@@ -40,7 +39,7 @@ pub fn made(root: &Path, name: &str) -> Result<PathBuf, Never> {
 }
 
 pub fn live(name: &str) -> Result<String, Never> {
-    Ok(format!("{BIN}/{name}"))
+    Ok(format!("{EXECUTABLE_DIRECTORY}/{name}"))
 }
 
 pub fn state(root: &Path, name: &str) -> Result<State, Never> {
@@ -50,8 +49,10 @@ pub fn state(root: &Path, name: &str) -> Result<State, Never> {
     Ok(match (std::fs::read(made), std::fs::read(live)) {
         (Err(_), _) => State::Unbuilt,
         (Ok(_), Err(_)) => State::Missing,
-        (Ok(built), Ok(there)) if built == there => State::Ok,
-        (Ok(_), Ok(_)) => State::Differs,
+        (Ok(built), Ok(there)) => match built == there {
+            true => State::Ok,
+            false => State::Differs,
+        },
     })
 }
 

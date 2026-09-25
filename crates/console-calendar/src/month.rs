@@ -2,7 +2,7 @@
 //!
 //! None of the arithmetic a calendar is made of is here, because none of it is
 //! this desktop's to get right: which day a month starts on, how long February
-//! is this year, and which day the week starts on in the language somebody set
+//! is this year, and which day the week starts on in the language someone set
 //! are three questions `cal` has answered correctly since before this machine
 //! existed, in one process, in the locale it is run in. What is here is the
 //! walk from one month to the next, which is the only thing a person pressing
@@ -13,14 +13,15 @@
 //! empty columns and then a 1, and a line split on whitespace says only that
 //! it has five days in it and not which five. [`COLUMN`] is how wide `cal`
 //! writes one, and the first line of its own answer -- the month and the year,
-//! centred -- is what the panel says over the grid, so the words stay the
+//! centered -- is what the panel says over the grid, so the words stay the
 //! locale's rather than being spelled again here.
 
 use console_core_never::Never;
+use console_core_number_conversion::index;
 
-pub const WEEK: usize = 7;
+pub const WEEK: u32 = 7;
 
-const COLUMN: usize = 3;
+const COLUMN: u32 = 3;
 
 const A_YEAR: i32 = 12;
 
@@ -129,13 +130,15 @@ pub fn read(said: &str) -> Result<Grid, Never> {
 
 fn cells(line: &str) -> Result<Vec<String>, Never> {
     let letters: Vec<char> = line.chars().collect();
+    let Ok(column) = index(COLUMN);
+    let Ok(week) = index(WEEK);
 
     let mut cells: Vec<String> = letters
-        .chunks(COLUMN)
+        .chunks(column)
         .map(|column| column.iter().collect::<String>().trim().to_string())
         .collect();
 
-    cells.resize(WEEK, String::new());
+    cells.resize(week, String::new());
 
     Ok(cells)
 }
@@ -154,8 +157,8 @@ Su Mo Tu We Th Fr Sa
                     
 ";
 
-    fn week(grid: &Grid, at: usize) -> Vec<String> {
-        match grid.weeks.get(at) {
+    fn week(grid: &Grid, at: u32) -> Vec<String> {
+        match grid.weeks.get(console_core_number_conversion::index(at).unwrap()) {
             Some(week) => week.clone(),
             None => Vec::new(),
         }
@@ -201,7 +204,7 @@ Su Mo Tu We Th Fr Sa
         assert_eq!(week(&grid, 0), ["", "", "", "", "1", "2", "3"]);
 
         for said in &grid.weeks {
-            assert_eq!(said.len(), WEEK, "a week is seven columns wide whatever is in it");
+            assert_eq!(u32::try_from(said.len()).unwrap(), WEEK, "a week is seven columns wide whatever is in it");
         }
     }
 

@@ -28,14 +28,12 @@
 //!
 //! What this does not see is a toolkit asked for a base. `glib::user_cache_dir`
 //! and `glib::user_config_dir` are the same question with the same two answers
-//! in them, and the files that ask one of them are every one a program drawn
-//! with GTK, where the toolkit is already in the room. They are left standing:
-//! each hands the directory to a function that joins the rest of the path onto
-//! it, and those functions cannot yet say *there is no directory*, which is the
-//! same sentence the fallbacks under `/tmp` needed and the reason this is a
-//! sweep of its own rather than the tail of this one. Standing is a decision,
-//! so the second guard names them: one more is a failure, and one that goes is
-//! a line to take out.
+//! in them, and the files that ask one of them were every one a program drawn
+//! with GTK, where the toolkit was already in the room. What it took to stop
+//! asking was the sentence *there is no directory*, which each of those call
+//! sites now says out loud. There are none left, and the guard stays because
+//! the next one is the one worth catching: a toolkit asked for a base is a
+//! toolkit back in a program that no longer draws with one.
 //!
 //! `console-core-places` is excused because it is the crate that answers.
 
@@ -67,17 +65,7 @@ fn one_crate_works_out_where_this_desktop_keeps_things() {
 const BASES_OF_A_TOOLKIT: [&str; 4] =
     ["user_config_dir", "user_state_dir", "user_data_dir", "user_cache_dir"];
 
-const ASKING_A_TOOLKIT: &[&str] = &[
-    "crates/console-downloads/src/bin/downloads-find.rs",
-    "crates/console-downloads/src/bin/downloads-format.rs",
-    "crates/console-downloads/src/card.rs",
-    "crates/console-files/src/bin/files-thumbs.rs",
-    "crates/console-files/src/card.rs",
-    "crates/console-music/src/bin/music-index.rs",
-    "crates/console-music/src/card.rs",
-    "crates/console-music/src/library.rs",
-    "crates/console-panel/src/style.rs",
-];
+const ASKING_A_TOOLKIT: &[&str] = &[];
 
 #[test]
 fn the_ones_that_ask_a_toolkit_for_a_base_are_the_ones_that_are_known() {

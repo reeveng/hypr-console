@@ -3,7 +3,7 @@
 //! `f(&held.clone())` allocates a whole second copy of something, hands out a
 //! borrow of the copy, and drops it on the next line. `&held` was already a
 //! borrow of the thing itself and would have done. The copy is not a mistake
-//! anybody makes on purpose: it is what a borrow checker complaint turns into
+//! anyone makes on purpose: it is what a borrow checker complaint turns into
 //! when the fix is a guess, which is why it collects in generated code and in
 //! code written in a hurry, and why it survives review -- the line compiles,
 //! the line is short, and the only thing wrong with it is invisible.
@@ -18,7 +18,7 @@
 //!
 //! What survives the rule is every copy that is kept. A clone stored, returned,
 //! pushed onto something, or moved into a closure that outlives the line is a
-//! copy somebody needs, and none of those are written with an `&` in front of
+//! copy someone needs, and none of those are written with an `&` in front of
 //! them.
 
 //!
@@ -26,7 +26,7 @@
 //! worth reading before believing: a copy lent to one argument of a call whose
 //! next argument moves the original is a copy the borrow checker asked for. That
 //! is the site's allow and the sentence is easy to write, which is the test this
-//! rule sets -- a copy nobody can explain is a copy nobody chose.
+//! rule sets -- a copy no one can explain is a copy no one chose.
 #![feature(rustc_private)]
 #![warn(unused_extern_crates)]
 

@@ -7,11 +7,11 @@
 //! the line, paid to find out something that was already known.
 //!
 //! `Iterator::count` is the one to watch rather than `len`. A `len` is a field
-//! on a list and answering it costs nothing, and where somebody has written
+//! on a list and answering it costs nothing, and where someone has written
 //! `held.len() == 0` stock clippy already asks for `is_empty` -- that rule is on
 //! in this workspace and this one does not repeat it. A `count` is a walk: it
 //! consumes the iterator to the end, by definition, and the definition is the
-//! part nobody reads.
+//! part no one reads.
 //!
 //! What is asked for is a comparison of a `count` against nothing or one, which
 //! is a question about emptiness wearing a number. `> 0` and `!= 0` are

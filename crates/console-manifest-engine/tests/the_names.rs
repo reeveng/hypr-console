@@ -1,7 +1,7 @@
 //! A desktop entry is named for something this tree still uses.
 //!
 //! The filename of a `.desktop` file is not decoration and it is not the name
-//! anybody reads: `Name=` inside it is what a person sees. The filename is the
+//! anyone reads: `Name=` inside it is what a person sees. The filename is the
 //! identity every other file points at. `mimeapps.list` names one to say what
 //! opens a song, and the menu reads the directory. So it is a name, in the
 //! sense every other name here is, and it goes stale the same way -- silently,
@@ -12,7 +12,7 @@
 //! crate that had been renamed, and `console-dictate.desktop` named nothing on
 //! the machine at all -- the crate was `console-input-dictation`, the binary
 //! was `dictate`, and that filename was the only place the third name existed.
-//! Neither was a fault anybody could see, and that is the argument for reading
+//! Neither was a fault anyone could see, and that is the argument for reading
 //! it here rather than noticing it.
 //!
 //! Both of those names have since come round: the crate is `console-music`
@@ -23,10 +23,10 @@
 //! moves the other half is exactly how it stops being.
 //!
 //! What counts as still used is deliberately wide: a crate, a binary the
-//! manifest builds, or a package it installs. All three are names somebody can
+//! manifest builds, or a package it installs. All three are names someone can
 //! look up, and a rule that demanded only crates would rename
 //! `console-buttons.desktop` -- which names the binary a person types -- into
-//! something nobody has ever called it. The rule is that the name exists, not
+//! something no one has ever called it. The rule is that the name exists, not
 //! that it came from one place.
 //!
 //! The mime list is read for this desktop's own entries only. It also names
@@ -34,6 +34,9 @@
 //! and asking whether that file exists would be asking the machine a question
 //! the manifest cannot answer.
 
+mod reading;
+
+use reading::section;
 use std::path::{Path, PathBuf};
 
 fn root() -> PathBuf {
@@ -44,24 +47,6 @@ fn root() -> PathBuf {
 
 fn manifest() -> String {
     std::fs::read_to_string(root().join("desktop.conf")).expect("desktop.conf")
-}
-
-fn section(held: &str, wanted: &str) -> Vec<String> {
-    held.lines()
-        .map(|line| line.split('#').next().unwrap_or("").trim())
-        .filter(|line| !line.is_empty())
-        .fold((Vec::new(), None), |(mut out, at), line| {
-            match line.strip_prefix('[').and_then(|rest| rest.strip_suffix(']')) {
-                Some(name) => (out, Some(name.to_string())),
-                None => {
-                    if at.as_deref() == Some(wanted) {
-                        out.push(line.split_whitespace().next().unwrap_or("").to_string());
-                    }
-                    (out, at)
-                }
-            }
-        })
-        .0
 }
 
 fn crates() -> Vec<String> {

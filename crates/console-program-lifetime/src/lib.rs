@@ -5,7 +5,7 @@
 //! something running for exactly as long as it is running itself -- a `pactl
 //! subscribe` under a settings panel, an `nmcli monitor` under the bar, the
 //! inhibitor that holds a machine awake across an apply -- or it is starting
-//! something on somebody's behalf and has no business ending it, which is what
+//! something on someone's behalf and has no business ending it, which is what
 //! a button press does. At the call site the two are the same three lines: a
 //! `Command`, a `spawn`, and a `Child` put somewhere. Afterwards they are not
 //! the same at all, and the difference is invisible until the day it is not.
@@ -21,7 +21,7 @@
 //!
 //! That last part is the whole argument for this crate. A child stopped by a
 //! line of code is stopped on the paths that reach that line, and the panel
-//! reached it from one of them. [`Alongside`] is stopped instead by two things
+//! reached it from one of them. [`BoundToParent`] is stopped instead by two things
 //! that nothing has to remember to reach:
 //!
 //! 1. `PR_SET_PDEATHSIG`, so the kernel signals the child when the thread that
@@ -34,9 +34,9 @@
 //! when a program merely stops wanting the child; the drop never happens when
 //! the program is killed. Together they cover the ways a parent ends.
 //!
-//! [`LetGo`] is the other answer, and deliberately has none of that. A program
+//! [`Detached`] is the other answer, and deliberately has none of that. A program
 //! launched by a press is the person's, not ours -- a controller daemon
-//! restarting is not a reason for what somebody started to close -- so this
+//! restarting is not a reason for what someone started to close -- so this
 //! holds the child only so that it can be reaped, and never ends it. Both types
 //! exist so that a caller has to say which it meant, in a word that is still
 //! there to read a year later.
@@ -44,18 +44,18 @@
 //! Between them they are the only places in the workspace that name a
 //! [`std::process::Child`], which is what
 //! `console-manifest-engine/tests/the_children.rs` holds shut. A `Command` that
-//! is run to completion with `status` or `output` is nobody's business here: it
+//! is run to completion with `status` or `output` is no one's business here: it
 //! is over before the call returns and cannot be left behind.
 //!
 //! [`threads`] is the same question asked about a thread, which was left out of
 //! this for years because a handle is cheap to drop. Only half of it carries
 //! over -- a thread cannot be ended from outside -- so what is there is the
-//! `LetGo` half and the word for it, and EXPLICIT035 asks at every `spawn`.
+//! `Detached` half and the word for it, and EXPLICIT035 asks at every `spawn`.
 //!
 //! Both answers reach one process, and a process is not always one process.
-//! [`Alongside`] kills the child it was handed; what that child started is
+//! [`BoundToParent`] kills the child it was handed; what that child started is
 //! reparented to the user manager and carries on, in the control group of
-//! whoever is logged in, where nothing can tell it from the desktop somebody is
+//! whoever is logged in, where nothing can tell it from the desktop someone is
 //! using. A nested desktop is the whole of that fault: the compositor dies with
 //! the run and its session, its bar and its keyboard are still there an hour
 //! later, and the only way anyone found them was `ps`.
@@ -73,7 +73,7 @@
 //! run is wrapped and why is in the justfile.
 //!
 //! The other place it is paid is the nested compositor itself, which wraps its
-//! own session in `console-test-desktop`. A run is only wrapped when somebody
+//! own session in `console-test-desktop`. A run is only wrapped when someone
 //! typed `just`, and the panel tier is a `cargo test` like any other: for an
 //! afternoon the justfile's scope was taken for the whole of this, and the
 //! count went on climbing underneath it -- eight hundred processes, because
@@ -81,8 +81,8 @@
 //! scope is a sibling rather than a child, so the two do not reach each other
 //! and the inner one is the one that holds.
 //!
-//! A machine with no user manager gets the argv it handed in. That is most of
-//! what is not a desktop, and it is not a fault: `Alongside` still holds, and a
+//! A machine with no user manager gets the arguments it handed in. That is most of
+//! what is not a desktop, and it is not a fault: `BoundToParent` still holds, and a
 //! machine with no manager to leave something behind in mostly has no session
 //! to leave it in.
 
@@ -91,23 +91,33 @@ pub mod threads;
 use console_core_never::Never;
 use std::io;
 use std::os::unix::process::CommandExt;
-use console_core_external_programs::Program;
+use console_core_external_programs::{Installed, Program, installed};
 use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, ExitStatus, Stdio};
+use std::ffi::c_int;
+
+unsafe extern "C" {
+    fn prctl(option: c_int, ...) -> c_int;
+
+    fn getppid() -> c_int;
+}
+
+const PR_SET_PDEATHSIG: c_int = 1;
+const SIGTERM: c_int = 15;
 
 #[derive(Debug)]
-pub struct Alongside {
+pub struct BoundToParent {
     child: Child,
 }
 
-pub fn alongside(command: &mut Command) -> io::Result<Alongside> {
+pub fn alongside(command: &mut Command) -> io::Result<BoundToParent> {
     let Ok(()) = dying_with_us(command);
 
     let child = command.spawn()?;
 
-    Ok(Alongside { child })
+    Ok(BoundToParent { child })
 }
 
-impl Alongside {
+impl BoundToParent {
     pub fn reading(&mut self) -> Result<Option<ChildStdout>, Never> {
         Ok(self.child.stdout.take())
     }
@@ -133,7 +143,7 @@ impl Alongside {
     }
 }
 
-impl Drop for Alongside {
+impl Drop for BoundToParent {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
@@ -141,24 +151,46 @@ impl Drop for Alongside {
 }
 
 #[derive(Debug)]
-pub struct LetGo {
+pub struct Detached {
     child: Child,
 }
 
-pub fn let_go(command: &mut Command) -> io::Result<LetGo> {
+pub fn let_go(command: &mut Command) -> io::Result<Detached> {
     let child = command.spawn()?;
 
-    Ok(LetGo { child })
+    Ok(Detached { child })
 }
 
-impl LetGo {
+impl Detached {
+    pub fn writing(&mut self) -> Result<Option<ChildStdin>, Never> {
+        Ok(self.child.stdin.take())
+    }
+
     pub fn still(&mut self) -> Result<Still, Never> {
         still(&mut self.child)
+    }
+
+    pub fn waiting(&mut self) -> io::Result<ExitStatus> {
+        self.child.wait()
     }
 
     pub fn id(&self) -> Result<u32, Never> {
         Ok(self.child.id())
     }
+}
+
+pub fn reaped(started: Vec<Detached>) -> Result<Vec<Detached>, Never> {
+    Ok(started
+        .into_iter()
+        .filter_map(|mut one| {
+            let Ok(still) = one.still();
+
+            match still {
+                Still::Running => Some(one),
+                Still::Ended => None,
+            }
+        })
+        .collect())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -181,12 +213,12 @@ pub enum Wrapped {
     AsItWasHandedIn,
 }
 
-pub fn in_a_scope_of_its_own(named: Option<&str>, argv: &[String]) -> Result<(Wrapped, Vec<String>), Never> {
-    let Ok(has) = has_systemd_run();
+pub fn in_a_scope_of_its_own(named: Option<&str>, arguments: &[String]) -> Result<(Wrapped, Vec<String>), Never> {
+    let Ok(scopes) = scopes();
 
-    match has {
-        Has::No => return Ok((Wrapped::AsItWasHandedIn, argv.to_vec())),
-        Has::Yes => {},
+    match scopes {
+        Scopes::Unavailable => return Ok((Wrapped::AsItWasHandedIn, arguments.to_vec())),
+        Scopes::Available => {},
     }
 
     let unit: Vec<String> = named
@@ -199,7 +231,7 @@ pub fn in_a_scope_of_its_own(named: Option<&str>, argv: &[String]) -> Result<(Wr
             .into_iter()
             .chain(unit)
             .chain(std::iter::once("--".to_string()))
-            .chain(argv.iter().cloned())
+            .chain(arguments.iter().cloned())
             .collect(),
     );
 
@@ -207,11 +239,11 @@ pub fn in_a_scope_of_its_own(named: Option<&str>, argv: &[String]) -> Result<(Wr
 }
 
 pub fn nothing_left_in(named: &str) -> Result<(), Never> {
-    let Ok(has) = has_systemd_run();
+    let Ok(scopes) = scopes();
 
-    match has {
-        Has::No => return Ok(()),
-        Has::Yes => {},
+    match scopes {
+        Scopes::Unavailable => return Ok(()),
+        Scopes::Available => {},
     }
 
     let Ok(mut asking) = Program::Systemctl.command();
@@ -226,29 +258,33 @@ pub fn nothing_left_in(named: &str) -> Result<(), Never> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Has {
-    Yes,
-    No,
+pub enum Scopes {
+    Available,
+    Unavailable,
 }
 
-fn has_systemd_run() -> Result<Has, Never> {
-    let Ok(said) = console_core_external_programs::path();
-
-    let path = match said {
-        Some(path) => path,
-        None => return Ok(Has::No),
-    };
-
+pub fn scopes() -> Result<Scopes, Never> {
     let Ok(systemd_run) = Program::SystemdRun.name();
+    let Ok(found) = installed(systemd_run);
 
-    let found = path
-        .split(':')
-        .filter(|at| !at.is_empty())
-        .any(|at| std::path::Path::new(at).join(systemd_run).exists());
+    match found {
+        Installed::No => return Ok(Scopes::Unavailable),
+        Installed::Yes => {},
+    }
 
-    Ok(match found {
-        true => Has::Yes,
-        false => Has::No,
+    let Ok(mut asking) = Program::Systemctl.command();
+    let answered = asking
+        .args(["--user", "show", "-p", "Version"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+
+    Ok(match answered {
+        Ok(how) => match how.success() {
+            true => Scopes::Available,
+            false => Scopes::Unavailable,
+        },
+        Err(_no_systemctl) => Scopes::Unavailable,
     })
 }
 
@@ -261,9 +297,9 @@ fn dying_with_us(command: &mut Command) -> Result<(), Never> {
     // runs in the parent.
     unsafe {
         command.pre_exec(move || {
-            let _ = libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
+            let _ = prctl(PR_SET_PDEATHSIG, SIGTERM);
 
-            match u32::try_from(libc::getppid()) {
+            match u32::try_from(getppid()) {
                 Ok(now) => match now == whose {
                     true => Ok(()),
                     false => Err(io::Error::other("whoever wanted this is already gone")),
@@ -282,12 +318,12 @@ mod scopes {
 
     #[test]
     fn the_wrap_is_in_front_of_everything_else() {
-        let argv = vec![
+        let arguments = vec![
             "firefox".to_string(),
             "--new-window".to_string(),
             "https://example.com".to_string(),
         ];
-        let Ok((wrapped, made)) = in_a_scope_of_its_own(None, &argv);
+        let Ok((wrapped, made)) = in_a_scope_of_its_own(None, &arguments);
 
         match wrapped {
             Wrapped::AsItWasHandedIn => {
@@ -315,24 +351,23 @@ mod scopes {
 
     #[test]
     fn a_program_named_like_a_flag_is_kept_a_program() {
-        let argv = vec!["--something".to_string()];
-        let Ok((wrapped, made)) = in_a_scope_of_its_own(None, &argv);
+        let arguments = vec!["--something".to_string()];
+        let Ok((wrapped, made)) = in_a_scope_of_its_own(None, &arguments);
 
         match wrapped {
             Wrapped::AsItWasHandedIn => return,
             Wrapped::InAScope => {},
         }
 
-        let at = made.iter().position(|word| word == "--");
-
-        assert_eq!(at, Some(4), "the terminator is what keeps the program a program");
+        assert_eq!(made.get(4).map(String::as_str), Some("--"), "the terminator is what keeps the program a program");
+        assert!(made.iter().take(4).all(|word| word != "--"), "the terminator is what keeps the program a program");
         assert_eq!(made.last().map(String::as_str), Some("--something"));
     }
 
     #[test]
     fn a_scope_that_is_named_can_be_stopped_by_that_name() {
-        let argv = vec!["sleep".to_string()];
-        let Ok((wrapped, made)) = in_a_scope_of_its_own(Some("console-run-1"), &argv);
+        let arguments = vec!["sleep".to_string()];
+        let Ok((wrapped, made)) = in_a_scope_of_its_own(Some("console-run-1"), &arguments);
 
         match wrapped {
             Wrapped::AsItWasHandedIn => return,
@@ -354,6 +389,12 @@ mod tests {
     use console_core_external_programs::Program;
 
     use super::*;
+
+    unsafe extern "C" {
+        fn kill(process: c_int, signal: c_int) -> c_int;
+    }
+
+    const SIGKILL: c_int = 9;
 
     fn still_there(id: u32) -> bool {
         std::path::Path::new(&format!("/proc/{id}")).exists()
@@ -417,7 +458,7 @@ mod tests {
         // given, and nothing else can have that pid while it is unreaped.
         match i32::try_from(id) {
             Ok(pid) => unsafe {
-                libc::kill(pid, libc::SIGKILL);
+                kill(pid, SIGKILL);
             },
             Err(_fault) => {},
         }
@@ -470,6 +511,49 @@ mod tests {
         let Ok(running) = going.still();
 
         assert_eq!(running, Still::Running);
+    }
+
+    #[test]
+    fn a_child_let_go_that_ended_is_reaped_and_one_still_going_is_kept() {
+        let Ok(mut command) = Program::True.command();
+
+        command.stdout(Stdio::null());
+
+        let done = match let_go(&mut command) {
+            Ok(done) => done,
+            Err(_fault) => return,
+        };
+        let Ok(ended) = done.id();
+
+        let mut command = holding();
+        let going = match let_go(&mut command) {
+            Ok(going) => going,
+            Err(_fault) => return,
+        };
+        let Ok(held) = going.id();
+
+        let mut started = vec![done, going];
+        let Ok(patience) = console_waiting::Schedule::of(Duration::from_secs(2));
+        let Ok(_over) = console_waiting::until(patience, || {
+            let Ok(still) = reaped(std::mem::take(&mut started));
+
+            started = still;
+
+            Ok(match started.len() {
+                1 => console_waiting::Ready::Yes,
+                _more => console_waiting::Ready::NotYet,
+            })
+        });
+
+        let kept: Vec<u32> = started.iter().filter_map(|one| one.id().ok()).collect();
+
+        assert_eq!(kept, [held]);
+        assert!(!std::path::Path::new(&format!("/proc/{ended}")).exists(), "{ended} is still in the process table");
+
+        for mut one in started {
+            let _ = one.child.kill();
+            let _ = one.waiting();
+        }
     }
 
     #[test]
@@ -527,7 +611,7 @@ mod tests {
         // given, while it is still held here and its pid cannot be reused.
         match i32::try_from(whose) {
             Ok(pid) => unsafe {
-                libc::kill(pid, libc::SIGKILL);
+                kill(pid, SIGKILL);
             },
             Err(_fault) => return,
         }

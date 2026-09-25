@@ -8,7 +8,7 @@
 #
 # Nothing is deleted. `tools/console-migrate` moved the whole of the rename to
 # /var/tmp and said where on its last line, and that attic is still on the
-# device -- which is the only reason anybody can now say the rename's sweep did
+# device -- which is the only reason anyone can now say the rename's sweep did
 # what it claimed rather than merely that it ran. A deletion is the same
 # operation with nothing left to check it by.
 

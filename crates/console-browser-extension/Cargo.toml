@@ -11,6 +11,7 @@ path = "src/bin/console-web.rs"
 
 [dependencies]
 console-core-atomic-writes.workspace = true
+console-core-checksums.workspace = true
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true
 console-core-places.workspace = true

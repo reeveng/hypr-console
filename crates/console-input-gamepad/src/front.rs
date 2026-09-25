@@ -1,8 +1,8 @@
 //! What the front of this machine actually is, asked of the machine.
 //!
 //! `wanted` is what the desktop binds. This is the other half: what the thing
-//! in somebody's hands can actually send. The two are compared at install
-//! time, and where they differ the answer is a notice rather than a failure --
+//! in someone's hands can actually send. The two are compared at install
+//! time, and where they differ the answer is a notification rather than a failure --
 //! a desktop that refuses to install on a device missing one paddle is worse
 //! than one that installs and says which promise it cannot keep.
 //!
@@ -75,7 +75,7 @@ pub fn wearing() -> Result<Vec<&'static str>, Never> {
 }
 
 pub fn loading(path: &str) -> Result<Vec<String>, Never> {
-    Program::Busctl.argv(&[
+    Program::Busctl.arguments(&[
         "--system",
         "call",
         BUS,
@@ -198,9 +198,12 @@ pub fn touchscreen(devices: &str) -> Result<Option<bool>, Never> {
         let properties = properties(line)?;
 
         match properties {
-            Properties::Bits(bits) if bits & DIRECT != 0 => return Ok(Some(true)),
-            Properties::Unreadable => unreadable = true,
-            Properties::Bits(_) | Properties::Elsewhere => {},
+            Properties::Bits(bits) => match bits & DIRECT != 0 {
+                true => return Ok(Some(true)),
+                false => {},
+            },
+            Properties::ReadFailed => unreadable = true,
+            Properties::Elsewhere => {},
         }
     }
 
@@ -224,9 +227,12 @@ pub fn pad(devices: &str) -> Result<Option<Has>, Never> {
         let buttons = buttons(line)?;
 
         match buttons {
-            Buttons::Bits(bits) if bits & PAD != 0 => return Ok(Some(Has::Yes)),
-            Buttons::Unreadable => unreadable = true,
-            Buttons::Bits(_) | Buttons::Below | Buttons::Elsewhere => {},
+            Buttons::Bits(bits) => match bits & PAD != 0 {
+                true => return Ok(Some(Has::Yes)),
+                false => {},
+            },
+            Buttons::ReadFailed => unreadable = true,
+            Buttons::Below | Buttons::Elsewhere => {},
         }
     }
 
@@ -238,11 +244,11 @@ pub fn pad(devices: &str) -> Result<Option<Has>, Never> {
 
 const PAD: u64 = 0xffff_ffff_0000_0000;
 
-const WORD: usize = 4;
+const WORD: u32 = 4;
 
 enum Buttons {
     Elsewhere,
-    Unreadable,
+    ReadFailed,
     Below,
     Bits(u64),
 }
@@ -253,20 +259,22 @@ fn buttons(line: &str) -> Result<Buttons, Never> {
         None => return Ok(Buttons::Elsewhere),
     };
 
-    let word = match bitmap.split_whitespace().rev().nth(WORD) {
+    let Ok(word_at) = console_core_number_conversion::index(WORD);
+
+    let word = match bitmap.split_whitespace().rev().nth(word_at) {
         Some(word) => word,
         None => return Ok(Buttons::Below),
     };
 
     Ok(match u64::from_str_radix(word, 16) {
         Ok(bits) => Buttons::Bits(bits),
-        Err(_) => Buttons::Unreadable,
+        Err(_) => Buttons::ReadFailed,
     })
 }
 
 enum Properties {
     Elsewhere,
-    Unreadable,
+    ReadFailed,
     Bits(u64),
 }
 
@@ -278,7 +286,7 @@ fn properties(line: &str) -> Result<Properties, Never> {
 
     Ok(match u64::from_str_radix(hex.trim(), 16) {
         Ok(bits) => Properties::Bits(bits),
-        Err(_) => Properties::Unreadable,
+        Err(_) => Properties::ReadFailed,
     })
 }
 

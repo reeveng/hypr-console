@@ -14,7 +14,7 @@
 //! on the screen all day is then gone, and nothing looks wrong: the file is
 //! there, it is valid, it says nothing was open. So a save of nothing is refused
 //! and the session already on disk stands. Throwing one away is `delete`, which
-//! is a thing somebody asks for.
+//! is a thing someone asks for.
 //!
 //! A window closing is the same fault a minute earlier. It is written down, but
 //! only after [`LOSS_SETTLES_AFTER`], because the first thing a log-out looks
@@ -42,9 +42,9 @@
 //! ## A special workspace is known by its name and not by its number
 //!
 //! Hyprland numbers them from -99 downwards, one further down for every one
-//! that exists, so the second special workspace anybody makes is -98 and a
+//! that exists, so the second special workspace anyone makes is -98 and a
 //! program that knows only -99 writes that number down as though it were a
-//! workspace somebody could ask for. `workspace -98 silent` names nothing, and
+//! workspace someone could ask for. `workspace -98 silent` names nothing, and
 //! the window comes back wherever a rule the compositor cannot read leaves it.
 //! What survives is the name -- `special:sky` is what it was called and what
 //! asks for it back -- so the number decides nothing here. The two places that
@@ -70,7 +70,7 @@
 //! program that sits in the tray or waits on a socket has no window to be asked
 //! about. That is not a gap here: what this device runs without a window is
 //! what `desktop.conf` starts under `[services]`, and it is running again
-//! before anybody has logged in. A session is the windows.
+//! before anyone has logged in. A session is the windows.
 //!
 //! ## `Saved` spells booleans because JSON does
 //!
@@ -87,16 +87,16 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
-use console_compositor::stirred::Stirred;
-use console_compositor::{Asked, Done, Filling, Floating, Pinned, Window};
-use console_core_atomic_writes::Held;
+use console_compositor::events::CompositorEvent;
+use console_compositor::{Query, DispatchResult, Filling, Floating, Pinned, Window};
+use console_core_atomic_writes::Stored;
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
-use console_events::listening::Heard;
+use console_events::subscription::Received;
 use console_program_contract::Topic;
 use console_program_lifetime::threads;
 use console_response_times::{Wait, Waiting};
-use console_waiting::{Patience, Seen, Waited};
+use console_waiting::{Schedule, Ready, Outcome};
 
 use crate::Unresumed;
 use crate::starting::what_starts_it;
@@ -136,7 +136,7 @@ pub enum Duplicates {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PutBack {
+pub enum Restore {
     Windows,
     NothingSaved(PathBuf),
 }
@@ -178,7 +178,7 @@ pub struct Sessions {
     dylint_lib = "explicit048_no_unreal_state",
     allow(
         explicit048_no_unreal_state,
-        reason = "this is what hyprctl says about one window, written to disk as it was read; `floating`, `pinned` and a monitor are three separate facts the compositor keeps separately, and a shape of our own here would be a second reading of somebody else's format"
+        reason = "this is what hyprctl says about one window, written to disk as it was read; `floating`, `pinned` and a monitor are three separate facts the compositor keeps separately, and a shape of our own here would be a second reading of someone else's format"
     )
 )]
 pub struct Saved {
@@ -198,11 +198,18 @@ pub struct Saved {
 }
 
 fn open_windows() -> Result<Vec<Window>, Unresumed> {
-    let said = console_compositor::asked(Asked::Clients)?;
+    let said = console_compositor::query(Query::Clients)?;
 
-    let Ok(open) = console_compositor::windows_open(&said);
-
-    Ok(open)
+    match said {
+        console_compositor::Answer::Clients(open) => Ok(open),
+        console_compositor::Answer::Layers(_)
+        | console_compositor::Answer::ActiveWorkspace(_)
+        | console_compositor::Answer::Workspaces(_)
+        | console_compositor::Answer::Monitors(_)
+        | console_compositor::Answer::EveryMonitor(_)
+        | console_compositor::Answer::Devices(_)
+        | console_compositor::Answer::Binds(_) => Ok(Vec::new()),
+    }
 }
 
 fn kept(window: &Window) -> Result<Saved, Never> {
@@ -217,7 +224,7 @@ fn kept(window: &Window) -> Result<Saved, Never> {
         floating: window.floating == Floating::Yes,
         pinned: window.pinned == Pinned::Yes,
         fullscreen: match window.filling {
-            Filling::Nothing => 0,
+            Filling::None => 0,
             Filling::Maximized => 1,
             Filling::Screen => 2,
         },
@@ -247,7 +254,7 @@ fn as_window(saved: &Saved) -> Result<Window, Never> {
         filling: match saved.fullscreen {
             1 => Filling::Maximized,
             2 => Filling::Screen,
-            _filling_nothing => Filling::Nothing,
+            _filling_nothing => Filling::None,
         },
         at: saved.at,
         size: saved.size,
@@ -307,21 +314,21 @@ fn held(changes: &Noted) -> Result<MutexGuard<'_, Changes>, Never> {
     })
 }
 
-fn note(changes: &Noted, stirred: &Stirred) -> Result<(), Never> {
+fn note(changes: &Noted, stirred: &CompositorEvent) -> Result<(), Never> {
     let change = match stirred {
-        Stirred::WindowOpened(_)
-        | Stirred::WindowRenamed(_)
-        | Stirred::WindowMoved
-        | Stirred::WindowFloated
-        | Stirred::WindowPinned
-        | Stirred::WindowFilled => Changes::gain,
-        Stirred::WindowClosed(_) => Changes::lose,
-        Stirred::LayerOpened
-        | Stirred::LayerClosed
-        | Stirred::WorkspaceChanged
-        | Stirred::ScreenFocused
-        | Stirred::ConfigReloaded
-        | Stirred::Nothing => return Ok(()),
+        CompositorEvent::WindowOpened(_)
+        | CompositorEvent::WindowRenamed(_)
+        | CompositorEvent::WindowMoved
+        | CompositorEvent::WindowFloated
+        | CompositorEvent::WindowPinned
+        | CompositorEvent::WindowFilled => Changes::gain,
+        CompositorEvent::WindowClosed(_) => Changes::lose,
+        CompositorEvent::LayerOpened
+        | CompositorEvent::LayerClosed
+        | CompositorEvent::WorkspaceChanged
+        | CompositorEvent::ScreenFocused
+        | CompositorEvent::ConfigReloaded
+        | CompositorEvent::Ignored => return Ok(()),
     };
 
     let Ok(mut held) = held(changes);
@@ -356,9 +363,9 @@ fn workspace_selector(saved: &Window) -> Result<String, Never> {
 
 fn placing(saved: &Window) -> Result<Placing, Never> {
     Ok(match (saved.floating, saved.filling) {
-        (Floating::Yes, Filling::Nothing) => Placing::ByPixels,
+        (Floating::Yes, Filling::None) => Placing::ByPixels,
         (Floating::Yes, Filling::Maximized | Filling::Screen)
-        | (Floating::No, Filling::Nothing | Filling::Maximized | Filling::Screen) => {
+        | (Floating::No, Filling::None | Filling::Maximized | Filling::Screen) => {
             Placing::ByTheLayout
         },
     })
@@ -385,17 +392,17 @@ fn differs<T: PartialEq>(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Asking<'a> {
+struct Dispatch<'a> {
     lua: &'a str,
     about: &'a str,
 }
 
-fn asked_of_the_compositor(asking: Asking<'_>, window: &str) -> Result<(), Never> {
+fn asked_of_the_compositor(asking: Dispatch<'_>, window: &str) -> Result<(), Never> {
     let Ok(done) = crate::lua::dispatch(asking.lua);
 
     match done {
-        Done::Taken => {},
-        Done::Refused(why) => eprintln!("{window}: {about}: {why}", about = asking.about),
+        DispatchResult::Success => {},
+        DispatchResult::Failure(why) => eprintln!("{window}: {about}: {why}", about = asking.about),
     }
 
     Ok(())
@@ -406,7 +413,7 @@ fn put<T: PartialEq>(
     saved: &Window,
     of: fn(&Window) -> T,
     really: Really,
-    asking: Asking<'_>,
+    asking: Dispatch<'_>,
 ) -> Result<(), Never> {
     let Ok(differs) = differs(real, saved, of);
 
@@ -435,7 +442,7 @@ fn fill(real: &Window, saved: &Window, really: Really, named: &str) -> Result<()
 
     let mode = match saved.filling {
         Filling::Maximized => "maximized",
-        Filling::Screen | Filling::Nothing => "fullscreen",
+        Filling::Screen | Filling::None => "fullscreen",
     };
 
     println!("{}: filling the screen", real.title);
@@ -446,7 +453,7 @@ fn fill(real: &Window, saved: &Window, really: Really, named: &str) -> Result<()
     }
 
     let Ok(()) = asked_of_the_compositor(
-        Asking {
+        Dispatch {
             lua: &format!("hl.dsp.focus({{ window = {named} }})"),
             about: "taking the focus first",
         },
@@ -454,7 +461,7 @@ fn fill(real: &Window, saved: &Window, really: Really, named: &str) -> Result<()
     );
 
     asked_of_the_compositor(
-        Asking {
+        Dispatch {
             lua: &format!(
                 "hl.dsp.window.fullscreen({{ window = {named}, mode = \"{mode}\", \
                  action = \"toggle\" }})"
@@ -469,7 +476,7 @@ fn adjust(real: &Window, saved: &Window, really: Really) -> Result<(), Never> {
     let Ok(named) = crate::lua::window(&real.address);
     let Ok(workspace) = workspace_selector(saved);
 
-    let Ok(()) = put(real, saved, |window| window.workspace, really, Asking {
+    let Ok(()) = put(real, saved, |window| window.workspace, really, Dispatch {
         lua: &format!(
             "hl.dsp.window.move({{ window = {named}, workspace = {workspace}, follow = false }})"
         ),
@@ -491,7 +498,7 @@ fn adjust(real: &Window, saved: &Window, really: Really) -> Result<(), Never> {
             None => NO_SCREEN_NAMED,
         },
         really,
-        Asking {
+        Dispatch {
             lua: &format!(
                 "hl.dsp.workspace.move({{ workspace = {workspace}, monitor = {screen} }})"
             ),
@@ -499,12 +506,12 @@ fn adjust(real: &Window, saved: &Window, really: Really) -> Result<(), Never> {
         },
     );
 
-    let Ok(()) = put(real, saved, |window| window.floating, really, Asking {
+    let Ok(()) = put(real, saved, |window| window.floating, really, Dispatch {
         lua: &format!("hl.dsp.window.float({{ window = {named}, action = \"toggle\" }})"),
         about: "floating the way it was",
     });
 
-    let Ok(()) = put(real, saved, |window| window.pinned, really, Asking {
+    let Ok(()) = put(real, saved, |window| window.pinned, really, Dispatch {
         lua: &format!("hl.dsp.window.pin({{ window = {named}, action = \"toggle\" }})"),
         about: "pinned the way it was",
     });
@@ -518,7 +525,7 @@ fn adjust(real: &Window, saved: &Window, really: Really) -> Result<(), Never> {
         Placing::ByPixels => {},
     }
 
-    let Ok(()) = put(real, saved, |window| window.size, really, Asking {
+    let Ok(()) = put(real, saved, |window| window.size, really, Dispatch {
         lua: &format!(
             "hl.dsp.window.resize({{ window = {named}, x = {}, y = {}, relative = false }})",
             saved.size.0, saved.size.1
@@ -526,7 +533,7 @@ fn adjust(real: &Window, saved: &Window, really: Really) -> Result<(), Never> {
         about: "the size it was",
     });
 
-    put(real, saved, |window| window.at, really, Asking {
+    put(real, saved, |window| window.at, really, Dispatch {
         lua: &format!(
             "hl.dsp.window.move({{ window = {named}, x = {}, y = {}, relative = false }})",
             saved.at.0, saved.at.1
@@ -538,7 +545,7 @@ fn adjust(real: &Window, saved: &Window, really: Really) -> Result<(), Never> {
 fn window_opened(
     address: &str,
     saved: &[Window],
-    claimed: &Mutex<HashSet<usize>>,
+    claimed: &Mutex<HashSet<u32>>,
     really: Really,
 ) -> Result<(), Never> {
     let open = match open_windows() {
@@ -556,18 +563,18 @@ fn window_opened(
         Err(poisoned) => poisoned.into_inner(),
     };
 
-    let found = saved.iter().enumerate().find(|(index, one)| {
+    let found = (0_u32..).zip(saved.iter()).find(|(at, one)| {
         let Ok(differs) = is_same_client(one, &real);
 
-        !claimed.contains(index) && differs == Differs::No
+        !claimed.contains(at) && differs == Differs::No
     });
 
-    let (index, one) = match found {
+    let (at, one) = match found {
         Some(found) => found,
         None => return Ok(()),
     };
 
-    claimed.insert(index);
+    claimed.insert(at);
     drop(claimed);
 
     adjust(&real, one, really)
@@ -579,9 +586,9 @@ fn saved_windows(at: &Path) -> Result<Vec<Window>, Unresumed> {
     let Ok(held) = console_core_atomic_writes::read(&at);
 
     let said = match held {
-        Held::Said(said) => said,
-        Held::Nothing => return Ok(Vec::new()),
-        Held::Unreadable(fault) => return Err(Unresumed::Unreadable(at, fault)),
+        Stored::Text(said) => said,
+        Stored::Absent => return Ok(Vec::new()),
+        Stored::Failed(fault) => return Err(Unresumed::Read(at, fault)),
     };
 
     let saved: Vec<Saved> =
@@ -603,9 +610,9 @@ fn what_to_start(at: &Path) -> Result<Vec<String>, Unresumed> {
     let Ok(held) = console_core_atomic_writes::read(&at);
 
     let said = match held {
-        Held::Said(said) => said,
-        Held::Nothing => return Ok(Vec::new()),
-        Held::Unreadable(fault) => return Err(Unresumed::Unreadable(at, fault)),
+        Stored::Text(said) => said,
+        Stored::Absent => return Ok(Vec::new()),
+        Stored::Failed(fault) => return Err(Unresumed::Read(at, fault)),
     };
 
     Ok(said.lines().filter(|line| !line.trim().is_empty()).map(str::to_string).collect())
@@ -709,7 +716,7 @@ impl Sessions {
         };
 
         let filling = match window.filling {
-            Filling::Nothing => 0,
+            Filling::None => 0,
             Filling::Maximized => 1,
             Filling::Screen => 2,
         };
@@ -744,7 +751,7 @@ impl Sessions {
             let Ok(named) = crate::lua::window(&window.address);
 
             let Ok(()) = asked_of_the_compositor(
-                Asking {
+                Dispatch {
                     lua: &format!("hl.dsp.window.close({{ window = {named} }})"),
                     about: "closing it",
                 },
@@ -752,25 +759,25 @@ impl Sessions {
             );
         }
 
-        let Ok(patience) = Patience::asking_every(CLOSING_SETTLES, TICK);
+        let Ok(patience) = Schedule::asking_every(CLOSING_SETTLES, TICK);
 
         let Ok(waited) = console_waiting::until(patience, || {
             Ok(match open_windows() {
                 Ok(open) => match open.first() {
-                    Some(_still_open) => Seen::NotYet,
-                    None => Seen::Yes,
+                    Some(_still_open) => Ready::NotYet,
+                    None => Ready::Yes,
                 },
-                Err(_the_compositor_said_nothing) => Seen::Yes,
+                Err(_the_compositor_said_nothing) => Ready::Yes,
             })
         });
 
         match waited {
-            Waited::Happened => Ok(()),
-            Waited::RanOut => Err(Unresumed::StillOpen),
+            Outcome::Happened => Ok(()),
+            Outcome::RanOut => Err(Unresumed::StillOpen),
         }
     }
 
-    pub fn load(&self, name: &str) -> Result<PutBack, Unresumed> {
+    pub fn load(&self, name: &str) -> Result<Restore, Unresumed> {
         let Ok(mut waiting) = Waiting::here(Wait { who: "resume", what: "putting back" });
         let Ok(at) = under(&self.at, name);
 
@@ -782,13 +789,13 @@ impl Sessions {
         match self.restoring {
             Restoring::MovingWhatIsOpen => {},
             Restoring::StartingItAgain => match starting.first() {
-                None => return Ok(PutBack::NothingSaved(at)),
+                None => return Ok(Restore::NothingSaved(at)),
                 Some(_there_is_something_to_put_back) => {
                     self.clear()?;
 
                     let Ok(()) = waiting.mark("cleared");
                     let Ok(()) = start_programs(&starting, self.really);
-                    let Ok(many) = fitted::<usize, u64>(starting.len());
+                    let Ok(many) = fitted::<_, u64>(starting.len());
                     let Ok(()) = waiting.mark("started");
                     let Ok(()) = waiting.counted("windows", many);
                     let Ok(()) = waiting.done();
@@ -810,47 +817,47 @@ impl Sessions {
         let Ok(()) = threads::let_go(std::thread::spawn(move || {
             let claimed = Mutex::new(HashSet::new());
 
-            let Ok(listening) = console_events::listening::listen(&[Topic::Compositor]);
-            let Ok(heard) = listening.heard();
+            let Ok(subscriber) = console_events::subscription::connect(&[Topic::Compositor]);
+            let Ok(received) = subscriber.received();
 
-            for said in heard {
+            for event in received {
                 match began.elapsed() >= adjusting_for {
                     true => break,
                     false => {},
                 }
 
-                let line = match said {
-                    Heard::GotIn => continue,
-                    Heard::Said(changed) => changed.said,
+                let line = match event {
+                    Received::Connected => continue,
+                    Received::Event(change) => change.text,
                 };
 
-                let Ok(stirred) = console_compositor::stirred::read(&line);
+                let Ok(stirred) = console_compositor::events::read(&line);
 
                 let address = match stirred {
-                    Stirred::WindowOpened(address) | Stirred::WindowRenamed(address) => address,
-                    Stirred::WindowClosed(_)
-                    | Stirred::WindowMoved
-                    | Stirred::WindowFloated
-                    | Stirred::WindowPinned
-                    | Stirred::WindowFilled
-                    | Stirred::LayerOpened
-                    | Stirred::LayerClosed
-                    | Stirred::WorkspaceChanged
-                    | Stirred::ScreenFocused
-                    | Stirred::ConfigReloaded
-                    | Stirred::Nothing => continue,
+                    CompositorEvent::WindowOpened(address) | CompositorEvent::WindowRenamed(address) => address,
+                    CompositorEvent::WindowClosed(_)
+                    | CompositorEvent::WindowMoved
+                    | CompositorEvent::WindowFloated
+                    | CompositorEvent::WindowPinned
+                    | CompositorEvent::WindowFilled
+                    | CompositorEvent::LayerOpened
+                    | CompositorEvent::LayerClosed
+                    | CompositorEvent::WorkspaceChanged
+                    | CompositorEvent::ScreenFocused
+                    | CompositorEvent::ConfigReloaded
+                    | CompositorEvent::Ignored => continue,
                 };
 
                 let Ok(()) = window_opened(&address, &saved, &claimed, really);
             }
         }));
 
-        let Ok(patience) = Patience::asking_every(self.adjusting_for, TICK);
+        let Ok(patience) = Schedule::asking_every(self.adjusting_for, TICK);
 
         let Ok(_it_is_over_when_the_time_is) =
-            console_waiting::until(patience, || Ok(Seen::NotYet));
+            console_waiting::until(patience, || Ok(Ready::NotYet));
 
-        Ok(PutBack::Windows)
+        Ok(Restore::Windows)
     }
 
     #[cfg_attr(
@@ -865,23 +872,23 @@ impl Sessions {
         let noticing = Arc::clone(&changes);
 
         let Ok(()) = threads::let_go(std::thread::spawn(move || {
-            let Ok(listening) = console_events::listening::listen(&[Topic::Compositor]);
-            let Ok(heard) = listening.heard();
+            let Ok(subscriber) = console_events::subscription::connect(&[Topic::Compositor]);
+            let Ok(received) = subscriber.received();
 
-            for said in heard {
-                let line = match said {
-                    Heard::GotIn => continue,
-                    Heard::Said(changed) => changed.said,
+            for event in received {
+                let line = match event {
+                    Received::Connected => continue,
+                    Received::Event(change) => change.text,
                 };
 
-                let Ok(stirred) = console_compositor::stirred::read(&line);
+                let Ok(stirred) = console_compositor::events::read(&line);
                 let Ok(()) = note(&noticing, &stirred);
             }
         }));
 
         let mut saved = Instant::now();
 
-        let Ok(patience) = Patience::asking_every(interval, TICK);
+        let Ok(patience) = Schedule::asking_every(interval, TICK);
 
         loop {
             let Ok(_either_way_it_is_time) = console_waiting::until(patience, || {
@@ -889,8 +896,8 @@ impl Sessions {
                 let Ok(worth) = now.worth_saving(saved, interval);
 
                 Ok(match worth {
-                    Worth::Saving => Seen::Yes,
-                    Worth::Waiting => Seen::NotYet,
+                    Worth::Saving => Ready::Yes,
+                    Worth::Waiting => Ready::NotYet,
                 })
             });
 
@@ -941,7 +948,7 @@ mod tests {
             monitor: Some(0),
             floating: Floating::No,
             pinned: Pinned::No,
-            filling: Filling::Nothing,
+            filling: Filling::None,
             at: (2, 2),
             size: (800, 600),
             pid: 42,
@@ -1004,12 +1011,12 @@ mod tests {
         assert!(rules.contains("workspace special:magic silent"), "{rules}");
         assert!(
             !rules.contains("-98"),
-            "a number below -99 is a workspace nobody can ask for: {rules}"
+            "a number below -99 is a workspace no one can ask for: {rules}"
         );
     }
 
     #[test]
-    fn a_workspace_of_somebodys_own_called_specials_is_not_a_special_one() {
+    fn a_workspace_of_someones_own_called_specials_is_not_a_special_one() {
         let mut named = window("foot", "a shell");
         named.workspace = 4;
         named.workspace_named = "specials".to_string();
@@ -1036,7 +1043,7 @@ mod tests {
     }
 
     #[test]
-    fn the_special_workspace_nobody_named_is_still_a_special_one() {
+    fn the_special_workspace_no_one_named_is_still_a_special_one() {
         let Ok(rules) = sessions("/nowhere").rules_for(&on_special("special", -99));
 
         assert_eq!(which_workspace(&on_special("special", -99)), Ok(Workspace::Special));
@@ -1070,7 +1077,7 @@ mod tests {
         let Ok(plain) = sessions("/nowhere").rules_for(&window("foot", "a shell"));
 
         assert!(!plain.contains("float"), "{plain}");
-        assert!(!plain.contains(";;"), "an empty rule is a rule nobody wrote: {plain}");
+        assert!(!plain.contains(";;"), "an empty rule is a rule no one wrote: {plain}");
     }
 
     #[test]
@@ -1087,7 +1094,7 @@ mod tests {
 
     #[test]
     fn a_session_with_no_name_is_the_directory_the_sessions_live_in() {
-        let at = PathBuf::from("/home/somebody/.local/share/console/resume");
+        let at = PathBuf::from("/home/someone/.local/share/console/resume");
 
         assert_eq!(under(&at, ""), Ok(at.clone()));
         assert_eq!(under(&at, "yesterday"), Ok(at.join("yesterday")));
@@ -1097,14 +1104,14 @@ mod tests {
     fn a_change_to_a_window_is_worth_saving_and_the_screen_moving_is_not() {
         let changes: Noted = Arc::new(Mutex::new(Changes::default()));
 
-        let Ok(()) = note(&changes, &Stirred::WorkspaceChanged);
+        let Ok(()) = note(&changes, &CompositorEvent::WorkspaceChanged);
 
         assert_eq!(
             worth(&changes),
             Ok(Worth::Waiting)
         );
 
-        let Ok(()) = note(&changes, &Stirred::WindowMoved);
+        let Ok(()) = note(&changes, &CompositorEvent::WindowMoved);
 
         assert_eq!(
             worth(&changes),
@@ -1116,7 +1123,7 @@ mod tests {
     fn a_window_that_has_just_closed_is_not_written_down_yet() {
         let changes: Noted = Arc::new(Mutex::new(Changes::default()));
 
-        let Ok(()) = note(&changes, &Stirred::WindowClosed("0x1".to_string()));
+        let Ok(()) = note(&changes, &CompositorEvent::WindowClosed("0x1".to_string()));
 
         assert_eq!(
             worth(&changes),

@@ -23,8 +23,9 @@
 //! not the picture: the picture is the largest part of it but the plate's
 //! margin and padding and the name's line are the rest, they grow with it, and
 //! a rung of the ladder that asks for more than the cell holds is given what
-//! the cell holds. Both numbers are written into `home.css` from here, so
-//! there is one place to change either of them.
+//! the cell holds. `laid` is where both of those land: it answers where one
+//! square's plate, picture and name go, so the program that draws them places
+//! nothing itself and what it draws can be asserted with no screen.
 //!
 //! And then it is hers to argue with. How many across, how many down, and a
 //! ladder of sizes either side of what the room suggests: a person who wants
@@ -36,16 +37,19 @@
 //! pixels and what it answers is numbers, so how big a square comes out on a
 //! screen this laptop has not got is a question with an answer here.
 
+use console_core_geometry::Point;
 use console_core_never::Never;
 use console_core_words::Words;
+
+use crate::Spot;
 
 const NO_ROOM: i32 = 0;
 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Shape {
-    pub columns: usize,
-    pub rows: usize,
+    pub columns: u32,
+    pub rows: u32,
     pub size: Size,
 }
 
@@ -61,17 +65,17 @@ struct Value<'a>(&'a str);
 impl Shape {
     pub const USUAL: Shape = Shape { columns: 5, rows: 3, size: Size::Normal };
 
-    pub const COLUMNS: std::ops::RangeInclusive<usize> = 3..=9;
+    pub const COLUMNS: std::ops::RangeInclusive<u32> = 3..=9;
 
-    pub const ROWS: std::ops::RangeInclusive<usize> = 2..=6;
+    pub const ROWS: std::ops::RangeInclusive<u32> = 2..=6;
 
-    pub fn across(self, columns: usize) -> Result<Shape, Never> {
+    pub fn with_columns(self, columns: u32) -> Result<Shape, Never> {
         let columns = clamped(columns, Shape::COLUMNS)?;
 
         Ok(Shape { columns, ..self })
     }
 
-    pub fn down(self, rows: usize) -> Result<Shape, Never> {
+    pub fn with_rows(self, rows: u32) -> Result<Shape, Never> {
         let rows = clamped(rows, Shape::ROWS)?;
 
         Ok(Shape { rows, ..self })
@@ -81,7 +85,7 @@ impl Shape {
         Ok(Shape { size, ..self })
     }
 
-    pub fn squares(self) -> Result<usize, Never> {
+    pub fn squares(self) -> Result<u32, Never> {
         Ok(self.columns.saturating_mul(self.rows))
     }
 
@@ -96,11 +100,11 @@ impl Shape {
 
         match word {
             "columns" => match value.parse() {
-                Ok(columns) => self.across(columns),
+                Ok(columns) => self.with_columns(columns),
                 Err(_not_a_number) => Ok(self),
             },
             "rows" => match value.parse() {
-                Ok(rows) => self.down(rows),
+                Ok(rows) => self.with_rows(rows),
                 Err(_not_a_number) => Ok(self),
             },
             "size" => {
@@ -122,29 +126,29 @@ impl Shape {
     }
 }
 
-fn clamped(asked: usize, range: std::ops::RangeInclusive<usize>) -> Result<usize, Never> {
+fn clamped(asked: u32, range: std::ops::RangeInclusive<u32>) -> Result<u32, Never> {
     Ok(asked.clamp(*range.start(), *range.end()))
 }
 
 pub const NAMED: &str = "home-screen";
 
 pub fn at(home: &std::path::Path) -> Result<std::path::PathBuf, Never> {
-    let Ok(ours) = console_core_places::Base::Config.ours_under(home);
+    let Ok(ours) = console_core_places::Base::Configuration.ours_under(home);
 
     Ok(ours.join(NAMED))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
 pub enum Size {
-    #[words(word = "tiny", says = "Tiny")]
+    #[words(word = "tiny", says = "Smallest")]
     Tiny,
     #[words(word = "smaller", says = "Smaller")]
     Smaller,
-    #[words(word = "normal", says = "Normal")]
+    #[words(word = "normal", says = "Default")]
     Normal,
-    #[words(word = "bigger", says = "Bigger")]
+    #[words(word = "bigger", says = "Larger")]
     Bigger,
-    #[words(word = "huge", says = "Huge")]
+    #[words(word = "huge", says = "Largest")]
     Huge,
 }
 
@@ -234,7 +238,7 @@ fn holds(cell: i32) -> Result<i32, Never> {
     loop {
         let square = Square::of(icon)?;
 
-        let tall = square.tall()?;
+        let tall = square.height()?;
 
         match icon > LEAST && tall > cell {
             true => icon = icon.saturating_sub(1),
@@ -269,7 +273,7 @@ impl Square {
         })
     }
 
-    pub fn tall(self) -> Result<i32, Never> {
+    pub fn height(self) -> Result<i32, Never> {
         Ok(self.margin
             .saturating_mul(2)
             .saturating_add(BORDER.saturating_mul(2))
@@ -280,12 +284,113 @@ impl Square {
     }
 }
 
+pub const BETWEEN: i32 = 12;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Plate {
+    pub at: Point<i32>,
+    pub size: console_core_geometry::Size<u32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Laid {
+    pub plate: Plate,
+    pub icon: Plate,
+    pub named: Point<i32>,
+    pub line: u32,
+}
+
+pub fn laid(room: (i32, i32), shape: Shape, spot: Spot) -> Result<Laid, Never> {
+    let drawn = square(room, shape)?;
+    let cell = cell(room, shape)?;
+    let Ok(column) = i32_of(spot.column.saturating_add(1));
+    let column = column.saturating_sub(1);
+    let Ok(row) = i32_of(spot.row.saturating_add(1));
+    let row = row.saturating_sub(1);
+    let tall = drawn.height()?;
+
+    let left = SIDES.saturating_add(cell.0.saturating_mul(column));
+    let top = INSET
+        .saturating_add(cell.1.saturating_mul(row))
+        .saturating_add(cell.1.saturating_sub(tall).saturating_div(2));
+
+    let at = Point {
+        x: left.saturating_add(drawn.margin),
+        y: top.saturating_add(drawn.margin),
+    };
+    let wide = up(cell.0.saturating_sub(drawn.margin.saturating_mul(2)))?;
+    let deep = up(tall.saturating_sub(drawn.margin.saturating_mul(2)))?;
+    let inside = drawn.margin.saturating_add(BORDER).saturating_add(drawn.padding);
+    let icon = up(drawn.icon)?;
+    let line = up(drawn.named.saturating_mul(4).saturating_div(3))?;
+    let icon_left = left.saturating_add(cell.0.saturating_sub(drawn.icon).saturating_div(2));
+    let icon_top = top.saturating_add(inside);
+
+    Ok(Laid {
+        plate: Plate { at, size: console_core_geometry::Size { width: wide, height: deep } },
+        icon: Plate {
+            at: Point { x: icon_left, y: icon_top },
+            size: console_core_geometry::Size { width: icon, height: icon },
+        },
+        named: Point {
+            x: at.x,
+            y: icon_top.saturating_add(drawn.icon).saturating_add(SPACING),
+        },
+        line,
+    })
+}
+
+pub fn cell(room: (i32, i32), shape: Shape) -> Result<(i32, i32), Never> {
+    let pane = grid(room)?;
+    let columns = i32_of(shape.columns)?;
+    let rows = i32_of(shape.rows)?;
+
+    let across = match pane.0.checked_div(columns) {
+        Some(across) => across,
+        None => NO_ROOM,
+    };
+
+    let down = match pane.1.checked_div(rows) {
+        Some(down) => down,
+        None => NO_ROOM,
+    };
+
+    Ok((across.max(0), down.max(0)))
+}
+
+pub fn over(room: (i32, i32), at: Point<i32>) -> Result<crate::On, Never> {
+    let pane = grid(room)?;
+    let right = SIDES.saturating_add(pane.0);
+    let bottom = INSET.saturating_add(pane.1);
+
+    let inside =
+        at.x >= SIDES && at.x < right && at.y >= INSET && at.y < bottom;
+
+    Ok(match inside {
+        true => crate::On::TheGrid,
+        false => crate::On::None,
+    })
+}
+
+pub fn dotted(room: (i32, i32)) -> Result<Point<i32>, Never> {
+    let pane = grid(room)?;
+
+    Ok(Point {
+        x: room.0.saturating_div(2),
+        y: INSET.saturating_add(pane.1).saturating_add(INSET),
+    })
+}
+
+fn up(many: i32) -> Result<u32, Never> {
+    console_core_number_conversion::fitted(many.max(0))
+}
+
 const LEAST: i32 = 24;
 
 const LEAST_WORD: i32 = 10;
 const MOST_WORD: i32 = 22;
 
-fn i32_of(many: usize) -> Result<i32, Never> {
+fn i32_of(many: u32) -> Result<i32, Never> {
     console_core_number_conversion::fitted(many.max(1))
 }
 
@@ -299,10 +404,18 @@ mod tests {
         answer
     }
 
+    use crate::On;
+
+    fn out(many: u32) -> i32 {
+        let Ok(many) = console_core_number_conversion::fitted(many);
+
+        many
+    }
+
     const ROOM: (i32, i32) = (1024, 600);
 
     #[test]
-    fn a_machine_nobody_has_asked_gets_the_grid_the_home_screen_was_written_as() {
+    fn a_machine_no_one_has_asked_gets_the_grid_the_home_screen_was_written_as() {
         assert_eq!(Shape::USUAL.columns, 5);
         assert_eq!(Shape::USUAL.rows, 3);
         assert_eq!(Shape::default(), Shape::USUAL);
@@ -326,8 +439,8 @@ mod tests {
     #[test]
     fn dividing_the_room_further_draws_them_smaller() {
         let five = ok(square(ROOM, Shape::USUAL)).icon;
-        let eight = ok(square(ROOM, ok(Shape::USUAL.across(8)))).icon;
-        let deeper = ok(square(ROOM, ok(Shape::USUAL.down(5)))).icon;
+        let eight = ok(square(ROOM, ok(Shape::USUAL.with_columns(8)))).icon;
+        let deeper = ok(square(ROOM, ok(Shape::USUAL.with_rows(5)))).icon;
 
         assert!(eight < five, "{eight} is not under {five}");
         assert!(deeper < five, "{deeper} is not under {five}");
@@ -345,7 +458,7 @@ mod tests {
     fn a_square_keeps_its_proportions_at_every_size() {
         for size in EVERY {
             for columns in Shape::COLUMNS {
-                let wide = ok(Shape::USUAL.across(columns));
+                let wide = ok(Shape::USUAL.with_columns(columns));
                 let shape = ok(wide.sized(size));
                 let drawn = ok(square(ROOM, shape));
 
@@ -364,16 +477,16 @@ mod tests {
         for size in EVERY {
             for columns in Shape::COLUMNS {
                 for rows in Shape::ROWS {
-                    let wide = ok(Shape::USUAL.across(columns));
-                    let deep = ok(wide.down(rows));
+                    let wide = ok(Shape::USUAL.with_columns(columns));
+                    let deep = ok(wide.with_rows(rows));
                     let shape = ok(deep.sized(size));
                     let drawn = ok(square(ROOM, shape));
                     let cell = ok(grid(ROOM)).1 / ok(i32_of(rows));
 
-                    if ok(drawn.tall()) > cell {
+                    if ok(drawn.height()) > cell {
                         over.push(format!(
                             "{size:?} {columns}x{rows}: {} tall in a cell of {cell}",
-                            ok(drawn.tall())
+                            ok(drawn.height())
                         ));
                     }
                 }
@@ -381,6 +494,99 @@ mod tests {
         }
 
         assert!(over.is_empty(), "squares taller than their cell:\n  {}", over.join("\n  "));
+    }
+
+    #[test]
+    fn every_square_is_drawn_inside_the_room_it_was_given() {
+        for size in EVERY {
+            for columns in Shape::COLUMNS {
+                for rows in Shape::ROWS {
+                    let wide = ok(Shape::USUAL.with_columns(columns));
+                    let deep = ok(wide.with_rows(rows));
+                    let shape = ok(deep.sized(size));
+
+                    for row in 0..rows {
+                        for column in 0..columns {
+                            let spot = Spot { pane: 0, row, column };
+                            let laid = ok(laid(ROOM, shape, spot));
+                            let wide = out(laid.plate.size.width);
+                            let tall = out(laid.plate.size.height);
+
+                            assert!(laid.plate.at.x >= 0, "{size:?} {spot:?}: {laid:?}");
+                            assert!(laid.plate.at.y >= 0, "{size:?} {spot:?}: {laid:?}");
+                            assert!(
+                                laid.plate.at.x + wide <= ROOM.0,
+                                "{size:?} {spot:?}: {laid:?}"
+                            );
+                            assert!(
+                                laid.plate.at.y + tall <= ROOM.1,
+                                "{size:?} {spot:?}: {laid:?}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_square_beside_this_one_does_not_touch_it() {
+        let shape = Shape::USUAL;
+        let here = ok(laid(ROOM, shape, Spot { pane: 0, row: 0, column: 0 }));
+        let beside = ok(laid(ROOM, shape, Spot { pane: 0, row: 0, column: 1 }));
+        let under = ok(laid(ROOM, shape, Spot { pane: 0, row: 1, column: 0 }));
+        let wide = out(here.plate.size.width);
+        let tall = out(here.plate.size.height);
+
+        assert!(here.plate.at.x + wide < beside.plate.at.x, "{here:?} {beside:?}");
+        assert!(here.plate.at.y + tall < under.plate.at.y, "{here:?} {under:?}");
+    }
+
+    #[test]
+    fn the_picture_and_the_name_are_inside_the_plate_they_are_drawn_on() {
+        for size in EVERY {
+            let shape = ok(Shape::USUAL.sized(size));
+            let laid = ok(laid(ROOM, shape, Spot { pane: 0, row: 1, column: 2 }));
+            let tall = out(laid.plate.size.height);
+            let icon = out(laid.icon.size.height);
+            let line = out(laid.line);
+
+            assert!(laid.icon.at.y >= laid.plate.at.y, "{size:?}: {laid:?}");
+            assert!(laid.icon.at.x >= laid.plate.at.x, "{size:?}: {laid:?}");
+            assert!(laid.named.y >= laid.icon.at.y + icon, "{size:?}: {laid:?}");
+            assert!(
+                laid.named.y + line <= laid.plate.at.y + tall,
+                "{size:?}: {laid:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_gap_between_two_squares_is_still_the_grid_and_the_margin_round_it_is_not() {
+        let shape = Shape::USUAL;
+        let here = ok(laid(ROOM, shape, Spot { pane: 0, row: 0, column: 0 }));
+        let under = ok(laid(ROOM, shape, Spot { pane: 0, row: 1, column: 0 }));
+        let tall = out(here.plate.size.height);
+        let between = Point {
+            x: here.plate.at.x,
+            y: here.plate.at.y + tall + (under.plate.at.y - here.plate.at.y - tall) / 2,
+        };
+
+        assert_eq!(ok(over(ROOM, between)), On::TheGrid, "{between:?}");
+        assert_eq!(ok(over(ROOM, Point { x: 2, y: 300 })), On::None);
+        assert_eq!(ok(over(ROOM, Point { x: 500, y: ROOM.1 - 2 })), On::None);
+    }
+
+    #[test]
+    fn the_pane_dots_are_under_the_bottom_row_and_not_over_it() {
+        let shape = Shape::USUAL;
+        let bottom = ok(laid(ROOM, shape, Spot { pane: 0, row: shape.rows - 1, column: 0 }));
+        let dots = ok(dotted(ROOM));
+        let tall = out(bottom.plate.size.height);
+
+        assert!(dots.y >= bottom.plate.at.y + tall, "{dots:?} over {bottom:?}");
+        assert!(dots.y < ROOM.1, "{dots:?} is off the bottom of {ROOM:?}");
+        assert_eq!(dots.x, ROOM.0 / 2);
     }
 
     #[test]
@@ -393,8 +599,8 @@ mod tests {
 
     #[test]
     fn a_shape_survives_being_written_down_and_read_back() {
-        let wide = ok(Shape::USUAL.across(7));
-        let deep = ok(wide.down(4));
+        let wide = ok(Shape::USUAL.with_columns(7));
+        let deep = ok(wide.with_rows(4));
         let shape = ok(deep.sized(Size::Bigger));
         let written = ok(shape.written());
 
@@ -413,10 +619,10 @@ mod tests {
 
     #[test]
     fn a_shape_asked_for_off_the_ends_stays_on_them() {
-        assert_eq!(ok(Shape::USUAL.across(0)).columns, *Shape::COLUMNS.start());
-        assert_eq!(ok(Shape::USUAL.across(99)).columns, *Shape::COLUMNS.end());
-        assert_eq!(ok(Shape::USUAL.down(0)).rows, *Shape::ROWS.start());
-        assert_eq!(ok(Shape::USUAL.down(99)).rows, *Shape::ROWS.end());
+        assert_eq!(ok(Shape::USUAL.with_columns(0)).columns, *Shape::COLUMNS.start());
+        assert_eq!(ok(Shape::USUAL.with_columns(99)).columns, *Shape::COLUMNS.end());
+        assert_eq!(ok(Shape::USUAL.with_rows(0)).rows, *Shape::ROWS.start());
+        assert_eq!(ok(Shape::USUAL.with_rows(99)).rows, *Shape::ROWS.end());
         assert_eq!(ok(Shape::read("columns 200")).columns, *Shape::COLUMNS.end());
     }
 
@@ -424,14 +630,13 @@ mod tests {
     fn every_rung_reads_back_as_the_word_that_wrote_it() {
         for size in EVERY {
             assert_eq!(ok(Size::read(ok(size.word()))), Some(size));
-            assert_eq!(ok(size.says()).to_lowercase(), ok(size.word()));
         }
     }
 
     #[test]
     fn the_shape_is_written_under_her_own_home() {
-        let at = ok(at(std::path::Path::new("/home/somebody")));
+        let at = ok(at(std::path::Path::new("/home/someone")));
 
-        assert!(at.starts_with("/home/somebody/.config/console"), "{}", at.display());
+        assert!(at.starts_with("/home/someone/.config/console"), "{}", at.display());
     }
 }

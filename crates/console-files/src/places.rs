@@ -2,7 +2,6 @@
 
 use std::path::{Path, PathBuf};
 
-use console_core_atomic_writes::Held;
 use console_core_never::Never;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -37,7 +36,7 @@ pub fn wanted_at(home: &Path, said: &[(&str, Option<PathBuf>)]) -> Result<Vec<Pl
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Leading {
-    pub place: usize,
+    pub place: u32,
     pub steps: Vec<String>,
     pub stand_on: Option<String>,
 }
@@ -64,23 +63,20 @@ pub fn leading_to(places: &[Place], path: &Path, folder: Is) -> Result<Option<Le
         }
     };
 
-    let under = places
-        .iter()
-        .enumerate()
+    let under = (0_u32..)
+        .zip(places)
         .filter_map(|(at, place)| {
             let within = match into.strip_prefix(&place.path) {
                 Ok(within) => within,
                 Err(_fault) => return None,
             };
 
-            Some((at, within))
+            Some((at, place, within))
         })
-        .max_by_key(|(at, _)| {
-            places.get(*at).map_or(0, |place| place.path.components().count())
-        });
+        .max_by_key(|(_, place, _)| place.path.components().count());
 
     let (place, within) = match under {
-        Some((place, within)) => (place, within),
+        Some((place, _, within)) => (place, within),
         None => return Ok(None),
     };
 
@@ -94,68 +90,86 @@ pub fn leading_to(places: &[Place], path: &Path, folder: Is) -> Result<Option<Le
     }))
 }
 
+pub const MOUNTS: &str = "/proc/mounts";
+
+pub const PLUGGED_IN: [&str; 3] = ["/run/media", "/media", "/mnt"];
+
+pub fn plugged_in(said: &str) -> Result<Vec<Place>, Never> {
+    let mut places: Vec<Place> = Vec::new();
+
+    for line in said.lines() {
+        let said = match line.split_whitespace().nth(1) {
+            Some(said) => said,
+            None => continue,
+        };
+
+        let said = unescaped(said)?;
+        let at = PathBuf::from(said);
+
+        let under = PLUGGED_IN.iter().any(|root| at.starts_with(root) && at != Path::new(root));
+
+        match under {
+            true => {},
+            false => continue,
+        }
+
+        let title = match at.file_name() {
+            Some(title) => title.to_string_lossy().to_string(),
+            None => continue,
+        };
+
+        let place = Place::new(&title, at)?;
+
+        places.push(place);
+    }
+
+    Ok(places)
+}
+
+fn unescaped(said: &str) -> Result<String, Never> {
+    let mut written = String::new();
+    let mut rest = said;
+
+    loop {
+        let (before, after) = match rest.split_once('\\') {
+            Some(halves) => halves,
+            None => {
+                written.push_str(rest);
+
+                return Ok(written);
+            }
+        };
+
+        written.push_str(before);
+
+        let read = match after.get(..3) {
+            Some(three) => match u8::from_str_radix(three, 8) {
+                Ok(byte) => Some(byte),
+                Err(_that_was_not_three_octal_digits) => None,
+            },
+            None => None,
+        };
+
+        rest = match read {
+            Some(byte) => {
+                written.push(char::from(byte));
+
+                match after.get(3..) {
+                    Some(rest) => rest,
+                    None => "",
+                }
+            }
+            None => {
+                written.push('\\');
+
+                after
+            }
+        };
+    }
+}
+
 pub fn kept(places: Vec<Place>, there: impl Fn(&Path) -> bool) -> Result<Vec<Place>, Never> {
     Ok(places.into_iter().filter(|place| there(&place.path)).collect())
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Named<'a>(pub &'a str);
-
-pub fn said_at(held: &str, name: Named<'_>, home: &Path) -> Result<Option<PathBuf>, Never> {
-    let wanted = format!("{}=", name.0);
-
-    let found = held
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.starts_with('#'))
-        .find_map(|line| line.strip_prefix(&wanted));
-
-    let found = match found {
-        Some(found) => found,
-        None => return Ok(None),
-    };
-
-    let said = found.trim().trim_matches('"');
-
-    Ok(match said {
-        "" => None,
-        said => Some(match said.strip_prefix("$HOME/") {
-            Some(rest) => home.join(rest),
-            None => PathBuf::from(said),
-        }),
-    })
-}
-
-pub const USER_DIRS: &str = "user-dirs.dirs";
-
-pub fn user_dirs(home: &Path) -> Result<PathBuf, Never> {
-    let Ok(config) = console_core_places::Base::Config.under(home);
-
-    Ok(config.join(USER_DIRS))
-}
-
-pub fn folder(home: &Path, name: Named<'_>, plain: &str) -> Result<PathBuf, Never> {
-    let at = user_dirs(home)?;
-
-    let Ok(said) = console_core_atomic_writes::read(&at);
-
-    let held = match said {
-        Held::Said(held) => held,
-
-        Held::Nothing => String::new(),
-
-        Held::Unreadable(fault) => {
-            eprintln!("console: {}: reading where this account keeps its folders: {fault}", at.display());
-            String::new()
-        }
-    };
-
-    let said = said_at(&held, name, home)?;
-
-    Ok(match said {
-        Some(said) => said,
-        None => home.join(plain),
-    })
 }
 
 #[cfg(test)]
@@ -234,7 +248,7 @@ mod tests {
     }
 
     #[test]
-    fn the_rest_are_in_the_alphabet_everybody_already_knows() {
+    fn the_rest_are_in_the_alphabet_everyone_already_knows() {
         let mut rest = WANTED[1..].to_vec();
         rest.sort_by_key(|title| title.to_lowercase());
         assert_eq!(rest, WANTED[1..]);
@@ -274,50 +288,33 @@ mod tests {
     }
 
     #[test]
+    fn what_is_plugged_in_is_what_is_mounted_where_a_stick_lands() {
+        let held = concat!(
+            "/dev/nvme0n1p2 / btrfs rw,relatime 0 0\n",
+            "tmpfs /run tmpfs rw 0 0\n",
+            "/dev/sda1 /run/media/someone/Field\\040Notes vfat rw 0 0\n",
+            "/dev/sdb1 /mnt/films ext4 rw 0 0\n",
+        );
+
+        let Ok(places) = plugged_in(held);
+
+        assert_eq!(titles(&places), ["Field Notes", "films"]);
+        assert_eq!(
+            places.first().map(|place| place.path.clone()),
+            Some(PathBuf::from("/run/media/someone/Field Notes"))
+        );
+    }
+
+    #[test]
+    fn the_root_of_where_sticks_land_is_not_itself_a_stick() {
+        let Ok(places) = plugged_in("tmpfs /run/media tmpfs rw 0 0\n");
+
+        assert!(places.is_empty());
+    }
+
+    #[test]
     fn a_path_under_none_of_the_places_leads_nowhere() {
         assert_eq!(leading(&two_places(), Path::new("/etc/fstab"), Is::AFile), None);
         assert_eq!(leading(&two_places(), Path::new("/"), Is::AFolder), None);
-    }
-
-    #[test]
-    fn where_the_home_directory_says_its_pictures_are() {
-        let held = "XDG_PICTURES_DIR=\"$HOME/Bilder\"\n";
-        assert_eq!(
-            said_at(held, Named("XDG_PICTURES_DIR"), Path::new("/home/ada")),
-            Ok(Some(PathBuf::from("/home/ada/Bilder")))
-        );
-    }
-
-    #[test]
-    fn a_path_that_is_not_under_the_home_directory_is_taken_as_it_is() {
-        let held = "XDG_PICTURES_DIR=\"/data/pictures\"\n";
-        assert_eq!(
-            said_at(held, Named("XDG_PICTURES_DIR"), Path::new("/home/ada")),
-            Ok(Some(PathBuf::from("/data/pictures")))
-        );
-    }
-
-    #[test]
-    fn a_folder_the_file_says_nothing_about_is_nothing() {
-        let held = "XDG_MUSIC_DIR=\"$HOME/Music\"\n";
-        assert_eq!(said_at(held, Named("XDG_PICTURES_DIR"), Path::new("/home/ada")), Ok(None));
-        assert_eq!(said_at("", Named("XDG_PICTURES_DIR"), Path::new("/home/ada")), Ok(None));
-    }
-
-    #[test]
-    fn what_is_commented_out_is_not_read() {
-        let held = "# XDG_PICTURES_DIR=\"$HOME/Wrong\"\nXDG_PICTURES_DIR=\"$HOME/Right\"\n";
-        assert_eq!(
-            said_at(held, Named("XDG_PICTURES_DIR"), Path::new("/home/ada")),
-            Ok(Some(PathBuf::from("/home/ada/Right")))
-        );
-    }
-
-    #[test]
-    fn a_folder_said_to_be_nothing_is_nothing() {
-        assert_eq!(
-            said_at("XDG_PICTURES_DIR=\"\"", Named("XDG_PICTURES_DIR"), Path::new("/home/ada")),
-            Ok(None),
-        );
     }
 }

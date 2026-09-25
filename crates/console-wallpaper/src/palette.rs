@@ -1,8 +1,8 @@
-//! Every colour as it was solved, read out of the report.
+//! Every color as it was solved, read out of the report.
 //!
 //! Read rather than resolved, because the engine that solves it is
 //! `console-palette`. Resolving it a second time here would be a second place a
-//! colour could be decided, which is the thing this whole arrangement exists
+//! color could be decided, which is the thing this whole arrangement exists
 //! to prevent. `theme/report.md` is the palette written down, and a test in
 //! `console-palette` fails if it has fallen behind what `theme/palette.toml`
 //! says.
@@ -42,28 +42,28 @@ fn row(line: &str) -> Result<Option<(String, String)>, Never> {
     let named = sound(name, &|letter| {
         letter.is_ascii_alphanumeric() || letter == '_'
     });
-    let coloured = code.len() == 6 && sound(code, &|digit| digit.is_ascii_hexdigit());
+    let colored = code.len() == 6 && sound(code, &|digit| digit.is_ascii_hexdigit());
 
-    Ok((named && coloured).then(|| (name.to_string(), code.to_string())))
+    Ok((named && colored).then(|| (name.to_string(), code.to_string())))
 }
 
 pub fn read(report: &str) -> Result<BTreeMap<String, String>, Unpainted> {
-    let mut colours: BTreeMap<String, String> = BTreeMap::new();
+    let mut colors: BTreeMap<String, String> = BTreeMap::new();
 
     for line in report.lines() {
         let Ok(row) = row(line);
 
         match row {
             Some((name, code)) => {
-                let _ = colours.insert(name, code);
+                let _ = colors.insert(name, code);
             }
             None => {},
         }
     }
 
-    match colours.is_empty() {
-        true => Err(Unpainted::NoColours),
-        false => Ok(colours),
+    match colors.is_empty() {
+        true => Err(Unpainted::NoColors),
+        false => Ok(colors),
     }
 }
 
@@ -72,7 +72,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_colour_is_read_out_of_a_row_of_the_table() {
+    fn a_color_is_read_out_of_a_row_of_the_table() {
         assert_eq!(
             row("| `night` | `#110b12` | the deepest ground |"),
             Ok(Some(("night".to_string(), "110b12".to_string())))
@@ -80,14 +80,14 @@ mod tests {
     }
 
     #[test]
-    fn a_row_that_is_not_a_colour_is_not_one() {
+    fn a_row_that_is_not_a_color_is_not_one() {
         assert_eq!(row("| name | ratio | where |"), Ok(None));
         assert_eq!(row("| `night` | `#110b1` | short |"), Ok(None));
         assert_eq!(row("nothing at all"), Ok(None));
     }
 
     #[test]
-    fn a_report_holding_no_colours_says_to_run_the_theme() {
+    fn a_report_holding_no_colors_says_to_run_the_theme() {
         assert!(read("# nothing here\n").is_err());
     }
 }

@@ -31,11 +31,12 @@
 use std::fmt;
 
 use console_core_never::Never;
+use console_core_number_conversion::fitted;
 use console_core_words::Words;
 use console_input_gamepad::vocabulary::{self, Names};
 
 use crate::Unbound;
-use crate::keys::{self, Words};
+use crate::keys::{self, KeyKind};
 
 pub const NOTHING: &str = "";
 
@@ -102,8 +103,8 @@ impl Binding {
         })
     }
 
-    pub fn depth(&self) -> Result<usize, Never> {
-        Ok(self.held.len())
+    pub fn depth(&self) -> Result<u32, Never> {
+        fitted(self.held.len())
     }
 
     pub fn fits(&self, on: Input, held: &[&str], pressed: &str) -> Result<Fits, Never> {
@@ -211,10 +212,10 @@ impl Binding {
         let Ok(modifier) = keys::is_a_modifier(&self.pressed);
 
         match modifier {
-            Words::AModifier => {
+            KeyKind::AModifier => {
                 return Err(Unbound::AModifier(self.pressed.clone(), self.to_string()));
             }
-            Words::AKey => {},
+            KeyKind::AKey => {},
         }
 
         keys::key_named(&self.pressed)?;
@@ -223,8 +224,8 @@ impl Binding {
             let Ok(modifier) = keys::is_a_modifier(word);
 
             match modifier {
-                Words::AModifier => {},
-                Words::AKey => {
+                KeyKind::AModifier => {},
+                KeyKind::AKey => {
                     return Err(Unbound::AKey(word.clone()));
                 }
             }

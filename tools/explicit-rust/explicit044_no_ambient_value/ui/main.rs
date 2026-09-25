@@ -13,7 +13,7 @@ static ASKED: OnceLock<String> = OnceLock::new();
 //~v EXPLICIT044_NO_AMBIENT_VALUE
 static STOPPING: AtomicBool = AtomicBool::new(false);
 
-// GOOD — a table nobody can write.
+// GOOD — a table no one can write.
 static NAMES: [&str; 2] = ["one", "other"];
 
 // BAD EXPLICIT044 — this is wherever the program was started from.

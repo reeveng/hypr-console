@@ -1,11 +1,11 @@
 //! What is carried, and what the manifest says once it is.
 //!
-//! A fork is held back when it travels as somebody else's build. Nothing does
+//! A fork is held back when it travels as someone else's build. Nothing does
 //! now. `kew` was the last of them and is gone -- what plays music is
 //! `console-music-player`, built here like everything else -- so [`FORKS`] is
 //! empty, and it is empty rather than deleted because the rule it carries is
 //! the one thing that would have to be rewritten from memory the next time a
-//! binary somebody else built has to ride along. Whether an empty list earns
+//! binary someone else built has to ride along. Whether an empty list earns
 //! its machinery is a fair question and the answer is not obvious enough to
 //! settle by deleting it in the same commit that emptied it.
 //!
@@ -16,10 +16,10 @@
 //! of that crate now, and a workspace whose `members` and `Cargo.lock` name a
 //! crate the copy does not carry is a copy that will not resolve, let alone
 //! build. Nothing published between the crate landing and the exclusion going,
-//! so that never happened to anybody.
+//! so that never happened to anyone.
 //!
 //! `VENDORED` is what stayed behind, and it asks a different question. Not
-//! "is this published" -- it is -- but "does the licence it came with travel
+//! "is this published" -- it is -- but "does the license it came with travel
 //! with it", which is the one thing GPL-3.0 actually asks of a copy. It is the
 //! list `the_forks.rs` walks to check that.
 //!
@@ -119,7 +119,7 @@ mod tests {
     }
 
     #[test]
-    fn nothing_this_tree_holds_is_somebody_elses_build_today() {
+    fn nothing_this_tree_holds_is_someone_elses_build_today() {
         let Ok(kew) = is_fork("files/usr/local/bin/kew");
         let Ok(keyboard) = is_fork("files/usr/local/bin/console-keyboard");
 
@@ -151,15 +151,15 @@ mod tests {
     fn a_fork_the_workspace_builds_from_source_is_carried_like_any_other_crate() {
         let Ok(manifest) = is_fork("crates/console-resume/Cargo.toml");
         let Ok(source) = is_fork("crates/console-resume/src/session.rs");
-        let Ok(licence) = is_fork("crates/console-resume/LICENSE");
+        let Ok(license) = is_fork("crates/console-resume/LICENSE");
 
         assert_eq!(manifest, Fork::No);
         assert_eq!(source, Fork::No);
         assert_eq!(
-            licence,
+            license,
             Fork::No,
-            "the licence most of all: a GPL crate published without it is the one thing that \
-             would be somebody else's to complain about"
+            "the license most of all: a GPL crate published without it is the one thing that \
+             would be someone else's to complain about"
         );
     }
 

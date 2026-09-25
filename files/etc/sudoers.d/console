@@ -8,13 +8,13 @@
 # know is a name it refuses rather than a name it passes on.
 #
 # Without a password because the alternative is a settings panel that stops to
-# ask for one on a machine with no keyboard, and a password prompt nobody can
+# ask for one on a machine with no keyboard, and a password prompt no one can
 # answer is a setting that cannot be changed.
 #
 # `@user@` is the mark the manifest writes for whoever this desktop belongs to.
 # `console apply` fills it in on the way here, because sudo wants a name.
 @user@ ALL=(root) NOPASSWD: /usr/local/bin/console-engine
-# The second is the setup screen's. Somebody moving the menu onto a button
+# The second is the setup screen's. Someone moving the menu onto a button
 # their device actually has writes that into a table in their own home, and the
 # profiles it changes are in /etc, which is not theirs. `buttons` is the whole
 # of what it may do: it takes no argument, what it writes is decided by that

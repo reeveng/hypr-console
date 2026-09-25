@@ -5,7 +5,7 @@
 //! the manifest no longer names -- so a name that leaves the manifest stays on
 //! every machine that ever applied it. Seven `legion-*` units left `[services]`
 //! in one commit, and the only thing that stopped that device booting two
-//! controller daemons both wanting the pad was somebody writing a sweep by hand
+//! controller daemons both wanting the pad was someone writing a sweep by hand
 //! for that one rename. What has fallen through since happened to be one-shot
 //! commands rather than daemons, which is luck rather than a property.
 //!
@@ -16,13 +16,13 @@
 //! that ran it, and a runner that walks them in order. What is different here
 //! is that the need can be *derived*. omarchy's authors have to remember to
 //! write one; this manifest is a file in git, so the tree can be asked what
-//! left it and hold somebody to sweeping it.
+//! left it and hold someone to sweeping it.
 //!
 //! That is the whole reason this exists as a crate rather than a script:
 //! [`unswept`] is the rule, it is arithmetic over four sets, and
 //! `tests/every_removal_is_swept.rs` is what puts a repository's real history
 //! into it. The engine on the device never asks that question at all -- by then
-//! the answer is a file somebody committed.
+//! the answer is a file someone committed.
 //!
 //! # What a migration looks like
 //!
@@ -38,12 +38,13 @@
 //! it in -- a path for a file, and what holds a unit there for a unit. The rest
 //! is a shell script and does the work. Nothing is deleted -- `console-migrate`
 //! set that precedent for the rename and its attic is still on the device, which
-//! is how anybody can still tell that sweep did what it said.
+//! is how anyone can still tell that sweep did what it said.
 
 pub mod done;
 pub mod sweeping;
 
 use console_core_never::Never;
+use console_core_internal_programs::EXECUTABLE_DIRECTORY;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::PathBuf;
@@ -52,7 +53,7 @@ use std::path::PathBuf;
 pub enum Undone {
     Listing(PathBuf, std::io::Error),
     Reading(PathBuf, std::io::Error),
-    Nameless(PathBuf),
+    Untitled(PathBuf),
     Holding(PathBuf, std::io::Error),
     Marking(console_core_atomic_writes::Unwritten),
 }
@@ -62,7 +63,7 @@ impl fmt::Display for Undone {
         match self {
             Undone::Listing(at, fault) => write!(to, "{}: {fault}", at.display()),
             Undone::Reading(at, fault) => write!(to, "{}: {fault}", at.display()),
-            Undone::Nameless(at) => write!(to, "{} has no name", at.display()),
+            Undone::Untitled(at) => write!(to, "{} has no name", at.display()),
             Undone::Holding(at, fault) => write!(to, "{}: {fault}", at.display()),
             Undone::Marking(fault) => write!(to, "{fault}"),
         }
@@ -98,7 +99,7 @@ pub struct Section<'a>(pub &'a str);
 
 pub fn holds(section: Section<'_>, entry: &str) -> Result<Option<String>, Never> {
     Ok(match section.0 {
-        "[build]" => Some(format!("/usr/local/bin/{entry}")),
+        "[build]" => Some(format!("{EXECUTABLE_DIRECTORY}/{entry}")),
         "[files]" => {
             let Ok(whoevers) = whoevers(entry);
 
@@ -131,14 +132,14 @@ pub const SWEPT: [&str; 4] = ["[build]", "[files]", "[services]", "[masked]"];
 pub fn outlives(section: &str) -> Result<Outlives, Never> {
     Ok(match SWEPT.contains(&section) {
         true => Outlives::TheManifest,
-        false => Outlives::Nothing,
+        false => Outlives::None,
     })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outlives {
     TheManifest,
-    Nothing,
+    None,
 }
 
 #[cfg(test)]
@@ -261,7 +262,7 @@ mod tests {
         let Ok(nothing) = holds(Section("[packages]"), "grim");
 
         assert_eq!(built, Outlives::TheManifest);
-        assert_eq!(packaged, Outlives::Nothing);
+        assert_eq!(packaged, Outlives::None);
         assert_eq!(nothing, None);
     }
 }

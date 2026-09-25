@@ -17,7 +17,7 @@
 //! in the profile and a rule somewhere else that has to agree with it.
 //!
 //! The physical path is still read and now means what it says: an Xbox Elite 2
-//! controller somebody plugs in carries the same two numbers as the target
+//! controller someone plugs in carries the same two numbers as the target
 //! emulating one, and is not it.
 
 use console_core_never::Never;

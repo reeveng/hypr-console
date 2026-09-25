@@ -4,7 +4,7 @@
 //! reason that is nothing to do with Dolphin: the desktop's A is a mouse click
 //! at the pointer and its d-pad is the arrow keys, so the row the thumb moved
 //! to and the thing A acts on are two different objects. Every panel here
-//! avoids that by taking the chooser's buttons while it is up, and a program
+//! avoids that by taking the picker's buttons while it is up, and a program
 //! that is not ours cannot ask for them.
 //!
 //! So this is a panel like the menu and the settings, drawn by the same crate
@@ -17,6 +17,7 @@
 pub mod card;
 pub mod doing;
 pub mod listing;
+pub mod open_with;
 pub mod looking;
 pub mod places;
 pub mod standing;
@@ -24,4 +25,4 @@ pub mod thumbs;
 pub mod unzipping;
 pub mod walk;
 
-pub use card::{WHO, card, door};
+pub use card::{WHO, card};

@@ -1,4 +1,4 @@
-# The session keeper, under the name it was somebody else's program by.
+# The session keeper, under the name it was someone else's program by.
 #
 # `/usr/local/bin/hyprsession` was a fork carried as a binary because its source
 # was upstream's and this tree does not publish other people's work as its own.
@@ -26,7 +26,7 @@
 # ~/.local/share/hyprsession and the new program keeps its own under
 # ~/.local/share/console/resume, so nothing there is read again by anything --
 # and a directory nothing reads, sitting under the name of the program that made
-# it, is the thing somebody finds in a year and cannot tell from a live one.
+# it, is the thing someone finds in a year and cannot tell from a live one.
 # Swept is not deleted: it is in the attic this run prints on its last line,
 # with whatever ~/.config/hyprsession held beside it, and a person who wants a
 # window arrangement back can go and read it there.

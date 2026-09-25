@@ -1,5 +1,5 @@
 //! Which words this tree writes far more often than English does, measured
-//! against English, and which of them nobody declared.
+//! against English, and which of them no one declared.
 //!
 //! The crate rule asks whether a name says its job and the families test asks
 //! whether a crate may depend on another, and neither of them can see the one
@@ -13,10 +13,10 @@
 //!
 //! So it is counted. Every word this tree writes for itself, against how often
 //! English writes it, and a word written far out of proportion is either a word
-//! this desktop decided on -- a press, a doing, a panel -- or a habit nobody
+//! this desktop decided on -- a press, an effect, a panel -- or a habit no one
 //! decided. `words.conf` at the top of the tree is where the first kind is
 //! written down, and the arithmetic here is what makes the second kind arrive
-//! as a red gate rather than as a reading somebody does once a year.
+//! as a red gate rather than as a reading someone does once a year.
 //!
 //! `cargo dylint` cannot ask this, for `the_families` reason and one more: a
 //! lint sees one crate at a time, and a word is only out of proportion against
@@ -26,7 +26,7 @@
 //!
 //! What is measured is what this tree chose to say: identifiers, the `//!`
 //! heads, and the prose in `docs/` and `README.md`. What is not measured is
-//! what somebody else chose -- string literals, because `hyprctl`'s words are
+//! what someone else chose -- string literals, because `hyprctl`'s words are
 //! hyprctl's, and `tools/`, because the lint suite is written against rustc's
 //! vocabulary rather than this desktop's.
 //!
@@ -34,7 +34,7 @@
 //! decides nothing: it is what the printed table is cut at, because the words a
 //! reader wants to see are not the ones nothing in English resembles -- those
 //! are `mut` and `vec` and they are Rust's -- but the ordinary words this tree
-//! leans on twenty times harder than anybody else does. `said`, `held`, `kind`
+//! leans on twenty times harder than anyone else does. `said`, `held`, `kind`
 //! and `asked` are all in there and none of them is past [`TOO_FAR`], which is
 //! the ratchet the rest of this workspace runs on: the gate holds the line the
 //! tree already keeps, the table shows the distance left, and the number comes
@@ -43,7 +43,7 @@
 //! Two numbers decide, and both are named here rather than in the test:
 //! [`A_HABIT`], because a word written once or twice is not one, and
 //! [`TOO_FAR`], which is how many times English's own rate a word may be
-//! written at before it has to be a word somebody chose. A word English has
+//! written at before it has to be a word someone chose. A word English has
 //! never heard of has no rate at all and is past every multiple of it, which is
 //! why [`TimesAsOften`] arrives as an `Option`: `None` is not a missing
 //! measurement, it is the furthest out a word can be.
@@ -58,15 +58,18 @@ pub mod declared;
 pub mod elsewhere;
 pub mod norm;
 
+use std::collections::BTreeSet;
+
 use console_core_never::Never;
+use console_core_number_conversion::index;
 
 use crate::counting::Counted;
-use crate::declared::{Declaration, Declared};
+use crate::declared::{Configuration, Declared, Scope};
 use crate::elsewhere::{Elsewhere, Name};
 use crate::norm::Norm;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Uses(pub usize);
+pub struct Uses(pub u64);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PerMillion(pub f64);
@@ -128,6 +131,7 @@ impl Measured {
 }
 
 pub fn measured(counted: &Counted, norm: &Norm) -> Result<Vec<Measured>, Never> {
+    let Ok(where_to_look) = index(WHERE_TO_LOOK);
     let mut found: Vec<Measured> = counted
         .words
         .iter()
@@ -147,7 +151,7 @@ pub fn measured(counted: &Counted, norm: &Norm) -> Result<Vec<Measured>, Never> 
                 here,
                 in_english,
                 times,
-                written_in: written.written_in.iter().take(WHERE_TO_LOOK).cloned().collect(),
+                written_in: written.written_in.iter().take(where_to_look).cloned().collect(),
             }
         })
         .collect();
@@ -162,7 +166,7 @@ pub fn measured(counted: &Counted, norm: &Norm) -> Result<Vec<Measured>, Never> 
     Ok(found)
 }
 
-const WHERE_TO_LOOK: usize = 3;
+const WHERE_TO_LOOK: u32 = 3;
 
 pub fn undeclared<'a>(
     measured: &'a [Measured],
@@ -187,6 +191,60 @@ pub fn undeclared<'a>(
         .collect())
 }
 
+#[derive(Debug, Clone)]
+pub struct Outside {
+    pub word: String,
+
+    pub only: Vec<String>,
+
+    pub written_in: Vec<String>,
+}
+
+pub fn outside(counted: &Counted, declared: &Declared) -> Result<Vec<Outside>, Never> {
+    let Ok(every) = declared.every();
+    let mut found = Vec::new();
+
+    for word in every.keys() {
+        let Ok(scope) = declared.scope(word);
+        let only = match scope {
+            Scope::Anywhere => continue,
+            Scope::Only(places) => places,
+        };
+        let written_in = match counted.words.get(word) {
+            Some(written) => written.written_in.clone(),
+            None => BTreeSet::new(),
+        };
+        let written: Vec<String> = written_in
+            .into_iter()
+            .filter(|at| {
+                let Ok(belonging) = belonging(at, &only);
+
+                belonging == Belonging::Elsewhere
+            })
+            .collect();
+
+        match written.is_empty() {
+            true => {},
+            false => found.push(Outside { word: word.clone(), only, written_in: written }),
+        }
+    }
+
+    Ok(found)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Belonging {
+    Here,
+    Elsewhere,
+}
+
+fn belonging(at: &str, only: &[String]) -> Result<Belonging, Never> {
+    Ok(match only.iter().any(|place| at.starts_with(place.as_str())) {
+        true => Belonging::Here,
+        false => Belonging::Elsewhere,
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Known {
     Under(String),
@@ -208,19 +266,19 @@ pub fn known(word: &str, vocabulary: &Vocabulary<'_>) -> Result<Known, Never> {
     let Ok(named) = vocabulary.elsewhere.names(word);
 
     Ok(match (here, named) {
-        (Declaration::Under(heading), _) => Known::Under(heading),
-        (Declaration::Nowhere, Some(name)) => Known::Named(name),
-        (Declaration::Nowhere, None) => match word.strip_prefix(NOT) {
+        (Configuration::Under(heading), _) => Known::Under(heading),
+        (Configuration::Nowhere, Some(name)) => Known::Named(name),
+        (Configuration::Nowhere, None) => match word.strip_prefix(NOT) {
             Some(root) => {
                 let Ok(under) = vocabulary.declared.knows(root);
                 let Ok(english) = vocabulary.norm.of(root);
 
                 match (under, english) {
-                    (Declaration::Under(heading), _) => Known::Under(heading),
-                    (Declaration::Nowhere, Some(_a_word_english_has)) => {
+                    (Configuration::Under(heading), _) => Known::Under(heading),
+                    (Configuration::Nowhere, Some(_a_word_english_has)) => {
                         Known::TheNegativeOf(root.to_string())
                     },
-                    (Declaration::Nowhere, None) => Known::Nowhere,
+                    (Configuration::Nowhere, None) => Known::Nowhere,
                 }
             },
             None => Known::Nowhere,

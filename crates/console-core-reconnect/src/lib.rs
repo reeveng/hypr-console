@@ -1,4 +1,4 @@
-//! A subscription made again, for as long as somebody still wants one.
+//! A subscription made again, for as long as someone still wants one.
 //!
 //! Every watcher on this desktop is a subscription to something else: the
 //! compositor's socket, a `pactl subscribe`, a `nmcli monitor`. Each of them
@@ -17,7 +17,7 @@
 //!
 //! The waiting has two shapes because a caller has two. [`keep`] is the whole
 //! of it for a program with a thread to spare: hand it a round and it is made
-//! again forever. A program already inside a loop of somebody else's -- a
+//! again forever. A program already inside a loop of someone else's -- a
 //! panel's, which is glib's -- cannot be handed a thread and has to do its own
 //! awaiting, so [`Between`] is the same decision without the thread: how long
 //! before the next try, given how long the last one stood. `keep` is written on
@@ -46,7 +46,7 @@ pub fn longer(waited: Duration) -> Result<Duration, Never> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Round {
     Another,
-    Done,
+    Finished,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,7 +92,7 @@ pub fn keep(mut once: impl FnMut() -> Round + Send + 'static) -> Result<(), Neve
             let began = Instant::now();
 
             match once() {
-                Round::Done => return,
+                Round::Finished => return,
                 Round::Another => {}
             }
 
@@ -102,7 +102,7 @@ pub fn keep(mut once: impl FnMut() -> Round + Send + 'static) -> Result<(), Neve
                 dylint_lib = "explicit021_no_sleeping",
                 allow(
                     explicit021_no_sleeping,
-                    reason = "the waiting between two tries is what this crate is: the far end is not there, nothing will say when it comes back, and asking without a gap is a handheld warm in somebody hands"
+                    reason = "the waiting between two tries is what this crate is: the far end is not there, nothing will say when it comes back, and asking without a gap is a handheld warm in someone hands"
                 )
             )]
             std::thread::sleep(again);
@@ -133,12 +133,14 @@ mod tests {
     #[test]
     fn a_far_end_that_never_answers_is_left_alone_for_longer() {
         let mut waited = FIRST;
+
         for _ in 0..10 {
             let Ok(kept) = after(waited, Duration::from_millis(0));
             let Ok(longer) = longer(kept);
 
             waited = longer;
         }
+
         assert_eq!(waited, LONGEST);
     }
 
@@ -194,8 +196,9 @@ mod tests {
         let (say, heard) = std::sync::mpsc::channel();
         let Ok(()) = keep(move || match say.send(()) {
             Ok(()) => Round::Another,
-            Err(_) => Round::Done,
+            Err(_) => Round::Finished,
         });
+
         for turn in 1..=3 {
             heard
                 .recv_timeout(Duration::from_secs(10))
@@ -208,7 +211,7 @@ mod tests {
         let (say, heard) = std::sync::mpsc::channel();
         keep(move || {
             say.send(()).ok();
-            Round::Done
+            Round::Finished
         });
         heard.recv_timeout(Duration::from_secs(5)).expect("the one turn");
         assert!(

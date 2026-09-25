@@ -5,18 +5,18 @@ a person does -- across programs, across crates, across minutes -- and asks
 at every step what that person would see. The checks say each promise holds
 on its own; a flow says they hold in a row, because most of what goes wrong
 on this machine goes wrong *between* features: a mode that lingered, a
-chooser that stacked, a panel that kept a button it should have handed back.
+picker that stacked, a panel that kept a button it should have handed back.
 No check about the viewer and no check about the files panel can catch the
 press that falls between them.
 
 [`checks.md`](checks.md) is the doctrine and it is not repeated here: assert
 what a person would see, wait for the thing and not for a number of seconds,
-a green check can be a lie, it is somebody's machine. Everything below stands
+a green check can be a lie, it is someone's machine. Everything below stands
 on that.
 
 ## The promises
 
-What somebody holding the device can expect, always, wherever a flow has
+What someone holding the device can expect, always, wherever a flow has
 taken them. The flows further down are proofs of these; a promise nothing
 walks through is not a promise, it is a hope, and it belongs in the backlog
 as owed until something holds it.
@@ -49,7 +49,7 @@ is no stale meaning to be caught by. The guide says what every button does
 right now, read out of the same table the daemon reads, so it cannot drift
 from the truth.
 
-**One thing is in front.** One chooser at a time, one window per workspace,
+**One thing is in front.** One picker at a time, one window per workspace,
 nothing floats and nothing stacks. Whatever is in front is what the buttons
 belong to.
 
@@ -80,7 +80,7 @@ person waits for writes down how long it took.
 
 ## The flows
 
-Each flow is what somebody does with their thumbs and what they would see,
+Each flow is what someone does with their thumbs and what they would see,
 in order. Every step carries its own assertion: a flow checked only at its
 end is a flow that cannot say which promise broke on the way. The files
 under `scenarios/` are the vocabulary -- press, hold, drag, tap, wait --
@@ -92,13 +92,13 @@ The first flow, and first on purpose: every other flow walks the desktop
 through the table of what a button means, so the table being movable is the
 claim under all of them.
 
-Somebody moves the screenshot off its paddle and onto R2 + A, the way the
+Someone moves the screenshot off its paddle and onto R2 + A, the way the
 setup screen moves it: the move worked out against what everything is bound
 to, written to the file, and the file read back the way the daemon reads it.
 The new chord takes the picture and does not also click; the old chord takes
 nothing, and the paddle bare of its second job goes on scrolling; A on its
 own is still a click. Then the desktop is walked with the moved table in
-place -- a chooser up, the home screen asleep and standing, the keyboard
+place -- a picker up, the home screen asleep and standing, the keyboard
 raised -- and at every stop the chord still takes the picture, the place's
 own buttons still mean what the place says, and under the keyboard nothing
 is acted on at all. The file is asked for everything else it can say:
@@ -129,7 +129,7 @@ and nothing is left over the wallpaper.
 
 What it walks: B always leaves, opening is owned, the thing before its
 furnishings, the shoulders are places. What it crosses: the controller's
-tables, the pad's routing, the chooser, the files panel, the viewer's kinds
+tables, the pad's routing, the picker, the files panel, the viewer's kinds
 and reel, the door.
 
 ### An evening of music
@@ -153,17 +153,17 @@ files panel, the door.
 R1 twice and L1 once, and the workspace is where the count says. L2 held, L1
 carries the window along and the window actually comes. The guide is raised
 in the middle of all this and says what the buttons mean *now*; raised again
-with a chooser up, it says the chooser's meanings instead. The launcher
-pressed while a chooser is already up does not stack a second one. The right
+with a picker up, it says the picker's meanings instead. The launcher
+pressed while a picker is already up does not stack a second one. The right
 paddle, pressed deep inside a panel's tabs, leaves nothing at all.
 
 What it walks: the shoulders are places, a button means what the screen
 says, one thing is in front, B always leaves (in its one-press form). What
-it crosses: the controller's mode reading, the pad, the chooser lock,
+it crosses: the controller's mode reading, the pad, the picker lock,
 hyprland by way of the daemon's dispatches, the guide.
 
 Under the walk there is a sweep, and it is the half that catches drift
-nobody went looking for: every job that applies where you are standing and
+no one went looking for: every job that applies where you are standing and
 has a bare button on it is pressed there, and the guide is asked about the
 same button in the same breath. A line naming a button that does nothing and
 a button doing something the guide never mentions are the two ways a guide
@@ -173,7 +173,7 @@ because one half of each assertion is a press.
 This one runs: `crates/console-test-flows/tests/getting_around.rs`, at the fast
 stage, on every `just test`. Two halves are handed up rather than answered
 there. Whether the compositor went where it was asked is the device's, as it
-is for every dispatch. And whether a second chooser actually replaces the
+is for every dispatch. And whether a second picker actually replaces the
 first on the screen is a lock between two processes, pressed as one in
 `console-panel/tests/the_lock.rs`; what this flow answers is the daemon's
 half, that the door it asks through is the door that keeps.
@@ -195,6 +195,18 @@ a button means what the screen says. What it crosses: the controller, the
 homeward socket and the awake note in the door, the home screen, the state
 file it keeps.
 
+The daemon's half of this runs:
+`crates/console-test-flows/tests/the_home_screen_wakes_and_sleeps.rs`, at the
+fast stage, on every `just test`. It walks the whole of the waking and the
+sleeping -- asleep the touchpad still moves the pointer and A is a click and Y
+is the pointer's other button, the first press is a word and not also an arrow
+behind it, standing the square owns A and Y while the shoulders stay places, B
+hands every button back, and a picker raised over it takes them all while it is
+up. What is handed up is everything the surface itself does with a word: the
+highlight that appears without moving, the application carried and put down,
+the arrangement still there after a restart. Those are a toolkit loop on a
+screen, and they are the desktop stage's.
+
 ### Being interrupted
 
 A film is playing in the viewer when a notification card arrives: the card
@@ -207,7 +219,7 @@ always in the middle of something when it does.
 
 What it walks: falling is loud and cheap, a button means what the screen
 says, music outlives its panel, one thing is in front. What it crosses: the
-controller's restart path, the notices, the viewer, the player, the door.
+controller's restart path, the notifications, the viewer, the player, the door.
 
 ### The whole evening
 
@@ -243,7 +255,7 @@ by looking. A flow at this stage plays its thumb-script and takes a picture
 at each named step, and the picture answers -- a card is up, the card is
 gone, the picture in the viewer is the picture that was pressed.
 
-**Device.** Somebody's machine, at the end of a deploy, asked only what
+**Device.** Someone's machine, at the end of a deploy, asked only what
 nothing else can answer -- the real player, the real decoder, the real
 compositor quirk. Everything `checks.md` says about the device tier binds
 flows twice over, because a flow holds the machine longer than any check:

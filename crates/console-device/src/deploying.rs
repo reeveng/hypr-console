@@ -37,7 +37,7 @@
 //! is a file and a lock under a file could never be taken.
 //!
 //! Held for `--check` as well as for a deploy: a check asks the device what it
-//! looks like, and halfway through somebody else's apply there is no answer to
+//! looks like, and halfway through someone else's apply there is no answer to
 //! that worth reading.
 //!
 //! A lock whose process is gone was left behind by a deploy that was killed,
@@ -58,28 +58,28 @@
 
 use std::path::PathBuf;
 
-use console_core_external_programs::Program as Theirs;
+use console_core_external_programs::Program as ExternalProgram;
 use console_core_never::Never;
-use console_core_our_programs::{CONFIRM_DOES, Ours};
+use console_core_internal_programs::{CONFIRM_DOES, InternalProgram};
 use console_program_contract::{
-    Argv, Chose, Doing, Ending, Given, Opening, Program, Question, Runs, Turn, Went, Word,
+    Arguments, Choice, Effect, Exit, Flag, Initial, Program, Prompt, Command, Update, ExitStatus, Event,
 };
 use console_session::reaching;
 
-use crate::naming::HOST;
+use console_device_name::HOST;
 
-pub const TREE: &str = "/etc/console";
+pub const TREE: &str = console_repository::DEVICE_ROOT;
 
 pub const LOCK: &str = "console-deploy.lock";
 
 pub const KNOWN: [&str; 2] = ["--check", "--yes"];
 
 pub fn card() -> Result<&'static str, Never> {
-    Ours::Confirm.name()
+    InternalProgram::Confirm.name()
 }
 
 pub fn unasked() -> Result<i32, Never> {
-    Ok(i32::from(console_core_our_programs::CONFIRM_UNASKED))
+    Ok(i32::from(console_core_internal_programs::CONFIRM_UNASKED))
 }
 
 pub const NO_CARD: i32 = 97;
@@ -109,7 +109,7 @@ pub struct Going {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum How {
     Check,
-    Asked,
+    Confirm,
     Yes,
 }
 
@@ -133,7 +133,7 @@ pub enum Step {
     Behind,
     Ahead,
     Spread,
-    Saying,
+    Checking,
     Finding(Whether),
     Wondering(Whether),
     Settling,
@@ -148,7 +148,7 @@ pub enum Step {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Its {
+pub enum DeployingEffect {
     Take(PathBuf),
     Mine(PathBuf),
     Read(PathBuf),
@@ -156,9 +156,9 @@ pub enum Its {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Heard {
+pub enum DeployingEvent {
     Took,
-    Taken,
+    Busy,
     Holder(Holder),
 }
 
@@ -181,20 +181,20 @@ pub struct Deploy;
 
 impl Program for Deploy {
     type State = Deploying;
-    type Hears = Heard;
-    type Does = Its;
+    type Event = DeployingEvent;
+    type Effect = DeployingEffect;
 
-    fn opening(argv: &Argv) -> Opening<Deploying> {
-        let Ok(first) = argv.first();
-        let Ok(stranger) = stranger(argv);
+    fn init(arguments: &Arguments) -> Initial<Deploying> {
+        let Ok(first) = arguments.first();
+        let Ok(stranger) = stranger(arguments);
 
         let Ok(opening) = match (stranger, first.filter(|host| !host.trim().is_empty())) {
-            (Some(word), _) => Opening::holding(Deploying::Unknown(word)),
-            (None, None) => Opening::holding(Deploying::Nowhere),
+            (Some(word), _) => Initial::new(Deploying::Unknown(word)),
+            (None, None) => Initial::new(Deploying::Nowhere),
             (None, Some(host)) => {
-                let Ok(said) = asked_for(argv);
+                let Ok(said) = asked_for(arguments);
 
-                Opening::holding(Deploying::At(
+                Initial::new(Deploying::At(
                     Step::Rooting,
                     Going {
                         host: host.to_string(),
@@ -210,9 +210,9 @@ impl Program for Deploy {
         opening
     }
 
-    fn heard(state: &Deploying, word: &Word<Heard>) -> Turn<Deploying, Its> {
-        let Ok(turn) = match (state, word) {
-            (Deploying::Nowhere, Word::Opened) => stopped(
+    fn update(state: &Deploying, event: &Event<DeployingEvent>) -> Update<Deploying, DeployingEffect> {
+        let Ok(turn) = match (state, event) {
+            (Deploying::Nowhere, Event::Opened) => stopped(
                 state,
                 &format!(
                     "{HOST} is not set, so there is no device to talk to. Set it to the \
@@ -220,7 +220,7 @@ impl Program for Deploy {
                 ),
             ),
 
-            (Deploying::Unknown(word), Word::Opened) => stopped(
+            (Deploying::Unknown(word), Event::Opened) => stopped(
                 state,
                 &format!(
                     "{word} is not a word console-deploy knows, and a deploy is not the \
@@ -231,61 +231,61 @@ impl Program for Deploy {
 
             (Deploying::At(step, going), word) => at(*step, going, word),
 
-            (Deploying::Nowhere | Deploying::Unknown(_), _) => Turn::nothing(state.clone()),
+            (Deploying::Nowhere | Deploying::Unknown(_), _) => Update::none(state.clone()),
         };
 
         turn
     }
 }
 
-fn at(step: Step, going: &Going, word: &Word<Heard>) -> Result<Turn<Deploying, Its>, Never> {
-    match (step, word) {
-        (Step::Rooting, Word::Opened) => {
-            let Ok(rooting) = Runs::theirs(Theirs::Git, &["rev-parse", "--git-common-dir"]);
+fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Update<Deploying, DeployingEffect>, Never> {
+    match (step, event) {
+        (Step::Rooting, Event::Opened) => {
+            let Ok(rooting) = Command::external(ExternalProgram::Git, &["rev-parse", "--git-common-dir"]);
 
-            Turn::doing(
+            Update::new(
                 Deploying::At(Step::Rooting, going.clone()),
-                vec![Doing::Ask(rooting)],
+                vec![Effect::Run(rooting)],
             )
         }
 
-        (Step::Rooting, Word::Answered(answer)) => match answer.went {
-            Went::Badly(_) => stopped_at(step, going, "this is not a git repository"),
-            Went::Well => {
-                let lock = PathBuf::from(answer.said.trim()).join(LOCK);
+        (Step::Rooting, Event::Replied(answer)) => match answer.status {
+            ExitStatus::Failure(_) => stopped_at(step, going, "this is not a git repository"),
+            ExitStatus::Success => {
+                let lock = PathBuf::from(answer.output.trim()).join(LOCK);
                 let going = Going { lock: lock.clone(), ..going.clone() };
 
-                Turn::doing(Deploying::At(Step::Taking, going), vec![Doing::Its(Its::Take(lock))])
+                Update::new(Deploying::At(Step::Taking, going), vec![Effect::Custom(DeployingEffect::Take(lock))])
             }
         },
 
-        (Step::Taking | Step::Retaking, Word::Its(Heard::Took)) => {
+        (Step::Taking | Step::Retaking, Event::Custom(DeployingEvent::Took)) => {
             let Ok(runs) = standing();
 
-            Turn::doing(
+            Update::new(
                 Deploying::At(Step::Still, going.clone()),
-                vec![Doing::Its(Its::Mine(going.lock.clone())), Doing::Ask(runs)],
+                vec![Effect::Custom(DeployingEffect::Mine(going.lock.clone())), Effect::Run(runs)],
             )
         },
 
-        (Step::Taking, Word::Its(Heard::Taken)) => Turn::doing(
+        (Step::Taking, Event::Custom(DeployingEvent::Busy)) => Update::new(
             Deploying::At(Step::Reading, going.clone()),
-            vec![Doing::Its(Its::Read(going.lock.clone()))],
+            vec![Effect::Custom(DeployingEffect::Read(going.lock.clone()))],
         ),
 
-        (Step::Retaking, Word::Its(Heard::Taken)) => {
-            stopped_at(step, going, "somebody took the lock while it was being taken over")
+        (Step::Retaking, Event::Custom(DeployingEvent::Busy)) => {
+            stopped_at(step, going, "someone took the lock while it was being taken over")
         }
 
-        (Step::Reading, Word::Its(Heard::Holder(holder))) => whose(going, holder),
+        (Step::Reading, Event::Custom(DeployingEvent::Holder(holder))) => whose(going, holder),
 
-        (Step::Still, Word::Answered(answer)) => match answer.said.trim().is_empty() {
+        (Step::Still, Event::Replied(answer)) => match answer.output.trim().is_empty() {
             true => {
-                let Ok(marking) = Runs::theirs(Theirs::Git, &["rev-parse", "HEAD"]);
+                let Ok(marking) = Command::external(ExternalProgram::Git, &["rev-parse", "HEAD"]);
 
-                Turn::doing(
+                Update::new(
                     Deploying::At(Step::Marking, going.clone()),
-                    vec![Doing::Ask(marking)],
+                    vec![Effect::Run(marking)],
                 )
             },
             false => {
@@ -294,215 +294,215 @@ fn at(step: Step, going: &Going, word: &Word<Heard>) -> Result<Turn<Deploying, I
                         going,
                     );
 
-                Turn::doing(
+                Update::new(
                     Deploying::At(step, going.clone()),
                     vec![
-                        Doing::Print(format!(
+                        Effect::Print(format!(
                             "there are changes here that are not committed:\n{}",
-                            answer.said.trim_end()
+                            answer.output.trim_end()
                         )),
-                        Doing::Stop(Ending::Badly(asked)),
+                        Effect::Stop(Exit::Failure(asked)),
                     ],
                 )
             },
         },
 
-        (Step::Marking, Word::Answered(answer)) => {
-            let going = Going { was: answer.said.trim().to_string(), ..going.clone() };
+        (Step::Marking, Event::Replied(answer)) => {
+            let going = Going { was: answer.output.trim().to_string(), ..going.clone() };
             let Ok(runs) = on(&going, "console room");
 
-            Turn::doing(
+            Update::new(
                 Deploying::At(Step::Room, going),
                 vec![
-                    Doing::Print("== whether the device has room for what this builds".to_string()),
-                    Doing::Watch(runs),
+                    Effect::Print("== whether the device has room for what this builds".to_string()),
+                    Effect::Stream(runs),
                 ],
             )
         }
 
-        (Step::Room, Word::Answered(answer)) => {
-            let Ok(ready) = Runs::theirs(Theirs::Just, &["ready"]);
-            let onward = |going: &Going, first: Vec<Doing<Its>>| {
-                let mut doings = first;
+        (Step::Room, Event::Replied(answer)) => {
+            let Ok(ready) = Command::external(ExternalProgram::Just, &["ready"]);
+            let onward = |going: &Going, first: Vec<Effect<DeployingEffect>>| {
+                let mut effects = first;
 
-                doings.push(Doing::Print(
+                effects.push(Effect::Print(
                     "\n== everything that must hold, before anything is sent".to_string(),
                 ));
-                doings.push(Doing::Watch(ready.clone()));
+                effects.push(Effect::Stream(ready.clone()));
 
-                Turn::doing(Deploying::At(Step::Ready, going.clone()), doings)
+                Update::new(Deploying::At(Step::Ready, going.clone()), effects)
             };
 
-            match answer.went {
-                Went::Well => onward(going, Vec::new()),
-                Went::Badly(Some(NOT_ASKED)) => onward(
+            match answer.status {
+                ExitStatus::Success => onward(going, Vec::new()),
+                ExitStatus::Failure(Some(NOT_ASKED)) => onward(
                     going,
-                    vec![Doing::Print(
+                    vec![Effect::Print(
                         "  the engine on the device is older than this checkout and does not know \
                          how to be asked yet; it will once this deploy has landed"
                             .to_string(),
                     )],
                 ),
-                Went::Badly(Some(NO_ROOM)) => stopped_at(
+                ExitStatus::Failure(Some(NO_ROOM)) => stopped_at(
                     step,
                     going,
                     "there is not room on the device for what this deploy would build",
                 ),
-                Went::Badly(_) => {
+                ExitStatus::Failure(_) => {
                     stopped_at(step, going, "the device would not say how much room it has")
                 }
             }
         }
 
-        (Step::Ready, Word::Answered(answer)) => match answer.went {
-            Went::Badly(_) => stopped_at(step, going, "what must hold before a deploy does not"),
-            Went::Well => {
+        (Step::Ready, Event::Replied(answer)) => match answer.status {
+            ExitStatus::Failure(_) => stopped_at(step, going, "what must hold before a deploy does not"),
+            ExitStatus::Success => {
                 let Ok(runs) = fetching(&going.host);
 
-                Turn::doing(
+                Update::new(
                     Deploying::At(Step::Fetching, going.clone()),
                     vec![
-                        Doing::Print("\n== what the device has that this does not".to_string()),
-                        Doing::Ask(runs),
+                        Effect::Print("\n== what the device has that this does not".to_string()),
+                        Effect::Run(runs),
                     ],
                 )
             },
         },
 
-        (Step::Fetching, Word::Answered(answer)) => match answer.went {
-            Went::Badly(_) => stopped_at(step, going, "the device would not say what it has"),
-            Went::Well => {
+        (Step::Fetching, Event::Replied(answer)) => match answer.status {
+            ExitStatus::Failure(_) => stopped_at(step, going, "the device would not say what it has"),
+            ExitStatus::Success => {
                 let Ok(runs) = logged("HEAD..FETCH_HEAD");
 
-                Turn::doing(
+                Update::new(
                     Deploying::At(Step::Behind, going.clone()),
-                    vec![Doing::Ask(runs)],
+                    vec![Effect::Run(runs)],
                 )
             },
         },
 
-        (Step::Behind, Word::Answered(answer)) => match answer.said.trim().is_empty() {
+        (Step::Behind, Event::Replied(answer)) => match answer.output.trim().is_empty() {
             true => {
                 let Ok(runs) = logged("FETCH_HEAD..HEAD");
 
-                Turn::doing(
+                Update::new(
                     Deploying::At(Step::Ahead, going.clone()),
                     vec![
-                        Doing::Print("  nothing".to_string()),
-                        Doing::Print("\n== what this has that the device does not".to_string()),
-                        Doing::Ask(runs),
+                        Effect::Print("  nothing".to_string()),
+                        Effect::Print("\n== what this has that the device does not".to_string()),
+                        Effect::Run(runs),
                     ],
                 )
             },
-            false => Turn::doing(
+            false => Update::new(
                 Deploying::At(step, going.clone()),
                 vec![
-                    Doing::Print(answer.said.trim_end().to_string()),
-                    Doing::Stop(Ending::Badly("pull those first: just pull".to_string())),
+                    Effect::Print(answer.output.trim_end().to_string()),
+                    Effect::Stop(Exit::Failure("pull those first: just pull".to_string())),
                 ],
             ),
         },
 
-        (Step::Ahead, Word::Answered(answer)) => {
-            let Ok(spread) = Runs::theirs(Theirs::Git, &["diff", "--stat", "FETCH_HEAD..HEAD"]);
+        (Step::Ahead, Event::Replied(answer)) => {
+            let Ok(spread) = Command::external(ExternalProgram::Git, &["diff", "--stat", "FETCH_HEAD..HEAD"]);
 
-            Turn::doing(
+            Update::new(
                 Deploying::At(Step::Spread, going.clone()),
-                vec![Doing::Print(answer.said.trim_end().to_string()), Doing::Ask(spread)],
+                vec![Effect::Print(answer.output.trim_end().to_string()), Effect::Run(spread)],
             )
         },
 
-        (Step::Spread, Word::Answered(answer)) => {
-            let printed = Doing::Print(answer.said.trim_end().to_string());
+        (Step::Spread, Event::Replied(answer)) => {
+            let printed = Effect::Print(answer.output.trim_end().to_string());
 
             match going.how {
                 How::Check => {
                     let Ok(runs) = on(going, "console check");
 
-                    Turn::doing(
-                        Deploying::At(Step::Saying, going.clone()),
+                    Update::new(
+                        Deploying::At(Step::Checking, going.clone()),
                         vec![
                             printed,
-                            Doing::Print("\n== what the machine would say about itself".to_string()),
-                            Doing::Watch(runs),
+                            Effect::Print("\n== what the machine would say about itself".to_string()),
+                            Effect::Stream(runs),
                         ],
                     )
                 },
                 How::Yes => {
                     let Ok(runs) = standing();
 
-                    Turn::doing(
+                    Update::new(
                         Deploying::At(Step::Settling, going.clone()),
-                        vec![printed, Doing::Ask(runs)],
+                        vec![printed, Effect::Run(runs)],
                     )
                 },
-                How::Asked => {
+                How::Confirm => {
                     let Ok(runs) = on(going, reaching::OWNER);
 
-                    Turn::doing(
+                    Update::new(
                         Deploying::At(Step::Finding(Whether::Send), going.clone()),
-                        vec![printed, Doing::Ask(runs)],
+                        vec![printed, Effect::Run(runs)],
                     )
                 },
             }
         }
 
-        (Step::Saying, Word::Answered(_)) => {
-            Turn::doing(Deploying::At(step, going.clone()), vec![Doing::Stop(Ending::Done)])
+        (Step::Checking, Event::Replied(_)) => {
+            Update::new(Deploying::At(step, going.clone()), vec![Effect::Stop(Exit::Success)])
         }
 
-        (Step::Finding(which), Word::Answered(answer)) => {
-            let whom = answer.said.trim().to_string();
+        (Step::Finding(which), Event::Replied(answer)) => {
+            let whom = answer.output.trim().to_string();
             let going = Going { whom: whom.clone(), ..going.clone() };
 
             match whom.is_empty() {
                 true => {
                     let Ok(question) = putting(which, &going.host);
 
-                    Turn::doing(
+                    Update::new(
                         Deploying::At(Step::Wondering(which), going.clone()),
-                        vec![Doing::AskWhoever(question)],
+                        vec![Effect::Prompt(question)],
                     )
                 },
                 false => {
                     let Ok(runs) = carding(&going, which);
 
-                    Turn::doing(
+                    Update::new(
                         Deploying::At(Step::Wondering(which), going.clone()),
-                        vec![Doing::Ask(runs)],
+                        vec![Effect::Run(runs)],
                     )
                 },
             }
         }
 
-        (Step::Wondering(which), Word::Answered(answer)) => match answer.went {
-            Went::Well => answered(which, Chose::Yes, going),
-            Went::Badly(Some(SAID_NO)) => answered(which, Chose::No, going),
-            Went::Badly(_) => {
+        (Step::Wondering(which), Event::Replied(answer)) => match answer.status {
+            ExitStatus::Success => answered(which, Choice::Yes, going),
+            ExitStatus::Failure(Some(SAID_NO)) => answered(which, Choice::No, going),
+            ExitStatus::Failure(_) => {
                 let Ok(said) = putting(which, &going.host);
 
-                Turn::doing(
+                Update::new(
                     Deploying::At(step, going.clone()),
                     vec![
-                        Doing::Print(format!(
+                        Effect::Print(format!(
                             "{} could not raise a card, so the question is here instead",
                             going.host
                         )),
-                        Doing::AskWhoever(said),
+                        Effect::Prompt(said),
                     ],
                 )
             },
         },
 
-        (Step::Wondering(which), Word::Chose(chose)) => answered(which, *chose, going),
+        (Step::Wondering(which), Event::Chosen(chose)) => answered(which, *chose, going),
 
-        (Step::Settling, Word::Answered(answer)) => match answer.said.trim().is_empty() {
+        (Step::Settling, Event::Replied(answer)) => match answer.output.trim().is_empty() {
             true => {
-                let Ok(moved) = Runs::theirs(Theirs::Git, &["rev-parse", "HEAD"]);
+                let Ok(moved) = Command::external(ExternalProgram::Git, &["rev-parse", "HEAD"]);
 
-                Turn::doing(
+                Update::new(
                     Deploying::At(Step::Moved, going.clone()),
-                    vec![Doing::Ask(moved)],
+                    vec![Effect::Run(moved)],
                 )
             },
             false => {
@@ -512,68 +512,68 @@ fn at(step: Step, going: &Going, word: &Word<Heard>) -> Result<Turn<Deploying, I
                         going,
                     );
 
-                Turn::doing(
+                Update::new(
                     Deploying::At(step, going.clone()),
                     vec![
-                        Doing::Print(format!(
+                        Effect::Print(format!(
                             "\nsomething appeared here while this deploy was running:\n{}",
-                            answer.said.trim_end()
+                            answer.output.trim_end()
                         )),
-                        Doing::Stop(Ending::Badly(asked)),
+                        Effect::Stop(Exit::Failure(asked)),
                     ],
                 )
             },
         },
 
-        (Step::Moved, Word::Answered(answer)) => match answer.said.trim() == going.was {
+        (Step::Moved, Event::Replied(answer)) => match answer.output.trim() == going.was {
             true => {
                 let Ok(runs) = on(going,
                     &format!("git -C {TREE} config receive.denyCurrentBranch updateInstead"),
                 );
 
-                Turn::doing(
+                Update::new(
                     Deploying::At(Step::Allowing, going.clone()),
-                    vec![Doing::Ask(runs)],
+                    vec![Effect::Run(runs)],
                 )
             },
             false => {
                 let Ok(runs) = logged(&format!("{}..HEAD", going.was));
 
-                Turn::doing(
+                Update::new(
                     Deploying::At(Step::Moving, going.clone()),
-                    vec![Doing::Ask(runs)],
+                    vec![Effect::Run(runs)],
                 )
             },
         },
 
-        (Step::Moving, Word::Answered(answer)) => Turn::doing(
+        (Step::Moving, Event::Replied(answer)) => Update::new(
             Deploying::At(step, going.clone()),
             vec![
-                Doing::Print(format!(
+                Effect::Print(format!(
                     "\nthe branch moved while this deploy was running:\n{}",
-                    answer.said.trim_end()
+                    answer.output.trim_end()
                 )),
-                Doing::Stop(Ending::Badly(
+                Effect::Stop(Exit::Failure(
                     "nothing sent. Those commits were not in what `just ready` passed."
                         .to_string(),
                 )),
             ],
         ),
 
-        (Step::Allowing, Word::Answered(_)) => {
+        (Step::Allowing, Event::Replied(_)) => {
             let Ok(said) = into(&going.host);
 
-            let Ok(pushing) = Runs::theirs(Theirs::Git, &["push", &said, "HEAD:master"]);
+            let Ok(pushing) = Command::external(ExternalProgram::Git, &["push", &said, "HEAD:master"]);
 
-            Turn::doing(
+            Update::new(
                 Deploying::At(Step::Pushing, going.clone()),
-                vec![Doing::Watch(pushing)],
+                vec![Effect::Stream(pushing)],
             )
         },
 
-        (Step::Pushing, Word::Answered(answer)) => match answer.went {
-            Went::Badly(_) => stopped_at(step, going, "the push was refused"),
-            Went::Well => {
+        (Step::Pushing, Event::Replied(answer)) => match answer.status {
+            ExitStatus::Failure(_) => stopped_at(step, going, "the push was refused"),
+            ExitStatus::Success => {
                 let Ok(runs) = on(going,
                         &format!(
                             "cargo build --release --locked --manifest-path {TREE}/Cargo.toml \
@@ -581,137 +581,137 @@ fn at(step: Step, going: &Going, word: &Word<Heard>) -> Result<Turn<Deploying, I
                         ),
                     );
 
-                Turn::doing(
+                Update::new(
                     Deploying::At(Step::Building, going.clone()),
                     vec![
-                        Doing::Print("\n== the engine".to_string()),
-                        Doing::Watch(runs),
+                        Effect::Print("\n== the engine".to_string()),
+                        Effect::Stream(runs),
                     ],
                 )
             },
         },
 
-        (Step::Building, Word::Answered(answer)) => match answer.went {
-            Went::Badly(_) => stopped_at(step, going, "the device could not build the engine"),
-            Went::Well => {
+        (Step::Building, Event::Replied(answer)) => match answer.status {
+            ExitStatus::Failure(_) => stopped_at(step, going, "the device could not build the engine"),
+            ExitStatus::Success => {
                 let Ok(runs) = on(going,
                     &format!("install -m 755 {TREE}/target/release/console /usr/local/bin/console"),
                 );
 
-                Turn::doing(
+                Update::new(
                     Deploying::At(Step::Installing, going.clone()),
-                    vec![Doing::Watch(runs)],
+                    vec![Effect::Stream(runs)],
                 )
             },
         },
 
-        (Step::Installing, Word::Answered(answer)) => match answer.went {
-            Went::Badly(_) => stopped_at(step, going, "the new engine could not be put in place"),
-            Went::Well => {
+        (Step::Installing, Event::Replied(answer)) => match answer.status {
+            ExitStatus::Failure(_) => stopped_at(step, going, "the new engine could not be put in place"),
+            ExitStatus::Success => {
                 let Ok(runs) = on(going, "console apply");
 
-                Turn::doing(
+                Update::new(
                     Deploying::At(Step::Applying, going.clone()),
-                    vec![Doing::Watch(runs)],
+                    vec![Effect::Stream(runs)],
                 )
             },
         },
 
-        (Step::Applying, Word::Answered(answer)) => match answer.went {
-            Went::Badly(_) => stopped_at(step, going, "the apply did not finish"),
-            Went::Well => pressing(going),
+        (Step::Applying, Event::Replied(answer)) => match answer.status {
+            ExitStatus::Failure(_) => stopped_at(step, going, "the apply did not finish"),
+            ExitStatus::Success => pressing(going),
         },
 
-        (Step::Pressing, Word::Answered(_)) => {
-            Turn::doing(Deploying::At(step, going.clone()), vec![Doing::Stop(Ending::Done)])
+        (Step::Pressing, Event::Replied(_)) => {
+            Update::new(Deploying::At(step, going.clone()), vec![Effect::Stop(Exit::Success)])
         }
 
-        (_, _) => Turn::nothing(Deploying::At(step, going.clone())),
+        (_, _) => Update::none(Deploying::At(step, going.clone())),
     }
 }
 
-fn pressing(going: &Going) -> Result<Turn<Deploying, Its>, Never> {
+fn pressing(going: &Going) -> Result<Update<Deploying, DeployingEffect>, Never> {
     match going.how {
         How::Yes => {
             let Ok(runs) = checking();
 
-            Turn::doing(
+            Update::new(
                 Deploying::At(Step::Pressing, going.clone()),
                 vec![
-                    Doing::Print("\n== the features, on the machine that has them".to_string()),
-                    Doing::Watch(runs),
+                    Effect::Print("\n== the features, on the machine that has them".to_string()),
+                    Effect::Stream(runs),
                 ],
             )
         },
-        How::Asked | How::Check => {
+        How::Confirm | How::Check => {
             let Ok(runs) = carding(going, Whether::Check);
 
-            Turn::doing(
+            Update::new(
                 Deploying::At(Step::Wondering(Whether::Check), going.clone()),
-                vec![Doing::Ask(runs)],
+                vec![Effect::Run(runs)],
             )
         },
     }
 }
 
-fn answered(which: Whether, chose: Chose, going: &Going) -> Result<Turn<Deploying, Its>, Never> {
+fn answered(which: Whether, chose: Choice, going: &Going) -> Result<Update<Deploying, DeployingEffect>, Never> {
     match (which, chose) {
-        (Whether::Send, Chose::No) => Turn::doing(
+        (Whether::Send, Choice::No) => Update::new(
             Deploying::At(Step::Wondering(which), going.clone()),
-            vec![Doing::Stop(Ending::Badly("nothing sent".to_string()))],
+            vec![Effect::Stop(Exit::Failure("nothing sent".to_string()))],
         ),
 
-        (Whether::Send, Chose::Yes) => {
+        (Whether::Send, Choice::Yes) => {
             let Ok(runs) = standing();
 
-            Turn::doing(
+            Update::new(
                 Deploying::At(Step::Settling, going.clone()),
-                vec![Doing::Ask(runs)],
+                vec![Effect::Run(runs)],
             )
         },
 
-        (Whether::Check, Chose::No) => Turn::doing(
+        (Whether::Check, Choice::No) => Update::new(
             Deploying::At(Step::Wondering(which), going.clone()),
             vec![
-                Doing::Print("not checked; `just check` asks the device later".to_string()),
-                Doing::Stop(Ending::Done),
+                Effect::Print("not checked; `just check` asks the device later".to_string()),
+                Effect::Stop(Exit::Success),
             ],
         ),
 
-        (Whether::Check, Chose::Yes) => {
+        (Whether::Check, Choice::Yes) => {
             let Ok(runs) = checking();
 
-            Turn::doing(
+            Update::new(
                 Deploying::At(Step::Pressing, going.clone()),
                 vec![
-                    Doing::Print("\n== the features, on the machine that has them".to_string()),
-                    Doing::Watch(runs),
+                    Effect::Print("\n== the features, on the machine that has them".to_string()),
+                    Effect::Stream(runs),
                 ],
             )
         },
     }
 }
 
-fn whose(going: &Going, holder: &Holder) -> Result<Turn<Deploying, Its>, Never> {
+fn whose(going: &Going, holder: &Holder) -> Result<Update<Deploying, DeployingEffect>, Never> {
     let ours = holder.on == holder.here;
 
     match (ours, holder.alive) {
-        (true, Alive::No) => Turn::doing(
+        (true, Alive::No) => Update::new(
             Deploying::At(Step::Retaking, going.clone()),
             vec![
-                Doing::Print(format!(
+                Effect::Print(format!(
                     "a deploy started {} left its lock behind; taking it over",
                     holder.since
                 )),
-                Doing::Its(Its::Free(going.lock.clone())),
-                Doing::Its(Its::Take(going.lock.clone())),
+                Effect::Custom(DeployingEffect::Free(going.lock.clone())),
+                Effect::Custom(DeployingEffect::Take(going.lock.clone())),
             ],
         ),
 
-        (false, _) | (true, Alive::Yes) => Turn::doing(
+        (false, _) | (true, Alive::Yes) => Update::new(
             Deploying::At(Step::Reading, going.clone()),
-            vec![Doing::Stop(Ending::Badly(format!(
-                "somebody is already deploying this repository.\n  \
+            vec![Effect::Stop(Exit::Failure(format!(
+                "someone is already deploying this repository.\n  \
                  started {} by pid {} on {}\n\
                  wait for it to finish: what it sends is decided while it runs, and a file \
                  written here meanwhile is a file it may or may not send.",
@@ -721,53 +721,53 @@ fn whose(going: &Going, holder: &Holder) -> Result<Turn<Deploying, Its>, Never> 
     }
 }
 
-fn stranger(argv: &Argv) -> Result<Option<String>, Never> {
-    let Ok(words) = argv.words();
+fn stranger(arguments: &Arguments) -> Result<Option<String>, Never> {
+    let Ok(words) = arguments.words();
 
     Ok(words.iter().skip(1).find(|word| !KNOWN.contains(&word.as_str())).cloned())
 }
 
-fn asked_for(argv: &Argv) -> Result<How, Never> {
-    let check = argv.given("--check")?;
-    let yes = argv.given("--yes")?;
+pub fn asked_for(arguments: &Arguments) -> Result<How, Never> {
+    let check = arguments.given("--check")?;
+    let yes = arguments.given("--yes")?;
 
     Ok(match (check, yes) {
-        (Given::Yes, _) => How::Check,
-        (Given::No, Given::Yes) => How::Yes,
-        (Given::No, Given::No) => How::Asked,
+        (Flag::Present, _) => How::Check,
+        (Flag::Absent, Flag::Present) => How::Yes,
+        (Flag::Absent, Flag::Absent) => How::Confirm,
     })
 }
 
-fn putting(which: Whether, host: &str) -> Result<Question, Never> {
+fn putting(which: Whether, host: &str) -> Result<Prompt, Never> {
     match which {
-        Whether::Send => Question::unless(&format!("\napply this to {host}? [y/N]"), Chose::No),
-        Whether::Check => Question::unless(
+        Whether::Send => Prompt::unless(&format!("\napply this to {host}? [y/N]"), Choice::No),
+        Whether::Check => Prompt::unless(
             &format!("\ntest the update on {host}? it takes its screen for a few minutes [Y/n]"),
-            Chose::Yes,
+            Choice::Yes,
         ),
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Asking {
+pub struct Confirmation {
     pub question: String,
     pub does: &'static str,
 }
 
-fn saying(which: Whether) -> Result<Asking, Never> {
+fn saying(which: Whether) -> Result<Confirmation, Never> {
     Ok(match which {
-        Whether::Send => Asking {
+        Whether::Send => Confirmation {
             question: "Accept the update sent to this device?".to_string(),
             does: "Accept",
         },
-        Whether::Check => Asking {
+        Whether::Check => Confirmation {
             question: "Test the update? This will take a few minutes.".to_string(),
             does: "Test",
         },
     })
 }
 
-pub fn carding(going: &Going, which: Whether) -> Result<Runs, Never> {
+pub fn carding(going: &Going, which: Whether) -> Result<Command, Never> {
     let Ok(asking) = saying(which);
     let Ok(named) = card();
     let Ok(quoted) = reaching::quoted(&asking.question);
@@ -782,28 +782,28 @@ pub fn carding(going: &Going, which: Whether) -> Result<Runs, Never> {
     on(going, &in_session)
 }
 
-pub fn fetching(host: &str) -> Result<Runs, Never> {
+pub fn fetching(host: &str) -> Result<Command, Never> {
     let Ok(said) = into(host);
-    Runs::theirs(Theirs::Git, &["fetch", "--quiet", &said, "master"])
+    Command::external(ExternalProgram::Git, &["fetch", "--quiet", &said, "master"])
 }
 
-fn checking() -> Result<Runs, Never> {
-    Runs::theirs(
-        Theirs::Cargo,
+fn checking() -> Result<Command, Never> {
+    Command::external(
+        ExternalProgram::Cargo,
         &["run", "--quiet", "--bin", "console-check", "--", "--stage", "device", "--yes"],
     )
 }
 
-fn standing() -> Result<Runs, Never> {
-    Runs::theirs(Theirs::Git, &["status", "--porcelain"])
+fn standing() -> Result<Command, Never> {
+    Command::external(ExternalProgram::Git, &["status", "--porcelain"])
 }
 
-fn logged(range: &str) -> Result<Runs, Never> {
-    Runs::theirs(Theirs::Git, &["log", "--oneline", range])
+fn logged(range: &str) -> Result<Command, Never> {
+    Command::external(ExternalProgram::Git, &["log", "--oneline", range])
 }
 
-fn on(going: &Going, command: &str) -> Result<Runs, Never> {
-    Runs::theirs(Theirs::Ssh, &[going.host.as_str(), command])
+fn on(going: &Going, command: &str) -> Result<Command, Never> {
+    Command::external(ExternalProgram::Ssh, &[going.host.as_str(), command])
 }
 
 fn into(host: &str) -> Result<String, Never> {
@@ -814,56 +814,60 @@ fn out_of_a_clone(first: &str, going: &Going) -> Result<String, Never> {
     let host = &going.host;
 
     Ok(format!(
-        "{first}, or send the history alone out of a clone nobody is working in:\n  \
+        "{first}, or send the history alone out of a clone no one is working in:\n  \
          clone=$(mktemp -d)/console && git clone . \"$clone\" && cd \"$clone\"\n  \
          {HOST}={host} just deploy"
     ))
 }
 
-fn stopped(state: &Deploying, why: &str) -> Result<Turn<Deploying, Its>, Never> {
-    Turn::doing(state.clone(), vec![Doing::Stop(Ending::Badly(why.to_string()))])
+fn stopped(state: &Deploying, why: &str) -> Result<Update<Deploying, DeployingEffect>, Never> {
+    Update::new(state.clone(), vec![Effect::Stop(Exit::Failure(why.to_string()))])
 }
 
-fn stopped_at(step: Step, going: &Going, why: &str) -> Result<Turn<Deploying, Its>, Never> {
-    Turn::doing(
+fn stopped_at(step: Step, going: &Going, why: &str) -> Result<Update<Deploying, DeployingEffect>, Never> {
+    Update::new(
         Deploying::At(step, going.clone()),
-        vec![Doing::Stop(Ending::Badly(why.to_string()))],
+        vec![Effect::Stop(Exit::Failure(why.to_string()))],
     )
 }
 
 #[cfg(test)]
 mod tests {
-    use console_program_contract::{Answer, Named, Said, told};
+    use console_program_contract::{Answer, Executable, Trace, run};
 
     use super::*;
 
-    fn well(said: &str) -> Word<Heard> {
+    fn position<T>(list: &[T], wanted: impl Fn(&T) -> bool) -> Option<u32> {
+        (0..).zip(list).find(|(_, one)| wanted(one)).map(|(at, _)| at)
+    }
+
+    fn well(said: &str) -> Event<DeployingEvent> {
         let Ok(runs) = standing();
-        Word::Answered(Answer {
-            ran: runs,
-            said: said.to_string(),
-            went: Went::Well,
+        Event::Replied(Answer {
+            command: runs,
+            output: said.to_string(),
+            status: ExitStatus::Success,
         })
     }
 
-    fn badly(code: i32) -> Word<Heard> {
+    fn badly(code: i32) -> Event<DeployingEvent> {
         let Ok(runs) = standing();
-        Word::Answered(Answer {
-            ran: runs,
-            said: String::new(),
-            went: Went::Badly(Some(code)),
+        Event::Replied(Answer {
+            command: runs,
+            output: String::new(),
+            status: ExitStatus::Failure(Some(code)),
         })
     }
 
-    fn as_far_as(how: &[&str], words: &[Word<Heard>]) -> Said<Deploying, Heard, Its> {
+    fn as_far_as(how: &[&str], events: &[Event<DeployingEvent>]) -> Trace<Deploying, DeployingEvent, DeployingEffect> {
         let mut given = vec!["root@handheld"];
 
         given.extend_from_slice(how);
 
         let mut said = vec![
-            Word::Opened,
+            Event::Opened,
             well(".git"),
-            Word::Its(Heard::Took),
+            Event::Custom(DeployingEvent::Took),
             well(""),
             well("abc123"),
             well(""),
@@ -874,87 +878,87 @@ mod tests {
             well(" one | 2 +-"),
         ];
 
-        said.extend_from_slice(words);
+        said.extend_from_slice(events);
 
         heard(&given, &said)
     }
 
-    fn asked(said: &Said<Deploying, Heard, Its>) -> Vec<Doing<Its>> {
-        let Ok(doings) = said.doings();
+    fn asked(said: &Trace<Deploying, DeployingEvent, DeployingEffect>) -> Vec<Effect<DeployingEffect>> {
+        let Ok(effects) = said.effects();
 
-        doings
+        effects
     }
 
-    fn heard(given: &[&str], words: &[Word<Heard>]) -> Said<Deploying, Heard, Its> {
-        let Ok(argv) = Argv::of(given);
-        let Ok(said) = told::<Deploy>(&argv, words);
+    fn heard(given: &[&str], events: &[Event<DeployingEvent>]) -> Trace<Deploying, DeployingEvent, DeployingEffect> {
+        let Ok(arguments) = Arguments::of(given);
+        let Ok(said) = run::<Deploy>(&arguments, events);
 
         said
     }
 
-    fn asks(said: &Said<Deploying, Heard, Its>) -> Vec<Runs> {
-        let Ok(doings) = said.doings();
+    fn asks(said: &Trace<Deploying, DeployingEvent, DeployingEffect>) -> Vec<Command> {
+        let Ok(effects) = said.effects();
 
-        doings
+        effects
             .iter()
-            .filter_map(|doing| match doing {
-                Doing::Ask(runs) | Doing::Watch(runs) => Some(runs.clone()),
-                Doing::Start(_)
-                | Doing::AskWhoever(_)
-                | Doing::Listen(_)
-                | Doing::Deafen(_)
-                | Doing::Write(_)
-                | Doing::Say(_)
-                | Doing::Print(_)
-                | Doing::Stop(_)
-                | Doing::Its(_) => None,
+            .filter_map(|effect| match effect {
+                Effect::Run(runs) | Effect::Stream(runs) => Some(runs.clone()),
+                Effect::Spawn(_)
+                | Effect::Prompt(_)
+                | Effect::Subscribe(_)
+                | Effect::Unsubscribe(_)
+                | Effect::Write(_)
+                | Effect::Notify(_)
+                | Effect::Print(_)
+                | Effect::Stop(_)
+                | Effect::Custom(_) => None,
             })
             .collect()
     }
 
-    fn pushes(said: &Said<Deploying, Heard, Its>) -> usize {
-        asks(said)
-            .iter()
-            .filter(|runs| runs.argv.first().map(String::as_str) == Some("push"))
-            .count()
+    fn pushes(said: &Trace<Deploying, DeployingEvent, DeployingEffect>) -> u32 {
+        u32::try_from(
+            asks(said).iter().filter(|runs| runs.arguments.first().map(String::as_str) == Some("push")).count(),
+        )
+        .unwrap()
     }
 
-    fn badly_at(said: &Said<Deploying, Heard, Its>) -> Option<String> {
-        let Ok(doings) = said.doings();
+    fn badly_at(said: &Trace<Deploying, DeployingEvent, DeployingEffect>) -> Option<String> {
+        let Ok(effects) = said.effects();
 
-        doings.iter().rev().find_map(|doing| match doing {
-            Doing::Stop(Ending::Badly(why)) => Some(why.clone()),
-            Doing::Stop(Ending::Done)
-            | Doing::Ask(_)
-            | Doing::Watch(_)
-            | Doing::AskWhoever(_)
-            | Doing::Start(_)
-            | Doing::Listen(_)
-            | Doing::Deafen(_)
-            | Doing::Write(_)
-            | Doing::Say(_)
-            | Doing::Print(_)
-            | Doing::Its(_) => None,
+        effects.iter().rev().find_map(|effect| match effect {
+            Effect::Stop(Exit::Failure(why)) => Some(why.clone()),
+            Effect::Stop(Exit::Success)
+            | Effect::Run(_)
+            | Effect::Stream(_)
+            | Effect::Prompt(_)
+            | Effect::Spawn(_)
+            | Effect::Subscribe(_)
+            | Effect::Unsubscribe(_)
+            | Effect::Write(_)
+            | Effect::Notify(_)
+            | Effect::Print(_)
+            | Effect::Custom(_) => None,
         })
     }
 
     #[test]
     fn a_machine_that_names_no_device_reaches_for_nothing() {
-        let Ok(said) = told::<Deploy>(&Argv::default(), &[Word::Opened]);
+        let Ok(said) = run::<Deploy>(&Arguments::default(), &[Event::Opened]);
 
         assert!(asks(&said).is_empty(), "it reached for a device it had no name for");
         assert!(badly_at(&said).is_some());
     }
 
     #[test]
-    fn a_lock_somebody_else_holds_stops_before_the_tree_is_read() {
+    fn a_lock_someone_else_holds_stops_before_the_tree_is_read() {
         let said = heard(
             &["root@handheld", "--yes"],
             &[
-                Word::Opened,
+                Event::Opened,
                 well(".git"),
-                Word::Its(Heard::Taken),
-                Word::Its(Heard::Holder(Holder {
+                Event::Custom(DeployingEvent::Busy),
+                Event::Custom(DeployingEvent::Holder(Holder {
                     pid: "4242".to_string(),
                     on: "laptop".to_string(),
                     since: "Tue".to_string(),
@@ -964,7 +968,7 @@ mod tests {
             ],
         );
 
-        assert_eq!(asks(&said).len(), 1, "it looked at the tree while somebody else held the lock");
+        assert_eq!(asks(&said).len(), 1, "it looked at the tree while someone else held the lock");
         assert!(
             badly_at(&said).is_some_and(|why| why.contains("already deploying")),
             "it did not say who was deploying"
@@ -976,17 +980,17 @@ mod tests {
         let said = heard(
             &["root@handheld", "--yes"],
             &[
-                Word::Opened,
+                Event::Opened,
                 well(".git"),
-                Word::Its(Heard::Taken),
-                Word::Its(Heard::Holder(Holder {
+                Event::Custom(DeployingEvent::Busy),
+                Event::Custom(DeployingEvent::Holder(Holder {
                     pid: "4242".to_string(),
                     on: "laptop".to_string(),
                     since: "Tue".to_string(),
                     here: "laptop".to_string(),
                     alive: Alive::No,
                 })),
-                Word::Its(Heard::Took),
+                Event::Custom(DeployingEvent::Took),
             ],
         );
 
@@ -1001,10 +1005,10 @@ mod tests {
         let said = heard(
             &["root@handheld", "--yes"],
             &[
-                Word::Opened,
+                Event::Opened,
                 well(".git"),
-                Word::Its(Heard::Taken),
-                Word::Its(Heard::Holder(Holder {
+                Event::Custom(DeployingEvent::Busy),
+                Event::Custom(DeployingEvent::Holder(Holder {
                     pid: "4242".to_string(),
                     on: "somewhere-else".to_string(),
                     since: "Tue".to_string(),
@@ -1022,15 +1026,15 @@ mod tests {
         let said = heard(
             &["root@handheld", "--yes"],
             &[
-                Word::Opened,
+                Event::Opened,
                 well(".git"),
-                Word::Its(Heard::Took),
+                Event::Custom(DeployingEvent::Took),
                 well(" M crates/console-panel/src/panel.rs\n"),
             ],
         );
 
         let Ok(runs) = standing();
-        let Ok(rooting) = Runs::theirs(Theirs::Git, &["rev-parse", "--git-common-dir"]);
+        let Ok(rooting) = Command::external(ExternalProgram::Git, &["rev-parse", "--git-common-dir"]);
 
         assert_eq!(asks(&said), vec![rooting, runs], "it went past a dirty tree");
         assert!(badly_at(&said).is_some_and(|why| why.contains("clone")));
@@ -1040,26 +1044,23 @@ mod tests {
     fn the_only_thing_asked_of_the_device_before_what_must_hold_is_how_much_room_it_has() {
         let said = as_far_as(&["--yes"], &[]);
         let asked = asks(&said);
-        let ready = asked.iter().position(|runs| runs.program == Named::Theirs(Theirs::Just));
+        let ready = position(&asked, |runs| runs.program == Executable::External(ExternalProgram::Just));
         let Ok(told) = fetching("root@handheld");
-        let fetch = asked.iter().position(|runs| *runs == told);
-        let ready = match ready {
-            Some(ready) => ready,
-            None => panic!("`just ready` was never run"),
-        };
-        let before: Vec<&Runs> = asked
+        let fetch = position(&asked, |runs| *runs == told);
+        assert!(ready.is_some(), "`just ready` was never run");
+        let before: Vec<&Command> = asked
             .iter()
-            .take(ready)
-            .filter(|runs| runs.program == Named::Theirs(Theirs::Ssh))
+            .take_while(|runs| runs.program != Executable::External(ExternalProgram::Just))
+            .filter(|runs| runs.program == Executable::External(ExternalProgram::Ssh))
             .collect();
 
         assert!(
-            before.iter().all(|runs| runs.argv.last().map(String::as_str) == Some("console room")),
+            before.iter().all(|runs| runs.arguments.last().map(String::as_str) == Some("console room")),
             "the device was reached for something other than room before anything had to hold: \
              {before:?}"
         );
         assert_eq!(before.len(), 1, "the device was asked about room more than once");
-        assert!(fetch.is_some_and(|fetch| ready < fetch));
+        assert!(fetch.is_some_and(|fetch| ready.is_some_and(|ready| ready < fetch)));
         assert_eq!(pushes(&said), 0);
     }
 
@@ -1068,9 +1069,9 @@ mod tests {
         let said = heard(
             &["root@handheld", "--yes"],
             &[
-                Word::Opened,
+                Event::Opened,
                 well(".git"),
-                Word::Its(Heard::Took),
+                Event::Custom(DeployingEvent::Took),
                 well(""),
                 well("abc123"),
                 badly(NO_ROOM),
@@ -1080,7 +1081,7 @@ mod tests {
         assert_eq!(pushes(&said), 0);
         assert!(badly_at(&said).is_some_and(|why| why.contains("room on the device")));
         assert!(
-            !asks(&said).iter().any(|runs| runs.program == Named::Theirs(Theirs::Just)),
+            !asks(&said).iter().any(|runs| runs.program == Executable::External(ExternalProgram::Just)),
             "the device had no room and this machine went on to spend minutes proving itself"
         );
     }
@@ -1090,9 +1091,9 @@ mod tests {
         let said = heard(
             &["root@handheld", "--yes"],
             &[
-                Word::Opened,
+                Event::Opened,
                 well(".git"),
-                Word::Its(Heard::Took),
+                Event::Custom(DeployingEvent::Took),
                 well(""),
                 well("abc123"),
                 badly(NOT_ASKED),
@@ -1101,7 +1102,7 @@ mod tests {
 
         assert!(badly_at(&said).is_none(), "an old engine stopped a deploy that would have worked");
         assert!(
-            asks(&said).iter().any(|runs| runs.program == Named::Theirs(Theirs::Just)),
+            asks(&said).iter().any(|runs| runs.program == Executable::External(ExternalProgram::Just)),
             "`just ready` was never reached"
         );
     }
@@ -1111,9 +1112,9 @@ mod tests {
         let said = heard(
             &["root@handheld", "--yes"],
             &[
-                Word::Opened,
+                Event::Opened,
                 well(".git"),
-                Word::Its(Heard::Took),
+                Event::Custom(DeployingEvent::Took),
                 well(""),
                 well("abc123"),
                 badly(255),
@@ -1129,9 +1130,9 @@ mod tests {
         let said = heard(
             &["root@handheld", "--yes"],
             &[
-                Word::Opened,
+                Event::Opened,
                 well(".git"),
-                Word::Its(Heard::Took),
+                Event::Custom(DeployingEvent::Took),
                 well(""),
                 well("abc123"),
                 well(""),
@@ -1148,9 +1149,9 @@ mod tests {
         let said = heard(
             &["root@handheld", "--yes"],
             &[
-                Word::Opened,
+                Event::Opened,
                 well(".git"),
-                Word::Its(Heard::Took),
+                Event::Custom(DeployingEvent::Took),
                 well(""),
                 well("abc123"),
                 well(""),
@@ -1170,7 +1171,7 @@ mod tests {
 
         assert_eq!(pushes(&said), 0, "a check sent something");
         assert!(
-            asks(&said).iter().any(|runs| runs.argv.last().map(String::as_str)
+            asks(&said).iter().any(|runs| runs.arguments.last().map(String::as_str)
                 == Some("console check")),
             "a check never asked the machine about itself"
         );
@@ -1178,14 +1179,14 @@ mod tests {
     }
 
     #[test]
-    fn a_yes_on_the_command_line_asks_nobody_anything() {
+    fn a_yes_on_the_command_line_asks_no_one_anything() {
         let said = as_far_as(
             &["--yes"],
             &[well(""), well("abc123"), well(""), well(""), well(""), well(""), well("")],
         );
 
         assert!(
-            asked(&said).iter().all(|doing| !matches!(doing, Doing::AskWhoever(_))),
+            asked(&said).iter().all(|effect| !matches!(effect, Effect::Prompt(_))),
             "it asked at the terminal although a person had already said yes"
         );
         assert_eq!(pushes(&said), 1);
@@ -1198,7 +1199,7 @@ mod tests {
         let Ok(named) = card();
 
         assert!(
-            asks(&said).iter().any(|runs| runs.argv.iter().any(|word| word.contains(named))),
+            asks(&said).iter().any(|runs| runs.arguments.iter().any(|word| word.contains(named))),
             "nothing was raised on the device"
         );
         assert_eq!(pushes(&said), 0);
@@ -1207,7 +1208,7 @@ mod tests {
 
     #[test]
     fn a_word_console_deploy_does_not_know_sends_nothing_and_says_so() {
-        let said = heard(&["root@handheld", "--help"], &[Word::Opened]);
+        let said = heard(&["root@handheld", "--help"], &[Event::Opened]);
 
         assert_eq!(pushes(&said), 0, "an unknown word reached the machine");
         assert!(
@@ -1239,7 +1240,7 @@ mod tests {
     fn the_word_for_going_ahead_travels_beside_the_question_and_not_inside_it() {
         let said = as_far_as(&[], &[well("someone"), badly(SAID_NO)]);
         let raised: Vec<String> =
-            asks(&said).iter().flat_map(|runs| runs.argv.clone()).collect();
+            asks(&said).iter().flat_map(|runs| runs.arguments.clone()).collect();
         let Ok(named) = card();
 
         let line = match raised.iter().find(|word| word.contains(&format!("exec {named}"))) {
@@ -1267,7 +1268,7 @@ mod tests {
     fn the_card_is_what_the_shell_becomes_and_the_word_that_looks_for_it_is_not() {
         let said = as_far_as(&[], &[well("someone"), badly(SAID_NO)]);
         let raised: Vec<String> =
-            asks(&said).iter().flat_map(|runs| runs.argv.clone()).collect();
+            asks(&said).iter().flat_map(|runs| runs.arguments.clone()).collect();
 
         let Ok(named) = card();
 
@@ -1286,10 +1287,10 @@ mod tests {
         let said = as_far_as(&[], &[well("someone"), badly(NO_CARD)]);
 
         assert!(
-            asked(&said).iter().any(|doing| matches!(doing, Doing::AskWhoever(_))),
-            "a device that could not ask left nobody to ask"
+            asked(&said).iter().any(|effect| matches!(effect, Effect::Prompt(_))),
+            "a device that could not ask left no one to ask"
         );
-        assert_eq!(pushes(&said), 0, "it sent something before anybody had answered");
+        assert_eq!(pushes(&said), 0, "it sent something before anyone had answered");
     }
 
     #[test]
@@ -1298,10 +1299,10 @@ mod tests {
         let said = as_far_as(&[], &[well("someone"), badly(unasked)]);
 
         assert!(
-            asked(&said).iter().any(|doing| matches!(doing, Doing::AskWhoever(_))),
-            "a card that never reached anybody was read as somebody saying no"
+            asked(&said).iter().any(|effect| matches!(effect, Effect::Prompt(_))),
+            "a card that never reached anyone was read as someone saying no"
         );
-        assert_eq!(pushes(&said), 0, "it sent something before anybody had answered");
+        assert_eq!(pushes(&said), 0, "it sent something before anyone had answered");
     }
 
     #[test]
@@ -1338,10 +1339,10 @@ mod tests {
             &[well(""), well("abc123"), well(""), well(""), well(""), well(""), well("")],
         );
         let words: Vec<String> =
-            asks(&said).iter().filter_map(|runs| runs.argv.last().cloned()).collect();
-        let built = words.iter().position(|word| word.contains("cargo build"));
-        let put = words.iter().position(|word| word.contains("install -m 755"));
-        let applied = words.iter().position(|word| word == "console apply");
+            asks(&said).iter().filter_map(|runs| runs.arguments.last().cloned()).collect();
+        let built = position(&words, |word| word.contains("cargo build"));
+        let put = position(&words, |word| word.contains("install -m 755"));
+        let applied = position(&words, |word| word == "console apply");
 
         assert!(built.is_some_and(|built| put.is_some_and(|put| built < put)));
         assert!(put.is_some_and(|put| applied.is_some_and(|applied| put < applied)));
@@ -1354,11 +1355,9 @@ mod tests {
             &[well(""), well("abc123"), well(""), well(""), well(""), well(""), well("")],
         );
         let asked = asks(&said);
-        let applied = asked
-            .iter()
-            .position(|runs| runs.argv.last().map(String::as_str) == Some("console apply"));
+        let applied = position(&asked, |runs| runs.arguments.last().map(String::as_str) == Some("console apply"));
         let Ok(told) = checking();
-        let pressed = asked.iter().position(|runs| *runs == told);
+        let pressed = position(&asked, |runs| *runs == told);
 
         assert!(applied.is_some_and(|applied| pressed.is_some_and(|pressed| applied < pressed)));
     }
@@ -1381,17 +1380,14 @@ mod tests {
         );
         let Ok(named) = card();
         let asked = asks(&said);
-        let cards: Vec<usize> = asked
-            .iter()
-            .enumerate()
-            .filter_map(|(at, runs)| match runs.argv.iter().any(|word| word.contains(named)) {
+        let cards: Vec<u32> = (0..)
+            .zip(&asked)
+            .filter_map(|(at, runs)| match runs.arguments.iter().any(|word| word.contains(named)) {
                 true => Some(at),
                 false => None,
             })
             .collect();
-        let applied = asked
-            .iter()
-            .position(|runs| runs.argv.last().map(String::as_str) == Some("console apply"));
+        let applied = position(&asked, |runs| runs.arguments.last().map(String::as_str) == Some("console apply"));
 
         assert_eq!(cards.len(), 2, "the device was not asked twice");
         assert!(

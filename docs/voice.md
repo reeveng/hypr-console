@@ -68,11 +68,11 @@ the middle one, which is the room, and the one nine tenths of the way up, which
 is whoever is talking. Measured on this device, silence sits between 1.3 and
 1.9 times its own middle at every gain the microphone has, and speech at 10.9.
 The line is 2.5 -- nearer the room than the speech, because the two mistakes do
-not cost the same. A guard set high eats a sentence somebody actually spoke,
+not cost the same. A guard set high eats a sentence someone actually spoke,
 quietly, with no way to tell that it did. A guard set low lets a "Thank you."
 through into a field now and then, where it is visible and one backspace away.
 
-There is a second way to be speech, for somebody talking without drawing
+There is a second way to be speech, for someone talking without drawing
 breath: louder, all the way through, than any room this machine has recorded.
 
 ## The marks
@@ -80,13 +80,13 @@ breath: louder, all the way through, than any room this machine has recorded.
 Whisper writes prose. Everything it hears is a sentence to it, so it capitalises
 the front and puts a full stop on the back and commas through the middle. That
 is right for a paragraph and wrong for most of what this paddle is pressed for:
-a search box, a filename, a name to look somebody up by. "Settings." looks for a
+a search box, a filename, a name to look someone up by. "Settings." looks for a
 word this machine does not have, and the stop is then a backspace to find on a
 device whose whole problem is that it has no keyboard.
 
 So the short things come back bare. Six words or fewer and everything that is
 not a letter, a number or a space is taken out; past that it is left exactly as
-whisper wrote it, because somebody dictating a message that long would only have
+whisper wrote it, because someone dictating a message that long would only have
 to put the stops back by hand, which is the same chore the other way round.
 
 | said | typed |
@@ -104,7 +104,7 @@ than nothing, so what stood on both sides of it stays two words.
 
 Six is a guess at where a name turns into a sentence and is meant to be one. The
 two mistakes are not the same size: a stop left on a search term is a wrong
-search, and a stop missing from a message is a message somebody reads anyway.
+search, and a stop missing from a message is a message someone reads anyway.
 
 Words are counted by the gaps between them, except in the scripts that have
 none. A Thai sentence puts its spaces between phrases and not between words, so
@@ -133,7 +133,7 @@ taken off.
 
 Dutch had a smaller version of the same fault, found by asking what a good test
 of this would even be. The rule that keeps `don't` whole looks for a letter on
-either side of the mark, and several of the commonest words in Dutch put the
+either side of the mark, and several of the most common words in Dutch put the
 apostrophe at the front, where there is no letter to the left of it:
 
 | said | typed | should have been |
@@ -144,7 +144,7 @@ A quotation looks the same to that rule, so the two are told apart by how much
 follows the mark: `'s` is an apostrophe, one letter and the end of the word,
 and `'hello'` is an apostrophe and then a whole word. The first is kept and the
 second is still taken off, which is the way round that matters -- one of them
-is a word somebody said and the other is a mark nobody dictated.
+is a word someone said and the other is a mark no one dictated.
 
 ## What is kept
 
@@ -155,7 +155,7 @@ is a tmpfs -- memory, not the disk -- and it is deleted as soon as the reading
 of it ends, however that reading ends. Not only when it worked: the taking-away
 is wrapped around the whole of the work rather than written at the bottom of
 it, because the bottom of it is the one path a failure never reaches, and a
-failure is exactly the case where somebody's voice would otherwise sit there.
+failure is exactly the case where someone's voice would otherwise sit there.
 
 What survives that is a recording nothing is reading any more -- a session that
 ended mid-sentence, a `console-dictate` that was killed. Those go with the
@@ -180,7 +180,7 @@ sentence -- 19.83 of it in the encoder and 0.015 in the decoder. Turbo is the
 large encoder with a cut-down decoder, so it buys back the part that was
 already free and pays full price for the part that is not. Small did the same
 clip in 4.5 seconds and was put in for that alone, at a cost to two of the four
-languages that nobody wanted to pay.
+languages that no one wanted to pay.
 
 Then the hearing was pointed at the machine's own graphics, and this model came
 back in 2.7 seconds -- quicker than small had ever managed on the processor. So
@@ -193,7 +193,7 @@ right fix turned out to be under the model rather than in it.
 | large-v3-turbo | 19.4 s | **2.7 s** |
 
 It is not a package and not in this repository. Weights are not source, and a
-device rebuilt from the manifest fetches them the first time somebody speaks.
+device rebuilt from the manifest fetches them the first time someone speaks.
 
 Turbo is worth one caveat, and it is about the language it is least good at.
 Turbo is large-v3 with the decoder cut from thirty-two layers to four, and
@@ -229,7 +229,7 @@ So it can be told instead. Settings, Configuration, Dictation:
 | Dutch | |
 | Thai | |
 
-Somebody writing Dutch all afternoon says so once, and every press that
+Someone writing Dutch all afternoon says so once, and every press that
 afternoon is read as Dutch. It is also half the wait: detection is a whole
 extra pass of the encoder, and it is exactly double -- 2.7 seconds asked
 against 1.4 told.
@@ -241,12 +241,12 @@ after the panel closes and there is nothing in between to tell.
 
 Asking is still what it does until it is told otherwise. There is no language
 to default to that is not wrong for two of the three, and a guess that is
-sometimes wrong beats a setting that is always wrong for somebody.
+sometimes wrong beats a setting that is always wrong for someone.
 
 The list is not what whisper can hear. The model has ninety-nine languages in
 it and "whichever is spoken" reaches all of them; the list is the short one of
 the languages worth a row here. Chinese was on it and is not any more, because
-nobody was dictating any, and a row nobody presses is a row between somebody
+no one was dictating any, and a row no one presses is a row between someone
 and the row they wanted.
 
 ## The hearing
@@ -272,16 +272,16 @@ quietly decides which of the two is running. One file, under one name, beside
 a model.
 
 It is built once, on the first press that wants it, and that press does not
-wait for it: a C++ project takes four minutes and the sentence somebody just
+wait for it: a C++ project takes four minutes and the sentence someone just
 spoke is worth more than the speed of the one after it. So the press that finds
 no build starts one behind itself and uses the packaged hearing this time.
 `console-dictate --fetch` asks for both the model and the build in advance.
 
-The tag is pinned. This is a compiler being pointed at somebody else's
-repository on a device somebody is holding, and a branch is whatever it happens
+The tag is pinned. This is a compiler being pointed at someone else's
+repository on a device someone is holding, and a branch is whatever it happens
 to be on the morning the machine is rebuilt.
 
-It is the only thing on this desktop built from anybody else's source, and it
+It is the only thing on this desktop built from anyone else's source, and it
 is not a habit worth acquiring.
 
 ## Is this the right hearing
@@ -305,9 +305,9 @@ Thai removes most of the field on its own.
 | Moonshine | **no** | no | English only | out |
 | Vosk | **no** | yes | CPU | out on accuracy anyway |
 | Qwen3-ASR 0.6b / 1.7b | yes | yes | llama.cpp, Vulkan | the one to watch |
-| anybody's API | yes | yes | somebody else's computer | out on the first rule |
+| anyone's API | yes | yes | someone else's computer | out on the first rule |
 
-The fast models -- Parakeet and Canary, which are the ones anybody
+The fast models -- Parakeet and Canary, which are the ones anyone
 benchmarking English would tell you to use, and which are genuinely quicker
 than this -- are trained on twenty-five European languages. Thai is not one of
 them. Moonshine is English. Vosk has no Thai model worth the name and is a
@@ -322,7 +322,7 @@ Thai, in 0.6b and 1.7b, and there is a GGUF of it under ggml-org's own account
 and support for it in llama.cpp's multimodal path since about April 2026. On
 paper it is what would replace this. In practice, not yet, and for reasons that
 are about this device rather than about the model: it means a second engine
-built from somebody else's source rather than the one already here, a model and
+built from someone else's source rather than the one already here, a model and
 an mmproj rather than a model, 2.17 GB at eight bits against 574 MB, and
 llama.cpp's issue tracker still has open reports about Qwen3-ASR transcribing
 incorrectly and about the shape of what it returns. It is worth trying when
@@ -356,7 +356,7 @@ Both stay up until they stop being true. A state is not an event: listening is
 true until the next press, and writing it down is true until the words are
 there. "Writing it down" used to take itself off the screen after two seconds
 while the hearing was still going -- so the message left before the words came,
-and the wait it existed to explain was the part somebody sat through with
+and the wait it existed to explain was the part someone sat through with
 nothing on the screen at all. What ends the pair is the ending: the words
 themselves for a moment, or that nothing was said, or that it could not be
 read.
@@ -367,7 +367,7 @@ is the honest reading -- something is waiting, and it is.
 
 Neither is waited for. The first time this ran on the device there was no
 notification daemon on the machine at all -- see [notifications](notifications.md)
--- and D-Bus answers a name nobody owns by trying to start it and failing fifty
+-- and D-Bus answers a name no one owns by trying to start it and failing fifty
 seconds later. Waited for, that is fifty seconds between the press and the
 microphone, and fifty more between the second press and the words. The button
 worked perfectly and looked completely dead: the recording ran, whisper read

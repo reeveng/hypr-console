@@ -1,13 +1,13 @@
 //! Which alphabet each keyboard is on, and where that is kept between boots.
 //!
-//! Per keyboard rather than per machine. Somebody who switches the board on
+//! Per keyboard rather than per machine. Someone who switches the board on
 //! their desk to Greek has said something about that board and nothing about
 //! the one drawn on the screen of a handheld in another room, and a machine
 //! that moved both would be deciding those are the same hand. So the store is
 //! a name to an alphabet, and the name is the compositor's own for a keyboard
-//! somebody plugged in and [`SCREEN`] for the one this desktop draws.
+//! someone plugged in and [`SCREEN`] for the one this desktop draws.
 //!
-//! ## What a keyboard nobody has met is wearing
+//! ## What a keyboard no one has met is wearing
 //!
 //! The chain, in order, and each step is a real answer rather than a fallback
 //! to be embarrassed about:
@@ -17,10 +17,10 @@
 //!    keying this by name.
 //! 2. **The machine's chosen alphabets**, first one. A board plugged in for
 //!    the first time should type what this machine types, not what xkb's
-//!    defaults think a keyboard is -- somebody who set this desktop to Greek
+//!    defaults think a keyboard is -- someone who set this desktop to Greek
 //!    and Latin did not do it once per device.
 //! 3. **Latin**, which is `us`. Every word this desktop says is English and
-//!    every address is latin, so this is the answer that cannot leave somebody
+//!    every address is latin, so this is the answer that cannot leave someone
 //!    unable to type their way back out.
 //!
 //! It is state and not a setting. Nothing offers to change it and nothing
@@ -46,10 +46,10 @@ pub fn path_in(home: &Path) -> Result<PathBuf, Never> {
     Ok(ours.join(NAMED))
 }
 
-pub fn of(said: &str) -> Result<BTreeMap<String, String>, Never> {
+pub fn of(text: &str) -> Result<BTreeMap<String, String>, Never> {
     let mut every = BTreeMap::new();
 
-    for line in said.lines() {
+    for line in text.lines() {
         let line = line.trim();
 
         let (whose, key) = match line.split_once('=') {
@@ -69,25 +69,25 @@ pub fn of(said: &str) -> Result<BTreeMap<String, String>, Never> {
 }
 
 pub fn written(every: &BTreeMap<String, String>) -> Result<String, Never> {
-    let mut said = String::new();
+    let mut text = String::new();
 
     for (whose, key) in every {
-        said.push_str(whose);
-        said.push_str(" = ");
-        said.push_str(key);
-        said.push('\n');
+        text.push_str(whose);
+        text.push_str(" = ");
+        text.push_str(key);
+        text.push('\n');
     }
 
-    Ok(said)
+    Ok(text)
 }
 
 pub fn every(home: &Path) -> Result<BTreeMap<String, String>, Never> {
     let Ok(at) = path_in(home);
     let Ok(held) = console_core_atomic_writes::read(&at);
-    let Ok(said) = held.said();
+    let Ok(text) = held.text();
 
-    match said {
-        Some(said) => of(&said),
+    match text {
+        Some(text) => of(&text),
         None => Ok(BTreeMap::new()),
     }
 }
@@ -150,7 +150,7 @@ pub fn remember(home: &Path, whose: &str, alphabet: &Alphabet) -> Result<(), Unr
     let Ok(mut every) = every(home);
     let _ = every.insert(whose.to_string(), alphabet.key.to_string());
 
-    let Ok(said) = written(&every);
+    let Ok(text) = written(&every);
     let Ok(at) = path_in(home);
 
     let under = match at.parent() {
@@ -161,7 +161,7 @@ pub fn remember(home: &Path, whose: &str, alphabet: &Alphabet) -> Result<(), Unr
     std::fs::create_dir_all(under)
         .map_err(|fault| Unremembered::Holding(under.to_path_buf(), fault))?;
 
-    console_core_atomic_writes::whole(&at, said.as_bytes()).map_err(Unremembered::Writing)
+    console_core_atomic_writes::whole(&at, text.as_bytes()).map_err(Unremembered::Writing)
 }
 
 #[cfg(test)]
@@ -176,12 +176,16 @@ mod tests {
         value
     }
 
-    fn walk(said: &str) -> Vec<&'static Alphabet> {
-        ok(crate::read(said))
+    fn scratch(test: &str) -> std::path::PathBuf {
+        console_core_temporary_directories::fresh(&format!("alphabets-{test}")).expect("somewhere")
+    }
+
+    fn walk(text: &str) -> Vec<&'static Alphabet> {
+        ok(crate::read(text))
     }
 
     #[test]
-    fn a_keyboard_nobody_has_met_wears_what_this_machine_types() {
+    fn a_keyboard_no_one_has_met_wears_what_this_machine_types() {
         let every = BTreeMap::new();
         let walk = walk("latin,greek");
 
@@ -210,19 +214,19 @@ mod tests {
     }
 
     #[test]
-    fn an_alphabet_this_machine_no_longer_types_is_not_worn_by_anybody() {
+    fn an_alphabet_this_machine_no_longer_types_is_not_worn_by_anyone() {
         let Ok(every) = of("Logitech K380 = greek\n");
         let walk = walk("latin,thai");
 
         assert_eq!(
             ok(among(&every, "Logitech K380", &walk)).key,
             LATIN,
-            "somebody took Greek off this machine, so the board cannot be left on it"
+            "someone took Greek off this machine, so the board cannot be left on it"
         );
     }
 
     #[test]
-    fn a_word_nobody_here_wrote_is_not_an_alphabet() {
+    fn a_word_no_one_here_wrote_is_not_an_alphabet() {
         let Ok(every) = of("Logitech K380 = klingon\n");
         let walk = walk("latin,greek");
 
@@ -232,11 +236,11 @@ mod tests {
     #[test]
     fn what_is_written_reads_back_the_same() {
         let Ok(every) = of("b = greek\na = thai\n");
-        let Ok(said) = written(&every);
-        let Ok(again) = of(&said);
+        let Ok(text) = written(&every);
+        let Ok(again) = of(&text);
 
         assert_eq!(every, again);
-        assert_eq!(said, "a = thai\nb = greek\n", "one line per keyboard, in a settled order");
+        assert_eq!(text, "a = thai\nb = greek\n", "one line per keyboard, in a settled order");
     }
 
     #[test]
@@ -248,13 +252,13 @@ mod tests {
 
     #[test]
     fn what_is_remembered_is_what_comes_back() {
-        let home = tempfile::tempdir().expect("somewhere");
+        let home = scratch("what_is_remembered_is_what_comes_back");
         let Ok(greek) = crate::one("greek");
         let greek = greek.expect("greek");
 
-        remember(home.path(), "Logitech K380", greek).expect("a line written");
+        remember(&home, "Logitech K380", greek).expect("a line written");
 
-        let Ok(every) = every(home.path());
+        let Ok(every) = every(&home);
         let walk = walk("latin,greek");
 
         assert_eq!(ok(among(&every, "Logitech K380", &walk)).key, "greek");

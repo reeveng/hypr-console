@@ -68,7 +68,7 @@ const answers = {
     return true;
   },
 
-  /* The tab that was closed. Two presses apart on a strip nobody can aim at
+  /* The tab that was closed. Two presses apart on a strip no one can aim at
      is the whole reason closing one is offered at all. */
   async reopen() {
     await browser.sessions.restore();
@@ -105,7 +105,7 @@ const answers = {
 
 /* The bookmarks, said to the desktop rather than kept in here.
  *
- * A bookmark is a thing somebody opens, and everything else a person opens on
+ * A bookmark is a thing someone opens, and everything else a person opens on
  * this machine is in the menu and can be put on the home screen from it. So
  * they are written out as desktop entries -- `crates/console-bookmarks` is the
  * argument -- and then the menu, the home screen and the panel need to know
@@ -191,12 +191,12 @@ tell();
  *
  * The jar is named for where it went, because the browser draws that name on
  * the tab and `once: example.com` is something a person can read. The mark is
- * what tells ours from a container somebody made on purpose.
+ * what tells ours from a container someone made on purpose.
  *
  * They are taken away when the last tab in one closes, and the sweep looks at
  * all of them rather than the one that just emptied: this desktop stops the
  * browser rather than the person doing it, so a session that went down hard
- * leaves jars behind, and the next tab anybody closes is when they go.
+ * leaves jars behind, and the next tab anyone closes is when they go.
  */
 const ONCE = 'once';
 

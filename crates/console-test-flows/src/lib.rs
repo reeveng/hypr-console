@@ -3,7 +3,7 @@
 //! A check asks one question about one feature. A flow walks the desktop the
 //! way a person does -- across programs, across crates -- and asks at every
 //! step what that person would see, because most of what goes wrong on this
-//! machine goes wrong *between* features: a mode that lingered, a chooser
+//! machine goes wrong *between* features: a mode that lingered, a picker
 //! that stacked, a button that was kept. `docs/flows.md` is the strategy and
 //! the promises; the tests beside this library are the flows themselves, run
 //! at the fast stage on every `just test`.
@@ -24,8 +24,13 @@ pub mod screens {
         "0":[{"namespace":"awww-daemon","h":1600},{"namespace":"console-home","h":1600}],
         "2":[{"namespace":"console-bar","h":40}]}}}"#;
 
-    pub const A_CHOOSER: &str = r#"{"eDP-1":{"levels":{
+    pub const A_PICKER: &str = r#"{"eDP-1":{"levels":{
         "0":[{"namespace":"awww-daemon","h":1600}],
+        "2":[{"namespace":"console-bar","h":40}],
+        "3":[{"namespace":"settings-panel","h":1562}]}}}"#;
+
+    pub const A_PICKER_OVER_THE_HOME_SCREEN: &str = r#"{"eDP-1":{"levels":{
+        "0":[{"namespace":"awww-daemon","h":1600},{"namespace":"console-home","h":1600}],
         "2":[{"namespace":"console-bar","h":40}],
         "3":[{"namespace":"settings-panel","h":1562}]}}}"#;
 

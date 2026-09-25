@@ -15,7 +15,7 @@
 use std::fmt;
 use std::path::PathBuf;
 
-use crate::manifest::{MARK, THEIRS};
+use crate::manifest::{MARK, ONCE};
 
 #[derive(Debug)]
 pub enum Unapplied {
@@ -34,12 +34,12 @@ pub enum Unapplied {
     Owner(PathBuf, std::io::Error),
     Directory(PathBuf, std::io::Error),
     NoMatches(String),
-    Unreadable(PathBuf, std::io::Error),
+    Read(PathBuf, std::io::Error),
     Unsaid(PathBuf, String),
     AsRoot(&'static str),
     PacmanRefused,
     PacmanUntold,
-    PutBack(Vec<String>),
+    Restore(Vec<String>),
     CargoRefused,
     NoProgram,
     CargoUnrun(std::io::Error),
@@ -50,8 +50,8 @@ pub enum Unapplied {
     TwiceSaid(String, String, String),
     NoSuchSection(String, String),
     BeforeAnySection(String, String),
-    TheirsIsForFiles(String, String, String),
-    OnlyTheirs(String, String, String),
+    OnceIsForFiles(String, String, String),
+    OnlyOnce(String, String, String),
     WhatTimeItIs(std::io::Error),
     Migration(String, std::io::Error),
     MigrationStopped(String),
@@ -98,7 +98,7 @@ impl fmt::Display for Unapplied {
                  nothing could ever be it",
                 crate::machines::MATCHES
             ),
-            Unapplied::Unreadable(at, fault) => {
+            Unapplied::Read(at, fault) => {
                 write!(to, "{} could not be read: {fault}", at.display())
             }
             Unapplied::Unsaid(at, fault) => {
@@ -111,7 +111,7 @@ impl fmt::Display for Unapplied {
             Unapplied::PacmanUntold => {
                 write!(to, "pacman would not be told the desktop asks for these.")
             }
-            Unapplied::PutBack(fell) => write!(
+            Unapplied::Restore(fell) => write!(
                 to,
                 "put back: {} would not run what this was about to install.",
                 fell.join(", ")
@@ -142,15 +142,15 @@ impl fmt::Display for Unapplied {
             Unapplied::BeforeAnySection(file, line) => {
                 write!(to, "{file} has {line:?} before any section")
             }
-            Unapplied::TheirsIsForFiles(file, entry, under) => write!(
+            Unapplied::OnceIsForFiles(file, entry, under) => write!(
                 to,
-                "{file} says {entry:?} under [{under}], and {THEIRS} is a word only a \
-                 file takes: a package or a unit has no inside for anybody to own"
+                "{file} says {entry:?} under [{under}], and {ONCE} is a word only a \
+                 file takes: a package or a unit has no inside for anyone to own"
             ),
-            Unapplied::OnlyTheirs(file, entry, under) => write!(
+            Unapplied::OnlyOnce(file, entry, under) => write!(
                 to,
                 "{file} says {entry:?} under [{under}], and the only word an entry takes \
-                 after it is {THEIRS}"
+                 after it is {ONCE}"
             ),
             Unapplied::WhatTimeItIs(fault) => write!(to, "what time it is: {fault}"),
             Unapplied::Migration(name, fault) => write!(to, "migration {name}: {fault}"),

@@ -1,6 +1,6 @@
 # Open the menu, walk down it, and choose. One profile throughout: what a
-# button means with a chooser up is the controller daemon's to say, and it can
-# see the chooser. The pad used to be destroyed and rebuilt at this point.
+# button means with a picker up is the controller daemon's to say, and it can
+# see the picker. The pad used to be destroyed and rebuilt at this point.
 profile router
 press left-paddle-top
 wait 0.6

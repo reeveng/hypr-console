@@ -2,7 +2,7 @@
 //!
 //! The device is a screen you have to pick up and a session you have to log
 //! into. Most of what is worth looking at, the bar, the menu, the keyboard, the
-//! panel, the colours everything wears, is ordinary Wayland software reading
+//! panel, the colors everything wears, is ordinary Wayland software reading
 //! ordinary config files, and this machine can run all of it. So it does: a
 //! compositor of its own, inside a window, at the size the device's screen
 //! actually is, reading the files the device reads.
@@ -21,7 +21,7 @@
 pub mod nested;
 pub mod session;
 pub mod staging;
-pub mod talking;
+pub mod connection;
 
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -31,7 +31,7 @@ use console_core_never::Never;
 #[derive(Debug)]
 pub enum Unnested {
     Machine(std::io::Error),
-    Unreadable(PathBuf, std::io::Error),
+    Read(PathBuf, std::io::Error),
     Undeclared(console_screen::Undeclared),
     Staging(&'static str, std::io::Error),
     Unwritten(&'static str, console_core_atomic_writes::Unwritten),
@@ -46,7 +46,7 @@ impl fmt::Display for Unnested {
     fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Unnested::Machine(fault) => write!(to, "{fault}"),
-            Unnested::Unreadable(at, fault) => write!(to, "{}: {fault}", at.display()),
+            Unnested::Read(at, fault) => write!(to, "{}: {fault}", at.display()),
             Unnested::Undeclared(fault) => write!(to, "{fault}"),
             Unnested::Staging(what, fault) => write!(to, "{what}: {fault}"),
             Unnested::Unwritten(what, fault) => write!(to, "{what}: {fault}"),
@@ -110,7 +110,7 @@ pub fn screen() -> Result<console_screen::Screen, Unnested> {
 
     let at = root.join(console_screen::CONFIG);
     let said = std::fs::read_to_string(&at)
-        .map_err(|why| Unnested::Unreadable(at.clone(), why))?;
+        .map_err(|why| Unnested::Read(at.clone(), why))?;
 
     console_screen::Screen::read(&said).map_err(Unnested::Undeclared)
 }

@@ -13,12 +13,12 @@
 //! The shell script this replaces looked at `$XDG_PICTURES_DIR` and fell back
 //! to a folder called Pictures, and that variable is set by a login shell
 //! rather than by the session: run from a button, it was never there, so the
-//! fallback was the answer every time. `console_files::places` reads what the
-//! home directory actually says, which is the same answer the files panel's
+//! fallback was the answer every time. `console_core_places::Folder` reads what
+//! the home directory actually says, which is the same answer the files panel's
 //! Pictures tab arrives at.
 
 use console_core_external_programs::Program;
-use console_files::places::{Named, folder};
+use console_core_places::Folder;
 use console_core_never::Never;
 
 pub fn named(when: &str) -> Result<String, Never> {
@@ -45,13 +45,13 @@ fn main() -> std::process::ExitCode {
         Some(home) => home,
 
         None => {
-            eprintln!("console-screenshot: no HOME, so there is nobody to take a picture for");
+            eprintln!("console-screenshot: no HOME, so there is no one to take a picture for");
 
             return std::process::ExitCode::FAILURE;
         }
     };
 
-    let Ok(into) = folder(&home, Named("XDG_PICTURES_DIR"), "Pictures");
+    let Ok(into) = Folder::Pictures.under(&home);
 
     match std::fs::create_dir_all(&into) {
         Ok(()) => {},
@@ -70,14 +70,16 @@ fn main() -> std::process::ExitCode {
     let Ok(mut taking) = Program::Grim.command();
 
     match taking.arg(&at).status() {
-        Ok(how) if how.success() => {
-            println!("{}", at.display());
-            std::process::ExitCode::SUCCESS
-        }
-        Ok(how) => {
-            eprintln!("console-screenshot: grim said {how}");
-            std::process::ExitCode::FAILURE
-        }
+        Ok(how) => match how.success() {
+            true => {
+                println!("{}", at.display());
+                std::process::ExitCode::SUCCESS
+            }
+            false => {
+                eprintln!("console-screenshot: grim said {how}");
+                std::process::ExitCode::FAILURE
+            }
+        },
         Err(why) => {
             eprintln!("console-screenshot: no grim to run: {why}");
             std::process::ExitCode::FAILURE

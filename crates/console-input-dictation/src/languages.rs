@@ -13,7 +13,7 @@
 //! hardest to see: it is a word, it is spelled correctly, and it is the wrong
 //! word.
 //!
-//! So it can be told instead. Somebody writing Dutch all afternoon says so
+//! So it can be told instead. Someone writing Dutch all afternoon says so
 //! once, and every press that afternoon is read as Dutch. It is also half the
 //! wait: detection is a whole extra pass of the encoder, measured on this
 //! device at 2.7 seconds asked against 1.4 told.
@@ -21,7 +21,7 @@
 //! Asking is still what it does until it is told otherwise. There is no
 //! language to default to that is not wrong for two of the three, and a guess
 //! that is sometimes wrong is better than a setting that is always wrong for
-//! somebody.
+//! someone.
 
 use console_core_never::Never;
 
@@ -31,7 +31,7 @@ pub struct Language {
 }
 
 pub const EVERY: [Language; 4] = [
-    Language { key: "auto", says: "Whichever is spoken" },
+    Language { key: "auto", says: "Automatic" },
     Language { key: "en", says: "English" },
     Language { key: "nl", says: "Dutch" },
     Language { key: "th", says: "Thai" },
@@ -42,18 +42,7 @@ pub const UNLESS_TOLD: &str = "auto";
 const SETTING: &str = "dictation";
 
 pub fn chosen() -> Result<String, Never> {
-    let told = console_default_applications::setting(SETTING)?;
-
-    let said = match told {
-        Some(said) => said,
-        None => String::new(),
-    };
-    let known = one(&said)?;
-
-    Ok(match known.is_some() {
-        true => said,
-        false => UNLESS_TOLD.to_string(),
-    })
+    console_defaults::chosen(console_defaults::Choice { setting: SETTING, unless_told: UNLESS_TOLD, known: one })
 }
 
 pub fn one(key: &str) -> Result<Option<&'static Language>, Never> {
@@ -61,7 +50,7 @@ pub fn one(key: &str) -> Result<Option<&'static Language>, Never> {
 }
 
 pub fn choose(key: &str) -> Result<(), Never> {
-    console_default_applications::set(console_default_applications::Setting {
+    console_defaults::set(console_defaults::Setting {
         key: SETTING,
         value: key,
     })

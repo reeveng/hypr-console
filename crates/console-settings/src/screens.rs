@@ -4,7 +4,7 @@
 //! right for exactly as long as there is one screen. Two is enough to break
 //! it in both directions: a monitor on a desk wearing the quarter turn a
 //! handheld is held at comes up on its side, and a handheld wearing the
-//! density somebody chose for a 27 inch panel comes up at a size nobody can
+//! density someone chose for a 27 inch panel comes up at a size no one can
 //! read. Neither of those is a setting gone wrong -- both are one answer being
 //! asked of two different questions.
 //!
@@ -18,8 +18,8 @@
 //! A connector is named by the kernel and is letters, digits and hyphens.
 //! Anything else is not a connector, and [`Output::under`] says so rather than
 //! joining it onto a path: a name with a separator in it is a file written
-//! somewhere nobody asked for, and the one thing a directory named after
-//! somebody else's string must not do is leave the directory.
+//! somewhere no one asked for, and the one thing a directory named after
+//! someone else's string must not do is leave the directory.
 
 use std::path::{Path, PathBuf};
 
@@ -48,31 +48,31 @@ impl std::fmt::Display for Unnamed {
 impl std::error::Error for Unnamed {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Spelt {
+enum Spelled {
     LikeAConnector,
     LikeSomethingElse,
 }
 
-fn spelt(named: &str) -> Result<Spelt, Never> {
+fn spelled(named: &str) -> Result<Spelled, Never> {
     let letters = named.chars().all(|one| one.is_ascii_alphanumeric() || one == '-');
 
     Ok(match named.is_empty() || !letters {
-        true => Spelt::LikeSomethingElse,
-        false => Spelt::LikeAConnector,
+        true => Spelled::LikeSomethingElse,
+        false => Spelled::LikeAConnector,
     })
 }
 
 impl Output<'_> {
     pub fn under(self, home: &Path) -> Result<PathBuf, Unnamed> {
         let named = self.0.trim();
-        let Ok(spelt) = spelt(named);
+        let Ok(spelled) = spelled(named);
 
-        match spelt {
-            Spelt::LikeAConnector => {},
-            Spelt::LikeSomethingElse => return Err(Unnamed::NotAConnector(self.0.to_string())),
+        match spelled {
+            Spelled::LikeAConnector => {},
+            Spelled::LikeSomethingElse => return Err(Unnamed::NotAConnector(self.0.to_string())),
         }
 
-        let Ok(ours) = console_core_places::Base::Config.ours_under(home);
+        let Ok(ours) = console_core_places::Base::Configuration.ours_under(home);
 
         Ok(ours.join(UNDER).join(named))
     }

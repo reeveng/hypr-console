@@ -12,7 +12,7 @@
 //!
 //! Both are the same mistake: an empty list is not a list with something at the
 //! front of it. So [`Ring::of`] is where that is decided, once, and it hands
-//! back nothing for an empty list. What comes back holds a [`NonZeroUsize`],
+//! back nothing for an empty list. What comes back holds a [`NonZeroU32`],
 //! which is the proof `%` wants, so every step after it is a plain remainder
 //! that cannot fail -- EXPLICIT015 knows that divisor as a policy for this
 //! reason.
@@ -22,12 +22,13 @@
 //! again at the front, stay where it was, say it is gone -- and the three are
 //! not the same answer. This crate will not pick one.
 
-use std::num::NonZeroUsize;
+use std::num::NonZeroU32;
 
 use console_core_never::Never;
+use console_core_number_conversion::fitted;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Ring(pub NonZeroUsize);
+pub struct Ring(pub NonZeroU32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Step {
@@ -37,32 +38,34 @@ pub enum Step {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Between {
-    pub from: usize,
-    pub to: usize,
+    pub from: u32,
+    pub to: u32,
 }
 
 impl Ring {
-    pub fn round(many: usize) -> Result<Option<Ring>, Never> {
-        Ok(NonZeroUsize::new(many).map(Ring))
+    pub fn round(many: u32) -> Result<Option<Ring>, Never> {
+        Ok(NonZeroU32::new(many).map(Ring))
     }
 
     pub fn of<T>(every: &[T]) -> Result<Option<Ring>, Never> {
-        Ring::round(every.len())
+        let Ok(many) = fitted::<_, u32>(every.len());
+
+        Ring::round(many)
     }
 
-    pub fn many(&self) -> Result<usize, Never> {
+    pub fn many(&self) -> Result<u32, Never> {
         Ok(self.0.get())
     }
 
-    pub fn last(&self) -> Result<usize, Never> {
+    pub fn last(&self) -> Result<u32, Never> {
         Ok(self.0.get().saturating_sub(1))
     }
 
-    pub fn at(&self, which: usize) -> Result<usize, Never> {
+    pub fn at(&self, which: u32) -> Result<u32, Never> {
         Ok(which % self.0)
     }
 
-    pub fn stepped(&self, from: usize, step: Step) -> Result<usize, Never> {
+    pub fn stepped(&self, from: u32, step: Step) -> Result<u32, Never> {
         let Ok(here) = self.at(from);
 
         Ok(match step {
@@ -82,7 +85,7 @@ impl Ring {
         })
     }
 
-    pub fn walked(&self, from: usize, by: isize) -> Result<usize, Never> {
+    pub fn walked(&self, from: u32, by: i32) -> Result<u32, Never> {
         let Ok(away) = self.at(by.unsigned_abs());
 
         let forward = match by < 0 {
@@ -93,7 +96,7 @@ impl Ring {
         self.at(from.saturating_add(forward))
     }
 
-    pub fn steps(&self, between: Between) -> Result<usize, Never> {
+    pub fn steps(&self, between: Between) -> Result<u32, Never> {
         let Between { from, to } = between;
 
         let Ok(from) = self.at(from);
@@ -103,20 +106,24 @@ impl Ring {
     }
 }
 
-pub fn where_it_is<T: PartialEq>(every: &[T], wanted: &T) -> Result<Option<usize>, Never> {
-    Ok(every.iter().position(|one| one == wanted))
+pub fn where_it_is<T: PartialEq>(every: &[T], wanted: &T) -> Result<Option<u32>, Never> {
+    Ok(every.iter().position(|one| one == wanted).map(|at| {
+        let Ok(at) = fitted::<_, u32>(at);
+
+        at
+    }))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn ring(many: usize) -> Ring {
+    fn ring(many: u32) -> Ring {
         let Ok(round) = Ring::round(many);
 
         match round {
             Some(ring) => ring,
-            None => Ring(NonZeroUsize::MIN),
+            None => Ring(NonZeroU32::MIN),
         }
     }
 

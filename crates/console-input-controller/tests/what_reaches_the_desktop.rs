@@ -1,7 +1,7 @@
 //! That every job this desktop has is on something that can reach it.
 //!
-//! This used to be a question about two profiles. A chooser wore one of its
-//! own, so a button given a job on the desktop and forgotten in the chooser
+//! This used to be a question about two profiles. A picker wore one of its
+//! own, so a button given a job on the desktop and forgotten in the picker
 //! reached whatever was underneath -- and whether an unmapped button passes
 //! through is not written down anywhere and was never worth resting on.
 //!
@@ -17,8 +17,8 @@
 //! is where the other end is held to it.
 
 use console_input_bindings::bound::Input;
-use console_input_bindings::moved::Jobs;
-use console_input_controller::means::{JOBS, Table, When};
+use console_input_bindings::moved::Tasks;
+use console_input_controller::actions::{JOBS, Table, Context};
 use console_input_controller::mode::Mode;
 use console_input_gamepad::routing::arrives;
 use console_input_gamepad::vocabulary::button_name;
@@ -30,15 +30,15 @@ fn ok<T>(answer: Result<T, console_core_never::Never>) -> T {
 }
 
 fn table() -> Table {
-    ok(Table::of(&ok(Jobs::none())))
+    ok(Table::of(&ok(Tasks::none())))
 }
 
-fn mode_of(when: When) -> Mode {
+fn mode_of(when: Context) -> Mode {
     match when {
-        When::WithAChooserUp => Mode::Tabs,
-        When::OnTheHomeScreen => Mode::Home,
-        When::StandingOnASquare => Mode::Standing,
-        When::Anywhere | When::OnTheDesktop => Mode::Desktop,
+        Context::WithAPickerUp => Mode::Tabs,
+        Context::OnTheHomeScreen => Mode::HomeScreen,
+        Context::StandingOnASquare => Mode::Standing,
+        Context::Anywhere | Context::OnTheDesktop => Mode::Desktop,
     }
 }
 
@@ -74,7 +74,7 @@ fn every_job_can_be_reached_by_pressing_what_it_is_bound_to() {
     let table = table();
 
     for job in JOBS {
-        let mode = mode_of(job.when);
+        let mode = mode_of(job.context);
 
         for (on, held, pressed) in job.bound {
             let Ok(found) = table.what(*on, held, pressed, mode);
@@ -122,10 +122,10 @@ fn the_right_stick_pressed_is_the_same_answer_as_a() {
     for mode in [
         Mode::Desktop,
         Mode::Tabs,
-        Mode::Home,
+        Mode::HomeScreen,
         Mode::Standing,
         Mode::Keyboard,
-        Mode::Asking,
+        Mode::Prompt,
     ] {
         let Ok(accepts) = table.what(Input::Pad, &[], "a", mode);
         let Ok(stick) = table.what(Input::Pad, &[], "r3", mode);

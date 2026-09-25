@@ -14,62 +14,59 @@
 //! the history, and the two answers were two moments -- a tab opened between
 //! them showed a notification in neither list or in both. What each tab holds
 //! once it has been read is `crate::rows`; where a press
-//! leaves you is `crate::notices`, which is a
+//! leaves you is `crate::notifications`, which is a
 //! `console_program_contract::Program` and holds the whole of what this panel
 //! decides. The actor is what makes that state reachable from a closure on
-//! GTK's thread; it steps by asking `heard`, and the doings are carried out in
+//! GTK's thread; it steps by asking `update`, and the effects are carried out in
 //! the callback that has the surface in its hand.
 
 use std::sync::Arc;
 
-use console_core_external_programs::Program;
-use crate::notices::{Closes, Heard, Its, Notices, Onto, closes};
-use crate::reading::Notice;
+use crate::notifications::{Closes, NotificationsEvent, NotificationsEffect, Notifications, Destination, closes};
+use crate::reading::Notification;
 use crate::serving;
-use crate::rows::{Chosen, earlier_rows, gone_rows, one_rows, tab, waiting_rows};
-use console_panel::actor::{self, Addr, Answer};
+use crate::rows::{Chosen, earlier_rows, cleared_rows, one_rows, tab, waiting_rows};
+use console_panel::actor::{self, Address, Answer};
 use console_panel::card::{Card, Door};
-use console_panel::page::{Does, Page, Row, Rows, Showing, Watch};
+use console_panel::page::{Handler, Page, Row, Rows, Showing};
 use console_panel::running::said;
 use console_core_never::Never;
-use console_program_contract::{Argv, Doing, Named, Program as _, Turn, Word};
-
-const NO_TAB_NAMED: &str = "";
+use console_program_contract::{Arguments, Effect, Executable, Program as _, Topic, Update, Event};
 
 
-fn waiting() -> Result<Vec<Notice>, Never> {
+fn waiting() -> Result<Vec<Notification>, Never> {
     let Ok(held) = serving::held();
 
     Ok(held.waiting)
 }
 
-fn earlier() -> Result<Vec<Notice>, Never> {
+fn earlier() -> Result<Vec<Notification>, Never> {
     let Ok(held) = serving::held();
 
     Ok(held.earlier)
 }
 
 struct Looking {
-    onto: Onto,
+    onto: Destination,
 }
 
-enum Msg {
-    Heard(Heard, Answer<Vec<Doing<Its>>>),
-    At(Answer<Onto>),
+enum Message {
+    Event(NotificationsEvent, Answer<Vec<Effect<NotificationsEffect>>>),
+    At(Answer<Destination>),
 }
 
 impl actor::Machine for Looking {
-    type Msg = Msg;
+    type Message = Message;
 
-    fn step(self, message: Msg) -> Self {
+    fn step(self, message: Message) -> Self {
         match message {
-            Msg::Heard(heard, answer) => {
-                let Turn { now, doings } = Notices::heard(&self.onto, &Word::Its(heard));
-                let _ = answer.say(doings);
+            Message::Event(heard, answer) => {
+                let Update { state, effects } = Notifications::update(&self.onto, &Event::Custom(heard));
+                let _ = answer.say(effects);
 
-                Looking { onto: now }
+                Looking { onto: state }
             }
-            Msg::At(answer) => {
+            Message::At(answer) => {
                 let _ = answer.say(self.onto);
 
                 self
@@ -78,126 +75,128 @@ impl actor::Machine for Looking {
     }
 }
 
-type Held = Addr<Msg>;
+type ActorAddress = Address<Message>;
 
-fn looking_at(held: &Held) -> Result<Onto, Never> {
-    Ok(match held.ask(Msg::At) {
+fn looking_at(held: &ActorAddress) -> Result<Destination, Never> {
+    Ok(match held.ask(Message::At) {
         Ok(onto) => onto,
-        Err(_) => Onto::List,
+        Err(_) => Destination::List,
     })
 }
 
-fn press(held: &Held, heard: Heard, showing: &dyn Showing) -> Result<(), Never> {
-    let doings = match held.ask(|answer| Msg::Heard(heard, answer)) {
-        Ok(doings) => doings,
+fn press(held: &ActorAddress, heard: NotificationsEvent, showing: &dyn Showing) -> Result<(), Never> {
+    let effects = match held.ask(|answer| Message::Event(heard, answer)) {
+        Ok(effects) => effects,
         Err(_) => {
-            eprintln!("notifications-panel: the panel's own state has gone, so the press did nothing");
+            eprintln!("notifications-panel: the panel's own state is missing, so the press did nothing");
 
             Vec::new()
         }
     };
 
-    for doing in doings {
-        let Ok(()) = carry(&doing, showing);
+    for effect in effects {
+        let Ok(()) = carry(&effect, showing);
     }
 
     Ok(())
 }
 
-fn carry(doing: &Doing<Its>, showing: &dyn Showing) -> Result<(), Never> {
-    match doing {
-        Doing::Ask(runs) => {
-            let argv: Vec<&str> = runs.argv.iter().map(String::as_str).collect();
+fn carry(effect: &Effect<NotificationsEffect>, showing: &dyn Showing) -> Result<(), Never> {
+    match effect {
+        Effect::Run(runs) => {
+            let arguments: Vec<&str> = runs.arguments.iter().map(String::as_str).collect();
 
             match runs.program {
-                Named::Theirs(program) => {
-                    let _ = said(program, &argv);
+                Executable::External(program) => {
+                    let _ = said(program, &arguments);
                 }
-                Named::Ours(name) => {
+                Executable::Internal(name) => {
                     let mut whole = vec![name.to_string()];
 
-                    whole.extend(runs.argv.clone());
+                    whole.extend(runs.arguments.clone());
                     showing.later(whole);
                 }
             }
         }
-        Doing::Its(Its::Replace(row)) => showing.replace(*row),
-        Doing::Its(Its::Refresh) => showing.refresh(),
-        Doing::Watch(_)
-        | Doing::AskWhoever(_)
-        | Doing::Start(_)
-        | Doing::Listen(_)
-        | Doing::Deafen(_)
-        | Doing::Write(_)
-        | Doing::Say(_)
-        | Doing::Print(_)
-        | Doing::Stop(_) => {},
+        Effect::Custom(NotificationsEffect::Replace(row)) => {
+            showing.replace(*row)
+        }
+        Effect::Custom(NotificationsEffect::Refresh) => showing.refresh(),
+        Effect::Stream(_)
+        | Effect::Prompt(_)
+        | Effect::Spawn(_)
+        | Effect::Subscribe(_)
+        | Effect::Unsubscribe(_)
+        | Effect::Write(_)
+        | Effect::Notify(_)
+        | Effect::Print(_)
+        | Effect::Stop(_) => {},
     }
 
     Ok(())
 }
 
-fn back_up(held: &Held) -> Result<Chosen, Never> {
+fn back_up(held: &ActorAddress) -> Result<Chosen, Never> {
     let held = held.clone();
 
     Ok(Arc::new(move |showing: &dyn Showing| {
-        let Ok(()) = press(&held, Heard::Back, showing);
+        let Ok(()) = press(&held, NotificationsEvent::Back, showing);
     }))
 }
 
-fn open(held: &Held, id: u32) -> Result<Does, Never> {
+fn open(held: &ActorAddress, id: u32) -> Result<Handler, Never> {
     let held = held.clone();
 
-    Does::and_stay(move |showing| {
-        let Ok(()) = press(&held, Heard::Chose(id), showing);
+    Handler::and_stay(move |showing| {
+        let Ok(()) = press(&held, NotificationsEvent::Chosen(id), showing);
     })
 }
 
-fn dismiss(held: &Held, id: u32) -> Result<Does, Never> {
+fn dismiss(held: &ActorAddress, id: u32) -> Result<Handler, Never> {
     let held = held.clone();
 
-    Does::and_stay(move |showing| {
-        let Ok(()) = press(&held, Heard::Dismissed(id), showing);
+    Handler::and_stay(move |showing| {
+        let Ok(()) = press(&held, NotificationsEvent::Dismissed(id), showing);
     })
 }
 
-fn clear(held: &Held) -> Result<Does, Never> {
+fn clear(held: &ActorAddress) -> Result<Handler, Never> {
     let held = held.clone();
 
-    Does::and_stay(move |showing| {
-        let Ok(()) = press(&held, Heard::ClearAll, showing);
+    Handler::and_stay(move |showing| {
+        let Ok(()) = press(&held, NotificationsEvent::ClearAll, showing);
     })
 }
 
-fn waiting_tab(looking: &Held) -> Result<Vec<Row>, Never> {
+fn waiting_tab(looking: &ActorAddress) -> Result<Vec<Row>, Never> {
     let Ok(held) = waiting();
     let Ok(onto) = looking_at(looking);
 
     match onto {
-        Onto::List => {
+        Destination::List => {
             let Ok(clears) = clear(looking);
 
             waiting_rows(
                 &held,
-                |notice| {
-                    let Ok(does) = open(looking, notice.id);
+                |notification| {
+                    let Ok(does) = open(looking, notification.id);
 
                     does
                 },
                 clears,
             )
         }
-        Onto::One(id) => match held.iter().find(|notice| notice.id == id) {
-            Some(notice) => {
+        Destination::One(id) => match held.iter().find(|notification| notification.id == id) {
+            Some(notification) => {
                 let Ok(back) = back_up(looking);
                 let Ok(dismisses) = dismiss(looking, id);
 
-                one_rows(notice, &back, dismisses)
+                one_rows(notification, &back, dismisses)
             }
             None => {
                 let Ok(back) = back_up(looking);
 
-                gone_rows(&back)
+                cleared_rows(&back)
             }
         },
     }
@@ -209,24 +208,7 @@ fn earlier_tab() -> Result<Vec<Row>, Never> {
     earlier_rows(&held)
 }
 
-fn arriving() -> Result<Watch, Never> {
-    let Ok(stdbuf) = Program::Stdbuf.name();
-    let Ok(busctl) = Program::Busctl.name();
-
-    Watch::on(
-        &[
-            stdbuf,
-            "-oL",
-            busctl,
-            "--user",
-            "monitor",
-            "org.freedesktop.Notifications",
-        ],
-        "Member=Notif",
-    )
-}
-
-fn pages(looking: &Held) -> Result<Vec<Page>, Never> {
+fn pages(looking: &ActorAddress) -> Result<Vec<Page>, Never> {
     let drawing = looking.clone();
     let backing = looking.clone();
     let Ok(asked) = Rows::asked(move || {
@@ -236,11 +218,10 @@ fn pages(looking: &Held) -> Result<Vec<Page>, Never> {
     });
     let Ok(first) = tab(0);
     let Ok(waiting) = Page::new(first, asked);
-    let Ok(watch) = arriving();
-    let Ok(watching) = waiting.watching(watch);
+    let Ok(watching) = waiting.listening(Topic::Notifications, console_events::again::notifications);
     let Ok(waiting) = watching.on_back(move |showing| {
         let Ok(onto) = looking_at(&backing);
-        let Ok(()) = press(&backing, Heard::Back, showing);
+        let Ok(()) = press(&backing, NotificationsEvent::Back, showing);
 
         let Ok(closes) = closes(&onto);
 
@@ -265,21 +246,16 @@ pub const WHO: &str = "notifications-panel";
 
 const UNDER: i32 = 250;
 
-pub fn door(argv: &[String]) -> Result<Door, Never> {
-    let tab = match argv.first() {
-        Some(tab) => tab.as_str(),
-        None => NO_TAB_NAMED,
-    };
-
-    Door::closing(&format!("notices {tab}"))
+pub fn door(arguments: &[String]) -> Result<Door, Never> {
+    Door::closing_at("notifications", arguments.first().map(String::as_str))
 }
 
-pub fn card(argv: &[String]) -> Result<Card, Never> {
-    let tab = argv.first().cloned();
-    let Ok(opened) = Argv::of(&tab.as_deref().into_iter().collect::<Vec<&str>>());
+pub fn card(arguments: &[String]) -> Result<Card, Never> {
+    let tab = arguments.first().cloned();
+    let Ok(opened) = Arguments::of(&tab.as_deref().into_iter().collect::<Vec<&str>>());
 
-    let opening = Notices::opening(&opened);
-    let Ok(looking) = actor::supervise(move || Looking { onto: opening.state });
+    let init = Notifications::init(&opened);
+    let Ok(looking) = actor::supervise(move || Looking { onto: init.state });
     let held = looking.addr.clone();
 
     let Ok(card) = Card::new(Arc::new(move || {

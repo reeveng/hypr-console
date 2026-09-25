@@ -1,6 +1,6 @@
 // The browser, told the things a stylesheet cannot tell it.
 //
-// The colours between the markers are written by tools/console-palette out of
+// The colors between the markers are written by tools/console-palette out of
 // theme/palette.toml. Most of the rest is the browser being asked to hold
 // still: this device does not animate, and a browser that fades and slides is
 // the one window on it that would. The last of them is the line that lets this
@@ -19,7 +19,7 @@ user_pref("browser.fullscreen.animate", false);
 // The add-on this desktop wrote is not signed and never will be. It is packed
 // on the machine out of crates/console-browser-extension while `console apply` runs, into
 // this profile's own extensions/ directory, so there is no store it came from
-// and nobody to have signed it.
+// and no one to have signed it.
 //
 // Two prefs are needed and neither is enough alone, which was watched on the
 // device rather than reasoned about. The first lets an unsigned add-on be
@@ -33,7 +33,7 @@ user_pref("xpinstall.signatures.required", false);
 // extensions/ and then disables it, waiting to be asked about an add-on the
 // person did not choose; on this machine she did choose it, by running the
 // desktop it belongs to. Without this the add-on arrives and does nothing, and
-// the only place that is said is a screen nobody opens.
+// the only place that is said is a screen no one opens.
 user_pref("extensions.autoDisableScopes", 0);
 
 // The third is what lets the add-on reach the browser around the page.
@@ -80,7 +80,7 @@ user_pref("browser.toolbars.bookmarks.visibility", "never");
 // browser is stopped by the desktop rather than by the person using it -- the
 // session going down, a check putting the screen back, a mode change -- and
 // none of that is a browser that has broken. What arrives instead is a window
-// asking a question about add-ons, in front of the page somebody opened, on a
+// asking a question about add-ons, in front of the page someone opened, on a
 // device whose answer to a dialog is a thumb on a controller.
 //
 // It is the count that is turned off, not the recovery: a browser that really

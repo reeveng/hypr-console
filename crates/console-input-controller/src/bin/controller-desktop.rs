@@ -5,77 +5,103 @@
 //! devices are plugged in.  It is also where the daemon's own share of a wait
 //! is written down. Every other stopwatch on this device starts when a program
 //! is exec'd, so the stretch between the pad saying something and this deciding
-//! to act on it was the one nobody could see -- and it is the stretch that says
-//! whether a slow opening is the daemon or the toolkit.  A turn happens twenty
-//! times a second and almost all of them decide nothing, so almost all of them
-//! write nothing. A turn that starts a program always writes, because that is a
-//! press somebody is waiting on the far end of. A turn that only scrolled or
+//! to act on it was the one no one could see -- and it is the stretch that says
+//! whether a slow opening is the daemon or the toolkit.  A turn happens when
+//! something arrives, and many of them decide nothing, so many of them write
+//! nothing. A turn that starts a program always writes, because that is a
+//! press someone is waiting on the far end of. A turn that only scrolled or
 //! told the home screen something writes only if it took longer than a frame,
 //! which is the only version of it worth reading.
+//!
+//! A question to the compositor that is the same as one still waiting on its
+//! answer is not asked again. A shoulder pressed faster than `hyprctl` could
+//! answer used to start one process per press, each one the compositor and
+//! every listener on its events had to get through before the screen caught
+//! up, so a few presses were a second of the desktop chugging behind a thumb
+//! that had already stopped. The one in flight answers for the presses behind it.
+//!
+//! Between turns it waits on the devices themselves, and on the two things
+//! that change without a press: a device plugged in or a bindings file
+//! written, which inotify says, and a word from the compositor, which the
+//! threads listening for it say down a pipe as well as a channel. It used to
+//! sleep a fiftieth of a second instead, whatever was happening, which was a
+//! machine with its screen dark waking fifty times a second to find nothing.
+//! How long it waits is `turning.wake()`'s to say, and the only thing added
+//! here is the processors being hurried, which has an end to be looked at.
+//! Whether the machine is awake is not waited on: it is asked at the top of
+//! every turn, before the press that turn carries is decided, so a turn that
+//! comes late to it has lost nothing.
 
 use std::collections::BTreeSet;
 use std::collections::BTreeMap;
+use std::os::fd::OwnedFd;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::Arc;
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use evdev::uinput::VirtualDevice;
-use evdev::{
-    AbsoluteAxisCode, AttributeSet, Device, InputEvent, KeyCode, RelativeAxisCode,
+use rustix::event::{Nsecs, PollFd, PollFlags, Secs, Timespec, poll};
+use rustix::fs::inotify::{self, CreateFlags, WatchFlags};
+use rustix::pipe::{PipeFlags, pipe_with};
+
+use console_input_event_devices::{
+    AbsoluteAxisCode, BusType, Device, InputEvent, InputId, RelativeAxisCode, Setup, Unmade,
+    VirtualDevice,
 };
-use console_program_lifetime::{LetGo, Still, let_go, threads};
+use console_program_lifetime::{Detached, let_go, threads};
 use console_response_times::{Note, Wait};
-use console_cpu_boost::Hurrying;
-use console_input_controller::clock::since_boot;
-use console_input_controller::doing::Doing;
-use console_input_controller::finding::{Says, says};
-use console_input_controller::means::{self, Table};
+use console_cpu_boost::{Backoff, Boost};
+use console_input_controller::clock;
+use console_input_controller::effect::Effect;
+use console_input_controller::finding::{DeviceInfo, describe};
+use console_input_controller::actions::{self, Table};
 use console_input_bindings::moved::Rebound;
-use console_input_controller::binds::{self, Bind};
-use console_core_atomic_writes::Held;
+use console_input_controller::binds::{self, KeyBinding};
+use console_core_atomic_writes::Stored;
 use console_core_never::Never;
 use console_program_contract::Topic;
-use console_input_controller::mode::{Awake, Mode};
-use console_input_controller::reading::{From, Ranges};
-use console_input_controller::turning::{Gone, Plugged, READ, Took, Turning};
+use console_compositor::events::CompositorEvent;
+use console_input_controller::mode::{Woken, Mode};
+use console_input_controller::reading::{From, POLL, Ranges, Wake};
+use console_input_controller::turning::{Closed, Plugged, READ, Took, Turning};
 
 #[derive(Debug)]
 enum Unscrolled {
-    Asking(PathBuf, std::io::Error),
-    Unreadable(PathBuf, String),
-    Onscreen(console_onscreen::Amiss),
-    NoUinput(std::io::Error),
-    NoButton(std::io::Error),
-    NoWheel(std::io::Error),
-    Unbuilt(std::io::Error),
+    Read(PathBuf, std::io::Error),
+    Parse(PathBuf, String),
+    Onscreen(console_onscreen::Error),
+    Unbuilt(Unmade),
+    Unrung(rustix::io::Errno),
+    Unwaited(rustix::io::Errno),
 }
 
 impl std::fmt::Display for Unscrolled {
     fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Unscrolled::Asking(at, fault) => write!(
+            Unscrolled::Read(at, fault) => write!(
                 to,
                 "{}: asking when it was last written: {fault}",
                 at.display()
             ),
-            Unscrolled::Unreadable(at, fault) => {
+            Unscrolled::Parse(at, fault) => {
                 write!(to, "{}: reading it: {fault}", at.display())
             }
             Unscrolled::Onscreen(fault) => write!(to, "{fault}"),
-            Unscrolled::NoUinput(fault) => write!(to, "no way in to /dev/uinput: {fault}"),
-            Unscrolled::NoButton(fault) => write!(to, "the button: {fault}"),
-            Unscrolled::NoWheel(fault) => write!(to, "the wheel: {fault}"),
             Unscrolled::Unbuilt(fault) => write!(to, "the device would not build: {fault}"),
+            Unscrolled::Unrung(fault) => {
+                write!(to, "nothing to hear the compositor on between presses: {fault}")
+            }
+            Unscrolled::Unwaited(fault) => write!(to, "waiting for the next press: {fault}"),
         }
     }
 }
 
 impl std::error::Error for Unscrolled {}
 
-impl std::convert::From<console_onscreen::Amiss> for Unscrolled {
-    fn from(fault: console_onscreen::Amiss) -> Self {
+impl std::convert::From<console_onscreen::Error> for Unscrolled {
+    fn from(fault: console_onscreen::Error) -> Self {
         Unscrolled::Onscreen(fault)
     }
 }
@@ -89,13 +115,23 @@ fn main() -> std::process::ExitCode {
         }
     };
 
+    let (rung, ringing) = match pipe_with(PipeFlags::CLOEXEC | PipeFlags::NONBLOCK) {
+        Ok(ends) => ends,
+        Err(fault) => {
+            eprintln!("controller-desktop: {}", Unscrolled::Unrung(fault));
+            return std::process::ExitCode::FAILURE;
+        }
+    };
+
+    let ringing = Arc::new(ringing);
+
     let mut machine = Machine::default();
     let Ok(told) = told();
     let Ok(mut turning) = Turning::pointed_at(told);
 
     let Ok(home) = console_core_places::home();
     let Ok(mut bound) = Bound::of(home.as_deref());
-    let Ok(saying) = Saying::of(home.as_deref());
+    let Ok(saying) = Sender::of(home.as_deref());
 
     let Ok(was) = match home.as_deref() {
         Some(home) => console_input_bindings::active::read(home),
@@ -112,29 +148,34 @@ fn main() -> std::process::ExitCode {
     }
 
     let mut holding: Vec<(From, String)> = Vec::new();
-    let mut running: Vec<LetGo> = Vec::new();
+    let mut running: Vec<Detached> = Vec::new();
 
-    let Ok(changed) = watching();
-    let Ok(reloaded) = reloading();
+    let Ok(watched) = watching();
+    let Ok(changed) = rung_on(watched, &ringing);
+    let Ok(reloads) = reloading();
+    let Ok(reloaded) = rung_on(reloads, &ringing);
+    let Ok(()) = closing();
+    let Ok(plugging) = plugging(bound.at.as_deref());
+    let listening = Subscription { rung, plugging };
 
     match look(&mut turning) {
         Ok(_) => {}
         Err(fault) => eprintln!("controller-desktop: {fault}"),
     }
 
-    let mut hurrying = Hurrying::default();
+    let mut hurrying = Backoff::default();
     let mut said_the_watcher_went = false;
 
-    let Ok(mut was_awake) = Awake::asked();
+    let Ok(mut was_awake) = Woken::asked();
 
     loop {
         let word = match changed.try_recv() {
-            Ok(()) => Word::Came,
-            Err(TryRecvError::Empty) => Word::Nothing,
-            Err(TryRecvError::Disconnected) => Word::Gone,
+            Ok(()) => Event::Came,
+            Err(TryRecvError::Empty) => Event::None,
+            Err(TryRecvError::Disconnected) => Event::Closed,
         };
 
-        match word == Word::Gone && !said_the_watcher_went {
+        match word == Event::Closed && !said_the_watcher_went {
             true => {
                 eprintln!("controller-desktop: the watcher on the compositor has ended; what is in front of you will not be asked again");
                 said_the_watcher_went = true;
@@ -142,12 +183,12 @@ fn main() -> std::process::ExitCode {
             false => {},
         }
 
-        let Ok(awake) = Awake::asked();
+        let Ok(awake) = Woken::asked();
 
         let woke = awake != was_awake;
         was_awake = awake;
 
-        match word == Word::Came || woke {
+        match word == Event::Came || woke {
             true => {
                 while let Ok(()) = changed.try_recv() {}
 
@@ -171,100 +212,242 @@ fn main() -> std::process::ExitCode {
         }
 
         let read = match reloaded.try_recv() {
-            Ok(()) => Word::Came,
-            Err(TryRecvError::Empty) => Word::Nothing,
-            Err(TryRecvError::Disconnected) => Word::Gone,
+            Ok(()) => Event::Came,
+            Err(TryRecvError::Empty) => Event::None,
+            Err(TryRecvError::Disconnected) => Event::Closed,
         };
 
         match read {
-            Word::Came => {
+            Event::Came => {
                 while let Ok(()) = reloaded.try_recv() {}
 
                 let Ok(()) = bound.again();
             }
-            Word::Nothing | Word::Gone => {},
+            Event::None | Event::Closed => {},
         }
 
-        let Ok(mut waiting) = console_response_times::Waiting::here(Wait {
-            who: "controller",
-            what: "press",
+        let Ok(()) = turned(Turn {
+            turning: &mut turning,
+            machine: &mut machine,
+            hurrying: &mut hurrying,
+            out: &mut out,
+            saying: &saying,
+            running: &mut running,
         });
 
-        let Ok(now) = since_boot();
-        let Ok(decided) = turning.turn(&mut machine, now);
-        let mut what_for = Decided::Nothing;
-
-        let Ok(()) = waiting.mark("deciding");
-
-        for what in decided {
-            match &what {
-                Doing::Run(argv) => {
-                    let Ok(()) = hurrying.asked(Instant::now());
-
-                    match (what_for, argv.split_first()) {
-                        (Decided::Nothing | Decided::Something, Some((program, _))) => {
-                            let Ok(()) = waiting.named(Note { name: "starting", said: program });
-                        }
-                        (Decided::ToStart, _) | (_, None) => {},
-                    }
-
-                    what_for = Decided::ToStart;
-                }
-                Doing::Frame(_) | Doing::Tell(_) | Doing::Using(_) => {
-                    what_for = match what_for {
-                        Decided::Nothing => Decided::Something,
-                        Decided::Something | Decided::ToStart => what_for,
-                    }
-                }
-            }
-
-            let Ok(started) = done(&what, &mut out, &saying);
-
-            running.extend(started);
-        }
-
-        let Ok(()) = waiting.mark("doing");
-
-        match what_for {
-            Decided::ToStart => {
-                let Ok(()) = waiting.done();
-            }
-            Decided::Something => {
-                let Ok(()) = waiting.done_if_felt();
-            }
-            Decided::Nothing => {},
-        }
-
         let Ok(()) = hurrying.settle(Instant::now());
-        let Ok(still) = reaped(running);
+        let Ok(still) = console_program_lifetime::reaped(running);
 
         running = still;
         let Ok(()) = say_what_changed(&mut holding, &turning);
-        let Ok(poll) = turning.poll();
+        let Ok(wake) = turning.wake();
+        let Ok(hurried) = hurrying.on();
 
-        #[cfg_attr(
-            dylint_lib = "explicit021_no_sleeping",
-            allow(
-                explicit021_no_sleeping,
-                reason = "a stick is a position rather than an event: what it is doing now is only knowable by looking, and how often to look is what `turning.poll()` decides"
-            )
-        )]
-        std::thread::sleep(Duration::from_secs_f64(poll));
+        let Ok(wake) = match hurried {
+            Boost::On => wake.sooner(Wake::Within(POLL)),
+            Boost::Off => Ok(wake),
+        };
+
+        match waited(wake, &machine, &listening) {
+            Ok(Plugging::Some) => {
+                let Ok(()) = turning.hunt_now();
+            }
+            Ok(Plugging::None) => {},
+            Err(fault) => {
+                eprintln!("controller-desktop: {fault}");
+
+                return std::process::ExitCode::FAILURE;
+            }
+        }
     }
+}
+
+struct Subscription {
+    rung: OwnedFd,
+    plugging: Option<OwnedFd>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Plugging {
+    Some,
+    None,
+}
+
+fn waited(wake: Wake, machine: &Machine, listening: &Subscription) -> Result<Plugging, Unscrolled> {
+    let patience = match wake {
+        Wake::OnInput => None,
+        Wake::Within(seconds) => {
+            let long = match Duration::try_from_secs_f64(seconds) {
+                Ok(long) => long,
+                Err(_not_a_length) => Duration::ZERO,
+            };
+            let Ok(tv_sec) = console_core_number_conversion::fitted::<u64, Secs>(long.as_secs());
+            let Ok(tv_nsec) = console_core_number_conversion::fitted::<u32, Nsecs>(long.subsec_nanos());
+
+            Some(Timespec { tv_sec, tv_nsec })
+        }
+    };
+
+    let mut watch = vec![PollFd::new(&listening.rung, PollFlags::IN)];
+
+    watch.extend(listening.plugging.iter().map(|plugging| PollFd::new(plugging, PollFlags::IN)));
+    watch.extend(machine.open.values().map(|device| PollFd::new(device, PollFlags::IN)));
+
+    match poll(&mut watch, patience.as_ref()) {
+        Ok(_) | Err(rustix::io::Errno::INTR) => {},
+        Err(fault) => return Err(Unscrolled::Unwaited(fault)),
+    }
+
+    let Ok(_rung) = emptied(&listening.rung);
+
+    Ok(match &listening.plugging {
+        Some(plugging) => {
+            let Ok(heard) = emptied(plugging);
+
+            heard
+        }
+        None => Plugging::None,
+    })
+}
+
+fn emptied(from: &OwnedFd) -> Result<Plugging, Never> {
+    let mut room = [0_u8; 4096];
+    let mut heard = Plugging::None;
+
+    loop {
+        match rustix::io::read(from, &mut room) {
+            Ok(0) | Err(_) => return Ok(heard),
+            Ok(_) => heard = Plugging::Some,
+        }
+    }
+}
+
+fn plugging(bindings: Option<&Path>) -> Result<Option<OwnedFd>, Never> {
+    let listening = match inotify::init(CreateFlags::CLOEXEC | CreateFlags::NONBLOCK) {
+        Ok(listening) => listening,
+        Err(fault) => {
+            eprintln!(
+                "controller-desktop: nothing plugged in will be looked for until something is pressed: {fault}"
+            );
+
+            return Ok(None);
+        }
+    };
+
+    let input = console_input_event_devices::device::INPUT;
+
+    match inotify::add_watch(&listening, input, WatchFlags::CREATE | WatchFlags::ATTRIB) {
+        Ok(_) => {},
+        Err(fault) => eprintln!("controller-desktop: {input}: {fault}"),
+    }
+
+    let folder = bindings.and_then(Path::parent);
+    let written = WatchFlags::CLOSE_WRITE | WatchFlags::MOVED_TO | WatchFlags::CREATE | WatchFlags::DELETE;
+
+    match folder.map(|folder| (folder, inotify::add_watch(&listening, folder, written))) {
+        Some((_, Ok(_))) | None => {},
+        Some((folder, Err(fault))) => eprintln!(
+            "controller-desktop: {}: {fault}; the bindings are read again at the next press",
+            folder.display()
+        ),
+    }
+
+    Ok(Some(listening))
+}
+
+fn rung_on(heard: Receiver<()>, ringing: &Arc<OwnedFd>) -> Result<Receiver<()>, Never> {
+    let (say, relayed) = channel();
+    let ringing = Arc::clone(ringing);
+
+    let Ok(()) = threads::let_go(std::thread::spawn(move || {
+        for () in heard.iter() {
+            match say.send(()) {
+                Ok(()) => {},
+                Err(_no_one_is_listening) => return,
+            }
+
+            let _already_ringing = rustix::io::write(&*ringing, &[1]);
+        }
+    }));
+
+    Ok(relayed)
+}
+
+struct Turn<'a> {
+    turning: &'a mut Turning,
+    machine: &'a mut Machine,
+    hurrying: &'a mut Backoff,
+    out: &'a mut VirtualDevice,
+    saying: &'a Sender,
+    running: &'a mut Vec<Detached>,
+}
+
+fn turned(turn: Turn<'_>) -> Result<(), Never> {
+    let Ok(mut waiting) = console_response_times::Waiting::here(Wait {
+        who: "controller",
+        what: "press",
+    });
+
+    let Ok(now) = clock::now();
+    let Ok(decided) = turn.turning.turn(turn.machine, now);
+    let mut what_for = Decided::None;
+
+    let Ok(()) = waiting.mark("deciding");
+
+    for what in decided {
+        match &what {
+            Effect::Run(arguments) => {
+                let Ok(()) = turn.hurrying.asked(Instant::now());
+
+                match (what_for, arguments.split_first()) {
+                    (Decided::None | Decided::Some, Some((program, _))) => {
+                        let Ok(()) = waiting.named(Note { name: "starting", said: program });
+                    }
+                    (Decided::ToStart, _) | (_, None) => {},
+                }
+
+                what_for = Decided::ToStart;
+            }
+            Effect::Frame(_) | Effect::Tell(_) | Effect::Using(_) => {
+                what_for = match what_for {
+                    Decided::None => Decided::Some,
+                    Decided::Some | Decided::ToStart => what_for,
+                }
+            }
+        }
+
+        let Ok(started) = done(&what, turn.out, turn.saying);
+
+        turn.running.extend(started);
+    }
+
+    let Ok(()) = waiting.mark("doing");
+
+    match what_for {
+        Decided::ToStart => {
+            let Ok(()) = waiting.done();
+        }
+        Decided::Some => {
+            let Ok(()) = waiting.done_if_felt();
+        }
+        Decided::None => {},
+    }
+
+    Ok(())
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Decided {
-    Nothing,
-    Something,
+    None,
+    Some,
     ToStart,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Word {
+enum Event {
     Came,
-    Nothing,
-    Gone,
+    None,
+    Closed,
 }
 
 #[cfg_attr(
@@ -278,7 +461,7 @@ struct Bound {
     at: Option<PathBuf>,
     written: Option<std::time::SystemTime>,
     read: bool,
-    handed: Vec<Bind>,
+    handed: Vec<KeyBinding>,
 }
 
 impl Bound {
@@ -307,12 +490,12 @@ impl Bound {
         self.give(wanted)
     }
 
-    fn give(&mut self, wanted: Vec<Bind>) -> Result<(), Never> {
+    fn give(&mut self, wanted: Vec<KeyBinding>) -> Result<(), Never> {
         let Ok(holding) = binds::holding();
 
         match &holding {
             binds::Holding::These(_) => {},
-            binds::Holding::Unanswered(fault) => {
+            binds::Holding::HyprctlError(fault) => {
                 eprintln!("controller-desktop: what keys it is holding: {fault}");
             }
         }
@@ -370,13 +553,15 @@ impl Bound {
 
         let written = match std::fs::metadata(&at).and_then(|held| held.modified()) {
             Ok(when) => Some(when),
-            Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => None,
-            Err(fault) => {
-                self.written = None;
-                self.read = true;
+            Err(fault) => match fault.kind() == std::io::ErrorKind::NotFound {
+                true => None,
+                false => {
+                    self.written = None;
+                    self.read = true;
 
-                return Err(Unscrolled::Asking(at, fault));
-            }
+                    return Err(Unscrolled::Read(at, fault));
+                }
+            },
         };
 
         match self.read && written == self.written {
@@ -390,24 +575,24 @@ impl Bound {
         let Ok(held) = console_core_atomic_writes::read(&at);
 
         let said = match held {
-            Held::Said(said) => said,
-            Held::Nothing => String::new(),
-            Held::Unreadable(fault) => return Err(Unscrolled::Unreadable(at, fault)),
+            Stored::Text(said) => said,
+            Stored::Absent => String::new(),
+            Stored::Failed(fault) => return Err(Unscrolled::Parse(at, fault)),
         };
 
-        match console_input_bindings::moved::Jobs::read(&said) {
+        match console_input_bindings::moved::Tasks::read(&said) {
             Ok(jobs) => {
                 let Ok(moved) = jobs.moved();
 
                 match moved {
-                    Rebound::Something => {
+                    Rebound::Some => {
                         eprintln!(
                             "controller-desktop: {} moves {} of them",
                             at.display(),
                             jobs.moved.len()
                         );
                     }
-                    Rebound::Nothing => {},
+                    Rebound::None => {},
                 }
 
                 let Ok(table) = Table::of(&jobs);
@@ -430,26 +615,26 @@ fn watching() -> Result<Receiver<()>, Never> {
 
 fn reloading() -> Result<Receiver<()>, Never> {
     let (say, heard) = channel();
-    let Ok(listening) = console_events::listening::listen(&[Topic::Compositor]);
+    let Ok(subscriber) = console_events::subscription::connect(&[Topic::Compositor]);
 
     let Ok(()) = threads::let_go(std::thread::spawn(move || {
-        let Ok(heard) = listening.heard();
+        let Ok(received) = subscriber.received();
 
-        for heard in heard.iter() {
-            let worth = match &heard {
-                console_events::listening::Heard::GotIn => binds::Worth::Asking,
-                console_events::listening::Heard::Said(changed) => {
-                    let Ok(worth) = binds::worth_asking_after(&changed.said);
+        for event in received.iter() {
+            let worth = match &event {
+                console_events::subscription::Received::Connected => binds::Worth::Querying,
+                console_events::subscription::Received::Event(change) => {
+                    let Ok(worth) = binds::worth_asking_after(&change.text);
 
                     worth
                 }
             };
 
             match worth {
-                binds::Worth::Asking => {
+                binds::Worth::Querying => {
                     match say.send(()) {
                         Ok(()) => {},
-                        Err(_nobody_is_listening) => return,
+                        Err(_no_one_is_listening) => return,
                     }
                 }
                 binds::Worth::Ignoring => {},
@@ -460,9 +645,95 @@ fn reloading() -> Result<Receiver<()>, Never> {
     Ok(heard)
 }
 
-fn look(turning: &mut Turning) -> Result<Vec<Doing>, Unscrolled> {
+fn closing() -> Result<(), Never> {
+    let Ok(subscriber) = console_events::subscription::connect(&[Topic::Compositor]);
+
+    threads::let_go(std::thread::spawn(move || {
+        let Ok(received) = subscriber.received();
+        let Ok(open) = open_now();
+        let Ok(mut placed) = console_input_controller::closing::placed(&open);
+
+        for event in received.iter() {
+            let stirred = match &event {
+                console_events::subscription::Received::Connected => CompositorEvent::WindowMoved,
+                console_events::subscription::Received::Event(change) => {
+                    let Ok(stirred) = console_compositor::events::read(&change.text);
+
+                    stirred
+                }
+            };
+
+            match stirred {
+                CompositorEvent::WindowClosed(address) => {
+                    let Ok(open) = open_now();
+                    let Ok(front) = front_now();
+                    let Ok(to) = console_input_controller::closing::goes_to(
+                        placed.get(&address).copied(),
+                        front,
+                        &open,
+                        &address,
+                    );
+
+                    match to {
+                        Some(id) => {
+                            let Ok(lua) = console_compositor::onto(&id.to_string(), console_compositor::Carrying::None);
+                            let Ok(_done) = console_compositor::request(console_compositor::Request::Dispatch, &lua);
+                        }
+                        None => {},
+                    }
+
+                    let Ok(now) = console_input_controller::closing::placed(&open);
+
+                    placed = now;
+                }
+                CompositorEvent::WindowOpened(_) | CompositorEvent::WindowMoved => {
+                    let Ok(open) = open_now();
+                    let Ok(now) = console_input_controller::closing::placed(&open);
+
+                    placed = now;
+                }
+                CompositorEvent::WindowRenamed(_)
+                | CompositorEvent::WindowFloated
+                | CompositorEvent::WindowPinned
+                | CompositorEvent::WindowFilled
+                | CompositorEvent::LayerOpened
+                | CompositorEvent::LayerClosed
+                | CompositorEvent::WorkspaceChanged
+                | CompositorEvent::ScreenFocused
+                | CompositorEvent::ConfigReloaded
+                | CompositorEvent::Ignored => {},
+            }
+        }
+    }))
+}
+
+fn open_now() -> Result<Vec<console_compositor::Window>, Never> {
+    Ok(match console_compositor::query(console_compositor::Query::Clients) {
+        Ok(console_compositor::Answer::Clients(open)) => open,
+        Ok(other) => {
+            eprintln!("controller-desktop: hyprctl answered {other:?} when asked for windows");
+
+            Vec::new()
+        }
+        Err(fault) => {
+            eprintln!("controller-desktop: {fault}");
+
+            Vec::new()
+        }
+    })
+}
+
+fn front_now() -> Result<Option<i64>, Never> {
+    Ok(match console_compositor::query(console_compositor::Query::ActiveWorkspace) {
+        Ok(console_compositor::Answer::ActiveWorkspace(front)) => front.map(|workspace| workspace.id),
+        Ok(_not_what_was_asked) => None,
+        Err(_the_compositor_would_not_say_which_one_is_in_front) => None,
+    })
+}
+
+fn look(turning: &mut Turning) -> Result<Vec<Effect>, Unscrolled> {
     let screens = console_onscreen::screens()?;
-    let Ok(awake) = Awake::asked();
+    let Ok(awake) = Woken::asked();
 
     let Ok(mode) = Mode::seen(&screens, awake);
     let Ok(now_in) = turning.held.now_in(mode);
@@ -476,35 +747,38 @@ struct Machine {
 }
 
 impl Plugged for Machine {
-    fn every(&self) -> Vec<Says> {
-        evdev::enumerate()
-            .map(|(path, device)| {
-                let Ok(says) = says(&path.display().to_string(), &device);
+    fn every(&self) -> Vec<DeviceInfo> {
+        let Ok(every) = Device::every();
 
-                says
+        every
+            .iter()
+            .map(|device| {
+                let Ok(info) = describe(&device.path.display().to_string(), device);
+
+                info
             })
             .collect()
     }
 
     fn open(&mut self, path: &str) -> Took {
         match self.open.contains_key(path) {
-            true => return Took::Held,
+            true => return Took::Acquired,
             false => {},
         }
 
-        let opened = Device::open(path).and_then(|device| {
-            device.set_nonblocking(true)?;
+        let opened = Device::open(Path::new(path)).and_then(|device| {
+            device.nonblocking()?;
             Ok(device)
         });
 
         match opened {
             Ok(device) => {
                 self.open.insert(path.to_string(), device);
-                Took::Held
+                Took::Acquired
             }
             Err(fault) => {
                 eprintln!("controller-desktop: {path}: {fault}");
-                Took::Refused
+                Took::Denied
             }
         }
     }
@@ -517,10 +791,10 @@ impl Plugged for Machine {
 
         let mut told: BTreeMap<u16, (i32, i32)> = BTreeMap::new();
 
-        match device.get_absinfo() {
+        match device.absolute() {
             Ok(states) => {
                 for (axis, info) in states {
-                    told.insert(axis.0, (info.minimum(), info.maximum()));
+                    told.insert(axis.0, (info.minimum, info.maximum));
                 }
             }
             Err(_the_device_went_away) => {},
@@ -546,20 +820,22 @@ impl Plugged for Machine {
         Ranges { stick, trigger }
     }
 
-    fn drain(&mut self, path: &str) -> Result<Vec<InputEvent>, Gone> {
+    fn drain(&mut self, path: &str) -> Result<Vec<InputEvent>, Closed> {
         let device = match self.open.get_mut(path) {
             Some(device) => device,
-            None => return Err(Gone),
+            None => return Err(Closed),
         };
 
-        let arrived = match device.fetch_events() {
-            Ok(arrived) => Ok(arrived.collect()),
-            Err(fault) if fault.kind() == std::io::ErrorKind::WouldBlock => Ok(Vec::new()),
-            Err(_) => Err(Gone),
+        let arrived = match device.read_events() {
+            Ok(arrived) => Ok(arrived),
+            Err(fault) => match fault.kind() == std::io::ErrorKind::WouldBlock {
+                true => Ok(Vec::new()),
+                false => Err(Closed),
+            },
         };
 
         match &arrived {
-            Err(Gone) => {
+            Err(Closed) => {
                 self.open.remove(path);
             }
             Ok(_still_reading) => {},
@@ -623,43 +899,33 @@ fn say_what_changed(
 }
 
 fn published() -> Result<VirtualDevice, Unscrolled> {
-    let mut keys = AttributeSet::<KeyCode>::new();
+    let Ok(sends) = actions::sends();
+    let setup = Setup {
+        name: "controller-desktop".to_string(),
+        id: InputId { bus: BusType::BUS_USB, vendor: 0x1234, product: 0x5678, version: 0x111 },
+        keys: sends.into_iter().collect(),
+        relative_axes: vec![
+            RelativeAxisCode::REL_HWHEEL,
+            RelativeAxisCode::REL_WHEEL,
+            RelativeAxisCode::REL_X,
+            RelativeAxisCode::REL_Y,
+        ],
+        ..Setup::default()
+    };
 
-    let Ok(sends) = means::sends();
-
-    for key in sends {
-        keys.insert(key);
-    }
-
-    let mut axes = AttributeSet::<RelativeAxisCode>::new();
-
-    for axis in [
-        RelativeAxisCode::REL_HWHEEL,
-        RelativeAxisCode::REL_WHEEL,
-        RelativeAxisCode::REL_X,
-        RelativeAxisCode::REL_Y,
-    ] {
-        axes.insert(axis);
-    }
-
-    let opened = VirtualDevice::builder().map_err(Unscrolled::NoUinput)?;
-    let keyed = opened
-        .name("controller-desktop")
-        .with_keys(&keys)
-        .map_err(Unscrolled::NoButton)?;
-    let wheeled = keyed
-        .with_relative_axes(&axes)
-        .map_err(Unscrolled::NoWheel)?;
-
-    wheeled.build().map_err(Unscrolled::Unbuilt)
+    VirtualDevice::create(&setup).map_err(Unscrolled::Unbuilt)
 }
 
-fn done(what: &Doing, out: &mut VirtualDevice, saying: &Saying) -> Result<Option<LetGo>, Never> {
+fn done(
+    what: &Effect,
+    out: &mut VirtualDevice,
+    saying: &Sender,
+) -> Result<Option<Detached>, Never> {
     match what {
-        Doing::Frame(frame) => {
+        Effect::Frame(frame) => {
             let events: Vec<InputEvent> = frame
                 .iter()
-                .map(|written| InputEvent::new(written.kind.0, written.code, written.value))
+                .map(|written| InputEvent { kind: written.kind, code: written.code, value: written.value })
                 .collect();
 
             match out.emit(&events) {
@@ -669,12 +935,32 @@ fn done(what: &Doing, out: &mut VirtualDevice, saying: &Saying) -> Result<Option
 
             Ok(None)
         }
-        Doing::Run(argv) => {
-            eprintln!("controller-desktop: {}", argv.join(" "));
+        Effect::Run(arguments) => {
+            let Ok(dispatched) = what.dispatched();
 
-            run(argv)
+            match dispatched {
+                Some(lua) => {
+                    let Ok(taken) = console_compositor::request(console_compositor::Request::Dispatch, lua);
+
+                    match taken {
+                        console_compositor::DispatchResult::Success => {},
+                        console_compositor::DispatchResult::Failure(why) => {
+                            eprintln!("controller-desktop: the compositor would not {lua}: {why}");
+                        }
+                    }
+
+                    Ok(None)
+                }
+                None => {
+                    eprintln!("controller-desktop: {}", arguments.join(" "));
+
+                    let Ok(started) = run(arguments);
+
+                    Ok(started)
+                }
+            }
         }
-        Doing::Tell(said) => {
+        Effect::Tell(said) => {
             match console_onscreen::telling(*said) {
                 Ok(()) => {},
                 Err(fault) => eprintln!("controller-desktop: the home screen was not told: {fault}"),
@@ -682,7 +968,7 @@ fn done(what: &Doing, out: &mut VirtualDevice, saying: &Saying) -> Result<Option
 
             Ok(None)
         }
-        Doing::Using(on) => {
+        Effect::Using(on) => {
             let Ok(()) = saying.using(*on);
 
             Ok(None)
@@ -690,13 +976,13 @@ fn done(what: &Doing, out: &mut VirtualDevice, saying: &Saying) -> Result<Option
     }
 }
 
-struct Saying {
+struct Sender {
     home: Option<PathBuf>,
 }
 
-impl Saying {
+impl Sender {
     fn of(home: Option<&Path>) -> Result<Self, Never> {
-        Ok(Saying { home: home.map(Path::to_path_buf) })
+        Ok(Sender { home: home.map(Path::to_path_buf) })
     }
 
     fn using(&self, on: console_input_bindings::bound::Input) -> Result<(), Never> {
@@ -728,22 +1014,8 @@ fn settled() -> Result<(), Never> {
     Ok(())
 }
 
-fn reaped(running: Vec<LetGo>) -> Result<Vec<LetGo>, Never> {
-    Ok(running
-        .into_iter()
-        .filter_map(|mut child| {
-            let Ok(still) = child.still();
-
-            match still {
-                Still::Running => Some(child),
-                Still::Ended => None,
-            }
-        })
-        .collect())
-}
-
-fn run(argv: &[String]) -> Result<Option<LetGo>, Never> {
-    let (program, rest) = match argv.split_first() {
+fn run(arguments: &[String]) -> Result<Option<Detached>, Never> {
+    let (program, rest) = match arguments.split_first() {
         Some((program, rest)) => (program, rest),
         None => return Ok(None),
     };

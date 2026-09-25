@@ -11,9 +11,9 @@ license.workspace = true
 # surface up and put pixels in it since the wvkbd port landed, and the obvious
 # move was to take that module out into a crate everything shares. It is not
 # ours to take: that crate is GPL-3.0-or-later because it is a derivative of
-# somebody else's keyboard, this workspace is AGPL-3.0-or-later, and the AGPL
+# someone else's keyboard, this workspace is AGPL-3.0-or-later, and the AGPL
 # is not a later GPL. So the protocol is written again here from the XML, which
-# nobody owns, and the keyboard keeps its licence and its own copy until it is
+# no one owns, and the keyboard keeps its license and its own copy until it is
 # the last caller and can be asked to change it.
 
 [lib]
@@ -36,10 +36,14 @@ console-core-geometry.workspace = true
 console-screen.workspace = true
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true
+# Where how evenly a surface kept up with the screen is written down: the one
+# stopwatch every wait on this machine already goes through, so a late frame
+# lands in the same store as a slow opening and is read by the same reader.
+console-response-times.workspace = true
 
 # memfd_create, ftruncate, mmap and poll. The buffer the compositor reads is
 # shared memory and there is no way to ask for one in the standard library.
-libc = "0.2"
+rustix.workspace = true
 
 # The compositor. The object lifetimes are in the type system rather than in
 # the reviewer's head, which is the whole reason this is not the C bindings.
@@ -52,6 +56,12 @@ wayland-protocols = { version = "0.32", features = ["client", "staging"] }
 # The layer shell. A window is in the tiling layout and takes the focus; every
 # surface this desktop puts over the desktop is neither.
 wayland-protocols-wlr = { version = "0.3", features = ["client"] }
+
+# What a key is. The compositor hands over a keymap and a keycode, and the
+# keysym a panel reads its d-pad as is what that keymap says the code means --
+# which is a question about the person's own layout and not one to answer with
+# a table. The same library composes the on-screen keyboard's maps.
+xkbcommon = "0.9"
 
 [lints]
 workspace = true

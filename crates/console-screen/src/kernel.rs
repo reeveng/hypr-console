@@ -16,7 +16,7 @@
 //! edge the desktop runs across.
 //!
 //! `console apply` writes it, because an apply is the one thing that happens on
-//! a machine before anybody logs into it. The file is not in the manifest for
+//! a machine before anyone logs into it. The file is not in the manifest for
 //! the same reason the controller's router profile is not: what it holds is read
 //! off the machine it is on, so a tree that carried a copy would be carrying one
 //! machine's answer for all of them again.
@@ -41,7 +41,7 @@ pub const STATUS: &str = "status";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Plugged {
     Into,
-    Nothing,
+    None,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,17 +55,17 @@ impl Panel {
         Mounted::of(self.mode)
     }
 
-    pub fn across(&self) -> Result<u32, Never> {
+    pub fn width(&self) -> Result<u32, Never> {
         let Ok(mounted) = self.mounted();
 
         Ok(match mounted {
-            Mounted::Sideways => self.mode.tall,
-            Mounted::Upright => self.mode.wide,
+            Mounted::Sideways => self.mode.height,
+            Mounted::Upright => self.mode.width,
         })
     }
 
     pub fn scale(&self, canvas: Canvas) -> Result<f64, Never> {
-        let Ok(across) = self.across();
+        let Ok(across) = self.width();
 
         Ok(f64::from(across) / f64::from(canvas.0.max(1)))
     }
@@ -73,12 +73,12 @@ impl Panel {
     pub fn block(&self, canvas: Canvas) -> Result<String, Never> {
         let Ok(mounted) = self.mounted();
         let Ok(transform) = mounted.transform();
-        let Ok(across) = self.across();
+        let Ok(across) = self.width();
         let Ok(scale) = self.scale(canvas);
         let Ok(how) = mounted.how_it_is_mounted();
 
         let named = &self.named;
-        let (wide, tall) = (self.mode.wide, self.mode.tall);
+        let (wide, tall) = (self.mode.width, self.mode.height);
         let points = canvas.0;
 
         Ok(format!(
@@ -111,7 +111,7 @@ hl.config({{ input = {{ touchdevice = {{ output = \"{named}\", transform = {tran
 }
 
 pub fn at(home: &Path) -> Result<PathBuf, Never> {
-    let Ok(ours) = console_core_places::Base::Config.ours_under(home);
+    let Ok(ours) = console_core_places::Base::Configuration.ours_under(home);
 
     Ok(ours.join(UNDER).join(NAMED))
 }
@@ -128,12 +128,12 @@ pub fn named(of: &Path) -> Result<Option<String>, Never> {
 pub fn plugged(at: &Path) -> Result<Plugged, Never> {
     let said = match std::fs::read_to_string(at.join(STATUS)) {
         Ok(said) => said,
-        Err(_nothing_says_so) => return Ok(Plugged::Nothing),
+        Err(_nothing_says_so) => return Ok(Plugged::None),
     };
 
     Ok(match said.trim() == "connected" {
         true => Plugged::Into,
-        false => Plugged::Nothing,
+        false => Plugged::None,
     })
 }
 
@@ -154,7 +154,7 @@ pub fn mode(at: &Path) -> Result<Option<Size<u32>>, Never> {
     };
 
     Ok(match (wide.parse(), tall.parse()) {
-        (Ok(wide), Ok(tall)) => Some(Size { wide, tall }),
+        (Ok(wide), Ok(tall)) => Some(Size { width: wide, height: tall }),
         (_wide, _tall) => None,
     })
 }
@@ -171,7 +171,7 @@ pub fn found(under: &Path) -> Result<Vec<Panel>, Never> {
         let Ok(plugged) = plugged(&at);
 
         match plugged {
-            Plugged::Nothing => continue,
+            Plugged::None => continue,
             Plugged::Into => {},
         }
 
@@ -235,7 +235,7 @@ mod tests {
         let at = drm("preferred", &[("card1-eDP-1", "connected", LAPTOP)]);
         let Ok(mode) = mode(&at.join("card1-eDP-1"));
 
-        assert_eq!(mode, Some(Size { wide: 1920, tall: 1200 }));
+        assert_eq!(mode, Some(Size { width: 1920, height: 1200 }));
     }
 
     #[test]
@@ -243,7 +243,7 @@ mod tests {
         let at = drm("unplugged", &[("card1-DP-1", "disconnected", "")]);
         let Ok(plugged) = plugged(&at.join("card1-DP-1"));
 
-        assert_eq!(plugged, Plugged::Nothing);
+        assert_eq!(plugged, Plugged::None);
     }
 
     #[test]
@@ -257,7 +257,7 @@ mod tests {
         );
         let Ok(panel) = panel(&at);
 
-        assert_eq!(panel, Some(Panel { named: "eDP-1".to_string(), mode: Size { wide: 1600, tall: 2560 } }));
+        assert_eq!(panel, Some(Panel { named: "eDP-1".to_string(), mode: Size { width: 1600, height: 2560 } }));
     }
 
     #[test]
@@ -265,7 +265,7 @@ mod tests {
         let at = drm("external", &[("card1-DP-2", "connected", "1920x1080\n")]);
         let Ok(panel) = panel(&at);
 
-        assert_eq!(panel, Some(Panel { named: "DP-2".to_string(), mode: Size { wide: 1920, tall: 1080 } }));
+        assert_eq!(panel, Some(Panel { named: "DP-2".to_string(), mode: Size { width: 1920, height: 1080 } }));
     }
 
     #[test]
@@ -278,9 +278,9 @@ mod tests {
 
     #[test]
     fn a_panel_taller_than_it_is_wide_is_turned_and_scaled_on_its_long_edge() {
-        let panel = Panel { named: "eDP-1".to_string(), mode: Size { wide: 1600, tall: 2560 } };
+        let panel = Panel { named: "eDP-1".to_string(), mode: Size { width: 1600, height: 2560 } };
         let Ok(mounted) = panel.mounted();
-        let Ok(across) = panel.across();
+        let Ok(across) = panel.width();
         let Ok(scale) = panel.scale(crate::DRAWN_AT);
 
         assert_eq!(mounted, Mounted::Sideways);
@@ -290,7 +290,7 @@ mod tests {
 
     #[test]
     fn a_laptop_panel_is_not_turned_and_is_scaled_on_its_width() {
-        let panel = Panel { named: "eDP-1".to_string(), mode: Size { wide: 1920, tall: 1200 } };
+        let panel = Panel { named: "eDP-1".to_string(), mode: Size { width: 1920, height: 1200 } };
         let Ok(mounted) = panel.mounted();
         let Ok(scale) = panel.scale(crate::DRAWN_AT);
 
@@ -300,7 +300,7 @@ mod tests {
 
     #[test]
     fn the_block_names_the_connector_the_turn_and_the_scale_and_no_mode() {
-        let panel = Panel { named: "eDP-1".to_string(), mode: Size { wide: 1600, tall: 2560 } };
+        let panel = Panel { named: "eDP-1".to_string(), mode: Size { width: 1600, height: 2560 } };
         let Ok(block) = panel.block(crate::DRAWN_AT);
 
         assert!(block.contains(
@@ -312,7 +312,7 @@ mod tests {
     #[test]
     fn the_finger_is_read_through_the_same_quarter_the_picture_is_drawn_at() {
         for (mode, transform) in
-            [(Size { wide: 1600, tall: 2560 }, 1), (Size { wide: 1920, tall: 1200 }, 0)]
+            [(Size { width: 1600, height: 2560 }, 1), (Size { width: 1920, height: 1200 }, 0)]
         {
             let panel = Panel { named: "eDP-1".to_string(), mode };
             let Ok(block) = panel.block(crate::DRAWN_AT);

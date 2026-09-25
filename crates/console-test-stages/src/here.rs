@@ -9,42 +9,45 @@
 //! would make it a race instead.
 
 use console_core_geometry::Point;
-use evdev::EventType;
-use console_input_controller::doing::{Doing, Out};
-use console_input_controller::means::Table;
-use console_input_controller::mode::{Awake, Mode};
+use console_input_event_devices::EventType;
+use console_input_controller::effect::{Effect, Output};
+use console_input_controller::actions::Table;
+use console_input_controller::mode::{Woken, Mode};
 
-pub use console_input_controller::mode::Acts;
+pub use console_input_controller::mode::InputHandling;
+use console_input_controller::clock::Instant;
+use console_input_controller::reading::{POLL, Wake};
 use console_input_controller::turning::Turning;
 use console_input_gamepad::capture::captured;
 use console_input_gamepad::devices::Devices;
-use console_input_gamepad::go::{Held, LegionGo};
+use console_input_gamepad::go::{RecordingClock, LegionGo};
 use console_input_gamepad::router::every_profile;
 use console_input_gamepad::world::World;
 use console_core_never::Never;
 
-use crate::Awry;
-use crate::device::Seen;
+use crate::Error;
+use crate::checking::{CheckResult, same};
+use crate::device::Ready;
 use crate::plug::Plug;
 
-pub const TURNS: usize = 3;
+pub const TURNS: u32 = 3;
 
 const STARTED: f64 = 1000.0;
 
 pub struct Here {
-    pub go: LegionGo<World, Held>,
+    pub go: LegionGo<World, RecordingClock>,
     turning: Turning,
-    now: f64,
+    now: Instant,
     pub commands: Vec<Vec<String>>,
-    pub written: Vec<Out>,
-    pub told: Vec<console_onscreen::Said>,
+    pub written: Vec<Output>,
+    pub told: Vec<console_onscreen::PadInput>,
     pub using: Option<console_input_bindings::bound::Input>,
-    layers: Option<serde_json::Value>,
-    awake: Awake,
+    layers: Option<Vec<console_compositor::Layer>>,
+    awake: Woken,
 }
 
 impl Here {
-    pub fn new() -> Result<Self, Awry> {
+    pub fn new() -> Result<Self, Error> {
         let seen = captured()?;
         let world = captured()?;
         let Ok(world) = World::of(world);
@@ -52,41 +55,41 @@ impl Here {
         let Ok(root) = crate::root();
         let profiles = every_profile(&root)?;
         let go =
-            LegionGo::new(profiles, devices, Held::default(), console_input_gamepad::router::NAME)?;
+            LegionGo::new(profiles, devices, RecordingClock::default(), console_input_gamepad::router::NAME)?;
         Ok(Here {
             go,
             turning: Turning::default(),
-            now: STARTED,
+            now: Instant { since_boot: STARTED, suspended: 0.0 },
             commands: Vec::new(),
             written: Vec::new(),
             told: Vec::new(),
             using: None,
             layers: None,
-            awake: Awake::No,
+            awake: Woken::No,
         })
     }
 
-    pub fn press(&mut self, button: &str) -> Result<(), Awry> {
-        self.go.press(button).map_err(Awry::Pressing)
+    pub fn press(&mut self, button: &str) -> Result<(), Error> {
+        self.go.press(button).map_err(Error::Pressing)
     }
 
-    pub fn hold(&mut self, button: &str) -> Result<(), Awry> {
-        self.go.hold(button).map_err(Awry::Pressing)
+    pub fn hold(&mut self, button: &str) -> Result<(), Error> {
+        self.go.hold(button).map_err(Error::Pressing)
     }
 
-    pub fn release(&mut self, button: Option<&str>) -> Result<(), Awry> {
+    pub fn release(&mut self, button: Option<&str>) -> Result<(), Error> {
         match button {
-            Some(button) => self.go.release(button).map_err(Awry::Pressing),
-            None => self.go.release_all().map_err(Awry::Pressing),
+            Some(button) => self.go.release(button).map_err(Error::Pressing),
+            None => self.go.release_all().map_err(Error::Pressing),
         }
     }
 
-    pub fn stick(&mut self, which: &str, to: Point<f64>) -> Result<(), Awry> {
-        self.go.stick(which, to).map_err(Awry::Pressing)
+    pub fn stick(&mut self, which: &str, to: Point<f64>) -> Result<(), Error> {
+        self.go.stick(which, to).map_err(Error::Pressing)
     }
 
-    pub fn trigger(&mut self, which: &str, amount: f64) -> Result<(), Awry> {
-        self.go.trigger(which, amount).map_err(Awry::Pressing)
+    pub fn trigger(&mut self, which: &str, amount: f64) -> Result<(), Error> {
+        self.go.trigger(which, amount).map_err(Error::Pressing)
     }
 
     pub fn tap(&mut self, at: Point<i32>) -> Result<(), Never> {
@@ -97,8 +100,8 @@ impl Here {
         self.go.drag(from, to, 8, 0.0)
     }
 
-    pub fn load_profile(&mut self, name: &str) -> Result<(), Awry> {
-        self.go.load_profile(name).map_err(Awry::Pressing)
+    pub fn load_profile(&mut self, name: &str) -> Result<(), Error> {
+        self.go.load_profile(name).map_err(Error::Pressing)
     }
 
     pub fn bound_by(&mut self, table: Table) -> Result<(), Never> {
@@ -107,9 +110,16 @@ impl Here {
         Ok(())
     }
 
-    pub fn showing(&mut self, layers: &str) -> Result<(), Awry> {
-        let said = serde_json::from_str(layers).map_err(Awry::Layers)?;
-        self.layers = Some(said);
+    pub fn showing(&mut self, layers: &str) -> Result<(), Error> {
+        let said = serde_json::from_str(layers).map_err(Error::Layers)?;
+
+        let read = console_compositor::answer_of(console_compositor::Query::Layers, said);
+
+        self.layers = match read {
+            Ok(console_compositor::Answer::Layers(layers)) => Some(layers),
+            Ok(_not_what_was_asked) => None,
+            Err(_unreadable) => None,
+        };
 
         let Ok(()) = self.reckons();
 
@@ -127,7 +137,7 @@ impl Here {
         self.in_front(seen)
     }
 
-    pub fn awake(&self) -> Result<Awake, Never> {
+    pub fn awake(&self) -> Result<Woken, Never> {
         Ok(self.awake)
     }
 
@@ -136,10 +146,10 @@ impl Here {
 
         for what in now_in {
             match what {
-                Doing::Run(argv) => self.commands.push(argv),
-                Doing::Frame(frame) => self.written.extend(frame),
-                Doing::Tell(said) => self.told.push(said),
-                Doing::Using(on) => self.using = Some(on),
+                Effect::Run(arguments) => self.commands.push(arguments),
+                Effect::Frame(frame) => self.written.extend(frame),
+                Effect::Tell(said) => self.told.push(said),
+                Effect::Using(on) => self.using = Some(on),
             }
         }
 
@@ -150,13 +160,13 @@ impl Here {
         Ok(self.turning.held.mode)
     }
 
-    pub fn acts(&self) -> Result<Acts, Never> {
+    pub fn input_handling(&self) -> Result<InputHandling, Never> {
         let Ok(mode) = self.mode();
 
-        mode.acts()
+        mode.input_handling()
     }
 
-    pub fn settle(&mut self, turns: usize) -> Result<(), Never> {
+    pub fn settle(&mut self, turns: u32) -> Result<(), Never> {
         for _ in 0..turns {
             let mut plug = Plug { devices: &mut self.go.devices };
 
@@ -164,31 +174,34 @@ impl Here {
 
             for what in turned {
                 match what {
-                    Doing::Run(argv) => self.commands.push(argv),
-                    Doing::Frame(frame) => self.written.extend(frame),
-                    Doing::Tell(said) => {
+                    Effect::Run(arguments) => self.commands.push(arguments),
+                    Effect::Frame(frame) => self.written.extend(frame),
+                    Effect::Tell(said) => {
                         self.told.push(said);
                         self.awake = match said {
-                            console_onscreen::Said::Back => Awake::No,
-                            console_onscreen::Said::Up
-                            | console_onscreen::Said::Down
-                            | console_onscreen::Said::Left
-                            | console_onscreen::Said::Right
-                            | console_onscreen::Said::Pressed
-                            | console_onscreen::Said::More
-                            | console_onscreen::Said::Again
-                            | console_onscreen::Said::Carry
-                            | console_onscreen::Said::Off => Awake::Yes,
+                            console_onscreen::PadInput::Back => Woken::No,
+                            console_onscreen::PadInput::Up
+                            | console_onscreen::PadInput::Down
+                            | console_onscreen::PadInput::Left
+                            | console_onscreen::PadInput::Right
+                            | console_onscreen::PadInput::Pressed
+                            | console_onscreen::PadInput::More
+                            | console_onscreen::PadInput::Again
+                            | console_onscreen::PadInput::Payload
+                            | console_onscreen::PadInput::Off => Woken::Yes,
                         };
                         let Ok(()) = self.reckons();
                     }
-                    Doing::Using(on) => self.using = Some(on),
+                    Effect::Using(on) => self.using = Some(on),
                 }
             }
 
-            let Ok(poll) = self.turning.poll();
+            let Ok(wake) = self.turning.wake();
 
-            self.now += poll;
+            self.now.since_boot += match wake {
+                Wake::Within(seconds) => seconds.min(POLL),
+                Wake::OnInput => POLL,
+            };
         }
 
         Ok(())
@@ -198,21 +211,22 @@ impl Here {
         Ok(&self.commands)
     }
 
+    pub fn ran(&mut self, wanted: &[&[&str]]) -> CheckResult {
+        let Ok(()) = self.settle(TURNS);
+        let ran = &self.commands;
+
+        same(ran, wanted, || format!("it ran {ran:?}"))
+    }
+
     pub fn dispatches(&self) -> Result<Vec<String>, Never> {
-        Ok(self
-            .commands
-            .iter()
-            .filter(|argv| argv.first().is_some_and(|word| word.ends_with("hyprctl")))
-            .filter(|argv| argv.get(1).is_some_and(|word| word == "dispatch"))
-            .filter_map(|argv| argv.last().cloned())
-            .collect())
+        console_compositor::dispatched(&self.commands)
     }
 
     pub fn names(&self) -> Result<Vec<String>, Never> {
         Ok(self
             .commands
             .iter()
-            .filter_map(|argv| argv.first())
+            .filter_map(|arguments| arguments.first())
             .map(|program| match program.rsplit('/').next() {
                 Some(named) => named.to_string(),
                 None => program.clone(),
@@ -233,15 +247,15 @@ impl Here {
             .sum())
     }
 
-    pub fn sent(&self, kind: EventType, code: u16, value: i32) -> Result<Seen, Never> {
+    pub fn sent(&self, kind: EventType, code: u16, value: i32) -> Result<Ready, Never> {
         let found = self
             .written
             .iter()
             .any(|out| out.kind == kind && out.code == code && out.value == value);
 
         Ok(match found {
-            true => Seen::Yes,
-            false => Seen::NotYet,
+            true => Ready::Yes,
+            false => Ready::NotYet,
         })
     }
 
@@ -253,7 +267,7 @@ impl Here {
         Ok(())
     }
 
-    pub fn told(&self) -> Result<&[console_onscreen::Said], Never> {
+    pub fn told(&self) -> Result<&[console_onscreen::PadInput], Never> {
         Ok(&self.told)
     }
 }
@@ -261,7 +275,7 @@ impl Here {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use evdev::RelativeAxisCode;
+    use console_input_event_devices::RelativeAxisCode;
 
     fn names(here: &Here) -> Vec<String> {
         let Ok(names) = here.names();
@@ -292,7 +306,7 @@ mod tests {
     #[test]
     fn a_stick_held_over_turns_of_the_loop_turns_the_wheel() {
         let mut here = Here::new().expect("a stage");
-        here.stick("right-stick", Point { across: 0.0, down: -1.0 }).expect("a stick");
+        here.stick("right-stick", Point { x: 0.0, y: -1.0 }).expect("a stick");
         here.settle(12);
         assert!(wrote(&here, EventType::RELATIVE, RelativeAxisCode::REL_WHEEL.0) > 0);
     }

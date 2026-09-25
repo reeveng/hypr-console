@@ -1,7 +1,7 @@
 //! What the store says, added up.
 //!
 //! Not averages. A mean is what a handheld is like on a good day with fifty
-//! quick openings hiding the three that made somebody put the device down, and
+//! quick openings hiding the three that made someone put the device down, and
 //! the three are the whole question. So: the middle one, the slow tenth, and
 //! the worst there has ever been.
 //!
@@ -13,18 +13,18 @@
 
 
 use console_core_never::Never;
-use console_core_number_conversion::{Float, toward_zero_usize};
+use console_core_number_conversion::{Float, fitted, index, toward_zero_u32};
 use std::collections::BTreeMap;
 use std::cmp::Reverse;
 use std::time::Duration;
 
 use crate::line::{Entry, ms};
 
-pub const ENOUGH: usize = 10;
+pub const ENOUGH: u32 = 10;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Spread {
-    pub many: usize,
+    pub many: u32,
     pub middle: Duration,
     pub high: Option<Duration>,
     pub worst: Duration,
@@ -48,9 +48,9 @@ pub fn at_share(sorted: &[Duration], share: f64) -> Result<Duration, Never> {
     }
 
     let Ok(many) = sorted.len().float();
-    let Ok(rank) = toward_zero_usize((share * many).ceil().max(1.0));
-
-    let at = rank.min(sorted.len()).saturating_sub(1);
+    let Ok(rank) = toward_zero_u32((share * many).ceil().max(1.0));
+    let Ok(listed) = fitted::<_, u32>(sorted.len());
+    let Ok(at) = index(rank.min(listed).saturating_sub(1));
 
     Ok(match sorted.get(at).copied() {
         Some(took) => took,
@@ -62,7 +62,9 @@ pub fn spread(mut took: Vec<Duration>) -> Result<Spread, Never> {
     took.sort_unstable();
 
     let Ok(middle) = at_share(&took, 0.5);
-    let high = match took.len() >= ENOUGH {
+    let Ok(many) = fitted::<_, u32>(took.len());
+
+    let high = match many >= ENOUGH {
         true => {
             let Ok(high) = at_share(&took, 0.9);
 
@@ -76,7 +78,7 @@ pub fn spread(mut took: Vec<Duration>) -> Result<Spread, Never> {
         None => Duration::ZERO,
     };
 
-    Ok(Spread { many: took.len(), middle, high, worst })
+    Ok(Spread { many, middle, high, worst })
 }
 
 pub fn about(entries: &[Entry]) -> Result<Vec<About>, Never> {

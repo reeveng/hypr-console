@@ -1,0 +1,20 @@
+[Unit]
+Description=Wi-Fi network
+PartOf=console.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/console-wifi
+ExecStopPost=-/usr/local/bin/console-report-crash %n
+Restart=always
+RestartSec=2
+
+# What this reaches past `console-.service.d/confining.conf`, and why.
+#
+# Nothing: it asks NetworkManager over the system bus and hears the event pool
+# over its socket, and both are sockets on this machine.
+PrivateDevices=yes
+RestrictAddressFamilies=AF_UNIX
+
+[Install]
+WantedBy=console.target

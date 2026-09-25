@@ -1,4 +1,4 @@
-//! A scenario: what somebody did with their thumbs, written down.
+//! A scenario: what someone did with their thumbs, written down.
 //!
 //! ```text
 //! profile desktop
@@ -17,8 +17,8 @@
 //! to the buttons that exist.
 
 
-use console_core_number_conversion::toward_zero_i32;
-use crate::Unpressed;
+use console_core_number_conversion::{fitted, index, toward_zero_i32};
+use crate::GamepadError;
 use crate::devices::Sink;
 use crate::go::{Clock, LegionGo, MIDDLE};
 use console_core_geometry::Point;
@@ -29,11 +29,11 @@ const DRAG_STEPS: i32 = 8;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Step {
     Profile(String),
-    Press(Vec<String>),
+    ButtonPress(Vec<String>),
     Hold(Vec<String>),
     Release(Vec<String>),
     Stick { which: String, to: Point<f64> },
-    Centre(String),
+    Center(String),
     Trigger { which: String, amount: f64 },
     Tap { at: Point<i32> },
     Drag { from: Point<i32>, to: Point<i32>, seconds: f64 },
@@ -41,22 +41,24 @@ pub enum Step {
     Wait(f64),
 }
 
-fn number(word: &str) -> Result<f64, Unpressed> {
+fn number(word: &str) -> Result<f64, GamepadError> {
     word.parse::<f64>()
-        .map_err(|_| Unpressed::NotANumber(word.to_string()))
+        .map_err(|_| GamepadError::NotANumber(word.to_string()))
 }
 
-fn whole(word: &str) -> Result<i32, Unpressed> {
+fn whole(word: &str) -> Result<i32, GamepadError> {
     let said = number(word)?;
     let Ok(whole) = toward_zero_i32(said);
 
     Ok(whole)
 }
 
-fn word(rest: &[&str], at: usize, what: &'static str) -> Result<String, Unpressed> {
+fn word(rest: &[&str], at: u32, what: &'static str) -> Result<String, GamepadError> {
+    let Ok(at) = index(at);
+
     rest.get(at)
         .map(|said| (*said).to_string())
-        .ok_or(Unpressed::NothingSaid(what))
+        .ok_or(GamepadError::NotFound(what))
 }
 
 fn stick_named(said: &str) -> Result<String, Never> {
@@ -67,7 +69,7 @@ fn stick_named(said: &str) -> Result<String, Never> {
 }
 
 impl Step {
-    pub fn read(line: &str) -> Result<Option<Step>, Unpressed> {
+    pub fn read(line: &str) -> Result<Option<Step>, GamepadError> {
         let Ok(bare) = console_core_ini_files::without_a_comment(line);
         let words: Vec<&str> = bare.split_whitespace().collect();
         let (verb, rest) = match words.split_first() {
@@ -81,7 +83,7 @@ impl Step {
 
                 Step::Profile(name)
             }
-            "press" => Step::Press(named()),
+            "press" => Step::ButtonPress(named()),
             "hold" => Step::Hold(named()),
             "release" => Step::Release(named()),
             "stick" => {
@@ -93,14 +95,14 @@ impl Step {
 
                 let Ok(named) = stick_named(&which);
 
-                Step::Stick { which: named, to: Point { across: x, down: y } }
+                Step::Stick { which: named, to: Point { x, y } }
             }
-            "centre" => {
+            "center" => {
                 let which = word(rest, 0, "stick")?;
 
                 let Ok(named) = stick_named(&which);
 
-                Step::Centre(named)
+                Step::Center(named)
             }
             "trigger" => {
                 let which = word(rest, 0, "trigger")?;
@@ -110,14 +112,14 @@ impl Step {
                 Step::Trigger { which, amount }
             }
             "tap" => match rest.is_empty() {
-                true => Step::Tap { at: Point { across: MIDDLE, down: MIDDLE } },
+                true => Step::Tap { at: Point { x: MIDDLE, y: MIDDLE } },
                 false => {
                     let across = word(rest, 0, "x")?;
                     let down = word(rest, 1, "y")?;
                     let x = whole(&across)?;
                     let y = whole(&down)?;
 
-                    Step::Tap { at: Point { across: x, down: y } }
+                    Step::Tap { at: Point { x, y } }
                 }
             },
             "drag" => {
@@ -135,8 +137,8 @@ impl Step {
                 };
 
                 Step::Drag {
-                    from: Point { across: from_x, down: from_y },
-                    to: Point { across: to_x, down: to_y },
+                    from: Point { x: from_x, y: from_y },
+                    to: Point { x: to_x, y: to_y },
                     seconds,
                 }
             }
@@ -151,15 +153,15 @@ impl Step {
 
                 Step::Wait(seconds)
             }
-            other => return Err(Unpressed::NoSuchStep(other.to_string())),
+            other => return Err(GamepadError::NoSuchStep(other.to_string())),
         };
         Ok(Some(step))
     }
 
-    pub fn done<S: Sink, C: Clock>(&self, go: &mut LegionGo<S, C>) -> Result<(), Unpressed> {
+    pub fn done<S: Sink, C: Clock>(&self, go: &mut LegionGo<S, C>) -> Result<(), GamepadError> {
         match self {
             Step::Profile(name) => go.load_profile(name),
-            Step::Press(buttons) => {
+            Step::ButtonPress(buttons) => {
                 for button in buttons {
                     go.press(button)?;
                 }
@@ -173,16 +175,18 @@ impl Step {
 
                 Ok(())
             }
-            Step::Release(buttons) if buttons.is_empty() => go.release_all(),
-            Step::Release(buttons) => {
-                for button in buttons {
-                    go.release(button)?;
-                }
+            Step::Release(buttons) => match buttons.is_empty() {
+                true => go.release_all(),
+                false => {
+                    for button in buttons {
+                        go.release(button)?;
+                    }
 
-                Ok(())
-            }
+                    Ok(())
+                }
+            },
             Step::Stick { which, to } => go.stick(which, *to),
-            Step::Centre(which) => go.centre(which),
+            Step::Center(which) => go.center(which),
             Step::Trigger { which, amount } => go.trigger(which, *amount),
             Step::Tap { at } => {
                 let Ok(()) = go.tap(*at);
@@ -208,21 +212,23 @@ impl Step {
     }
 }
 
-pub fn read(text: &str) -> Result<Vec<Step>, Unpressed> {
+pub fn read(text: &str) -> Result<Vec<Step>, GamepadError> {
     text.lines()
         .enumerate()
         .map(|(number, line)| {
+            let Ok(number) = fitted::<_, u32>(number);
+
             Step::read(line)
-                .map_err(|fault| Unpressed::AtLine(number.saturating_add(1), Box::new(fault)))
+                .map_err(|fault| GamepadError::AtLine(number.saturating_add(1), Box::new(fault)))
         })
-        .collect::<Result<Vec<Option<Step>>, Unpressed>>()
+        .collect::<Result<Vec<Option<Step>>, GamepadError>>()
         .map(|steps| steps.into_iter().flatten().collect())
 }
 
 pub fn play<S: Sink, C: Clock>(
     go: &mut LegionGo<S, C>,
     text: &str,
-) -> Result<Vec<Step>, Unpressed> {
+) -> Result<Vec<Step>, GamepadError> {
     let steps = read(text)?;
 
     for step in &steps {
@@ -238,7 +244,7 @@ pub const VERBS: &str = "\
   hold <button>...          press and keep pressing
   release [<button>...]     let go, of everything if nothing is named
   stick left|right <x> <y>  push a stick, each axis from -1 to 1
-  centre left|right         let it go back
+  center left|right         let it go back
   trigger l2|r2 <amount>    pull a trigger, from 0 to 1
   tap [<x> <y>]             a quick touch on the touchpad
   drag <x> <y> <x> <y> [s]  a finger from one place to another
@@ -257,12 +263,12 @@ mod tests {
     fn a_blank_line_and_a_comment_are_nothing() {
         assert_eq!(step(""), None);
         assert_eq!(step("   "), None);
-        assert_eq!(step("# what somebody did"), None);
+        assert_eq!(step("# what someone did"), None);
     }
 
     #[test]
     fn a_comment_after_a_step_is_still_a_comment() {
-        assert_eq!(step("press a  # click"), Some(Step::Press(vec!["a".into()])));
+        assert_eq!(step("press a  # click"), Some(Step::ButtonPress(vec!["a".into()])));
     }
 
     #[test]
@@ -273,7 +279,7 @@ mod tests {
             both[0],
             Some(Step::Stick {
                 which: "left-stick".into(),
-                to: Point { across: 1.0, down: 0.0 },
+                to: Point { x: 1.0, y: 0.0 },
             })
         );
     }
@@ -287,7 +293,7 @@ mod tests {
     fn a_tap_with_nowhere_named_lands_in_the_middle() {
         assert_eq!(
             step("tap"),
-            Some(Step::Tap { at: Point { across: MIDDLE, down: MIDDLE } })
+            Some(Step::Tap { at: Point { x: MIDDLE, y: MIDDLE } })
         );
     }
 
@@ -296,16 +302,16 @@ mod tests {
         assert_eq!(
             step("drag 0 0 10 10"),
             Some(Step::Drag {
-                from: Point { across: 0, down: 0 },
-                to: Point { across: 10, down: 10 },
+                from: Point { x: 0, y: 0 },
+                to: Point { x: 10, y: 10 },
                 seconds: 0.0,
             })
         );
         assert_eq!(
             step("drag 0 0 10 10 0.5"),
             Some(Step::Drag {
-                from: Point { across: 0, down: 0 },
-                to: Point { across: 10, down: 10 },
+                from: Point { x: 0, y: 0 },
+                to: Point { x: 10, y: 10 },
                 seconds: 0.5,
             })
         );
@@ -316,8 +322,8 @@ mod tests {
         let fault = read("press a\nsqueeze b\n").expect_err("no such verb");
 
         match fault {
-            Unpressed::AtLine(2, ref inner) => match **inner {
-                Unpressed::NoSuchStep(ref said) => assert_eq!(said, "squeeze"),
+            GamepadError::AtLine(2, ref inner) => match **inner {
+                GamepadError::NoSuchStep(ref said) => assert_eq!(said, "squeeze"),
                 ref other => panic!("{other:?}"),
             },
             ref other => panic!("{other:?}"),
@@ -328,11 +334,11 @@ mod tests {
     fn a_step_missing_what_it_needs_says_what_is_missing() {
         assert!(matches!(
             Step::read("stick left 1"),
-            Err(Unpressed::NothingSaid("up or down"))
+            Err(GamepadError::NotFound("up or down"))
         ));
         assert!(matches!(
             Step::read("wait soon"),
-            Err(Unpressed::NotANumber(ref said)) if said == "soon"
+            Err(GamepadError::NotANumber(ref said)) if said == "soon"
         ));
     }
 }

@@ -9,6 +9,9 @@ Type=simple
 ExecStart=/usr/bin/syncthing serve --no-browser --no-restart --logflags=0
 Restart=on-failure
 RestartSec=5
+# The two folders every machine it is paired with is offered. Not a failure of
+# the unit when it cannot: the folders already there go on syncing.
+ExecStartPost=-/usr/local/bin/syncthing-shared-folders
 # Syncthing asks to be started again by leaving with these, which is what it
 # does when it has taken a new configuration or upgraded itself. Read as a
 # failure they would be a service that stops the first time it is reconfigured.

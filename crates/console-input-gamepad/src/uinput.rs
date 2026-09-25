@@ -5,17 +5,14 @@
 //! you is reading them, and `press a` clicks whatever the pointer is on.
 
 use std::collections::BTreeMap;
-use std::ffi::CString;
-
-use evdev::uinput::{VirtualDevice, VirtualDeviceBuilder};
-use evdev::{
-    AbsInfo, AbsoluteAxisCode, AttributeSet, BusType, EventType, InputEvent, InputId, KeyCode,
-    MiscCode, PropType, RelativeAxisCode, UinputAbsSetup,
+use console_input_event_devices::{
+    AbsInfo, AbsoluteAxisCode, BusType, EventType, InputEvent, InputId, KeyCode, MiscCode, PropType,
+    RelativeAxisCode, Setup, VirtualDevice,
 };
 
 use crate::capture::Descriptor;
 use crate::devices::{Has, Sink};
-use crate::{Making, Unpressed};
+use crate::GamepadError;
 
 struct Made {
     device: VirtualDevice,
@@ -28,98 +25,54 @@ pub struct Uinput {
 }
 
 impl Uinput {
-    pub fn of(descriptors: &BTreeMap<String, Descriptor>) -> Result<Self, Unpressed> {
+    pub fn of(descriptors: &BTreeMap<String, Descriptor>) -> Result<Self, GamepadError> {
         descriptors
             .iter()
             .map(|(role, descriptor)| built(descriptor).map(|made| (role.clone(), made)))
-            .collect::<Result<BTreeMap<String, Made>, Unpressed>>()
+            .collect::<Result<BTreeMap<String, Made>, GamepadError>>()
             .map(|made| Uinput { made })
     }
 }
 
-fn built(descriptor: &Descriptor) -> Result<Made, Unpressed> {
-    let fault = |making: Making| move |e: std::io::Error| Unpressed::Unmade(making, e);
+fn built(descriptor: &Descriptor) -> Result<Made, GamepadError> {
+    let setup = Setup {
+        name: descriptor.name.clone(),
+        id: InputId {
+            bus: BusType(descriptor.bustype),
+            vendor: descriptor.vendor,
+            product: descriptor.product,
+            version: descriptor.version,
+        },
+        physical_path: match descriptor.phys.is_empty() {
+            true => None,
+            false => Some(descriptor.phys.clone()),
+        },
+        keys: descriptor.capabilities.key.iter().map(|code| KeyCode(*code)).collect(),
+        relative_axes: descriptor.capabilities.rel.iter().map(|code| RelativeAxisCode(*code)).collect(),
+        absolute_axes: descriptor
+            .capabilities
+            .abs
+            .iter()
+            .map(|axis| {
+                let info = AbsInfo {
+                    value: 0,
+                    minimum: axis.min,
+                    maximum: axis.max,
+                    fuzz: axis.fuzz,
+                    flat: axis.flat,
+                    resolution: axis.resolution,
+                };
 
-    let phys =
-        CString::new(descriptor.phys.as_str()).map_err(|_| Unpressed::PhysHasANul)?;
-    let id = InputId::new(
-        BusType(descriptor.bustype),
-        descriptor.vendor,
-        descriptor.product,
-        descriptor.version,
-    );
+                (AbsoluteAxisCode(axis.code), info)
+            })
+            .collect(),
+        misc: descriptor.capabilities.msc.iter().map(|code| MiscCode(*code)).collect(),
+        properties: descriptor.properties.iter().map(|code| PropType(*code)).collect(),
+    };
+    let device = VirtualDevice::create(&setup).map_err(GamepadError::Device)?;
+    let nodes = device.nodes().map_err(GamepadError::ListNodes)?;
+    let path = nodes.first().map(|node| node.display().to_string());
 
-    let opened = VirtualDevice::builder().map_err(fault(Making::Opening))?;
-    let mut builder: VirtualDeviceBuilder = opened
-        .name(&descriptor.name)
-        .input_id(id)
-        .with_phys(&phys)
-        .map_err(fault(Making::Phys))?;
-
-    match descriptor.capabilities.key.is_empty() {
-        true => {},
-        false => {
-            let keys: AttributeSet<KeyCode> =
-                descriptor.capabilities.key.iter().map(|code| KeyCode(*code)).collect();
-            let keyed = builder.with_keys(&keys).map_err(fault(Making::Keys))?;
-
-            builder = keyed;
-        }
-    }
-
-    match descriptor.capabilities.rel.is_empty() {
-        true => {},
-        false => {
-            let axes: AttributeSet<RelativeAxisCode> =
-                descriptor.capabilities.rel.iter().map(|code| RelativeAxisCode(*code)).collect();
-            let with_axes = builder
-                .with_relative_axes(&axes)
-                .map_err(fault(Making::RelativeAxes))?;
-
-            builder = with_axes;
-        }
-    }
-
-    match descriptor.capabilities.msc.is_empty() {
-        true => {},
-        false => {
-            let misc: AttributeSet<MiscCode> =
-                descriptor.capabilities.msc.iter().map(|code| MiscCode(*code)).collect();
-            let with_misc = builder.with_msc(&misc).map_err(fault(Making::Misc))?;
-
-            builder = with_misc;
-        }
-    }
-
-    match descriptor.properties.is_empty() {
-        true => {},
-        false => {
-            let props: AttributeSet<PropType> =
-                descriptor.properties.iter().map(|code| PropType(*code)).collect();
-            let with_props = builder
-                .with_properties(&props)
-                .map_err(fault(Making::Properties))?;
-
-            builder = with_props;
-        }
-    }
-
-    for axis in &descriptor.capabilities.abs {
-        let setup = UinputAbsSetup::new(
-            AbsoluteAxisCode(axis.code),
-            AbsInfo::new(0, axis.min, axis.max, axis.fuzz, axis.flat, axis.resolution),
-        );
-        let with_axis = builder.with_absolute_axis(&setup).map_err(fault(Making::Axis))?;
-
-        builder = with_axis;
-    }
-
-    let mut device = builder.build().map_err(fault(Making::Building))?;
-    let mut nodes = device
-        .enumerate_dev_nodes_blocking()
-        .map_err(fault(Making::Listing))?;
-    let first = nodes.next().transpose().map_err(fault(Making::Reading))?;
-    let path = first.map(|node| node.display().to_string());
     Ok(Made { device, path, frame: Vec::new() })
 }
 
@@ -137,7 +90,7 @@ impl Sink for Uinput {
 
     fn write(&mut self, role: &str, kind: EventType, code: u16, value: i32) {
         match self.made.get_mut(role) {
-            Some(made) => made.frame.push(InputEvent::new(kind.0, code, value)),
+            Some(made) => made.frame.push(InputEvent { kind, code, value }),
             None => {},
         }
     }

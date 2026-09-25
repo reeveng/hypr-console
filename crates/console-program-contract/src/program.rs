@@ -4,51 +4,51 @@ use std::fmt::Debug;
 
 use console_core_never::Never;
 
-use crate::argv::Argv;
-use crate::doing::Doing;
-use crate::wants::Wants;
-use crate::word::Word;
+use crate::arguments::Arguments;
+use crate::effect::Effect;
+use crate::subscription::Subscription;
+use crate::event::Event;
 
 pub trait Program {
     type State: Clone + Debug + PartialEq;
 
-    type Hears: Clone + Debug + PartialEq;
+    type Event: Clone + Debug + PartialEq;
 
-    type Does: Clone + Debug + PartialEq;
+    type Effect: Clone + Debug + PartialEq;
 
-    fn opening(argv: &Argv) -> Opening<Self::State>;
+    fn init(arguments: &Arguments) -> Initial<Self::State>;
 
-    fn heard(state: &Self::State, word: &Word<Self::Hears>) -> Turn<Self::State, Self::Does>;
+    fn update(state: &Self::State, event: &Event<Self::Event>) -> Update<Self::State, Self::Effect>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Opening<State> {
+pub struct Initial<State> {
     pub state: State,
-    pub wants: Vec<Wants>,
+    pub subscriptions: Vec<Subscription>,
 }
 
-impl<State> Opening<State> {
-    pub fn holding(state: State) -> Result<Self, Never> {
-        Ok(Opening { state, wants: Vec::new() })
+impl<State> Initial<State> {
+    pub fn new(state: State) -> Result<Self, Never> {
+        Ok(Initial { state, subscriptions: Vec::new() })
     }
 
-    pub fn listening(state: State, wants: Vec<Wants>) -> Result<Self, Never> {
-        Ok(Opening { state, wants })
+    pub fn subscribed(state: State, subscriptions: Vec<Subscription>) -> Result<Self, Never> {
+        Ok(Initial { state, subscriptions })
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Turn<State, Does> {
-    pub now: State,
-    pub doings: Vec<Doing<Does>>,
+pub struct Update<State, F> {
+    pub state: State,
+    pub effects: Vec<Effect<F>>,
 }
 
-impl<State, Does> Turn<State, Does> {
-    pub fn nothing(now: State) -> Result<Self, Never> {
-        Ok(Turn { now, doings: Vec::new() })
+impl<State, F> Update<State, F> {
+    pub fn none(state: State) -> Result<Self, Never> {
+        Ok(Update { state, effects: Vec::new() })
     }
 
-    pub fn doing(now: State, doings: Vec<Doing<Does>>) -> Result<Self, Never> {
-        Ok(Turn { now, doings })
+    pub fn new(state: State, effects: Vec<Effect<F>>) -> Result<Self, Never> {
+        Ok(Update { state, effects })
     }
 }

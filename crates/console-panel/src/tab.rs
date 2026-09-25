@@ -3,7 +3,7 @@
 //! Opened with a tab named, a panel opens at that one: tapping the battery on
 //! the bar arrives at Battery whatever was last looked at. Opened with nothing
 //! named, it used to open at the first tab every time, which is the one answer
-//! that is right for nobody: somebody who opened the settings for the Wi-Fi
+//! that is right for no one: someone who opened the settings for the Wi-Fi
 //! twice running was taken to the battery twice running.
 //!
 //! So a panel opened with nothing named opens where it was left. A tab that

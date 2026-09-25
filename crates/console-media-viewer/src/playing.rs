@@ -16,13 +16,18 @@
 //! left does at the very start of a film is a question with an answer on a
 //! laptop.
 
+use std::time::Duration;
+
+use console_core_localization::positional;
 use console_core_never::Never;
-use console_core_number_conversion::{Float, toward_zero_u64};
+use console_core_number_conversion::{Float, fitted, index, toward_zero_u64};
 use console_panel::icons::Icon;
 
 pub const STEP: u64 = 5;
 
 pub const STRIDE: u64 = 60;
+
+pub const SKIP: u64 = 10;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Running {
@@ -105,21 +110,23 @@ pub enum Ended {
 }
 
 pub const SPEEDS: [(&str, f64); 4] =
-    [("Half speed", 0.5), ("Normal", 1.0), ("Half again", 1.5), ("Twice", 2.0)];
+    [("0.5\u{d7}", 0.5), ("1\u{d7}", 1.0), ("1.5\u{d7}", 1.5), ("2\u{d7}", 2.0)];
 
-pub fn ordinary() -> Result<usize, Never> {
-    Ok(match SPEEDS.iter().position(|(_, rate)| *rate == ORDINARY.1) {
-        Some(at) => at,
-        None => THE_FIRST_SPEED,
-    })
+pub fn ordinary() -> Result<u32, Never> {
+    match SPEEDS.iter().position(|(_, rate)| *rate == ORDINARY.1) {
+        Some(at) => fitted(at),
+        None => Ok(THE_FIRST_SPEED),
+    }
 }
 
-const THE_FIRST_SPEED: usize = 0;
+const THE_FIRST_SPEED: u32 = 0;
 
-pub const ORDINARY: (&str, f64) = ("Normal", 1.0);
+pub const ORDINARY: (&str, f64) = ("1\u{d7}", 1.0);
 
-pub fn speed(at: usize) -> Result<(&'static str, f64), Never> {
+pub fn speed(at: u32) -> Result<(&'static str, f64), Never> {
     let Ok(ordinary) = ordinary();
+    let Ok(ordinary) = index(ordinary);
+    let Ok(at) = index(at);
 
     Ok(match SPEEDS.get(at).or_else(|| SPEEDS.get(ordinary)).copied() {
         Some(speed) => speed,
@@ -131,18 +138,18 @@ pub fn speed(at: usize) -> Result<(&'static str, f64), Never> {
 pub enum Captions {
     #[default]
     Off,
-    Track(usize),
+    Track(u32),
 }
 
 impl Captions {
-    pub fn track(self) -> Result<Option<usize>, Never> {
+    pub fn track(self) -> Result<Option<u32>, Never> {
         Ok(match self {
             Captions::Off => None,
             Captions::Track(at) => Some(at),
         })
     }
 
-    pub fn chosen(at: usize) -> Result<Captions, Never> {
+    pub fn chosen(at: u32) -> Result<Captions, Never> {
         Ok(match at {
             0 => Captions::Off,
             at => Captions::Track(at.saturating_sub(1)),
@@ -150,7 +157,7 @@ impl Captions {
     }
 }
 
-pub fn captions(tracks: usize) -> Result<Vec<String>, Never> {
+pub fn captions(tracks: u32) -> Result<Vec<String>, Never> {
     let mut said = vec!["Off".to_string()];
 
     for track in 0..tracks {
@@ -164,8 +171,11 @@ pub const WRITTEN: [&str; 4] = ["srt", "vtt", "ass", "ssa"];
 
 pub fn beside(name: &str) -> Result<Vec<String>, Never> {
     let stem = match name.rsplit_once('.') {
-        Some((stem, _)) if !stem.is_empty() => stem,
-        Some(_) | None => name,
+        Some((stem, _)) => match stem.is_empty() {
+            true => name,
+            false => stem,
+        },
+        None => name,
     };
 
     let mut said = Vec::new();
@@ -181,25 +191,12 @@ pub fn beside(name: &str) -> Result<Vec<String>, Never> {
     Ok(said)
 }
 
-pub fn clock(seconds: u64) -> Result<String, Never> {
-    let (hours, minutes, seconds) = (
-        seconds.saturating_div(3600),
-        seconds.saturating_div(60).wrapping_rem(60),
-        seconds.wrapping_rem(60),
-    );
-
-    Ok(match hours > 0 {
-        true => format!("{hours}:{minutes:02}:{seconds:02}"),
-        false => format!("{minutes}:{seconds:02}"),
-    })
-}
-
 pub fn said(along: Along) -> Result<String, Never> {
-    let Ok(at) = clock(along.at);
+    let Ok(at) = positional(Duration::from_secs(along.at));
 
     match along.whole > 0 {
         true => {
-            let Ok(whole) = clock(along.whole);
+            let Ok(whole) = positional(Duration::from_secs(along.whole));
 
             Ok(format!("{at} of {whole}"))
         },
@@ -265,7 +262,7 @@ mod tests {
 
     #[test]
     fn there_are_no_more_speeds_than_a_card_has_room_for() {
-        let Ok(buttons) = console_core_number_conversion::fitted::<usize, i32>(SPEEDS.len() + 1);
+        let Ok(buttons) = console_core_number_conversion::fitted::<_, i32>(SPEEDS.len() + 1);
         let across = buttons * console_panel::strip::ANSWER;
         let Ok(card) = console_panel::shape::part_of(1024);
 
@@ -358,15 +355,6 @@ mod tests {
     fn a_film_that_has_run_out_says_so() {
         assert_eq!(along(7325, 7325).ended_now(), Ok(Ended::Yes));
         assert_eq!(along(7324, 7325).ended_now(), Ok(Ended::No));
-    }
-
-    #[test]
-    fn a_time_is_said_with_hours_only_where_there_are_hours() {
-        assert_eq!(clock(0), Ok("0:00".to_string()));
-        assert_eq!(clock(9), Ok("0:09".to_string()));
-        assert_eq!(clock(249), Ok("4:09".to_string()));
-        assert_eq!(clock(3600), Ok("1:00:00".to_string()));
-        assert_eq!(clock(3849), Ok("1:04:09".to_string()));
     }
 
     #[test]

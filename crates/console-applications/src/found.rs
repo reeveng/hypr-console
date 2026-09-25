@@ -5,26 +5,28 @@
 //! a few of these on the wallpaper, and the card that puts one there lists
 //! every one of them. Two programs reading the desktop files two ways would be
 //! two answers to one question, and the second of them would be wrong in some
-//! way nobody had thought about -- a Steam icon found here and not there, a
+//! way no one had thought about -- a Steam icon found here and not there, a
 //! terminal program run without its terminal.
 //!
 //! So it is here, once, and the menu is one of the callers rather than the
 //! owner.
+//!
+//! An application whose icon cannot be found is given the theme's picture of
+//! a program rather than none, because a square with nothing in it reads as
+//! a hole in the home screen rather than as something to press.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use console_core_atomic_writes::Held;
-use console_core_external_programs::Program;
+use console_core_external_programs::{Program, installed};
 use console_core_never::Never;
 use console_core_places::Base;
 
-use crate::entry::{Application, Installed};
-use crate::icons::{FALLBACKS, steam_appid};
-use crate::{counts, entry, icons, image, kept, words};
+use crate::entry::Application;
+use crate::icons::{FALLBACKS, UNPICTURED, steam_appid};
+use crate::{counts, entry, icons, image, cache, words};
 
-const NOWHERE_IN_PARTICULAR: &str = "";
-
+const HEAD: u64 = 65536;
 
 const WHAT_THIS_CRATE_IS_CALLED: &str = "console-applications";
 
@@ -223,10 +225,11 @@ fn steam_icon(appid: &str) -> Result<Option<String>, Never> {
 
 fn read_head(path: &Path) -> std::io::Result<Vec<u8>> {
     use std::io::Read;
-    let mut head = vec![0; 65536];
-    let mut file = std::fs::File::open(path)?;
-    let read = file.read(&mut head)?;
-    head.truncate(read);
+    let file = std::fs::File::open(path)?;
+    let mut head = Vec::new();
+
+    file.take(HEAD).read_to_end(&mut head)?;
+
     Ok(head)
 }
 
@@ -256,23 +259,8 @@ fn icon_at(name: &str, index: &BTreeMap<String, String>) -> Result<Option<String
     steam_icon(appid)
 }
 
-fn here(wanted: &str) -> Result<Installed, Never> {
-    let path = console_core_external_programs::path()?;
-
-    let found = match wanted.starts_with('/') {
-        true => Path::new(wanted).exists(),
-        false => match path {
-            Some(path) => path
-                .split(':')
-                .any(|where_| !where_.is_empty() && Path::new(where_).join(wanted).exists()),
-            None => false,
-        },
-    };
-
-    Ok(match found {
-        true => Installed::Yes,
-        false => Installed::No,
-    })
+fn pictured(found: Option<String>, index: &BTreeMap<String, String>) -> Result<Option<String>, Never> {
+    Ok(found.or_else(|| index.get(UNPICTURED).cloned()))
 }
 
 pub struct Found {
@@ -296,7 +284,7 @@ pub fn machine() -> Result<Found, Never> {
             Err(_fault) => continue,
         };
 
-        let app = entry::read(&said, here)?;
+        let app = entry::read(&said, installed)?;
 
         let app = match app {
             Some(app) => app,
@@ -309,6 +297,7 @@ pub fn machine() -> Result<Found, Never> {
         }
 
         let found = icon_at(&app.icon, &index)?;
+        let found = pictured(found, &index)?;
 
         match found {
             Some(found) => {
@@ -338,7 +327,7 @@ pub fn quickly() -> Result<Found, Never> {
             Err(_fault) => continue,
         };
 
-        let app = entry::read(&said, here)?;
+        let app = entry::read(&said, installed)?;
 
         let app = match app {
             Some(app) => app,
@@ -351,30 +340,34 @@ pub fn quickly() -> Result<Found, Never> {
     Ok(Found { apps, icon: BTreeMap::new() })
 }
 
+fn said_at(at: Option<PathBuf>) -> Result<String, Never> {
+    let at = match at {
+        Some(at) => at,
+        None => return Ok(String::new()),
+    };
+
+    match console_core_atomic_writes::text_or_empty(&at) {
+        Ok(said) => Ok(said),
+        Err(fault) => {
+            let who = whoami()?;
+
+            eprintln!("{who}: {fault}");
+
+            Ok(String::new())
+        }
+    }
+}
+
 pub fn remembered() -> Result<Found, Never> {
     let mut apps: BTreeMap<String, Application> = BTreeMap::new();
     let mut icon: BTreeMap<String, String> = BTreeMap::new();
 
     let at = kept_at()?;
 
-    let remembered = match at.as_ref().map(|at| console_core_atomic_writes::read(at)) {
-        Some(Ok(Held::Said(held))) => held,
-        Some(Ok(Held::Nothing)) | None => String::new(),
-        Some(Ok(Held::Unreadable(fault))) => {
-            let who = whoami()?;
+    let remembered = said_at(at)?;
 
-            let named = match at.as_ref() {
-                Some(at) => at.display().to_string(),
-                None => NOWHERE_IN_PARTICULAR.to_string(),
-            };
 
-            eprintln!("{who}: {named}: {fault}");
-
-            String::new()
-        }
-    };
-
-    let held = kept::read(&remembered)?;
+    let held = cache::read(&remembered)?;
 
     for held in held {
         match held.picture.is_empty() {
@@ -401,21 +394,14 @@ fn keep(
         None => return Ok(()),
     };
 
-    let said = kept::written(apps, icon)?;
+    let said = cache::written(apps, icon)?;
 
     match std::fs::read_to_string(&at).is_ok_and(|before| before == said) {
         true => return Ok(()),
         false => {},
     }
 
-    match at.parent() {
-        Some(parent) => {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        None => {},
-    }
-
-    let _ = console_core_atomic_writes::whole(&at, said.as_bytes());
+    let _ = console_core_atomic_writes::whole_with_folders(&at, said.as_bytes());
 
     Ok(())
 }
@@ -423,37 +409,23 @@ fn keep(
 pub fn counted() -> Result<BTreeMap<String, u64>, Never> {
     let at = counts_at()?;
 
-    let said = match at.as_ref().map(|at| console_core_atomic_writes::read(at)) {
-        Some(Ok(Held::Said(said))) => said,
-        Some(Ok(Held::Nothing)) | None => String::new(),
-        Some(Ok(Held::Unreadable(fault))) => {
-            let who = whoami()?;
+    let said = said_at(at)?;
 
-            let named = match at.as_ref() {
-                Some(at) => at.display().to_string(),
-                None => NOWHERE_IN_PARTICULAR.to_string(),
-            };
-
-            eprintln!("{who}: {named}: {fault}");
-
-            String::new()
-        }
-    };
 
     counts::read(&said)
 }
 
-pub fn run(app: &Application) -> Result<(), Never> {
+pub fn command(app: &Application) -> Result<Option<Vec<String>>, Never> {
     bump(&app.name)?;
 
     let words = words::split(&app.command)?;
 
-    let mut argv = match words {
-        Some(argv) => argv,
+    let mut arguments = match words {
+        Some(arguments) => arguments,
         None => {
             eprintln!("{}: {:?} is not a command", app.name, app.command);
 
-            return Ok(());
+            return Ok(None);
         }
     };
 
@@ -461,18 +433,17 @@ pub fn run(app: &Application) -> Result<(), Never> {
         true => {
             let Ok(alacritty) = Program::Alacritty.name();
 
-            argv.insert(0, alacritty.to_string());
-            argv.insert(1, "-e".to_string());
+            arguments.insert(0, alacritty.to_string());
+            arguments.insert(1, "-e".to_string());
         }
         false => {},
     }
 
     let who = whoami()?;
 
-    eprintln!("{who} chose {}: {}", app.name, argv.join(" "));
-    let Ok(()) = console_panel::running::left_running(&argv);
+    eprintln!("{who} chose {}: {}", app.name, arguments.join(" "));
 
-    Ok(())
+    Ok(Some(arguments))
 }
 
 pub fn bump(name: &str) -> Result<(), Never> {
@@ -499,4 +470,28 @@ pub fn bump(name: &str) -> Result<(), Never> {
     let _ = console_core_atomic_writes::whole(&at, said.as_bytes());
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn index() -> BTreeMap<String, String> {
+        BTreeMap::from([
+            ("firefox".to_string(), "/icons/firefox.png".to_string()),
+            (UNPICTURED.to_string(), "/icons/program.png".to_string()),
+        ])
+    }
+
+    #[test]
+    fn an_application_with_no_icon_file_is_given_the_picture_of_a_program() {
+        assert_eq!(pictured(None, &index()), Ok(Some("/icons/program.png".to_string())));
+    }
+
+    #[test]
+    fn an_application_whose_icon_was_found_keeps_it() {
+        let found = Some("/icons/firefox.png".to_string());
+
+        assert_eq!(pictured(found.clone(), &index()), Ok(found));
+    }
 }

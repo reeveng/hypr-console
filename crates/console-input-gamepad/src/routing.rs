@@ -36,7 +36,7 @@
 //! be a button that opened the row menu wherever a panel was up.
 
 use console_core_never::Never;
-use evdev::{AbsoluteAxisCode, KeyCode};
+use console_input_event_devices::{AbsoluteAxisCode, KeyCode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Arrives {
@@ -186,10 +186,10 @@ mod tests {
     #[test]
     fn no_two_buttons_arrive_the_same_way() {
         let mut every: Vec<String> = ROUTE.iter().map(|(_, how)| format!("{how:?}")).collect();
-        let many = every.len();
         every.sort();
-        every.dedup();
-        assert_eq!(every.len(), many);
+        let mut once = every.clone();
+        once.dedup();
+        assert_eq!(once, every);
     }
 
     #[test]

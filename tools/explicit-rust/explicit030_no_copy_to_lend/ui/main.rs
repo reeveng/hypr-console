@@ -37,7 +37,7 @@ fn lent(held: &Held) -> usize {
     takes(held)
 }
 
-// GOOD — a copy that is kept is a copy somebody needs.
+// GOOD — a copy that is kept is a copy someone needs.
 fn kept(held: &Held) -> Held {
     held.clone()
 }

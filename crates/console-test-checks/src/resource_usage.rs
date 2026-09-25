@@ -11,7 +11,7 @@
 //! check asked for a report over no time at all and then failed because it did
 //! not get one.
 
-use console_test_stages::checking::{Check, Body, Done, failed};
+use console_test_stages::checking::{Check, Body, CheckResult, failed};
 use console_test_stages::device::Device;
 
 pub const KEPT: Check = Check {
@@ -26,7 +26,7 @@ const STORE: &str = ".cache/console-resource-usage-check.jsonl";
 
 const A_PROGRAM: &str = "% of a core";
 
-fn kept_there(stage: &mut Device) -> Done {
+fn kept_there(stage: &mut Device) -> CheckResult {
     let Ok(home) = stage.home();
     let store = format!("{home}/{STORE}");
     let Ok(_) = stage.user(&format!("rm -f {store}"));

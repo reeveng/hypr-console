@@ -27,6 +27,31 @@ fn one_case(x: Option<u8>) -> u8 {
     0
 }
 
+// BAD EXPLICIT019 — a guard is an `if` on an arm.
+fn guarded_arm(x: Option<u8>) -> u8 {
+    match x {
+        //~v EXPLICIT019_NO_IF
+        Some(n) if n > 2 => n,
+        Some(_) | None => 0,
+    }
+}
+
+// GOOD — the question is asked where its answer has two names.
+fn asked(x: Option<u8>) -> u8 {
+    match x {
+        Some(n) => match n > 2 {
+            true => n,
+            false => 0,
+        },
+        None => 0,
+    }
+}
+
+// GOOD — a guard inside a macro's arm is the macro author's.
+fn in_a_macro(x: Option<u8>) -> bool {
+    matches!(x, Some(n) if n > 2)
+}
+
 // GOOD — both outcomes on the screen, each with a name.
 fn named(full: bool) -> u8 {
     match full {
@@ -35,7 +60,7 @@ fn named(full: bool) -> u8 {
     }
 }
 
-// GOOD — a `while` is a loop, not an `if` somebody wrote.
+// GOOD — a `while` is a loop, not an `if` someone wrote.
 fn drains(mut n: u8) -> u8 {
     while n > 0 {
         n = n.saturating_sub(1);
@@ -49,6 +74,9 @@ fn main() {
         guarded(true),
         either(false),
         one_case(None),
+        guarded_arm(None),
+        asked(None),
+        u8::from(in_a_macro(None)),
         named(true),
         drains(3),
     );

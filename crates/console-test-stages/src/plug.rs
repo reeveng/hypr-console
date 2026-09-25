@@ -6,10 +6,10 @@
 //! out to whatever has focus. So the same daemon is run against this, with
 //! devices built from the same capture the emulator uses.
 
-use evdev::{AbsoluteAxisCode, InputEvent};
-use console_input_controller::finding::Says;
+use console_input_event_devices::{AbsoluteAxisCode, InputEvent};
+use console_input_controller::finding::DeviceInfo;
 use console_input_controller::reading::Ranges;
-use console_input_controller::turning::{Gone, Plugged, Took};
+use console_input_controller::turning::{Closed, Plugged, Took};
 use console_input_gamepad::capture::Descriptor;
 use console_input_gamepad::devices::Devices;
 use console_input_gamepad::world::World;
@@ -33,23 +33,23 @@ impl Plug<'_> {
 }
 
 impl Plugged for Plug<'_> {
-    fn every(&self) -> Vec<Says> {
+    fn every(&self) -> Vec<DeviceInfo> {
         let Ok(plugged) = self.devices.sink.plugged();
 
         plugged
             .into_iter()
             .filter_map(|path| {
                 let Ok(found) = self.descriptor(&path);
-                let told = found?;
+                let descriptor = found?;
 
-                Some(Says {
+                Some(DeviceInfo {
                     path,
-                    name: told.name.clone(),
-                    phys: told.phys.clone(),
-                    vendor: told.vendor,
-                    product: told.product,
-                    keys: told.capabilities.key.clone(),
-                    axes: told.capabilities.abs.iter().map(|axis| axis.code).collect(),
+                    name: descriptor.name.clone(),
+                    phys: descriptor.phys.clone(),
+                    vendor: descriptor.vendor,
+                    product: descriptor.product,
+                    keys: descriptor.capabilities.key.clone(),
+                    axes: descriptor.capabilities.abs.iter().map(|axis| axis.code).collect(),
                 })
             })
             .collect()
@@ -59,21 +59,21 @@ impl Plugged for Plug<'_> {
         let Ok(role) = self.devices.sink.role_at(path);
 
         match role.is_some() {
-            true => Took::Held,
-            false => Took::Refused,
+            true => Took::Acquired,
+            false => Took::Denied,
         }
     }
 
     fn ranges(&self, path: &str) -> Ranges {
         let Ok(found) = self.descriptor(path);
 
-        let told = match found {
-            Some(told) => told,
+        let descriptor = match found {
+            Some(descriptor) => descriptor,
             None => return Ranges::default(),
         };
 
-        let Ok(stick) = told.axis(AbsoluteAxisCode::ABS_RX.0);
-        let Ok(trigger) = told.axis(AbsoluteAxisCode::ABS_Z.0);
+        let Ok(stick) = descriptor.axis(AbsoluteAxisCode::ABS_RX.0);
+        let Ok(trigger) = descriptor.axis(AbsoluteAxisCode::ABS_Z.0);
 
         Ranges {
             stick: stick.map_or(1, |axis| {
@@ -85,12 +85,12 @@ impl Plugged for Plug<'_> {
         }
     }
 
-    fn drain(&mut self, path: &str) -> Result<Vec<InputEvent>, Gone> {
+    fn drain(&mut self, path: &str) -> Result<Vec<InputEvent>, Closed> {
         let Ok(at) = self.devices.sink.role_at(path);
 
         let role = match at.map(str::to_string) {
             Some(role) => role,
-            None => return Err(Gone),
+            None => return Err(Closed),
         };
 
         let arrived = self.devices.sink.devices.get_mut(&role).map(|device| {

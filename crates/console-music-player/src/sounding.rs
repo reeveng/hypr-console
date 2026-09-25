@@ -4,7 +4,7 @@
 //! handed. Between them is a loop in a thread of its own, and that loop is
 //! every control this player has: pausing ends the pipe, position is how much
 //! has been written, and stopping is a pipe that closes. None of the three is a
-//! question asked of somebody else's program, which is what made every one of
+//! question asked of someone else's program, which is what made every one of
 //! kew's answers a thing to be waited for rather than read.
 //!
 //! **A pause that keeps the pipe keeps the machine awake.** Not writing was
@@ -16,9 +16,20 @@
 //! got to. Starting again is the seek this file already had to write, because
 //! nothing can tell a running ffmpeg to go somewhere else anyway.
 //!
+//! **A song also keeps the machine from sleeping**, which is the other sense of
+//! the word and a different mechanism entirely. The desktop suspends itself ten
+//! minutes after the screen goes dark, and somebody who put the device down
+//! with a track running asked for the dark and not for the silence. So playing
+//! takes a logind `sleep` lock and pausing or stopping lets it go, held from
+//! here because this is the one place that knows which of the three the player
+//! is in. It is deliberately not an `idle` lock: hypridle reads those once for
+//! the whole of its config, so an idle lock would hold the panel lit as well,
+//! and the panel is what a handheld actually spends its battery on.
+//! `console-awake` is the rest of that argument.
+//!
 //! What is kept is what was heard rather than what was written. The samples in
 //! the pipe and in pw-cat's own buffer go with the programs, so folding the raw
-//! count into the offset would step over [`AHEAD`] of music every time somebody
+//! count into the offset would step over [`AHEAD`] of music every time someone
 //! pressed pause. Taking it off costs at worst a third of a second heard twice,
 //! which is the direction to be wrong in.
 //!
@@ -41,33 +52,42 @@
 //! a third of a second at every pause, every seek and every song. Paused there
 //! is no pipe to be ahead of at all, so what is reported is the offset itself.
 //!
+//! **A tempo is the file's time and not the speaker's.** A film at twice its
+//! speed is ffmpeg's `atempo` between the decoder and the pipe, so what is
+//! written is ordinary samples at an ordinary rate and a second of them is two
+//! seconds of the film. The position multiplies what was heard by the tempo
+//! and nothing else changes, which is why the music player, which never asks
+//! for one, reads the same numbers it always read.
+//!
 //! **A song can be loaded without being played.** [`Sounding::ready`] is
-//! [`Sounding::play`] with the wanting the other way round and nobody woken:
+//! [`Sounding::play`] with the wanting the other way round and no one woken:
 //! the thread is left waiting, the offset is held, and the next press is a
 //! resume rather than a start. That is what the player comes up holding when
 //! the last song it played is remembered, because a device switched on in
-//! somebody's bag must not begin making a noise on its own.
+//! someone's bag must not begin making a noise on its own.
 //!
 //! **What a press costs is written down here rather than worked out later.** The
-//! stretch somebody feels is between asking for a song and hearing one, and it
+//! stretch someone feels is between asking for a song and hearing one, and it
 //! is spent in three places this thread can see: starting the decoder, starting
 //! the sink, and waiting for the first samples to come out of one and be taken
 //! by the other. So the stopwatch is [`one`]'s own and it ends at the first
 //! write, not at the end of the song, and a run that never reaches a first
 //! write -- a decoder that would not start, a press overtaken by the next one --
-//! writes nothing, because nobody waited for a sound that never came.
+//! writes nothing, because no one waited for a sound that never came.
 //!
 //! The thread decides nothing about music. It is told a song and an offset, and
-//! it carries samples until somebody says otherwise or the song ends. When a
-//! song ends it says so and stops there: what plays next is the playlist's
-//! business, the playlist belongs to the main thread, and a thread that reached
+//! it carries samples until someone says otherwise or the song ends. When a
+//! song ends it says so and stops there, and each whole second it carries it
+//! says that too, because the clock under a song is the one thing nobody else
+//! can see moving: what plays next is the playlist's business, the playlist belongs to the main thread, and a thread that reached
 //! across to it would be the shape of fault kew had -- one list walked by
 //! whoever got there first.
 
+use console_awake::{InhibitResult, InhibitReason, Staying};
 use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_core_number_conversion::Float;
-use console_program_lifetime::{Alongside, alongside};
+use console_program_lifetime::{BoundToParent, alongside};
 use console_response_times::{Wait, Waiting};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -87,7 +107,7 @@ const A_SECOND: u64 = 192_000;
 
 const AHEAD: f64 = 0.383;
 
-const CHUNK: usize = 8_192;
+const CHUNK: u32 = 8_192;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Wanted {
@@ -104,63 +124,90 @@ enum Ready {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Carry {
+enum Payload {
     On,
     Hold,
     Stop,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Progress {
+    Ended,
+    ASecondPlayed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Crossed {
+    ASecond,
+    Nothing,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Reached {
     End,
-    Held,
-    Told,
+    PlayerState,
+    Requested,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Tempo(pub f64);
+
+impl Default for Tempo {
+    fn default() -> Tempo {
+        Tempo(1.0)
+    }
 }
 
 #[derive(Debug, Clone, Default)]
-struct Job {
+struct Task {
     song: Option<PathBuf>,
     from: f64,
+    tempo: Tempo,
     turn: u64,
 }
 
 #[derive(Debug, Default)]
 struct State {
-    job: Job,
+    job: Task,
     wanted: Wanted,
     written: u64,
     ended: Option<u64>,
 }
 
-struct Telling {
+struct Playback {
     state: Mutex<State>,
     woken: Condvar,
 }
 
 pub struct Sounding {
-    telling: Arc<Telling>,
+    telling: Arc<Playback>,
+    awake: Mutex<Option<Staying>>,
 }
 
 impl Sounding {
-    pub fn new<E>(ending: E) -> Result<Sounding, Never>
+    pub fn new<E>(telling_progress: E) -> Result<Sounding, Never>
     where
-        E: Fn() -> Result<(), Never> + Send + 'static,
+        E: Fn(Progress) -> Result<(), Never> + Send + 'static,
     {
-        let telling = Arc::new(Telling {
+        let telling = Arc::new(Playback {
             state: Mutex::new(State::default()),
             woken: Condvar::new(),
         });
         let carrying = Arc::clone(&telling);
 
         let _the_thread_lives_as_long_as_this_program = thread::spawn(move || {
-            let Ok(()) = pumping(&carrying, &ending);
+            let Ok(()) = pumping(&carrying, &telling_progress);
         });
 
-        Ok(Sounding { telling })
+        Ok(Sounding { telling, awake: Mutex::new(None) })
     }
 
     pub fn play(&self, song: &Path, from: f64) -> Result<(), Never> {
-        let Ok(()) = self.taking(song, from, Wanted::Playing);
+        self.play_at(song, from, Tempo::default())
+    }
+
+    pub fn play_at(&self, song: &Path, from: f64, tempo: Tempo) -> Result<(), Never> {
+        let Ok(()) = self.taking(song, from, tempo, Wanted::Playing);
 
         self.telling.woken.notify_all();
 
@@ -168,32 +215,36 @@ impl Sounding {
     }
 
     pub fn ready(&self, song: &Path, from: f64) -> Result<(), Never> {
-        self.taking(song, from, Wanted::Paused)
+        self.taking(song, from, Tempo::default(), Wanted::Paused)
     }
 
-    fn taking(&self, song: &Path, from: f64, wanted: Wanted) -> Result<(), Never> {
+    fn taking(&self, song: &Path, from: f64, tempo: Tempo, wanted: Wanted) -> Result<(), Never> {
         let Ok(mut state) = held(&self.telling.state);
 
-        state.job = Job {
+        state.job = Task {
             song: Some(song.to_path_buf()),
             from,
+            tempo,
             turn: state.job.turn.saturating_add(1),
         };
         state.wanted = wanted;
         state.written = 0;
         state.ended = None;
 
-        Ok(())
+        drop(state);
+
+        self.minding(wanted)
     }
 
     pub fn seek(&self, to: f64) -> Result<(), Never> {
         let Ok(state) = held(&self.telling.state);
         let song = state.job.song.clone();
+        let tempo = state.job.tempo;
 
         drop(state);
 
         match song {
-            Some(song) => self.play(&song, to.max(0.0)),
+            Some(song) => self.play_at(&song, to.max(0.0), tempo),
             None => Ok(()),
         }
     }
@@ -210,6 +261,27 @@ impl Sounding {
 
         drop(state);
         self.telling.woken.notify_all();
+
+        self.minding(wanted)
+    }
+
+    fn minding(&self, wanted: Wanted) -> Result<(), Never> {
+        let Ok(mut awake) = held(&self.awake);
+
+        match wanted {
+            Wanted::Playing => match *awake {
+                Some(_) => {}
+                None => {
+                    let Ok(asked) = console_awake::taking(InhibitReason::FromSleeping);
+
+                    match asked {
+                        InhibitResult::Acquired(staying) => *awake = Some(staying),
+                        InhibitResult::Failed(said) => eprintln!("music-player: {said}"),
+                    }
+                }
+            },
+            Wanted::Paused | Wanted::Stopped => *awake = None,
+        }
 
         Ok(())
     }
@@ -245,44 +317,44 @@ fn ahead(wanted: Wanted) -> Result<f64, Never> {
 fn heard(state: &State, ahead: f64) -> Result<f64, Never> {
     let Ok(written) = state.written.float();
     let Ok(a_second) = A_SECOND.float();
-    let carried = written / a_second;
+    let carried = (written / a_second - ahead) * state.job.tempo.0;
 
-    Ok((state.job.from + carried - ahead).max(state.job.from).max(0.0))
+    Ok((state.job.from + carried).max(state.job.from).max(0.0))
 }
 
-fn held(state: &Mutex<State>) -> Result<MutexGuard<'_, State>, Never> {
-    Ok(match state.lock() {
+fn held<T>(what: &Mutex<T>) -> Result<MutexGuard<'_, T>, Never> {
+    Ok(match what.lock() {
         Ok(held) => held,
         Err(poisoned) => poisoned.into_inner(),
     })
 }
 
-fn pumping(telling: &Arc<Telling>, ending: &dyn Fn() -> Result<(), Never>) -> Result<(), Never> {
+fn pumping(telling: &Arc<Playback>, progress: &dyn Fn(Progress) -> Result<(), Never>) -> Result<(), Never> {
     loop {
         let Ok(job) = waited(telling);
 
         match job.song.clone() {
             None => {},
             Some(song) => {
-                let Ok(reached) = one(telling, &job, &song);
+                let Ok(reached) = one(telling, &job, &song, progress);
 
                 match reached {
                     Reached::End => {
                         let Ok(()) = done(telling, job.turn);
 
-                        let Ok(()) = ending();
+                        let Ok(()) = progress(Progress::Ended);
                     },
-                    Reached::Held => {
+                    Reached::PlayerState => {
                         let Ok(()) = holding(telling);
                     },
-                    Reached::Told => {},
+                    Reached::Requested => {},
                 }
             },
         }
     }
 }
 
-fn waited(telling: &Arc<Telling>) -> Result<Job, Never> {
+fn waited(telling: &Arc<Playback>) -> Result<Task, Never> {
     let Ok(mut state) = held(&telling.state);
 
     loop {
@@ -313,7 +385,7 @@ fn ready(state: &State) -> Result<Ready, Never> {
     })
 }
 
-fn holding(telling: &Arc<Telling>) -> Result<(), Never> {
+fn holding(telling: &Arc<Playback>) -> Result<(), Never> {
     let Ok(mut state) = held(&telling.state);
     let Ok(got) = heard(&state, AHEAD);
 
@@ -323,7 +395,7 @@ fn holding(telling: &Arc<Telling>) -> Result<(), Never> {
     Ok(())
 }
 
-fn done(telling: &Arc<Telling>, turn: u64) -> Result<(), Never> {
+fn done(telling: &Arc<Playback>, turn: u64) -> Result<(), Never> {
     let Ok(mut state) = held(&telling.state);
 
     state.ended = Some(turn);
@@ -331,13 +403,18 @@ fn done(telling: &Arc<Telling>, turn: u64) -> Result<(), Never> {
     Ok(())
 }
 
-fn one(telling: &Arc<Telling>, job: &Job, song: &Path) -> Result<Reached, Never> {
+fn one(
+    telling: &Arc<Playback>,
+    job: &Task,
+    song: &Path,
+    progress: &dyn Fn(Progress) -> Result<(), Never>,
+) -> Result<Reached, Never> {
     let Ok(mut waiting) = Waiting::here(Wait { who: "music-player", what: "sounding" });
-    let Ok(decoding) = reading(song, job.from);
+    let Ok(decoding) = reading(song, job.from, job.tempo);
 
     let mut decoding = match decoding {
         Some(decoding) => decoding,
-        None => return Ok(Reached::Told),
+        None => return Ok(Reached::Requested),
     };
 
     let Ok(()) = waiting.mark("ffmpeg");
@@ -345,7 +422,7 @@ fn one(telling: &Arc<Telling>, job: &Job, song: &Path) -> Result<Reached, Never>
 
     let mut playing = match playing {
         Some(playing) => playing,
-        None => return Ok(Reached::Told),
+        None => return Ok(Reached::Requested),
     };
 
     let Ok(out) = decoding.reading();
@@ -353,48 +430,51 @@ fn one(telling: &Arc<Telling>, job: &Job, song: &Path) -> Result<Reached, Never>
 
     let mut out = match out {
         Some(out) => out,
-        None => return Ok(Reached::Told),
+        None => return Ok(Reached::Requested),
     };
 
     let mut into = match into {
         Some(into) => into,
-        None => return Ok(Reached::Told),
+        None => return Ok(Reached::Requested),
     };
 
     let Ok(()) = waiting.mark("sink");
-    let mut buffer = vec![0; CHUNK];
+    let Ok(chunk) = console_core_number_conversion::index(CHUNK);
+    let mut buffer = vec![0; chunk];
     let mut sounded = Some(waiting);
 
     loop {
         let Ok(carry) = carrying_on(telling, job.turn);
 
         match carry {
-            Carry::Stop => return Ok(Reached::Told),
-            Carry::Hold => return Ok(Reached::Held),
-            Carry::On => {},
+            Payload::Stop => return Ok(Reached::Requested),
+            Payload::Hold => return Ok(Reached::PlayerState),
+            Payload::On => {},
         }
 
-        let read = match out.read(&mut buffer) {
-            Ok(read) => read,
-            Err(_the_decoder_has_gone) => return Ok(Reached::Told),
-        };
-
-        match read {
-            0 => return Ok(Reached::End),
-            _carried => {},
-        }
-
-        let carried = match buffer.get(..read) {
-            Some(carried) => carried,
-            None => return Ok(Reached::Told),
+        let carried = match out.read(&mut buffer) {
+            Ok(0) => return Ok(Reached::End),
+            Ok(read) => match buffer.get(..read) {
+                Some(carried) => carried,
+                None => return Ok(Reached::Requested),
+            },
+            Err(_the_decoder_has_gone) => return Ok(Reached::Requested),
         };
 
         match into.write_all(carried) {
             Ok(()) => {},
-            Err(_the_sink_has_gone) => return Ok(Reached::Told),
+            Err(_the_sink_has_gone) => return Ok(Reached::Requested),
         }
 
-        let Ok(()) = wrote(telling, read);
+        let Ok(read) = console_core_number_conversion::fitted::<_, u64>(carried.len());
+        let Ok(crossed) = wrote(telling, read);
+
+        match crossed {
+            Crossed::ASecond => {
+                let Ok(()) = progress(Progress::ASecondPlayed);
+            },
+            Crossed::Nothing => {},
+        }
 
         match sounded.take() {
             Some(mut waiting) => {
@@ -406,36 +486,40 @@ fn one(telling: &Arc<Telling>, job: &Job, song: &Path) -> Result<Reached, Never>
     }
 }
 
-fn wrote(telling: &Arc<Telling>, read: usize) -> Result<(), Never> {
+fn wrote(telling: &Arc<Playback>, read: u64) -> Result<Crossed, Never> {
     let Ok(mut state) = held(&telling.state);
-    let Ok(read) = console_core_number_conversion::fitted::<usize, u64>(read);
+    let before = state.written.checked_div(A_SECOND);
 
     state.written = state.written.saturating_add(read);
 
-    Ok(())
+    Ok(match before == state.written.checked_div(A_SECOND) {
+        true => Crossed::Nothing,
+        false => Crossed::ASecond,
+    })
 }
 
-fn carrying_on(telling: &Arc<Telling>, turn: u64) -> Result<Carry, Never> {
+fn carrying_on(telling: &Arc<Playback>, turn: u64) -> Result<Payload, Never> {
     let Ok(state) = held(&telling.state);
 
     match state.job.turn == turn {
         true => {},
-        false => return Ok(Carry::Stop),
+        false => return Ok(Payload::Stop),
     }
 
     Ok(match state.wanted {
-        Wanted::Stopped => Carry::Stop,
-        Wanted::Playing => Carry::On,
-        Wanted::Paused => Carry::Hold,
+        Wanted::Stopped => Payload::Stop,
+        Wanted::Playing => Payload::On,
+        Wanted::Paused => Payload::Hold,
     })
 }
 
-fn reading(song: &Path, from: f64) -> Result<Option<Alongside>, Never> {
+fn reading(song: &Path, from: f64, tempo: Tempo) -> Result<Option<BoundToParent>, Never> {
     let Ok(mut asking) = Program::Ffmpeg.command();
 
     asking
         .args(["-v", "quiet", "-nostdin", "-ss", &format!("{from}"), "-i"])
         .arg(song)
+        .args(["-vn", "-af", &format!("atempo={}", tempo.0)])
         .args(["-f", "s16le", "-ar", RATE, "-ac", CHANNELS, "-"])
         .stdout(Stdio::piped())
         .stdin(Stdio::null())
@@ -451,7 +535,7 @@ fn reading(song: &Path, from: f64) -> Result<Option<Alongside>, Never> {
     })
 }
 
-fn sink() -> Result<Option<Alongside>, Never> {
+fn sink() -> Result<Option<BoundToParent>, Never> {
     let Ok(mut asking) = Program::PwCat.command();
 
     asking
@@ -475,10 +559,10 @@ fn sink() -> Result<Option<Alongside>, Never> {
 mod tests {
     use super::*;
 
-    fn at(from: f64, wanted: Wanted, written: u64) -> Arc<Telling> {
-        Arc::new(Telling {
+    fn at(from: f64, wanted: Wanted, written: u64) -> Arc<Playback> {
+        Arc::new(Playback {
             state: Mutex::new(State {
-                job: Job { song: Some(PathBuf::from("a-song.flac")), from, turn: 1 },
+                job: Task { song: Some(PathBuf::from("a-song.flac")), from, tempo: Tempo::default(), turn: 1 },
                 wanted,
                 written,
                 ended: None,
@@ -488,11 +572,20 @@ mod tests {
     }
 
     #[test]
+    fn a_write_that_carries_the_song_past_a_whole_second_says_so_and_one_within_it_does_not() {
+        let telling = at(0.0, Wanted::Playing, A_SECOND - 10);
+
+        assert_eq!(wrote(&telling, 5), Ok(Crossed::Nothing));
+        assert_eq!(wrote(&telling, 10), Ok(Crossed::ASecond));
+        assert_eq!(wrote(&telling, 10), Ok(Crossed::Nothing));
+    }
+
+    #[test]
     fn a_pause_stops_carrying_rather_than_standing_there_holding_the_pipe() {
         let telling = at(0.0, Wanted::Paused, 0);
         let Ok(carry) = carrying_on(&telling, 1);
 
-        assert_eq!(carry, Carry::Hold);
+        assert_eq!(carry, Payload::Hold);
     }
 
     #[test]
@@ -507,7 +600,7 @@ mod tests {
 
     #[test]
     fn a_paused_position_is_the_offset_itself_rather_than_a_third_of_a_second_before_it() {
-        let sounding = Sounding { telling: at(30.0, Wanted::Paused, 0) };
+        let sounding = Sounding { telling: at(30.0, Wanted::Paused, 0), awake: Mutex::new(None) };
         let Ok(where_it_is) = sounding.position();
 
         assert!((where_it_is - 30.0).abs() < 0.001, "{where_it_is}");
@@ -530,9 +623,24 @@ mod tests {
 
     #[test]
     fn a_playing_position_still_stands_where_the_speaker_is() {
-        let sounding = Sounding { telling: at(30.0, Wanted::Playing, A_SECOND * 10) };
+        let sounding =
+            Sounding { telling: at(30.0, Wanted::Playing, A_SECOND * 10), awake: Mutex::new(None) };
         let Ok(where_it_is) = sounding.position();
 
         assert!((where_it_is - (40.0 - AHEAD)).abs() < 0.001, "{where_it_is}");
+    }
+
+    #[test]
+    fn at_twice_the_speed_a_second_heard_is_two_seconds_of_the_film() {
+        let telling = at(30.0, Wanted::Playing, A_SECOND * 10);
+        let Ok(mut state) = held(&telling.state);
+
+        state.job.tempo = Tempo(2.0);
+        drop(state);
+
+        let sounding = Sounding { telling, awake: Mutex::new(None) };
+        let Ok(where_it_is) = sounding.position();
+
+        assert!((where_it_is - (30.0 + (10.0 - AHEAD) * 2.0)).abs() < 0.001, "{where_it_is}");
     }
 }

@@ -12,12 +12,12 @@ Type=dbus
 BusName=org.freedesktop.Notifications
 ExecStart=/usr/local/bin/console-notify
 
-# What the panel and the bell read, taken away when there is nobody holding it.
+# What the panel and the bell read, taken away when there is no one holding it.
 # The file is a copy of what the daemon has; a daemon that is gone is holding
-# nothing, and a bell still lit over a file nobody is writing any more is a
+# nothing, and a bell still lit over a file no one is writing any more is a
 # reading, and it is wrong.
-ExecStopPost=-/usr/bin/rm -f %t/console/notices.json
-ExecStopPost=-/usr/local/bin/console-fell %n
+ExecStopPost=-/usr/bin/rm -f %t/console/notifications.json
+ExecStopPost=-/usr/local/bin/console-report-crash %n
 Restart=always
 RestartSec=2
 

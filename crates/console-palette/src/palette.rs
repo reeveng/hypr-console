@@ -1,20 +1,26 @@
 //! Turning what the palette declares into six hex digits a file can hold.
 //!
-//! Nothing here is mutated after it is made. A colour is solved from the
-//! colours already solved and returns a new palette holding it, and a pass
+//! Nothing here is mutated after it is made. A color is solved from the
+//! colors already solved and returns a new palette holding it, and a pass
 //! over what is left returns the next pass's work. That is not ceremony: the
-//! whole difficulty in this file is that some colours are defined in terms of
+//! whole difficulty in this file is that some colors are defined in terms of
 //! others, and a value that never changes after it is written cannot be read
 //! at the wrong moment.
 
 use indexmap::IndexMap;
-use console_core_colour::{self as col, Floor, Short};
+use console_core_color::{self as col, Floor, Short};
 use console_core_never::Never;
 
-use crate::spec::Colour;
+use crate::configuration::Color;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Palette(IndexMap<String, String>);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Spent<'a> {
+    pub name: &'a str,
+    pub color: &'a str,
+}
 
 impl Palette {
     pub fn get(&self, name: &str) -> Result<Option<&str>, Never> {
@@ -24,7 +30,18 @@ impl Palette {
     pub fn must(&self, name: &str) -> Result<&str, Short> {
         let Ok(held) = self.get(name);
 
-        held.ok_or_else(|| Short(format!("no colour called {name} is declared")))
+        held.ok_or_else(|| Short(format!("no color called {name} is declared")))
+    }
+
+    pub fn lines(&self, names: &[&str], line: impl Fn(Spent) -> String) -> Result<Vec<String>, Short> {
+        names
+            .iter()
+            .map(|name| {
+                let color = self.must(name)?;
+
+                Ok(line(Spent { name, color }))
+            })
+            .collect()
     }
 
     fn with(mut self, name: &str, code: String) -> Result<Self, Never> {
@@ -40,71 +57,75 @@ impl FromIterator<(String, String)> for Palette {
     }
 }
 
-pub fn resolve(declared: &IndexMap<String, Colour>) -> Result<Palette, Short> {
+pub fn resolve(declared: &IndexMap<String, Color>) -> Result<Palette, Short> {
     settle(declared, Palette::default(), declared.keys().collect())
 }
 
 fn settle<'a>(
-    declared: &'a IndexMap<String, Colour>,
-    done: Palette,
-    pending: Vec<&'a String>,
+    declared: &'a IndexMap<String, Color>,
+    first: Palette,
+    all: Vec<&'a String>,
 ) -> Result<Palette, Short> {
-    match pending.is_empty() {
-        true => return Ok(done),
-        false => {},
-    }
+    let mut done = first;
+    let mut pending = all;
 
-    let (ready, waiting): (Vec<&String>, Vec<&String>) = pending
-        .into_iter()
-        .partition(|name| match declared.get(*name) {
-            Some(colour) => {
-                let Ok(mut waits) = waits_on(colour);
+    while !pending.is_empty() {
+        let (ready, waiting): (Vec<&String>, Vec<&String>) = pending
+            .into_iter()
+            .partition(|name| match declared.get(*name) {
+                Some(color) => {
+                    let Ok(mut waits) = waits_on(color);
 
-                waits.all(|other| {
-                    let Ok(held) = done.get(other);
+                    waits.all(|other| {
+                        let Ok(held) = done.get(other);
 
-                    held.is_some()
-                })
+                        held.is_some()
+                    })
+                }
+                None => true,
+            });
+
+        match ready.is_empty() {
+            true => {
+                let mut names: Vec<&str> = waiting.iter().map(|name| name.as_str()).collect();
+                names.sort_unstable();
+                return Err(Short(format!("these colors wait on each other: {names:?}")));
             }
-            None => true,
-        });
-
-    match ready.is_empty() {
-        true => {
-            let mut names: Vec<&str> = waiting.iter().map(|name| name.as_str()).collect();
-            names.sort_unstable();
-            return Err(Short(format!("these colours wait on each other: {names:?}")));
+            false => {},
         }
-        false => {},
+
+        let settled = ready.into_iter().try_fold(done, |done, name| {
+            let color = match declared.get(name) {
+                Some(color) => color,
+                None => return Err(Short(format!("no color called {name} is declared"))),
+            };
+
+            let code = solve(color, &done)?;
+
+            let Ok(done) = done.with(name, code);
+
+            Ok::<_, Short>(done)
+        })?;
+
+        done = settled;
+        pending = waiting;
     }
 
-    let done = ready.into_iter().try_fold(done, |done, name| {
-        let colour = match declared.get(name) {
-            Some(colour) => colour,
-            None => return Err(Short(format!("no colour called {name} is declared"))),
-        };
-
-        let code = solve(colour, &done)?;
-
-        let Ok(done) = done.with(name, code);
-
-        Ok::<_, Short>(done)
-    })?;
-    settle(declared, done, waiting)
+    Ok(done)
 }
 
-fn waits_on(spec: &Colour) -> Result<impl Iterator<Item = &str>, Never> {
-    Ok(spec
+fn waits_on(color: &Color) -> Result<impl Iterator<Item = &str>, Never> {
+    Ok(color
         .least
         .iter()
         .flat_map(|least| least.on.iter().chain(least.carries.iter()))
         .map(String::as_str))
 }
 
-fn solve(spec: &Colour, known: &Palette) -> Result<String, Short> {
-    let asked = col::Oklch { lightness: spec.lightness, chroma: spec.chroma, hue: spec.hue };
+fn solve(color: &Color, known: &Palette) -> Result<String, Short> {
+    let asked = col::Oklch { lightness: color.lightness, chroma: color.chroma, hue: color.hue };
 
-    let least = match &spec.least {
+    let least = match &color.least {
         Some(least) => least,
         None => {
             let Ok(code) = col::hexcode(asked);
@@ -119,13 +140,13 @@ fn solve(spec: &Colour, known: &Palette) -> Result<String, Short> {
         .map(|name| known.must(name).map(str::to_owned))
         .collect::<Result<_, Short>>()?;
     let read_against = match grounds.is_empty() {
-        true => spec.lightness,
+        true => color.lightness,
         false => {
             let floor = both(least.ratio, least.lc, "it is read on")?;
             let Ok(from) = asked.at(0.0);
             let clearing = col::lightest_clearing(from, &grounds, floor)?;
 
-            spec.lightness.max(clearing)
+            color.lightness.max(clearing)
         }
     };
 
@@ -148,7 +169,7 @@ fn both(ratio: Option<f64>, lc: Option<f64>, saying: &str) -> Result<Floor, Shor
     match (ratio, lc) {
         (Some(ratio), Some(lc)) => Ok(Floor { ratio, lc }),
         _ => Err(Short(format!(
-            "a colour says what {saying} and not what that must clear \
+            "a color says what {saying} and not what that must clear \
              in both measures: it needs a ratio and an lc"
         ))),
     }
@@ -165,7 +186,7 @@ fn settle_until_it_carries(
     let clears = |lightness: f64| {
         let Ok(at) = asked.at(lightness);
         let Ok(code) = col::hexcode(at);
-        let Ok(cleared) = floor.cleared_by(col::Ink(ink), col::Ground(&code));
+        let Ok(cleared) = floor.cleared_by(col::HexColor(ink), col::Ground(&code));
 
         cleared
     };
@@ -194,18 +215,18 @@ mod tests {
     }
 
     fn contrast(ink: &str, ground: &str) -> f64 {
-        let Ok(contrast) = col::contrast(col::Ink(ink), col::Ground(ground));
+        let Ok(contrast) = col::contrast(col::HexColor(ink), col::Ground(ground));
 
         contrast
     }
 
     fn lc(ink: &str, ground: &str) -> f64 {
-        let Ok(lc) = col::lc(col::Ink(ink), col::Ground(ground));
+        let Ok(lc) = col::lc(col::HexColor(ink), col::Ground(ground));
 
         lc
     }
 
-    fn declared(body: &str) -> IndexMap<String, Colour> {
+    fn declared(body: &str) -> IndexMap<String, Color> {
         toml::from_str(body).expect("the fixture parses")
     }
 
@@ -213,54 +234,54 @@ mod tests {
     const NIGHT_CODE: &str = "110b12";
 
     #[test]
-    fn a_colour_with_no_floor_sits_where_it_asked_to() {
+    fn a_color_with_no_floor_sits_where_it_asked_to() {
         let got = resolve(&declared(NIGHT)).expect("nothing to wait on");
-        assert_eq!(got.must("night").expect("a declared colour"), hexcode(0.16, 0.018, 318.0).as_str());
+        assert_eq!(got.must("night").expect("a declared color"), hexcode(0.16, 0.018, 318.0).as_str());
     }
 
     #[test]
-    fn a_floor_lifts_a_colour_to_where_it_can_be_read() {
+    fn a_floor_lifts_a_color_to_where_it_can_be_read() {
         let two = declared(&format!(
             "{NIGHT}[text]\nhue = 335\nchroma = 0.022\nlightness = 0.0\n\
              least = {{ on = [\"night\"], ratio = 10.0, lc = 75.0 }}\n"
         ));
         let got = resolve(&two).expect("night comes first");
-        let (text, night) = (got.must("text").expect("a declared colour"), got.must("night").expect("a declared colour"));
+        let (text, night) = (got.must("text").expect("a declared color"), got.must("night").expect("a declared color"));
         assert!(contrast(text, night) >= 10.0);
         assert!(lc(text, night).abs() >= 75.0);
     }
 
     #[test]
-    fn a_floor_never_lowers_a_colour_that_already_clears_it() {
+    fn a_floor_never_lowers_a_color_that_already_clears_it() {
         let two = declared(&format!(
             "{NIGHT}[text]\nhue = 335\nchroma = 0.022\nlightness = 0.98\n\
              least = {{ on = [\"night\"], ratio = 4.5, lc = 45.0 }}\n"
         ));
         let got = resolve(&two).expect("night comes first");
-        assert_eq!(got.must("text").expect("a declared colour"), hexcode(0.98, 0.022, 335.0).as_str());
+        assert_eq!(got.must("text").expect("a declared color"), hexcode(0.98, 0.022, 335.0).as_str());
     }
 
     #[test]
-    fn a_colour_that_carries_ink_is_lifted_until_the_ink_clears() {
+    fn a_color_that_carries_ink_is_lifted_until_the_ink_clears() {
         let two = declared(&format!(
             "{NIGHT}[pink]\nhue = 342\nchroma = 0.105\nlightness = 0.5\n\
              least = {{ on = [\"night\"], ratio = 7.0, lc = 75.0, \
              carries = [\"night\"], carries_ratio = 7.0, carries_lc = 75.0 }}\n"
         ));
         let got = resolve(&two).expect("night comes first");
-        let (pink, night) = (got.must("pink").expect("a declared colour"), got.must("night").expect("a declared colour"));
+        let (pink, night) = (got.must("pink").expect("a declared color"), got.must("night").expect("a declared color"));
         assert!(contrast(pink, night) >= 7.0);
         assert!(lc(night, pink) >= 75.0);
     }
 
     #[test]
-    fn colours_are_solved_in_whatever_order_their_floors_need() {
+    fn colors_are_solved_in_whatever_order_their_floors_need() {
         let two = declared(&format!(
             "[text]\nhue = 335\nchroma = 0.022\n\
              least = {{ on = [\"night\"], ratio = 7.0, lc = 75.0 }}\n{NIGHT}"
         ));
         let got = resolve(&two).expect("the second pass settles text");
-        assert!(contrast(got.must("text").expect("a declared colour"), got.must("night").expect("a declared colour")) >= 7.0);
+        assert!(contrast(got.must("text").expect("a declared color"), got.must("night").expect("a declared color")) >= 7.0);
     }
 
     #[test]
@@ -296,7 +317,7 @@ mod tests {
     }
 
     #[test]
-    fn the_lc_lifts_a_colour_the_ratio_alone_would_have_left_where_it_was() {
+    fn the_lc_lifts_a_color_the_ratio_alone_would_have_left_where_it_was() {
         let ratio_only = declared(&format!(
             "{NIGHT}[pink]\nhue = 342\nchroma = 0.105\nlightness = 0.72\n\
              least = {{ on = [\"night\"], ratio = 7.0, lc = 0.0 }}\n"
@@ -310,20 +331,20 @@ mod tests {
             resolve(&both).expect("night comes first"),
         );
         let (loose, tight) = (
-            loose.must("pink").expect("a declared colour").to_owned(),
-            tight.must("pink").expect("a declared colour").to_owned(),
+            loose.must("pink").expect("a declared color").to_owned(),
+            tight.must("pink").expect("a declared color").to_owned(),
         );
         let night = NIGHT_CODE;
         assert!(contrast(&loose, night) >= 7.0, "the ratio alone is already clear");
-        assert!(lc(&loose, night).abs() < 75.0, "and the Lc alone is not");
+        assert!(lc(&loose, night).abs() < 75.0, "and the Contrast alone is not");
         assert_ne!(loose, tight, "so asking for both has to move it");
         assert!(lc(&tight, night).abs() >= 75.0);
     }
 
     #[test]
-    fn asking_for_a_colour_nobody_declared_says_which_one() {
+    fn asking_for_a_color_no_one_declared_says_which_one() {
         let palette: Palette = [("pink".to_string(), "ffb0c8".to_string())].into_iter().collect();
         assert_eq!(palette.get("mauve"), Ok(None));
-        assert_eq!(palette.must("pink").expect("a declared colour"), "ffb0c8");
+        assert_eq!(palette.must("pink").expect("a declared color"), "ffb0c8");
     }
 }

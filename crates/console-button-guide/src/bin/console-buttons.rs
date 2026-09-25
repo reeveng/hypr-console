@@ -2,25 +2,27 @@
 //!
 //! ```text
 //! console-buttons             print the guide
-//! console-buttons --menu      show it on screen, closed with B
 //! console-buttons --identify  press a button and be told which one it is
 //! ```
+//!
+//! On the device the guide is the Buttons panel, `mapping-panel`, which draws
+//! these sections after the two where a button is given its job. It was a
+//! panel of its own here, the same table read-only one door along from where
+//! it was written, and tapping a row in it ran the row's job with the guide
+//! still up -- the right paddle's row put away the guide instead of the window.
 
 use std::io::IsTerminal;
 use std::process::ExitCode;
-use std::sync::Arc;
 
-use evdev::{EventType, KeyCode};
-use console_input_controller::means::Table;
-use console_button_guide::guide::{DOABLE, Line, Section, opens_on, sections};
-use console_button_guide::printed::{COLOURED, PLAIN, guide};
-use console_core_atomic_writes::Held;
+use console_input_event_devices::{EventType, KeyCode};
+use console_input_controller::actions::Table;
+use console_button_guide::guide::{Section, sections};
+use console_button_guide::printed::{COLORED, PLAIN, guide};
+use console_core_atomic_writes::Stored;
 use console_core_never::Never;
-use console_panel::page::{Aside, Does, Page, Row, Rows};
-use console_panel::{chooser, panel};
-use console_input_bindings::moved::{Jobs, path_in};
+use console_input_bindings::moved::{Tasks, path_in};
 use console_input_gamepad::vocabulary::{TRIGGERS, spoken_for};
-use console_input_focus::{self as claim, CONTROLLER, Claim, Said, Went, Which};
+use console_input_focus::{self as claim, CONTROLLER, Claim, InputEvent, Direction, DeviceKind};
 
 fn read() -> Result<Vec<Section>, Never> {
     let Ok(table) = table();
@@ -37,28 +39,28 @@ fn table() -> Result<Table, Never> {
 
             at
         },
-        None => return Table::of(&Jobs::default()),
+        None => return Table::of(&Tasks::default()),
     };
 
     let Ok(held) = console_core_atomic_writes::read(&at);
 
     let said = match held {
-        Held::Said(said) => said,
-        Held::Nothing => String::new(),
+        Stored::Text(said) => said,
+        Stored::Absent => String::new(),
 
-        Held::Unreadable(fault) => {
+        Stored::Failed(fault) => {
             eprintln!("{}: reading the button table: {fault}", at.display());
             String::new()
         }
     };
 
-    match Jobs::read(&said) {
+    match Tasks::read(&said) {
         Ok(jobs) => Table::of(&jobs),
 
         Err(fault) => {
             eprintln!("{}: {fault}", at.display());
 
-            Table::of(&Jobs::default())
+            Table::of(&Tasks::default())
         }
     }
 }
@@ -67,8 +69,8 @@ fn main() -> ExitCode {
     let asked: Vec<String> = std::env::args().skip(1).collect();
     let asked_for = |what: &str| asked.iter().any(|word| word == what);
 
-    match (asked_for("--identify"), asked_for("--menu")) {
-        (true, _) => match identify() {
+    match asked_for("--identify") {
+        true => match identify() {
             Ok(()) => ExitCode::SUCCESS,
             Err(fault) => {
                 eprintln!("console-buttons: {fault}");
@@ -76,12 +78,7 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             },
         },
-        (_, true) => {
-            let Ok(()) = on_screen();
-
-            ExitCode::SUCCESS
-        },
-        _ => {
+        false => {
             let Ok(read) = read();
             let Ok(ink) = ink();
             let Ok(guide) = guide(&read, ink);
@@ -106,96 +103,10 @@ impl std::fmt::Display for Unidentified {
     }
 }
 
-fn opening() -> Result<&'static str, Never> {
-    let Ok(home) = console_core_places::home();
-
-    let Ok(on) = match home {
-        Some(home) => console_input_bindings::active::read(&home),
-        None => Ok(console_input_bindings::active::FIRST),
-    };
-
-    opens_on(on)
-}
-
-fn ink() -> Result<console_button_guide::printed::Ink, Never> {
+fn ink() -> Result<console_button_guide::printed::HexColor, Never> {
     Ok(match std::io::stdout().is_terminal() {
-        true => COLOURED,
+        true => COLORED,
         false => PLAIN,
-    })
-}
-
-fn on_screen() -> Result<(), Never> {
-    let Ok(alone) = chooser::alone("guide", chooser::Again::Closes);
-
-    match alone {
-        chooser::Alone::Yes => {
-            let Ok(first) = opening();
-            let Ok(()) = panel::show(
-                Arc::new(|| {
-                    let Ok(pages) = pages();
-
-                    pages
-                }),
-                250,
-                Some(first),
-            );
-        }
-        chooser::Alone::No => {}
-    }
-
-    Ok(())
-}
-
-fn pages() -> Result<Vec<Page>, Never> {
-    let Ok(read) = read();
-
-    Ok(read
-        .into_iter()
-        .filter(|section| !section.lines.is_empty())
-        .map(|section| {
-            let rows = section
-                .lines
-                .iter()
-                .map(|line| {
-                    let Ok(row) = match section.title == DOABLE {
-                        true => doable(line),
-                        false => named(line),
-                    };
-
-                    row
-                })
-                .collect();
-
-            let Ok(page) = Page::new(&section.title, Rows::Fixed(rows));
-
-            page
-        })
-        .collect())
-}
-
-fn doable(line: &Line) -> Result<Row, Never> {
-    let Ok(says) = capitalised(&line.does);
-
-    row(&says, Aside(&line.button), line)
-}
-
-fn named(line: &Line) -> Result<Row, Never> {
-    row(&line.button, Aside(&line.does), line)
-}
-
-fn row(says: &str, aside: Aside<'_>, line: &Line) -> Result<Row, Never> {
-    match &line.runs {
-        None => Row::said(says, aside),
-        Some(argv) => Row::new(says, aside, Does::Run(argv.clone())),
-    }
-}
-
-fn capitalised(said: &str) -> Result<String, Never> {
-    let mut letters = said.chars();
-
-    Ok(match letters.next() {
-        None => String::new(),
-        Some(first) => first.to_uppercase().collect::<String>() + letters.as_str(),
     })
 }
 
@@ -216,7 +127,7 @@ fn identify() -> Result<(), Unidentified> {
         let Ok(heard) = claim.arrived();
 
         'over_presses: for (which, event) in heard.events {
-            let Ok(said) = pressed(which, event.event_type(), event.code(), event.value());
+            let Ok(said) = pressed(which, event.kind, event.code, event.value);
 
             let said = match said {
                 Some(said) => said,
@@ -226,10 +137,10 @@ fn identify() -> Result<(), Unidentified> {
             println!("  {}{said}{}", ink.bold, ink.off);
         }
 
-        match heard.gone.is_empty() {
+        match heard.unplugged.is_empty() {
             true => {}
             false => {
-                eprintln!("console-buttons: the controller has gone");
+                eprintln!("console-buttons: the controller was unplugged");
                 return Ok(());
             }
         }
@@ -245,43 +156,43 @@ fn identify() -> Result<(), Unidentified> {
     }
 }
 
-fn pressed(which: Which, kind: EventType, code: u16, value: i32) -> Result<Option<String>, Never> {
+fn pressed(which: DeviceKind, kind: EventType, code: u16, value: i32) -> Result<Option<String>, Never> {
     let Ok(device) = which.said();
 
     let raw = match kind {
-        EventType::KEY => format!("code {code}, {:?}, on the {device}", KeyCode::new(code)),
+        EventType::KEY => format!("code {code}, {:?}, on the {device}", KeyCode(code)),
         _ => format!("axis {code} at {value}, on the {device}"),
     };
 
     let Ok(said) = claim::said(which, kind, code, value);
 
     Ok(match said {
-        Said::Pressed { button, went: Went::Down } => {
+        InputEvent::Pressed { button, direction: Direction::Down } => {
             let Ok(spoken) = spoken_for(button);
 
             Some(format!("{spoken}  ({raw})"))
         }
-        Said::Trigger { trigger, went: Went::Down } => {
+        InputEvent::Trigger { trigger, direction: Direction::Down } => {
             let Ok(held) = held(trigger);
 
             Some(format!("{held}  ({raw})"))
         }
-        Said::Typed { code, went: Went::Down } => {
-            let Ok(spoken) = console_input_bindings::keys::spoken(KeyCode::new(code));
+        InputEvent::Typed { code, direction: Direction::Down } => {
+            let Ok(spoken) = console_input_bindings::keys::spoken(KeyCode(code));
 
             Some(match spoken {
                 Some(word) => format!("{word}  ({raw})"),
                 None => format!("a key with no name here  ({raw})"),
             })
         }
-        Said::Unnamed { code: _, went: Went::Down } => {
+        InputEvent::Unnamed { code: _, direction: Direction::Down } => {
             Some(format!("a button with no name here  ({raw})"))
         }
-        Said::Pressed { button: _, went: Went::Up }
-        | Said::Trigger { trigger: _, went: Went::Up }
-        | Said::Typed { code: _, went: Went::Up }
-        | Said::Unnamed { code: _, went: Went::Up }
-        | Said::Nothing => None,
+        InputEvent::Pressed { button: _, direction: Direction::Up }
+        | InputEvent::Trigger { trigger: _, direction: Direction::Up }
+        | InputEvent::Typed { code: _, direction: Direction::Up }
+        | InputEvent::Unnamed { code: _, direction: Direction::Up }
+        | InputEvent::None => None,
     })
 }
 

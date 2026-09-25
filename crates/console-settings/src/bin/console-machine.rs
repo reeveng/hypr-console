@@ -28,16 +28,16 @@
 use std::path::Path;
 use std::process::ExitCode;
 
-use console_core_atomic_writes::Held;
+use console_core_atomic_writes::Stored;
 use console_core_external_programs::Program;
 use console_settings::named::{self, Allowed};
-use console_settings::tongues::{self, LOCALE_CONF, LOCALE_GEN, SUPPORTED};
+use console_settings::languages::{self, LOCALE_CONF, LOCALE_GEN, SUPPORTED};
 
 const USAGE: &str = "usage: console-machine [language <name> <charset>|hour <zone>|name <name>]";
 
 fn main() -> ExitCode {
-    let argv: Vec<String> = std::env::args().skip(1).collect();
-    let words: Vec<&str> = argv.iter().map(String::as_str).collect();
+    let arguments: Vec<String> = std::env::args().skip(1).collect();
+    let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
 
     let done = match words.as_slice() {
         ["language", name, charset] => language(Locale { name, charset }),
@@ -65,7 +65,7 @@ enum Unset {
     NoProgram(&'static str),
     WouldNotRun(&'static str, std::io::Error),
     SaidNo(&'static str, String),
-    Unreadable(String, String),
+    Read(String, String),
     NotSupported(String),
     NoSuchZone(String),
     NotAName(String),
@@ -78,7 +78,7 @@ impl std::fmt::Display for Unset {
             Unset::NoProgram(name) => write!(to, "there is no {name} on this machine"),
             Unset::WouldNotRun(name, fault) => write!(to, "{name} would not run: {fault}"),
             Unset::SaidNo(name, said) => write!(to, "{name} said no: {said}"),
-            Unset::Unreadable(at, fault) => write!(to, "{at} will not be read: {fault}"),
+            Unset::Read(at, fault) => write!(to, "{at} will not be read: {fault}"),
             Unset::NotSupported(line) => {
                 write!(to, "{line} is not a language {SUPPORTED} names")
             }
@@ -103,7 +103,7 @@ impl From<console_core_atomic_writes::Unwritten> for Unset {
     }
 }
 
-fn said(program: Program, argv: &[&str]) -> Result<String, Unset> {
+fn said(program: Program, arguments: &[&str]) -> Result<String, Unset> {
     let Ok(name) = program.name();
     let mut command = match program.command() {
         Ok(command) => command,
@@ -111,7 +111,7 @@ fn said(program: Program, argv: &[&str]) -> Result<String, Unset> {
     };
 
     let out = command
-        .args(argv)
+        .args(arguments)
         .output()
         .map_err(|fault| Unset::WouldNotRun(name, fault))?;
 
@@ -128,9 +128,9 @@ fn held(at: &Path) -> Result<String, Unset> {
     let Ok(read) = console_core_atomic_writes::read(at);
 
     match read {
-        Held::Said(said) => Ok(said),
-        Held::Nothing => Ok(String::new()),
-        Held::Unreadable(fault) => Err(Unset::Unreadable(at.display().to_string(), fault)),
+        Stored::Text(said) => Ok(said),
+        Stored::Absent => Ok(String::new()),
+        Stored::Failed(fault) => Err(Unset::Read(at.display().to_string(), fault)),
     }
 }
 
@@ -144,9 +144,9 @@ fn language(locale: Locale<'_>) -> Result<(), Unset> {
     let Locale { name, charset } = locale;
     let line = format!("{name} {charset}");
     let listed = std::fs::read_to_string(SUPPORTED)
-        .map_err(|fault| Unset::Unreadable(SUPPORTED.to_string(), fault.to_string()))?;
+        .map_err(|fault| Unset::Read(SUPPORTED.to_string(), fault.to_string()))?;
 
-    let Ok(supported) = tongues::supported(&listed);
+    let Ok(supported) = languages::supported(&listed);
 
     let known = supported.iter().any(|locale| {
         let Ok(said) = locale.line();
@@ -162,7 +162,7 @@ fn language(locale: Locale<'_>) -> Result<(), Unset> {
     let recipes = Path::new(LOCALE_GEN);
     let was = held(recipes)?;
 
-    let Ok(written) = tongues::generating(&was, tongues::Line(&line));
+    let Ok(written) = languages::generating(&was, languages::Line(&line));
 
     match written == was {
         true => {},
@@ -175,7 +175,7 @@ fn language(locale: Locale<'_>) -> Result<(), Unset> {
         }
     }
 
-    let read = tongues::read(tongues::Named { name, charset });
+    let read = languages::read(languages::Named { name, charset });
 
     let lang = match read {
         Ok(Some(locale)) => {

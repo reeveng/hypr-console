@@ -1,0 +1,38 @@
+[Unit]
+Description=Brightness that follows the room
+PartOf=console.target
+
+[Service]
+Type=simple
+# Whether there is anything to follow, asked before anything is started. It is
+# two questions in one word and both have to be yes: this machine has a light
+# sensor in it, and the person has not turned the following off on the Screen
+# tab. Most machines that ever run this desktop will have no sensor at all, and
+# a daemon started on one of those would sit in the journal of every device but
+# this one, restarting every five seconds against a reading that is never going
+# to come.
+#
+# A condition that says no leaves the unit inactive and not failed, so nothing
+# restarts it and `console-report-crash` says nothing -- the same shape as the
+# switch on console-warm.service, and for the same reason.
+ExecCondition=/usr/local/bin/console-brightness switched-on
+ExecStart=/usr/local/bin/console-brightness follow
+ExecStopPost=-/usr/local/bin/console-report-crash %n
+Restart=always
+RestartSec=5
+
+# What this reaches past `console-.service.d/confining.conf`, and why.
+#
+# It reads the sensor and what this machine has learned, and writes the
+# backlight. All three are files -- two under /sys, which `confining.conf` says
+# out loud is left writable for exactly this, and one under the home directory
+# which is only ever read here. What writes it is the rocker, which runs in the
+# controller's unit rather than this one: a daemon that both decided the
+# brightness and recorded the decision as a preference would teach itself its
+# own answer until the table said one thing everywhere.
+PrivateDevices=yes
+ProtectHome=read-only
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+
+[Install]
+WantedBy=console.target

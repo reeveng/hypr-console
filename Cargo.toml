@@ -17,20 +17,29 @@ rust-version = "1.85"
 license = "AGPL-3.0-or-later"
 
 [workspace.dependencies]
+rustix = { version = "1.1", features = ["process", "fs", "mm", "event", "pipe", "time", "param", "stdio", "thread", "linux_4_11"] }
 console-applications = { path = "crates/console-applications" }
 console-input-mapping = { path = "crates/console-input-mapping" }
 console-program-lifetime = { path = "crates/console-program-lifetime" }
+console-awake = { path = "crates/console-awake" }
 console-bus = { path = "crates/console-bus" }
 console-calendar = { path = "crates/console-calendar" }
-console-core-colour = { path = "crates/console-core-colour" }
+console-calculator = { path = "crates/console-calculator" }
+console-forecast = { path = "crates/console-forecast" }
+console-core-color = { path = "crates/console-core-color" }
 console-compositor = { path = "crates/console-compositor" }
+console-control-center = { path = "crates/console-control-center" }
 console-input-controller = { path = "crates/console-input-controller" }
 console-cpu-boost = { path = "crates/console-cpu-boost" }
+console-battery = { path = "crates/console-battery" }
 console-default-applications = { path = "crates/console-default-applications" }
+console-defaults = { path = "crates/console-defaults" }
 console-device = { path = "crates/console-device" }
+console-device-name = { path = "crates/console-device-name" }
 console-input-alphabets = { path = "crates/console-input-alphabets" }
 console-input-bindings = { path = "crates/console-input-bindings" }
 console-input-dictation = { path = "crates/console-input-dictation" }
+console-input-event-devices = { path = "crates/console-input-event-devices" }
 console-downloads = { path = "crates/console-downloads" }
 console-events = { path = "crates/console-events" }
 console-core-external-programs = { path = "crates/console-core-external-programs" }
@@ -45,15 +54,27 @@ console-input-focus = { path = "crates/console-input-focus" }
 console-input-language = { path = "crates/console-input-language" }
 console-input-keyboard = { path = "crates/console-input-keyboard" }
 console-launcher = { path = "crates/console-launcher" }
+console-login-greeter = { path = "crates/console-login-greeter" }
+console-login-pattern = { path = "crates/console-login-pattern" }
+console-login-session = { path = "crates/console-login-session" }
+console-login-window = { path = "crates/console-login-window" }
+console-manifest-engine = { path = "crates/console-manifest-engine" }
 console-manifest-migrations = { path = "crates/console-manifest-migrations" }
 console-music = { path = "crates/console-music" }
 console-music-player = { path = "crates/console-music-player" }
 console-test-desktop = { path = "crates/console-test-desktop" }
 console-core-geometry = { path = "crates/console-core-geometry" }
+console-core-web-engine = { path = "crates/console-core-web-engine" }
 console-core-shapes = { path = "crates/console-core-shapes" }
+console-core-fonts = { path = "crates/console-core-fonts" }
+console-pictures = { path = "crates/console-pictures" }
+console-content-types = { path = "crates/console-content-types" }
+console-core-checksums = { path = "crates/console-core-checksums" }
+console-core-temporary-directories = { path = "crates/console-core-temporary-directories" }
 console-core-walking = { path = "crates/console-core-walking" }
+console-recovery = { path = "crates/console-recovery" }
 console-core-never = { path = "crates/console-core-never" }
-console-core-our-programs = { path = "crates/console-core-our-programs" }
+console-core-internal-programs = { path = "crates/console-core-internal-programs" }
 console-notifications = { path = "crates/console-notifications" }
 console-core-ini-files = { path = "crates/console-core-ini-files" }
 console-core-number-conversion = { path = "crates/console-core-number-conversion" }
@@ -61,10 +82,12 @@ console-onscreen = { path = "crates/console-onscreen" }
 console-draw-painting = { path = "crates/console-draw-painting" }
 console-panel = { path = "crates/console-panel" }
 console-panels = { path = "crates/console-panels" }
+console-core-qr-codes = { path = "crates/console-core-qr-codes" }
 console-core-places = { path = "crates/console-core-places" }
 console-program-contract = { path = "crates/console-program-contract" }
 console-program-runtime = { path = "crates/console-program-runtime" }
 console-core-reconnect = { path = "crates/console-core-reconnect" }
+console-rename = { path = "crates/console-rename" }
 console-repository = { path = "crates/console-repository" }
 console-screen = { path = "crates/console-screen" }
 console-draw-surface = { path = "crates/console-draw-surface" }
@@ -80,8 +103,16 @@ console-input-touchscreen = { path = "crates/console-input-touchscreen" }
 console-response-times = { path = "crates/console-response-times" }
 console-resume = { path = "crates/console-resume" }
 console-wallpaper = { path = "crates/console-wallpaper" }
+console-weather = { path = "crates/console-weather" }
+console-kernel-handles = { path = "crates/console-kernel-handles" }
+console-kernel-scheduling = { path = "crates/console-kernel-scheduling" }
+console-kernel-files = { path = "crates/console-kernel-files" }
 console-waiting = { path = "crates/console-waiting" }
+console-sound-effects = { path = "crates/console-sound-effects" }
 console-core-words = { path = "crates/console-core-words" }
+console-core-zip-files = { path = "crates/console-core-zip-files" }
+console-books = { path = "crates/console-books" }
+console-architecture = { path = "crates/console-architecture" }
 
 # What a debug build is allowed to cost. This tree reached 150G of `target/debug`
 # in a fortnight, on a disk that had 29G left, and neither of these two lines was
@@ -103,9 +134,22 @@ console-core-words = { path = "crates/console-core-words" }
 debug = "line-tables-only"
 incremental = false
 
+# `nothing_is_written_twice` reads every function in the tree with syn and
+# compares each with every other it shares a run of tokens with. Unoptimized,
+# that is half a minute of `just test`; optimized it is seconds. The parser and
+# the crate the test lives in are the only two that pay for it.
+[profile.dev.package.console-repository]
+opt-level = 2
+
+[profile.dev.package.syn]
+opt-level = 2
+
+[profile.dev.package.proc-macro2]
+opt-level = 2
+
 [profile.release]
 # A handheld compiles this, so the build is kept cheap. None of these programs
-# is hot: the panel waits for a thumb and the theme runs when a colour changes.
+# is hot: the panel waits for a thumb and the theme runs when a color changes.
 opt-level = 2
 lto = "thin"
 codegen-units = 4
@@ -142,7 +186,7 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(dylint_lib, values(any()))
 # `var(..).ok()` wherever a `Result` is matched into an `Option`, and EXPLICIT001
 # and EXPLICIT006 both deny that call for a reason this file agrees with: an
 # `Option` should mean the value may not exist, not that something failed and
-# nobody was told. Nothing can satisfy both at the call site, because each denies
+# no one was told. Nothing can satisfy both at the call site, because each denies
 # what the other asks for. Settled here once rather than by an `#[allow]` beside
 # every variable a program reads.
 #
@@ -153,7 +197,7 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(dylint_lib, values(any()))
 # becomes a two-armed `match`, and clippy offers `unwrap_or_default()` back.
 # On a `Result` that call is the exact fault `console-core-atomic-writes` was
 # written against -- it turns "this would not be read" into "this was empty",
-# and the machine runs on a value nobody chose. The `match` is what says which
+# and the machine runs on a value no one chose. The `match` is what says which
 # of the two happened, so it stays.
 #
 # `manual_unwrap_or` is that one again without the default. A number off the bus
@@ -175,7 +219,7 @@ manual_unwrap_or_default = "allow"
 # The other direction: stock rules that say what the suite already says, or
 # name a harm no EXPLICIT rule covers. Nothing in the tree breaks any of them
 # today, which is the only reason they are `deny` -- the same ratchet
-# tools/explicit-rust/README.md describes, spent on rules somebody else wrote.
+# tools/explicit-rust/README.md describes, spent on rules someone else wrote.
 allow_attributes_without_reason = "deny"   # EXPLICIT018, in stock clippy
 rest_pat_in_fully_bound_structs = "deny"   # EXPLICIT016's `..`, over structs
 fallible_impl_from = "deny"                # a `From` that panics instead
@@ -185,17 +229,17 @@ path_buf_push_overwrite = "deny"           # a leading `/` eating the path
 read_zero_byte_vec = "deny"                # a read into nowhere, reporting none
 debug_assert_with_mut_call = "deny"        # work the release build skips
 significant_drop_in_scrutinee = "deny"     # a lock held across every arm
-collection_is_never_read = "deny"          # filled, and then nobody asks
+collection_is_never_read = "deny"          # filled, and then no one asks
 suspicious_operation_groupings = "deny"    # `a.x == b.x && a.y == b.x`
 empty_line_after_doc_comments = "deny"     # a blank line orphaning the prose
 empty_line_after_outer_attr = "deny"       # and the same, orphaning an attribute
 
 # Allowed here and counted by `just literals`, which is the warned tier spelled
-# for a rule somebody else wrote: `ready` runs clippy with `-D warnings`, so a
+# for a rule someone else wrote: `ready` runs clippy with `-D warnings`, so a
 # `warn` in this table is a `deny` at the gate and there would be no distance
 # left to walk. A number literal with no type takes the fallback rustc picks for
-# it, `i32` or `f64`, and that is a width nobody chose -- the fault EXPLICIT010
+# it, `i32` or `f64`, and that is a width no one chose -- the fault EXPLICIT010
 # and EXPLICIT024 each spend their argument on, arrived at from the other side.
 # Kast refuses the fallback outright: there is no literal type to fall back to,
-# and what one would default to is itself a choice somebody has to make.
+# and what one would default to is itself a choice someone has to make.
 default_numeric_fallback = "allow"

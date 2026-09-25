@@ -17,13 +17,13 @@
 use std::process::{Command, ExitCode, Stdio};
 use std::time::Instant;
 
-use console_program_lifetime::{Alongside, alongside};
-use console_input_dictation::comparing::{Compare, Found, Heard, Its, Seen, Took};
-use console_core_external_programs::Program as Theirs;
-use console_core_atomic_writes::{Held, read};
+use console_program_lifetime::{BoundToParent, alongside};
+use console_input_dictation::comparing::{Compare, Found, CompareEvent, CompareEffect, Candidate, Timing};
+use console_core_external_programs::Program as ExternalProgram;
+use console_core_atomic_writes::{Stored, read};
 use console_core_never::Never;
-use console_program_contract::{Argv, Word};
-use console_program_runtime::Carrying;
+use console_program_contract::{Arguments, Event};
+use console_program_runtime::Interpreter;
 
 const NOTHING_TIMED: u128 = 0;
 
@@ -33,42 +33,42 @@ const TRIES: [u8; 3] = [1, 2, 3];
 const NAMED: &str = "/proc/sys/kernel/hostname";
 
 struct Machine {
-    recording: Option<Alongside>,
+    recording: Option<BoundToParent>,
 }
 
-impl Carrying for Machine {
-    type Hears = Heard;
-    type Does = Its;
+impl Interpreter for Machine {
+    type Event = CompareEvent;
+    type Effect = CompareEffect;
 
-    fn its(&mut self, doing: &Its) -> Vec<Word<Heard>> {
-        match doing {
-            Its::Look(every) => {
+    fn interpret(&mut self, acts: &CompareEffect) -> Vec<Event<CompareEvent>> {
+        match acts {
+            CompareEffect::Look(every) => {
                 let seen = every
                     .iter()
                     .map(|at| {
                         let Ok(found) = found(at);
 
-                        Seen { at: at.clone(), is: found }
+                        Candidate { at: at.clone(), is: found }
                     })
                     .collect();
 
-                vec![Word::Its(Heard::Looked(seen))]
+                vec![Event::Custom(CompareEvent::Looked(seen))]
             }
 
-            Its::Ran(argv) => {
-                let Ok(said) = said(argv);
+            CompareEffect::Ran(arguments) => {
+                let Ok(said) = said(arguments);
 
-                vec![Word::Its(Heard::Said(said))]
+                vec![Event::Custom(CompareEvent::Output(said))]
             }
 
-            Its::Timed(argv) => {
-                let Ok(took) = timed(argv);
+            CompareEffect::Timed(arguments) => {
+                let Ok(took) = timed(arguments);
 
-                vec![Word::Its(Heard::Took(took))]
+                vec![Event::Custom(CompareEvent::Timed(took))]
             }
 
-            Its::Listen(into) => {
-                let Ok(mut recording) = Theirs::PwRecord.command();
+            CompareEffect::Record(into) => {
+                let Ok(mut recording) = ExternalProgram::PwRecord.command();
 
                 recording
                     .args(["--rate", "16000", "--channels", "1", "--format", "s16"])
@@ -84,13 +84,13 @@ impl Carrying for Machine {
                     }
                 };
 
-                vec![Word::Its(Heard::Done)]
+                vec![Event::Custom(CompareEvent::Finished)]
             }
 
-            Its::Enough => {
+            CompareEffect::Enough => {
                 self.recording = None;
 
-                vec![Word::Its(Heard::Done)]
+                vec![Event::Custom(CompareEvent::Finished)]
             }
         }
     }
@@ -100,7 +100,7 @@ fn found(at: &std::path::Path) -> Result<Found, Never> {
     use std::os::unix::fs::PermissionsExt;
 
     Ok(match std::fs::metadata(at) {
-        Err(_) => Found::Missing,
+        Err(_) => Found::Absent,
         Ok(what) => match (what.is_file(), what.permissions().mode() & 0o111) {
             (true, 0) | (false, _) => Found::There,
             (true, _) => Found::Runnable,
@@ -108,21 +108,21 @@ fn found(at: &std::path::Path) -> Result<Found, Never> {
     })
 }
 
-fn starting(argv: &[String]) -> Result<Option<Command>, Never> {
-    let first = match argv.first() {
+fn starting(arguments: &[String]) -> Result<Option<Command>, Never> {
+    let first = match arguments.first() {
         Some(first) => first,
         None => return Ok(None),
     };
 
     let mut starting = Command::new(first);
 
-    starting.args(argv.iter().skip(1));
+    starting.args(arguments.iter().skip(1));
 
     Ok(Some(starting))
 }
 
-fn said(argv: &[String]) -> Result<String, Never> {
-    let Ok(starting) = starting(argv);
+fn said(arguments: &[String]) -> Result<String, Never> {
+    let Ok(starting) = starting(arguments);
 
     Ok(match starting {
         None => String::new(),
@@ -137,7 +137,7 @@ fn said(argv: &[String]) -> Result<String, Never> {
     })
 }
 
-fn timed(argv: &[String]) -> Result<Took, Never> {
+fn timed(arguments: &[String]) -> Result<Timing, Never> {
     let mut first = None;
     let mut best = None;
     let mut heard = String::new();
@@ -145,7 +145,7 @@ fn timed(argv: &[String]) -> Result<Took, Never> {
     for _ in TRIES {
         let began = Instant::now();
 
-        let Ok(starting) = starting(argv);
+        let Ok(starting) = starting(arguments);
 
         heard = match starting {
             None => String::new(),
@@ -171,16 +171,16 @@ fn timed(argv: &[String]) -> Result<Took, Never> {
         None => NOTHING_TIMED,
     };
 
-    Ok(Took { first, best, said: heard })
+    Ok(Timing { first, best, said: heard })
 }
 
 fn here() -> Result<String, Never> {
     let Ok(held) = read(std::path::Path::new(NAMED));
 
     Ok(match held {
-        Held::Said(said) => said.trim().to_string(),
-        Held::Nothing => String::new(),
-        Held::Unreadable(fault) => {
+        Stored::Text(said) => said.trim().to_string(),
+        Stored::Absent => String::new(),
+        Stored::Failed(fault) => {
             eprintln!("voice-compare: {NAMED}: {fault}");
 
             String::new()
@@ -189,13 +189,11 @@ fn here() -> Result<String, Never> {
 }
 
 fn stamped() -> Result<String, Never> {
-    let Ok(mut asking) = Theirs::Date.command();
+    let Ok(asking) = ExternalProgram::Date.arguments(&["+%Y-%m-%d-%H%M"]);
 
-    let said = asking.arg("+%Y-%m-%d-%H%M").output();
-
-    Ok(match said {
-        Ok(said) => String::from_utf8_lossy(&said.stdout).trim().to_string(),
-        Err(_) => String::new(),
+    Ok(match console_core_external_programs::printed(&asking) {
+        Ok(said) => said.trim().to_string(),
+        Err(_unprinted) => String::new(),
     })
 }
 
@@ -220,9 +218,9 @@ fn main() -> ExitCode {
     let given: Vec<&str> = words.iter().map(String::as_str).collect();
     let mut machine = Machine { recording: None };
 
-    let Ok(argv) = Argv::of(&given);
+    let Ok(arguments) = Arguments::of(&given);
     let Ok(code) =
-        console_program_runtime::run::<Compare, Machine>("voice-compare", &argv, &mut machine);
+        console_program_runtime::run::<Compare, Machine>("voice-compare", &arguments, &mut machine);
 
     code
 }

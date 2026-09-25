@@ -1,0 +1,33 @@
+[package]
+name = "console-recovery"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# What is left on the screen when the desktop did not come up.
+#
+# It depends on nothing that draws. The kernel's own console sets the letters,
+# and the pad is read the way the kernel hands it over, so a broken toolkit, a
+# missing font or a compositor that will not start is not something this has
+# to survive -- it never met them.
+
+[lib]
+name = "console_recovery"
+path = "src/lib.rs"
+
+[[bin]]
+name = "recovery"
+path = "src/bin/recovery.rs"
+
+[dependencies]
+console-core-external-programs.workspace = true
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+console-core-walking.workspace = true
+console-core-words.workspace = true
+console-input-event-devices.workspace = true
+console-program-contract.workspace = true
+
+[lints]
+workspace = true

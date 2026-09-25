@@ -30,25 +30,25 @@ use console_core_never::Never;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Point<T> {
-    pub across: T,
-    pub down: T,
+    pub x: T,
+    pub y: T,
 }
 
 impl<T> Point<T> {
     pub fn map<U>(self, each: impl Fn(T) -> U) -> Result<Point<U>, Never> {
-        Ok(Point { across: each(self.across), down: each(self.down) })
+        Ok(Point { x: each(self.x), y: each(self.y) })
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Size<T> {
-    pub wide: T,
-    pub tall: T,
+    pub width: T,
+    pub height: T,
 }
 
 impl<T> Size<T> {
     pub fn map<U>(self, each: impl Fn(T) -> U) -> Result<Size<U>, Never> {
-        Ok(Size { wide: each(self.wide), tall: each(self.tall) })
+        Ok(Size { width: each(self.width), height: each(self.height) })
     }
 }
 
@@ -58,17 +58,17 @@ mod tests {
 
     #[test]
     fn a_point_carries_its_two_words_rather_than_an_order() {
-        let at = Point { down: 4.0, across: 3.0 };
+        let at = Point { y: 4.0, x: 3.0 };
 
-        assert_eq!(at.across, 3.0);
-        assert_eq!(at.down, 4.0);
+        assert_eq!(at.x, 3.0);
+        assert_eq!(at.y, 4.0);
     }
 
     #[test]
     fn a_size_changes_what_it_is_counted_in_without_changing_what_it_is() {
-        let room = Size { wide: 1280u32, tall: 800u32 };
+        let room = Size { width: 1280u32, height: 800u32 };
         let Ok(logical) = room.map(f64::from);
 
-        assert_eq!(logical, Size { wide: 1280.0, tall: 800.0 });
+        assert_eq!(logical, Size { width: 1280.0, height: 800.0 });
     }
 }

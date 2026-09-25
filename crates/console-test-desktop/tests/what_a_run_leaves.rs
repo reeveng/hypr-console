@@ -8,7 +8,7 @@
 //! evening when eight hundred of them had built up rather than by anything in
 //! the tree.
 //!
-//! So this is pressed rather than reasoned about: one run of the thing somebody
+//! So this is pressed rather than reasoned about: one run of the thing someone
 //! actually types, and then the question a person would ask afterwards -- is
 //! anything still running out of that stage. The stage is named here so the
 //! answer can be read off `/proc` without naming a single program, because the
@@ -19,16 +19,15 @@
 //! with no user manager has no scope to put the session in, and a machine where
 //! the compositor never comes up has not been asked the question at all.
 
-use std::path::Path;
 use std::process::{Command, Stdio};
 
-use console_core_external_programs::Program;
+use console_program_lifetime::{Scopes, scopes};
 
 const STAGE: &str = "a-run-that-leaves-nothing";
 
 #[test]
 fn a_nested_desktop_leaves_nothing_of_itself_running() {
-    if !has_systemd_run() || !has_user_systemd() {
+    if !scopes_available() {
         eprintln!("skipped: no user manager here, so a session has no scope to be held in");
         return;
     }
@@ -99,23 +98,6 @@ fn still_holding(stage: &str) -> Vec<String> {
     found
 }
 
-fn has_systemd_run() -> bool {
-    let path = std::env::var("PATH").unwrap_or_default();
-    let Ok(named) = Program::SystemdRun.name();
-
-    path.split(':')
-        .filter(|at| !at.is_empty())
-        .any(|at| Path::new(at).join(named).exists())
-}
-
-fn has_user_systemd() -> bool {
-    let Ok(mut asking) = Program::Systemctl.command();
-
-    asking
-        .args(["--user", "show", "-p", "Version"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|how| how.success())
-        .unwrap_or(false)
+fn scopes_available() -> bool {
+    scopes() == Ok(Scopes::Available)
 }

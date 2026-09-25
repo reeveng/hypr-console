@@ -10,7 +10,8 @@
 use std::collections::BTreeMap;
 use std::process::ExitCode;
 
-use evdev::{AbsoluteAxisCode, Device, EventType, KeyCode, MiscCode, PropType, RelativeAxisCode};
+use console_core_never::Never;
+use console_input_event_devices::{AbsoluteAxisCode, Device};
 use console_input_gamepad::capture::{Axis, Capabilities, Descriptor, ROLES};
 use console_input_gamepad::finding;
 
@@ -25,63 +26,37 @@ impl std::fmt::Display for Unread {
 
 impl std::error::Error for Unread {}
 
-fn described(device: &Device) -> Result<Descriptor, Unread> {
-    let id = device.input_id();
-    let listed = |kind: EventType| -> Vec<u16> {
-        let every = match kind {
-            EventType::KEY => {
-                device.supported_keys().map(|set| set.iter().map(|KeyCode(code)| code).collect())
-            }
-            EventType::RELATIVE => device
-                .supported_relative_axes()
-                .map(|set| set.iter().map(|RelativeAxisCode(code)| code).collect()),
-            EventType::MISC => {
-                device.misc_properties().map(|set| set.iter().map(|MiscCode(code)| code).collect())
-            }
-            EventType::FORCEFEEDBACK => device
-                .supported_ff()
-                .map(|set| set.iter().map(|effect| effect.0).collect()),
-            _ => None,
-        }
-        .map(|mut every: Vec<u16>| {
-            every.sort_unstable();
-            every
-        });
+fn sorted(mut every: Vec<u16>) -> Result<Vec<u16>, Never> {
+    every.sort_unstable();
 
-        match every {
-            Some(every) => every,
-            None => Vec::new(),
-        }
-    };
-    let mut properties: Vec<u16> =
-        device.properties().iter().map(|PropType(what)| what).collect();
-    properties.sort_unstable();
-    let mut abs: Vec<Axis> = device
-        .get_absinfo()
-        .map_err(Unread)
-        .map(|every| {
-            every
-                .map(|(AbsoluteAxisCode(code), info)| Axis {
-                    code,
-                    flat: info.flat(),
-                    fuzz: info.fuzz(),
-                    max: info.maximum(),
-                    min: info.minimum(),
-                    resolution: info.resolution(),
-                })
-                .collect()
-        })?;
+    Ok(every)
+}
+
+fn described(device: &Device) -> Result<Descriptor, Unread> {
+    let id = device.id;
+    let axes = device.absolute().map_err(Unread)?;
+    let mut abs: Vec<Axis> = axes
+        .into_iter()
+        .map(|(AbsoluteAxisCode(code), info)| Axis {
+            code,
+            flat: info.flat,
+            fuzz: info.fuzz,
+            max: info.maximum,
+            min: info.minimum,
+            resolution: info.resolution,
+        })
+        .collect();
     abs.sort_unstable_by_key(|axis| axis.code);
 
+    let Ok(ff) = sorted(device.force_feedback.iter().map(|effect| effect.0).collect());
+    let Ok(key) = sorted(device.keys.iter().map(|key| key.0).collect());
+    let Ok(msc) = sorted(device.misc.iter().map(|misc| misc.0).collect());
+    let Ok(rel) = sorted(device.relative_axes.iter().map(|axis| axis.0).collect());
+    let Ok(properties) = sorted(device.properties.iter().map(|property| property.0).collect());
+
     Ok(Descriptor {
-        bustype: id.bus_type().0,
-        capabilities: Capabilities {
-            abs,
-            ff: listed(EventType::FORCEFEEDBACK),
-            key: listed(EventType::KEY),
-            msc: listed(EventType::MISC),
-            rel: listed(EventType::RELATIVE),
-        },
+        bustype: id.bus.0,
+        capabilities: Capabilities { abs, ff, key, msc, rel },
         name: {
             let Ok(name) = finding::named(device);
 
@@ -92,22 +67,24 @@ fn described(device: &Device) -> Result<Descriptor, Unread> {
 
             phys
         },
-        product: id.product(),
+        product: id.product,
         properties,
         uniq: String::new(),
-        vendor: id.vendor(),
-        version: id.version(),
+        vendor: id.vendor,
+        version: id.version,
     })
 }
 
 fn main() -> ExitCode {
-    let mut found: BTreeMap<usize, Descriptor> = BTreeMap::new();
+    let mut found: BTreeMap<u32, Descriptor> = BTreeMap::new();
 
-    for (_, device) in evdev::enumerate() {
+    let Ok(every) = Device::every();
+
+    for device in every {
         let Ok(name) = finding::named(&device);
 
-        let at = match ROLES.iter().position(|(wanted, _)| *wanted == name) {
-            Some(at) => at,
+        let at = match (0_u32..).zip(ROLES.iter()).find(|(_, (wanted, _))| *wanted == name) {
+            Some((at, _)) => at,
             None => continue,
         };
 
@@ -127,9 +104,8 @@ fn main() -> ExitCode {
         let _ = found.insert(at, said);
     }
 
-    let missing: Vec<&str> = ROLES
-        .iter()
-        .enumerate()
+    let missing: Vec<&str> = (0_u32..)
+        .zip(ROLES.iter())
         .filter(|(at, _)| !found.contains_key(at))
         .map(|(_, (name, _))| *name)
         .collect();

@@ -28,7 +28,7 @@
 
 use console_core_geometry::{Point, Size};
 use console_core_never::Never;
-use console_core_number_conversion::Float;
+use console_core_number_conversion::{Float, fitted};
 use crate::keymap::Layer;
 
 pub mod key {
@@ -111,10 +111,10 @@ pub mod mods {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     Pad,
-    Code { code: u32, held: Option<Which> },
+    Code { code: u32, held: Option<LayoutKind> },
     Mod(u8),
     Copy { code: u32, shifted: u32 },
-    Layout(Which),
+    Layout(LayoutKind),
     Back,
     Next,
     Language,
@@ -125,8 +125,8 @@ pub enum Kind {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Drops {
-    Held,
-    Nothing,
+    Modifiers,
+    None,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -148,7 +148,7 @@ impl Key {
         kind: Kind::Pad,
         scheme: 0,
         force: mods::NONE,
-        reset: Drops::Nothing,
+        reset: Drops::None,
     };
 }
 
@@ -162,11 +162,11 @@ pub struct Layout {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Placed {
-    pub at: usize,
+    pub at: u32,
     pub x: f64,
     pub y: f64,
-    pub wide: f64,
-    pub tall: f64,
+    pub width: f64,
+    pub height: f64,
 }
 
 pub fn placed(layout: &Layout, room: Size<f64>) -> Result<Vec<Placed>, Never> {
@@ -179,7 +179,7 @@ pub fn placed(layout: &Layout, room: Size<f64>) -> Result<Vec<Placed>, Never> {
 
     let Ok(many) = rows.len().float();
 
-    let deep = room.tall / many;
+    let deep = room.height / many;
     let mut out = Vec::with_capacity(layout.keys.len());
 
     for (down, row) in rows.iter().enumerate() {
@@ -193,14 +193,14 @@ pub fn placed(layout: &Layout, room: Size<f64>) -> Result<Vec<Placed>, Never> {
         let mut x = 0.0;
 
         for (at, key) in row {
-            let w = key.width / across * room.wide;
+            let w = key.width / across * room.width;
 
             match matches!(key.kind, Kind::Pad) {
                 true => {},
                 false => {
                     let Ok(row) = down.float();
 
-                    out.push(Placed { at: *at, x, y: row * deep, wide: w, tall: deep });
+                    out.push(Placed { at: *at, x, y: row * deep, width: w, height: deep });
                 }
             }
 
@@ -211,11 +211,13 @@ pub fn placed(layout: &Layout, room: Size<f64>) -> Result<Vec<Placed>, Never> {
     Ok(out)
 }
 
-pub fn rows(layout: &Layout) -> Result<Vec<Vec<(usize, &'static Key)>>, Never> {
-    let mut out: Vec<Vec<(usize, &'static Key)>> = Vec::new();
-    let mut row: Vec<(usize, &'static Key)> = Vec::new();
+pub fn rows(layout: &Layout) -> Result<Vec<Vec<(u32, &'static Key)>>, Never> {
+    let mut out: Vec<Vec<(u32, &'static Key)>> = Vec::new();
+    let mut row: Vec<(u32, &'static Key)> = Vec::new();
 
     for (at, key) in layout.keys.iter().enumerate() {
+        let Ok(at) = fitted::<_, u32>(at);
+
         match key.kind {
             Kind::EndRow => match row.is_empty() {
                 true => {},
@@ -246,10 +248,10 @@ pub fn under(placed: &[Placed], at: Point<f64>) -> Result<Option<Placed>, Never>
     Ok(placed
         .iter()
         .find(|k| {
-            at.across >= k.x
-                && at.across < k.x + k.wide
-                && at.down >= k.y
-                && at.down < k.y + k.tall
+            at.x >= k.x
+                && at.x < k.x + k.width
+                && at.y >= k.y
+                && at.y < k.y + k.height
         })
         .copied())
 }
@@ -261,40 +263,37 @@ struct Between {
 }
 
 fn gap(between: Between, point: f64) -> Result<f64, Never> {
-    Ok(match point {
-        p if p < between.low => between.low - p,
-        p if p > between.high => p - between.high,
-        _ => 0.0,
+    Ok(match (point < between.low, point > between.high) {
+        (true, true) | (true, false) => between.low - point,
+        (false, true) => point - between.high,
+        (false, false) => 0.0,
     })
 }
 
 pub fn toward(
     keys: &[Placed],
-    from: Option<usize>,
+    from: Option<u32>,
     step: Point<i32>,
-) -> Result<Option<usize>, Never> {
-    let here = match from.and_then(|at| keys.iter().position(|k| k.at == at)) {
-        Some(here) => here,
-        None => return Ok(keys.first().map(|k| k.at)),
-    };
-
-    let sel = match keys.get(here).copied() {
+) -> Result<Option<u32>, Never> {
+    let sel = match from.and_then(|at| keys.iter().find(|k| k.at == at).copied()) {
         Some(sel) => sel,
         None => return Ok(keys.first().map(|k| k.at)),
     };
 
-    let middle = (sel.x + sel.wide / 2.0, sel.y + sel.tall / 2.0);
+    let middle = (sel.x + sel.width / 2.0, sel.y + sel.height / 2.0);
 
     let scored = |k: &Placed| {
-        let along = match (step.across, step.down) {
-            (d, _) if d > 0 => k.x - (sel.x + sel.wide),
-            (d, _) if d < 0 => sel.x - (k.x + k.wide),
-            (_, d) if d > 0 => k.y - (sel.y + sel.tall),
-            _ => sel.y - (k.y + k.tall),
+        let along = match step.x.signum() {
+            1 => k.x - (sel.x + sel.width),
+            -1 => sel.x - (k.x + k.width),
+            _ => match step.y > 0 {
+                true => k.y - (sel.y + sel.height),
+                false => sel.y - (k.y + k.height),
+            },
         };
-        let Ok(across) = match step.across != 0 {
-            true => gap(Between { low: k.y, high: k.y + k.tall }, middle.1),
-            false => gap(Between { low: k.x, high: k.x + k.wide }, middle.0),
+        let Ok(across) = match step.x != 0 {
+            true => gap(Between { low: k.y, high: k.y + k.height }, middle.1),
+            false => gap(Between { low: k.x, high: k.x + k.width }, middle.0),
         };
 
         (along, along + across * 3.0)
@@ -303,9 +302,8 @@ pub fn toward(
     for ahead in [true, false] {
         let best = keys
             .iter()
-            .enumerate()
-            .filter(|(i, _)| *i != here)
-            .map(|(_, k)| (k.at, scored(k)))
+            .filter(|k| k.at != sel.at)
+            .map(|k| (k.at, scored(k)))
             .filter(|(_, (along, _))| match ahead {
                 true => *along >= 0.0,
                 false => *along < 0.0,
@@ -321,32 +319,32 @@ pub fn toward(
     Ok(None)
 }
 
-pub fn named(name: &str) -> Result<Option<Which>, Never> {
-    Ok(Which::ALL.iter().copied().find(|which| {
+pub fn named(name: &str) -> Result<Option<LayoutKind>, Never> {
+    Ok(LayoutKind::ALL.iter().copied().find(|which| {
         let Ok(of) = of(*which);
 
         of.name == name
     }))
 }
 
-pub fn of(which: Which) -> Result<&'static Layout, Never> {
+pub fn of(which: LayoutKind) -> Result<&'static Layout, Never> {
     tables::layout(which)
 }
 
 mod tables;
-pub use tables::Which;
+pub use tables::LayoutKind;
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn of(which: Which) -> &'static Layout {
+    fn of(which: LayoutKind) -> &'static Layout {
         let Ok(of) = super::of(which);
 
         of
     }
 
-    fn named(name: &str) -> Option<Which> {
+    fn named(name: &str) -> Option<LayoutKind> {
         let Ok(named) = super::named(name);
 
         named
@@ -358,7 +356,7 @@ mod tests {
         placed
     }
 
-    fn rows(layout: &Layout) -> Vec<Vec<(usize, &'static Key)>> {
+    fn rows(layout: &Layout) -> Vec<Vec<(u32, &'static Key)>> {
         let Ok(rows) = super::rows(layout);
 
         rows
@@ -376,7 +374,7 @@ mod tests {
         gap
     }
 
-    fn toward(keys: &[Placed], from: Option<usize>, step: Point<i32>) -> Option<usize> {
+    fn toward(keys: &[Placed], from: Option<u32>, step: Point<i32>) -> Option<u32> {
         let Ok(toward) = super::toward(keys, from, step);
 
         toward
@@ -385,12 +383,12 @@ mod tests {
     #[test]
     fn a_direction_crosses_the_row_it_started_on() {
         let layout = of(named("landscape").expect("landscape"));
-        let keys = placed(layout, Size { wide: 1892.0, tall: 260.0 });
+        let keys = placed(layout, Size { width: 1892.0, height: 260.0 });
         let start = keys[0].at;
         let row = keys[0].y;
         let mut at = start;
         for step in 0..8 {
-            at = toward(&keys, Some(at), Point { across: 1, down: 0 }).expect("somewhere to the right");
+            at = toward(&keys, Some(at), Point { x: 1, y: 0 }).expect("somewhere to the right");
             let now = keys.iter().find(|k| k.at == at).expect("placed");
             assert_eq!(now.y, row, "step {step} left the row it started on");
         }
@@ -399,10 +397,10 @@ mod tests {
     #[test]
     fn up_is_the_row_above_and_not_a_diagonal() {
         let layout = of(named("landscape").expect("landscape"));
-        let keys = placed(layout, Size { wide: 1892.0, tall: 260.0 });
+        let keys = placed(layout, Size { width: 1892.0, height: 260.0 });
         let bottom = keys.iter().max_by(|a, b| a.y.total_cmp(&b.y)).expect("a bottom row").y;
         for key in keys.iter().filter(|k| k.y == bottom) {
-            let up = toward(&keys, Some(key.at), Point { across: 0, down: -1 }).expect("a key above");
+            let up = toward(&keys, Some(key.at), Point { x: 0, y: -1 }).expect("a key above");
             let landed = keys.iter().find(|k| k.at == up).expect("placed");
             assert!(landed.y < key.y, "up went sideways");
             let rows: Vec<f64> = {
@@ -419,9 +417,9 @@ mod tests {
     #[test]
     fn a_direction_wraps_rather_than_stopping_at_the_edge() {
         let layout = of(named("landscape").expect("landscape"));
-        let keys = placed(layout, Size { wide: 1892.0, tall: 260.0 });
+        let keys = placed(layout, Size { width: 1892.0, height: 260.0 });
         let top = keys.iter().min_by(|a, b| a.y.total_cmp(&b.y)).expect("a top row").at;
-        let up = toward(&keys, Some(top), Point { across: 0, down: -1 }).expect("wrapped round");
+        let up = toward(&keys, Some(top), Point { x: 0, y: -1 }).expect("wrapped round");
         let landed = keys.iter().find(|k| k.at == up).expect("placed");
         assert!(landed.y > keys[0].y, "up from the top row came out at the bottom");
     }
@@ -429,9 +427,9 @@ mod tests {
     #[test]
     fn the_first_direction_lands_somewhere() {
         let layout = of(named("landscape").expect("landscape"));
-        let keys = placed(layout, Size { wide: 1892.0, tall: 260.0 });
-        assert_eq!(toward(&keys, None, Point { across: 1, down: 0 }), Some(keys[0].at));
-        assert_eq!(toward(&[], None, Point { across: 1, down: 0 }), None, "and an empty layout is not a panic");
+        let keys = placed(layout, Size { width: 1892.0, height: 260.0 });
+        assert_eq!(toward(&keys, None, Point { x: 1, y: 0 }), Some(keys[0].at));
+        assert_eq!(toward(&[], None, Point { x: 1, y: 0 }), None, "and an empty layout is not a panic");
     }
 
     #[test]
@@ -443,7 +441,7 @@ mod tests {
 
     #[test]
     fn every_arrangement_has_keys_and_an_alphabet() {
-        for which in Which::ALL {
+        for which in LayoutKind::ALL {
             let layout = of(which);
             assert!(!layout.keys.is_empty(), "{} has no keys", layout.name);
             assert!(!layout.name.is_empty(), "a layout with no name");
@@ -460,17 +458,17 @@ mod tests {
     #[test]
     fn the_keys_fill_the_surface_without_overlapping() {
         let layout = of(named("full").expect("full"));
-        let keys = placed(layout, Size { wide: 1000.0, tall: 260.0 });
+        let keys = placed(layout, Size { width: 1000.0, height: 260.0 });
         assert!(!keys.is_empty());
         for key in &keys {
             assert!(key.x >= -0.001, "a key off the left");
-            assert!(key.x + key.wide <= 1000.001, "a key off the right: {key:?}");
-            assert!(key.y + key.tall <= 260.001, "a key below the keyboard: {key:?}");
+            assert!(key.x + key.width <= 1000.001, "a key off the right: {key:?}");
+            assert!(key.y + key.height <= 260.001, "a key below the keyboard: {key:?}");
         }
-        let top = keys[0].tall / 2.0;
+        let top = keys[0].height / 2.0;
         for step in 0..100 {
             let x = step as f64 * 10.0 + 0.5;
-            assert!(under(&keys, Point { across: x, down: top }).is_some(), "nothing under {x}");
+            assert!(under(&keys, Point { x, y: top }).is_some(), "nothing under {x}");
         }
     }
 
@@ -497,39 +495,35 @@ mod tests {
     #[test]
     fn thai_holds_a_second_letter_where_latin_holds_a_capital() {
         let thai = of(named("thai").expect("thai"));
-        let doubled = thai
+        let doubled: Vec<&Key> = thai
             .keys
             .iter()
             .filter(|key| matches!(key.kind, Kind::Code { .. }))
             .filter(|key| !key.shift.is_empty() && key.shift != key.label)
-            .count();
-        assert!(doubled > 20, "only {doubled} Thai keys carry a second letter");
+            .collect();
+        assert!(doubled.len() > 20, "only {} Thai keys carry a second letter", doubled.len());
     }
 
     #[test]
     fn thai_carries_no_digit_of_its_own() {
         let thai = of(named("thai").expect("thai"));
-        let digits = thai
-            .keys
-            .iter()
-            .filter(|key| key.label.chars().all(|one| one.is_ascii_digit()) && !key.label.is_empty())
-            .count();
-        assert_eq!(digits, 0, "Thai draws a digit, so it does not need the rule below");
+        assert!(
+            thai.keys.iter().all(|key| key.label.is_empty() || !key.label.chars().all(|one| one.is_ascii_digit())),
+            "Thai draws a digit, so it does not need the rule below"
+        );
     }
 
     #[test]
     fn the_language_key_always_has_the_numbers_beside_it() {
-        for which in Which::ALL {
+        for which in LayoutKind::ALL {
             let layout = of(which);
-            let at = match layout.keys.iter().position(|key| key.kind == Kind::Language) {
-                Some(at) => at,
+            let row = match rows(layout)
+                .into_iter()
+                .find(|row| row.iter().any(|(_, key)| key.kind == Kind::Language))
+            {
+                Some(row) => row,
                 None => continue,
             };
-
-            let row = rows(layout)
-                .into_iter()
-                .find(|row| row.iter().any(|(where_, _)| *where_ == at))
-                .expect("the row the language key is on");
 
             let numbers: Vec<&Key> = row
                 .iter()
@@ -543,7 +537,11 @@ mod tests {
 
             assert!(!numbers.is_empty(), "{} can change language and cannot type a digit", layout.name);
 
-            let language = layout.keys[at].width;
+            let language = row
+                .iter()
+                .find(|(_, key)| key.kind == Kind::Language)
+                .map(|(_, key)| key.width)
+                .expect("the language key on its own row");
             for key in numbers {
                 assert!(
                     (key.width - language).abs() < 0.001,

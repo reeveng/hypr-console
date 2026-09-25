@@ -1,7 +1,7 @@
 //! A folder, as the run of things this panel can show, and where you are in it.
 //!
 //! Opening one photograph out of a folder of two hundred is opening the
-//! folder. Nobody presses A on a holiday picture meaning to look at exactly
+//! folder. NoOne presses A on a holiday picture meaning to look at exactly
 //! that one and then leave; they mean to start there and walk. So what the
 //! panel holds is not a file, it is a reel: the folder in the order the files
 //! panel would list it, with everything that is not a picture or a film taken
@@ -11,7 +11,7 @@
 //! a `.thm` and a `.xmp` beside every photograph, and a folder of films has
 //! subtitles and a `.nfo`. Left in the reel they are things the d-pad can
 //! land on that the card cannot draw, so *next* would sometimes do nothing and
-//! nobody could tell why. Left out, next is always the next thing there is to
+//! no one could tell why. Left out, next is always the next thing there is to
 //! look at, which is what the press means.
 //!
 //! Nothing here reads a disk. The listing is handed in, the same way
@@ -19,11 +19,12 @@
 //! asked about without a folder to ask of.
 
 use console_core_never::Never;
+use console_core_number_conversion::{fitted, index};
 
 use crate::kinds::{self, Kind};
 use console_core_walking::Ring;
 
-const THE_FIRST_SHOT: usize = 0;
+const THE_FIRST_SHOT: u32 = 0;
 
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -41,7 +42,7 @@ impl Shot {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Reel {
     shots: Vec<Shot>,
-    at: usize,
+    at: u32,
 }
 
 impl Reel {
@@ -64,9 +65,9 @@ impl Reel {
             false => {},
         }
 
-        let at = match shots.iter().position(|shot| shot.name == opened) {
-            Some(at) => at,
-            None => THE_FIRST_SHOT,
+        let Ok(at) = match shots.iter().position(|shot| shot.name == opened) {
+            Some(at) => fitted(at),
+            None => Ok(THE_FIRST_SHOT),
         };
 
         Ok(Some(Reel { shots, at }))
@@ -75,21 +76,23 @@ impl Reel {
     pub fn showing(&self) -> Result<&Shot, Never> {
         static NOTHING: Shot = Shot { name: String::new(), kind: Kind::Picture };
 
-        Ok(match self.shots.get(self.at).or_else(|| self.shots.first()) {
+        let Ok(at) = index(self.at);
+
+        Ok(match self.shots.get(at).or_else(|| self.shots.first()) {
             Some(shot) => shot,
             None => &NOTHING,
         })
     }
 
-    pub fn many(&self) -> Result<usize, Never> {
-        Ok(self.shots.len())
+    pub fn many(&self) -> Result<u32, Never> {
+        fitted(self.shots.len())
     }
 
-    pub fn which(&self) -> Result<usize, Never> {
+    pub fn which(&self) -> Result<u32, Never> {
         Ok(self.at.saturating_add(1))
     }
 
-    pub fn step(&mut self, by: isize) -> Result<(), Never> {
+    pub fn step(&mut self, by: i32) -> Result<(), Never> {
         let Ok(round) = Ring::of(&self.shots);
 
         let ring = match round {
@@ -107,6 +110,8 @@ impl Reel {
     pub fn stand_on(&mut self, name: &str) -> Result<Stood, Never> {
         Ok(match self.shots.iter().position(|shot| shot.name == name) {
             Some(at) => {
+                let Ok(at) = fitted(at);
+
                 self.at = at;
                 Stood::OnIt
             }
@@ -162,7 +167,7 @@ mod tests {
         shot
     }
 
-    fn stepped(reel: &mut Reel, by: isize) -> &Shot {
+    fn stepped(reel: &mut Reel, by: i32) -> &Shot {
         let Ok(()) = reel.step(by);
 
         showing(reel)

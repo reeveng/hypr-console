@@ -1,0 +1,59 @@
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/main.rs:9:9
+   |
+LL |     at: usize,
+   |         ^^^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+   = note: `#[deny(explicit051_no_machine_width)]` on by default
+
+error: `NonZeroUsize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/main.rs:11:11
+   |
+LL |     many: NonZeroUsize,
+   |           ^^^^^^^^^^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+
+error: `isize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/main.rs:16:14
+   |
+LL | fn moved(by: isize) -> u32 {
+   |              ^^^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/main.rs:24:19
+   |
+LL |     let many: Vec<usize> = Vec::new();
+   |                   ^^^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+
+error: `many` holds a `usize`, which is as wide as the machine, and the source never says how wide that is
+  --> $DIR/main.rs:32:9
+   |
+LL |     let many = items.len();
+   |         ^^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+
+error: `found` holds a `usize`, which is as wide as the machine, and the source never says how wide that is
+  --> $DIR/main.rs:34:9
+   |
+LL |     let found = items.iter().position(|item| *item == 3);
+   |         ^^^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+
+error: `NonZeroUsize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/main.rs:60:36
+   |
+LL |     let tabs = Tabs { at: 0, many: NonZeroUsize::MIN };
+   |                                    ^^^^^^^^^^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+
+error: aborting due to 7 previous errors
+

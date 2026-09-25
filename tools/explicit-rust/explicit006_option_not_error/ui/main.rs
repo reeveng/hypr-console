@@ -21,7 +21,7 @@ fn propagates() -> Result<i32, std::io::Error> {
     fallible()
 }
 
-// GOOD — `ok` on something that is not a `Result` is somebody's own method.
+// GOOD — `ok` on something that is not a `Result` is someone's own method.
 struct Mine;
 impl Mine {
     fn ok(&self) -> bool {

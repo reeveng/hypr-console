@@ -1,7 +1,7 @@
-//! The file in somebody's home, holding only what they moved.
+//! The file in someone's home, holding only what they moved.
 //!
 //! A job that is not in here is a job where this desktop put it, so a machine
-//! nobody has touched has an empty file and the whole of its answer in
+//! no one has touched has an empty file and the whole of its answer in
 //! `console_input_controller::means`. It is not in the manifest and never
 //! travels in this repository: it is the one file that is true of one person's
 //! machine and wrong for every other.
@@ -11,6 +11,13 @@
 //! nothing on the pad, and `menu = ""` is the menu with nothing on it
 //! anywhere. That is why the list is not merged with the defaults a job at a
 //! time: a person who took a job off the pad meant to.
+//!
+//! A job is on as many buttons and keys as someone gave it, so a press given to
+//! it is added beside the ones it has rather than put in their place. It used
+//! to replace whatever the job had on the same input, which made a second
+//! button impossible to give and made the setup screen a place where every
+//! answer undid the last. Taking one away is its own act, and a button is still
+//! only ever one job's: given to a second, it leaves the first.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -20,20 +27,20 @@ use serde::Deserialize;
 use console_core_never::Never;
 
 use crate::Unbound;
-use crate::bound::Binding;
+use crate::bound::{Binding, Played};
 
 pub const NAMED: &str = "buttons.toml";
 
 pub fn path_in(home: &Path) -> Result<PathBuf, Never> {
-    let Ok(ours) = console_core_places::Base::Config.ours_under(home);
+    let Ok(ours) = console_core_places::Base::Configuration.ours_under(home);
 
     Ok(ours.join(NAMED))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Rebound {
-    Something,
-    Nothing,
+    Some,
+    None,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,33 +51,33 @@ pub enum Moved {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Jobs {
+pub struct Tasks {
     pub moved: BTreeMap<String, Vec<Binding>>,
 }
 
 #[derive(Deserialize)]
 struct Written {
     #[serde(default)]
-    jobs: BTreeMap<String, Said>,
+    jobs: BTreeMap<String, OneOrMany>,
 }
 
 #[derive(Deserialize)]
 #[serde(untagged)]
-enum Said {
+enum OneOrMany {
     One(String),
     Any(Vec<String>),
 }
 
-impl Said {
+impl OneOrMany {
     fn every(self) -> Result<Vec<String>, Never> {
         Ok(match self {
-            Said::One(said) => vec![said],
-            Said::Any(said) => said,
+            OneOrMany::One(said) => vec![said],
+            OneOrMany::Any(said) => said,
         })
     }
 }
 
-impl Jobs {
+impl Tasks {
     pub fn read(said: &str) -> Result<Self, Unbound> {
         let written: Written = toml::from_str(said).map_err(Unbound::Untabled)?;
         let mut moved: BTreeMap<String, Vec<Binding>> = BTreeMap::new();
@@ -90,17 +97,17 @@ impl Jobs {
             moved.insert(job, bound);
         }
 
-        Ok(Jobs { moved })
+        Ok(Tasks { moved })
     }
 
     pub fn none() -> Result<Self, Never> {
-        Ok(Jobs::default())
+        Ok(Tasks::default())
     }
 
     pub fn moved(&self) -> Result<Rebound, Never> {
         Ok(match self.moved.is_empty() {
-            true => Rebound::Nothing,
-            false => Rebound::Something,
+            true => Rebound::None,
+            false => Rebound::Some,
         })
     }
 
@@ -108,7 +115,7 @@ impl Jobs {
         Ok(self.moved.get(job).map(Vec::as_slice))
     }
 
-    pub fn moving(
+    pub fn adding(
         &mut self,
         every: &BTreeMap<String, Vec<Binding>>,
         job: &str,
@@ -130,25 +137,17 @@ impl Jobs {
             .collect();
 
         for lost in &taken {
-            let left: Vec<Binding> = match every.get(lost) {
-                Some(bound) => bound.iter().filter(|one| *one != onto).cloned().collect(),
-                None => Vec::new(),
-            };
-
-            let standing = match left.is_empty() {
-                true => {
-                    let nothing = Binding::nothing()?;
-
-                    vec![nothing]
-                }
-                false => left,
-            };
+            let Ok(standing) = without(every.get(lost), onto);
 
             self.moved.insert(lost.clone(), standing);
         }
 
         let mut ours: Vec<Binding> = match every.get(job) {
-            Some(bound) => bound.iter().filter(|one| one.on != onto.on).cloned().collect(),
+            Some(bound) => bound
+                .iter()
+                .filter(|one| *one != onto && one.played() == Ok(Played::ByAPress))
+                .cloned()
+                .collect(),
             None => Vec::new(),
         };
 
@@ -164,6 +163,19 @@ impl Jobs {
         })
     }
 
+    pub fn removing(
+        &mut self,
+        every: &BTreeMap<String, Vec<Binding>>,
+        job: &str,
+        off: &Binding,
+    ) -> Result<(), Never> {
+        let Ok(standing) = without(every.get(job), off);
+
+        self.moved.insert(job.to_string(), standing);
+
+        Ok(())
+    }
+
     pub fn written(&self) -> Result<String, Never> {
         let mut said = String::from(
             "# What each thing this desktop does is bound to, on this machine.\n\
@@ -171,10 +183,10 @@ impl Jobs {
              # The left is the job. The right is the input, what is held, and the one\n\
              # thing pressed: `pad: l2 + dpad-up` is the d-pad pressed up with the left\n\
              # trigger held, and `keyboard: super + i` is I with Super held. An input\n\
-             # nobody names is the pad. An empty answer is a job with nothing on it at\n\
+             # no one names is the pad. An empty answer is a job with nothing on it at\n\
              # all, and a job listed here says the whole of where it is, on every input.\n\
              #\n\
-             # Only what somebody moved is here. Everything absent is where this desktop\n\
+             # Only what someone moved is here. Everything absent is where this desktop\n\
              # puts it, which is what `console-buttons` lists and what the setup screen\n\
              # shows. Written by the setup screen; the controller daemon reads it.\n\
              \n[jobs]\n",
@@ -196,6 +208,22 @@ impl Jobs {
     }
 }
 
+fn without(bound: Option<&Vec<Binding>>, off: &Binding) -> Result<Vec<Binding>, Never> {
+    let left: Vec<Binding> = match bound {
+        Some(bound) => bound.iter().filter(|one| *one != off).cloned().collect(),
+        None => Vec::new(),
+    };
+
+    match left.is_empty() {
+        true => {
+            let nothing = Binding::nothing()?;
+
+            Ok(vec![nothing])
+        }
+        false => Ok(left),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -210,7 +238,7 @@ mod tests {
 
     #[test]
     fn the_file_holds_one_answer_or_several() {
-        let jobs = Jobs::read(
+        let jobs = Tasks::read(
             "[jobs]\nscreenshot = \"l2 + right-paddle-bottom\"\nkeyboard = [\"x\", \"keyboard\"]\n",
         )
         .expect("a table");
@@ -223,7 +251,7 @@ mod tests {
     #[test]
     fn a_job_can_be_on_one_input_and_another_at_once() {
         let jobs =
-            Jobs::read("[jobs]\nsettings = [\"legion-right\", \"keyboard: super + i\"]\n")
+            Tasks::read("[jobs]\nsettings = [\"legion-right\", \"keyboard: super + i\"]\n")
                 .expect("a table");
         let bound = ok(jobs.bound("settings")).expect("two");
 
@@ -236,15 +264,15 @@ mod tests {
     #[test]
     fn what_is_written_reads_back_the_same() {
         let said = "[jobs]\nkeyboard = [\"x\", \"keyboard\"]\nmenu = \"\"\nscreenshot = \"keyboard: ctrl + shift + p\"\n";
-        let jobs = Jobs::read(said).expect("a table");
-        let again = Jobs::read(&ok(jobs.written())).expect("what it wrote");
+        let jobs = Tasks::read(said).expect("a table");
+        let again = Tasks::read(&ok(jobs.written())).expect("what it wrote");
 
         assert_eq!(jobs, again);
     }
 
     #[test]
     fn a_file_written_before_there_was_more_than_a_pad_still_reads() {
-        let jobs = Jobs::read("[jobs]\nscreenshot = \"l2 + right-paddle-bottom\"\n")
+        let jobs = Tasks::read("[jobs]\nscreenshot = \"l2 + right-paddle-bottom\"\n")
             .expect("a table");
         let bound = ok(jobs.bound("screenshot")).expect("one");
 
@@ -253,7 +281,7 @@ mod tests {
 
     #[test]
     fn a_binding_that_does_not_read_takes_the_file_with_it() {
-        let fault = Jobs::read("[jobs]\nmenu = \"a\"\nscreenshot = \"nose + a\"\n")
+        let fault = Tasks::read("[jobs]\nmenu = \"a\"\nscreenshot = \"nose + a\"\n")
             .expect_err("nose is nothing");
 
         assert!(
@@ -275,21 +303,24 @@ mod tests {
     }
 
     #[test]
-    fn moving_a_job_onto_a_free_button_leaves_everything_else_alone() {
-        let mut jobs = ok(Jobs::none());
+    fn a_free_button_is_added_beside_the_one_a_job_already_has() {
+        let mut jobs = ok(Tasks::none());
 
-        assert_eq!(jobs.moving(&every(), "menu", &ok(Binding::pad("menu"))), Ok(Moved::Onto));
-        assert_eq!(jobs.bound("menu"), Ok(Some([ok(Binding::pad("menu"))].as_slice())));
+        assert_eq!(jobs.adding(&every(), "menu", &ok(Binding::pad("menu"))), Ok(Moved::Onto));
+        assert_eq!(
+            jobs.bound("menu"),
+            Ok(Some([ok(Binding::pad("left-paddle-top")), ok(Binding::pad("menu"))].as_slice()))
+        );
         assert_eq!(jobs.bound("screenshot"), Ok(None));
     }
 
     #[test]
-    fn moving_a_job_onto_a_taken_button_takes_the_button() {
-        let mut jobs = ok(Jobs::none());
+    fn adding_a_button_another_job_is_on_takes_the_button() {
+        let mut jobs = ok(Tasks::none());
         let onto = ok(Binding::pad("left-paddle-top"));
 
-        assert_eq!(jobs.moving(&every(), "screenshot", &onto), Ok(Moved::TookFrom("menu".into())));
-        assert_eq!(jobs.bound("screenshot"), Ok(Some([onto].as_slice())));
+        assert_eq!(jobs.adding(&every(), "screenshot", &onto), Ok(Moved::TookFrom("menu".into())));
+        assert!(ok(jobs.bound("screenshot")).is_some_and(|bound| bound.contains(&onto)));
         assert_eq!(
             ok(jobs.bound("menu")).and_then(|bound| bound.first()).map(|one| one.played()),
             Some(Ok(Played::ByNothing))
@@ -298,23 +329,23 @@ mod tests {
 
     #[test]
     fn a_chord_does_not_take_the_button_it_is_held_over() {
-        let mut jobs = ok(Jobs::none());
+        let mut jobs = ok(Tasks::none());
         let mut every = every();
 
         every.insert("back".to_string(), vec![ok(Binding::pad("b"))]);
 
         let onto = ok(Binding::holding(Input::Pad, &["r2"], "b"));
 
-        assert_eq!(jobs.moving(&every, "menu", &onto), Ok(Moved::Onto));
+        assert_eq!(jobs.adding(&every, "menu", &onto), Ok(Moved::Onto));
         assert_eq!(jobs.bound("back"), Ok(None), "b on its own is still back");
     }
 
     #[test]
     fn a_key_does_not_take_a_button_and_leaves_the_pad_where_it_was() {
-        let mut jobs = ok(Jobs::none());
+        let mut jobs = ok(Tasks::none());
         let onto = ok(Binding::holding(Input::Keyboard, &["super"], "m"));
 
-        assert_eq!(jobs.moving(&every(), "menu", &onto), Ok(Moved::Onto));
+        assert_eq!(jobs.adding(&every(), "menu", &onto), Ok(Moved::Onto));
 
         let bound = ok(jobs.bound("menu")).expect("the menu");
 
@@ -324,31 +355,68 @@ mod tests {
     }
 
     #[test]
-    fn a_second_key_for_one_job_replaces_the_first() {
-        let mut jobs = ok(Jobs::none());
+    fn a_second_key_for_one_job_is_kept_beside_the_first() {
+        let mut jobs = ok(Tasks::none());
         let first = ok(Binding::holding(Input::Keyboard, &["super"], "m"));
 
-        let Ok(_) = jobs.moving(&every(), "menu", &first);
+        let Ok(_) = jobs.adding(&every(), "menu", &first);
 
         let mut now = every();
 
         now.insert("menu".to_string(), ok(jobs.bound("menu")).unwrap_or_default().to_vec());
 
         let second = ok(Binding::holding(Input::Keyboard, &["ctrl"], "m"));
-        let Ok(_) = jobs.moving(&now, "menu", &second);
+        let Ok(_) = jobs.adding(&now, "menu", &second);
 
         let bound = ok(jobs.bound("menu")).expect("the menu");
 
         assert!(bound.contains(&second));
-        assert!(!bound.contains(&first), "one input, one place");
+        assert!(bound.contains(&first), "one job, as many places as someone gave it");
+    }
+
+    #[test]
+    fn a_button_added_to_a_job_with_nothing_on_it_is_the_whole_of_it() {
+        let mut jobs = ok(Tasks::none());
+        let mut every = every();
+
+        every.insert("menu".to_string(), vec![ok(Binding::nothing())]);
+
+        let Ok(_) = jobs.adding(&every, "menu", &ok(Binding::pad("y")));
+
+        assert_eq!(jobs.bound("menu"), Ok(Some([ok(Binding::pad("y"))].as_slice())));
+    }
+
+    #[test]
+    fn removing_one_place_leaves_the_others() {
+        let mut jobs = ok(Tasks::none());
+        let key = ok(Binding::holding(Input::Keyboard, &["super"], "m"));
+        let mut every = every();
+
+        every.insert("menu".to_string(), vec![ok(Binding::pad("left-paddle-top")), key.clone()]);
+
+        let Ok(()) = jobs.removing(&every, "menu", &ok(Binding::pad("left-paddle-top")));
+
+        assert_eq!(jobs.bound("menu"), Ok(Some([key].as_slice())));
+    }
+
+    #[test]
+    fn removing_the_last_place_leaves_a_job_with_nothing_on_it_rather_than_its_default() {
+        let mut jobs = ok(Tasks::none());
+
+        let Ok(()) = jobs.removing(&every(), "menu", &ok(Binding::pad("left-paddle-top")));
+
+        assert_eq!(
+            ok(jobs.bound("menu")).and_then(|bound| bound.first()).map(|one| one.played()),
+            Some(Ok(Played::ByNothing))
+        );
     }
 
     #[test]
     fn pressing_the_button_a_job_is_already_on_is_not_a_move() {
-        let mut jobs = ok(Jobs::none());
+        let mut jobs = ok(Tasks::none());
 
         assert_eq!(
-            jobs.moving(&every(), "menu", &ok(Binding::pad("left-paddle-top"))),
+            jobs.adding(&every(), "menu", &ok(Binding::pad("left-paddle-top"))),
             Ok(Moved::Already)
         );
     }

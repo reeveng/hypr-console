@@ -18,23 +18,77 @@
 //! `PropertiesChanged` is emitted for the pair a listener actually acts on --
 //! what is playing, and whether it is. Nothing here polls to find out, and the
 //! panel is welcome to go on asking.
+//!
+//! The position is not one of them, because MPRIS says a listener works out
+//! where the song is from the rate and never hears it change, and a panel
+//! written here may not keep a timer to do that sum. So each whole second
+//! played is `PositionChanged` on this player's own interface instead: the
+//! card showing the clock listens for it, and the bars, which have no clock,
+//! go on hearing only the pair.
+//!
+//! ## What answers, and what carries the answer
+//!
+//! A message goes in and what to say back comes out. Nothing here opens a
+//! socket, so which property a name means, what a method does to the playlist
+//! and what comes back when a caller asks for something this player has never
+//! heard of are all questions a test can put with no bus anywhere -- which is
+//! the shape `console-notifications` already answers its own name in, and the
+//! reason both of them are readable at all.
+//!
+//! It was gio's before, and gio is glib, and glib is a main loop and a type
+//! system and an object system carried on a device for one program that draws
+//! nothing. `console-bus` is the wire this desktop already wrote to hold the
+//! notification name, and a player is the second thing on it: what a service
+//! needs beyond what a daemon needed is properties and introspection, which
+//! are two more members rather than another library.
 
+use console_bus::connection::{ConnectionError, Sender};
+use console_bus::messages::{Message, Signal, Truth, ValidationError, Value};
 use console_core_never::Never;
-use console_core_number_conversion::fitted;
+use console_core_number_conversion::{fitted, index};
 use console_response_times::{Wait, Waiting};
-use gio::prelude::*;
-use glib::Variant;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use crate::answers::{self, Song, Status, Told};
+use crate::answers::{self, Song, Status, Reply};
 use crate::library;
 use crate::playlist::{Moved, Order, Playlist};
-use crate::remembering;
+use crate::bookmark;
 use crate::sounding::{Sounding, Wanted};
 use crate::{art, tags};
 
 const CHANGED: &str = "org.freedesktop.DBus.Properties";
+
+const LOOKING: &str = "org.freedesktop.DBus.Introspectable";
+
+const PEER: &str = "org.freedesktop.DBus.Peer";
+
+const ROOT_SAYS: [(&str, &str); 6] = [
+    ("CanQuit", "b"),
+    ("CanRaise", "b"),
+    ("HasTrackList", "b"),
+    ("Identity", "s"),
+    ("SupportedUriSchemes", "as"),
+    ("SupportedMimeTypes", "as"),
+];
+
+const PLAYER_SAYS: [(&str, &str); 15] = [
+    ("PlaybackStatus", "s"),
+    ("LoopStatus", "s"),
+    ("Rate", "d"),
+    ("Shuffle", "b"),
+    ("Metadata", "a{sv}"),
+    ("Volume", "d"),
+    ("Position", "x"),
+    ("MinimumRate", "d"),
+    ("MaximumRate", "d"),
+    ("CanGoNext", "b"),
+    ("CanGoPrevious", "b"),
+    ("CanPlay", "b"),
+    ("CanPause", "b"),
+    ("CanSeek", "b"),
+    ("CanControl", "b"),
+];
 
 const XML: &str = r#"<node>
   <interface name="org.mpris.MediaPlayer2">
@@ -82,7 +136,7 @@ const XML: &str = r#"<node>
   </interface>
 </node>"#;
 
-pub struct Held {
+pub struct PlayerState {
     pub list: Playlist,
     pub sounding: Sounding,
     pub playing: Song,
@@ -90,10 +144,10 @@ pub struct Held {
     pub turn: u64,
 }
 
-impl Held {
-    pub fn new(sounding: Sounding, folder: Option<PathBuf>) -> Result<Held, Never> {
+impl PlayerState {
+    pub fn new(sounding: Sounding, folder: Option<PathBuf>) -> Result<PlayerState, Never> {
         let Ok(list) = Playlist::of(Vec::new());
-        let mut held = Held { list, sounding, playing: Song::default(), folder, turn: 0 };
+        let mut held = PlayerState { list, sounding, playing: Song::default(), folder, turn: 0 };
 
         let Ok(()) = held.remembered();
 
@@ -101,7 +155,7 @@ impl Held {
     }
 
     fn remembered(&mut self) -> Result<(), Never> {
-        let Ok(kept) = remembering::read();
+        let Ok(kept) = bookmark::read();
 
         let kept = match kept {
             Some(kept) => kept,
@@ -125,7 +179,7 @@ impl Held {
         let Ok(songs) = library::songs_under(&under);
 
         let Ok(()) = waiting.mark("walked");
-        let Ok(many) = fitted::<usize, u64>(songs.len());
+        let Ok(many) = fitted::<_, u64>(songs.len());
         let Ok(list) = Playlist::opened(songs, &kept.song);
 
         self.list = list;
@@ -148,7 +202,7 @@ impl Held {
 
         let Ok(at) = self.sounding.position();
 
-        remembering::write(&song, at)
+        bookmark::write(&song, at)
     }
 
     pub fn opened(&mut self, at: &Path) -> Result<(), Never> {
@@ -163,7 +217,7 @@ impl Held {
 
         let Ok(songs) = library::songs_under(&under);
         let Ok(()) = waiting.mark("walked");
-        let Ok(many) = fitted::<usize, u64>(songs.len());
+        let Ok(many) = fitted::<_, u64>(songs.len());
         let Ok(list) = Playlist::opened(songs, at);
 
         self.list = list;
@@ -268,50 +322,63 @@ fn named(song: &Path, title: &str) -> Result<String, Never> {
     })
 }
 
-pub fn locked(held: &Arc<Mutex<Held>>) -> Result<MutexGuard<'_, Held>, Never> {
+pub fn locked(held: &Arc<Mutex<PlayerState>>) -> Result<MutexGuard<'_, PlayerState>, Never> {
     Ok(match held.lock() {
         Ok(held) => held,
         Err(poisoned) => poisoned.into_inner(),
     })
 }
 
-fn told(said: &Told) -> Result<Variant, Never> {
+fn told(said: &Reply) -> Result<Value, Never> {
     Ok(match said {
-        Told::Track(path) => match glib::variant::ObjectPath::try_from(path.clone()) {
-            Ok(held) => held.to_variant(),
-            Err(_not_an_object_path) => path.to_variant(),
-        },
-        Told::Word(word) => word.to_variant(),
-        Told::Words(words) => words.to_variant(),
-        Told::Long(long) => long.to_variant(),
+        Reply::Track(path) => Value::held("o", Value::Path(path.clone()))?,
+        Reply::Word(word) => Value::held("s", Value::Word(word.clone()))?,
+        Reply::Strings(words) => {
+            let listed = words.iter().map(|word| Value::Word(word.clone())).collect();
+
+            Value::held("as", Value::List(listed))?
+        }
+        Reply::Long(long) => Value::held("x", Value::Signed64(*long))?,
     })
 }
 
-fn metadata(held: &Held) -> Result<Variant, Never> {
+fn words(said: &[&str]) -> Result<Value, Never> {
+    Ok(Value::List(said.iter().map(|word| Value::Word((*word).to_string())).collect()))
+}
+
+fn metadata(held: &PlayerState) -> Result<Value, Never> {
     let Ok(said) = answers::metadata(&held.playing);
-    let dict = glib::VariantDict::new(None);
+    let mut listed: Vec<Value> = Vec::new();
 
     for (name, value) in said {
         let Ok(value) = told(&value);
 
-        dict.insert_value(&name, &value);
+        listed.push(Value::Group(vec![Value::Word(name), value]));
     }
 
-    Ok(dict.end())
+    Ok(Value::List(listed))
 }
 
-fn root_says(name: &str) -> Result<Variant, Never> {
+fn root_says(name: &str) -> Result<Option<Value>, Never> {
     Ok(match name {
-        "Identity" => answers::IDENTITY.to_variant(),
-        "SupportedUriSchemes" => vec!["file".to_string()].to_variant(),
-        "SupportedMimeTypes" => Vec::<String>::new().to_variant(),
-        "CanQuit" => true.to_variant(),
-        "CanRaise" | "HasTrackList" => false.to_variant(),
-        _unknown_to_this_player => false.to_variant(),
+        "Identity" => Some(Value::Word(answers::IDENTITY.to_string())),
+        "SupportedUriSchemes" => {
+            let Ok(said) = words(&["file"]);
+
+            Some(said)
+        },
+        "SupportedMimeTypes" => {
+            let Ok(said) = words(&[]);
+
+            Some(said)
+        },
+        "CanQuit" => Some(Value::Truth(Truth::Yes)),
+        "CanRaise" | "HasTrackList" => Some(Value::Truth(Truth::No)),
+        _unknown_to_this_player => None,
     })
 }
 
-fn player_says(held: &Arc<Mutex<Held>>, name: &str) -> Result<Variant, Never> {
+fn player_says(held: &Arc<Mutex<PlayerState>>, name: &str) -> Result<Option<Value>, Never> {
     let Ok(held) = locked(held);
 
     Ok(match name {
@@ -319,45 +386,105 @@ fn player_says(held: &Arc<Mutex<Held>>, name: &str) -> Result<Variant, Never> {
             let Ok(status) = held.status();
             let Ok(said) = status.said();
 
-            said.to_variant()
+            Some(Value::Word(said.to_string()))
         },
         "LoopStatus" => {
             let Ok(over) = held.list.repeating();
             let Ok(said) = answers::over_said(over);
 
-            said.to_variant()
+            Some(Value::Word(said.to_string()))
         },
         "Shuffle" => {
             let Ok(order) = held.list.ordering();
 
-            matches!(order, Order::Any).to_variant()
+            Some(Value::Truth(match order {
+                Order::Any => Truth::Yes,
+                Order::AsListed => Truth::No,
+            }))
         },
         "Metadata" => {
             let Ok(said) = metadata(&held);
 
-            said
+            Some(said)
         },
         "Position" => {
             let Ok(at) = held.sounding.position();
             let Ok(micros) = answers::micros(at);
 
-            micros.to_variant()
+            Some(Value::Signed64(micros))
         },
-        "Rate" | "MinimumRate" | "MaximumRate" | "Volume" => 1.0_f64.to_variant(),
+        "Rate" | "MinimumRate" | "MaximumRate" | "Volume" => Some(Value::Fraction(1.0)),
         "CanGoNext" | "CanGoPrevious" | "CanPlay" | "CanPause" | "CanSeek" | "CanControl" => {
-            true.to_variant()
+            Some(Value::Truth(Truth::Yes))
         },
-        _unknown_to_this_player => false.to_variant(),
+        _unknown_to_this_player => None,
     })
 }
 
-fn player_told(held: &Arc<Mutex<Held>>, name: &str, value: &Variant) -> Result<(), Never> {
+struct Property<'a> {
+    on: &'a str,
+    name: &'a str,
+}
+
+fn says(held: &Arc<Mutex<PlayerState>>, asked: &Property<'_>) -> Result<Option<Value>, Never> {
+    let Property { on, name } = *asked;
+    let known = match on {
+        answers::ROOT => ROOT_SAYS.iter().find(|(said, _)| *said == name),
+        answers::PLAYER => PLAYER_SAYS.iter().find(|(said, _)| *said == name),
+        _nothing_here_answers_for_that => None,
+    };
+
+    let shape = match known {
+        Some((_, shape)) => *shape,
+        None => return Ok(None),
+    };
+
+    let value = match on {
+        answers::ROOT => root_says(name)?,
+        answers::PLAYER => player_says(held, name)?,
+        _nothing_here_answers_for_that => None,
+    };
+
+    Ok(match value {
+        Some(value) => {
+            let Ok(held) = Value::held(shape, value);
+
+            Some(held)
+        },
+        None => None,
+    })
+}
+
+fn says_all(held: &Arc<Mutex<PlayerState>>, on: &str) -> Result<Value, Never> {
+    let every: &[(&str, &str)] = match on {
+        answers::ROOT => &ROOT_SAYS,
+        answers::PLAYER => &PLAYER_SAYS,
+        _nothing_here_answers_for_that => &[],
+    };
+
+    let mut listed: Vec<Value> = Vec::new();
+
+    for (name, _) in every {
+        let said = says(held, &Property { on, name })?;
+
+        match said {
+            Some(said) => listed.push(Value::Group(vec![Value::Word((*name).to_string()), said])),
+            None => {},
+        }
+    }
+
+    Ok(Value::List(listed))
+}
+
+fn player_told(held: &Arc<Mutex<PlayerState>>, name: &str, value: &Value) -> Result<(), Never> {
     let Ok(mut held) = locked(held);
 
     match name {
         "LoopStatus" => {
-            let said = match value.get::<String>() {
-                Some(said) => said,
+            let Ok(said) = value.text();
+
+            let said = match said {
+                Some(said) => said.to_string(),
                 None => String::new(),
             };
 
@@ -366,16 +493,23 @@ fn player_told(held: &Arc<Mutex<Held>>, name: &str, value: &Variant) -> Result<(
             held.list.repeat(over)
         },
         "Shuffle" => {
-            let order = match value.get::<bool>() {
-                Some(true) => Order::Any,
-                Some(false) | None => Order::AsListed,
-            };
+            let Ok(order) = shuffling(value);
             let Ok(seed) = seed();
 
             held.list.shuffling(order, seed)
         },
         _nothing_else_here_can_be_set => Ok(()),
     }
+}
+
+fn shuffling(value: &Value) -> Result<Order, Never> {
+    let Ok(wrapped) = Value::held("b", Value::Truth(Truth::Yes));
+    let asked = *value == wrapped || *value == Value::Truth(Truth::Yes);
+
+    Ok(match asked {
+        true => Order::Any,
+        false => Order::AsListed,
+    })
 }
 
 #[cfg_attr(
@@ -392,14 +526,14 @@ fn seed() -> Result<u64, Never> {
     })
 }
 
-fn asked(held: &Arc<Mutex<Held>>, method: &str, params: &Variant) -> Result<(), Never> {
+fn asked(held: &Arc<Mutex<PlayerState>>, method: &str, values: &[Value]) -> Result<(), Never> {
     let Ok(mut held) = locked(held);
-    let Ok(()) = doing(&mut held, method, params);
+    let Ok(()) = doing(&mut held, method, values);
 
     held.remember()
 }
 
-fn doing(held: &mut Held, method: &str, params: &Variant) -> Result<(), Never> {
+fn doing(held: &mut PlayerState, method: &str, values: &[Value]) -> Result<(), Never> {
     match method {
         "Next" => held.onward(),
         "Previous" => held.back(),
@@ -416,19 +550,19 @@ fn doing(held: &mut Held, method: &str, params: &Variant) -> Result<(), Never> {
             }
         },
         "OpenUri" => {
-            let Ok(at) = word(params, 0);
+            let Ok(at) = word(values, 0);
             let Ok(at) = local(&at);
 
             held.opened(&at)
         },
         "SetPosition" => {
-            let Ok(micros) = long(params, 1);
+            let Ok(micros) = long(values, 1);
             let Ok(seconds) = answers::seconds(micros);
 
             held.sounding.seek(seconds)
         },
         "Seek" => {
-            let Ok(micros) = long(params, 0);
+            let Ok(micros) = long(values, 0);
             let Ok(by) = answers::seconds(micros);
             let Ok(at) = held.sounding.position();
 
@@ -438,10 +572,15 @@ fn doing(held: &mut Held, method: &str, params: &Variant) -> Result<(), Never> {
     }
 }
 
-fn word(params: &Variant, at: usize) -> Result<String, Never> {
-    let held = match params.try_child_get::<String>(at) {
-        Ok(held) => held,
-        Err(_not_a_word_there) => None,
+fn word(values: &[Value], at: u32) -> Result<String, Never> {
+    let Ok(at) = index(at);
+    let held = match values.get(at) {
+        Some(value) => {
+            let Ok(text) = value.text();
+
+            text.map(str::to_string)
+        }
+        None => None,
     };
 
     Ok(match held {
@@ -450,10 +589,15 @@ fn word(params: &Variant, at: usize) -> Result<String, Never> {
     })
 }
 
-fn long(params: &Variant, at: usize) -> Result<i64, Never> {
-    let held = match params.try_child_get::<i64>(at) {
-        Ok(held) => held,
-        Err(_not_a_number_there) => None,
+fn long(values: &[Value], at: u32) -> Result<i64, Never> {
+    let Ok(at) = index(at);
+    let held = match values.get(at) {
+        Some(value) => {
+            let Ok(counted) = value.counted();
+
+            counted
+        }
+        None => None,
     };
 
     Ok(match held {
@@ -471,100 +615,157 @@ fn local(said: &str) -> Result<PathBuf, Never> {
     })
 }
 
-pub fn changed(connection: &gio::DBusConnection, held: &Arc<Mutex<Held>>) -> Result<(), Never> {
-    let dict = glib::VariantDict::new(None);
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Modified {
+    Yes,
+    #[default]
+    No,
+}
 
-    let Ok(status) = player_says(held, "PlaybackStatus");
-    let Ok(said) = player_says(held, "Metadata");
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Turn {
+    pub say: Option<Message>,
+    pub changed: Modified,
+}
 
-    dict.insert_value("PlaybackStatus", &status);
-    dict.insert_value("Metadata", &said);
+pub fn heard(held: &Arc<Mutex<PlayerState>>, message: &Message) -> Result<Turn, Never> {
+    let (on, member) = match (message.interface.as_deref(), message.member.as_deref()) {
+        (Some(on), Some(member)) => (on, member),
+        (None, Some(member)) => (LOOKING, member),
+        (Some(_), None) | (None, None) => {
+            let Ok(complaint) =
+                message.complaining(ValidationError::UnknownMethod, "a call names a member");
 
-    let body = (answers::PLAYER.to_string(), dict.end(), Vec::<String>::new()).to_variant();
+            return Ok(Turn { say: Some(complaint), changed: Modified::No });
+        }
+    };
 
-    match connection.emit_signal(None, answers::OBJECT, CHANGED, "PropertiesChanged", Some(&body)) {
-        Ok(()) => {},
-        Err(fault) => eprintln!("music-player: saying what changed: {fault}"),
+    match (on, member) {
+        (LOOKING, "Introspect") => {
+            let Ok(answer) = message.answering();
+            let Ok(value) = Value::word(XML);
+            let Ok(answer) = answer.carrying("s", vec![value]);
+
+            Ok(Turn { say: Some(answer), changed: Modified::No })
+        }
+        (PEER, "Ping") => {
+            let Ok(answer) = message.answering();
+
+            Ok(Turn { say: Some(answer), changed: Modified::No })
+        }
+        (CHANGED, "Get") => {
+            let Ok(interface) = word(&message.values, 0);
+            let Ok(name) = word(&message.values, 1);
+            let said = says(held, &Property { on: &interface, name: &name })?;
+
+            Ok(match said {
+                Some(said) => {
+                    let Ok(answer) = message.answering();
+                    let Ok(answer) = answer.carrying("v", vec![said]);
+
+                    Turn { say: Some(answer), changed: Modified::No }
+                }
+                None => {
+                    let Ok(complaint) = message.complaining(
+                        ValidationError::InvalidArgs,
+                        "this player has no such property",
+                    );
+
+                    Turn { say: Some(complaint), changed: Modified::No }
+                }
+            })
+        }
+        (CHANGED, "GetAll") => {
+            let Ok(interface) = word(&message.values, 0);
+            let said = says_all(held, &interface)?;
+            let Ok(answer) = message.answering();
+            let Ok(answer) = answer.carrying("a{sv}", vec![said]);
+
+            Ok(Turn { say: Some(answer), changed: Modified::No })
+        }
+        (CHANGED, "Set") => {
+            let Ok(name) = word(&message.values, 1);
+
+            match message.values.get(2) {
+                Some(value) => {
+                    let Ok(()) = player_told(held, &name, value);
+                }
+                None => {},
+            }
+
+            let Ok(answer) = message.answering();
+
+            Ok(Turn { say: Some(answer), changed: Modified::Yes })
+        }
+        (answers::ROOT, "Raise" | "Quit") => {
+            let Ok(answer) = message.answering();
+
+            Ok(Turn { say: Some(answer), changed: Modified::No })
+        }
+        (answers::PLAYER, method) => {
+            let Ok(()) = asked(held, method, &message.values);
+            let Ok(answer) = message.answering();
+
+            Ok(Turn { say: Some(answer), changed: Modified::Yes })
+        }
+        (_on, _member) => {
+            let Ok(complaint) =
+                message.complaining(ValidationError::UnknownMethod, "nothing here answers to that");
+
+            Ok(Turn { say: Some(complaint), changed: Modified::No })
+        }
+    }
+}
+
+pub fn changing(held: &Arc<Mutex<PlayerState>>) -> Result<Message, Never> {
+    let Ok(signal) =
+        Message::signal(&Signal { at: answers::OBJECT, on: CHANGED, name: "PropertiesChanged" });
+    let mut listed: Vec<Value> = Vec::new();
+
+    for name in ["PlaybackStatus", "Metadata"] {
+        let said = says(held, &Property { on: answers::PLAYER, name })?;
+
+        match said {
+            Some(said) => listed.push(Value::Group(vec![Value::Word(name.to_string()), said])),
+            None => {},
+        }
+    }
+
+    signal.carrying(
+        "sa{sv}as",
+        vec![Value::Word(answers::PLAYER.to_string()), Value::List(listed), Value::List(Vec::new())],
+    )
+}
+
+pub fn changed(saying: &Sender, held: &Arc<Mutex<PlayerState>>) -> Result<(), Never> {
+    let Ok(signal) = changing(held);
+
+    match saying.say(&signal) {
+        Ok(_serial) => {},
+        Err(fault) => {
+            let Ok(()) = said_nothing(fault);
+        },
     }
 
     Ok(())
 }
 
-pub fn serve(held: &Arc<Mutex<Held>>) -> Result<Option<gio::DBusConnection>, Never> {
-    let connection = match gio::bus_get_sync(gio::BusType::Session, gio::Cancellable::NONE) {
-        Ok(connection) => connection,
+pub fn moved(saying: &Sender) -> Result<(), Never> {
+    let Ok(signal) =
+        Message::signal(&Signal { at: answers::OBJECT, on: answers::OURS, name: answers::POSITION_CHANGED });
+
+    match saying.say(&signal) {
+        Ok(_serial) => {},
         Err(fault) => {
-            eprintln!("music-player: no session bus, so nothing can ask for a song: {fault}");
-
-            return Ok(None);
+            let Ok(()) = said_nothing(fault);
         },
-    };
+    }
 
-    let node = match gio::DBusNodeInfo::for_xml(XML) {
-        Ok(node) => node,
-        Err(fault) => {
-            eprintln!("music-player: the interface will not parse: {fault}");
+    Ok(())
+}
 
-            return Ok(None);
-        },
-    };
+fn said_nothing(fault: ConnectionError) -> Result<(), Never> {
+    eprintln!("music-player: saying what changed: {fault}");
 
-    let root = match node.lookup_interface(answers::ROOT) {
-        Some(root) => root,
-        None => return Ok(None),
-    };
-
-    let player = match node.lookup_interface(answers::PLAYER) {
-        Some(player) => player,
-        None => return Ok(None),
-    };
-
-    let _the_root_answers_for_as_long_as_this_runs = connection
-        .register_object(answers::OBJECT, &root)
-        .method_call(|_connection, _sender, _path, _interface, _method, _params, invocation| {
-            invocation.return_value(None);
-        })
-        .property(|_connection, _sender, _path, _interface, name| {
-            let Ok(said) = root_says(name);
-
-            said
-        })
-        .build();
-
-    let saying = Arc::clone(held);
-    let telling = Arc::clone(held);
-    let calling = Arc::clone(held);
-
-    let _the_player_answers_for_as_long_as_this_runs = connection
-        .register_object(answers::OBJECT, &player)
-        .method_call(move |connection, _sender, _path, _interface, method, params, invocation| {
-            let Ok(()) = asked(&calling, method, &params);
-
-            invocation.return_value(None);
-
-            let Ok(()) = changed(&connection, &calling);
-        })
-        .property(move |_connection, _sender, _path, _interface, name| {
-            let Ok(said) = player_says(&saying, name);
-
-            said
-        })
-        .set_property(move |_connection, _sender, _path, _interface, name, value| {
-            let Ok(()) = player_told(&telling, name, &value);
-
-            true
-        })
-        .build();
-
-    let _the_name_is_held_for_as_long_as_this_runs = gio::bus_own_name_on_connection(
-        &connection,
-        answers::NAME,
-        gio::BusNameOwnerFlags::NONE,
-        |_connection, _name| {},
-        |_connection, _name| {
-            eprintln!("music-player: another player has the name, so this one answers to nothing");
-        },
-    );
-
-    Ok(Some(connection))
+    Ok(())
 }

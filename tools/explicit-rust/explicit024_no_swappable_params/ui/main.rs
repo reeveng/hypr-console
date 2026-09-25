@@ -31,7 +31,7 @@ fn place(across: Pixels, down: Rows) -> u32 {
     across.0.saturating_mul(down.0)
 }
 
-// GOOD — a repeated named type is a pair somebody has already decided about.
+// GOOD — a repeated named type is a pair someone has already decided about.
 fn between(from: Pixels, to: Pixels) -> u32 {
     to.0.saturating_sub(from.0)
 }
@@ -41,7 +41,7 @@ pub struct Screen {
 }
 
 impl Screen {
-    // GOOD — a receiver is not a parameter anybody passes.
+    // GOOD — a receiver is not a parameter anyone passes.
     fn wider(&self, across: u32) -> u32 {
         self.across.saturating_add(across)
     }

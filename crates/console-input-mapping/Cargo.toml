@@ -29,9 +29,17 @@ console-input-gamepad.workspace = true
 # The controller, taken while the card is up. What used to be a profile load.
 console-input-focus.workspace = true
 console-panel.workspace = true
-evdev = "0.13"
-gtk4 = "0.11"
-gtk4-layer-shell = "0.8"
+# What a menu, the Home Screen and the keyboard do with a button, after the two
+# pages where a button is given its job.
+console-button-guide.workspace = true
+console-onscreen.workspace = true
+console-core-color.workspace = true
+console-core-geometry.workspace = true
+console-core-shapes.workspace = true
+console-core-number-conversion.workspace = true
+console-draw-painting.workspace = true
+console-draw-surface.workspace = true
+console-input-event-devices.workspace = true
 
 [lints]
 workspace = true

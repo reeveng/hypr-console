@@ -7,7 +7,7 @@
 //! modifier state and it decides what reaches a window -- so what is here turns
 //! rows of the table into `hl.bind` and hands them over.
 //!
-//! Nobody writes a bind. The table is the whole of the answer, and this is a
+//! NoOne writes a bind. The table is the whole of the answer, and this is a
 //! rendering of it, pushed at startup and again whenever `buttons.toml`
 //! changes. That is what keeps a move immediate: a job moved onto Super and J
 //! is on Super and J before the thumb is off the row, with no apply and no
@@ -21,18 +21,18 @@
 //! refused by a compositor that then said it had taken them. The daemon was
 //! up, the table was right, the rendering was right, and the keys did nothing
 //! -- which is the shape of fault this whole crate is arranged against, and it
-//! survived because the one thing nobody asked was the compositor itself.
+//! survived because the one thing no one asked was the compositor itself.
 //! `console-compositor` knows that sentence for a refusal now, and the checks
 //! ask what is held rather than what was sent.
 //!
-//! So a bind is lua: `hl.bind`, with `hl.dsp.exec_cmd` for the doing and the
+//! So a bind is lua: `hl.bind`, with `hl.dsp.exec_cmd` for the effect and the
 //! flags in a table beside it. `repeating` rather than `repeat`, because the
 //! word a person would use is a keyword in that language.
 //!
 //! ## What a bind carries
 //!
-//! `exec_cmd`, always, and never a dispatcher. Every job's doing is already a
-//! `Doing::Run` or it is not a job a keyboard can reach at all, so rendering
+//! `exec_cmd`, always, and never a dispatcher. Every job's effect is already a
+//! `Effect::Run` or it is not a job a keyboard can reach at all, so rendering
 //! one thing rather than two means there is no second vocabulary to keep
 //! agreeing with the first. It costs a process on the workspace binds, which
 //! run `hyprctl dispatch` back at the compositor that just called them. That
@@ -40,9 +40,9 @@
 //! what a button does are the same sentence, read out of the same row.
 //!
 //! `locked` where the job answers with the screen locked and `repeating` where
-//! holding it goes on stepping -- both read off `What` rather than written
+//! holding it goes on stepping -- both read off `Action` rather than written
 //! here, so the volume keys repeat because volume repeats and not because
-//! somebody remembered to say so.
+//! someone remembered to say so.
 //!
 //! ## And what it carries for us
 //!
@@ -53,7 +53,7 @@
 //! key on it at all. The modifiers and the description are what is left, so
 //! the description carries what the modifiers cannot -- which key -- and
 //! [`kept`] is how the daemon learns that a reload threw the binds away,
-//! rather than being told by somebody whose screen would not come back on.
+//! rather than being told by someone whose screen would not come back on.
 //!
 //! ## When it is asked again
 //!
@@ -69,7 +69,7 @@
 //! that never arrives is the only way to stay broken.
 //!
 //! It was going to be a poll, and the argument against a cadence is the usual
-//! one: a number of seconds is an assumption about a fault nobody has timed.
+//! one: a number of seconds is an assumption about a fault no one has timed.
 //! The power key is the row with the most riding on this -- a screen that will
 //! not come back is the state a person cannot see their way out of -- and the
 //! honest answer for it is not a shorter interval, it is asking at the moment
@@ -88,12 +88,12 @@
 //! table on top of itself. A bind does not replace a bind: Hyprland keeps a
 //! vector of them and fires every entry a press matches, so the second copy is
 //! the volume rocker stepping twice and raising two cards, and the hundred and
-//! twenty-fourth is a press nobody can use.
+//! twenty-fourth is a press no one can use.
 //!
 //! Nothing said this either. The daemon was up, the table was right, the
 //! rendering was right, and every key did the right thing more times than it
 //! was asked -- the same shape of fault as the refusal above, arrived at from
-//! the other end: the one thing nobody asked was how many.
+//! the other end: the one thing no one asked was how many.
 //!
 //! What restarts the daemon is the ordinary business of the device. An apply
 //! stops and starts it, and so does every device run of the checks, while the
@@ -106,13 +106,13 @@
 //! which is what makes that last one converge on a machine already holding a
 //! hundred copies rather than merely stopping the next one arriving.
 
-use console_compositor::stirred::Stirred;
+use console_compositor::events::CompositorEvent;
 use console_core_never::Never;
 use console_input_bindings::bound::{Binding, Input, Played};
 use console_input_bindings::keys;
 
-use crate::doing::Doing;
-use crate::means::{Job, Locked, Press, Repeats, Table};
+use crate::effect::Effect;
+use crate::actions::{Task, LockBehavior, ButtonPress, RepeatMode, Table};
 
 const BIND: &str = "hl.bind";
 
@@ -131,16 +131,16 @@ const ON: &str = "on";
 const PLAIN: &[char] = &['.', '_', '-', '/', '+'];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Bind {
+pub struct KeyBinding {
     pub keys: String,
     pub held: u64,
     pub runs: String,
     pub about: String,
-    pub locked: Locked,
-    pub repeats: Repeats,
+    pub locked: LockBehavior,
+    pub repeats: RepeatMode,
 }
 
-impl Bind {
+impl KeyBinding {
     pub fn said(&self) -> Result<String, Never> {
         let Ok(keys) = console_compositor::quoted(&self.keys);
         let Ok(runs) = console_compositor::quoted(&self.runs);
@@ -149,13 +149,13 @@ impl Bind {
         let mut opts: Vec<String> = vec![format!("{ABOUT} = {about}")];
 
         match self.locked {
-            Locked::EvenThen => opts.push(WHILE_LOCKED.to_string()),
-            Locked::Awake => {},
+            LockBehavior::EvenThen => opts.push(WHILE_LOCKED.to_string()),
+            LockBehavior::Unlocked => {},
         }
 
         match self.repeats {
-            Repeats::WhileHeld => opts.push(WHILE_HELD.to_string()),
-            Repeats::Once => {},
+            RepeatMode::WhileHeld => opts.push(WHILE_HELD.to_string()),
+            RepeatMode::Once => {},
         }
 
         Ok(format!("{BIND}({keys}, {RUNS}({runs}), {{ {} }})", opts.join(", ")))
@@ -168,9 +168,9 @@ impl Bind {
     }
 }
 
-pub fn wanted(table: &Table) -> Result<Vec<Bind>, Never> {
+pub fn wanted(table: &Table) -> Result<Vec<KeyBinding>, Never> {
     let Ok(every) = table.every();
-    let mut wanted: Vec<Bind> = Vec::new();
+    let mut wanted: Vec<KeyBinding> = Vec::new();
 
     for (job, bound) in every {
         'over_binds: for one in bound.iter().filter(|one| one.on == Input::Keyboard) {
@@ -195,27 +195,27 @@ pub fn wanted(table: &Table) -> Result<Vec<Bind>, Never> {
                 None => continue 'over_binds,
             };
 
-            let Ok(does) = job.what.does(Press::Down);
+            let Ok(does) = job.action.does(ButtonPress::Down);
 
-            let argv = match does {
-                Some(Doing::Run(argv)) => argv,
-                Some(Doing::Frame(_) | Doing::Tell(_) | Doing::Using(_)) | None => continue 'over_binds,
+            let arguments = match does {
+                Some(Effect::Run(arguments)) => arguments,
+                Some(Effect::Frame(_) | Effect::Tell(_) | Effect::Using(_)) | None => continue 'over_binds,
             };
 
-            let Ok(runs) = quoted(&argv);
-            let Ok(locked) = job.what.locked();
-            let Ok(repeats) = job.what.repeats();
+            let Ok(runs) = quoted(&arguments);
+            let Ok(locked) = job.action.locked();
+            let Ok(repeats) = job.action.repeats();
 
             let Ok(about) = named(job, &keys);
 
-            wanted.push(Bind { keys, held, runs, about, locked, repeats });
+            wanted.push(KeyBinding { keys, held, runs, about, locked, repeats });
         }
     }
 
     Ok(wanted)
 }
 
-fn named(job: &Job, keys: &str) -> Result<String, Never> {
+fn named(job: &Task, keys: &str) -> Result<String, Never> {
     Ok(format!("{} {ON} {keys}", job.slug))
 }
 
@@ -223,10 +223,10 @@ fn keyed(binding: &Binding) -> Result<Option<String>, Never> {
     keys::bind(&binding.held, &binding.pressed)
 }
 
-fn quoted(argv: &[String]) -> Result<String, Never> {
+fn quoted(arguments: &[String]) -> Result<String, Never> {
     let mut said: Vec<String> = Vec::new();
 
-    for word in argv {
+    for word in arguments {
         let plain = !word.is_empty()
             && word.chars().all(|letter| letter.is_ascii_alphanumeric() || PLAIN.contains(&letter));
 
@@ -241,27 +241,27 @@ fn quoted(argv: &[String]) -> Result<String, Never> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Worth {
-    Asking,
+    Querying,
     Ignoring,
 }
 
 pub fn worth_asking_after(line: &str) -> Result<Worth, Never> {
-    let Ok(stirred) = console_compositor::stirred::read(line);
+    let Ok(stirred) = console_compositor::events::read(line);
 
     Ok(match stirred {
-        Stirred::ConfigReloaded => Worth::Asking,
-        Stirred::WindowOpened(_)
-        | Stirred::WindowClosed(_)
-        | Stirred::WindowRenamed(_)
-        | Stirred::WindowMoved
-        | Stirred::WindowFloated
-        | Stirred::WindowPinned
-        | Stirred::WindowFilled
-        | Stirred::LayerOpened
-        | Stirred::LayerClosed
-        | Stirred::WorkspaceChanged
-        | Stirred::ScreenFocused
-        | Stirred::Nothing => Worth::Ignoring,
+        CompositorEvent::ConfigReloaded => Worth::Querying,
+        CompositorEvent::WindowOpened(_)
+        | CompositorEvent::WindowClosed(_)
+        | CompositorEvent::WindowRenamed(_)
+        | CompositorEvent::WindowMoved
+        | CompositorEvent::WindowFloated
+        | CompositorEvent::WindowPinned
+        | CompositorEvent::WindowFilled
+        | CompositorEvent::LayerOpened
+        | CompositorEvent::LayerClosed
+        | CompositorEvent::WorkspaceChanged
+        | CompositorEvent::ScreenFocused
+        | CompositorEvent::Ignored => Worth::Ignoring,
     })
 }
 
@@ -273,18 +273,15 @@ pub enum Went {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Holding {
-    These(Vec<console_compositor::Bind>),
-    Unanswered(String),
+    These(Vec<console_compositor::BoundKey>),
+    HyprctlError(String),
 }
 
 pub fn holding() -> Result<Holding, Never> {
-    Ok(match console_compositor::asked(console_compositor::Asked::Binds) {
-        Ok(said) => {
-            let Ok(these) = console_compositor::binds(&said);
-
-            Holding::These(these)
-        }
-        Err(fault) => Holding::Unanswered(fault.to_string()),
+    Ok(match console_compositor::query(console_compositor::Query::Binds) {
+        Ok(console_compositor::Answer::Binds(these)) => Holding::These(these),
+        Ok(other) => Holding::HyprctlError(format!("hyprctl answered {other:?} when asked for binds")),
+        Err(fault) => Holding::HyprctlError(fault.to_string()),
     })
 }
 
@@ -295,13 +292,8 @@ pub enum Holds {
     Over,
 }
 
-pub fn holds(one: &Bind, held: &[console_compositor::Bind]) -> Result<Holds, Never> {
-    let many = held
-        .iter()
-        .filter(|there| there.held == one.held && there.about == one.about)
-        .count();
-
-    Ok(match many {
+pub fn holds(one: &KeyBinding, held: &[console_compositor::BoundKey]) -> Result<Holds, Never> {
+    Ok(match held.iter().filter(|there| there.held == one.held && there.about == one.about).count() {
         0 => Holds::NotAtAll,
         1 => Holds::Once,
         _ => Holds::Over,
@@ -309,30 +301,30 @@ pub fn holds(one: &Bind, held: &[console_compositor::Bind]) -> Result<Holds, Nev
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Says {
-    Bind(Bind),
-    Unbind(Bind),
+pub enum BindCommand {
+    Bind(KeyBinding),
+    Unbind(KeyBinding),
 }
 
-impl Says {
+impl BindCommand {
     pub fn said(&self) -> Result<String, Never> {
         match self {
-            Says::Bind(one) => one.said(),
-            Says::Unbind(one) => one.unsaid(),
+            BindCommand::Bind(one) => one.said(),
+            BindCommand::Unbind(one) => one.unsaid(),
         }
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Standing {
-    pub missing: usize,
-    pub over: usize,
+    pub missing: u32,
+    pub over: u32,
 }
 
-pub fn standing(wanted: &[Bind], holding: &Holding) -> Result<Standing, Never> {
+pub fn standing(wanted: &[KeyBinding], holding: &Holding) -> Result<Standing, Never> {
     let held = match holding {
         Holding::These(held) => held,
-        Holding::Unanswered(_) => return Ok(Standing { missing: 0, over: 0 }),
+        Holding::HyprctlError(_) => return Ok(Standing { missing: 0, over: 0 }),
     };
 
     let mut standing = Standing { missing: 0, over: 0 };
@@ -350,23 +342,23 @@ pub fn standing(wanted: &[Bind], holding: &Holding) -> Result<Standing, Never> {
     Ok(standing)
 }
 
-pub fn sent(wanted: &[Bind], handed: &[Bind], holding: &Holding) -> Result<Vec<Says>, Never> {
+pub fn sent(wanted: &[KeyBinding], handed: &[KeyBinding], holding: &Holding) -> Result<Vec<BindCommand>, Never> {
     let held = match holding {
         Holding::These(held) => held,
-        Holding::Unanswered(_) => return unasked(wanted, handed),
+        Holding::HyprctlError(_) => return unasked(wanted, handed),
     };
 
-    let Ok(mut sent) = gone(wanted, handed);
+    let Ok(mut sent) = dropped(wanted, handed);
 
     for one in wanted {
         let Ok(holds) = holds(one, held);
 
         match holds {
             Holds::Once => {},
-            Holds::NotAtAll => sent.push(Says::Bind(one.clone())),
+            Holds::NotAtAll => sent.push(BindCommand::Bind(one.clone())),
             Holds::Over => {
-                sent.push(Says::Unbind(one.clone()));
-                sent.push(Says::Bind(one.clone()));
+                sent.push(BindCommand::Unbind(one.clone()));
+                sent.push(BindCommand::Bind(one.clone()));
             },
         }
     }
@@ -374,18 +366,18 @@ pub fn sent(wanted: &[Bind], handed: &[Bind], holding: &Holding) -> Result<Vec<S
     Ok(sent)
 }
 
-fn unasked(wanted: &[Bind], handed: &[Bind]) -> Result<Vec<Says>, Never> {
-    let Ok(mut sent) = gone(wanted, handed);
+fn unasked(wanted: &[KeyBinding], handed: &[KeyBinding]) -> Result<Vec<BindCommand>, Never> {
+    let Ok(mut sent) = dropped(wanted, handed);
 
     #[cfg_attr(
         dylint_lib = "explicit028_no_search_in_a_loop",
         allow(
             explicit028_no_search_in_a_loop,
-            reason = "both lists are the binds of one controller profile, which is tens of them and is written out in a file somebody reads"
+            reason = "both lists are the binds of one controller profile, which is tens of them and is written out in a file someone reads"
         )
     )]
     for one in wanted.iter().filter(|one| !handed.contains(one)) {
-        sent.push(Says::Bind(one.clone()));
+        sent.push(BindCommand::Bind(one.clone()));
     }
 
     Ok(sent)
@@ -395,23 +387,23 @@ fn unasked(wanted: &[Bind], handed: &[Bind]) -> Result<Vec<Says>, Never> {
     dylint_lib = "explicit028_no_search_in_a_loop",
     allow(
         explicit028_no_search_in_a_loop,
-        reason = "both lists are the binds of one controller profile, which is tens of them and is written out in a file somebody reads"
+        reason = "both lists are the binds of one controller profile, which is tens of them and is written out in a file someone reads"
     )
 )]
-fn gone(wanted: &[Bind], handed: &[Bind]) -> Result<Vec<Says>, Never> {
+fn dropped(wanted: &[KeyBinding], handed: &[KeyBinding]) -> Result<Vec<BindCommand>, Never> {
     Ok(handed
         .iter()
         .filter(|one| !wanted.contains(one))
-        .map(|one| Says::Unbind(one.clone()))
+        .map(|one| BindCommand::Unbind(one.clone()))
         .collect())
 }
 
-pub fn told(sent: &[Says]) -> Result<Went, Never> {
+pub fn told(sent: &[BindCommand]) -> Result<Went, Never> {
     let mut went = Went::Through;
 
     for one in sent {
         let Ok(said) = one.said();
-        let Ok(done) = console_compositor::told(console_compositor::Told::Eval, &said);
+        let Ok(done) = console_compositor::request(console_compositor::Request::Eval, &said);
 
         let Ok(through) = complained(done, &said);
 
@@ -424,10 +416,10 @@ pub fn told(sent: &[Says]) -> Result<Went, Never> {
     Ok(went)
 }
 
-fn complained(said: console_compositor::Done, about: &str) -> Result<Went, Never> {
+fn complained(said: console_compositor::DispatchResult, about: &str) -> Result<Went, Never> {
     Ok(match said {
-        console_compositor::Done::Taken => Went::Through,
-        console_compositor::Done::Refused(why) => {
+        console_compositor::DispatchResult::Success => Went::Through,
+        console_compositor::DispatchResult::Failure(why) => {
             eprintln!("controller-desktop: the compositor would not take {about:?}: {why}");
 
             Went::Nowhere
@@ -439,16 +431,16 @@ fn complained(said: console_compositor::Done, about: &str) -> Result<Went, Never
 mod tests {
     use super::*;
 
-    use console_input_bindings::moved::Jobs;
+    use console_input_bindings::moved::Tasks;
 
-    fn ours() -> Vec<Bind> {
+    fn ours() -> Vec<KeyBinding> {
         let Ok(table) = Table::ours();
         let Ok(wanted) = wanted(&table);
 
         wanted
     }
 
-    fn one<'a>(every: &'a [Bind], keys: &str) -> &'a Bind {
+    fn one<'a>(every: &'a [KeyBinding], keys: &str) -> &'a KeyBinding {
         every.iter().find(|bind| bind.keys == keys).expect("a bind")
     }
 
@@ -459,8 +451,8 @@ mod tests {
         said.expect("a key")
     }
 
-    fn held(bind: &Bind) -> console_compositor::Bind {
-        console_compositor::Bind {
+    fn held(bind: &KeyBinding) -> console_compositor::BoundKey {
+        console_compositor::BoundKey {
             held: bind.held,
             named: String::new(),
             about: bind.about.clone(),
@@ -534,7 +526,7 @@ mod tests {
 
     #[test]
     fn moving_a_job_moves_the_bind_and_leaves_the_rest_alone() {
-        let said = Jobs::read("[jobs]\nsettings = \"keyboard: super + j\"\n").expect("a table");
+        let said = Tasks::read("[jobs]\nsettings = \"keyboard: super + j\"\n").expect("a table");
         let Ok(table) = Table::of(&said);
         let Ok(now) = wanted(&table);
 
@@ -561,36 +553,34 @@ mod tests {
         let every = ours();
 
         for bind in &every {
-            let same = every.iter().filter(|other| other.about == bind.about).count();
-
-            assert_eq!(same, 1, "{:?} names two binds, and neither can be put back alone", bind.about);
+            assert_eq!(every.iter().filter(|other| other.about == bind.about).count(), 1, "{:?} names two binds, and neither can be put back alone", bind.about);
         }
 
-        let keyboard: Vec<&Bind> =
+        let keyboard: Vec<&KeyBinding> =
             every.iter().filter(|bind| bind.about.starts_with("keyboard ")).collect();
 
         assert_eq!(keyboard.len(), 2, "the keyboard is the job that is on two keys at once");
     }
 
-    fn bound(sent: &[Says]) -> Vec<String> {
+    fn bound(sent: &[BindCommand]) -> Vec<String> {
         sent.iter()
             .filter_map(|says| match says {
-                Says::Bind(one) => Some(one.about.clone()),
-                Says::Unbind(_) => None,
+                BindCommand::Bind(one) => Some(one.about.clone()),
+                BindCommand::Unbind(_) => None,
             })
             .collect()
     }
 
-    fn unbound(sent: &[Says]) -> Vec<String> {
+    fn unbound(sent: &[BindCommand]) -> Vec<String> {
         sent.iter()
             .filter_map(|says| match says {
-                Says::Unbind(one) => Some(one.about.clone()),
-                Says::Bind(_) => None,
+                BindCommand::Unbind(one) => Some(one.about.clone()),
+                BindCommand::Bind(_) => None,
             })
             .collect()
     }
 
-    fn these(every: &[Bind]) -> Holding {
+    fn these(every: &[KeyBinding]) -> Holding {
         Holding::These(every.iter().map(held).collect())
     }
 
@@ -619,7 +609,7 @@ mod tests {
         let every = ours();
         let twice = one(&every, &tail("volume-up")).clone();
 
-        let mut holding: Vec<console_compositor::Bind> = every.iter().map(held).collect();
+        let mut holding: Vec<console_compositor::BoundKey> = every.iter().map(held).collect();
         holding.push(held(&twice));
 
         let Ok(sent) = sent(&every, &every, &Holding::These(holding));
@@ -627,10 +617,9 @@ mod tests {
         assert_eq!(unbound(&sent), vec![twice.about.clone()]);
         assert_eq!(bound(&sent), vec![twice.about.clone()]);
 
-        let taken = sent.iter().position(|says| says == &Says::Unbind(twice.clone()));
-        let given = sent.iter().position(|says| says == &Says::Bind(twice.clone()));
+        let before_given: Vec<&BindCommand> = sent.iter().take_while(|says| **says != BindCommand::Bind(twice.clone())).collect();
 
-        assert!(taken < given, "it goes back on after it comes off, not before");
+        assert!(before_given.contains(&&BindCommand::Unbind(twice.clone())), "it goes back on after it comes off, not before");
     }
 
     #[test]
@@ -638,7 +627,7 @@ mod tests {
         let every = ours();
         let twice = one(&every, &tail("volume-up")).clone();
 
-        let mut holding: Vec<console_compositor::Bind> =
+        let mut holding: Vec<console_compositor::BoundKey> =
             every.iter().filter(|bind| bind.about != twice.about).map(held).collect();
 
         holding.push(held(&twice));
@@ -651,7 +640,7 @@ mod tests {
 
         let Ok(nothing_held) = standing(&every, &Holding::These(Vec::new()));
 
-        assert_eq!(nothing_held.missing, every.len());
+        assert_eq!(nothing_held.missing, u32::try_from(every.len()).unwrap());
         assert_eq!(nothing_held.over, 0);
     }
 
@@ -660,7 +649,7 @@ mod tests {
         let every = ours();
         let was = one(&every, &keys_of("super", "i")).clone();
 
-        let said = Jobs::read("[jobs]\nsettings = \"keyboard: super + j\"\n").expect("a table");
+        let said = Tasks::read("[jobs]\nsettings = \"keyboard: super + j\"\n").expect("a table");
         let Ok(table) = Table::of(&said);
         let Ok(now) = wanted(&table);
 
@@ -674,7 +663,7 @@ mod tests {
     #[test]
     fn a_compositor_that_will_not_say_is_taken_at_its_last_word() {
         let every = ours();
-        let would_not = Holding::Unanswered("no socket".to_string());
+        let would_not = Holding::HyprctlError("no socket".to_string());
         let Ok(again) = sent(&every, &every, &would_not);
 
         assert!(again.is_empty(), "what cannot be counted is left where it was: {again:?}");

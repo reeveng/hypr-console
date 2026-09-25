@@ -8,30 +8,35 @@
 //! What is worked out and what is drawn are kept apart. Which tabs the strip
 //! has room for, how many whole rows fit in the room the compositor granted,
 //! and what a button means are arithmetic, and live in modules that have never
-//! heard of GTK. The drawing reads their answers.
+//! heard of a screen. `surface` reads their answers, places a list of shapes
+//! and puts them in a buffer the compositor is reading: there is no toolkit
+//! under any of it, and what a panel drew is written down from the same
+//! placement rather than read back out of a widget tree.
 
 pub mod actor;
+pub mod arrivals;
 pub mod asked;
 pub mod before;
 pub mod card;
-pub mod chooser;
+pub mod picker;
 
 pub use console_onscreen as door;
 pub mod fitting;
-pub mod held;
+pub mod frames;
+pub mod handoff;
 pub mod icons;
 pub mod keys;
+pub mod left_open;
 pub mod marks;
 pub mod notes;
 pub mod opening;
 pub mod page;
-pub mod panel;
 pub mod pictures;
-pub mod room;
 pub mod running;
 pub mod shape;
 pub mod strip;
-pub mod style;
+pub mod surface;
 pub mod tab;
-pub mod telling;
+pub mod description;
 pub mod whose;
+pub mod zoom;

@@ -6,7 +6,7 @@
 //! downstream divides by a number it would have to be told.
 //!
 //! A word the list does not have is not a fault and not a zero. It is a word
-//! English writes less often than the twenty-thousandth commonest one, which is
+//! English writes less often than the twenty-thousandth most common one, which is
 //! about three times in a million, and [`Norm::of`] says so with a `None` that
 //! every caller has to meet.
 
@@ -15,6 +15,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 use console_core_never::Never;
+use console_core_number_conversion::fitted;
 
 use crate::PerMillion;
 
@@ -73,8 +74,8 @@ impl Norm {
         Ok(self.said.get(word).copied())
     }
 
-    pub fn words(&self) -> Result<usize, Never> {
-        Ok(self.said.len())
+    pub fn words(&self) -> Result<u32, Never> {
+        fitted(self.said.len())
     }
 }
 

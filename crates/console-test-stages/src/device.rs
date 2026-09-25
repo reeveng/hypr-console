@@ -36,12 +36,17 @@
 //! again means asking for a chord and watching the pad's own node for what came
 //! out of it.
 //!
-//! What a press then does to the machine is another matter, and it is somebody
+//! What a press then does to the machine is another matter, and it is someone
 //! else's machine. Two things here are the bookkeeping that lets a run give it
 //! back the way it found it: a window opened through `open` is remembered, so
 //! `close_window` can end the process the run started rather than something
 //! the person was using, and a level is read as a `Level` rather than as a
-//! number, so a reading nobody got is never mistaken for a screen at nought.
+//! number, so a reading no one got is never mistaken for a screen at zero.
+//!
+//! A device behind Tailscale SSH can stop answering until somebody approves a
+//! login in a browser, and ssh says where on its error stream -- which this
+//! kept and never showed, so a whole evening of timeouts read as bad Wi-Fi. The
+//! link is printed on its own line whenever ssh says one.
 
 
 use console_core_external_programs::Program;
@@ -56,8 +61,8 @@ use console_input_gamepad::profile::{Kind, Profile};
 use console_input_gamepad::router::every_profile;
 use console_input_gamepad::vocabulary;
 
-use crate::Awry;
-use crate::checking::{Done, cannot, failed};
+use crate::Error;
+use crate::checking::{CheckResult, cannot, failed, less_than, more_than};
 use crate::picture::{Picture, where_};
 
 const NOTHING_SAID: &str = "";
@@ -65,27 +70,29 @@ const NOTHING_SAID: &str = "";
 const NO_WINDOWS: i64 = 0;
 
 
-pub const COMM: usize = 15;
+pub const COMM: u32 = 15;
 
 pub fn comm(named: &str) -> Result<&str, Never> {
-    Ok(match named.get(..COMM) {
+    let Ok(comm) = console_core_number_conversion::index(COMM);
+
+    Ok(match named.get(..comm) {
         Some(cut) => cut,
         None => named,
     })
 }
 
-pub fn host() -> Result<String, Awry> {
-    let said = console_device::naming::device()?;
+pub fn host() -> Result<String, Error> {
+    let said = console_device_name::device()?;
 
     match said.trim().is_empty() {
-        true => Err(Awry::Hostless),
+        true => Err(Error::Hostless),
         false => Ok(said),
     }
 }
 
 const MARK: &str = "@user@";
 
-const PIECES: [&str; 14] = [
+const PIECES: [&str; 17] = [
     "console-input-controller",
     "console-input-keyboard",
     "console-bar",
@@ -97,12 +104,15 @@ const PIECES: [&str; 14] = [
     "console-wallpaper",
     "console-events",
     "console-home",
+    "console-control-center",
     "console-idle",
     "console-warm",
+    "console-light",
+    "console-wifi",
     "syncthing",
 ];
 
-const BY_A_SWITCH: &str = "console-warm";
+const BY_A_SWITCH: [&str; 2] = ["console-warm", "console-light"];
 
 const SENDEVENT: &str = "InputPlumber's SendEvent panics on its own runtime rather than \
      emitting anything, so nothing here can hold a button down or pull a trigger; \
@@ -125,6 +135,12 @@ fn session_env(whom: &str) -> Result<String, Never> {
     ))
 }
 
+fn logins(said: &str) -> Result<Vec<&str>, Never> {
+    Ok(said.split_whitespace().filter(|word| word.starts_with(LOGIN)).collect())
+}
+
+const LOGIN: &str = "https://login.tailscale.com/";
+
 pub const LET_GO: f64 = 0.12;
 
 pub const SETTLED: f64 = 0.6;
@@ -135,18 +151,7 @@ pub const OPENING: f64 = 12.0;
 
 pub const LEAVING: f64 = 12.0;
 
-pub const FURNITURE: [&str; console_input_controller::mode::FURNITURE.len() + 1] = {
-    let mut every = [""; console_input_controller::mode::FURNITURE.len() + 1];
-    let mut at = 0;
-
-    while at < console_input_controller::mode::FURNITURE.len() {
-        every[at] = console_input_controller::mode::FURNITURE[at];
-        at += 1;
-    }
-
-    every[at] = "hyprpaper";
-    every
-};
+const WALLPAPER_SURFACE: &str = "hyprpaper";
 
 fn spoken_as(kind: Kind, name: &str) -> Result<Option<String>, Never> {
     Ok(match kind {
@@ -189,8 +194,8 @@ pub struct Device {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Pushed {
-    Something,
-    Nothing,
+    Some,
+    None,
 }
 
 fn named<'a>(table: &'a [(&'a str, &'a str)], spoken: &str) -> Result<Option<&'a str>, Never> {
@@ -203,23 +208,23 @@ fn said(table: &[(&str, &str)]) -> Result<String, Never> {
     Ok(format!("try one of {}", every.join(", ")))
 }
 
-fn menus_up(seen: &mut Device) -> Result<Seen, Never> {
+fn menus_up(seen: &mut Device) -> Result<Ready, Never> {
     let Ok(menus) = seen.menus();
 
     Ok(match menus.is_empty() {
-        true => Seen::NotYet,
-        false => Seen::Yes,
+        true => Ready::NotYet,
+        false => Ready::Yes,
     })
 }
 
-pub use console_waiting::{Seen, Waited};
+pub use console_waiting::{Ready, Outcome};
 
 pub const A_MOMENT: f64 = 2.0;
 
 pub const A_PICTURE: f64 = 10.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Dry {
+pub enum DryRun {
     Pretend,
     Really,
 }
@@ -230,12 +235,25 @@ pub enum Level {
     Unsaid,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Way {
+    Up,
+    Down,
+}
+
 impl Level {
-    pub fn told(self) -> Result<Option<i64>, Never> {
-        Ok(match self {
-            Level::At(level) => Some(level),
-            Level::Unsaid => None,
-        })
+    pub fn went(self, way: Way, from: Level, unsaid: &str) -> CheckResult {
+        let (was, now) = match (from, self) {
+            (Level::At(was), Level::At(now)) => (was, now),
+            (Level::Unsaid, _) | (_, Level::Unsaid) => return failed(unsaid.to_string()),
+        };
+
+        let why = || format!("it was {was} and is {now}");
+
+        match way {
+            Way::Up => more_than(now, was, why),
+            Way::Down => less_than(now, was, why),
+        }
     }
 }
 
@@ -266,20 +284,20 @@ fn volume_in(said: &str) -> Result<Level, Never> {
 }
 
 impl Device {
-    pub fn new(host: &str, dry: Dry) -> Result<Self, Awry> {
+    pub fn new(host: &str, dry: DryRun) -> Result<Self, Error> {
         let Ok(root) = crate::root();
         let profiles = every_profile(&root)?;
 
         Ok(Device {
             host: host.to_string(),
-            dry: dry == Dry::Pretend,
+            dry: dry == DryRun::Pretend,
             done: Vec::new(),
             profiles,
             taken: None,
             kept: None,
             opened: Vec::new(),
             whom: None,
-            pushed: Pushed::Nothing,
+            pushed: Pushed::None,
             screen: None,
             watching: None,
         })
@@ -298,9 +316,17 @@ impl Device {
                 reason = "CONSOLE_USER says whose the device is when the device cannot be asked, and asking the device is what this file does"
             )
         )]
-        let said = match std::env::var("CONSOLE_USER") {
-            Ok(said) if !said.trim().is_empty() => said.trim().to_string(),
-            Ok(_) | Err(_) => {
+        let told = match std::env::var("CONSOLE_USER") {
+            Ok(said) => match said.trim().is_empty() {
+                true => None,
+                false => Some(said.trim().to_string()),
+            },
+            Err(_) => None,
+        };
+
+        let said = match told {
+            Some(said) => said,
+            None => {
                 let Ok(said) = self.ssh(
                     "set -- $(ls -1 /home 2>/dev/null); \
                      if [ $# -eq 1 ]; then echo \"$1\"; else id -nu 1000; fi",
@@ -363,7 +389,16 @@ impl Device {
             .output();
 
         Ok(match done {
-            Ok(done) => String::from_utf8_lossy(&done.stdout).trim().to_string(),
+            Ok(done) => {
+                let complained = String::from_utf8_lossy(&done.stderr);
+                let Ok(links) = logins(&complained);
+
+                for link in links {
+                    eprintln!("\nconsole-test-stages: {} will not answer until this is approved in a browser:\n\n    {link}\n", self.host);
+                }
+
+                String::from_utf8_lossy(&done.stdout).trim().to_string()
+            }
             Err(fault) => {
                 eprintln!("console-test-stages: ssh {}: {fault}", self.host);
 
@@ -386,6 +421,18 @@ impl Device {
         let asked = format!("machinectl shell --uid={whom} .host /bin/sh -c {quoted}");
 
         self.ssh(&asked)
+    }
+
+    pub fn told(&mut self, at: &str) -> Result<Vec<console_panel::description::Description>, Never> {
+        let Ok(said) = self.in_session(&format!("cat {at} 2>/dev/null"));
+
+        Ok(said
+            .lines()
+            .filter_map(|line| match console_panel::description::read(line) {
+                Ok(drew) => Some(drew),
+                Err(_not_a_draw) => None,
+            })
+            .collect())
     }
 
     pub fn hypr(&mut self, command: &str) -> Result<String, Never> {
@@ -431,7 +478,7 @@ impl Device {
         Ok(())
     }
 
-    pub fn presses(&mut self, button: &str, times: usize) -> Result<(), Never> {
+    pub fn presses(&mut self, button: &str, times: u32) -> Result<(), Never> {
         self.taken = None;
 
         let Ok(found) = self.capability(button);
@@ -450,15 +497,15 @@ impl Device {
         Ok(())
     }
 
-    pub fn hold(&mut self, _button: &str) -> Done {
+    pub fn hold(&mut self, _button: &str) -> CheckResult {
         cannot(SENDEVENT)
     }
 
-    pub fn release(&mut self, _button: Option<&str>) -> Done {
+    pub fn release(&mut self, _button: Option<&str>) -> CheckResult {
         cannot(SENDEVENT)
     }
 
-    pub fn trigger(&mut self, which: &str, amount: f64) -> Done {
+    pub fn trigger(&mut self, which: &str, amount: f64) -> CheckResult {
         let Ok(found) = named(&vocabulary::TRIGGERS, which);
 
         let named = match found {
@@ -480,7 +527,7 @@ impl Device {
         self.axis(&format!("Gamepad:Trigger:{named}"), Value(&format!("d {amount:.3}")))
     }
 
-    pub fn stick(&mut self, which: &str, to: Point<f64>) -> Done {
+    pub fn stick(&mut self, which: &str, to: Point<f64>) -> CheckResult {
         let Ok(found) = named(&vocabulary::AXES, which);
 
         let named = match found {
@@ -492,16 +539,16 @@ impl Device {
             }
         };
 
-        for amount in [to.across, to.down] {
+        for amount in [to.x, to.y] {
             match (-1.0..=1.0).contains(&amount) {
                 true => {},
                 false => return failed(format!("a stick is pushed between -1 and 1, not {amount}")),
             }
         }
 
-        let Ok(()) = self.pushed(to.across.abs().max(to.down.abs()));
+        let Ok(()) = self.pushed(to.x.abs().max(to.y.abs()));
 
-        let (across, down) = (to.across, to.down);
+        let (across, down) = (to.x, to.y);
 
         self.axis(
             &format!("Gamepad:Axis:{named}"),
@@ -509,11 +556,11 @@ impl Device {
         )
     }
 
-    pub fn let_go(&mut self) -> Done {
-        self.pushed = Pushed::Nothing;
+    pub fn let_go(&mut self) -> CheckResult {
+        self.pushed = Pushed::None;
 
         for (spoken, _) in vocabulary::AXES {
-            self.stick(spoken, Point { across: 0.0, down: 0.0 })?;
+            self.stick(spoken, Point { x: 0.0, y: 0.0 })?;
         }
 
         for (spoken, _) in vocabulary::TRIGGERS {
@@ -528,13 +575,13 @@ impl Device {
 
         match amount == 0.0 {
             true => {},
-            false => self.pushed = Pushed::Something,
+            false => self.pushed = Pushed::Some,
         }
 
         Ok(())
     }
 
-    fn axis(&mut self, capability: &str, value: Value<'_>) -> Done {
+    fn axis(&mut self, capability: &str, value: Value<'_>) -> CheckResult {
         let Ok(quoted) = quoted(capability);
         let value = value.0;
         let asked = format!(
@@ -549,49 +596,60 @@ impl Device {
         }
     }
 
-    pub fn tap(&mut self, _at: Point<i32>) -> Done {
+    pub fn tap(&mut self, _at: Point<i32>) -> CheckResult {
         cannot(
             "InputPlumber will not parse its own Touchpad: capabilities back, \
              so the trackpad cannot be sent; point or touch instead",
         )
     }
 
-    pub fn touch(&mut self, at: (u32, u32)) -> Done {
+    pub fn touch(&mut self, at: (u32, u32)) -> CheckResult {
+        self.tapped(&format!("{} {}", at.0, at.1), format!("nothing could be pressed at {at:?}"))
+    }
+
+    fn tapped(&mut self, asked: &str, otherwise: String) -> CheckResult {
         self.taken = None;
 
-        let Ok(said) = self.ssh(&format!("console-tap {} {} 2>&1", at.0, at.1));
+        let Ok(said) = self.ssh(&format!("console-tap {asked} 2>&1"));
 
         match said.contains("console-tap:") {
-            true => cannot(&format!("nothing could be pressed at {at:?}: {}", said.trim())),
+            true => cannot(&format!("{otherwise}: {}", said.trim())),
             false => Ok(()),
         }
     }
 
-    pub fn point(&mut self, at: (u32, u32)) -> Done {
+    pub fn swipe(&mut self, from: (u32, u32), to: (u32, u32)) -> CheckResult {
+        self.tapped(
+            &format!("--swipe {} {} {} {}", from.0, from.1, to.0, to.1),
+            format!("no finger could be drawn from {from:?} to {to:?}"),
+        )
+    }
+
+    pub fn point(&mut self, at: (u32, u32)) -> CheckResult {
         self.pointing(None, at, String::new())
     }
 
-    pub fn click(&mut self, at: (u32, u32)) -> Done {
+    pub fn click(&mut self, at: (u32, u32)) -> CheckResult {
         self.pointing(None, at, " --click".to_string())
     }
 
-    pub fn scroll(&mut self, at: (u32, u32), notches: i32) -> Done {
+    pub fn scroll(&mut self, at: (u32, u32), notches: i32) -> CheckResult {
         self.pointing(None, at, format!(" --scroll {notches}"))
     }
 
-    pub fn point_in(&mut self, namespace: &str, at: (u32, u32)) -> Done {
+    pub fn point_in(&mut self, namespace: &str, at: (u32, u32)) -> CheckResult {
         self.pointing(Some(namespace), at, String::new())
     }
 
-    pub fn click_in(&mut self, namespace: &str, at: (u32, u32)) -> Done {
+    pub fn click_in(&mut self, namespace: &str, at: (u32, u32)) -> CheckResult {
         self.pointing(Some(namespace), at, " --click".to_string())
     }
 
-    pub fn scroll_in(&mut self, namespace: &str, at: (u32, u32), notches: i32) -> Done {
+    pub fn scroll_in(&mut self, namespace: &str, at: (u32, u32), notches: i32) -> CheckResult {
         self.pointing(Some(namespace), at, format!(" --scroll {notches}"))
     }
 
-    fn pointing(&mut self, inside: Option<&str>, at: (u32, u32), doing: String) -> Done {
+    fn pointing(&mut self, inside: Option<&str>, at: (u32, u32), doing: String) -> CheckResult {
         self.taken = None;
 
         let within = match inside {
@@ -611,56 +669,53 @@ impl Device {
         }
     }
 
-    pub fn home_awake(&mut self) -> Result<Seen, Never> {
+    pub fn home_awake(&mut self) -> Result<Ready, Never> {
         let Ok(said) =
             self.user("test -e \"$XDG_RUNTIME_DIR/console/home-awake\" && echo awake");
 
         Ok(match said.contains("awake") {
-            true => Seen::Yes,
-            false => Seen::NotYet,
+            true => Ready::Yes,
+            false => Ready::NotYet,
         })
     }
 
-    pub fn home_carrying(&mut self) -> Result<Seen, Never> {
+    pub fn home_carrying(&mut self) -> Result<Ready, Never> {
         let Ok(said) =
             self.user("test -e \"$XDG_RUNTIME_DIR/console/home-carrying\" && echo carrying");
 
         Ok(match said.contains("carrying") {
-            true => Seen::Yes,
-            false => Seen::NotYet,
+            true => Ready::Yes,
+            false => Ready::NotYet,
         })
     }
 
     pub fn layer(&mut self, namespace: &str) -> Result<Option<(u32, u32, u32, u32)>, Never> {
         let Ok(said) = self.hypr("layers -j");
-        let Ok(read) = read(&said);
+        let Ok(read) = answered(console_compositor::Query::Layers, &said);
 
-        let found = match read {
-            Some(found) => found,
+        let surfaces = match read {
+            Some(console_compositor::Answer::Layers(surfaces)) => surfaces,
+            Some(_not_what_was_asked) => return Ok(None),
             None => return Ok(None),
         };
 
-        let Ok(surfaces) = console_compositor::surfaces(&found);
-
-        for layer in surfaces {
-            let Ok(named) = console_compositor::namespace(layer);
-
-            match named == Some(namespace) {
+        for layer in &surfaces {
+            match layer.namespace == namespace {
                 true => {},
                 false => continue,
             }
 
-            let Ok(said) = console_compositor::corner(layer);
+            let Ok(said_where) = layer.corner();
 
-            let corner = match said {
+            let corner = match said_where {
                 Some(corner) => corner,
                 None => return Ok(None),
             };
 
-            let Ok(x) = fitted::<i64, u32>(corner.across);
-            let Ok(y) = fitted::<i64, u32>(corner.down);
-            let Ok(wide) = fitted::<i64, u32>(corner.wide);
-            let Ok(tall) = fitted::<i64, u32>(corner.tall);
+            let Ok(x) = fitted::<i64, u32>(corner.x);
+            let Ok(y) = fitted::<i64, u32>(corner.y);
+            let Ok(wide) = fitted::<i64, u32>(corner.width);
+            let Ok(tall) = fitted::<i64, u32>(corner.height);
 
             return Ok(Some((x, y, wide, tall)));
         }
@@ -707,7 +762,7 @@ impl Device {
         Ok(self.opened.iter().filter(|which| open.contains(which)).cloned().collect())
     }
 
-    pub fn window_gone(&mut self, which: &str, seconds: f64) -> Result<Waited, Never> {
+    pub fn window_gone(&mut self, which: &str, seconds: f64) -> Result<Outcome, Never> {
         let going = which.to_string();
 
         self.until::<Never>(
@@ -715,8 +770,8 @@ impl Device {
                 let Ok(open) = seen.addresses();
 
                 Ok(match open.contains(&going) {
-                    true => Seen::NotYet,
-                    false => Seen::Yes,
+                    true => Ready::NotYet,
+                    false => Ready::Yes,
                 })
             },
             seconds,
@@ -737,13 +792,13 @@ impl Device {
             .and_then(serde_json::Value::as_i64))
     }
 
-    pub fn close_window(&mut self, which: &str) -> Result<Waited, Never> {
+    pub fn close_window(&mut self, which: &str) -> Result<Outcome, Never> {
         let closing = which.to_string();
 
         self.opened.retain(|address| *address != closing);
 
         match self.dry {
-            true => return Ok(Waited::Happened),
+            true => return Ok(Outcome::Happened),
             false => {},
         }
 
@@ -751,7 +806,7 @@ impl Device {
 
         let pid = match pid {
             Some(pid) => pid,
-            None => return Ok(Waited::Happened),
+            None => return Ok(Outcome::Happened),
         };
 
         let Ok(_) = self.user(&format!("kill {pid}"));
@@ -759,9 +814,9 @@ impl Device {
         self.window_gone(&closing, LEAVING)
     }
 
-    pub fn go_to(&mut self, workspace: &str) -> Result<Waited, Never> {
+    pub fn go_to(&mut self, workspace: &str) -> Result<Outcome, Never> {
         let wanted = workspace.to_string();
-        let Ok(lua) = console_compositor::onto(&wanted, console_compositor::Carrying::Nothing);
+        let Ok(lua) = console_compositor::onto(&wanted, console_compositor::Carrying::None);
         let Ok(quoted) = quoted(&lua);
         let Ok(_) = self.hypr(&format!("dispatch {quoted}"));
 
@@ -770,20 +825,20 @@ impl Device {
                 let Ok(now) = seen.workspace();
 
                 Ok(match now == wanted {
-                    true => Seen::Yes,
-                    false => Seen::NotYet,
+                    true => Ready::Yes,
+                    false => Ready::NotYet,
                 })
             },
             A_MOMENT,
         )
     }
 
-    pub fn open(&mut self, command: &str, seconds: f64) -> Result<Waited, Never> {
+    pub fn open(&mut self, command: &str, seconds: f64) -> Result<Outcome, Never> {
         let Ok(which) = self.opening(command, seconds);
 
         Ok(match which {
-            Some(_) => Waited::Happened,
-            None => Waited::RanOut,
+            Some(_) => Outcome::Happened,
+            None => Outcome::RanOut,
         })
     }
 
@@ -814,7 +869,7 @@ impl Device {
 
                 let new = match new {
                     Some(new) => new,
-                    None => return Ok(Seen::NotYet),
+                    None => return Ok(Ready::NotYet),
                 };
 
                 let Ok(found) = address(new);
@@ -833,14 +888,14 @@ impl Device {
                     None => String::new(),
                 };
 
-                Ok(Seen::Yes)
+                Ok(Ready::Yes)
             },
             seconds,
         );
 
         match arrived {
-            Waited::Happened => {},
-            Waited::RanOut => return Ok(None),
+            Outcome::Happened => {},
+            Outcome::RanOut => return Ok(None),
         }
 
         self.opened.push(came.which.clone());
@@ -848,8 +903,8 @@ impl Device {
         let Ok(there) = self.go_to(&came.where_);
 
         Ok(match there {
-            Waited::Happened => Some(came.which),
-            Waited::RanOut => None,
+            Outcome::Happened => Some(came.which),
+            Outcome::RanOut => None,
         })
     }
 
@@ -937,7 +992,7 @@ impl Device {
         self.user(&format!("{session} && wtype {quoted}"))
     }
 
-    pub fn keyed(&mut self, held: &[&str], key: &str) -> Done {
+    pub fn keyed(&mut self, held: &[&str], key: &str) -> CheckResult {
         let mut chord = Vec::new();
 
         for one in held.iter().chain(std::iter::once(&key)) {
@@ -974,12 +1029,12 @@ impl Device {
         })
     }
 
-    pub fn keyboard(&mut self) -> Result<Seen, Never> {
+    pub fn keyboard(&mut self) -> Result<Ready, Never> {
         let Ok(said) = self.hypr("layers -j");
 
         Ok(match said.contains("console-keyboard") {
-            true => Seen::Yes,
-            false => Seen::NotYet,
+            true => Ready::Yes,
+            false => Ready::NotYet,
         })
     }
 
@@ -1029,7 +1084,7 @@ impl Device {
 
     pub fn services(&mut self) -> Result<Vec<String>, Never> {
         let asking: Vec<&str> =
-            PIECES.into_iter().filter(|piece| *piece != BY_A_SWITCH).collect();
+            PIECES.into_iter().filter(|piece| !BY_A_SWITCH.contains(piece)).collect();
         let Ok(said) = self.user(&format!("systemctl --user is-active {}", asking.join(" ")));
 
         Ok(said.split_whitespace().map(str::to_string).collect())
@@ -1063,7 +1118,7 @@ impl Device {
              done; \
              where=''; \
              for one in $seen hicolor; do where=\"$where /usr/share/icons/$one\"; done; \
-             have=$(find $where \\( -name '*.svg' -o -name '*.png' \\) \
+             have=$(find -L $where \\( -name '*.svg' -o -name '*.png' \\) \
                -printf '%f\\n' 2>/dev/null | sed 's/\\.[^.]*$//' | sort -u); \
              for name in {names}; do \
                printf '%s\\n' \"$have\" | grep -qxF \"$name\" || echo \"$name\"; \
@@ -1110,16 +1165,17 @@ impl Device {
         };
 
         let mut named = Vec::new();
-        let Ok(surfaces) = console_compositor::surfaces(&found);
 
-        for layer in surfaces {
-            let Ok(said) = console_compositor::namespace(layer);
-            let namespace = match said {
-                Some(namespace) => namespace,
-                None => NOTHING_SAID,
-            };
+        let surfaces = match console_compositor::answer_of(console_compositor::Query::Layers, found) {
+            Ok(console_compositor::Answer::Layers(surfaces)) => surfaces,
+            Ok(_not_what_was_asked) => Vec::new(),
+            Err(_unreadable) => Vec::new(),
+        };
 
-            match FURNITURE.contains(&namespace) {
+        for layer in &surfaces {
+            let namespace = layer.namespace.as_str();
+
+            match console_input_controller::mode::SYSTEM_SURFACES.contains(&namespace) || namespace == WALLPAPER_SURFACE {
                 true => {},
                 false => named.push(namespace.to_string()),
             }
@@ -1132,25 +1188,25 @@ impl Device {
 
     pub fn until<Why>(
         &mut self,
-        mut what: impl FnMut(&mut Self) -> Result<Seen, Why>,
+        mut what: impl FnMut(&mut Self) -> Result<Ready, Why>,
         seconds: f64,
-    ) -> Result<Waited, Why> {
+    ) -> Result<Outcome, Why> {
         self.until_handed(&mut what, |what, seen| what(seen), seconds)
     }
 
     pub fn until_handed<M, Why>(
         &mut self,
         handed: &mut M,
-        mut what: impl FnMut(&mut M, &mut Self) -> Result<Seen, Why>,
+        mut what: impl FnMut(&mut M, &mut Self) -> Result<Ready, Why>,
         seconds: f64,
-    ) -> Result<Waited, Why> {
+    ) -> Result<Outcome, Why> {
         let Ok(rounds) = toward_zero_u32(seconds / 0.5);
 
         for _ in 0..rounds {
             let Ok(stop) = crate::stopping::asked();
 
             match stop {
-                crate::stopping::Stop::Asked => return Ok(Waited::RanOut),
+                crate::stopping::Stop::Requested => return Ok(Outcome::RanOut),
                 crate::stopping::Stop::No => {},
             }
 
@@ -1166,12 +1222,20 @@ impl Device {
             let seen = what(handed, self)?;
 
             match seen {
-                Seen::Yes => return Ok(Waited::Happened),
-                Seen::NotYet => {},
+                Ready::Yes => return Ok(Outcome::Happened),
+                Ready::NotYet => {},
             }
         }
 
-        Ok(Waited::RanOut)
+        Ok(Outcome::RanOut)
+    }
+
+    pub fn stepped(&mut self, button: &str, reading: fn(&mut Self) -> Result<Level, Never>) -> Result<Level, Never> {
+        let Ok(was) = reading(self);
+        let Ok(()) = self.press(button);
+        let Ok(_) = self.changed(reading, &was, PATIENCE);
+
+        Ok(was)
     }
 
     pub fn changed<T: PartialEq, Why>(
@@ -1179,26 +1243,26 @@ impl Device {
         mut reading: impl FnMut(&mut Self) -> Result<T, Why>,
         from: &T,
         seconds: f64,
-    ) -> Result<Waited, Why> {
+    ) -> Result<Outcome, Why> {
         self.until_handed(
             &mut reading,
             |reading, seen| {
                 let now = reading(seen)?;
 
                 Ok(match now == *from {
-                    true => Seen::NotYet,
-                    false => Seen::Yes,
+                    true => Ready::NotYet,
+                    false => Ready::Yes,
                 })
             },
             seconds,
         )
     }
 
-    pub fn drawn(&mut self, seconds: f64) -> Result<Waited, Never> {
+    pub fn drawn(&mut self, seconds: f64) -> Result<Outcome, Never> {
         self.until(menus_up, seconds)
     }
 
-    pub fn gone(&mut self, seconds: f64) -> Result<Waited, Never> {
+    pub fn closed(&mut self, seconds: f64) -> Result<Outcome, Never> {
         self.until(
             |seen| {
                 let Ok(up) = menus_up(seen);
@@ -1244,7 +1308,7 @@ impl Device {
         self.user(&format!("{session} && awww query"))
     }
 
-    fn picture(&mut self) -> Result<&Picture, Awry> {
+    fn picture(&mut self) -> Result<&Picture, Error> {
         match self.taken.is_none() {
             true => {
                 let Ok(_) = self.exec_cmd("grim /tmp/console-check.png");
@@ -1255,21 +1319,21 @@ impl Device {
                         );
 
                         Ok(match said.trim() == "written" {
-                            true => Seen::Yes,
-                            false => Seen::NotYet,
+                            true => Ready::Yes,
+                            false => Ready::NotYet,
                         })
                     },
                     A_PICTURE,
                 );
 
                 match written {
-                    Waited::Happened => {},
-                    Waited::RanOut => return Err(Awry::DeviceWroteNoPicture),
+                    Outcome::Happened => {},
+                    Outcome::RanOut => return Err(Error::DeviceWroteNoPicture),
                 }
 
                 let here =
                     std::env::temp_dir().join(format!("console-shot-{}", std::process::id()));
-                std::fs::create_dir_all(&here).map_err(Awry::Machine)?;
+                std::fs::create_dir_all(&here).map_err(Error::Machine)?;
                 let shot = here.join("screen.png");
                 let Ok(mut fetching) = Program::Scp.command();
 
@@ -1286,17 +1350,17 @@ impl Device {
             false => {},
         }
 
-        self.taken.as_ref().ok_or(Awry::DevicePictureGone)
+        self.taken.as_ref().ok_or(Error::DevicePictureGone)
     }
 
-    pub fn background(&mut self) -> Result<String, Awry> {
+    pub fn background(&mut self) -> Result<String, Error> {
         let picture = self.picture()?;
-        let Ok(commonest) = picture.commonest();
+        let Ok(most_common) = picture.most_common();
 
-        Ok(commonest)
+        Ok(most_common)
     }
 
-    pub fn colour(&mut self, at: Point<f64>) -> Result<String, Awry> {
+    pub fn color(&mut self, at: Point<f64>) -> Result<String, Error> {
         let screen = self.showing()?;
         let Ok(logical) = screen.logical();
         let picture = self.picture()?;
@@ -1304,7 +1368,7 @@ impl Device {
         where_(picture, at, logical)
     }
 
-    fn showing(&mut self) -> Result<console_screen::Screen, Awry> {
+    fn showing(&mut self) -> Result<console_screen::Screen, Error> {
         match self.screen {
             Some(known) => Ok(known),
             None => {
@@ -1331,10 +1395,12 @@ impl Device {
             None => return Ok(None),
         };
 
-        console_screen::shown(&found)
+        let Ok(monitors) = console_compositor::monitors(&found);
+
+        console_screen::shown(&monitors)
     }
 
-    pub fn patch(&mut self, at: Point<f64>) -> Result<String, Awry> {
+    pub fn patch(&mut self, at: Point<f64>) -> Result<String, Error> {
         let picture = self.picture()?;
         let Ok(average) = picture.average(at, crate::picture::PATCH);
 
@@ -1357,8 +1423,8 @@ impl Device {
         }
 
         match self.pushed {
-            Pushed::Nothing => {},
-            Pushed::Something => match self.let_go() {
+            Pushed::None => {},
+            Pushed::Some => match self.let_go() {
                 Ok(()) => {},
                 Err(why) => {
                     eprintln!("console-test-stages: the pad would not let go: {why:?}");
@@ -1375,7 +1441,7 @@ impl Device {
             }
 
             let Ok(()) = self.press("b");
-            let Ok(_closed) = self.gone(A_MOMENT);
+            let Ok(_closed) = self.closed(A_MOMENT);
         }
 
         let Ok(profile) = self.profile();
@@ -1389,16 +1455,16 @@ impl Device {
                         let Ok(now) = seen.profile();
 
                         Ok(match now == "Router" {
-                            true => Seen::Yes,
-                            false => Seen::NotYet,
+                            true => Ready::Yes,
+                            false => Ready::NotYet,
                         })
                     },
                     A_MOMENT,
                 );
 
                 match loaded {
-                    Waited::Happened => {},
-                    Waited::RanOut => {
+                    Outcome::Happened => {},
+                    Outcome::RanOut => {
                         eprintln!("console-test-stages: the router profile would not load");
                     }
                 }
@@ -1453,8 +1519,19 @@ fn address(client: &serde_json::Value) -> Result<Option<String>, Never> {
     Ok(client.get("address").and_then(|address| address.as_str()).map(str::to_string))
 }
 
+fn answered(question: console_compositor::Query, said: &str) -> Result<Option<console_compositor::Answer>, Never> {
+    Ok(match console_compositor::read(question, said) {
+        Ok(answer) => Some(answer),
+        Err(why) => {
+            eprintln!("console-test-stages: the device answered with something the compositor did not: {why}");
+
+            None
+        }
+    })
+}
+
 fn read(said: &str) -> Result<Option<serde_json::Value>, Never> {
-    Ok(match console_compositor::read(said) {
+    Ok(match console_compositor::read_value(said) {
         Ok(parsed) => Some(parsed),
         Err(why) => {
             eprintln!("console-test-stages: the device answered with something the compositor did not: {why}");
@@ -1489,7 +1566,7 @@ mod tests {
     use super::*;
 
     fn dry() -> Device {
-        Device::new("root@handheld", Dry::Pretend).expect("a stage")
+        Device::new("root@handheld", DryRun::Pretend).expect("a stage")
     }
 
     fn root() -> std::path::PathBuf {
@@ -1571,7 +1648,7 @@ mod tests {
     }
 
     #[test]
-    fn a_button_that_means_nothing_in_a_chooser_is_still_sent() {
+    fn a_button_that_means_nothing_in_a_picker_is_still_sent() {
         let profiles = every_profile(&root()).expect("the profiles");
         assert_eq!(
             capability_under(profiles.get("router"), "view"),
@@ -1614,5 +1691,13 @@ mod tests {
         let mut device = dry();
         device.press("a");
         assert!(!device.done.is_empty(), "the command is still read");
+    }
+
+    #[test]
+    fn a_login_tailscale_asks_for_is_found_in_what_ssh_said() {
+        let said = "# Tailscale SSH requires an additional check.\n# To authenticate, visit: https://login.tailscale.com/a/l1b811fa83a140e\nConnection to 100.109.165.76 port 22 timed out\n";
+
+        assert_eq!(logins(said), Ok(vec!["https://login.tailscale.com/a/l1b811fa83a140e"]));
+        assert_eq!(logins("ssh: connect to host the-handheld port 22: Connection timed out"), Ok(Vec::new()));
     }
 }

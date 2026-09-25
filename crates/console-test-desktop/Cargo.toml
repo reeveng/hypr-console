@@ -10,7 +10,7 @@ name = "console_test_desktop"
 path = "src/lib.rs"
 
 # Not a program on the device. It runs the device's desktop on a machine that
-# is not the device, which is a thing only somebody working on it wants.
+# is not the device, which is a thing only someone working on it wants.
 [[bin]]
 name = "console-desktop"
 path = "src/main.rs"
@@ -20,8 +20,10 @@ console-core-atomic-writes.workspace = true
 console-compositor.workspace = true
 console-core-external-programs.workspace = true
 console-core-ini-files.workspace = true
+console-manifest-engine.workspace = true
 console-core-geometry.workspace = true
 console-core-never.workspace = true
+console-repository.workspace = true
 console-core-places.workspace = true
 console-program-lifetime.workspace = true
 console-waiting.workspace = true

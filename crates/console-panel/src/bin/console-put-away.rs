@@ -1,8 +1,10 @@
 //! Put away whatever is up.
 //!
 //! The right paddle closes, always. What closing means depends on what is on
-//! screen rather than on which profile the pad happens to be in: a chooser if
-//! one is up, the focused window if none is.
+//! screen rather than on which profile the pad happens to be in: a picker if
+//! one is up, the app on top if one is, and the focused window if neither is.
+//! An app is a layer over the windows, so the window it covers is not what a
+//! person pressing the paddle is looking at.
 //!
 //! It is decided here because the pad's profile changes a beat after the screen
 //! does, and a button whose meaning is written into the profile means one thing
@@ -10,18 +12,25 @@
 //! behind a menu that had just opened.
 
 
-use console_panel::chooser;
+use console_panel::picker;
 
 fn main() {
-    let Ok(away) = chooser::console_put_away();
+    let Ok(away) = picker::console_put_away();
 
-    match away == chooser::Away::Told {
+    match away == picker::Away::Notified {
         true => return,
         false => {},
     }
 
-    let Ok(_done) = console_compositor::told(
-        console_compositor::Told::Dispatch,
-        "hl.dsp.window.close()",
+    let Ok(away) = picker::app_put_away();
+
+    match away == picker::Away::Notified {
+        true => return,
+        false => {},
+    }
+
+    let Ok(_done) = console_compositor::request(
+        console_compositor::Request::Dispatch,
+        console_compositor::CLOSE_WINDOW,
     );
 }

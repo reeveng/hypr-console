@@ -14,7 +14,7 @@
 //!
 //! So a run that writes takes this first, and a second one is refused rather
 //! than let in. Reading is never blocked: `check` and `list` change nothing,
-//! and somebody watching an apply from the other end of an ssh link is exactly
+//! and someone watching an apply from the other end of an ssh link is exactly
 //! who wants to run one.
 //!
 //! # Why this is a socket and not a lock file
@@ -117,14 +117,14 @@ mod tests {
     }
 
     #[test]
-    fn the_lock_is_not_a_file_anybody_can_remove() {
+    fn the_lock_is_not_a_file_anyone_can_remove() {
         let name = a_name_of_our_own("nofile");
         let held = named(&name);
         assert!(held.is_ok());
         for was in ["/run/console/apply.lock", "/run/console"] {
             assert!(
                 !std::path::Path::new(was).exists(),
-                "{was} is on the filesystem again, and a lock somebody can rm is a lock two \
+                "{was} is on the filesystem again, and a lock someone can rm is a lock two \
                  applies can hold at once"
             );
         }

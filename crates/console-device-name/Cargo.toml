@@ -1,0 +1,13 @@
+[package]
+name = "console-device-name"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_device_name"
+path = "src/lib.rs"
+
+[lints]
+workspace = true

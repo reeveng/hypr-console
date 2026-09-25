@@ -1,4 +1,4 @@
-// UI test for EXPLICIT037 — a byte order nobody wrote down.
+// UI test for EXPLICIT037 — a byte order no one wrote down.
 
 // BAD EXPLICIT037 — the order is whatever compiled this.
 fn laid(said: u32) -> [u8; 4] {

@@ -2,7 +2,7 @@
 #
 # One entry a line, said the way `console_manifest_migrations::holds` says it -- a path
 # for a file, `enabled UNIT` or `masked UNIT` for a unit -- with the reason
-# beside it. A name in here is somebody's decision and can be argued with. A
+# beside it. A name in here is someone's decision and can be argued with. A
 # name that is simply never mentioned is nothing at all, which is what this file
 # exists to stop.
 #
@@ -76,5 +76,13 @@ enabled legion-sky.service
 # manifest while the desktop used Firefox and it names whatever profiles the
 # person has made since, none of which this desktop put there. Sweeping a
 # browser's profile list because a manifest stopped mentioning it is a desktop
-# deciding something about somebody's own machine.
+# deciding something about someone's own machine.
 /home/@user@/.mozilla/firefox/profiles.ini
+
+# --- The Wi-Fi kept awake, taken back before it was sent -------------------------
+#
+# 5112a20d kept the radio out of power saving and 9be5d7c1 reverted it the same
+# night, once the loss turned out to be the weak 5 GHz link rather than the
+# saving. No deploy went out between the two: the one that would have carried it
+# stopped at its own question with nothing sent. No machine ever held the file.
+/etc/NetworkManager/conf.d/console-wifi-awake.conf

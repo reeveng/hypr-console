@@ -11,9 +11,14 @@ path = "src/lib.rs"
 
 [dependencies]
 console-core-atomic-writes.workspace = true
-console-repository.workspace = true
 console-core-external-programs.workspace = true
 console-core-never.workspace = true
+console-core-internal-programs.workspace = true
+
+[dev-dependencies]
+console-manifest-engine.workspace = true
+console-rename.workspace = true
+console-repository.workspace = true
 
 [lints]
 workspace = true

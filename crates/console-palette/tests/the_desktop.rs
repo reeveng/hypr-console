@@ -1,19 +1,19 @@
 //! The palette says what this desktop looks like. These are the ways it can lie.
 //!
 //! Three things are checked, and the middle one is the reason the other two
-//! are here. Colours can be wrong by being unreadable, which is what the
+//! are here. Colors can be wrong by being unreadable, which is what the
 //! ratios are for. They can be wrong by having been changed in one file and
 //! not in another, which is what the drift check is for. And the engine that
 //! computes both can itself be wrong, which is what the vectors at the bottom
 //! are for: they were produced by a different implementation in a different
 //! language, and if this one ever stops agreeing with them then every number
-//! in the report is a number nobody should trust.
+//! in the report is a number no one should trust.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use console_core_colour::{Ground, Ink};
-use console_core_colour as col;
+use console_core_color::{Ground, HexColor};
+use console_core_color as col;
 
 fn root() -> PathBuf {
     {
@@ -22,31 +22,38 @@ fn root() -> PathBuf {
 }
 }
 
-const HEX: usize = 6;
+const HEX: u32 = 6;
 
 fn is_word(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
 }
 
-fn run_of(said: &str, taken: impl Fn(char) -> bool) -> usize {
-    said.chars().take_while(|c| taken(*c)).map(char::len_utf8).sum()
+fn is_name(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_' || c == '-'
 }
 
-fn hex_six(said: &str) -> Option<&str> {
-    let code = said.get(..HEX)?;
+fn run_of(said: &str, taken: impl Fn(char) -> bool) -> (&str, &str) {
+    match said.find(|c: char| !taken(c)) {
+        Some(end) => said.split_at(end),
+        None => (said, ""),
+    }
+}
+
+fn hex_six(said: &str) -> Option<(&str, &str)> {
+    let (code, after) = said.split_at_checked(HEX.try_into().ok()?)?;
 
     match code.chars().all(|c| c.is_ascii_hexdigit()) {
-        true => Some(code),
+        true => Some((code, after)),
         false => None,
     }
 }
 
-fn hex_word(said: &str) -> Option<&str> {
-    let code = hex_six(said)?;
+fn hex_word(said: &str) -> Option<(&str, &str)> {
+    let (code, after) = hex_six(said)?;
 
-    match said.get(HEX..).and_then(|after| after.chars().next()) {
+    match after.chars().next() {
         Some(c) if is_word(c) => None,
-        Some(_) | None => Some(code),
+        Some(_) | None => Some((code, after)),
     }
 }
 
@@ -54,17 +61,12 @@ fn decimal_triple(said: &str) -> bool {
     let mut left = said;
 
     for band in 0..3u8 {
-        let run = run_of(left, |c| c.is_ascii_digit());
+        let (digits, after) = run_of(left, |c| c.is_ascii_digit());
 
-        match (1..=3).contains(&run) {
+        match (1..=3).contains(&digits.len()) {
             true => {}
             false => return false,
         }
-
-        let after = match left.get(run..) {
-            Some(after) => after,
-            None => return false,
-        };
 
         left = match band {
             2 => after,
@@ -74,12 +76,7 @@ fn decimal_triple(said: &str) -> bool {
                     None => return false,
                 };
 
-                match past.chars().next() {
-                    Some(space) if space.is_whitespace() => {
-                        past.get(space.len_utf8()..).unwrap_or("")
-                    }
-                    Some(_) | None => past,
-                }
+                past.strip_prefix(char::is_whitespace).unwrap_or(past)
             }
         };
     }
@@ -87,99 +84,92 @@ fn decimal_triple(said: &str) -> bool {
     left.is_empty()
 }
 
-fn colour_at(rest: &str, line: Option<&str>) -> Option<(String, usize)> {
+fn color_at<'a>(rest: &'a str, line: Option<&'a str>) -> Option<(String, &'a str)> {
     match rest.strip_prefix('#').and_then(hex_word) {
-        Some(code) => return Some((code.to_string(), HEX.saturating_add(1))),
+        Some((code, after)) => return Some((code.to_string(), after)),
         None => {}
     }
 
     match rest.strip_prefix("0x").and_then(hex_word) {
-        Some(code) => return Some((code.to_string(), HEX.saturating_add(2))),
+        Some((code, after)) => return Some((code.to_string(), after)),
         None => {}
     }
 
-    let inside = rest.strip_prefix("rgba(");
-    let opaque = inside.and_then(|after| {
-        let closed = after.get(HEX..).is_some_and(|tail| tail.starts_with("ff)"));
-
-        match closed {
-            true => hex_six(after),
-            false => None,
-        }
-    });
+    let opaque = rest
+        .strip_prefix("rgba(")
+        .and_then(hex_six)
+        .and_then(|(code, after)| after.strip_prefix("ff)").map(|after| (code, after)));
 
     match opaque {
-        Some(code) => return Some((code.to_string(), HEX.saturating_add(8))),
+        Some((code, after)) => return Some((code.to_string(), after)),
         None => {}
     }
 
     let line = line?;
-    let named = run_of(line, is_word);
-    let value = match named {
-        0 => return None,
-        _ => line.get(named..)?.strip_prefix('=')?,
+    let (named, after) = run_of(line, is_word);
+    let value = match named.is_empty() {
+        true => return None,
+        false => after.strip_prefix('=')?,
     };
+    let past_line = rest.strip_prefix(line)?;
 
     match hex_six(value) {
-        Some(code) if code.len() == value.len() => return Some((code.to_string(), line.len())),
+        Some((code, "")) => return Some((code.to_string(), past_line)),
         Some(_) | None => {}
     }
 
     match decimal_triple(value) {
-        true => Some((value.to_string(), line.len())),
+        true => Some((value.to_string(), past_line)),
         false => None,
     }
 }
 
-fn colours_in(text: &str) -> Vec<String> {
+fn colors_in(text: &str) -> Vec<String> {
     let mut found: Vec<String> = Vec::new();
-    let mut at: usize = 0;
+    let mut rest = text;
+    let mut opens = true;
 
-    while at < text.len() {
-        let rest = match text.get(at..) {
-            Some(rest) => rest,
-            None => break,
-        };
-        let opens = at == 0 || text.get(..at).is_some_and(|before| before.ends_with('\n'));
+    while !rest.is_empty() {
         let line = match opens {
             true => rest.split('\n').next(),
             false => None,
         };
 
-        match colour_at(rest, line) {
-            Some((code, took)) => {
+        match color_at(rest, line) {
+            Some((code, after)) => {
                 found.push(code);
-                at = at.saturating_add(took);
+                rest = after;
+                opens = false;
             }
-            None => at = at.saturating_add(rest.chars().next().map_or(1, char::len_utf8)),
+            None => {
+                let mut chars = rest.chars();
+                opens = chars.next() == Some('\n');
+                rest = chars.as_str();
+            }
         }
     }
 
     found
 }
 
-fn holds_a_colour(text: &str) -> bool {
-    !colours_in(text).is_empty()
+fn holds_a_color(text: &str) -> bool {
+    !colors_in(text).is_empty()
 }
 
 fn names_asked(code: &str) -> Vec<String> {
     let mut found: Vec<String> = Vec::new();
     let mut left = code;
 
-    while let Some(at) = left.find('@') {
-        let after = left.get(at.saturating_add(1)..).unwrap_or("");
+    while let Some((_, after)) = left.split_once('@') {
         let opens = after.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_');
-        let run = match opens {
-            true => run_of(after, |c| c.is_ascii_alphanumeric() || c == '_' || c == '-'),
-            false => 0,
-        };
 
-        left = match run {
-            0 => after,
-            _ => {
-                found.extend(after.get(..run).map(str::to_string));
-                after.get(run..).unwrap_or("")
+        left = match opens {
+            true => {
+                let (name, rest) = run_of(after, is_name);
+                found.push(name.to_string());
+                rest
             }
+            false => after,
         };
     }
 
@@ -187,28 +177,24 @@ fn names_asked(code: &str) -> Vec<String> {
 }
 
 fn property_held(line: &str) -> Option<String> {
-    let said = line.trim_start();
-    let after = said.strip_prefix("--")?;
-    let run = run_of(after, |c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
-    let name = match run {
-        0 => return None,
-        _ => said.get(..run.saturating_add(2))?,
-    };
+    let after = line.trim_start().strip_prefix("--")?;
+    let (run, rest) = run_of(after, is_name);
 
-    after.get(run..)?.trim_start().strip_prefix(':').map(|_| name.to_string())
+    match run.is_empty() {
+        true => None,
+        false => rest.trim_start().strip_prefix(':').map(|_| format!("--{run}")),
+    }
 }
 
 fn properties_asked(code: &str) -> Vec<(String, char)> {
     let mut found: Vec<(String, char)> = Vec::new();
     let mut left = code;
 
-    while let Some(at) = left.find("var(") {
-        let after = left.get(at.saturating_add(4)..).unwrap_or("");
-
+    while let Some((_, after)) = left.split_once("var(") {
         left = match asked_at(after) {
-            Some((name, closed, took)) => {
+            Some((name, closed, rest)) => {
                 found.push((name, closed));
-                after.get(took..).unwrap_or("")
+                rest
             }
             None => after,
         };
@@ -217,27 +203,19 @@ fn properties_asked(code: &str) -> Vec<(String, char)> {
     found
 }
 
-fn asked_at(after: &str) -> Option<(String, char, usize)> {
-    let space = run_of(after, char::is_whitespace);
-    let named = after.get(space..)?;
-    let run = run_of(named.strip_prefix("--")?, |c| {
-        c.is_ascii_alphanumeric() || c == '_' || c == '-'
-    });
-    let whole = run.saturating_add(2);
-    let name = match run {
-        0 => return None,
-        _ => named.get(..whole)?,
-    };
-    let tail = named.get(whole..)?;
-    let padding = run_of(tail, char::is_whitespace);
-    let closed = tail.get(padding..)?.chars().next()?;
+fn asked_at(after: &str) -> Option<(String, char, &str)> {
+    let (run, tail) = run_of(after.trim_start().strip_prefix("--")?, is_name);
+
+    match run.is_empty() {
+        true => return None,
+        false => {}
+    }
+
+    let mut chars = tail.trim_start().chars();
+    let closed = chars.next()?;
 
     match closed {
-        ',' | ')' => Some((
-            name.to_string(),
-            closed,
-            space.saturating_add(whole).saturating_add(padding).saturating_add(1),
-        )),
+        ',' | ')' => Some((format!("--{run}"), closed, chars.as_str())),
         _ => None,
     }
 }
@@ -331,7 +309,7 @@ mod the_names {
 
         missing.dedup();
 
-        assert!(missing.is_empty(), "a colour nobody defined is a rule GTK drops:\n  {}", missing.join("\n  "));
+        assert!(missing.is_empty(), "a color no one defined is a rule GTK drops:\n  {}", missing.join("\n  "));
     }
 
     #[test]
@@ -373,7 +351,7 @@ mod the_names {
 
         assert!(
             missing.is_empty(),
-            "a property nobody defined is a declaration the browser throws away:\n  {}",
+            "a property no one defined is a declaration the browser throws away:\n  {}",
             missing.join("\n  ")
         );
     }
@@ -403,7 +381,7 @@ mod the_engine {
 
             assert_eq!(got, expected, "at oklch({lightness} {chroma} {hue})");
 
-            let Ok(reached) = col::contrast(Ink(&got), Ground("2b212e"));
+            let Ok(reached) = col::contrast(HexColor(&got), Ground("2b212e"));
 
             assert!(
                 (reached - ratio).abs() < 1e-4,
@@ -421,30 +399,30 @@ mod the_engine {
     #[test]
     fn the_apca_numbers_are_the_published_ones() {
         for (ink, ground, expected) in APCA {
-            let Ok(got) = col::lc(Ink(ink), Ground(ground));
+            let Ok(got) = col::lc(HexColor(ink), Ground(ground));
 
             assert!(
                 (got - expected).abs() < 0.01,
-                "#{ink} on #{ground} is Lc {got:.3}, published as Lc {expected}"
+                "#{ink} on #{ground} is Contrast {got:.3}, published as Contrast {expected}"
             );
         }
     }
 
     #[test]
     fn the_polarity_is_the_whole_point_and_is_not_symmetric() {
-        let Ok(one) = col::contrast(Ink("000000"), Ground("ffffff"));
-        let Ok(other) = col::contrast(Ink("ffffff"), Ground("000000"));
-        let Ok(white_on_black) = col::lc(Ink("ffffff"), Ground("000000"));
-        let Ok(black_on_white) = col::lc(Ink("000000"), Ground("ffffff"));
+        let Ok(one) = col::contrast(HexColor("000000"), Ground("ffffff"));
+        let Ok(other) = col::contrast(HexColor("ffffff"), Ground("000000"));
+        let Ok(white_on_black) = col::lc(HexColor("ffffff"), Ground("000000"));
+        let Ok(black_on_white) = col::lc(HexColor("000000"), Ground("ffffff"));
 
         assert_eq!(one, other);
         assert!(white_on_black.abs() != black_on_white.abs());
     }
 
     #[test]
-    fn a_colour_on_itself_is_no_contrast_in_either_measure() {
-        let Ok(ratio) = col::contrast(Ink("372c3a"), Ground("372c3a"));
-        let Ok(lc) = col::lc(Ink("372c3a"), Ground("372c3a"));
+    fn a_color_on_itself_is_no_contrast_in_either_measure() {
+        let Ok(ratio) = col::contrast(HexColor("372c3a"), Ground("372c3a"));
+        let Ok(lc) = col::lc(HexColor("372c3a"), Ground("372c3a"));
 
         assert!((ratio - 1.0).abs() < 1e-12);
         assert_eq!(lc, 0.0);
@@ -452,16 +430,16 @@ mod the_engine {
 
     #[test]
     fn wcag_flatters_a_dark_pair_and_apca_does_not() {
-        let Ok(on_black) = col::contrast(Ink("767676"), Ground("000000"));
-        let Ok(on_white) = col::contrast(Ink("767676"), Ground("ffffff"));
+        let Ok(on_black) = col::contrast(HexColor("767676"), Ground("000000"));
+        let Ok(on_white) = col::contrast(HexColor("767676"), Ground("ffffff"));
 
         assert!(on_black > on_white, "{on_black} should beat {on_white}");
 
-        let Ok(black) = col::lc(Ink("767676"), Ground("000000"));
-        let Ok(white) = col::lc(Ink("767676"), Ground("ffffff"));
+        let Ok(black) = col::lc(HexColor("767676"), Ground("000000"));
+        let Ok(white) = col::lc(HexColor("767676"), Ground("ffffff"));
 
         let (lc_black, lc_white) = (black.abs(), white.abs());
-        assert!(lc_black < lc_white, "Lc {lc_black} should be under Lc {lc_white}");
+        assert!(lc_black < lc_white, "Contrast {lc_black} should be under Contrast {lc_white}");
     }
 }
 
@@ -487,11 +465,11 @@ mod the_palette {
     }
 
     #[test]
-    fn every_colour_says_what_it_is_for() {
+    fn every_color_says_what_it_is_for() {
         let declared = std::fs::read_to_string(root().join("theme/palette.toml")).expect("read");
-        let spec: toml::Table = declared.parse().expect("it parses");
-        let colours = spec["colour"].as_table().expect("a table of colours");
-        for (name, declared) in colours {
+        let configuration: toml::Table = declared.parse().expect("it parses");
+        let colors = configuration["color"].as_table().expect("a table of colors");
+        for (name, declared) in colors {
             let spent = declared.get("spent").and_then(toml::Value::as_str).unwrap_or("");
             assert!(!spent.is_empty(), "{name} does not say what it is spent on");
         }
@@ -502,7 +480,7 @@ mod the_tree {
     use super::*;
 
     #[test]
-    fn no_file_anywhere_carries_a_colour_from_outside_the_palette() {
+    fn no_file_anywhere_carries_a_color_from_outside_the_palette() {
         let (root, spent) = (root(), spent());
         let lifted: Vec<String> = spent
             .iter()
@@ -518,11 +496,11 @@ mod the_tree {
             .collect();
 
         for (path, text) in carrying(&root.join("files")) {
-            for found in colours_in(&text) {
+            for found in colors_in(&text) {
                 let written = found.to_lowercase().replace(' ', "");
                 assert!(
                     known.contains(&written),
-                    "{} carries #{written}, which is not a colour theme/palette.toml declares",
+                    "{} carries #{written}, which is not a color theme/palette.toml declares",
                     path.strip_prefix(&root).unwrap_or(&path).display()
                 );
             }
@@ -530,7 +508,7 @@ mod the_tree {
     }
 
     #[test]
-    fn only_the_palette_holds_a_colour() {
+    fn only_the_palette_holds_a_color() {
         let allowed: BTreeSet<&str> = BTreeSet::from([
             "home/@user@/.config/console/hypr/hyprland.lua",
             "home/@user@/.config/kdeglobals",
@@ -544,19 +522,19 @@ mod the_tree {
         let files = root().join("files");
         let holding: BTreeSet<String> = carrying(&files)
             .into_iter()
-            .filter(|(_, text)| holds_a_colour(text))
+            .filter(|(_, text)| holds_a_color(text))
             .map(|(path, _)| path.strip_prefix(&files).expect("under files/").display().to_string())
             .collect();
         let allowed: BTreeSet<String> = allowed.iter().map(|name| name.to_string()).collect();
         assert_eq!(
             holding, allowed,
-            "a file outside the palette has grown a colour, or one inside it has lost \
-             the only colour it had"
+            "a file outside the palette has grown a color, or one inside it has lost \
+             the only color it had"
         );
     }
 
     #[test]
-    fn every_colour_is_spent() {
+    fn every_color_is_spent() {
         let written: String = carrying(&root().join("files"))
             .into_iter()
             .map(|(_, text)| text.to_lowercase())
@@ -570,19 +548,19 @@ mod the_tree {
     }
 }
 
-struct Said {
+struct Output {
     status: std::process::ExitStatus,
     stdout: String,
     stderr: String,
 }
 
-fn check() -> Said {
+fn check() -> Output {
     let done = std::process::Command::new(env!("CARGO_BIN_EXE_console-palette"))
         .arg("--check")
         .current_dir(root())
         .output()
         .expect("console-palette runs");
-    Said {
+    Output {
         status: done.status,
         stdout: String::from_utf8_lossy(&done.stdout).into_owned(),
         stderr: String::from_utf8_lossy(&done.stderr).into_owned(),
@@ -613,45 +591,45 @@ fn spent() -> Vec<(String, String)> {
 
 fn bright_lift() -> f64 {
     let declared = std::fs::read_to_string(root().join("theme/palette.toml")).expect("read");
-    let spec: toml::Table = declared.parse().expect("it parses");
-    spec["terminal"]["bright_lift"].as_float().expect("a number")
+    let configuration: toml::Table = declared.parse().expect("it parses");
+    configuration["terminal"]["bright_lift"].as_float().expect("a number")
 }
 
 mod the_scanner {
     use super::*;
 
     #[test]
-    fn six_hex_digits_are_a_colour_and_seven_are_something_else() {
-        assert_eq!(colours_in("#123456"), ["123456"]);
-        assert_eq!(colours_in("#1234567"), [] as [String; 0]);
-        assert_eq!(colours_in("#12345"), [] as [String; 0]);
-        assert_eq!(colours_in("0xAABBCC."), ["AABBCC"]);
-        assert_eq!(colours_in("0xAABBCCD"), [] as [String; 0]);
-        assert_eq!(colours_in("#aabbcc\u{00e9}"), [] as [String; 0]);
+    fn six_hex_digits_are_a_color_and_seven_are_something_else() {
+        assert_eq!(colors_in("#123456"), ["123456"]);
+        assert_eq!(colors_in("#1234567"), [] as [String; 0]);
+        assert_eq!(colors_in("#12345"), [] as [String; 0]);
+        assert_eq!(colors_in("0xAABBCC."), ["AABBCC"]);
+        assert_eq!(colors_in("0xAABBCCD"), [] as [String; 0]);
+        assert_eq!(colors_in("#aabbcc\u{00e9}"), [] as [String; 0]);
     }
 
     #[test]
-    fn a_colour_with_an_alpha_is_only_the_opaque_one() {
-        assert_eq!(colours_in("rgba(112233ff)"), ["112233"]);
-        assert_eq!(colours_in("rgba(112233fe)"), [] as [String; 0]);
+    fn a_color_with_an_alpha_is_only_the_opaque_one() {
+        assert_eq!(colors_in("rgba(112233ff)"), ["112233"]);
+        assert_eq!(colors_in("rgba(112233fe)"), [] as [String; 0]);
     }
 
     #[test]
-    fn a_name_and_a_value_are_a_colour_only_as_the_whole_line() {
-        assert_eq!(colours_in("fg=aabbcc"), ["aabbcc"]);
-        assert_eq!(colours_in(" fg=aabbcc"), [] as [String; 0]);
-        assert_eq!(colours_in("fg=aabbccd"), [] as [String; 0]);
-        assert_eq!(colours_in("a=b=aabbcc"), [] as [String; 0]);
-        assert_eq!(colours_in("#aabbcc\nfg=1,2,3\n0xddeeff\n"), ["aabbcc", "1,2,3", "ddeeff"]);
+    fn a_name_and_a_value_are_a_color_only_as_the_whole_line() {
+        assert_eq!(colors_in("fg=aabbcc"), ["aabbcc"]);
+        assert_eq!(colors_in(" fg=aabbcc"), [] as [String; 0]);
+        assert_eq!(colors_in("fg=aabbccd"), [] as [String; 0]);
+        assert_eq!(colors_in("a=b=aabbcc"), [] as [String; 0]);
+        assert_eq!(colors_in("#aabbcc\nfg=1,2,3\n0xddeeff\n"), ["aabbcc", "1,2,3", "ddeeff"]);
     }
 
     #[test]
-    fn three_numbers_are_a_colour_and_a_fourth_digit_is_not() {
-        assert_eq!(colours_in("fg=1,2,3"), ["1,2,3"]);
-        assert_eq!(colours_in("fg=1, 2, 3"), ["1, 2, 3"]);
-        assert_eq!(colours_in("fg=1,  2,3"), [] as [String; 0]);
-        assert_eq!(colours_in("fg=1234,2,3"), [] as [String; 0]);
-        assert_eq!(colours_in("fg=1,2"), [] as [String; 0]);
+    fn three_numbers_are_a_color_and_a_fourth_digit_is_not() {
+        assert_eq!(colors_in("fg=1,2,3"), ["1,2,3"]);
+        assert_eq!(colors_in("fg=1, 2, 3"), ["1, 2, 3"]);
+        assert_eq!(colors_in("fg=1,  2,3"), [] as [String; 0]);
+        assert_eq!(colors_in("fg=1234,2,3"), [] as [String; 0]);
+        assert_eq!(colors_in("fg=1,2"), [] as [String; 0]);
     }
 
     #[test]

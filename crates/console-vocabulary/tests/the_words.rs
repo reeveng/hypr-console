@@ -7,7 +7,7 @@
 //! belongs with, or find the four places that reached for it and give each of
 //! them the word that says what it does there.
 //!
-//! The table is printed either way, because the number nobody is failing is the
+//! The table is printed either way, because the number no one is failing is the
 //! one worth reading: run `just words` and the words at the top are the tree's
 //! own accent, in order.
 
@@ -17,7 +17,9 @@ use console_vocabulary::counting::counted;
 use console_vocabulary::declared::{Declared, WORDS};
 use console_vocabulary::elsewhere::Elsewhere;
 use console_vocabulary::norm::{Norm, beside};
-use console_vocabulary::{Further, Known, LEANING_ON, Measured, TOO_FAR, Vocabulary, known, measured, undeclared};
+use console_vocabulary::{
+    Further, Known, LEANING_ON, Measured, TOO_FAR, Vocabulary, known, measured, outside, undeclared,
+};
 
 fn root() -> PathBuf {
     let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -66,7 +68,7 @@ fn a_word_written_far_out_of_proportion_is_a_word_this_tree_declared() {
     let Ok(measured) = measured(&counted, &norm);
     let Ok(undeclared) = undeclared(&measured, &vocabulary);
     let unheard: Vec<&Measured> =
-        measured.iter().filter(|word| word.times.is_none()).take(TOP).collect();
+        measured.iter().filter(|word| word.times.is_none()).take(TOP.try_into().unwrap()).collect();
     let mut leant_on: Vec<&Measured> = measured
         .iter()
         .filter(|word| match word.times {
@@ -81,7 +83,7 @@ fn a_word_written_far_out_of_proportion_is_a_word_this_tree_declared() {
 
     leant_on.sort_by_key(|word| std::cmp::Reverse(word.uses));
 
-    let leant_on: Vec<&Measured> = leant_on.into_iter().take(TOP).collect();
+    let leant_on: Vec<&Measured> = leant_on.into_iter().take(TOP.try_into().unwrap()).collect();
 
     println!(
         "words English has no rate for, by how often this tree writes them:\n{}",
@@ -103,7 +105,32 @@ fn a_word_written_far_out_of_proportion_is_a_word_this_tree_declared() {
     );
 }
 
-const TOP: usize = 40;
+const TOP: u32 = 40;
+
+#[test]
+fn a_word_a_heading_gave_one_place_is_not_written_in_another() {
+    let root = root();
+    let counted = counted(&root).expect("the words in the tree");
+    let declared = Declared::read(&root.join(WORDS)).expect(WORDS);
+    let Ok(outside) = outside(&counted, &declared);
+    let said: String = outside
+        .iter()
+        .map(|word| {
+            format!(
+                "  {} belongs to {} and is written in {}\n",
+                word.word,
+                word.only.join(", "),
+                word.written_in.join(", ")
+            )
+        })
+        .collect();
+
+    assert!(
+        outside.is_empty(),
+        "{} word(s) are declared in {WORDS} for one place and written outside it:\n{said}",
+        outside.len()
+    );
+}
 
 #[test]
 fn nothing_is_declared_that_this_tree_never_writes() {

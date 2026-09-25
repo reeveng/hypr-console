@@ -13,7 +13,7 @@
 //! Every `bar-*` program is built here, which it was not: `bar-door` came out
 //! of `console-panel` and `bar-updating` out of `console-notifications`, each
 //! beside the thing it asks about rather than beside the thing it feeds. The
-//! question either one asks is somebody else's -- what is on the screen, how
+//! question either one asks is someone else's -- what is on the screen, how
 //! far an apply has got -- and the library it asks it with is still theirs.
 //! What is this crate's is the answer: a line of waybar's JSON, with a class
 //! the stylesheet paints. So they are here for what they produce, and the
@@ -21,8 +21,8 @@
 
 pub mod clock;
 pub mod dwindling;
-pub mod holding;
-pub mod notices;
+pub mod state;
+pub mod notifications;
 pub mod reading;
 pub mod showing;
 pub mod watch;

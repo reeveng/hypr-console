@@ -1,16 +1,16 @@
 //! Where a picture's source comes from, and how it is known to be the one.
 //!
-//! The artist's loops are not kept in this repository. They are somebody else's
+//! The artist's loops are not kept in this repository. They are someone else's
 //! work, they are twenty megabytes each, and this repository is source and
-//! nothing else: the device compiles the programs and it presses the pictures,
+//! nothing else: the device compiles the programs and it renders the pictures,
 //! from a list of addresses and the checksum each one had when it was written
 //! down.
 //!
 //! The checksum is not there to catch a bad download, which curl already
 //! refuses. It is there because these are fetched from a site that mirrors
-//! somebody else's work, and a picture that quietly becomes a different picture
+//! someone else's work, and a picture that quietly becomes a different picture
 //! is worse than one that fails to arrive. A mismatch stops that one picture
-//! and says so, and every other picture is pressed as usual.
+//! and says so, and every other picture is rendered as usual.
 
 use std::path::{Path, PathBuf};
 
@@ -21,10 +21,10 @@ use sha2::{Digest, Sha256};
 use crate::Unpainted;
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum Got {
-    Held,
+pub enum NameRequestResult {
+    Cached,
     Fetched,
-    Changed { wanted: String, found: String },
+    Replaced { wanted: String, found: String },
 }
 
 pub fn kept() -> Result<Option<PathBuf>, Never> {
@@ -35,7 +35,7 @@ pub fn kept() -> Result<Option<PathBuf>, Never> {
 
 pub fn checksum(at: &Path) -> Result<String, Unpainted> {
     let held = std::fs::read(at)
-        .map_err(|fault| Unpainted::Unreadable(at.to_path_buf(), fault))?;
+        .map_err(|fault| Unpainted::Read(at.to_path_buf(), fault))?;
     Ok(format!("{:x}", Sha256::digest(&held)))
 }
 
@@ -56,7 +56,7 @@ pub struct Source<'a> {
     pub wanted: &'a str,
 }
 
-pub fn get(source: Source<'_>, into: &Path) -> Result<Got, Unpainted> {
+pub fn get(source: Source<'_>, into: &Path) -> Result<NameRequestResult, Unpainted> {
     let Source { from, wanted } = source;
 
     match into.is_file() {
@@ -64,11 +64,11 @@ pub fn get(source: Source<'_>, into: &Path) -> Result<Got, Unpainted> {
             let held = is_the_one(into, wanted)?;
 
             return match held {
-                true => Ok(Got::Held),
+                true => Ok(NameRequestResult::Cached),
                 false => {
                     let found = checksum(into)?;
 
-                    Ok(Got::Changed { wanted: wanted.to_string(), found })
+                    Ok(NameRequestResult::Replaced { wanted: wanted.to_string(), found })
                 }
             };
         }
@@ -110,13 +110,13 @@ pub fn get(source: Source<'_>, into: &Path) -> Result<Got, Unpainted> {
         false => {
             let found = checksum(&part)?;
             let _ = std::fs::remove_file(&part);
-            return Ok(Got::Changed { wanted: wanted.to_string(), found });
+            return Ok(NameRequestResult::Replaced { wanted: wanted.to_string(), found });
         }
     }
 
     std::fs::rename(&part, into)
         .map_err(|fault| Unpainted::Unplaced(into.to_path_buf(), fault))?;
-    Ok(Got::Fetched)
+    Ok(NameRequestResult::Fetched)
 }
 
 #[cfg(test)]
@@ -167,7 +167,7 @@ mod tests {
             },
             &at,
         );
-        assert_eq!(got.expect("held"), Got::Held);
+        assert_eq!(got.expect("held"), NameRequestResult::Cached);
         let _ = std::fs::remove_file(&at);
     }
 
@@ -178,7 +178,7 @@ mod tests {
         let wanted = "0".repeat(64);
         let source = Source { from: "https://example.invalid/never-asked", wanted: &wanted };
         let got = get(source, &at);
-        assert!(matches!(got, Ok(Got::Changed { .. })), "{got:?}");
+        assert!(matches!(got, Ok(NameRequestResult::Replaced { .. })), "{got:?}");
         let _ = std::fs::remove_file(&at);
     }
 }

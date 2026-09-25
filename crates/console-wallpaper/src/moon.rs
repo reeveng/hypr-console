@@ -10,8 +10,8 @@
 //! What is worked out here is the mean phase: the moon's age since a new moon,
 //! divided by the average length of the cycle. The real moon runs ahead of and
 //! behind that by up to about half a day, because its orbit is an ellipse and
-//! it does not travel it at an even rate. That matters to somebody pointing a
-//! telescope and does not matter to somebody choosing a picture, so the mean is
+//! it does not travel it at an even rate. That matters to someone pointing a
+//! telescope and does not matter to someone choosing a picture, so the mean is
 //! what is used and the error is written down here rather than corrected for.
 
 use console_core_never::Never;
@@ -37,18 +37,7 @@ impl Moon {
     pub const EVERY: [Moon; 4] = [Moon::Full, Moon::New, Moon::Waning, Moon::Waxing];
 
     pub fn of(word: &str) -> Result<Option<Self>, Never> {
-        let word = word.trim().to_lowercase();
-
-        for moon in Moon::EVERY {
-            let said = moon.word()?;
-
-            match said == word {
-                true => return Ok(Some(moon)),
-                false => {},
-            }
-        }
-
-        Ok(None)
+        Moon::from_word(&word.trim().to_lowercase())
     }
 }
 
@@ -59,11 +48,15 @@ pub fn through(unix: f64) -> Result<f64, Never> {
 pub fn moon(unix: f64) -> Result<Moon, Never> {
     let through = through(unix)?;
 
-    Ok(match through {
-        _ if through < 0.0625 || through >= 0.9375 => Moon::New,
-        _ if through < 0.4375 => Moon::Waxing,
-        _ if through < 0.5625 => Moon::Full,
-        _ => Moon::Waning,
+    Ok(match through < 0.0625 || through >= 0.9375 {
+        true => Moon::New,
+        false => match through < 0.4375 {
+            true => Moon::Waxing,
+            false => match through < 0.5625 {
+                true => Moon::Full,
+                false => Moon::Waning,
+            },
+        },
     })
 }
 

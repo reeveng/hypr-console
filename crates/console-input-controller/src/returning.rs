@@ -11,7 +11,7 @@
 //! Steam untouched and this is only about what happens if it is kept down.
 //!
 //! Held alone, because Steam's own shortcuts are that button and another one
-//! together: holding Steam and B to make a game quit is somebody staying in
+//! together: holding Steam and B to make a game quit is someone staying in
 //! Game Mode, and it takes longer than this does.
 //!
 //! Nothing here opens a device. What arrived is handed in and what to do about
@@ -19,33 +19,32 @@
 //!
 //! A gap longer than [`AWAY`] between two looks is the machine having been
 //! asleep, so the hold is thrown away: it is a thumb that was on the button
-//! when the lid came down, not a second of somebody's intent.
+//! when the lid came down, not a second of someone's intent.
 //!
-//! Leaving is `Doing::Start` and not `Doing::Ask`, because a daemon that waited
+//! Leaving is `Effect::Spawn` and not `Effect::Run`, because a daemon that waited
 //! to hear how it went would be holding a session open to watch it end.
 
 use std::time::Duration;
 
-use evdev::{EventType, KeyCode};
+use console_input_event_devices::{EventType, KeyCode};
 
 use console_core_never::Never;
+use console_core_internal_programs::InternalProgram;
 use console_program_contract::{
-    Argv, Doing as Wanted, Opening, Program, Round, Runs, Since, Turn, Wants, Word,
+    Arguments, Effect as Wanted, Initial, Program, Timer, Command, Elapsed, Update, Subscription, Event,
 };
 
-use crate::doing::Doing;
+use crate::effect::Effect;
 
 pub const BUTTON: KeyCode = KeyCode::BTN_MODE;
 
 pub const HELD_SECONDS: f64 = 1.0;
 
-pub const RUNS: [&str; 1] = ["/usr/local/bin/session-desktop"];
-
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub enum Returning {
     #[default]
     Loose,
-    Held(f64),
+    Pressed(f64),
     Shared,
     Left,
 }
@@ -58,11 +57,11 @@ impl Returning {
         }
 
         match (code == BUTTON.0, value) {
-            (true, 1) => *self = Returning::Held(now),
+            (true, 1) => *self = Returning::Pressed(now),
             (true, 0) => *self = Returning::Loose,
             (false, 1) => {
                 match self {
-                    Returning::Held(_) => *self = Returning::Shared,
+                    Returning::Pressed(_) => *self = Returning::Shared,
                     Returning::Loose | Returning::Shared | Returning::Left => {},
                 }
             }
@@ -72,15 +71,15 @@ impl Returning {
         Ok(())
     }
 
-    pub fn gone(&mut self) -> Result<(), Never> {
+    pub fn loosed(&mut self) -> Result<(), Never> {
         *self = Returning::Loose;
 
         Ok(())
     }
 
-    pub fn turn(&mut self, now: f64) -> Result<Option<Doing>, Never> {
+    pub fn turn(&mut self, now: f64) -> Result<Option<Effect>, Never> {
         let since = match self {
-            Returning::Held(since) => *since,
+            Returning::Pressed(since) => *since,
             Returning::Loose | Returning::Shared | Returning::Left => return Ok(None),
         };
 
@@ -91,108 +90,111 @@ impl Returning {
 
         *self = Returning::Left;
 
-        let Ok(runs) = Doing::run(&RUNS);
+        let Ok(desktop) = InternalProgram::SessionDesktop.path();
+        let Ok(runs) = Effect::run(&[desktop]);
 
         Ok(Some(runs))
     }
 }
 
-pub const LOOK: Round = Round { called: "the pad", every: Duration::from_millis(16) };
+pub const LOOK: Timer = Timer { name: "the pad", interval: Duration::from_millis(16) };
 
-pub const DESKTOP_MODE: &str = "/usr/local/bin/session-desktop";
-
-pub const AWAY: Since = Duration::from_millis(250);
+pub const AWAY: Elapsed = Duration::from_millis(250);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Heard {
-    Saw { kind: EventType, code: u16, value: i32, at: Since },
-    Gone,
+pub enum ReturningEvent {
+    Saw { kind: EventType, code: u16, value: i32, at: Elapsed },
+    Closed,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Coming {
     pub returning: Returning,
-    pub woke: Option<Since>,
+    pub woke: Option<Elapsed>,
 }
 
 pub struct Return;
 
 impl Program for Return {
     type State = Coming;
-    type Hears = Heard;
-    type Does = Never;
+    type Event = ReturningEvent;
+    type Effect = Never;
 
-    fn opening(_argv: &Argv) -> Opening<Coming> {
-        let Ok(opening) = Opening::listening(Coming::default(), vec![Wants::Round(LOOK)]);
+    fn init(_argv: &Arguments) -> Initial<Coming> {
+        let Ok(opening) = Initial::subscribed(Coming::default(), vec![Subscription::Timer(LOOK)]);
 
         opening
     }
 
-    fn heard(state: &Coming, word: &Word<Heard>) -> Turn<Coming, Never> {
+    fn update(state: &Coming, event: &Event<ReturningEvent>) -> Update<Coming, Never> {
         let mut held = state.clone();
 
-        let Ok(turn) = match word {
-            Word::Its(Heard::Saw { kind, code, value, at }) => {
+        let Ok(turn) = match event {
+            Event::Custom(ReturningEvent::Saw { kind, code, value, at }) => {
                 let Ok(()) = held.returning.saw(*kind, *code, *value, at.as_secs_f64());
 
-                Turn::nothing(held)
+                Update::none(held)
             }
 
-            Word::Its(Heard::Gone) => {
-                let Ok(()) = held.returning.gone();
+            Event::Custom(ReturningEvent::Closed) => {
+                let Ok(()) = held.returning.loosed();
 
-                Turn::nothing(held)
+                Update::none(held)
             }
 
-            Word::CameRound(_, since) => {
+            Event::Tick(_, since) => {
                 let away = held.woke.is_some_and(|was| since.saturating_sub(was) > AWAY);
 
                 match away {
                     true => {
-                        let Ok(()) = held.returning.gone();
+                        let Ok(()) = held.returning.loosed();
                     },
                     false => {},
                 }
 
                 held.woke = Some(*since);
 
-                let Ok(doing) = held.returning.turn(since.as_secs_f64());
+                let Ok(effect) = held.returning.turn(since.as_secs_f64());
 
-                match doing {
-                    Some(doing) => {
-                        let Ok(way_out) = way_out(&doing);
+                match effect {
+                    Some(effect) => {
+                        let Ok(way_out) = way_out(&effect);
 
-                        Turn::doing(held, way_out)
+                        Update::new(held, way_out)
                     }
-                    None => Turn::nothing(held),
+                    None => Update::none(held),
                 }
             }
 
-            Word::Opened | Word::Changed(_) | Word::Answered(_) | Word::Chose(_)
-            | Word::Stopping => Turn::nothing(held),
+            Event::Opened | Event::Changed(_) | Event::Replied(_) | Event::Chosen(_)
+            | Event::Stopping => Update::none(held),
         };
 
         turn
     }
 }
 
-fn way_out(doing: &Doing) -> Result<Vec<Wanted<Never>>, Never> {
-    Ok(match doing {
-        Doing::Run(argv) => match argv.first().map(String::as_str) {
-            Some(DESKTOP_MODE) => {
-                let Ok(desktop) = Runs::ours(DESKTOP_MODE, &[]);
+fn way_out(effect: &Effect) -> Result<Vec<Wanted<Never>>, Never> {
+    Ok(match effect {
+        Effect::Run(arguments) => {
+            let Ok(desktop) = InternalProgram::SessionDesktop.path();
 
-                vec![Wanted::Start(desktop)]
+            match arguments.first().map(String::as_str) == Some(desktop) {
+                true => {
+                    let Ok(desktop) = Command::internal(desktop, &[]);
+
+                    vec![Wanted::Spawn(desktop)]
+                }
+                false => Vec::new(),
             }
-            Some(_) | None => Vec::new(),
-        },
-        Doing::Frame(_) | Doing::Tell(_) | Doing::Using(_) => Vec::new(),
+        }
+        Effect::Frame(_) | Effect::Tell(_) | Effect::Using(_) => Vec::new(),
     })
 }
 
 #[cfg(test)]
 mod tests {
-    use console_program_contract::told;
+    use console_program_contract::run;
 
     use super::*;
 
@@ -202,14 +204,14 @@ mod tests {
         value
     }
 
-    fn held(seconds: f64) -> Option<Doing> {
+    fn held(seconds: f64) -> Option<Effect> {
         let mut returning = Returning::default();
         ok(returning.saw(EventType::KEY, BUTTON.0, 1, 1000.0));
         ok(returning.turn(1000.0 + seconds))
     }
 
-    fn way_back() -> Option<Doing> {
-        Some(ok(Doing::run(&["/usr/local/bin/session-desktop"])))
+    fn way_back() -> Option<Effect> {
+        Some(ok(Effect::run(&[ok(InternalProgram::SessionDesktop.path())])))
     }
 
     #[test]
@@ -269,82 +271,77 @@ mod tests {
     fn a_pad_that_went_away_takes_the_hold_with_it() {
         let mut returning = Returning::default();
         ok(returning.saw(EventType::KEY, BUTTON.0, 1, 1000.0));
-        ok(returning.gone());
+        ok(returning.loosed());
         assert_eq!(ok(returning.turn(1002.0)), None);
     }
 
-    #[test]
-    fn the_way_out_is_the_program_the_table_names() {
-        assert_eq!(RUNS.first().copied(), Some(DESKTOP_MODE));
+    fn pressed(at: Elapsed) -> Event<ReturningEvent> {
+        Event::Custom(ReturningEvent::Saw { kind: EventType::KEY, code: BUTTON.0, value: 1, at })
     }
 
-    fn pressed(at: Since) -> Word<Heard> {
-        Word::Its(Heard::Saw { kind: EventType::KEY, code: BUTTON.0, value: 1, at })
+    fn woke(at: Elapsed) -> Event<ReturningEvent> {
+        Event::Tick(LOOK, at)
     }
 
-    fn woke(at: Since) -> Word<Heard> {
-        Word::CameRound(LOOK, at)
-    }
-
-    fn woken(from: Since, to: Since) -> Vec<Word<Heard>> {
+    fn woken(from: Elapsed, to: Elapsed) -> Vec<Event<ReturningEvent>> {
         let mut at = from;
         let mut words = Vec::new();
 
         while at <= to {
             words.push(woke(at));
-            at = at.saturating_add(LOOK.every);
+            at = at.saturating_add(LOOK.interval);
         }
 
         words
     }
 
     fn started() -> Wanted<Never> {
-        let Ok(desktop) = Runs::ours(DESKTOP_MODE, &[]);
+        let Ok(desktop) = Command::internal(ok(InternalProgram::SessionDesktop.path()), &[]);
 
-        Wanted::Start(desktop)
+        Wanted::Spawn(desktop)
     }
 
     #[test]
     fn half_a_second_of_holding_it_is_not_the_door_and_a_second_is() {
         let began = Duration::from_secs(10);
-        let mut words = vec![Word::Opened, pressed(began)];
+        let mut words = vec![Event::Opened, pressed(began)];
 
         words.extend(woken(began, began.saturating_add(Duration::from_millis(500))));
 
-        let Ok(half) = told::<Return>(&Argv::default(), &words);
-        let Ok(doings) = half.doings();
+        let Ok(half) = run::<Return>(&Arguments::default(), &words);
+        let Ok(effects) = half.effects();
 
-        assert!(doings.is_empty(), "half a second of holding it left for the desktop");
+        assert!(effects.is_empty(), "half a second of holding it left for the desktop");
 
         words.extend(woken(
             began.saturating_add(Duration::from_millis(500)),
             began.saturating_add(Duration::from_millis(1_100)),
         ));
 
-        let Ok(whole) = told::<Return>(&Argv::default(), &words);
+        let Ok(whole) = run::<Return>(&Arguments::default(), &words);
 
-        assert_eq!(whole.doings(), Ok(vec![started()]));
+        assert_eq!(whole.effects(), Ok(vec![started()]));
     }
 
     #[test]
     fn the_door_is_opened_once_however_long_it_is_kept_down() {
         let began = Duration::from_secs(10);
-        let mut words = vec![Word::Opened, pressed(began)];
+        let mut words = vec![Event::Opened, pressed(began)];
 
         words.extend(woken(began, began.saturating_add(Duration::from_secs(10))));
 
-        let Ok(said) = told::<Return>(&Argv::default(), &words);
+        let Ok(said) = run::<Return>(&Arguments::default(), &words);
 
-        assert_eq!(said.doings(), Ok(vec![started()]));
+        assert_eq!(said.effects(), Ok(vec![started()]));
     }
 
     #[test]
     fn steams_chord_never_reaches_the_door() {
-        let Ok(said) = told::<Return>(
-            &Argv::default(),
+        let Ok(said) = run::<Return>(
+            &Arguments::default(),
             &[
                 pressed(Duration::from_secs(10)),
-                Word::Its(Heard::Saw {
+                Event::Custom(ReturningEvent::Saw {
                     kind: EventType::KEY,
                     code: KeyCode::BTN_EAST.0,
                     value: 1,
@@ -353,35 +350,35 @@ mod tests {
                 woke(Duration::from_secs(12)),
             ],
         );
-        let Ok(doings) = said.doings();
+        let Ok(effects) = said.effects();
 
-        assert!(doings.is_empty());
+        assert!(effects.is_empty());
     }
 
     #[test]
     fn a_pad_that_went_away_mid_hold_is_a_hold_that_never_happened() {
-        let Ok(said) = told::<Return>(
-            &Argv::default(),
+        let Ok(said) = run::<Return>(
+            &Arguments::default(),
             &[
                 pressed(Duration::from_secs(10)),
-                Word::Its(Heard::Gone),
+                Event::Custom(ReturningEvent::Closed),
                 woke(Duration::from_secs(12)),
             ],
         );
-        let Ok(doings) = said.doings();
+        let Ok(effects) = said.effects();
 
-        assert!(doings.is_empty());
+        assert!(effects.is_empty());
     }
 
     #[test]
     fn it_asks_to_be_woken_and_wants_nothing_else_said_to_it() {
-        assert_eq!(Return::opening(&Argv::default()).wants, vec![Wants::Round(LOOK)]);
+        assert_eq!(Return::init(&Arguments::default()).subscriptions, vec![Subscription::Timer(LOOK)]);
     }
 
     #[test]
     fn a_hold_that_spans_a_sleep_is_a_thumb_and_not_a_press() {
-        let Ok(said) = told::<Return>(
-            &Argv::default(),
+        let Ok(said) = run::<Return>(
+            &Arguments::default(),
             &[
                 woke(Duration::from_secs(10)),
                 pressed(Duration::from_secs(10)),
@@ -390,10 +387,10 @@ mod tests {
             ],
         );
 
-        let Ok(doings) = said.doings();
+        let Ok(effects) = said.effects();
 
         assert!(
-            doings.is_empty(),
+            effects.is_empty(),
             "a button held across a sleep left for the desktop on the way back"
         );
     }

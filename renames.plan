@@ -1,0 +1,739 @@
+# Written by rename-words plan and read back by it: a choice written here
+# survives the next plan. `[*]` is renamed as text across the whole tree;
+# every other heading is one file and the definitions in it.
+#   Word kind of Owner = New          settled
+#   Word kind of Owner = ? A | B      open: write a name over it
+#   Word kind of Owner = -            kept on purpose
+
+[*]
+
+[crates/console-architecture/src/facts.rs]
+Does enum = Effect    # applied
+Missing variant of Unread = MissingField    # applied
+Nothing variant of Effect = None    # applied
+Something variant of Effect = Some    # applied
+Whose enum = Ownership    # applied
+What variant of Field = -    # 67: What,
+
+[crates/console-architecture/src/lib.rs]
+Unreadable variant of Unread = Read    # applied
+
+[crates/console-architecture/src/main.rs]
+Undrawn enum = MapError    # applied
+Unreadable variant of MapError = ReadFile    # applied
+
+[crates/console-architecture/src/units.rs]
+Ours variant of Started = InternalProgram    # applied
+Theirs variant of Started = ExternalProgram    # applied
+
+[crates/console-battery/src/lib.rs]
+In variant of Cable = Connected    # applied
+Out variant of Cable = Disconnected    # applied
+Said struct = Alert    # applied
+
+[crates/console-books/src/appearance.rs]
+Painted enum = ColorRole    # applied
+Said struct = Settings    # applied
+
+[crates/console-books/src/bin/books.rs]
+wide field of Column = width    # applied
+wide field of TextStyle = width    # applied
+
+[crates/console-books/src/open.rs]
+Missing variant of BookError = NotFound    # applied
+
+[crates/console-books/src/pages.rs]
+down field of Paginator = y    # applied
+
+[crates/console-bus/src/connection.rs]
+Refused variant of ConnectionError = Rejected    # applied
+
+[crates/console-bus/src/introspection.rs]
+In variant of Direction = -    # 74: In,
+Out variant of Direction = -    # 75: Out,
+
+[crates/console-bus/src/messages.rs]
+Fault variant of Kind = ErrorReply    # applied
+Held variant of ReadFrame = Variant    # applied
+Held variant of Value = Variant    # applied
+Held variant of WriteFrame = Variant    # applied
+wide fn = size    # applied
+
+[crates/console-bus/src/properties.rs]
+Answered struct = Response    # applied
+Changed struct = PropertyChange    # applied
+
+[crates/console-compositor/src/events.rs]
+Nothing variant of CompositorEvent = Ignored    # applied
+
+[crates/console-compositor/src/lib.rs]
+Bind struct = BoundKey    # applied
+Nothing variant of Carrying = None    # applied
+Nothing variant of Filling = None    # applied
+Unanswered variant of HyprctlError = Socket    # applied
+across field of Frame = x    # applied
+down field of Frame = y    # applied
+tall field of Frame = height    # applied
+wide field of Frame = width    # applied
+
+[crates/console-compositor/src/socket.rs]
+Unanswered enum = SocketError    # applied
+
+[crates/console-content-types/src/lib.rs]
+Unreadable variant of TableError = Read    # applied
+
+[crates/console-core-atomic-writes/src/lib.rs]
+Nothing variant of Stored = Absent    # applied
+Unreadable variant of Stored = Failed    # applied
+
+[crates/console-core-color/src/lib.rs]
+Unreadable enum = ParseError    # applied
+
+[crates/console-core-fonts/src/lib.rs]
+tall field of Font = height    # applied
+tall fn = height    # applied
+
+[crates/console-core-geometry/src/lib.rs]
+across field of Point = x    # applied
+down field of Point = y    # applied
+tall field of Size = height    # applied
+wide field of Size = width    # applied
+
+[crates/console-core-qr-codes/src/lib.rs]
+Drawn struct = Bitmap    # applied
+
+[crates/console-core-reconnect/src/lib.rs]
+Done variant of Round = Finished    # applied
+
+[crates/console-core-shapes/src/lib.rs]
+tall field of Pixels = height    # applied
+wide field of Line = width    # applied
+wide field of Pixels = width    # applied
+wide field of Text = width    # applied
+across fn = -    # 174: fn across(many: u32) -> Result<i32, Never> {
+
+[crates/console-core-web-engine/src/lib.rs]
+Press variant of Request = Click    # applied
+
+[crates/console-cpu-boost/src/lib.rs]
+Hurry enum = Boost    # applied
+Nothing variant of Left = None    # applied
+Words type = Entries    # applied
+
+[crates/console-device/src/deploying.rs]
+Asked variant of How = Confirm    # applied
+Taken variant of DeployingEvent = Busy    # applied
+
+[crates/console-device/src/migrating.rs]
+Asked variant of How = Confirm    # applied
+Home struct = HomeChange    # applied
+theirs fn = -    # 815: fn theirs(going: &Going, command: &str) -> Result<Command, Never> {
+
+[crates/console-device/src/pulling.rs]
+Asking variant of Pulling = Querying    # applied
+
+[crates/console-downloads/src/bin/downloads-format.rs]
+Nothing variant of Made = None    # applied
+
+[crates/console-downloads/src/same.rs]
+Nothing variant of Wants = None    # applied
+
+[crates/console-draw-painting/src/lib.rs]
+Kept variant of Ground = Preserved    # applied
+wide field of Run = width    # applied
+
+[crates/console-draw-surface/src/bin/surface-spike.rs]
+Unreadable enum = ParseError    # applied
+across field of At = x    # applied
+down field of At = y    # applied
+tall field of At = height    # applied
+wide field of At = width    # applied
+
+[crates/console-draw-surface/src/fingers.rs]
+down field of Fingers = pressed    # applied
+
+[crates/console-draw-surface/src/standing.rs]
+Drawn enum = Visible    # applied
+Nothing variant of Under = None    # applied
+
+[crates/console-events/src/again.rs]
+Asking variant of Worth = Querying    # applied
+
+[crates/console-events/src/sources.rs]
+theirs fn = -    # 244: fn theirs(
+
+[crates/console-files/src/bin/files-thumbs.rs]
+Nothing variant of Made = None    # applied
+
+[crates/console-files/src/doing.rs]
+Nothing variant of Asks = None    # applied
+
+[crates/console-files/src/listing.rs]
+Kept variant of Room = Retained    # applied
+
+[crates/console-files/src/open_with.rs]
+Held enum = Presence    # applied
+
+[crates/console-files/src/unzipping.rs]
+Nothing variant of Lift = None    # applied
+
+[crates/console-home-screen/src/bin/console-home.rs]
+Finger struct = TouchState    # applied
+Listening variant of Watching = Subscriber    # applied
+Nothing variant of Holds = None    # applied
+Nothing variant of Put = None    # applied
+Nothing variant of Shows = None    # applied
+Nothing variant of Waiting = None    # applied
+Told variant of Watching = Signal    # applied
+Words struct = MeasuredText    # applied
+wide field of MeasuredText = width    # applied
+Already variant of Woke = -    # 212: Already,
+
+[crates/console-home-screen/src/lib.rs]
+Held enum = LongPress    # applied
+Home struct = HomeScreen    # applied
+Nothing variant of Holding = None    # applied
+Nothing variant of On = None    # applied
+Something variant of Holding = Some    # applied
+
+[crates/console-home-screen/src/shape.rs]
+across fn = with_columns    # applied
+down fn = with_rows    # applied
+tall fn = height    # applied
+
+[crates/console-input-alphabets/src/lib.rs]
+across field of Alphabet = -    # 56: pub across: &'static str,
+
+[crates/console-input-bindings/src/keys.rs]
+Words enum = KeyKind    # applied
+
+[crates/console-input-bindings/src/moved.rs]
+Nothing variant of Rebound = None    # applied
+Said enum = OneOrMany    # applied
+Something variant of Rebound = Some    # applied
+Already variant of Moved = -    # 48: Already,
+
+[crates/console-input-controller/src/actions.rs]
+Awake variant of LockBehavior = Unlocked    # applied
+Guide variant of Action = ButtonGuide    # applied
+
+[crates/console-input-controller/src/bin/controller-desktop.rs]
+Asking variant of Unscrolled = Read    # applied
+Listening struct = Subscription    # applied
+Nothing variant of Decided = None    # applied
+Nothing variant of Event = None    # applied
+Nothing variant of Plugging = None    # applied
+Something variant of Decided = Some    # applied
+Something variant of Plugging = Some    # applied
+Unreadable variant of Unscrolled = Parse    # applied
+
+[crates/console-input-controller/src/binds.rs]
+Asking variant of Worth = Querying    # applied
+Bind struct = KeyBinding    # applied
+Says enum = BindCommand    # applied
+Bind variant of BindCommand = -    # 305: Bind(KeyBinding),
+
+[crates/console-input-controller/src/clock.rs]
+When struct = Instant    # applied
+
+[crates/console-input-controller/src/mode.rs]
+Asking variant of Mode = Prompt    # applied
+Home variant of Mode = HomeScreen    # applied
+
+[crates/console-input-controller/src/reading.rs]
+Held variant of Trigger = Pressed    # applied
+Nothing variant of Meant = None    # applied
+Something variant of Meant = Some    # applied
+down field of Controller = pressed_buttons    # applied
+
+[crates/console-input-controller/src/returning.rs]
+Held variant of Returning = Pressed    # applied
+
+[crates/console-input-controller/src/scroll.rs]
+across field of Wheel = x    # applied
+down field of Wheel = y    # applied
+
+[crates/console-input-controller/src/touch.rs]
+down field of Touch = in_contact    # applied
+
+[crates/console-input-controller/src/turning.rs]
+Held variant of Took = Acquired    # applied
+Refused variant of Took = Denied    # applied
+
+[crates/console-input-dictation/src/bin/console-dictate.rs]
+Taken enum = Claimed    # applied
+
+[crates/console-input-dictation/src/comparing.rs]
+Done variant of CompareEvent = Finished    # applied
+Listen variant of CompareEffect = Record    # applied
+Missing variant of Found = Absent    # applied
+
+[crates/console-input-event-devices/src/touches.rs]
+Touching variant of Contact = Pressed    # applied
+across field of Touchscreen = x    # applied
+down field of Touchscreen = y    # applied
+
+[crates/console-input-event-devices/src/virtual_device.rs]
+Refused variant of Unmade = Rejected    # applied
+
+[crates/console-input-focus/src/devices.rs]
+Fault variant of ClaimError = Failed    # applied
+Heard struct = Received    # applied
+Refused enum = ClaimError    # applied
+Taken struct = Claimed    # applied
+
+[crates/console-input-focus/src/said.rs]
+Nothing variant of InputEvent = None    # applied
+
+[crates/console-input-gamepad/src/bin/emulate.rs]
+Unreadable variant of Unemulated = Read    # applied
+What variant of Action = Describe    # applied
+
+[crates/console-input-gamepad/src/front.rs]
+Unreadable variant of Buttons = ReadFailed    # applied
+Unreadable variant of Properties = ReadFailed    # applied
+
+[crates/console-input-gamepad/src/go.rs]
+down fn = button_down    # applied
+
+[crates/console-input-gamepad/src/lib.rs]
+Missing variant of GamepadError = NotFound    # applied
+
+[crates/console-input-keyboard/src/bin/keyboard.rs]
+down field of State = pressed    # applied
+
+[crates/console-input-keyboard/src/gamepad.rs]
+down fn = button_down    # applied
+
+[crates/console-input-keyboard/src/layout.rs]
+Held variant of Drops = Modifiers    # applied
+Nothing variant of Drops = None    # applied
+tall field of Placed = height    # applied
+wide field of Placed = width    # applied
+
+[crates/console-input-keyboard/src/paint.rs]
+tall field of Look = height    # applied
+wide field of Look = width    # applied
+
+[crates/console-input-keyboard/src/surface.rs]
+tall field of Frame = height    # applied
+wide field of Frame = width    # applied
+
+[crates/console-input-mapping/src/bin/console-asking.rs]
+Asking variant of Action = Prompting    # applied
+Quiet enum = Silent    # applied
+Said variant of Action = Replied    # applied
+
+[crates/console-input-mapping/src/update.rs]
+Asked variant of MappingEvent = Requested    # applied
+
+[crates/console-input-pointer/src/lib.rs]
+Nothing variant of PointerAction = None    # applied
+
+[crates/console-kernel-handles/src/lib.rs]
+Held type = Handles    # applied
+Job variant of ObjectType = -    # 86: Job,
+Job struct = -    # 149: struct Job {
+Job variant of Object = -    # 160: Job(Job),
+
+[crates/console-kernel-scheduling/src/replay.rs]
+Queued struct = QueueEntry    # applied
+
+[crates/console-launcher/src/lib.rs]
+Changed variant of Narrowed = Different    # applied
+Said variant of Message = Reply    # applied
+
+[crates/console-login-greeter/src/display.rs]
+Asking variant of Unshown = Query    # applied
+across field of Controller = x    # applied
+down field of Controller = y    # applied
+tall field of Dumb = height    # applied
+tall field of Framebuffer = height    # applied
+tall field of Mode = height    # applied
+wide field of Dumb = width    # applied
+wide field of Framebuffer = width    # applied
+wide field of Mode = width    # applied
+
+[crates/console-login-pattern/src/lib.rs]
+Drawn variant of Clicked = Traced    # applied
+
+[crates/console-manifest-engine/src/build.rs]
+Missing variant of State = -    # 23: Missing,
+
+[crates/console-manifest-engine/src/going.rs]
+Told enum = Audience    # applied
+
+[crates/console-manifest-engine/src/health.rs]
+down field of Standing = failing    # applied
+
+[crates/console-manifest-engine/src/install.rs]
+Missing variant of State = -    # 59: Missing,
+Unreadable variant of State = -    # 61: Unreadable,
+
+[crates/console-manifest-engine/src/laying.rs]
+Kept variant of Back = Retained    # applied
+
+[crates/console-manifest-engine/src/machine.rs]
+Answered struct = CommandOutput    # applied
+Said struct = Output    # applied
+
+[crates/console-manifest-engine/src/main.rs]
+Said struct = StatusLine    # applied
+
+[crates/console-manifest-engine/src/packages.rs]
+Missing variant of PackageState = -    # 34: Missing,
+
+[crates/console-manifest-engine/src/room.rs]
+Said variant of Left = Reported    # applied
+
+[crates/console-manifest-engine/src/snapshot.rs]
+What struct = Description    # applied
+
+[crates/console-manifest-engine/src/unapplied.rs]
+Unreadable variant of Unapplied = Read    # applied
+
+[crates/console-manifest-migrations/src/lib.rs]
+Nothing variant of Outlives = None    # applied
+
+[crates/console-manifest-publish/src/main.rs]
+Unreadable variant of Unpublished = Read    # applied
+
+[crates/console-manifest-publish/src/names.rs]
+Says enum = Spelling    # applied
+
+[crates/console-media-viewer/src/card.rs]
+Nothing variant of Worth = None    # applied
+
+[crates/console-media-viewer/src/editing.rs]
+Asking variant of EditError = Query    # applied
+Refused variant of EditError = Rejected    # applied
+
+[crates/console-media-viewer/src/film.rs]
+Asked struct = PlaybackRequest    # applied
+Heard variant of Clock = Audio    # applied
+Heard variant of Sound = Audible    # applied
+Nothing variant of Next = None    # applied
+
+[crates/console-media-viewer/src/fitting.rs]
+across field of Looking = x    # applied
+down field of Looking = y    # applied
+
+[crates/console-media-viewer/src/waking.rs]
+Awake enum = Woken    # applied
+
+[crates/console-media-viewer/src/watching.rs]
+Awake variant of WakeOutcome = AlreadyAwake    # applied
+Words variant of ViewerEvent = Text    # applied
+
+[crates/console-music-player/src/answers.rs]
+Told enum = Reply    # applied
+Words variant of Reply = Strings    # applied
+
+[crates/console-music-player/src/bus.rs]
+Changed enum = Modified    # applied
+
+[crates/console-music-player/src/sounding.rs]
+Told variant of Reached = Requested    # applied
+
+[crates/console-music-player/src/tags.rs]
+Nothing variant of Tagged = None    # applied
+Said enum = Tagged    # applied
+Something variant of Tagged = Some    # applied
+
+[crates/console-music/src/looking.rs]
+In enum = MatchedIn    # applied
+
+[crates/console-music/src/update.rs]
+Asked variant of Read = Requested    # applied
+
+[crates/console-notifications/src/bin/console-notify.rs]
+Taken variant of Cannot = NameTaken    # applied
+Words struct = Text    # applied
+
+[crates/console-notifications/src/bin/console-updating.rs]
+Done variant of Step = Succeeded    # applied
+Nothing variant of Keeps = None    # applied
+
+[crates/console-notifications/src/serving.rs]
+Changed enum = Modified    # applied
+
+[crates/console-notifications/src/showing.rs]
+across fn = x    # applied
+tall field of Card = height    # applied
+tall fn = height    # applied
+
+[crates/console-notifications/tests/the_saying.rs]
+Listening struct = Subscriber    # applied
+
+[crates/console-notifications/tests/the_updating.rs]
+Listening struct = Subscriber    # applied
+
+[crates/console-onscreen/src/homeward.rs]
+Awake enum = Woken    # applied
+Said enum = PadInput    # applied
+Says variant of Note = Message    # applied
+
+[crates/console-onscreen/src/lib.rs]
+Answered variant of Error = UnexpectedReply    # applied
+Asking variant of Error = Query    # applied
+Asking variant of Worth = Querying    # applied
+Nothing variant of Over = None    # applied
+Something variant of Over = Some    # applied
+Unreadable variant of Error = Read    # applied
+
+[crates/console-palette/src/main.rs]
+Unreadable variant of Unspent = Read    # applied
+
+[crates/console-palette/src/measure.rs]
+Quiet variant of Kind = Muted    # applied
+
+[crates/console-palette/tests/the_desktop.rs]
+Said struct = Output    # applied
+
+[crates/console-panel/src/actor.rs]
+Told variant of Message = Subscribe    # applied
+
+[crates/console-panel/src/before.rs]
+Said struct = Output    # applied
+
+[crates/console-panel/src/description.rs]
+Told struct = Description    # applied
+
+[crates/console-panel/src/fitting.rs]
+across fn = x    # applied
+
+[crates/console-panel/src/frames.rs]
+Heard enum = FrameReceived    # applied
+Held enum = FrameState    # applied
+Shut variant of Notice = Closed    # applied
+Told enum = Notice    # applied
+Unreadable variant of FrameState = Failed    # applied
+
+[crates/console-panel/src/keys.rs]
+Nothing variant of Meaning = None    # applied
+Nothing variant of Sweep = None    # applied
+
+[crates/console-panel/src/opening.rs]
+Handed struct = Provided    # applied
+
+[crates/console-panel/src/page.rs]
+Asked variant of Rows = Computed    # applied
+Awake variant of WakeOutcome = AlreadyAwake    # applied
+InEffect enum = Active    # applied
+Listening struct = Subscription    # applied
+Nothing variant of Action = None    # applied
+Nothing variant of Holds = None    # applied
+Nothing variant of Nudged = None    # applied
+Nothing variant of Wears = None    # applied
+Taken type = OnChosen    # applied
+across field of Row = buttons    # applied
+wide field of Track = width    # applied
+Corner variant of Placed = -    # 218: Corner,
+
+[crates/console-panel/src/picker.rs]
+Drawn variant of Meanwhile = Rendered    # applied
+Nothing variant of Away = None    # applied
+Ours enum = Owned    # applied
+Taken variant of Lock = Acquired    # applied
+Told variant of Away = Notified    # applied
+
+[crates/console-panel/src/pictures.rs]
+tall field of Picture = height    # applied
+tall field of Where = height    # applied
+wide field of Picture = width    # applied
+wide field of Where = width    # applied
+
+[crates/console-panel/src/running.rs]
+Said struct = Notification    # applied
+
+[crates/console-panel/src/strip.rs]
+Out variant of Stop = Outside    # applied
+wide field of Card = width    # applied
+
+[crates/console-panel/src/surface.rs]
+Asking struct = Prompt    # applied
+Changed variant of Typed = Edited    # applied
+Drew variant of Outcome = Redrawn    # applied
+Finger struct = Touch    # applied
+Held variant of Down = Touched    # applied
+Nothing variant of Outcome = None    # applied
+Nothing variant of Typed = None    # applied
+Out variant of Opened = Expanded    # applied
+Press variant of Lands = ButtonPress    # applied
+Strip struct = ButtonStrip    # applied
+Told enum = Outcome    # applied
+What enum = Selection    # applied
+Whose enum = Owner    # applied
+down field of Viewport = y    # applied
+tall field of Band = height    # applied
+tall field of Card = height    # applied
+tall field of Line = height    # applied
+tall field of SurfaceSize = height    # applied
+wide field of Card = width    # applied
+wide field of SurfaceSize = width    # applied
+across fn = -    # 461: fn across(wide: i32) -> Result<u32, Never> {
+
+[crates/console-panel/src/zoom.rs]
+In variant of Zoomed = ZoomedIn    # applied
+
+[crates/console-panels/src/lib.rs]
+Asked enum = PanelRequest    # applied
+Held struct = Descriptors    # applied
+Nothing variant of PanelRequest = None    # applied
+Nothing variant of Word = None    # applied
+Taken variant of Free = Occupied    # applied
+
+[crates/console-pictures/src/lib.rs]
+Asking variant of PictureError = Query    # applied
+Drawn enum = Rendering    # applied
+
+[crates/console-program-contract/src/event.rs]
+Answered variant of Event = Replied    # applied
+Changed variant of Event = -    # 41: Changed(Change),
+
+[crates/console-program-runtime/src/lib.rs]
+Changed variant of Woke = -    # 103: Changed(Change),
+
+[crates/console-program-runtime/tests/the_events.rs]
+Told variant of TestEffect = Logged    # applied
+
+[crates/console-response-times/src/frames.rs]
+Held variant of Buffer = Acquired    # applied
+
+[crates/console-response-times/src/lib.rs]
+Kept struct = Record    # applied
+Unreadable variant of Unloaded = Read    # applied
+
+[crates/console-response-times/src/line.rs]
+Said enum = Value    # applied
+
+[crates/console-resume/src/already.rs]
+Already enum = -    # 30: pub enum Already {
+
+[crates/console-resume/src/lib.rs]
+Asking variant of Unresumed = Query    # applied
+Unreadable variant of Unresumed = Read    # applied
+
+[crates/console-resume/src/terminal.rs]
+Told variant of Directory = Known    # applied
+
+[crates/console-screen/src/kernel.rs]
+Nothing variant of Plugged = None    # applied
+across fn = width    # applied
+
+[crates/console-session/src/lib.rs]
+Already variant of Going = -    # 54: Already,
+
+[crates/console-session/src/radio.rs]
+Unreadable variant of Unkept = Read    # applied
+
+[crates/console-settings/src/bin/console-brightness.rs]
+Dimmed enum = -    # 248: enum Dimmed {
+
+[crates/console-settings/src/bin/console-machine.rs]
+Unreadable variant of Unset = Read    # applied
+
+[crates/console-settings/src/bluetooth.rs]
+Says variant of Named = Alias    # applied
+
+[crates/console-settings/src/card.rs]
+What struct = Description    # applied
+
+[crates/console-settings/src/choosing.rs]
+Home variant of SettingsEffect = HomeScreen    # applied
+
+[crates/console-settings/src/introducing.rs]
+Answered struct = Reply    # applied
+Nothing variant of Command = None    # applied
+
+[crates/console-settings/src/learned.rs]
+Unreadable variant of Standing = Invalid    # applied
+
+[crates/console-settings/src/network_code.rs]
+Asking variant of Unshared = Query    # applied
+
+[crates/console-settings/src/size.rs]
+across fn = -    # 141: pub fn across(self) -> Result<Across, Never> {
+
+[crates/console-settings/src/warm.rs]
+Unreadable variant of Standing = Invalid    # applied
+
+[crates/console-sound-effects/src/lib.rs]
+Unheard enum = PlaybackError    # applied
+
+[crates/console-status-bar/src/bin/console-bar.rs]
+wide fn = measure    # applied
+
+[crates/console-status-bar/src/reading.rs]
+Asked struct = Readings    # applied
+Held struct = Property    # applied
+wide fn = -    # 199: fn wide(reading: &str) -> Result<String, Never> {
+
+[crates/console-status-bar/src/showing.rs]
+Nothing variant of Filling = None    # applied
+tall fn = height    # applied
+
+[crates/console-status-bar/src/state.rs]
+Kept variant of Promise = Fulfilled    # applied
+Nothing variant of Playing = None    # applied
+Something variant of Playing = Some    # applied
+
+[crates/console-test-checks/src/lib.rs]
+Unreadable variant of Unchecked = Read    # applied
+
+[crates/console-test-checks/src/picker.rs]
+What struct = Expected    # applied
+
+[crates/console-test-desktop/src/lib.rs]
+Unreadable variant of Unnested = Read    # applied
+
+[crates/console-test-desktop/src/nested.rs]
+Said struct = Names    # applied
+
+[crates/console-test-desktop/src/session.rs]
+Nothing variant of Wrote = None    # applied
+Something variant of Wrote = Some    # applied
+
+[crates/console-test-desktop/src/staging.rs]
+Told enum = Verbosity    # applied
+
+[crates/console-test-stages/src/device.rs]
+Nothing variant of Pushed = None    # applied
+Something variant of Pushed = Some    # applied
+
+[crates/console-test-stages/src/lib.rs]
+Asking variant of Error = Query    # applied
+Undrawn variant of Error = Hidden    # applied
+Unreadable variant of Error = Read    # applied
+
+[crates/console-wallpaper/src/bin/console-wallpaper.rs]
+Unreadable variant of Untabled = Read    # applied
+
+[crates/console-wallpaper/src/bin/wallpaper-render.rs]
+Unreadable variant of Unrendered = Read    # applied
+
+[crates/console-wallpaper/src/covered.rs]
+Told enum = Notified    # applied
+Already variant of Notified = -    # 52: Already,
+
+[crates/console-wallpaper/src/lib.rs]
+Refused variant of Unpainted = Rejected    # applied
+Unreadable variant of Unpainted = Read    # applied
+
+[crates/console-wallpaper/src/loops.rs]
+tall field of Patch = height    # applied
+wide field of Patch = width    # applied
+
+[crates/console-wallpaper/src/source.rs]
+Changed variant of NameRequestResult = Replaced    # applied
+Held variant of NameRequestResult = Cached    # applied
+
+[crates/console-weather/src/conditions.rs]
+Refused variant of FetchError = Failed    # applied
+Told enum = Notified    # applied
+Unanswered enum = FetchError    # applied
+Already variant of Notified = -    # 152: Already,
+
+[crates/console-weather/src/forecast.rs]
+Unanswered variant of Unforecast = Fetch    # applied
+Unreadable variant of Unforecast = Parse    # applied

@@ -8,13 +8,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use console_core_never::Never;
-use console_program_contract::{Changed, Topic};
+use console_program_contract::{Change, Topic};
 
 pub type Who = u64;
 
 #[derive(Debug, Default)]
 pub struct Pool {
-    listening: BTreeMap<Who, BTreeSet<Topic>>,
+    subscribers: BTreeMap<Who, BTreeSet<Topic>>,
     last: BTreeMap<Topic, String>,
     next: Who,
 }
@@ -24,32 +24,32 @@ impl Pool {
         let who = self.next;
 
         self.next = who.saturating_add(1);
-        self.listening.insert(who, BTreeSet::new());
+        self.subscribers.insert(who, BTreeSet::new());
 
         Ok(who)
     }
 
-    pub fn gone(&mut self, who: Who) -> Result<(), Never> {
-        self.listening.remove(&who);
+    pub fn left(&mut self, who: Who) -> Result<(), Never> {
+        self.subscribers.remove(&who);
 
         Ok(())
     }
 
-    pub fn listens(&mut self, who: Who, topic: Topic) -> Result<Option<Changed>, Never> {
-        let said = self.last.get(&topic).cloned();
+    pub fn subscribe(&mut self, who: Who, topic: Topic) -> Result<Option<Change>, Never> {
+        let last = self.last.get(&topic).cloned();
 
-        let topics = match self.listening.get_mut(&who) {
+        let topics = match self.subscribers.get_mut(&who) {
             Some(topics) => topics,
             None => return Ok(None),
         };
 
         let _ = topics.insert(topic.clone());
 
-        Ok(said.map(|said| Changed { about: topic, said }))
+        Ok(last.map(|text| Change { topic, text }))
     }
 
-    pub fn deafen(&mut self, who: Who, topic: &Topic) -> Result<(), Never> {
-        match self.listening.get_mut(&who) {
+    pub fn unsubscribe(&mut self, who: Who, topic: &Topic) -> Result<(), Never> {
+        match self.subscribers.get_mut(&who) {
             Some(topics) => {
                 let _ = topics.remove(topic);
             }
@@ -59,19 +59,19 @@ impl Pool {
         Ok(())
     }
 
-    pub fn said(&mut self, changed: &Changed) -> Result<Vec<Who>, Never> {
-        self.last.insert(changed.about.clone(), changed.said.clone());
+    pub fn publish(&mut self, change: &Change) -> Result<Vec<Who>, Never> {
+        self.last.insert(change.topic.clone(), change.text.clone());
 
         Ok(self
-            .listening
+            .subscribers
             .iter()
-            .filter(|(_, topics)| topics.contains(&changed.about))
+            .filter(|(_, topics)| topics.contains(&change.topic))
             .map(|(who, _)| *who)
             .collect())
     }
 
     pub fn wanted(&self) -> Result<BTreeSet<Topic>, Never> {
-        Ok(self.listening.values().flatten().cloned().collect())
+        Ok(self.subscribers.values().flatten().cloned().collect())
     }
 
     pub fn last(&self, topic: &Topic) -> Result<Option<&str>, Never> {
@@ -83,26 +83,26 @@ impl Pool {
 mod tests {
     use super::*;
 
-    fn about(topic: Topic, said: &str) -> Changed {
-        Changed { about: topic, said: said.to_string() }
+    fn change(topic: Topic, text: &str) -> Change {
+        Change { topic, text: text.to_string() }
     }
 
     #[test]
-    fn a_word_reaches_everybody_who_asked_for_that_topic_and_nobody_else() {
+    fn a_word_reaches_everyone_who_asked_for_that_topic_and_no_one_else() {
         let mut pool = Pool::default();
         let Ok(one) = pool.joined();
         let Ok(two) = pool.joined();
         let Ok(three) = pool.joined();
 
-        let Ok(first) = pool.listens(one, Topic::Sound);
-        let Ok(second) = pool.listens(two, Topic::Sound);
-        let Ok(third) = pool.listens(three, Topic::Network);
+        let Ok(first) = pool.subscribe(one, Topic::Sound);
+        let Ok(second) = pool.subscribe(two, Topic::Sound);
+        let Ok(third) = pool.subscribe(three, Topic::Network);
 
         assert_eq!(first, None);
         assert_eq!(second, None);
         assert_eq!(third, None);
 
-        let Ok(answered) = pool.said(&about(Topic::Sound, "sink 1"));
+        let Ok(answered) = pool.publish(&change(Topic::Sound, "sink 1"));
 
         assert_eq!(answered, vec![one, two]);
     }
@@ -112,28 +112,28 @@ mod tests {
         let mut pool = Pool::default();
         let Ok(early) = pool.joined();
 
-        let Ok(answered) = pool.listens(early, Topic::Sound);
+        let Ok(answered) = pool.subscribe(early, Topic::Sound);
 
         assert_eq!(answered, None);
 
-        let Ok(_said) = pool.said(&about(Topic::Sound, "sink 1 at 40%"));
+        let Ok(_) = pool.publish(&change(Topic::Sound, "sink 1 at 40%"));
         let Ok(late) = pool.joined();
 
-        let Ok(answered) = pool.listens(late, Topic::Sound);
+        let Ok(answered) = pool.subscribe(late, Topic::Sound);
 
-        assert_eq!(answered, Some(about(Topic::Sound, "sink 1 at 40%")));
+        assert_eq!(answered, Some(change(Topic::Sound, "sink 1 at 40%")));
     }
 
     #[test]
     fn the_last_word_is_the_last_one_and_not_all_of_them() {
         let mut pool = Pool::default();
-        let Ok(_said) = pool.said(&about(Topic::Sound, "40%"));
-        let Ok(_said) = pool.said(&about(Topic::Sound, "45%"));
+        let Ok(_) = pool.publish(&change(Topic::Sound, "40%"));
+        let Ok(_) = pool.publish(&change(Topic::Sound, "45%"));
         let Ok(late) = pool.joined();
 
-        let Ok(answered) = pool.listens(late, Topic::Sound);
+        let Ok(answered) = pool.subscribe(late, Topic::Sound);
 
-        assert_eq!(answered, Some(about(Topic::Sound, "45%")));
+        assert_eq!(answered, Some(change(Topic::Sound, "45%")));
     }
 
     #[test]
@@ -142,20 +142,20 @@ mod tests {
         let Ok(one) = pool.joined();
         let Ok(two) = pool.joined();
 
-        let Ok(_said) = pool.listens(one, Topic::Compositor);
-        let Ok(_said) = pool.listens(two, Topic::Compositor);
-        let Ok(()) = pool.gone(one);
+        let Ok(_) = pool.subscribe(one, Topic::Compositor);
+        let Ok(_) = pool.subscribe(two, Topic::Compositor);
+        let Ok(()) = pool.left(one);
 
-        let Ok(answered) = pool.said(&about(Topic::Compositor, "openwindow"));
+        let Ok(answered) = pool.publish(&change(Topic::Compositor, "openwindow"));
 
         assert_eq!(answered, vec![two]);
         let Ok(answered) = pool.wanted();
 
         assert_eq!(answered, [Topic::Compositor].into());
 
-        let Ok(()) = pool.gone(two);
+        let Ok(()) = pool.left(two);
 
-        let Ok(answered) = pool.said(&about(Topic::Compositor, "closewindow"));
+        let Ok(answered) = pool.publish(&change(Topic::Compositor, "closewindow"));
 
         assert!(answered.is_empty());
         let Ok(answered) = pool.wanted();
@@ -168,24 +168,24 @@ mod tests {
         let mut pool = Pool::default();
         let Ok(who) = pool.joined();
 
-        let Ok(_said) = pool.listens(who, Topic::Sound);
-        let Ok(_said) = pool.listens(who, Topic::Network);
-        let Ok(()) = pool.deafen(who, &Topic::Sound);
+        let Ok(_) = pool.subscribe(who, Topic::Sound);
+        let Ok(_) = pool.subscribe(who, Topic::Network);
+        let Ok(()) = pool.unsubscribe(who, &Topic::Sound);
 
-        let Ok(answered) = pool.said(&about(Topic::Sound, "40%"));
+        let Ok(answered) = pool.publish(&change(Topic::Sound, "40%"));
 
         assert!(answered.is_empty());
-        let Ok(answered) = pool.said(&about(Topic::Network, "up"));
+        let Ok(answered) = pool.publish(&change(Topic::Network, "up"));
 
         assert_eq!(answered, vec![who]);
     }
 
     #[test]
-    fn nobody_is_ever_given_a_name_somebody_else_had() {
+    fn no_one_is_ever_given_a_name_someone_else_had() {
         let mut pool = Pool::default();
         let Ok(one) = pool.joined();
 
-        let Ok(()) = pool.gone(one);
+        let Ok(()) = pool.left(one);
 
         let Ok(two) = pool.joined();
 
@@ -193,10 +193,10 @@ mod tests {
     }
 
     #[test]
-    fn a_word_on_a_topic_nobody_wants_is_still_remembered_for_whoever_comes() {
+    fn a_word_on_a_topic_no_one_wants_is_still_remembered_for_whoever_comes() {
         let mut pool = Pool::default();
 
-        let Ok(answered) = pool.said(&about(Topic::Player, "paused"));
+        let Ok(answered) = pool.publish(&change(Topic::Player, "paused"));
 
         assert!(answered.is_empty());
         let Ok(answered) = pool.last(&Topic::Player);

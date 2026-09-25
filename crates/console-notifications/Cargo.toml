@@ -23,18 +23,19 @@ name = "console-say"
 path = "src/bin/console-say.rs"
 
 [[bin]]
-name = "console-fell"
-path = "src/bin/console-fell.rs"
+name = "console-report-crash"
+path = "src/bin/console-report-crash.rs"
 
 [[bin]]
 name = "console-updating"
 path = "src/bin/console-updating.rs"
 
 [dependencies]
+console-core-fonts.workspace = true
 console-bus.workspace = true
 console-events.workspace = true
 console-core-number-conversion.workspace = true
-console-core-colour.workspace = true
+console-core-color.workspace = true
 console-core-geometry.workspace = true
 console-core-shapes.workspace = true
 console-draw-painting.workspace = true
@@ -49,7 +50,7 @@ console-panel.workspace = true
 console-onscreen.workspace = true
 console-core-atomic-writes.workspace = true
 console-program-contract.workspace = true
-libc = "0.2"
+rustix.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

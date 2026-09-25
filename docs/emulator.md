@@ -17,7 +17,7 @@ device again, and a diff means something changed under it.
 A press goes through the same profile files the device reads, so this tests the
 profile as well as the daemon.
 
-`scenarios/` holds what somebody did with their thumbs, in order. The same file
+`scenarios/` holds what someone did with their thumbs, in order. The same file
 plays against real devices and fake ones.
 
 ## Two tiers

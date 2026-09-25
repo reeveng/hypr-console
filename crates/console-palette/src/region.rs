@@ -1,4 +1,4 @@
-//! Writing into a file somebody else owns.
+//! Writing into a file someone else owns.
 //!
 //! Three files on this machine cannot import a palette: KDE's ini format has no
 //! include, and the browser's `user.js` and a systemd unit are both lists of
@@ -17,38 +17,24 @@ pub struct Body<'a>(pub &'a str);
 pub fn spliced(held: &str, body: Body<'_>) -> Result<Option<String>, Never> {
     let body = body.0;
     let lines: Vec<&str> = held.split_inclusive('\n').collect();
-    let only = |needle: &str| match lines
+    let holding = |needle: &str| lines.iter().filter(|line| line.contains(needle)).count();
+
+    match (holding(BEGIN), holding(END)) {
+        (1, 1) => {}
+        _ => return Ok(None),
+    }
+
+    let head: Vec<&str> = lines
         .iter()
-        .enumerate()
-        .filter(|(_, line)| line.contains(needle))
-        .map(|(at, _)| at)
-        .collect::<Vec<_>>()
-        .as_slice()
-    {
-        [at] => Some(*at),
-        _ => None,
-    };
+        .copied()
+        .take_while(|line| !line.contains(BEGIN))
+        .chain(lines.iter().copied().filter(|line| line.contains(BEGIN)))
+        .collect();
+    let tail: Vec<&str> = lines.iter().copied().skip_while(|line| !line.contains(END)).collect();
 
-    let (begin, end) = match (only(BEGIN), only(END)) {
-        (Some(begin), Some(end)) => (begin, end),
-        (None, _) | (_, None) => return Ok(None),
-    };
-
-    match begin < end {
-        true => {
-            let (head, tail) = match (lines.get(..=begin), lines.get(end..)) {
-                (Some(head), Some(tail)) => (head, tail),
-                (None, _) | (_, None) => return Ok(None),
-            };
-
-            Ok(Some(format!(
-                "{}{}\n{}",
-                head.concat(),
-                body.trim_end_matches('\n'),
-                tail.concat()
-            )))
-        }
-        false => Ok(None),
+    match head.iter().any(|line| line.contains(END)) {
+        true => Ok(None),
+        false => Ok(Some(format!("{}{}\n{}", head.concat(), body.trim_end_matches('\n'), tail.concat()))),
     }
 }
 

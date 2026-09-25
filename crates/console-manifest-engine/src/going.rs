@@ -2,7 +2,7 @@
 //!
 //! An apply on the device is minutes, most of it silent: pacman says nothing
 //! useful, `cargo build --release` says nothing at all until it is finished,
-//! and what somebody watching over ssh gets is a cursor. The question they are
+//! and what someone watching over ssh gets is a cursor. The question they are
 //! actually asking is not "what is it doing" -- the lines already say that --
 //! but "how much longer", and nothing here could answer it.
 //!
@@ -12,14 +12,14 @@
 //! because it is one row of pixels and there is nowhere to put a second. It is
 //! counted in thousandths of the whole, which is the strip's own unit and about
 //! a point of fill: the build is most of an apply and most of a screen, and a
-//! stretch that can only move the number a hundredth at a time leaves it still
+//! stage that can only move the number a hundredth at a time leaves it still
 //! for whole minutes of it. The
 //! person at the terminal wants the opposite: what is happening right now, and
 //! whether it is still happening. So the same walk feeds both, and they are
 //! drawn differently.
 //!
 //! The terminal is drawn the way pacman draws, because pacman is the thing
-//! everybody on this machine already reads while they wait, and it is the one
+//! everyone on this machine already reads while they wait, and it is the one
 //! that never leaves you wondering. Its shape, off its own format strings --
 //! `(%*zu/%*zu) %ls%-*s` then `[%s]` then ` %3d%%` -- is a line per item:
 //! counters padded to the width of the total so nothing jitters as they climb,
@@ -31,20 +31,20 @@
 //!
 //! Fixed widths, where pacman measures the terminal. Pacman has to: a package
 //! name plus a version can be most of a line and it has no idea in advance. The
-//! stretches here are named in this file and the longest of them is known, so a
+//! stages here are named in this file and the longest of them is known, so a
 //! column wide enough for all of them is arithmetic rather than an ioctl, and
 //! the whole line fits eighty.
 //!
 //! # Why the strip's number speeds up
 //!
-//! The stretches are not equal and are nowhere near equal. Compiling every
+//! The stages are not equal and are nowhere near equal. Compiling every
 //! program on the machine is most of an apply; writing sixty files and
 //! restarting a dozen services is the rest; and the tail -- swapping the
 //! release in, packing the add-on, writing two profiles -- is renames and a
 //! zip, which is under a second all together.
 //!
 //! So the strip is weighted rather than counted. A bar that moved a
-//! fourteenth per stretch would sit at 8% through the minutes of the build and
+//! fourteenth per stage would sit at 8% through the minutes of the build and
 //! then jump to the end, which is a bar that lies twice. Weighted, it crawls at
 //! the beginning, where the time actually is, and runs at the end, where there
 //! is nothing left to wait for. That is not a trick played on the reader: it is
@@ -56,12 +56,12 @@
 //! is also longest-first, which is why the weights come out front-loaded
 //! without anything being arranged.
 //!
-//! # Inside a stretch
+//! # Inside a stage
 //!
-//! A stretch that is a loop over things says which thing it is on, and the
+//! A stage that is a loop over things says which thing it is on, and the
 //! line fills as it goes: `during` hands the work a `Moving`, which takes
-//! either a count out of a total or a bare fraction for the one stretch that
-//! has no honest total to count towards. Everything a stretch would have
+//! either a count out of a total or a bare fraction for the one stage that
+//! has no honest total to count toward. Everything a stage would have
 //! printed goes through `Moving::say`, which wipes the line, prints, and draws
 //! it again underneath -- so the log scrolls past above a bar that stays put,
 //! which is the arrangement pacman gets by ending each line when it is full.
@@ -69,30 +69,30 @@
 //! # Where the numbers come from
 //!
 //! Estimates, and said to be. `CONSOLE_TIMINGS=1 console apply` prints what
-//! each stretch actually took on the machine in front of you, and
-//! `the_shares_add_up` is the only thing that has to stay true when they are
+//! each stage actually took on the machine in front of you, and
+//! `the_weights_add_up` is the only thing that has to stay true when they are
 //! corrected. `packages` is the one that cannot be estimated honestly: it is
-//! nothing on almost every apply and minutes on the one after somebody adds a
-//! package, so it is given a small share and the bar jumps when it is not. The
+//! nothing on almost every apply and minutes on the one after someone adds a
+//! package, so it is given a small weight and the bar jumps when it is not. The
 //! wallpapers are the same shape for the same reason -- nothing at all unless
 //! the table has a picture this machine has not pressed, and then a fetch and
-//! a minute of one core for each of them -- and are given a small share on the
+//! a minute of one core for each of them -- and are given a small weight on the
 //! same argument.
 
 
 use console_core_never::Never;
-use console_core_number_conversion::toward_zero_u16;
-use console_how_far::{Bar, Far, Now};
+use console_core_number_conversion::{fitted, toward_zero_u16};
+use console_how_far::{Bar, Progress, Now};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Reach {
+struct Reachability {
     start: u16,
-    share: u16,
+    weight: u16,
 }
 
 use console_notifications::updating;
 
-use crate::went;
+use crate::confirmation;
 
 pub const READING: &str = "reading packages";
 pub const WANTED: &str = "reading wanted";
@@ -111,40 +111,40 @@ pub const SERVICES: &str = "services";
 pub const RELEASE: &str = "keeping the release";
 
 #[derive(Debug, Clone, Copy)]
-pub struct Stretch {
-    pub doing: &'static str,
-    pub share: u16,
+pub struct Stage {
+    pub label: &'static str,
+    pub weight: u16,
 }
 
 pub const WHOLE: u16 = updating::WHOLE;
 
-pub const STRETCHES: [Stretch; 15] = [
-    Stretch { doing: READING, share: 10 },
-    Stretch { doing: WANTED, share: 10 },
-    Stretch { doing: PACKAGES, share: 60 },
-    Stretch { doing: KEEPING, share: 10 },
-    Stretch { doing: SWEEPING, share: 10 },
-    Stretch { doing: BUILDING, share: 590 },
-    Stretch { doing: FILES, share: 80 },
-    Stretch { doing: SWAPPING, share: 10 },
-    Stretch { doing: ADD_ON, share: 20 },
-    Stretch { doing: BROWSERS, share: 20 },
-    Stretch { doing: PROFILES, share: 30 },
-    Stretch { doing: SCREEN, share: 10 },
-    Stretch { doing: WALLPAPERS, share: 20 },
-    Stretch { doing: SERVICES, share: 100 },
-    Stretch { doing: RELEASE, share: 20 },
+pub const STAGES: [Stage; 15] = [
+    Stage { label: READING, weight: 10 },
+    Stage { label: WANTED, weight: 10 },
+    Stage { label: PACKAGES, weight: 60 },
+    Stage { label: KEEPING, weight: 10 },
+    Stage { label: SWEEPING, weight: 10 },
+    Stage { label: BUILDING, weight: 590 },
+    Stage { label: FILES, weight: 80 },
+    Stage { label: SWAPPING, weight: 10 },
+    Stage { label: ADD_ON, weight: 20 },
+    Stage { label: BROWSERS, weight: 20 },
+    Stage { label: PROFILES, weight: 30 },
+    Stage { label: SCREEN, weight: 10 },
+    Stage { label: WALLPAPERS, weight: 20 },
+    Stage { label: SERVICES, weight: 100 },
+    Stage { label: RELEASE, weight: 20 },
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Told {
+pub enum Audience {
     Bar,
     #[cfg(test)]
-    Nobody,
+    NoOne,
 }
 
-fn tell(thousandths: u16, doing: &str) -> Result<(), Never> {
-    let Ok(()) = updating::wrote(&updating::Far { thousandths, doing: doing.to_string() });
+fn tell(permille: u16, label: &str) -> Result<(), Never> {
+    let Ok(()) = updating::wrote(&updating::Progress { permille, label: label.to_string() });
     let Ok(()) = updating::wake();
 
     Ok(())
@@ -154,22 +154,22 @@ fn tell(thousandths: u16, doing: &str) -> Result<(), Never> {
 pub struct Going {
     done: u16,
     bar: Bar,
-    told: Told,
+    told: Audience,
 }
 
 pub struct Moving<'a> {
     going: &'a mut Going,
-    doing: &'static str,
+    label: &'static str,
     start: u16,
-    share: u16,
+    weight: u16,
 }
 
 impl Moving<'_> {
     pub fn far(&mut self, far: f64, now: &str) -> Result<(), Never> {
-        self.going.inside(self.doing, Reach { start: self.start, share: self.share }, far, Now(now))
+        self.going.inside(self.label, Reachability { start: self.start, weight: self.weight }, far, Now(now))
     }
 
-    pub fn at(&mut self, far: Far, now: &str) -> Result<(), Never> {
+    pub fn at(&mut self, far: Progress, now: &str) -> Result<(), Never> {
         let Ok(part) = console_how_far::fraction(far);
         let Ok(counted) = console_how_far::counted(far);
 
@@ -183,82 +183,84 @@ impl Moving<'_> {
 
 impl Going {
     pub fn starting() -> Result<Self, Never> {
-        let Ok(bar) = Bar::of(STRETCHES.len());
+        let Ok(many) = fitted::<_, u32>(STAGES.len());
+        let Ok(bar) = Bar::of(many);
 
-        Ok(Going { done: 0, bar, told: Told::Bar })
+        Ok(Going { done: 0, bar, told: Audience::Bar })
     }
 
     #[cfg(test)]
     pub fn quiet() -> Self {
-        let Ok(bar) = Bar::unwatched(STRETCHES.len());
+        let Ok(many) = fitted::<_, u32>(STAGES.len());
+        let Ok(bar) = Bar::unwatched(many);
 
-        Going { done: 0, bar, told: Told::Nobody }
+        Going { done: 0, bar, told: Audience::NoOne }
     }
 
-    pub fn through<T>(&mut self, doing: &'static str, work: impl FnOnce() -> T) -> Result<T, Never> {
-        self.through_handed(doing, &mut (), |_nothing| work())
+    pub fn through<T>(&mut self, label: &'static str, work: impl FnOnce() -> T) -> Result<T, Never> {
+        self.through_handed(label, &mut (), |_nothing| work())
     }
 
     pub fn through_handed<M, T>(
         &mut self,
-        doing: &'static str,
+        label: &'static str,
         handed: &mut M,
         work: impl FnOnce(&mut M) -> T,
     ) -> Result<T, Never> {
-        let Ok(()) = self.bar.on(doing);
-        let Ok(started) = went::started();
+        let Ok(()) = self.bar.on(label);
+        let Ok(started) = confirmation::started();
         let done = work(handed);
-        let Ok(()) = went::ended(doing, started);
-        let Ok(()) = self.arrived(doing);
+        let Ok(()) = confirmation::ended(label, started);
+        let Ok(()) = self.arrived(label);
 
         Ok(done)
     }
 
     pub fn during<T>(
         &mut self,
-        doing: &'static str,
+        label: &'static str,
         work: impl FnOnce(&mut Moving) -> T,
     ) -> Result<T, Never> {
-        self.during_handed(doing, &mut (), |_nothing, moving| work(moving))
+        self.during_handed(label, &mut (), |_nothing, moving| work(moving))
     }
 
     pub fn during_handed<M, T>(
         &mut self,
-        doing: &'static str,
+        label: &'static str,
         handed: &mut M,
         work: impl FnOnce(&mut M, &mut Moving) -> T,
     ) -> Result<T, Never> {
-        let Ok(()) = self.bar.on(doing);
+        let Ok(()) = self.bar.on(label);
 
         let start = self.done;
-        let Ok(share) = share_of(doing);
-        let Ok(started) = went::started();
+        let Ok(weight) = weight_of(label);
+        let Ok(started) = confirmation::started();
 
         let done = {
-            let mut moving = Moving { going: &mut *self, doing, start, share };
+            let mut moving = Moving { going: &mut *self, label, start, weight };
 
             work(handed, &mut moving)
         };
 
-        let Ok(()) = went::ended(doing, started);
+        let Ok(()) = confirmation::ended(label, started);
 
         self.done = start;
 
-        let Ok(()) = self.arrived(doing);
+        let Ok(()) = self.arrived(label);
 
         Ok(done)
     }
 
     fn inside(
         &mut self,
-        doing: &str,
-        reach: Reach,
+        label: &str,
+        reach: Reachability,
         far: f64,
         now: Now<'_>,
     ) -> Result<(), Never> {
         let far = far.clamp(0.0, 1.0);
         let Ok(into) = console_how_far::percent(far);
-        let Ok(inside) = toward_zero_u16(f64::from(reach.share) * far);
+        let Ok(inside) = toward_zero_u16(f64::from(reach.weight) * far);
         let reached = reach.start.saturating_add(inside).min(WHOLE);
 
         let Ok(()) = self.bar.filling(into, now.0);
@@ -271,9 +273,9 @@ impl Going {
         self.done = reached;
 
         let Ok(far) = self.far();
-        let Ok(said) = console_how_far::caption(doing, now);
+        let Ok(said) = console_how_far::caption(label, now);
 
-        match self.told == Told::Bar {
+        match self.told == Audience::Bar {
             true => {
                 let Ok(()) = tell(far, &said);
             }
@@ -283,17 +285,17 @@ impl Going {
         Ok(())
     }
 
-    pub fn arrived(&mut self, doing: &'static str) -> Result<(), Never> {
-        let Ok(share) = share_of(doing);
+    pub fn arrived(&mut self, label: &'static str) -> Result<(), Never> {
+        let Ok(weight) = weight_of(label);
 
-        self.done = self.done.saturating_add(share).min(WHOLE);
+        self.done = self.done.saturating_add(weight).min(WHOLE);
 
-        let Ok(()) = self.bar.stays(doing);
+        let Ok(()) = self.bar.stays(label);
         let Ok(far) = self.far();
 
-        match self.told == Told::Bar {
+        match self.told == Audience::Bar {
             true => {
-                let Ok(()) = tell(far, doing);
+                let Ok(()) = tell(far, label);
             }
             false => {},
         }
@@ -314,7 +316,7 @@ impl Going {
 
         let Ok(()) = self.bar.wiped();
 
-        match self.told == Told::Bar {
+        match self.told == Audience::Bar {
             true => {
                 let Ok(()) = updating::done();
                 let Ok(()) = updating::wake();
@@ -326,11 +328,11 @@ impl Going {
     }
 }
 
-fn share_of(doing: &str) -> Result<u16, Never> {
-    Ok(STRETCHES
+fn weight_of(label: &str) -> Result<u16, Never> {
+    Ok(STAGES
         .iter()
-        .find(|stretch| stretch.doing == doing)
-        .map_or(0, |stretch| stretch.share))
+        .find(|stage| stage.label == label)
+        .map_or(0, |stage| stage.weight))
 }
 
 #[cfg(test)]
@@ -351,7 +353,7 @@ mod tests {
     }
 
     #[test]
-    fn a_stretch_that_says_how_far_it_has_got_moves_the_bar_and_still_lands_where_it_should() {
+    fn a_stage_that_says_how_far_it_has_got_moves_the_bar_and_still_lands_where_it_should() {
         let mut going = Going::quiet();
         let Ok(()) = going.through(READING, || ());
         let Ok(()) = going.through(WANTED, || ());
@@ -367,27 +369,27 @@ mod tests {
                 seen.push(0);
             }
         });
-        let Ok(share) = share_of(BUILDING);
+        let Ok(weight) = weight_of(BUILDING);
 
         assert_eq!(seen.len(), 3);
-        assert_eq!(far(&going), before + share);
+        assert_eq!(far(&going), before + weight);
     }
 
     #[test]
-    fn what_a_stretch_says_on_the_way_stays_inside_its_own_share() {
+    fn what_a_stage_says_on_the_way_stays_inside_its_own_weight() {
         let mut going = Going::quiet();
-        let Ok(()) = going.inside(BUILDING, Reach { start: 10, share: 60 }, 0.5, Now(""));
+        let Ok(()) = going.inside(BUILDING, Reachability { start: 10, weight: 60 }, 0.5, Now(""));
         assert_eq!(far(&going), 40);
-        let Ok(()) = going.inside(BUILDING, Reach { start: 10, share: 60 }, 2.0, Now(""));
-        assert_eq!(far(&going), 70, "a stretch reported past its end went past it");
+        let Ok(()) = going.inside(BUILDING, Reachability { start: 10, weight: 60 }, 2.0, Now(""));
+        assert_eq!(far(&going), 70, "a stage reported past its end went past it");
     }
 
     #[test]
-    fn a_stretch_that_says_it_has_gone_backwards_moves_nothing() {
+    fn a_stage_that_says_it_has_gone_backwards_moves_nothing() {
         let mut going = Going::quiet();
-        let Ok(()) = going.inside(BUILDING, Reach { start: 10, share: 60 }, 0.5, Now(""));
-        let Ok(()) = going.inside(BUILDING, Reach { start: 10, share: 60 }, 0.1, Now(""));
-        let Ok(()) = going.inside(BUILDING, Reach { start: 10, share: 60 }, -1.0, Now(""));
+        let Ok(()) = going.inside(BUILDING, Reachability { start: 10, weight: 60 }, 0.5, Now(""));
+        let Ok(()) = going.inside(BUILDING, Reachability { start: 10, weight: 60 }, 0.1, Now(""));
+        let Ok(()) = going.inside(BUILDING, Reachability { start: 10, weight: 60 }, -1.0, Now(""));
         assert_eq!(far(&going), 40);
     }
 
@@ -396,7 +398,7 @@ mod tests {
         let mut going = Going::quiet();
         let mut said = String::new();
         let Ok(()) = going.during(FILES, |moving| {
-            let Ok(()) = moving.at(Far { done: 1, many: 4 }, "console/palette.css");
+            let Ok(()) = moving.at(Progress { done: 1, many: 4 }, "console/palette.css");
             let Ok(drawn) = moving.going.bar.line();
 
             said = drawn;
@@ -411,15 +413,17 @@ mod tests {
         let mut going = Going::quiet();
         let mut seen: Vec<String> = Vec::new();
         let Ok(()) = going.during(BUILDING, |moving| {
-            for done in [0_usize, 1, 2, 1, 4] {
-                let Ok(()) = moving.at(Far { done, many: 4 }, "console-panel");
+            for done in [0_u32, 1, 2, 1, 4] {
+                let Ok(()) = moving.at(Progress { done, many: 4 }, "console-panel");
                 let Ok(drawn) = moving.going.bar.line();
 
                 seen.push(drawn);
             }
         });
-        let filled: Vec<usize> =
-            seen.iter().map(|line| line.chars().filter(|one| *one == '#').count()).collect();
+        let filled: Vec<u32> = seen
+            .iter()
+            .map(|line| u32::try_from(line.chars().filter(|one| *one == '#').count()).unwrap())
+            .collect();
         let mut sorted = filled.clone();
 
         sorted.sort_unstable();
@@ -434,66 +438,62 @@ mod tests {
         let Ok(()) = going.through(READING, || ());
         let said = line(&going);
 
-        let many = STRETCHES.len();
-
-        assert!(said.starts_with(&format!("( 1/{many}) ")), "{said}");
+        assert!(said.starts_with(&format!("( 1/{}) ", STAGES.len())), "{said}");
         assert!(said.ends_with("] 100%"), "{said}");
     }
 
     #[test]
-    fn the_shares_add_up() {
-        let all: u16 = STRETCHES.iter().map(|stretch| stretch.share).sum();
-        assert_eq!(all, WHOLE, "the shares come to {all} rather than {WHOLE}");
+    fn the_weights_add_up() {
+        let all: u16 = STAGES.iter().map(|stage| stage.weight).sum();
+        assert_eq!(all, WHOLE, "the weights come to {all} rather than {WHOLE}");
     }
 
     #[test]
-    fn no_stretch_is_named_duplicates() {
+    fn no_stage_is_named_twice() {
         let mut seen = BTreeSet::new();
-        let twice: Vec<&str> = STRETCHES
+        let twice: Vec<&str> = STAGES
             .iter()
-            .map(|stretch| stretch.doing)
-            .filter(|doing| !seen.insert(*doing))
+            .map(|stage| stage.label)
+            .filter(|label| !seen.insert(*label))
             .collect();
 
         assert!(twice.is_empty(), "{twice:?} is in the table more than once");
     }
 
     #[test]
-    fn the_first_half_of_the_stretches_is_most_of_the_work() {
-        let half = STRETCHES.len() / 2;
-        let front: u16 = STRETCHES.iter().take(half).map(|stretch| stretch.share).sum();
+    fn the_first_half_of_the_stages_is_most_of_the_work() {
+        let front: u16 = STAGES.iter().take(STAGES.len() / 2).map(|stage| stage.weight).sum();
         assert!(
             front > WHOLE / 2,
-            "the first {half} stretches are only {front} of {WHOLE}, so the bar would run at \
-             the start and crawl at the end"
+            "the first {} stages are only {front} of {WHOLE}, so the bar would run at \
+             the start and crawl at the end",
+            STAGES.len() / 2
         );
     }
 
     #[test]
     fn walking_all_of_them_arrives() {
         let mut going = Going::quiet();
-        for stretch in STRETCHES {
-            let Ok(()) = going.through(stretch.doing, || ());
+        for stage in STAGES {
+            let Ok(()) = going.through(stage.label, || ());
         }
         assert_eq!(far(&going), WHOLE);
     }
 
     #[test]
-    fn every_stretch_walked_is_counted_once() {
+    fn every_stage_walked_is_counted_once() {
         let mut going = Going::quiet();
-        for stretch in STRETCHES {
-            let Ok(()) = going.through(stretch.doing, || ());
+        for stage in STAGES {
+            let Ok(()) = going.through(stage.label, || ());
         }
-        let many = STRETCHES.len();
-
-        assert!(line(&going).starts_with(&format!("({many}/{many})")), "{}", line(&going));
+        assert!(line(&going).starts_with(&format!("({0}/{0})", STAGES.len())), "{}", line(&going));
     }
 
     #[test]
-    fn a_skipped_stretch_still_ends_at_the_end() {
+    fn a_skipped_stage_still_ends_at_the_end() {
         let mut going = Going::quiet();
-        for stretch in STRETCHES.iter().filter(|stretch| stretch.doing != PACKAGES) {
-            let Ok(()) = going.through(stretch.doing, || ());
+        for stage in STAGES.iter().filter(|stage| stage.label != PACKAGES) {
+            let Ok(()) = going.through(stage.label, || ());
         }
         assert!(far(&going) < WHOLE, "nothing was skipped");
 
@@ -501,7 +501,7 @@ mod tests {
     }
 
     #[test]
-    fn a_stretch_says_what_it_would_have_said_without_a_bar() {
+    fn a_stage_says_what_it_would_have_said_without_a_bar() {
         let mut going = Going::quiet();
         let Ok(seven) = going.through(BUILDING, || 7);
         let Ok(said) = going.through(FILES, || Err::<(), String>("would not".to_string()));
@@ -516,11 +516,11 @@ mod tests {
     }
 
     #[test]
-    fn a_stretch_nobody_weighed_does_not_move_it() {
+    fn a_stage_no_one_weighed_does_not_move_it() {
         let mut going = Going::quiet();
         let Ok(()) = going.through(BUILDING, || ());
         let before = far(&going);
-        let Ok(()) = going.through("something nobody put in the table", || ());
+        let Ok(()) = going.through("something no one put in the table", || ());
 
         assert_eq!(far(&going), before);
     }
@@ -529,8 +529,8 @@ mod tests {
     fn it_does_not_go_past_the_end() {
         let mut going = Going::quiet();
         for _ in 0..4 {
-            for stretch in STRETCHES {
-                let Ok(()) = going.arrived(stretch.doing);
+            for stage in STAGES {
+                let Ok(()) = going.arrived(stage.label);
             }
         }
         assert_eq!(far(&going), WHOLE);

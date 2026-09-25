@@ -2,32 +2,35 @@
 //!
 //! Named by number, not by shade: 35 and 37 are whatever the terminal's palette
 //! says magenta and white are, which on this machine is the pink and the quiet
-//! colour every other surface uses. The dim attribute is not used anywhere
-//! here. It halves whatever it is applied to, and half of a colour chosen to
-//! clear 7:1 is a colour that does not.
+//! color every other surface uses. The dim attribute is not used anywhere
+//! here. It halves whatever it is applied to, and half of a color chosen to
+//! clear 7:1 is a color that does not.
 
 use console_core_never::Never;
+use console_core_number_conversion::index;
 use crate::guide::Section;
 
-pub const RULE: usize = 46;
+pub const RULE: u32 = 46;
 
-pub const COLUMN: usize = 22;
+pub const COLUMN: u32 = 22;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Ink {
+pub struct HexColor {
     pub bold: &'static str,
     pub quiet: &'static str,
     pub pink: &'static str,
     pub off: &'static str,
 }
 
-pub const COLOURED: Ink =
-    Ink { bold: "\u{1b}[1m", quiet: "\u{1b}[37m", pink: "\u{1b}[35m", off: "\u{1b}[0m" };
+pub const COLORED: HexColor =
+    HexColor { bold: "\u{1b}[1m", quiet: "\u{1b}[37m", pink: "\u{1b}[35m", off: "\u{1b}[0m" };
 
-pub const PLAIN: Ink = Ink { bold: "", quiet: "", pink: "", off: "" };
+pub const PLAIN: HexColor = HexColor { bold: "", quiet: "", pink: "", off: "" };
 
-pub fn guide(sections: &[Section], ink: Ink) -> Result<String, Never> {
+pub fn guide(sections: &[Section], ink: HexColor) -> Result<String, Never> {
     let mut said = format!("\n{}The buttons on this device{}\n", ink.bold, ink.off);
+    let Ok(rule) = index(RULE);
+    let Ok(column) = index(COLUMN);
 
     for section in sections.iter().filter(|section| !section.lines.is_empty()) {
         said.push_str(&format!(
@@ -37,13 +40,13 @@ pub fn guide(sections: &[Section], ink: Ink) -> Result<String, Never> {
             section.title,
             ink.off,
             ink.quiet,
-            "\u{2500}".repeat(RULE),
+            "\u{2500}".repeat(rule),
             ink.off
         ));
 
         for line in &section.lines {
             said.push_str(&format!(
-                "  {}{:<COLUMN$}{}{}\n",
+                "  {}{:<column$}{}{}\n",
                 ink.bold, line.button, ink.off, line.does
             ));
         }
@@ -59,7 +62,7 @@ pub fn guide(sections: &[Section], ink: Ink) -> Result<String, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use console_input_controller::means::Table;
+    use console_input_controller::actions::Table;
 
     use crate::guide::{Line, TYPED, sections};
 
@@ -100,8 +103,7 @@ mod tests {
     #[test]
     fn a_section_with_something_in_it_is() {
         let Ok(mut every) = sections(&ours());
-        let line =
-            Line { button: "Super Q".to_string(), does: "close".to_string(), runs: None };
+        let line = Line { button: "Super Q".to_string(), does: "close".to_string() };
 
         every.last_mut().expect("a section").lines.push(line);
 

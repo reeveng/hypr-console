@@ -3,7 +3,7 @@
 //! A panel is mounted the way the machine it is screwed into wanted it, and
 //! this desktop's is mounted sideways: the transform in the compositor's file
 //! is the quarter turn that puts a portrait panel the right way up for
-//! somebody holding it. So a turn here is a quarter either side of *that*
+//! someone holding it. So a turn here is a quarter either side of *that*
 //! rather than a number of degrees from nothing, which is what lets the same
 //! three words mean the same three things on a panel that was mounted upright.
 //!
@@ -22,7 +22,7 @@
 //! one eval, because they are one answer.
 //!
 //! Which way is left is the one thing here that cannot be settled without the
-//! device in somebody's hands: [`Turn::Left`] is one quarter on from the
+//! device in someone's hands: [`Turn::Left`] is one quarter on from the
 //! mounting and [`Turn::Right`] is three, and if that reads backwards in the
 //! hand the two arms swap.
 //!
@@ -114,11 +114,11 @@ mod tests {
     use console_core_geometry::Size;
 
     fn panel() -> Screen {
-        Screen { mode: Size { wide: 1600, tall: 2560 }, refresh: 144, scale: 2.5, transform: 1 }
+        Screen { mode: Size { width: 1600, height: 2560 }, refresh: 144, scale: 2.5, transform: 1 }
     }
 
     fn laptop() -> Screen {
-        Screen { mode: Size { wide: 1920, tall: 1200 }, refresh: 60, scale: 1.0, transform: 0 }
+        Screen { mode: Size { width: 1920, height: 1200 }, refresh: 60, scale: 1.0, transform: 0 }
     }
 
     #[test]

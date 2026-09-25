@@ -1,4 +1,4 @@
-//! The processors, asked to hurry for as long as somebody is waiting.
+//! The processors, asked to hurry for as long as someone is waiting.
 //!
 //! This is a handheld, and most of the time it is right for it to be slow. It
 //! sits in a bag at its lowest clock and the battery lasts the day. But a panel
@@ -33,14 +33,14 @@
 //! Which is why what is written is put back. `power-profiles-daemon` owns this
 //! file -- power-saver writes `power` into it, balanced writes
 //! `balance_performance` -- and a desktop that raised it and walked away would
-//! be a machine quietly ignoring the profile somebody chose, for ever, with
+//! be a machine quietly ignoring the profile someone chose, for ever, with
 //! nothing on any screen saying so. So the word that was there is read before
 //! it is changed and written back when the moment is over, and what the profile
 //! says is what the machine does between presses.
 //!
 //! `balance_performance` rather than `performance`: measured, they were the
 //! same opening to within noise, and the gentler of two words that do the same
-//! thing is the one to write into somebody's power settings.
+//! thing is the one to write into someone's power settings.
 //!
 //! ## What a daemon that dies owes the machine
 //!
@@ -50,7 +50,7 @@
 //! `settle` -- a crash, the target stopping, an apply restarting it, a battery
 //! that ran out -- takes that copy with it, and every core is left at
 //! `balance_performance` for as long as the machine stays up. That is the
-//! machine quietly ignoring the profile somebody chose, which is the outcome
+//! machine quietly ignoring the profile someone chose, which is the outcome
 //! the paragraph above says this exists to prevent, arriving by the one road
 //! that paragraph did not watch.
 //!
@@ -78,7 +78,7 @@
 //! the desktop exactly as it was before any of this: slower, and working. It
 //! says so once and goes on.
 
-use console_core_atomic_writes::{Held, read};
+use console_core_atomic_writes::{Stored, read};
 use console_core_never::Never;
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -99,7 +99,7 @@ pub const FOR: Duration = Duration::from_millis(750);
         reason = "`until` is when a hurry ends and `said` is whether the one complaint about a processor that will not take a word has been printed; a machine that cannot be hurried is still one this has already complained about, so the two are answers to different questions"
     )
 )]
-pub struct Hurrying {
+pub struct Backoff {
     cpus: PathBuf,
     note: PathBuf,
     until: Option<Instant>,
@@ -107,31 +107,31 @@ pub struct Hurrying {
     said: bool,
 }
 
-impl Default for Hurrying {
+impl Default for Backoff {
     fn default() -> Self {
-        let Ok(hurrying) = Hurrying::of(Path::new(CPUS));
+        let Ok(hurrying) = Backoff::of(Path::new(CPUS));
 
         hurrying
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Hurry {
+pub enum Boost {
     On,
     Off,
 }
 
-impl Hurrying {
+impl Backoff {
     pub fn of(cpus: &Path) -> Result<Self, Never> {
         let Ok(note) = note();
-        let Ok(mut hurrying) = Hurrying::noting(cpus, &note);
+        let Ok(mut hurrying) = Backoff::noting(cpus, &note);
         let Ok(_left) = hurrying.put_back_what_was_left();
 
         Ok(hurrying)
     }
 
     pub fn noting(cpus: &Path, note: &Path) -> Result<Self, Never> {
-        Ok(Hurrying {
+        Ok(Backoff {
             cpus: cpus.to_path_buf(),
             note: note.to_path_buf(),
             until: None,
@@ -144,16 +144,16 @@ impl Hurrying {
         let Ok(note) = read(&self.note);
 
         let held = match note {
-            Held::Nothing => return Ok(Left::Nothing),
-            Held::Said(held) => held,
-            Held::Unreadable(fault) => {
+            Stored::Absent => return Ok(Left::None),
+            Stored::Text(held) => held,
+            Stored::Failed(fault) => {
                 eprintln!(
                     "console-haste: {} is what says which words the processors are holding, and                      it will not be read: {fault}. They may be left at {HURRY}; a reboot is what                      puts them back.",
                     self.note.display()
                 );
                 let Ok(()) = forget(&self.note);
 
-                return Ok(Left::Nothing);
+                return Ok(Left::None);
             }
         };
 
@@ -183,15 +183,15 @@ impl Hurrying {
         let Ok(()) = forget(&self.note);
 
         Ok(match words.is_empty() {
-            true => Left::Nothing,
-            false => Left::PutBack,
+            true => Left::None,
+            false => Left::Restore,
         })
     }
 
-    pub fn on(&self) -> Result<Hurry, Never> {
+    pub fn on(&self) -> Result<Boost, Never> {
         Ok(match self.until.is_some() {
-            true => Hurry::On,
-            false => Hurry::Off,
+            true => Boost::On,
+            false => Boost::Off,
         })
     }
 
@@ -206,7 +206,7 @@ impl Hurrying {
             None => {}
         }
 
-        let mut taking: Words = Vec::new();
+        let mut taking: Entries = Vec::new();
         let mut unreadable: Option<PathBuf> = None;
 
         let Ok(hints) = self.hints();
@@ -215,7 +215,7 @@ impl Hurrying {
             let Ok(was) = read(&hint);
 
             match was {
-                Held::Said(was) => {
+                Stored::Text(was) => {
                     let was = was.trim().to_string();
 
                     match was == HURRY {
@@ -223,8 +223,8 @@ impl Hurrying {
                         false => taking.push((hint, was)),
                     }
                 }
-                Held::Nothing => {}
-                Held::Unreadable(_) => unreadable = Some(hint),
+                Stored::Absent => {}
+                Stored::Failed(_) => unreadable = Some(hint),
             }
         }
 
@@ -363,8 +363,8 @@ impl Hurrying {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Left {
-    Nothing,
-    PutBack,
+    None,
+    Restore,
 }
 
 pub fn note() -> Result<PathBuf, Never> {
@@ -414,11 +414,11 @@ fn wrote_note(at: &Path, words: &[(PathBuf, String)]) -> Result<(), Unnoted> {
     console_core_atomic_writes::whole(at, written.as_bytes()).map_err(Unnoted::Writing)
 }
 
-type Words = Vec<(PathBuf, String)>;
+type Entries = Vec<(PathBuf, String)>;
 
-type Torn = Vec<String>;
+type Error = Vec<String>;
 
-fn words_in(held: &str) -> Result<(Words, Torn), Never> {
+fn words_in(held: &str) -> Result<(Entries, Error), Never> {
     let mut words = Vec::new();
     let mut torn = Vec::new();
 
@@ -433,13 +433,9 @@ fn words_in(held: &str) -> Result<(Words, Torn), Never> {
 }
 
 fn forget(at: &Path) -> Result<(), Never> {
-    match std::fs::remove_file(at) {
+    match console_core_atomic_writes::gone(at) {
         Ok(()) => {}
-        Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => {}
-        Err(fault) => eprintln!(
-            "console-haste: {} will not go away: {fault}. The words in it go back at every start              until it does.",
-            at.display()
-        ),
+        Err(fault) => eprintln!("console-haste: {fault}. The words in it go back at every start until it does."),
     }
 
     Ok(())
@@ -449,7 +445,7 @@ fn forget(at: &Path) -> Result<(), Never> {
 mod tests {
     use super::*;
 
-    fn processors(named: &str, cores: usize) -> PathBuf {
+    fn processors(named: &str, cores: u32) -> PathBuf {
         let here = std::env::temp_dir().join(format!("console-haste-{named}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&here);
         for core in 0..cores {
@@ -467,13 +463,13 @@ mod tests {
         at.join("hurried")
     }
 
-    fn hurrying(at: &Path) -> Hurrying {
-        let Ok(hurrying) = Hurrying::noting(at, &a_note_of_our_own(at));
+    fn hurrying(at: &Path) -> Backoff {
+        let Ok(hurrying) = Backoff::noting(at, &a_note_of_our_own(at));
 
         hurrying
     }
 
-    fn said(at: &Path, core: usize) -> String {
+    fn said(at: &Path, core: u32) -> String {
         let hint = at.join(format!("cpu{core}")).join(HINT);
         std::fs::read_to_string(hint).unwrap_or_default().trim().to_string()
     }
@@ -487,7 +483,7 @@ mod tests {
         let Ok(()) = hurrying.asked(now);
         let Ok(on) = hurrying.on();
 
-        assert_eq!(on, Hurry::On);
+        assert_eq!(on, Boost::On);
         for core in 0..4 {
             assert_eq!(said(&at, core), HURRY, "cpu{core} was not hurried");
         }
@@ -498,7 +494,7 @@ mod tests {
         let Ok(()) = hurrying.settle(now + FOR);
         let Ok(on) = hurrying.on();
 
-        assert_eq!(on, Hurry::Off);
+        assert_eq!(on, Boost::Off);
         for core in 0..4 {
             assert_eq!(said(&at, core), "power", "cpu{core} was not let be");
         }
@@ -515,13 +511,13 @@ mod tests {
         let Ok(()) = hurrying.settle(now + FOR);
         let Ok(on) = hurrying.on();
 
-        assert_eq!(on, Hurry::On);
+        assert_eq!(on, Boost::On);
         assert_eq!(said(&at, 0), HURRY);
 
         let Ok(()) = hurrying.settle(now + FOR + FOR / 2);
         let Ok(on) = hurrying.on();
 
-        assert_eq!(on, Hurry::Off);
+        assert_eq!(on, Boost::Off);
         assert_eq!(said(&at, 0), "power");
     }
 
@@ -548,7 +544,7 @@ mod tests {
         let Ok(()) = hurrying.asked(Instant::now());
         let Ok(on) = hurrying.on();
 
-        assert_eq!(on, Hurry::Off);
+        assert_eq!(on, Boost::Off);
         assert_eq!(said(&at, 0), HURRY);
     }
 
@@ -561,7 +557,7 @@ mod tests {
         let Ok(()) = hurrying.asked(now);
         let Ok(on) = hurrying.on();
 
-        assert_eq!(on, Hurry::Off);
+        assert_eq!(on, Boost::Off);
         let Ok(()) = hurrying.settle(now + FOR);
     }
 
@@ -592,7 +588,7 @@ mod tests {
         let mut coming_up = hurrying(&at);
         let Ok(left) = coming_up.put_back_what_was_left();
 
-        assert_eq!(left, Left::PutBack);
+        assert_eq!(left, Left::Restore);
 
         for core in 0..3 {
             assert_eq!(said(&at, core), "power", "cpu{core} is still hurried");
@@ -607,7 +603,7 @@ mod tests {
         let Ok(()) = dying.asked(Instant::now());
         drop(dying);
 
-        let Ok(mut after) = Hurrying::noting(&at, &a_note_of_our_own(&at));
+        let Ok(mut after) = Backoff::noting(&at, &a_note_of_our_own(&at));
         let Ok(_left) = after.put_back_what_was_left();
         let now = Instant::now();
         let Ok(()) = after.asked(now);
@@ -631,8 +627,8 @@ mod tests {
 
         let Ok(on) = hurrying.on();
 
-        assert_eq!(on, Hurry::Off, "a hurry was started with nothing to change");
-        assert!(!a_note_of_our_own(&at).exists(), "a word nobody overwrote was written down");
+        assert_eq!(on, Boost::Off, "a hurry was started with nothing to change");
+        assert!(!a_note_of_our_own(&at).exists(), "a word no one overwrote was written down");
     }
 
     #[test]
@@ -654,12 +650,12 @@ mod tests {
         let blocked = at.join("in-the-way");
         std::fs::write(&blocked, b"not a directory").expect("something in the way");
 
-        let Ok(mut hurrying) = Hurrying::noting(&at, &blocked.join("hurried"));
+        let Ok(mut hurrying) = Backoff::noting(&at, &blocked.join("hurried"));
         let Ok(()) = hurrying.asked(Instant::now());
 
         let Ok(on) = hurrying.on();
 
-        assert_eq!(on, Hurry::Off, "it hurried with nowhere to write the words down");
+        assert_eq!(on, Boost::Off, "it hurried with nowhere to write the words down");
         for core in 0..2 {
             assert_eq!(said(&at, core), "power", "cpu{core} was hurried anyway");
         }
@@ -695,12 +691,12 @@ mod tests {
 
         let Ok(nothing) = read(&at.join("nothing-here"));
 
-        assert_eq!(nothing, Held::Nothing);
+        assert_eq!(nothing, Stored::Absent);
 
         let Ok(held) = read(&at);
 
         match held {
-            Held::Unreadable(_) => {}
+            Stored::Failed(_) => {}
             other => panic!("a directory read as {other:?} rather than as a fault"),
         }
 

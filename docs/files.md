@@ -1,6 +1,6 @@
 # The files
 
-**Files** in the menu, or `files-panel`. A tab is a place, a row is a thing in
+**Files** in the menu, or `files`. A tab is a place, a row is a thing in
 it, and the four buttons mean here what they mean everywhere else.
 
 | | |
@@ -23,7 +23,7 @@ The desktop's A is a mouse click where the pointer is, and its d-pad is the
 arrow keys. So the row a thumb moved to and the thing A acts on are two
 different objects, and a list walked with the d-pad is confirmed by clicking
 whatever the left stick happened to leave the pointer over. Every panel here
-avoids that by taking the chooser's buttons for as long as it is up, which is
+avoids that by taking the picker's buttons for as long as it is up, which is
 what makes A mean the highlighted row, and a program that is not ours cannot
 ask for them.
 
@@ -32,7 +32,7 @@ selection; going up a folder is Alt and Up, which no button sends. Focus travels
 between the places panel, the toolbar, the breadcrumb, the view and then a
 modal dialogue, and only Tab moves between those, and there is no Tab. Nothing
 in that list is a bug. It is a program built for a pointer, being held by
-somebody who has none.
+someone who has none.
 
 Dolphin stays installed for the day something needs a real file manager.
 
@@ -74,7 +74,7 @@ and one called photos at opposite ends of a list is the alphabet of a machine
 rather than of a person.
 
 Dotfiles are not shown. A home directory has more of them in it than things
-anybody put there, and shown, the first screen of Home is configuration nobody
+anyone put there, and shown, the first screen of Home is configuration no one
 opened this to look at.
 
 Nothing is written beside a folder. How many things are in one is another read
@@ -92,7 +92,7 @@ line up. The room is kept for a whole listing or for none of it.
 The line at the top of a folder is not a filter on the rows behind it. A word
 typed there is looked for in this folder and in everything under it, and each
 row that comes back says which folder it was found in. Files called notes.txt in
-several places are a list nobody can choose from, and Holiday beside one of them
+several places are a list no one can choose from, and Holiday beside one of them
 is the whole answer. Something found right here says what the listing would have
 said about it instead.
 
@@ -101,7 +101,7 @@ where the typing started, so the folders alongside are read before the ones
 below them, and what the list holds when the search stops is the near part of
 what there was.
 
-It does stop. A home directory holds more than anybody is going to read down,
+It does stop. A home directory holds more than anyone is going to read down,
 and a folder that links to the one above it is a walk with no end, so the search
 gives up on finding and on looking, at whichever comes first.
 
@@ -140,11 +140,11 @@ own.
 That list was the name question on its own for as long as a name was the only
 thing there was to ask. **Make everything one format** is the second: every song
 in the folder becomes an opus and every film becomes an mkv, which are what the
-Download panel already writes, so a folder somebody has copied a phone's worth
+Download panel already writes, so a folder someone has copied a phone's worth
 of music into can be made something one program plays the whole of.
 [`docs/downloads.md`](downloads.md) says what that costs and what it keeps. It
 asks before it starts, and what it replaces goes to the wastebasket, so the
-answer is one somebody can take back.
+answer is one someone can take back.
 
 New folder used to be a row in every folder, at the bottom, which is a list of
 two hundred photographs walked to the end of to make one.
@@ -154,7 +154,7 @@ here. Open is first because it is what most presses of Y are on the way to, and
 Delete is last because it cannot be taken back and the last row is the hardest
 one to reach by accident. Unzip is third for the same reason Open is first: a
 person standing on an archive pressed Y on the way to it, and Open over one
-reaches ark, which is a program for a pointer nobody holding this device has. The question it asks opens standing on the way out,
+reaches ark, which is a program for a pointer no one holding this device has. The question it asks opens standing on the way out,
 so a thumb that presses A twice has said no.
 
 ## What Unzip is for

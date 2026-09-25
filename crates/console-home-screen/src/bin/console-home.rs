@@ -1,19 +1,49 @@
 //! The home screen, drawn on the wallpaper.
 //!
 //! This desktop opened into nothing. A wallpaper and a bar, and every
-//! application behind a button somebody had to know about first -- which is
+//! application behind a button someone had to know about first -- which is
 //! the one thing a phone, a console and a laptop all decline to do. So the
 //! applications are on the screen: panes of them over the wallpaper -- as
 //! many as what is on them needs -- walked with the d-pad, opened with A, and
 //! arranged with Y.
 //!
+//! ## It draws itself
+//!
+//! There was a toolkit under this: a window, a grid of boxes, a stylesheet
+//! with the measurements written into it on every redraw, and four gesture
+//! controllers per square. None of it decided anything. What fits was already
+//! `console_home_screen::shape`, what a press means was already `moved` and
+//! `touched`, and what colour a thing is was already the palette -- so the
+//! toolkit's whole contribution was a second copy of the answers, in widgets,
+//! and a dependency this desktop carries on every machine for one program.
+//!
+//! What is here instead is a layer surface of our own, a list of shapes, and a
+//! loop that waits on everything at once. `console_home_screen::shape::laid`
+//! says where a square goes, this puts a plate, a picture and a name there,
+//! and `console_draw_painting` is the only thing in the tree that has heard of
+//! cairo. The stylesheet is gone and what it said is [`Wears`], which is the
+//! same sentences in a type.
+//!
+//! **A plate is a wash, and a wash is not a shape.** `alpha(@night, 0.34)` is
+//! what the squares stood on, and a colour in this tree is an `Oklch` with no
+//! alpha in it: a shape carrying one would be a field on `Panel` and every
+//! panel in the tree written again. So the wash is mixed here instead --
+//! `console_core_color::over`, the ink over the ground, at the share the
+//! stylesheet asked for -- which is the same colour anywhere the wallpaper is
+//! near the ground it was chosen against and a flatter one where it is not.
+//! What would give it back is a shape that carries how much of what is behind
+//! it comes through, and that is one decision for every surface here rather
+//! than this one.
+//!
 //! ## It is the desktop, not a thing on top of it
 //!
-//! `console_onscreen::FURNITURE` names it, so the shoulders still
+//! `console_onscreen::SYSTEM_SURFACES` names it, so the shoulders still
 //! change workspace, the left Legion button still leaves for Steam, and the
 //! paddles still do what they do everywhere. The d-pad is its own from the
 //! moment it is drawn; A and Y become its own once the d-pad has woken it.
-//! `Mode::Home` and `Mode::Standing` are where that is decided.
+//! `Mode::Home` and `Mode::Standing` are where that is decided. `Under::AWindow`
+//! is the same sentence to the compositor: the surface is on the bottom layer,
+//! over the wallpaper and under everything a person opens.
 //!
 //! ## It is told what the pad did, and holds no keyboard
 //!
@@ -21,7 +51,7 @@
 //! drawn under everything and never in front, so the only way it could take
 //! the keyboard was to ask for it exclusively -- which Hyprland answers by
 //! handing it every pointer and every touch on the screen, wherever they land,
-//! because that is what the thing it was written for needs. Held that way this
+//! because that is what the thing it was written for needs. Stored that way this
 //! swallowed every tap on the bar: the launcher, the keyboard, the music and
 //! the sound opened nothing, and the bar looked broken while it was never
 //! being touched. So the daemon says what the pad did, over
@@ -53,96 +83,117 @@
 //! rather than raising what is up.
 //!
 //! The highlight goes when the pointer leaves the squares, because a highlight
-//! with nothing pointing at it is an offer nobody is making: by then the
-//! pointer is over the bar, and A is the bar's.
+//! with nothing pointing at it is an offer no one is making: by then the
+//! pointer is over the bar, and A is the bar's. A pointer that has left the
+//! surface altogether says so once, as `PointerEvent::Left`, because a surface
+//! hears nothing at all about a pointer that is somewhere else.
 //!
 //! ## And it goes away when there is something to look at
 //!
-//! A window on the workspace is what somebody is doing, and the home screen is
+//! A window on the workspace is what someone is doing, and the home screen is
 //! what they do it from. So the surface is put away while a window is up --
 //! which is also what keeps the wallpaper's own reading of "is anything in
 //! front of me" true, and what keeps A a click while a game is on the screen.
 //!
 //! ## Swiping
 //!
-//! The panes are swiped with a finger on the surface itself, which is a GTK
-//! gesture and wants nothing of the compositor. Hyprland's own workspace swipe
-//! is the touchpad's, and a plugin -- hyprgrass -- is what a gesture *over
-//! somebody else's window* would need. Neither is this: the finger is on the
-//! home screen, and the home screen is the thing that reads it.
+//! The panes are swiped with a finger on the surface itself, which wants
+//! nothing of the compositor. Hyprland's own workspace swipe is the touchpad's,
+//! and a plugin -- hyprgrass -- is what a gesture *over someone else's window*
+//! would need. Neither is this: the finger is on the home screen, and the home
+//! screen is the thing that reads it.
 //!
 //! Which means the same finger is on a square, and a swipe and a tap both end
-//! with it coming up. `console_home_screen::touched` is what separates them, so the
-//! flick that moves the panes is not also a press of whatever it started on.
+//! with it coming up. `console_home_screen::touched` is what separates them, so
+//! the flick that moves the panes is not also a press of whatever it started
+//! on, and `flicked` is which way it went. A toolkit measured that in pixels a
+//! second and this measures it in pixels: a thumb dragged the width of two
+//! squares meant the next pane whether it was quick about it or not, and the
+//! speed of it was a threshold nobody could have named on purpose.
 //!
-//! ## A bare square is not tapped into the chooser
+//! ## A bare square is not tapped into the picker
 //!
 //! Most of the home screen is empty most of the time, and a flick that stops
 //! short of `DRIFT` is a tap -- so the finger that meant to change panes and
 //! did not travel far enough put the whole list of applications on the screen
-//! instead, from a square nobody was aiming at. The same square answers the
+//! instead, from a square no one was aiming at. The same square answers the
 //! d-pad, where it cannot happen: the highlight had to be walked there first,
-//! and A on it is a sentence somebody finished.
+//! and A on it is a sentence someone finished.
 //!
 //! So who is asking decides it. `console_home_screen::on_a_bare_square` is
 //! that question and `Reached` is the answer: a button chooses, a finger
-//! waits. The finger still has the chooser -- holding a bare square is already
+//! waits. The finger still has the picker -- holding a bare square is already
 //! `lift`, and `lift` on a square with nothing to pick up is `place` -- so
 //! nothing is taken away, it is moved onto the gesture that cannot be arrived
 //! at by accident. A square that has something on it is unchanged either way:
 //! a tap opens it, which is what a tap on a thing has always meant.
 //!
-//! ## And what it is carrying is asked for, never held
+//! A hold is a hold here too, and nothing else on the loop is waiting on a
+//! clock: a finger that has been down [`HELD`] long and has not travelled is
+//! the lift, and the wait for it is the only thing that ever gives the loop a
+//! deadline instead of letting it sleep until something happens.
 //!
-//! The square in the hand is a `RefCell`, and a `match` on
-//! `self.carrying.borrow().is_some()` keeps that borrow alive until the whole
-//! match is over -- including the arm that puts the square down, which asks
-//! the same cell for itself again. So the press that should have set a
-//! carried square down killed the home screen instead, and Y offering to move
-//! one led nowhere every time. `hand` answers `Hand` and lets the borrow go at
-//! its own end, and it is the only thing here that reads that cell to decide
-//! with.
+//! ## And what it is carrying is said out loud
 //!
-//! And it is said out loud, the way being awake is. Nothing outside this
-//! process could see a square in the hand: the arrangement is only written
-//! when the square is put back down, and what is held in between is not a
-//! window, a layer or a file. So `console_onscreen::carrying` is written
-//! wherever that cell changes, and the machine can be asked whether somebody
-//! is holding an application instead of being photographed to find out.
+//! Nothing outside this process could see a square in the hand: the
+//! arrangement is only written when the square is put back down, and what is
+//! held in between is not a window, a layer or a file. So
+//! `console_onscreen::carrying` is written wherever that changes, and the
+//! machine can be asked whether someone is holding an application instead of
+//! being photographed to find out.
 
-use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
-use std::io::{BufRead, BufReader};
-use std::os::unix::net::{UnixDatagram, UnixStream};
-use std::rc::Rc;
-use std::time::Instant;
+use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
+use std::os::unix::net::UnixDatagram;
+use std::path::Path;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use console_applications::entry::Application;
 use console_applications::found;
-use console_home_screen::{
-    Along, Bare, Home, Moved, On, Reached, Spot, Touch, Way, moved, nudged, on_a_bare_square,
-    paned, touched,
-};
-use console_home_screen::shape::{self, Shape};
-use console_compositor::stirred::Stirred;
-use console_core_atomic_writes::Held;
-use console_core_geometry::Point;
+use console_compositor::events::CompositorEvent;
+use console_core_atomic_writes::Stored;
+use console_core_color::palette::{self, PaletteError, WearingError};
+use console_core_color::{Ground, HexColor, Oklch, Rgba, over};
+use console_core_geometry::{Point, Size};
 use console_core_never::Never;
-use console_core_number_conversion::fitted;
-use console_core_reconnect::Between;
-use console_onscreen::{Awake, Hand, Over, Said, over_the_desktop};
-use console_panel::icons::Icon;
-use gtk4::{
-    Align, Box as GtkBox, CssProvider, EventControllerMotion, GestureClick, GestureSwipe, Grid,
-    Label, Orientation, Window, gdk, glib,
+use console_core_number_conversion::{fitted, index, toward_zero_i32};
+use console_events::again::Worth;
+use console_program_contract::Topic;
+use rustix::event::{PollFd, PollFlags, Timespec, poll};
+use console_core_shapes::{Edge, Font, Panel, Picture, Pixels, Round, Shape, Text, Weight};
+use console_draw_painting::{Frame, Run};
+use console_draw_surface::{
+    Anchor, Closed, Keyboard, Margin, PointerEvent, Room, Surface, Under, Wanted,
 };
-use gtk4::prelude::*;
-use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
+use console_home_screen::shape::{self, Laid, Shape as Grid};
+use console_home_screen::{
+    Bare, Flick, LongPress, HomeScreen, Moved, On, Reached, Spot, Touch, Way, flicked, held, moved, nudged,
+    on_a_bare_square, paned, touched,
+};
+use console_onscreen::{Woken, Hand, Over, PadInput, over_the_desktop};
+use console_panel::pictures::Side;
 
 const NAMESPACE: &str = "console-home";
 
 
-const CLEARED: i32 = 40;
+const FONT: &str = "Noto Sans";
+
+const A_DOT: &str = "\u{25cf}";
+
+const AND_SO_ON: char = '\u{2026}';
+
+const WIDE_ENOUGH: u32 = 4096;
+
+const WHATEVER_THE_SCREEN_IS: Size<u32> = Size { width: 0, height: 0 };
+
+const SOON: Duration = Duration::from_millis(250);
+
+const A_MOMENT: Duration = Duration::from_millis(10);
+
+const SAID_AT_ONCE: u32 = 64;
+
+const A_MOUTHFUL: u32 = 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Showing {
@@ -153,7 +204,7 @@ enum Showing {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Holds {
     AWindow,
-    Nothing,
+    None,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -165,7 +216,7 @@ enum Woke {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Put {
     Back,
-    Nothing,
+    None,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -177,24 +228,25 @@ enum Pointer {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Shows {
     AHighlight,
-    Nothing,
+    None,
 }
 
-struct Screen {
-    window: Window,
-    grid: Grid,
-    dots: GtkBox,
-    here: Cell<Spot>,
-    home: RefCell<Home>,
-    apps: RefCell<BTreeMap<String, (Application, String)>>,
-    carrying: RefCell<Option<Carrying>>,
-    woken: Cell<bool>,
-    pointer: Cell<Pointer>,
-    seen: Cell<Option<(Spot, (f64, f64))>>,
-    settled: Cell<Option<Showing>>,
-    shape: Cell<Shape>,
-    drawn: Cell<Option<console_home_screen::Square>>,
-    sheet: CssProvider,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Standing {
+    Yes,
+    No,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Carried {
+    Yes,
+    No,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Waiting {
+    ForAPicture,
+    None,
 }
 
 struct Carrying {
@@ -202,149 +254,166 @@ struct Carrying {
     from: Spot,
 }
 
+struct TouchState {
+    from: (f64, f64),
+    at: (f64, f64),
+    since: Instant,
+    on: Option<Spot>,
+    held: LongPress,
+}
+
+type Named = BTreeMap<String, (Application, String)>;
+
+struct Screen {
+    here: Spot,
+    home: HomeScreen,
+    apps: Named,
+    carrying: Option<Carrying>,
+    woken: Woken,
+    pointer: Pointer,
+    seen: Option<(Spot, (f64, f64))>,
+    settled: Option<Showing>,
+    grid: Grid,
+    finger: Option<TouchState>,
+    labels: BTreeMap<(String, u32), MeasuredText>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MeasuredText {
+    said: String,
+    width: u32,
+}
+
+struct Wears {
+    plate: Oklch,
+    standing: Oklch,
+    bare: Oklch,
+    edge: Oklch,
+    carried: Oklch,
+    held: Oklch,
+    text: Oklch,
+    dot: Oklch,
+    here: Oklch,
+}
+
+struct Drawing {
+    shapes: Vec<Shape>,
+    touching: Vec<(Spot, Panel)>,
+    waiting: Waiting,
+}
+
 impl Screen {
-    fn new() -> Result<Rc<Screen>, Never> {
-        let window = Window::new();
+    fn new() -> Result<Screen, Never> {
+        let grid = asked_shape()?;
 
-        window.set_widget_name("home");
-
-        laid_under_everything(&window)?;
-
-        let grid = Grid::new();
-        grid.set_widget_name("squares");
-        grid.set_row_homogeneous(true);
-        grid.set_column_homogeneous(true);
-        grid.set_vexpand(true);
-        grid.set_valign(Align::Center);
-
-        grid.set_hexpand(true);
-        grid.set_halign(Align::Fill);
-
-        let dots = GtkBox::new(Orientation::Horizontal, 12);
-        dots.set_widget_name("panes");
-        dots.set_halign(Align::Center);
-
-        let all = GtkBox::new(Orientation::Vertical, 0);
-        all.set_widget_name("home");
-        all.append(&grid);
-        all.append(&dots);
-        window.set_child(Some(&all));
-
-        let asked = asked_shape()?;
-
-        let screen = Rc::new(Screen {
-            window,
+        Ok(Screen {
+            here: Spot::FIRST,
+            home: HomeScreen::default(),
+            apps: BTreeMap::new(),
+            carrying: None,
+            woken: Woken::No,
+            pointer: Pointer::Elsewhere,
+            seen: None,
+            settled: None,
             grid,
-            dots,
-            here: Cell::new(Spot::FIRST),
-            home: RefCell::new(Home::default()),
-            apps: RefCell::new(BTreeMap::new()),
-            carrying: RefCell::new(None),
-            woken: Cell::new(false),
-            pointer: Cell::new(Pointer::Elsewhere),
-            seen: Cell::new(None),
-            settled: Cell::new(None),
-            shape: Cell::new(asked),
-            drawn: Cell::new(None),
-            sheet: CssProvider::new(),
-        });
-
-        screen.dressed()?;
-
-        screen.listens()?;
-
-        Ok(screen)
+            finger: None,
+            labels: BTreeMap::new(),
+        })
     }
 
-    fn told(self: &Rc<Screen>, said: Said) -> Result<(), Never> {
+    fn told(&mut self, said: PadInput) -> Result<(), Never> {
         let way = match said {
-            Said::Up => Some(Way::Up),
-            Said::Down => Some(Way::Down),
-            Said::Left => Some(Way::Left),
-            Said::Right => Some(Way::Right),
-            Said::Pressed
-            | Said::More
-            | Said::Back
-            | Said::Again
-            | Said::Carry
-            | Said::Off => None,
+            PadInput::Up => Some(Way::Up),
+            PadInput::Down => Some(Way::Down),
+            PadInput::Left => Some(Way::Left),
+            PadInput::Right => Some(Way::Right),
+            PadInput::Pressed
+            | PadInput::More
+            | PadInput::Back
+            | PadInput::Again
+            | PadInput::Payload
+            | PadInput::Off => None,
         };
 
         match way {
             Some(way) => {
                 let woke = self.wakes()?;
 
-                match (woke, self.pointer.get()) {
+                match (woke, self.pointer) {
                     (Woke::Already, _) | (Woke::Just, Pointer::OnASquare) => {
-                        let shown = self.shown()?;
+                        let panes = self.panes()?;
 
-                        let moved = moved(self.here.get(), way, shown, self.shape.get())?;
+                        let moved = moved(self.here, way, panes, self.grid)?;
 
-                        self.here.set(moved);
+                        self.here = moved;
                     },
                     (Woke::Just, Pointer::Elsewhere) => {},
                 }
 
-                return self.draw();
+                return Ok(());
             }
             None => {},
         }
 
         match said {
-            Said::Pressed => self.press(Reached::ByButton),
-            Said::More => self.ways(),
-            Said::Back => {
+            PadInput::Pressed => self.press(Reached::ByButton),
+            PadInput::More => self.ways(),
+            PadInput::Back => {
                 let put = self.put_back()?;
 
                 match put {
                     Put::Back => Ok(()),
-                    Put::Nothing => self.sleeps(),
+                    Put::None => self.sleeps(),
                 }
             }
-            Said::Again => self.reshaped(),
-            Said::Carry => self.lift(),
-            Said::Off => self.take_off(),
-            Said::Up | Said::Down | Said::Left | Said::Right => Ok(()),
+            PadInput::Again => self.reshaped(),
+            PadInput::Payload => self.lift(),
+            PadInput::Off => self.take_off(),
+            PadInput::Up | PadInput::Down | PadInput::Left | PadInput::Right => Ok(()),
         }
     }
 
-    fn wakes(self: &Rc<Screen>) -> Result<Woke, Never> {
-        match self.woken.replace(true) {
-            true => return Ok(Woke::Already),
-            false => {},
+    fn wakes(&mut self) -> Result<Woke, Never> {
+        match self.woken {
+            Woken::Yes => return Ok(Woke::Already),
+            Woken::No => {},
         }
 
-        match console_onscreen::waking(Awake::Yes) {
+        self.woken = Woken::Yes;
+
+        match console_onscreen::waking(Woken::Yes) {
             Ok(()) => {},
-            Err(fault) => eprintln!("console-home: nobody was told it is awake: {fault}"),
+            Err(fault) => eprintln!("console-home: no one was told it is awake: {fault}"),
         }
 
         Ok(Woke::Just)
     }
 
-    fn sleeps(self: &Rc<Screen>) -> Result<(), Never> {
-        match self.woken.replace(false) {
-            true => {},
-            false => return Ok(()),
+    fn sleeps(&mut self) -> Result<(), Never> {
+        match self.woken {
+            Woken::Yes => {},
+            Woken::No => return Ok(()),
         }
 
-        match console_onscreen::waking(Awake::No) {
+        self.woken = Woken::No;
+
+        match console_onscreen::waking(Woken::No) {
             Ok(()) => {},
-            Err(fault) => eprintln!("console-home: nobody was told it is asleep: {fault}"),
+            Err(fault) => eprintln!("console-home: no one was told it is asleep: {fault}"),
         }
 
-        self.draw()
+        Ok(())
     }
 
     fn shows(&self) -> Result<Shows, Never> {
-        Ok(match (self.woken.get(), self.pointer.get()) {
-            (true, _) | (_, Pointer::OnASquare) => Shows::AHighlight,
-            (false, Pointer::Elsewhere) => Shows::Nothing,
+        Ok(match (self.woken, self.pointer) {
+            (Woken::Yes, _) | (_, Pointer::OnASquare) => Shows::AHighlight,
+            (Woken::No, Pointer::Elsewhere) => Shows::None,
         })
     }
 
-    fn pointed(self: &Rc<Screen>, spot: Spot, at: (f64, f64)) -> Result<(), Never> {
-        let (was, from) = match self.seen.replace(Some((spot, at))) {
+    fn pointed(&mut self, spot: Spot, at: (f64, f64)) -> Result<(), Never> {
+        let (was, from) = match self.seen.replace((spot, at)) {
             Some((was, from)) => (was, from),
             None => return Ok(()),
         };
@@ -357,100 +426,24 @@ impl Screen {
         }
     }
 
-    fn stands_on(self: &Rc<Screen>, spot: Spot) -> Result<(), Never> {
-        let stood = self.here.replace(spot);
+    fn stands_on(&mut self, spot: Spot) -> Result<(), Never> {
+        self.here = spot;
+        self.pointer = Pointer::OnASquare;
 
-        match (self.pointer.replace(Pointer::OnASquare), stood == spot) {
-            (Pointer::OnASquare, true) => Ok(()),
-            (Pointer::OnASquare, false) | (Pointer::Elsewhere, _) => self.draw(),
-        }
+        Ok(())
     }
 
-    fn wandered(self: &Rc<Screen>, at: Point<f64>) -> Result<(), Never> {
-        let on = self.on_the_squares(at)?;
-
-        match on {
-            On::TheGrid => Ok(()),
-            On::Nothing => self.nothing_pointed(),
-        }
-    }
-
-    fn on_the_squares(&self, at: Point<f64>) -> Result<On, Never> {
-        let squares = match self.grid.compute_bounds(&self.window) {
-            Some(squares) => squares,
-            None => return Ok(On::Nothing),
-        };
-
-        let (left, top) = (f64::from(squares.x()), f64::from(squares.y()));
-        let inside = at.across >= left
-            && at.across < left + f64::from(squares.width())
-            && at.down >= top
-            && at.down < top + f64::from(squares.height());
-
-        Ok(match inside {
-            true => On::TheGrid,
-            false => On::Nothing,
-        })
-    }
-
-    fn nothing_pointed(self: &Rc<Screen>) -> Result<(), Never> {
-        match self.pointer.replace(Pointer::Elsewhere) {
-            Pointer::Elsewhere => Ok(()),
-            Pointer::OnASquare => self.draw(),
-        }
-    }
-
-    fn listens(self: &Rc<Screen>) -> Result<(), Never> {
-        let swipe = GestureSwipe::new();
-        swipe.set_touch_only(false);
-        let screen = Rc::clone(self);
-        swipe.connect_swipe(move |_, x, y| {
-            const FLICK: f64 = 300.0;
-
-            match y < -FLICK && y.abs() > x.abs() {
-                true => {
-                    let Ok(()) = screen.hands_over();
-
-                    let Ok(()) =
-                        console_panel::running::left_running(&["launcher".to_string()]);
-
-                    return;
-                }
-                false => {},
-            }
-
-            let along = match x {
-                _ if x < -FLICK && x.abs() > y.abs() => Along::After,
-                _ if x > FLICK && x.abs() > y.abs() => Along::Before,
-                _ => return,
-            };
-
-            let Ok(shown) = screen.shown();
-
-            let Ok(paned) = paned(screen.here.get(), along, shown);
-
-            screen.here.set(paned);
-
-            let Ok(()) = screen.draw();
-        });
-        self.window.add_controller(swipe);
-
-        let pointer = EventControllerMotion::new();
-        let screen = Rc::clone(self);
-
-        pointer.connect_motion(move |_, x, y| {
-            let Ok(()) = screen.wandered(Point { across: x, down: y });
-        });
-
-        self.window.add_controller(pointer);
+    fn nothing_pointed(&mut self) -> Result<(), Never> {
+        self.pointer = Pointer::Elsewhere;
+        self.seen = None;
 
         Ok(())
     }
 
     fn hand(&self) -> Result<Hand, Never> {
-        Ok(match self.carrying.borrow().is_some() {
-            true => Hand::Carries,
-            false => Hand::Empty,
+        Ok(match self.carrying {
+            Some(_) => Hand::Carries,
+            None => Hand::Empty,
         })
     }
 
@@ -460,14 +453,14 @@ impl Screen {
         match console_onscreen::carrying(hand) {
             Ok(()) => {},
             Err(fault) => {
-                eprintln!("console-home: nobody was told what is in its hand: {fault}");
+                eprintln!("console-home: no one was told what is in its hand: {fault}");
             },
         }
 
         Ok(())
     }
 
-    fn shown(&self) -> Result<usize, Never> {
+    fn panes(&self) -> Result<u32, Never> {
         let hand = self.hand()?;
 
         let carried = match hand {
@@ -475,186 +468,33 @@ impl Screen {
             Hand::Empty => 0,
         };
 
-        let panes = self.home.borrow().panes()?;
+        let panes = self.home.panes()?;
 
         Ok(panes.saturating_add(carried))
     }
 
-    fn draw(self: &Rc<Screen>) -> Result<(), Never> {
-        self.dressed()?;
-
-        while let Some(child) = self.grid.first_child() {
-            self.grid.remove(&child);
-        }
-
-        let shown = self.shown()?;
-
-        match self.here.get().pane >= shown {
-            true => {
-                self.here.set(Spot { pane: shown.saturating_sub(1), ..self.here.get() });
-            }
-            false => {},
-        }
-
-        let here = self.here.get();
-
-        let shape = self.shape.get();
-
-        for row in 0..shape.rows {
-            for column in 0..shape.columns {
-                let spot = Spot { pane: here.pane, row, column };
-
-                let square = self.square(spot)?;
-
-                let Ok(column) = fitted(column);
-                let Ok(row) = fitted(row);
-
-                self.grid.attach(&square, column, row, 1, 1);
-            }
-        }
-
-        while let Some(child) = self.dots.first_child() {
-            self.dots.remove(&child);
-        }
-
-        match shown < 2 {
-            true => return Ok(()),
-            false => {},
-        }
-
-        for pane in 0..shown {
-            let dot = Label::new(Some("\u{25cf}"));
-            dot.set_widget_name("pane");
-
-            match pane == here.pane {
-                true => dot.add_css_class("here"),
-                false => {},
-            }
-
-            self.dots.append(&dot);
-        }
-
-        Ok(())
-    }
-
-    fn square(self: &Rc<Screen>, spot: Spot) -> Result<GtkBox, Never> {
-        let square = GtkBox::new(Orientation::Vertical, 6);
-        square.set_widget_name("square");
-        square.set_hexpand(true);
-        square.set_halign(Align::Fill);
-        square.set_valign(Align::Center);
-
-        let shows = self.shows()?;
-
-        match shows == Shows::AHighlight && spot == self.here.get() {
-            true => square.add_css_class("here"),
-            false => {},
-        }
-
-        let carrying = self.carrying.borrow();
-
-        let held = match carrying.as_ref() {
-            Some(carrying) if spot == self.here.get() => {
-                square.add_css_class("carrying");
-                Some(carrying.name.clone())
-            },
-            Some(carrying) if spot == carrying.from => None,
-            Some(_) | None => {
-                let home = self.home.borrow();
-
-                let at = home.at(spot)?;
-
-                at.map(str::to_string)
-            }
-        };
-
-        drop(carrying);
-
-        let measured = self.measured()?;
-
-        match held {
-            Some(name) => {
-                let picture = self.apps.borrow().get(&name).map(|(_, at)| at.clone());
-
-                let shown = drawn(picture.as_deref(), measured.icon)?;
-
-                square.append(&shown);
-
-                let said = Label::new(Some(&name));
-                said.set_widget_name("named");
-                said.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-                said.set_max_width_chars(12);
-                square.append(&said);
-            },
-            None => {
-                square.add_css_class("empty");
-
-                let icon = measured.icon;
-                let room = gtk4::Image::new();
-                room.set_widget_name("picture");
-                room.set_pixel_size(icon);
-                room.set_size_request(icon, icon);
-                square.append(&room);
-
-                let line = Label::new(Some(" "));
-                line.set_widget_name("named");
-                square.append(&line);
-            },
-        }
-
-        let screen = Rc::clone(self);
-        let touch = GestureClick::new();
-        let down = Rc::new(Cell::new((0.0, 0.0)));
-        let went = Rc::clone(&down);
-        touch.connect_pressed(move |_, _, x, y| went.set((x, y)));
-        touch.connect_released(move |_, _, x, y| {
-            let Ok(touched) = touched(down.get(), (x, y));
-
-            match touched {
-                Touch::Pressed => {
-                    screen.here.set(spot);
-
-                    let Ok(()) = screen.press(Reached::ByTouch);
-                },
-                Touch::Travelled => {},
-            }
-        });
-
-        square.add_controller(touch);
-
-        let screen = Rc::clone(self);
-        let held = gtk4::GestureLongPress::new();
-        held.set_touch_only(false);
-        held.connect_pressed(move |gesture, _, _| {
-            gesture.set_state(gtk4::EventSequenceState::Claimed);
-            screen.here.set(spot);
-
-            let Ok(()) = screen.lift();
-        });
-
-        square.add_controller(held);
-
-        let screen = Rc::clone(self);
-        let pointer = EventControllerMotion::new();
-
-        pointer.connect_motion(move |_, x, y| {
-            let Ok(()) = screen.pointed(spot, (x, y));
-        });
-
-        square.add_controller(pointer);
-
-        Ok(square)
-    }
-
     fn standing(&self, spot: Spot) -> Result<Option<String>, Never> {
-        let home = self.home.borrow();
-
-        let at = home.at(spot)?;
+        let at = self.home.at(spot)?;
 
         Ok(at.map(str::to_string))
     }
 
-    fn press(self: &Rc<Screen>, reached: Reached) -> Result<(), Never> {
+    fn on(&self, spot: Spot) -> Result<(Option<String>, Carried), Never> {
+        let Ok(standing) = self.standing(spot);
+
+        let carrying = match self.carrying.as_ref() {
+            Some(carrying) => carrying,
+            None => return Ok((standing, Carried::No)),
+        };
+
+        Ok(match (spot == self.here, spot == carrying.from) {
+            (true, _) => (Some(carrying.name.clone()), Carried::Yes),
+            (false, true) => (None, Carried::No),
+            (false, false) => (standing, Carried::No),
+        })
+    }
+
+    fn press(&mut self, reached: Reached) -> Result<(), Never> {
         let hand = self.hand()?;
 
         match hand {
@@ -662,9 +502,7 @@ impl Screen {
             Hand::Empty => {},
         }
 
-        let here = self.here.get();
-
-        let name = self.standing(here)?;
+        let name = self.standing(self.here)?;
 
         let name = match name {
             Some(name) => name,
@@ -678,13 +516,20 @@ impl Screen {
             }
         };
 
-        let app = self.apps.borrow().get(&name).map(|(app, _)| app.clone());
+        let app = self.apps.get(&name).map(|(app, _)| app.clone());
 
         match app {
             Some(app) => {
                 self.hands_over()?;
 
-                found::run(&app)?;
+                let command = found::command(&app)?;
+
+                match command {
+                    Some(arguments) => {
+                        let Ok(()) = console_panel::running::left_running(&arguments);
+                    }
+                    None => {}
+                }
             },
             None => eprintln!("console-home: {name} is not on this machine any more"),
         }
@@ -692,7 +537,7 @@ impl Screen {
         Ok(())
     }
 
-    fn lift(self: &Rc<Screen>) -> Result<(), Never> {
+    fn lift(&mut self) -> Result<(), Never> {
         let hand = self.hand()?;
 
         match hand {
@@ -700,7 +545,7 @@ impl Screen {
             Hand::Empty => {},
         }
 
-        let from = self.here.get();
+        let from = self.here;
 
         let name = self.standing(from)?;
 
@@ -711,56 +556,46 @@ impl Screen {
 
         self.wakes()?;
 
-        *self.carrying.borrow_mut() = Some(Carrying { name, from });
+        self.carrying = Some(Carrying { name, from });
 
-        self.told_hand()?;
-
-        self.draw()
+        self.told_hand()
     }
 
-    fn put_down(self: &Rc<Screen>) -> Result<(), Never> {
-        let (name, from) = match self.carrying.replace(None) {
+    fn put_down(&mut self) -> Result<(), Never> {
+        let (name, from) = match self.carrying.take() {
             Some(Carrying { name, from }) => (name, from),
             None => return Ok(()),
         };
 
         self.told_hand()?;
 
-        let here = self.here.get();
+        let here = self.here;
         let there = self.standing(here)?;
 
-        {
-            let mut home = self.home.borrow_mut();
+        self.home.remove(from)?;
 
-            home.remove(from)?;
+        self.home.place(here, &name)?;
 
-            home.place(here, &name)?;
-
-            match there {
-                Some(there) => home.place(from, &there)?,
-                None => {},
-            }
+        match there {
+            Some(there) => self.home.place(from, &there)?,
+            None => {},
         }
 
-        self.keep()?;
-
-        self.draw()
+        self.keep()
     }
 
-    fn put_back(self: &Rc<Screen>) -> Result<Put, Never> {
-        match self.carrying.replace(None).is_none() {
-            true => return Ok(Put::Nothing),
-            false => {},
+    fn put_back(&mut self) -> Result<Put, Never> {
+        match self.carrying.take() {
+            Some(_) => {},
+            None => return Ok(Put::None),
         }
 
         self.told_hand()?;
 
-        self.draw()?;
-
         Ok(Put::Back)
     }
 
-    fn ways(self: &Rc<Screen>) -> Result<(), Never> {
+    fn ways(&mut self) -> Result<(), Never> {
         let hand = self.hand()?;
 
         match hand {
@@ -768,7 +603,7 @@ impl Screen {
             Hand::Empty => {},
         }
 
-        let name = self.standing(self.here.get())?;
+        let name = self.standing(self.here)?;
 
         let name = match name {
             Some(name) => name,
@@ -777,138 +612,66 @@ impl Screen {
 
         self.hands_over()?;
 
-        console_panel::running::left_running(&["home-square".to_string(), name])?;
-
-        Ok(())
+        console_panel::running::left_running(&["home-square".to_string(), name])
     }
 
-    fn place(self: &Rc<Screen>) -> Result<(), Never> {
+    fn place(&mut self) -> Result<(), Never> {
         self.hands_over()?;
 
-        let said = self.here.get().said()?;
+        let said = self.here.said()?;
 
         console_panel::running::left_running(&[
             "launcher".to_string(),
             "--place".to_string(),
             said,
-        ])?;
-
-        Ok(())
+        ])
     }
 
-    fn take_off(self: &Rc<Screen>) -> Result<(), Never> {
-        self.home.borrow_mut().remove(self.here.get())?;
+    fn take_off(&mut self) -> Result<(), Never> {
+        let here = self.here;
 
-        self.keep()?;
+        self.home.remove(here)?;
 
-        self.draw()
+        self.keep()
     }
 
-    fn hands_over(self: &Rc<Screen>) -> Result<(), Never> {
+    fn hands_over(&mut self) -> Result<(), Never> {
         self.sleeps()
     }
 
-    fn room(&self) -> Result<(i32, i32), Never> {
-        let granted = (self.window.width(), self.window.height());
+    fn reshaped(&mut self) -> Result<(), Never> {
+        let grid = asked_shape()?;
 
-        match granted.0 > 1 && granted.1 > 1 {
-            true => return Ok(granted),
-            false => {},
-        }
-
-        let display = match gdk::Display::default() {
-            Some(display) => display,
-            None => return Ok((0, 0)),
-        };
-
-        let first = match display.monitors().item(0).and_downcast::<gdk::Monitor>() {
-            Some(first) => first,
-            None => return Ok((0, 0)),
-        };
-
-        let screen = first.geometry();
-
-        Ok((screen.width(), screen.height().saturating_sub(CLEARED)))
-    }
-
-    fn measured(&self) -> Result<console_home_screen::Square, Never> {
-        let room = self.room()?;
-
-        console_home_screen::square(room, self.shape.get())
-    }
-
-    fn dressed(self: &Rc<Screen>) -> Result<(), Never> {
-        let square = self.measured()?;
-
-        match self.drawn.replace(Some(square)) == Some(square) {
+        match self.grid == grid {
             true => return Ok(()),
             false => {},
         }
 
-        let display = match gdk::Display::default() {
-            Some(display) => display,
-            None => return Ok(()),
-        };
+        self.grid = grid;
+        self.labels.clear();
 
-        let Ok(palette) = console_panel::style::palette();
+        let fitted = self.home.fitted(grid)?;
 
-        self.sheet.load_from_data(
-            &include_str!("../home.css")
-                .replace("{palette}", &palette)
-                .replace("{padding}", &square.padding.to_string())
-                .replace("{rounding}", &square.rounding.to_string())
-                .replace("{margin}", &square.margin.to_string())
-                .replace("{named}", &square.named.to_string())
-                .replace("{inset}", &console_home_screen::shape::INSET.to_string())
-                .replace("{sides}", &console_home_screen::shape::SIDES.to_string())
-                .replace("{dots}", &console_home_screen::shape::DOTS.to_string())
-                .replace("{border}", &console_home_screen::shape::BORDER.to_string())
-                .replace("{dot}", &square.named.to_string()),
-        );
-
-        gtk4::style_context_add_provider_for_display(
-            &display,
-            &self.sheet,
-            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
-        );
-
-        Ok(())
-    }
-
-    fn reshaped(self: &Rc<Screen>) -> Result<(), Never> {
-        let shape = asked_shape()?;
-
-        match self.shape.replace(shape) == shape {
-            true => return Ok(()),
-            false => {},
-        }
-
-        let fitted = self.home.borrow().fitted(shape)?;
-
-        let same = *self.home.borrow() == fitted;
-
-        match same {
+        match self.home == fitted {
             true => {},
             false => {
-                *self.home.borrow_mut() = fitted;
+                self.home = fitted;
 
                 self.keep()?;
             }
         }
 
-        let on = self.here.get().on_the_grid(shape)?;
+        let on = self.here.on_the_grid(grid)?;
 
         match on {
-            On::Nothing => self.here.set(Spot::FIRST),
+            On::None => self.here = Spot::FIRST,
             On::TheGrid => {},
         }
 
-        self.dressed()?;
-
-        self.draw()
+        Ok(())
     }
 
-    fn reread(self: &Rc<Screen>) -> Result<(), Never> {
+    fn reread(&mut self) -> Result<(), Never> {
         let hers = console_core_places::home()?;
 
         let at = match hers {
@@ -919,40 +682,37 @@ impl Screen {
         let Ok(held) = console_core_atomic_writes::read(&at);
 
         let home = match held {
-            Held::Said(said) => Home::read(&said)?,
-            Held::Nothing => self.first()?,
-            Held::Unreadable(fault) => {
+            Stored::Text(said) => HomeScreen::read(&said)?,
+            Stored::Absent => self.first()?,
+            Stored::Failed(fault) => {
                 eprintln!("console-home: {}: {fault}", at.display());
 
                 return Ok(());
             }
         };
 
-        let home = home.fitted(self.shape.get())?;
+        let home = home.fitted(self.grid)?;
 
-        match *self.home.borrow() == home {
+        match self.home == home {
             true => return Ok(()),
             false => {},
         }
 
-        *self.home.borrow_mut() = home;
+        self.home = home;
 
-        self.keep()?;
-
-        self.draw()
+        self.keep()
     }
 
-    fn first(self: &Rc<Screen>) -> Result<Home, Never> {
-        let apps = self.apps.borrow();
-        let names: Vec<String> = apps.keys().cloned().collect();
+    fn first(&self) -> Result<HomeScreen, Never> {
+        let names: Vec<String> = self.apps.keys().cloned().collect();
         let counted = found::counted()?;
 
         let order = console_applications::counts::order(&names, &counted)?;
 
-        Home::first(&order, self.shape.get())
+        HomeScreen::first(&order, self.grid)
     }
 
-    fn keep(self: &Rc<Screen>) -> Result<(), Never> {
+    fn keep(&self) -> Result<(), Never> {
         let hers = console_core_places::home()?;
 
         let at = match hers {
@@ -964,7 +724,7 @@ impl Screen {
             }
         };
 
-        let said = self.home.borrow().written()?;
+        let said = self.home.written()?;
 
         match said.is_empty() && !at.exists() {
             true => return Ok(()),
@@ -991,25 +751,34 @@ impl Screen {
         Ok(())
     }
 
-    fn settle(self: &Rc<Screen>) -> Result<(), Never> {
+    fn settle(&mut self, surface: &mut Surface) -> Result<(), Never> {
         let holds = holds_a_window()?;
 
         let showing = match holds {
             Holds::AWindow => Showing::No,
-            Holds::Nothing => Showing::Yes,
+            Holds::None => Showing::Yes,
         };
 
-        match self.settled.replace(Some(showing)) == Some(showing) {
+        match self.settled.replace(showing) == Some(showing) {
             true => {},
             false => match showing {
-                Showing::Yes => self.window.present(),
-                Showing::No => self.window.set_visible(false),
+                Showing::Yes => {
+                    let Ok(wanted) = covering();
+
+                    match surface.show(&wanted) {
+                        Ok(()) => {},
+                        Err(fault) => eprintln!("console-home: no surface to draw on: {fault}"),
+                    }
+                }
+                Showing::No => {
+                    let Ok(()) = surface.hide();
+                },
             },
         }
 
         let over = anything_over_it()?;
 
-        match (showing, over) == (Showing::Yes, Over::Nothing) {
+        match (showing, over) == (Showing::Yes, Over::None) {
             true => {},
             false => {
                 self.nothing_pointed()?;
@@ -1022,93 +791,341 @@ impl Screen {
     }
 }
 
-fn drawn(at: Option<&str>, icon: i32) -> Result<gtk4::Image, Never> {
-    let held = gtk4::Image::new();
-    held.set_widget_name("picture");
-    held.set_pixel_size(icon);
-    held.set_size_request(icon, icon);
+fn covering() -> Result<Wanted, Never> {
+    let Ok(bar) = console_status_bar::showing::Fitting::of_em();
+    let Ok(bar) = bar.height();
+    let Ok(top) = out(bar);
 
-    match at {
-        Some(at) if !at.is_empty() => held.set_from_file(Some(at)),
-        Some(_) | None => {
-            let Ok(named) = Icon::AnyApplication.name();
+    Ok(Wanted {
+        namespace: NAMESPACE.to_string(),
+        anchor: Anchor::Whole,
+        size: WHATEVER_THE_SCREEN_IS,
+        margin: Margin { top, right: 0, bottom: 0, left: 0 },
+        keyboard: Keyboard::Declines,
+        room: Room::Over,
+        under: Under::AWindow,
+    })
+}
 
-            held.set_icon_name(Some(named));
+fn up(many: i32) -> Result<u32, Never> {
+    fitted(many.max(0))
+}
+
+fn out(many: u32) -> Result<i32, Never> {
+    fitted(many)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Centred {
+    room: u32,
+    thing: u32,
+}
+
+fn middle(centred: Centred) -> Result<i32, Never> {
+    let Centred { room, thing } = centred;
+    let Ok(room) = out(room);
+    let Ok(thing) = out(thing);
+
+    Ok(room.saturating_sub(thing).saturating_div(2))
+}
+
+fn plate(laid: &Laid, rounding: i32) -> Result<Panel, Never> {
+    let Ok(round) = up(rounding);
+
+    Ok(Panel {
+        at: laid.plate.at,
+        size: laid.plate.size,
+        round: Round(round),
+        fill: Oklch { lightness: 0.0, chroma: 0.0, hue: 0.0 },
+        edge: Edge::None,
+    })
+}
+
+fn dressed(
+    holding: Option<&str>,
+    carried: Carried,
+    standing: Standing,
+    wears: &Wears,
+) -> Result<Option<(Oklch, Edge)>, Never> {
+    let Ok(wide) = up(shape::BORDER);
+
+    Ok(match (holding.is_some(), carried, standing) {
+        (_, Carried::Yes, _) => Some((wears.carried, Edge::Of { wide, color: wears.held })),
+        (true, Carried::No, Standing::Yes) => {
+            Some((wears.standing, Edge::Of { wide, color: wears.edge }))
+        }
+        (true, Carried::No, Standing::No) => Some((wears.plate, Edge::None)),
+        (false, Carried::No, Standing::Yes) => {
+            Some((wears.bare, Edge::Of { wide, color: wears.edge }))
+        }
+        (false, Carried::No, Standing::No) => None,
+    })
+}
+
+fn icon(at: &str, side: Side, wanted: &mut Vec<String>) -> Result<Option<Pixels>, Never> {
+    match at.is_empty() {
+        true => return Ok(None),
+        false => {},
+    }
+
+    let Ok(held) = console_panel::pictures::pixels_at(Path::new(at), side);
+
+    Ok(match held {
+        Some(held) => Some(held),
+        None => {
+            wanted.push(at.to_string());
+
+            None
+        }
+    })
+}
+
+fn words(said: &str, wide: u32, font: &Font) -> Result<MeasuredText, Never> {
+    let whole = console_draw_painting::measured(
+        Run { said, weight: Weight::Plain, width: WIDE_ENOUGH },
+        font,
+    )?;
+
+    match whole.width <= wide {
+        true => return Ok(MeasuredText { said: said.to_string(), width: whole.width }),
+        false => {},
+    }
+
+    let letters: Vec<char> = said.chars().collect();
+    let mut kept: &[char] = &letters;
+
+    while let Some((_, shorter)) = kept.split_last() {
+        kept = shorter;
+
+        let mut cut: String = kept.iter().collect();
+        cut.push(AND_SO_ON);
+
+        let size = console_draw_painting::measured(
+            Run { said: &cut, weight: Weight::Plain, width: WIDE_ENOUGH },
+            font,
+        )?;
+
+        match size.width <= wide {
+            true => return Ok(MeasuredText { said: cut, width: size.width }),
+            false => {},
         }
     }
 
-    Ok(held)
+    Ok(MeasuredText { said: String::new(), width: 0 })
 }
 
-fn laid_under_everything(window: &Window) -> Result<(), Never> {
-    window.init_layer_shell();
-    window.set_namespace(Some(NAMESPACE));
-    window.set_layer(Layer::Bottom);
+fn label(screen: &mut Screen, said: &str, wide: u32, font: &Font) -> Result<MeasuredText, Never> {
+    let asked = (said.to_string(), wide);
 
-    window.set_exclusive_zone(-1);
-    window.set_margin(Edge::Top, CLEARED);
-
-    window.set_keyboard_mode(KeyboardMode::None);
-
-    for edge in [Edge::Bottom, Edge::Left, Edge::Right, Edge::Top] {
-        window.set_anchor(edge, true);
+    match screen.labels.get(&asked) {
+        Some(found) => return Ok(found.clone()),
+        None => {},
     }
 
-    Ok(())
+    let Ok(fitted) = words(said, wide, font);
+
+    screen.labels.insert(asked, fitted.clone());
+
+    Ok(fitted)
 }
 
-fn holds_a_window() -> Result<Holds, Never> {
-    let workspace = match console_compositor::asked(console_compositor::Asked::ActiveWorkspace) {
-        Ok(workspace) => workspace,
-        Err(_the_compositor_said_nothing) => return Ok(Holds::AWindow),
+fn drawing(screen: &mut Screen, wears: &Wears, room: (i32, i32)) -> Result<Drawing, Never> {
+    let grid = screen.grid;
+    let square = shape::square(room, grid)?;
+    let Ok(side) = up(square.icon);
+    let Ok(tall) = up(square.named);
+    let font = Font { family: FONT.to_string(), height: tall };
+    let panes = screen.panes()?;
+
+    match screen.here.pane >= panes {
+        true => screen.here.pane = panes.saturating_sub(1),
+        false => {},
+    }
+
+    let here = screen.here;
+    let shows = screen.shows()?;
+    let inset = square.padding.saturating_add(shape::BORDER).saturating_mul(2);
+    let mut shapes: Vec<Shape> = Vec::new();
+    let mut touching: Vec<(Spot, Panel)> = Vec::new();
+    let mut wanted: Vec<String> = Vec::new();
+
+    for row in 0..grid.rows {
+        'over_columns: for column in 0..grid.columns {
+            let spot = Spot { pane: here.pane, row, column };
+            let laid = shape::laid(room, grid, spot)?;
+            let plate = plate(&laid, square.rounding)?;
+
+            touching.push((spot, plate));
+
+            let standing = match (shows, spot == here) {
+                (Shows::AHighlight, true) => Standing::Yes,
+                (Shows::AHighlight, false) | (Shows::None, _) => Standing::No,
+            };
+            let (holding, carried) = screen.on(spot)?;
+            let dressed = dressed(holding.as_deref(), carried, standing, wears)?;
+
+            match dressed {
+                Some((fill, edge)) => shapes.push(Shape::Panel(Panel { fill, edge, ..plate })),
+                None => {},
+            }
+
+            let holding = match holding {
+                Some(holding) => holding,
+                None => continue 'over_columns,
+            };
+
+            let at = screen.apps.get(&holding).map(|(_, at)| at.clone());
+
+            let pixels = match at {
+                Some(at) => icon(&at, Side(side), &mut wanted)?,
+                None => None,
+            };
+
+            match pixels {
+                Some(pixels) => shapes.push(Shape::Picture(Picture {
+                    at: laid.icon.at,
+                    size: laid.icon.size,
+                    pixels,
+                })),
+                None => {},
+            }
+
+            let Ok(room_for_words) = up(inset);
+            let room_for_words = laid.plate.size.width.saturating_sub(room_for_words);
+            let words = label(screen, &holding, room_for_words, &font)?;
+            let Ok(inside) = middle(Centred { room: laid.plate.size.width, thing: words.width });
+            let across = laid.plate.at.x.saturating_add(inside);
+
+            shapes.push(Shape::Text(Text {
+                at: Point { x: across, y: laid.named.y },
+                width: WIDE_ENOUGH,
+                said: words.said,
+                weight: Weight::Plain,
+                font: font.clone(),
+                ink: wears.text,
+            }));
+        }
+    }
+
+    let dots = dots(screen, room, panes, &font, wears)?;
+
+    shapes.extend(dots);
+
+    let waiting = match wanted.is_empty() {
+        true => Waiting::None,
+        false => {
+            let Ok(()) = console_panel::pictures::make_at(&wanted, Side(side));
+
+            Waiting::ForAPicture
+        }
     };
 
-    let Ok(held) = console_compositor::windows(&workspace);
-
-    Ok(match held {
-        Some(0) => Holds::Nothing,
-        Some(_held) => Holds::AWindow,
-        None => Holds::AWindow,
-    })
+    Ok(Drawing { shapes, touching, waiting })
 }
 
-fn anything_over_it() -> Result<Over, Never> {
-    let screens = match console_panel::door::screens() {
-        Ok(screens) => screens,
-        Err(_fault) => return Ok(Over::Something),
-    };
+fn dots(
+    screen: &mut Screen,
+    room: (i32, i32),
+    panes: u32,
+    font: &Font,
+    wears: &Wears,
+) -> Result<Vec<Shape>, Never> {
+    match panes < 2 {
+        true => return Ok(Vec::new()),
+        false => {},
+    }
 
-    over_the_desktop(&screens)
+    let one = label(screen, A_DOT, WIDE_ENOUGH, font)?;
+    let Ok(many) = fitted::<_, u32>(panes);
+    let Ok(between) = up(shape::BETWEEN);
+    let whole = one
+        .width
+        .saturating_mul(many)
+        .saturating_add(between.saturating_mul(many.saturating_sub(1)));
+    let at = shape::dotted(room)?;
+    let Ok(half) = middle(Centred { room: whole, thing: 0 });
+    let mut across = at.x.saturating_sub(half);
+    let mut drawn: Vec<Shape> = Vec::new();
+
+    for pane in 0..panes {
+        let ink = match pane == screen.here.pane {
+            true => wears.here,
+            false => wears.dot,
+        };
+
+        drawn.push(Shape::Text(Text {
+            at: Point { x: across, y: at.y },
+            width: WIDE_ENOUGH,
+            said: A_DOT.to_string(),
+            weight: Weight::Plain,
+            font: font.clone(),
+            ink,
+        }));
+
+        let Ok(step) = out(one.width.saturating_add(between));
+
+        across = across.saturating_add(step);
+    }
+
+    Ok(drawn)
 }
 
-fn worth_asking_after(line: &str) -> Result<Over, Never> {
-    let stirred = console_compositor::stirred::read(line)?;
+fn dressing() -> Result<Wears, WearingError> {
+    let spent = palette::spent()?;
+    let wears = wears(&spent)?;
 
-    Ok(match stirred {
-        Stirred::WindowOpened(_)
-        | Stirred::WindowClosed(_)
-        | Stirred::WindowMoved
-        | Stirred::WindowFilled
-        | Stirred::LayerOpened
-        | Stirred::LayerClosed
-        | Stirred::WorkspaceChanged
-        | Stirred::ScreenFocused => Over::Something,
-        Stirred::WindowRenamed(_)
-        | Stirred::WindowFloated
-        | Stirred::WindowPinned
-        | Stirred::ConfigReloaded
-        | Stirred::Nothing => Over::Nothing,
-    })
+    Ok(wears)
 }
 
-fn listening(screen: &Rc<Screen>) -> Result<(), Never> {
+fn wears(spent: &BTreeMap<String, String>) -> Result<Wears, PaletteError> {
+    let ground = hex(spent, "ground")?;
+
+    let plate = washed(spent, "night", Ground(ground), 0.34)?;
+    let standing = palette::named(spent, "panel")?;
+    let bare = washed(spent, "panel", Ground(ground), 0.55)?;
+    let edge = palette::named(spent, "mint")?;
+    let carried = washed(spent, "pink", Ground(ground), 0.22)?;
+    let held = palette::named(spent, "pink")?;
+    let text = palette::named(spent, "text")?;
+    let dot = washed(spent, "text", Ground(ground), 0.3)?;
+    let here = palette::named(spent, "pink")?;
+
+    Ok(Wears { plate, standing, bare, edge, carried, held, text, dot, here })
+}
+
+fn hex<'a>(
+    spent: &'a BTreeMap<String, String>,
+    what: &'static str,
+) -> Result<&'a str, PaletteError> {
+    match spent.get(what) {
+        Some(said) => Ok(said),
+        None => Err(PaletteError::Absent(what)),
+    }
+}
+
+fn washed(
+    spent: &BTreeMap<String, String>,
+    what: &'static str,
+    ground: Ground<'_>,
+    share: f64,
+) -> Result<Oklch, PaletteError> {
+    let ink = hex(spent, what)?;
+    let Ok(mixed) = over(HexColor(ink), ground, share);
+    let channels = Rgba::of(&mixed)
+        .map_err(|_| PaletteError::Invalid { color: what, value: mixed.clone() })?;
+    let Ok(washed) = Oklch::of(channels);
+
+    Ok(washed)
+}
+
+fn listening() -> Result<Option<UnixDatagram>, Never> {
     let at = match console_onscreen::homeward() {
         Ok(at) => at,
         Err(fault) => {
             eprintln!("console-home: nothing can be said to me: {fault}");
 
-            return Ok(());
-        },
+            return Ok(None);
+        }
     };
 
     match at.parent() {
@@ -1120,254 +1137,397 @@ fn listening(screen: &Rc<Screen>) -> Result<(), Never> {
 
     let _ = std::fs::remove_file(&at);
 
-    let socket = match UnixDatagram::bind(&at) {
-        Ok(socket) => socket,
+    Ok(match UnixDatagram::bind(&at) {
+        Ok(socket) => Some(socket),
         Err(fault) => {
             eprintln!("console-home: {}: {fault}", at.display());
 
-            return Ok(());
-        },
+            None
+        }
+    })
+}
+
+fn listened(socket: &UnixDatagram) -> Result<Option<PadInput>, Never> {
+    let Ok(room) = index(SAID_AT_ONCE);
+    let mut said = vec![0u8; room];
+
+    let heard = match socket.recv(&mut said) {
+        Ok(got) => said.get(..got),
+        Err(fault) => {
+            eprintln!("console-home: nothing more can be said to me: {fault}");
+
+            return Ok(None);
+        }
     };
 
-    let screen = Rc::clone(screen);
-    glib::spawn_future_local(async move {
-        let mut socket = socket;
+    match heard {
+        Some(bytes) => match std::str::from_utf8(bytes) {
+            Ok(word) => PadInput::read(word),
+            Err(fault) => {
+                eprintln!("console-home: something said {} bytes that are not words: {fault}", bytes.len());
 
-        loop {
-            let heard = gtk4::gio::spawn_blocking(move || {
-                let mut said = [0u8; 64];
-                let got = socket.recv(&mut said);
+                Ok(None)
+            }
+        },
+        None => {
+            eprintln!("console-home: something said it wrote more than the {SAID_AT_ONCE} bytes it had room for");
 
-                (socket, said, got)
-            })
-            .await;
-
-            let (held, said, got) = match heard {
-                Ok((held, said, got)) => (held, said, got),
-                Err(_fault) => return,
-            };
-
-            socket = held;
-
-            let got = match got {
-                Ok(got) => got,
-                Err(fault) => {
-                    eprintln!("console-home: nothing more can be said to me: {fault}");
-
-                    return;
-                },
-            };
-
-            let said = match said.get(..got).map(std::str::from_utf8) {
-                Some(Ok(word)) => {
-                    let Ok(read) = Said::read(word);
-
-                    read
-                },
-                Some(Err(fault)) => {
-                    eprintln!("console-home: something said {got} bytes that are not words: {fault}");
-
-                    None
-                },
-                None => {
-                    eprintln!("console-home: something said it wrote {got} bytes into 64");
-
-                    None
-                },
-            };
-
-            let said = match said {
-                Some(said) => said,
-                None => continue,
-            };
-
-            let Ok(()) = screen.told(said);
+            Ok(None)
         }
-    });
+    }
+}
+
+fn stirring() -> Result<Option<OwnedFd>, Never> {
+    let (hear, tell) = match rustix::pipe::pipe() {
+        Ok(ends) => ends,
+        Err(fault) => {
+            eprintln!("console-home: nothing to hear the compositor on: {fault}");
+
+            return Ok(None);
+        }
+    };
+
+    let (say, heard) = std::sync::mpsc::channel();
+    let Ok(()) = console_events::again::about(&Topic::Compositor, worth_asking_after, say);
+
+    let Ok(()) = console_program_lifetime::threads::let_go(std::thread::spawn(move || {
+        for () in heard.iter() {
+            match rustix::io::write(&tell, &[1]) {
+                Ok(_) => {},
+                Err(_the_loop_has_gone) => return,
+            }
+        }
+    }));
+
+    Ok(Some(hear))
+}
+
+fn stirred(hear: &OwnedFd) -> Result<(), Never> {
+    let Ok(room) = index(A_MOUTHFUL);
+    let mut said = vec![0u8; room];
+    let _as_many_as_arrived_are_one_look = rustix::io::read(hear, &mut said);
 
     Ok(())
 }
 
-fn following(screen: &Rc<Screen>) -> Result<(), Never> {
-    let screen = Rc::clone(screen);
-    glib::spawn_future_local(async move {
-        let Ok(mut between) = Between::tries();
+type Filling = Arc<Mutex<Vec<found::Found>>>;
 
-        loop {
-            let began = Instant::now();
+fn searching() -> Result<Option<(OwnedFd, Filling)>, Never> {
+    let (hear, tell) = match rustix::pipe::pipe() {
+        Ok(ends) => ends,
+        Err(fault) => {
+            eprintln!("console-home: nothing to hear the search on: {fault}");
 
-            let socket = match console_panel::door::events() {
-                Ok(socket) => socket,
-                Err(_fault) => return,
-            };
+            return Ok(None);
+        }
+    };
 
-            let opened = gtk4::gio::spawn_blocking(move || UnixStream::connect(&socket)).await;
+    let held: Filling = Arc::new(Mutex::new(Vec::new()));
+    let filling = Arc::clone(&held);
 
-            match opened {
-                Ok(Ok(stream)) => {
-                    let mut lines = BufReader::new(stream);
+    let Ok(()) = console_program_lifetime::threads::let_go(std::thread::spawn(move || {
+        let telling = tell;
+        let looking: [fn() -> Result<found::Found, Never>; 2] = [found::quickly, found::machine];
 
-                    let Ok(()) = screen.settle();
+        for look in looking {
+            let Ok(found) = look();
 
-                    'over_lines: loop {
-                        let read = gtk4::gio::spawn_blocking(move || {
-                            let mut said = String::new();
-
-                            let got = match lines.read_line(&mut said) {
-                                Ok(got) => got,
-                                Err(_fault) => return (lines, said, 0),
-                            };
-
-                            (lines, said, got)
-                        })
-                        .await;
-
-                        let (held, said, got) = match read {
-                            Ok((held, said, got)) => (held, said, got),
-                            Err(_fault) => return,
-                        };
-
-                        match got {
-                            0 => break 'over_lines,
-                            _ => {},
-                        }
-
-                        lines = held;
-
-                        let Ok(worth) = worth_asking_after(&said);
-
-                        match worth {
-                            Over::Something => {
-                                let Ok(()) = screen.settle();
-
-                                let Ok(()) = screen.reread();
-                            }
-                            Over::Nothing => {},
-                        }
-                    }
-                }
-                Ok(Err(_)) | Err(_) => {
-                    let Ok(()) = screen.settle();
-                }
+            match filling.lock() {
+                Ok(mut filling) => filling.push(found),
+                Err(_no_one_is_reading) => return,
             }
 
-            let Ok(again) = between.after(began.elapsed());
-
-            #[cfg_attr(
-                dylint_lib = "explicit021_no_sleeping",
-                allow(
-                    explicit021_no_sleeping,
-                    reason = "the door is not open, or it was and has gone, and nothing announces when it will be there; this is the wait between two attempts at connecting and `console-core-reconnect` is the one place that decides how long it is"
-                )
-            )]
-            glib::timeout_future(again).await;
+            let _ = rustix::io::write(&telling, &[1]);
         }
-    });
+    }));
 
-    Ok(())
+    Ok(Some((hear, held)))
 }
 
-fn asked_shape() -> Result<Shape, Never> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Search {
+    Going,
+    Finished,
+}
+
+fn heard(hear: &OwnedFd) -> Result<Search, Never> {
+    let Ok(room) = index(A_MOUTHFUL);
+    let mut said = vec![0u8; room];
+
+    Ok(match rustix::io::read(hear, &mut said) {
+        Ok(0) | Err(_) => Search::Finished,
+        Ok(_) => Search::Going,
+    })
+}
+
+fn found_more(
+    screen: &mut Screen,
+    hear: &OwnedFd,
+    held: &Filling,
+) -> Result<Search, Never> {
+    let Ok(search) = heard(hear);
+
+    let taken = match held.lock() {
+        Ok(mut held) => std::mem::take(&mut *held),
+        Err(_the_search_gave_up) => Vec::new(),
+    };
+
+    for found in taken {
+        let apps = named(found)?;
+
+        screen.apps = apps;
+
+        screen.reread()?;
+    }
+
+    Ok(search)
+}
+
+fn ready(watching: &[BorrowedFd<'_>]) -> Result<Vec<u32>, Never> {
+    let mut watch: Vec<PollFd<'_>> =
+        watching.iter().map(|fd| PollFd::from_borrowed_fd(*fd, PollFlags::IN)).collect();
+    let now = Timespec { tv_sec: 0, tv_nsec: 0 };
+
+    match poll(&mut watch, Some(&now)) {
+        Ok(_) => {},
+        Err(_nothing_to_watch) => return Ok(Vec::new()),
+    }
+
+    Ok(watch
+        .iter()
+        .enumerate()
+        .filter(|(_, fd)| fd.revents().intersects(PollFlags::IN | PollFlags::HUP))
+        .map(|(which, _)| {
+            let Ok(which) = fitted(which);
+
+            which
+        })
+        .collect())
+}
+
+fn least(soonest: Option<Duration>, asked: Duration) -> Result<Option<Duration>, Never> {
+    Ok(match soonest {
+        Some(soonest) => Some(soonest.min(asked)),
+        None => Some(asked),
+    })
+}
+
+fn until(
+    screen: &Screen,
+    waiting: Waiting,
+) -> Result<Option<Duration>, Never> {
+    let mut soonest: Option<Duration> = None;
+
+    match screen.finger.as_ref() {
+        Some(finger) => match finger.held {
+            LongPress::NotYet => {
+                let left = console_home_screen::HELD.saturating_sub(finger.since.elapsed());
+
+                let Ok(sooner) = least(soonest, left.max(A_MOMENT));
+
+                soonest = sooner;
+            }
+            LongPress::LongEnough => {},
+        },
+        None => {},
+    }
+
+    match waiting {
+        Waiting::ForAPicture => least(soonest, SOON),
+        Waiting::None => Ok(soonest),
+    }
+}
+
+fn under(touching: &[(Spot, Panel)], at: (f64, f64)) -> Result<Option<Spot>, Never> {
+    let Ok(across) = toward_zero_i32(at.0);
+    let Ok(down) = toward_zero_i32(at.1);
+    let point = Point { x: across, y: down };
+
+    for (spot, panel) in touching {
+        let covers = panel.covers(point)?;
+
+        match covers {
+            console_core_shapes::Covers::Yes => return Ok(Some(*spot)),
+            console_core_shapes::Covers::No => {},
+        }
+    }
+
+    Ok(None)
+}
+
+fn wandered(
+    screen: &mut Screen,
+    touching: &[(Spot, Panel)],
+    room: (i32, i32),
+    at: (f64, f64),
+) -> Result<(), Never> {
+    match screen.finger.as_mut() {
+        Some(finger) => finger.at = at,
+        None => {},
+    }
+
+    let on = under(touching, at)?;
+
+    match on {
+        Some(spot) => return screen.pointed(spot, at),
+        None => {},
+    }
+
+    let Ok(across) = toward_zero_i32(at.0);
+    let Ok(down) = toward_zero_i32(at.1);
+    let over = shape::over(room, Point { x: across, y: down })?;
+
+    match over {
+        On::TheGrid => Ok(()),
+        On::None => screen.nothing_pointed(),
+    }
+}
+
+fn lifted(screen: &mut Screen) -> Result<(), Never> {
+    let finger = match screen.finger.take() {
+        Some(finger) => finger,
+        None => return Ok(()),
+    };
+
+    let Ok(flick) = flicked(finger.from, finger.at);
+
+    match flick {
+        Flick::Upward => {
+            screen.hands_over()?;
+
+            return console_panel::running::left_running(&["launcher".to_string()]);
+        }
+        Flick::Across(along) => {
+            let panes = screen.panes()?;
+
+            let paned = paned(screen.here, along, panes)?;
+
+            screen.here = paned;
+
+            return Ok(());
+        }
+        Flick::Nowhere => {},
+    }
+
+    match finger.held {
+        LongPress::LongEnough => return Ok(()),
+        LongPress::NotYet => {},
+    }
+
+    let touched = touched(finger.from, finger.at)?;
+
+    match (touched, finger.on) {
+        (Touch::Pressed, Some(spot)) => {
+            screen.here = spot;
+
+            screen.press(Reached::ByTouch)
+        }
+        (Touch::Pressed, None) | (Touch::Travelled, _) => Ok(()),
+    }
+}
+
+fn holding(screen: &mut Screen, now: Instant) -> Result<(), Never> {
+    let ripe = match screen.finger.as_mut() {
+        Some(finger) => {
+            let since = now.saturating_duration_since(finger.since);
+            let Ok(held) = held(since, finger.from, finger.at);
+
+            match (held, finger.held) {
+                (LongPress::LongEnough, LongPress::NotYet) => {
+                    finger.held = LongPress::LongEnough;
+
+                    finger.on
+                }
+                (LongPress::LongEnough, LongPress::LongEnough) | (LongPress::NotYet, _) => None,
+            }
+        }
+        None => None,
+    };
+
+    match ripe {
+        Some(spot) => {
+            screen.here = spot;
+
+            screen.lift()
+        }
+        None => Ok(()),
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Watching {
+    Signal,
+    Subscriber,
+    Searching,
+    Stirred,
+}
+
+fn worth_asking_after(line: &str) -> Result<Worth, Never> {
+    let stirred = console_compositor::events::read(line)?;
+
+    Ok(match stirred {
+        CompositorEvent::WindowOpened(_)
+        | CompositorEvent::WindowClosed(_)
+        | CompositorEvent::WindowMoved
+        | CompositorEvent::WindowFilled
+        | CompositorEvent::LayerOpened
+        | CompositorEvent::LayerClosed
+        | CompositorEvent::WorkspaceChanged
+        | CompositorEvent::ScreenFocused => Worth::Querying,
+        CompositorEvent::WindowRenamed(_)
+        | CompositorEvent::WindowFloated
+        | CompositorEvent::WindowPinned
+        | CompositorEvent::ConfigReloaded
+        | CompositorEvent::Ignored => Worth::Ignoring,
+    })
+}
+
+fn asked_shape() -> Result<Grid, Never> {
     let hers = console_core_places::home()?;
 
     let at = match hers {
         Some(hers) => shape::at(&hers)?,
-        None => return Ok(Shape::USUAL),
+        None => return Ok(Grid::USUAL),
     };
 
     let Ok(held) = console_core_atomic_writes::read(&at);
 
     match held {
-        Held::Said(said) => Shape::read(&said),
-        Held::Nothing => Ok(Shape::USUAL),
-        Held::Unreadable(fault) => {
+        Stored::Text(said) => Grid::read(&said),
+        Stored::Absent => Ok(Grid::USUAL),
+        Stored::Failed(fault) => {
             eprintln!("console-home: {}: {fault}", at.display());
 
-            Ok(Shape::USUAL)
+            Ok(Grid::USUAL)
+        }
+    }
+}
+
+fn holds_a_window() -> Result<Holds, Never> {
+    let workspace = match console_compositor::query(console_compositor::Query::ActiveWorkspace) {
+        Ok(console_compositor::Answer::ActiveWorkspace(workspace)) => workspace,
+        Ok(_not_what_was_asked) => return Ok(Holds::AWindow),
+        Err(_the_compositor_said_nothing) => return Ok(Holds::AWindow),
+    };
+
+    Ok(match workspace {
+        Some(front) => match front.windows {
+            Some(0) => Holds::None,
+            Some(_held) => Holds::AWindow,
+            None => Holds::AWindow,
         },
-    }
+        None => Holds::AWindow,
+    })
 }
 
-fn main() {
-    match gtk4::init() {
-        Ok(()) => {},
-        Err(fault) => {
-            eprintln!("console-home: no screen to draw on: {fault}");
-            return;
-        }
-    }
+fn anything_over_it() -> Result<Over, Never> {
+    let screens = match console_onscreen::screens() {
+        Ok(screens) => screens,
+        Err(_fault) => return Ok(Over::Some),
+    };
 
-    let waiting = glib::MainLoop::new(None, false);
-
-    let Ok(screen) = Screen::new();
-
-    let Ok(()) = console_panel::asked::stops_when_asked({
-        let waiting = waiting.clone();
-        move || waiting.quit()
-    });
-
-    let Ok(found) = found::remembered();
-
-    let Ok(apps) = named(found);
-
-    *screen.apps.borrow_mut() = apps;
-
-    let Ok(()) = screen.reread();
-
-    let Ok(()) = screen.settle();
-
-    let reading = Rc::clone(&screen);
-
-    glib::spawn_future_local(async move {
-        match gtk4::gio::spawn_blocking(found::quickly).await {
-            Ok(found) => {
-                let Ok(found) = found;
-
-                let Ok(apps) = named(found);
-
-                *reading.apps.borrow_mut() = apps;
-
-                let Ok(()) = reading.reread();
-
-                let Ok(()) = reading.draw();
-            }
-            Err(_the_search_went_away) => {},
-        }
-
-        let found = match gtk4::gio::spawn_blocking(found::machine).await {
-            Ok(found) => found,
-            Err(_fault) => return,
-        };
-
-        let Ok(found) = found;
-
-        let Ok(apps) = named(found);
-
-        *reading.apps.borrow_mut() = apps;
-
-        let Ok(()) = reading.reread();
-
-        let Ok(()) = reading.draw();
-    });
-
-    let Ok(()) = listening(&screen);
-
-    let Ok(()) = following(&screen);
-
-    match console_onscreen::waking(Awake::No) {
-        Ok(()) => {},
-        Err(fault) => eprintln!("console-home: nobody was told it is asleep: {fault}"),
-    }
-
-    match console_onscreen::carrying(Hand::Empty) {
-        Ok(()) => {},
-        Err(fault) => eprintln!("console-home: nobody was told its hand is empty: {fault}"),
-    }
-
-    waiting.run();
+    over_the_desktop(&screens)
 }
-
-type Named = BTreeMap<String, (Application, String)>;
 
 fn named(found: found::Found) -> Result<Named, Never> {
     Ok(found
@@ -1382,4 +1542,242 @@ fn named(found: found::Found) -> Result<Named, Never> {
             (name, (app, picture))
         })
         .collect())
+}
+
+fn main() {
+    let Ok(stopping) = console_panel::asked::told();
+
+    let wears = match dressing() {
+        Ok(wears) => wears,
+        Err(why) => {
+            eprintln!("console-home: no palette: {why}");
+
+            return;
+        }
+    };
+
+    let mut surface = match Surface::connect() {
+        Ok(surface) => surface,
+        Err(fault) => {
+            eprintln!("console-home: no surface: {fault}");
+
+            return;
+        }
+    };
+
+    let Ok(mut screen) = Screen::new();
+    let Ok(remembered) = found::remembered();
+    let Ok(apps) = named(remembered);
+
+    screen.apps = apps;
+
+    let Ok(()) = screen.reread();
+    let Ok(()) = screen.settle(&mut surface);
+    let Ok(listening) = listening();
+    let Ok(stirring) = stirring();
+    let Ok(mut searching) = searching();
+
+    match console_onscreen::waking(Woken::No) {
+        Ok(()) => {},
+        Err(fault) => eprintln!("console-home: no one was told it is asleep: {fault}"),
+    }
+
+    match console_onscreen::carrying(Hand::Empty) {
+        Ok(()) => {},
+        Err(fault) => eprintln!("console-home: no one was told its hand is empty: {fault}"),
+    }
+
+    let mut drew: Option<Vec<Shape>> = None;
+    let mut waiting = Waiting::None;
+    let mut touching: Vec<(Spot, Panel)> = Vec::new();
+    let mut room = (0, 0);
+
+    loop {
+        let now = Instant::now();
+
+        let Ok(()) = holding(&mut screen, now);
+        let Ok(events) = surface.pointer_events();
+
+        for event in events {
+            match event {
+                PointerEvent::Moved { at } => {
+                    let Ok(()) = wandered(&mut screen, &touching, room, at);
+                }
+                PointerEvent::Down { at } => {
+                    let Ok(on) = under(&touching, at);
+
+                    screen.finger =
+                        Some(TouchState { from: at, at, since: now, on, held: LongPress::NotYet });
+                }
+                PointerEvent::Up => {
+                    let Ok(()) = lifted(&mut screen);
+                }
+                PointerEvent::Left => {
+                    screen.finger = None;
+
+                    let Ok(()) = screen.nothing_pointed();
+                }
+                PointerEvent::Scrolled { by: _ } | PointerEvent::Pinched { by: _ } => {},
+            }
+        }
+
+        let Ok(logical) = surface.logical();
+
+        match logical {
+            Some(logical) => {
+                let Ok(across) = out(logical.width);
+                let Ok(down) = out(logical.height);
+
+                room = (across, down);
+
+                let Ok(drawing) = drawing(&mut screen, &wears, room);
+
+                waiting = drawing.waiting;
+                touching = drawing.touching;
+
+                match drew.as_ref() == Some(&drawing.shapes) {
+                    true => {},
+                    false => {
+                        let painted = surface.draw(|pixels, device, _scale| {
+                            let frame = Frame { device, points: logical };
+                            let _ = console_draw_painting::onto(pixels, frame, &drawing.shapes);
+
+                            Ok(())
+                        });
+
+                        match painted {
+                            Ok(()) => {},
+                            Err(fault) => eprintln!("console-home: {fault}"),
+                        }
+
+                        drew = Some(drawing.shapes);
+                    }
+                }
+            }
+            None => drew = None,
+        }
+
+        let Ok(until) = until(&screen, waiting);
+
+        let woke = {
+            let mut watching: Vec<(Watching, BorrowedFd<'_>)> = Vec::new();
+
+            match stopping.as_ref() {
+                Some(fd) => watching.push((Watching::Signal, fd.as_fd())),
+                None => {},
+            }
+
+            match listening.as_ref() {
+                Some(socket) => watching.push((Watching::Subscriber, socket.as_fd())),
+                None => {},
+            }
+
+            match searching.as_ref() {
+                Some((fd, _)) => watching.push((Watching::Searching, fd.as_fd())),
+                None => {},
+            }
+
+            match stirring.as_ref() {
+                Some(fd) => watching.push((Watching::Stirred, fd.as_fd())),
+                None => {},
+            }
+
+            let also: Vec<BorrowedFd<'_>> = watching.iter().map(|(_, fd)| *fd).collect();
+
+            match surface.wait(&also, until) {
+                Ok(()) => {},
+                Err(fault) => {
+                    eprintln!("console-home: {fault}");
+
+                    return;
+                }
+            }
+
+            let Ok(ready) = ready(&also);
+
+            ready
+                .iter()
+                .filter_map(|which| {
+                    let Ok(at) = index(*which);
+
+                    watching.get(at).map(|(what, _)| *what)
+                })
+                .collect::<Vec<Watching>>()
+        };
+
+        let Ok(closed) = surface.closed();
+
+        match closed {
+            Closed::Yes => return,
+            Closed::No => {},
+        }
+
+        for what in woke {
+            match what {
+                Watching::Signal => return,
+                Watching::Subscriber => {
+                    let said = match listening.as_ref() {
+                        Some(socket) => {
+                            let Ok(said) = listened(socket);
+
+                            said
+                        }
+                        None => None,
+                    };
+
+                    match said {
+                        Some(said) => {
+                            let Ok(()) = screen.told(said);
+                        }
+                        None => {},
+                    }
+                }
+                Watching::Searching => {
+                    let search = match searching.as_ref() {
+                        Some((fd, held)) => {
+                            let Ok(search) = found_more(&mut screen, fd, held);
+
+                            search
+                        }
+                        None => Search::Finished,
+                    };
+
+                    match search {
+                        Search::Finished => searching = None,
+                        Search::Going => {},
+                    }
+                }
+                Watching::Stirred => {
+                    let stirred = match stirring.as_ref() {
+                        Some(hear) => stirred(hear),
+                        None => Ok(()),
+                    };
+                    let Ok(()) = stirred;
+                    let Ok(()) = screen.settle(&mut surface);
+                    let Ok(()) = screen.reread();
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_search_that_has_told_everything_it_found_is_finished_and_not_ready_forever() {
+        let (hear, tell) = rustix::pipe::pipe().expect("a pipe");
+        let _ = rustix::io::write(&tell, &[1]);
+
+        assert_eq!(heard(&hear), Ok(Search::Going), "something was found and more may follow");
+
+        drop(tell);
+
+        assert_eq!(
+            heard(&hear),
+            Ok(Search::Finished),
+            "the search is over, and a pipe nobody writes to is ready on every poll: watched, it spins a core"
+        );
+    }
 }

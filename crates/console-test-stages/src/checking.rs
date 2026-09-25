@@ -1,6 +1,6 @@
 //! Reading the checks, and running them somewhere.
 //!
-//! A check is one thing, and one feature. It says what somebody did and what
+//! A check is one thing, and one feature. It says what someone did and what
 //! should have happened, and it is edited in place when the feature changes
 //! rather than joined by a second one saying something different. Running them
 //! in order walks everything this desktop has grown, oldest first, and says
@@ -14,7 +14,7 @@ use console_core_never::Never;
 use console_core_words::Words;
 
 use crate::desktop::Desktop;
-use crate::device::{Device, Seen, Waited};
+use crate::device::{Device, Ready, Outcome};
 use crate::here::Here;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,23 +29,23 @@ impl From<String> for Why {
     }
 }
 
-impl From<crate::Awry> for Why {
-    fn from(fault: crate::Awry) -> Self {
+impl From<crate::Error> for Why {
+    fn from(fault: crate::Error) -> Self {
         Why::Failed(fault.to_string())
     }
 }
 
-pub type Done = Result<(), Why>;
+pub type CheckResult = Result<(), Why>;
 
-pub fn cannot(why: &str) -> Done {
+pub fn cannot(why: &str) -> CheckResult {
     Err(Why::Cannot(why.to_string()))
 }
 
-pub fn failed(why: String) -> Done {
+pub fn failed(why: String) -> CheckResult {
     Err(Why::Failed(why))
 }
 
-pub fn same<T, U>(got: &T, wanted: &U, why: impl FnOnce() -> String) -> Done
+pub fn same<T, U>(got: &T, wanted: &U, why: impl FnOnce() -> String) -> CheckResult
 where
     T: PartialEq<U> + ?Sized,
     U: ?Sized,
@@ -56,7 +56,7 @@ where
     }
 }
 
-pub fn not_same<T, U>(got: &T, than: &U, why: impl FnOnce() -> String) -> Done
+pub fn not_same<T, U>(got: &T, than: &U, why: impl FnOnce() -> String) -> CheckResult
 where
     T: PartialEq<U> + ?Sized,
     U: ?Sized,
@@ -67,7 +67,7 @@ where
     }
 }
 
-pub fn more_than<T, U>(got: T, than: U, why: impl FnOnce() -> String) -> Done
+pub fn more_than<T, U>(got: T, than: U, why: impl FnOnce() -> String) -> CheckResult
 where
     T: PartialOrd<U>,
 {
@@ -77,7 +77,7 @@ where
     }
 }
 
-pub fn less_than<T, U>(got: T, than: U, why: impl FnOnce() -> String) -> Done
+pub fn less_than<T, U>(got: T, than: U, why: impl FnOnce() -> String) -> CheckResult
 where
     T: PartialOrd<U>,
 {
@@ -87,21 +87,21 @@ where
     }
 }
 
-pub fn empty<T>(things: &[T], why: impl FnOnce() -> String) -> Done {
+pub fn empty<T>(things: &[T], why: impl FnOnce() -> String) -> CheckResult {
     match things.is_empty() {
         true => Ok(()),
         false => failed(why()),
     }
 }
 
-pub fn not_empty<T>(things: &[T], why: impl FnOnce() -> String) -> Done {
+pub fn not_empty<T>(things: &[T], why: impl FnOnce() -> String) -> CheckResult {
     match things.is_empty() {
         true => failed(why()),
         false => Ok(()),
     }
 }
 
-pub fn every<T, U>(things: &[T], wanted: U, why: impl FnOnce() -> String) -> Done
+pub fn every<T, U>(things: &[T], wanted: U, why: impl FnOnce() -> String) -> CheckResult
 where
     T: PartialEq<U>,
     U: Copy,
@@ -112,32 +112,32 @@ where
     }
 }
 
-pub fn seen(seen: Seen, why: impl FnOnce() -> String) -> Done {
+pub fn seen(seen: Ready, why: impl FnOnce() -> String) -> CheckResult {
     match seen {
-        Seen::Yes => Ok(()),
-        Seen::NotYet => failed(why()),
+        Ready::Yes => Ok(()),
+        Ready::NotYet => failed(why()),
     }
 }
 
-pub fn happened(waited: Waited, why: impl FnOnce() -> String) -> Done {
+pub fn happened(waited: Outcome, why: impl FnOnce() -> String) -> CheckResult {
     happened_handed(waited, &mut (), |_nothing| why())
 }
 
 pub fn happened_handed<M>(
-    waited: Waited,
+    waited: Outcome,
     handed: &mut M,
     why: impl FnOnce(&mut M) -> String,
-) -> Done {
+) -> CheckResult {
     match waited {
-        Waited::Happened => Ok(()),
-        Waited::RanOut => failed(why(handed)),
+        Outcome::Happened => Ok(()),
+        Outcome::RanOut => failed(why(handed)),
     }
 }
 
 pub enum Body {
-    Desktop(fn(&mut Desktop) -> Done),
-    Device(fn(&mut Device) -> Done),
-    Here(fn(&mut Here) -> Done),
+    Desktop(fn(&mut Desktop) -> CheckResult),
+    Device(fn(&mut Device) -> CheckResult),
+    Here(fn(&mut Here) -> CheckResult),
 }
 
 pub struct Check {
@@ -230,7 +230,7 @@ impl How {
     }
 }
 
-fn ended(done: Done) -> Result<How, Never> {
+fn ended(done: CheckResult) -> Result<How, Never> {
     Ok(match done {
         Ok(()) => How::Ok,
         Err(Why::Cannot(why)) => How::Skipped(why),
@@ -290,7 +290,7 @@ pub fn desktop(check: &Check, stage: &mut Desktop) -> Result<How, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::device::Dry;
+    use crate::device::DryRun;
 
     const ONE: Check = Check {
         name: "010-workspaces-right",
@@ -396,7 +396,7 @@ mod tests {
             bodies: &[Body::Device(|_| cannot("a thumb is wanted"))],
         };
         const FAILS: Check = Check { bodies: &[Body::Device(|_| failed("no".to_string()))], ..ONE };
-        let mut dry = Device::new("nowhere", Dry::Pretend).expect("a stage");
+        let mut dry = Device::new("nowhere", DryRun::Pretend).expect("a stage");
         assert_eq!(device(&CANNOT, &mut dry), How::Skipped("a thumb is wanted".to_string()));
         assert_eq!(device(&FAILS, &mut dry), How::Would);
     }

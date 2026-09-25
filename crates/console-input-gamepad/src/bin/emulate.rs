@@ -21,21 +21,21 @@ use console_input_gamepad::go::{LegionGo, Passing};
 use console_input_gamepad::profile::Profile;
 use console_input_gamepad::router::every_profile;
 use console_input_gamepad::script::{self, VERBS};
-use console_input_gamepad::Unpressed;
+use console_input_gamepad::GamepadError;
 use console_input_gamepad::uinput::Uinput;
 use console_core_never::Never;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum Doing {
+enum Action {
     Interactive,
-    Press(Vec<String>),
+    ButtonPress(Vec<String>),
     Run(PathBuf),
-    What(Vec<String>),
+    Describe(Vec<String>),
     Devices,
 }
 
-struct Asked {
-    doing: Doing,
+struct Arguments {
+    effect: Action,
     profile: String,
     root: PathBuf,
 }
@@ -56,11 +56,11 @@ enum Unemulated {
     NoRootPath,
     NoScenario,
     NoSuchCommand(String),
-    Rootless(console_repository::Unfound),
-    Unreadable(PathBuf, std::io::Error),
-    NoDevices(Unpressed),
-    NoUinput(Unpressed),
-    Pressing(Unpressed),
+    Rootless(console_repository::NotFound),
+    Read(PathBuf, std::io::Error),
+    NoDevices(GamepadError),
+    NoUinput(GamepadError),
+    Pressing(GamepadError),
 }
 
 impl std::fmt::Display for Unemulated {
@@ -73,7 +73,7 @@ impl std::fmt::Display for Unemulated {
                 write!(to, "no such command as {other:?}\n{HELP}")
             }
             Unemulated::Rootless(fault) => write!(to, "{fault}"),
-            Unemulated::Unreadable(at, fault) => {
+            Unemulated::Read(at, fault) => {
                 write!(to, "{} could not be read: {fault}", at.display())
             }
             Unemulated::NoDevices(fault) => write!(to, "console-emulate: {fault}"),
@@ -89,14 +89,14 @@ impl std::fmt::Display for Unemulated {
 
 impl std::error::Error for Unemulated {}
 
-impl From<console_repository::Unfound> for Unemulated {
-    fn from(fault: console_repository::Unfound) -> Self {
+impl From<console_repository::NotFound> for Unemulated {
+    fn from(fault: console_repository::NotFound) -> Self {
         Unemulated::Rootless(fault)
     }
 }
 
-impl From<Unpressed> for Unemulated {
-    fn from(fault: Unpressed) -> Self {
+impl From<GamepadError> for Unemulated {
+    fn from(fault: GamepadError) -> Self {
         Unemulated::Pressing(fault)
     }
 }
@@ -111,20 +111,20 @@ fn run() -> Result<ExitCode, Unemulated> {
         Some(asked) => asked,
     };
 
-    match &asked.doing {
-        Doing::What(buttons) => {
+    match &asked.effect {
+        Action::Describe(buttons) => {
             let profiles = every_profile(&asked.root)?;
 
             let Ok(()) = what(buttons, &profiles);
 
             return Ok(ExitCode::SUCCESS);
         }
-        Doing::Devices => {
+        Action::Devices => {
             let Ok(()) = devices();
 
             return Ok(ExitCode::SUCCESS);
         }
-        Doing::Interactive | Doing::Press(_) | Doing::Run(_) => (),
+        Action::Interactive | Action::ButtonPress(_) | Action::Run(_) => (),
     }
 
     let descriptors = captured().map_err(Unemulated::NoDevices)?;
@@ -134,18 +134,18 @@ fn run() -> Result<ExitCode, Unemulated> {
 
     let mut go = LegionGo::new(profiles, devices, Passing, &asked.profile)?;
 
-    match &asked.doing {
-        Doing::Press(buttons) => {
+    match &asked.effect {
+        Action::ButtonPress(buttons) => {
             for button in buttons {
                 go.press(button)?;
             }
         }
-        Doing::Run(scenario) => {
+        Action::Run(scenario) => {
             let text = std::fs::read_to_string(scenario)
-                .map_err(|fault| Unemulated::Unreadable(scenario.clone(), fault))?;
+                .map_err(|fault| Unemulated::Read(scenario.clone(), fault))?;
             script::play(&mut go, &text)?;
         }
-        Doing::Interactive | Doing::What(_) | Doing::Devices => {
+        Action::Interactive | Action::Describe(_) | Action::Devices => {
             let Ok(()) = interactive(&mut go);
         }
     }
@@ -155,7 +155,7 @@ fn run() -> Result<ExitCode, Unemulated> {
     Ok(ExitCode::SUCCESS)
 }
 
-fn read(args: Vec<String>) -> Result<Option<Asked>, Unemulated> {
+fn read(args: Vec<String>) -> Result<Option<Arguments>, Unemulated> {
     let mut profile = console_input_gamepad::router::NAME.to_string();
     let mut root = PathBuf::from(".");
     let mut rest: Vec<String> = Vec::new();
@@ -186,19 +186,19 @@ fn read(args: Vec<String>) -> Result<Option<Asked>, Unemulated> {
         Some(after) => after.to_vec(),
         None => Vec::new(),
     };
-    let doing = match rest.first().map(String::as_str) {
-        None => Doing::Interactive,
-        Some("press") => Doing::Press(named(&rest)),
-        Some("what") => Doing::What(named(&rest)),
-        Some("devices") => Doing::Devices,
+    let effect = match rest.first().map(String::as_str) {
+        None => Action::Interactive,
+        Some("press") => Action::ButtonPress(named(&rest)),
+        Some("what") => Action::Describe(named(&rest)),
+        Some("devices") => Action::Devices,
         Some("run") => {
             let scenario = rest.get(1).ok_or(Unemulated::NoScenario)?;
 
-            Doing::Run(std::path::PathBuf::from(scenario))
+            Action::Run(std::path::PathBuf::from(scenario))
         }
         Some(other) => return Err(Unemulated::NoSuchCommand(other.to_string())),
     };
-    Ok(Some(Asked { doing, profile, root }))
+    Ok(Some(Arguments { effect, profile, root }))
 }
 
 fn interactive<S: console_input_gamepad::devices::Sink>(

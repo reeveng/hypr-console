@@ -1,7 +1,7 @@
 //! Every check, run here, as part of the ordinary suite.
 //!
 //! The checks exist to be replayed against the device at the end. That only
-//! means anything if they still run at all, and a check nobody has run since the
+//! means anything if they still run at all, and a check no one has run since the
 //! feature changed is a check that will fail on the device for a reason that has
 //! nothing to do with the device. So they are also the fast suite: every one of
 //! them that can run without a machine runs on every `cargo test`.

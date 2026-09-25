@@ -1,4 +1,4 @@
-//! The terminal's colours as a file alacritty imports.
+//! The terminal's colors as a file alacritty imports.
 
 use console_core_never::Never;
 
@@ -7,7 +7,7 @@ use crate::terminal::{SLOTS, Shade, Terminal};
 pub fn spend(terminal: &Terminal) -> Result<String, Never> {
     let head = [
         "# Written by console-palette from theme/palette.toml.".to_string(),
-        "# Imported by alacritty.toml, which holds no colour of its own.".to_string(),
+        "# Imported by alacritty.toml, which holds no color of its own.".to_string(),
         String::new(),
         "[colors.primary]".to_string(),
         format!("background = \"0x{}\"", terminal.background),
@@ -38,11 +38,11 @@ pub fn spend(terminal: &Terminal) -> Result<String, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::spend::tests::{blossom, palette_spec};
+    use crate::spend::tests::{blossom, declared_palette};
 
     fn written() -> String {
         let terminal =
-            Terminal::of(&palette_spec(), &blossom()).expect("the terminal table is declared");
+            Terminal::of(&declared_palette(), &blossom()).expect("the terminal table is declared");
 
         let Ok(said) = spend(&terminal);
 
@@ -61,7 +61,7 @@ mod tests {
     }
 
     #[test]
-    fn a_colour_is_written_the_way_alacritty_reads_one() {
+    fn a_color_is_written_the_way_alacritty_reads_one() {
         for line in written().lines().filter(|l| l.contains(" = ")) {
             let (_, value) = line.split_once(" = ").expect("an assignment");
             assert!(value.starts_with("\"0x") && value.ends_with('"'), "{line:?}");
@@ -72,7 +72,7 @@ mod tests {
     #[test]
     fn what_the_cursor_and_the_selection_carry_is_the_background() {
         let toml = written();
-        let terminal = Terminal::of(&palette_spec(), &blossom()).expect("the terminal table is declared");
+        let terminal = Terminal::of(&declared_palette(), &blossom()).expect("the terminal table is declared");
         let carried = format!("text = \"0x{}\"", terminal.background);
         assert_eq!(toml.matches(&carried).count(), 2, "cursor and selection");
     }

@@ -6,7 +6,7 @@
 //! One outcome is written as a pattern and the other is written as the word
 //! `else`, which is not a name for anything -- `let Some(held) = asked else`
 //! never says `None`, exactly as the `if let` 019 forbids never says it. The
-//! case that leaves is the case nobody had to think about, which is the whole
+//! case that leaves is the case no one had to think about, which is the whole
 //! of what this suite is against.
 //!
 //! And it is the second spelling of a decision the workspace already has one

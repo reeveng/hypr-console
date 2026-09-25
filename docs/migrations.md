@@ -40,7 +40,7 @@ that needs it:
     migrations/$(git log -1 --format=%cd --date=unix).sh
 
 The name is omarchy's idea and it is a good one: it sorts into history order
-without a counter for anybody to keep, and two people writing a migration on the
+without a counter for anyone to keep, and two people writing a migration on the
 same afternoon get different names without having to talk to each other.
 
 The top of the file declares what it answers for, and the rest is a shell script
@@ -61,31 +61,31 @@ Each is handed `migrations/attic.sh`, which is where `console-attic` and
 filling and `CONSOLE_HOME` for the home the desktop belongs to.
 
 **Nothing is deleted.** `console-attic` moves. The rename's attic is still on the
-device, which is the only reason anybody can now say that sweep did what it
+device, which is the only reason anyone can now say that sweep did what it
 claimed rather than merely that it ran; a deletion is the same operation with
 nothing left to check it by.
 
 ## Why it cannot be forgotten
 
-This is the part that is not omarchy's. There, somebody has to remember to write
+This is the part that is not omarchy's. There, someone has to remember to write
 a migration. Here the manifest is a file in git, so the tree can be asked what
 left it:
 
     for everything the manifest has ever left on a machine
       that it does not leave there now
-        a migration must claim it, or somebody must have written down why not
+        a migration must claim it, or someone must have written down why not
 
 `cargo test -p console-manifest-migrations` is that question, and it fails `just
 ready`. Delete a line from `desktop.conf` and the gate says
 *`/usr/local/bin/music-panel` left `[build]` and nothing sweeps it*. The way to
 green is to write the migration in the same commit as the removal, which is the
-only moment anybody knows why the line went.
+only moment anyone knows why the line went.
 
 The escape is `migrations/left-on-purpose`: one entry a line with the reason
 beside it. It is the right answer when a machine that applied the previous commit
 is genuinely holding nothing -- everything the rename swept is in there, with the
 attic named as the evidence -- and the wrong answer the rest of the time. A name
-in that file is a decision somebody made and can be argued with. A name that is
+in that file is a decision someone made and can be argued with. A name that is
 simply never mentioned is nothing at all.
 
 ## What the rule is actually about
@@ -143,7 +143,7 @@ An apply runs them before it installs anything, because a migration exists
 precisely because the manifest stopped naming something, and a sweep left until
 afterwards would be deciding about paths a fresh install had just written over. A
 migration that fails stops the apply, which is not the cautious choice but the
-only honest one: what comes next is installing over a machine whose state nobody
+only honest one: what comes next is installing over a machine whose state no one
 now knows, and `console apply` is what people reach for when something is
 already wrong.
 

@@ -1,7 +1,7 @@
 //! Whether there is enough battery left to start an apply.
 //!
 //! An apply is minutes, and most of them are the build. Across those minutes
-//! the one reading on this device that moves without anybody pressing anything
+//! the one reading on this device that moves without anyone pressing anything
 //! goes on moving, and `console-battery` is watching it: at the protect step it
 //! stops the machine, on purpose, before the battery stops it for them. That is
 //! the right thing for it to do and it is aimed squarely at the one operation
@@ -18,10 +18,10 @@
 //! answer is a level rather than a reading.
 //!
 //! Nothing here reads the machine. It is handed a charge and the levels
-//! somebody chose, the way everything else in this crate that decides something
+//! someone chose, the way everything else in this crate that decides something
 //! is handed what it decides about.
 
-use console_default_applications::battery::{Cable, Charge, Levels, NEVER, Step};
+use console_battery::{Cable, Charge, Levels, NEVER, Step};
 use console_core_never::Never;
 
 pub const MARGIN: i32 = 15;
@@ -47,8 +47,8 @@ pub fn enough(charge: Charge, levels: Levels) -> Result<Enough, Never> {
     let Ok(cable) = charge.filling.cable();
 
     match cable {
-        Cable::In => return Ok(Enough::Yes),
-        Cable::Out => {},
+        Cable::Connected => return Ok(Enough::Yes),
+        Cable::Disconnected => {},
     }
 
     let percent = match charge.percent {
@@ -74,7 +74,7 @@ pub fn enough(charge: Charge, levels: Levels) -> Result<Enough, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use console_default_applications::battery::Filling;
+    use console_battery::Filling;
 
     fn on_battery(percent: i32) -> Charge {
         Charge { percent: Some(percent), filling: Filling::No }
@@ -120,7 +120,7 @@ mod tests {
 
     #[test]
     fn a_machine_on_the_cable_at_its_charge_limit_is_never_refused() {
-        let held = Charge { percent: Some(1), filling: Filling::Held };
+        let held = Charge { percent: Some(1), filling: Filling::Charged };
 
         assert_eq!(
             asking(held, levels(5)),

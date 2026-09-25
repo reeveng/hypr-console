@@ -3,12 +3,12 @@
 //! Three places on this device name the types that music is, and all three
 //! have to agree or a song opens somewhere surprising:
 //!
-//!   - `KINDS`, which is what the settings panel writes when somebody chooses
+//!   - `KINDS`, which is what the settings panel writes when someone chooses
 //!     what opens Music.
 //!   - `console-music.desktop`, which is what the music panel claims it can
 //!     open, and therefore whether it is offered on that list at all.
 //!   - `/etc/xdg/mimeapps.list`, which is the answer a machine rebuilt from the
-//!     manifest starts from, before anybody has chosen anything.
+//!     manifest starts from, before anyone has chosen anything.
 //!
 //! They did not agree. `.opus` is `audio/x-opus+ogg` and not `audio/ogg`, and
 //! none of the three had ever said so, so an opus file fell past all of them to

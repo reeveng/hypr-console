@@ -1,9 +1,10 @@
 //! Which panel this is, said rather than worked out.
 //!
-//! It was `argv[0]`, and that was true for as long as a panel was a process.
+//! It was the first argument, and that was true for as long as a panel was a
+//! process.
 //! The program's own name is the layer-shell namespace the compositor reports,
 //! and four things read it back: the bar lights an icon by it, the daemon
-//! knows a chooser is up by it, the tab a panel was left on is filed under it,
+//! knows a picker is up by it, the tab a panel was left on is filed under it,
 //! and every line in the timing file says which surface it was about. One
 //! process drawing several panels in turn has no such name, and the one name
 //! it does have is the host's.
@@ -13,7 +14,7 @@
 //! happens on the loop that draws, and a name reachable from the thread the
 //! rows are gathered on is a name that needs a lock.
 //!
-//! Nothing said is still `argv[0]`, which is what a panel drawn by its own
+//! Nothing said is still the first argument, which is what a panel drawn by its own
 //! program has always been, and is what every test and every fallback gets
 //! without asking for it.
 
@@ -22,7 +23,7 @@ use std::path::Path;
 
 use console_core_never::Never;
 
-const NOBODY: &str = "console-panel";
+const NO_ONE: &str = "console-panel";
 
 thread_local! {
     static WHOSE: RefCell<Option<String>> = const { RefCell::new(None) };
@@ -39,7 +40,7 @@ pub fn named(who: &str) -> Result<(), Never> {
     Ok(())
 }
 
-pub fn nobody() -> Result<(), Never> {
+pub fn no_one() -> Result<(), Never> {
     WHOSE.with(|held| *held.borrow_mut() = None);
 
     Ok(())
@@ -54,7 +55,7 @@ pub fn name() -> Result<String, Never> {
     }
 }
 
-fn argv0() -> Result<String, Never> {
+pub fn argv0() -> Result<String, Never> {
     let argv0 = std::env::args()
         .next()
         .and_then(|argv0| {
@@ -64,7 +65,7 @@ fn argv0() -> Result<String, Never> {
 
     Ok(match argv0 {
         Some(whose) => whose,
-        None => NOBODY.to_string(),
+        None => NO_ONE.to_string(),
     })
 }
 
@@ -78,13 +79,13 @@ mod tests {
 
         assert_eq!(name(), Ok("settings-panel".to_string()));
 
-        let Ok(()) = nobody();
+        let Ok(()) = no_one();
     }
 
     #[test]
     fn one_opening_does_not_leave_its_name_behind() {
         let Ok(()) = named("launcher");
-        let Ok(()) = nobody();
+        let Ok(()) = no_one();
         let Ok(argv0) = argv0();
 
         assert_eq!(name(), Ok(argv0), "the next opening would draw under the last one's name");

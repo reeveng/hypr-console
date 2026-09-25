@@ -1,0 +1,25 @@
+[package]
+name = "console-forecast"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_forecast"
+path = "src/lib.rs"
+
+[[bin]]
+name = "forecast-panel"
+path = "src/bin/forecast-panel.rs"
+
+[dependencies]
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+console-core-places.workspace = true
+console-panel.workspace = true
+console-wallpaper.workspace = true
+console-weather.workspace = true
+
+[lints]
+workspace = true

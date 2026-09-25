@@ -7,9 +7,9 @@
 //! against a copy that had already been replaced costs an evening at both ends
 //! of the wire.
 //!
-//! What matters is that there is one notice and not a pile of them: it is
+//! What matters is that there is one notification and not a pile of them: it is
 //! raised with no expiry so it stands for however long the apply takes, and
-//! every later call replaces that same notice rather than adding a line under
+//! every later call replaces that same notification rather than adding a line under
 //! one that never goes. So these assert the id going out and coming back.
 //!
 //! Run against the script in the tree with a `notify-send` of the test's own,
@@ -24,11 +24,11 @@ const UPDATING: &str = env!("CARGO_BIN_EXE_console-updating");
 
 const ID: &str = "7";
 
-struct Listening {
+struct Subscriber {
     here: PathBuf,
 }
 
-impl Listening {
+impl Subscriber {
     fn new(named: &str) -> Self {
         let named = format!("console-updating-{named}-{}", std::process::id());
         let here = std::env::temp_dir().join(named);
@@ -42,7 +42,7 @@ impl Listening {
         );
         std::fs::write(&at, script).expect("a stub");
         std::fs::set_permissions(&at, std::fs::Permissions::from_mode(0o755)).expect("runnable");
-        Listening { here }
+        Subscriber { here }
     }
 
     fn run(&self, word: &str) {
@@ -72,15 +72,15 @@ impl Listening {
     }
 }
 
-impl Drop for Listening {
+impl Drop for Subscriber {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.here);
     }
 }
 
 #[test]
-fn the_notice_that_says_it_finished_replaces_the_one_that_said_it_started() {
-    let listening = Listening::new("replaces");
+fn the_notification_that_says_it_finished_replaces_the_one_that_said_it_started() {
+    let listening = Subscriber::new("replaces");
     listening.run("start");
     listening.run("done");
     let shown = listening.shown();
@@ -99,7 +99,7 @@ fn the_notice_that_says_it_finished_replaces_the_one_that_said_it_started() {
 
 #[test]
 fn the_one_that_stands_while_the_apply_runs_does_not_time_out() {
-    let listening = Listening::new("standing");
+    let listening = Subscriber::new("standing");
     listening.run("start");
     let shown = listening.shown();
     assert!(
@@ -110,8 +110,8 @@ fn the_one_that_stands_while_the_apply_runs_does_not_time_out() {
 }
 
 #[test]
-fn the_number_is_kept_while_the_notice_stands_and_let_go_when_it_does_not() {
-    let listening = Listening::new("kept");
+fn the_number_is_kept_while_the_notification_stands_and_let_go_when_it_does_not() {
+    let listening = Subscriber::new("kept");
     listening.run("start");
     assert_eq!(listening.kept().trim(), ID);
     listening.run("done");
@@ -120,7 +120,7 @@ fn the_number_is_kept_while_the_notice_stands_and_let_go_when_it_does_not() {
 
 #[test]
 fn an_apply_that_did_not_finish_says_so_and_stays_on_the_screen() {
-    let listening = Listening::new("failed");
+    let listening = Subscriber::new("failed");
     listening.run("start");
     listening.run("failed");
     let said = listening.shown().pop().expect("something shown");
@@ -131,7 +131,7 @@ fn an_apply_that_did_not_finish_says_so_and_stays_on_the_screen() {
 
 #[test]
 fn a_word_it_does_not_know_is_refused() {
-    let listening = Listening::new("unknown");
+    let listening = Subscriber::new("unknown");
     listening.run("sideways");
     assert!(listening.shown().is_empty(), "it showed something for a word it does not know");
 }

@@ -1,0 +1,27 @@
+[Unit]
+Description=Recovery
+# The second rung, started by the login window's OnFailure= and by nothing else.
+# It holds the text console the login window was drawing on, so it conflicts
+# with both of the things that would want it back: choosing to start the desktop
+# again stops this, and so does choosing the terminal.
+Conflicts=display-manager.service getty@tty1.service
+# The third rung. A menu that never says it is up is a menu nobody can see, and
+# under it is a login prompt, which wants a keyboard and asks for the pattern's
+# letters.
+OnFailure=getty@tty1.service
+
+[Service]
+Type=notify
+NotifyAccess=main
+TimeoutStartSec=30
+# The login window is here because it failed often enough to stop being
+# restarted, and "start the desktop again" would be refused for the same
+# reason. Forgetting that is what makes the first choice a real one.
+ExecStartPre=-/usr/bin/systemctl reset-failed display-manager.service
+ExecStart=/usr/local/bin/recovery
+StandardInput=tty
+StandardOutput=tty
+StandardError=journal
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes

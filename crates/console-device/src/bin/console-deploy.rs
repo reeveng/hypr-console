@@ -12,13 +12,12 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use console_device::deploying::{Alive, Deploy, Heard, Holder, Its};
-use console_device::naming::device;
-use console_core_external_programs::Program as Theirs;
-use console_core_atomic_writes::{self, Held};
+use console_device::deploying::{Alive, Deploy, DeployingEvent, Holder, DeployingEffect};
+use console_device_name::device;
+use console_core_external_programs::Program as ExternalProgram;
 use console_core_never::Never;
-use console_program_contract::{Argv, Word};
-use console_program_runtime::Carrying;
+use console_program_contract::{Arguments, Event};
+use console_program_runtime::Interpreter;
 
 const NAMED: &str = "/proc/sys/kernel/hostname";
 
@@ -26,22 +25,22 @@ struct Locking {
     held: Option<PathBuf>,
 }
 
-impl Carrying for Locking {
-    type Hears = Heard;
-    type Does = Its;
+impl Interpreter for Locking {
+    type Event = DeployingEvent;
+    type Effect = DeployingEffect;
 
-    fn its(&mut self, doing: &Its) -> Vec<Word<Heard>> {
-        match doing {
-            Its::Take(at) => match std::fs::create_dir(at) {
+    fn interpret(&mut self, acts: &DeployingEffect) -> Vec<Event<DeployingEvent>> {
+        match acts {
+            DeployingEffect::Take(at) => match std::fs::create_dir(at) {
                 Ok(()) => {
                     self.held = Some(at.clone());
 
-                    vec![Word::Its(Heard::Took)]
+                    vec![Event::Custom(DeployingEvent::Took)]
                 }
-                Err(_) => vec![Word::Its(Heard::Taken)],
+                Err(_) => vec![Event::Custom(DeployingEvent::Busy)],
             },
 
-            Its::Mine(at) => {
+            DeployingEffect::Mine(at) => {
                 let Ok(here) = here();
                 let Ok(today) = today();
                 let pid = std::process::id().to_string();
@@ -52,13 +51,13 @@ impl Carrying for Locking {
                 Vec::new()
             }
 
-            Its::Read(at) => {
+            DeployingEffect::Read(at) => {
                 let Ok(holding) = holding(at);
 
-                vec![Word::Its(Heard::Holder(holding))]
+                vec![Event::Custom(DeployingEvent::Holder(holding))]
             }
 
-            Its::Free(at) => {
+            DeployingEffect::Free(at) => {
                 let _ = std::fs::remove_dir_all(at);
 
                 Vec::new()
@@ -97,13 +96,10 @@ fn said(at: &Path, called: &str) -> Result<String, Never> {
 }
 
 fn kept(at: &Path) -> Result<String, Never> {
-    let Ok(held) = console_core_atomic_writes::read(at);
-
-    Ok(match held {
-        Held::Said(said) => said.trim().to_string(),
-        Held::Nothing => String::new(),
-        Held::Unreadable(fault) => {
-            eprintln!("console-deploy: {}: {fault}", at.display());
+    Ok(match console_core_atomic_writes::text_or_empty(at) {
+        Ok(said) => said.trim().to_string(),
+        Err(fault) => {
+            eprintln!("console-deploy: {fault}");
 
             String::new()
         }
@@ -128,17 +124,23 @@ fn holding(at: &Path) -> Result<Holder, Never> {
     })
 }
 
+fn host_of(words: &[String]) -> Result<String, Never> {
+    Ok(match words.first() {
+        Some(host) => host.clone(),
+        None => String::new(),
+    })
+}
+
 fn here() -> Result<String, Never> {
     kept(Path::new(NAMED))
 }
 
 fn today() -> Result<String, Never> {
-    let Ok(mut date) = Theirs::Date.command();
-    let said = date.output();
+    let Ok(asking) = ExternalProgram::Date.arguments(&[]);
 
-    Ok(match said {
-        Ok(said) => String::from_utf8_lossy(&said.stdout).trim().to_string(),
-        Err(_) => String::new(),
+    Ok(match console_core_external_programs::printed(&asking) {
+        Ok(said) => said.trim().to_string(),
+        Err(_unprinted) => String::new(),
     })
 }
 
@@ -180,12 +182,23 @@ fn main() -> ExitCode {
         }
     }
 
+    let Ok(host) = host_of(&words);
+    let Ok(asked) = console_awake::taking_on(&host, console_awake::InhibitReason::FromDeploying);
+    let _kept_up = match asked {
+        console_awake::InhibitResult::Acquired(staying) => Some(staying),
+        console_awake::InhibitResult::Failed(said) => {
+            eprintln!("console-deploy: {said}");
+
+            None
+        }
+    };
+
     let mut locking = Locking { held: None };
 
-    let Ok(argv) = Argv::of(&given);
+    let Ok(arguments) = Arguments::of(&given);
     let Ok(how) = console_program_runtime::run::<Deploy, Locking>(
         "console-deploy",
-        &argv,
+        &arguments,
         &mut locking,
     );
 

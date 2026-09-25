@@ -1,7 +1,7 @@
 //! What a typed word finds under the folder being shown.
 //!
 //! A listing is walked into a folder at a time, which is the right way to read
-//! a place somebody knows and the wrong way to find one thing in a place they
+//! a place someone knows and the wrong way to find one thing in a place they
 //! do not. So the line at the top of a folder is not a filter on what is in
 //! front of you: it looks under everything below it as well, and the row says
 //! where what it found is.
@@ -57,8 +57,8 @@ pub enum Answers {
     No,
 }
 
-const ENOUGH: usize = 120;
-const FAR: usize = 600;
+const ENOUGH: u32 = 120;
+const FAR: u32 = 600;
 
 pub fn under(
     here: &Path,
@@ -72,10 +72,12 @@ pub fn under(
 
     let mut found: Vec<Found> = Vec::new();
     let mut waiting = VecDeque::from([PathBuf::new()]);
-    let mut read_so_far: usize = 0;
+    let mut read_so_far: u32 = 0;
 
     while let Some(within) = waiting.pop_front() {
-        match found.len() >= ENOUGH || read_so_far >= FAR {
+        let Ok(many) = console_core_number_conversion::fitted::<_, u32>(found.len());
+
+        match many >= ENOUGH || read_so_far >= FAR {
             true => break,
             false => {},
         }
@@ -219,6 +221,6 @@ mod tests {
         let Ok(found) = under(Path::new("/home"), "notes", &round);
 
         assert!(!found.is_empty());
-        assert!(found.len() <= ENOUGH);
+        assert!(u32::try_from(found.len()).unwrap() <= ENOUGH);
     }
 }

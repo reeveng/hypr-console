@@ -7,7 +7,7 @@ thumbs.
 
 Two things hold it up. `desktop.conf` is the whole inventory -- packages,
 files, services, masked units -- and `console apply` is the only thing that
-installs any of it, so a restart cannot lose a fix nobody wrote down. And the
+installs any of it, so a restart cannot lose a fix no one wrote down. And the
 controller is emulated from a capture of the real one, so what a button does
 can be tried on a laptop in a second rather than over ssh.
 
@@ -25,7 +25,7 @@ can be tried on a laptop in a second rather than over ssh.
     docs/           why each thing is the way it is
     migrations/     what a machine is told when the manifest stops naming something
     scenarios/      presses a person would make, replayed
-    theme/          palette.toml, the one place a colour is chosen
+    theme/          palette.toml, the one place a color is chosen
     tools/          the lint suite, and what a deploy runs
 
 ## docs
@@ -58,24 +58,27 @@ can be tried on a laptop in a second rather than over ssh.
 - [`console-browser-extension`](crates/console-browser-extension) -- the add-on this desktop puts in its browser
 - [`console-button-guide`](crates/console-button-guide) -- what every button does
 - [`console-core-atomic-writes`](crates/console-core-atomic-writes) -- writing a file so a machine that stops has a whole one
-- [`console-core-colour`](crates/console-core-colour) -- colours, and how far apart two of them are
+- [`console-core-color`](crates/console-core-color) -- colors, and how far apart two of them are
 - [`console-core-external-programs`](crates/console-core-external-programs) -- every program this desktop runs and did not write
 - [`console-core-localization`](crates/console-core-localization) -- everything a person reads, in the language they read
 - [`console-core-never`](crates/console-core-never) -- the error of a function that cannot fail
 - [`console-core-number-conversion`](crates/console-core-number-conversion) -- the one place a number changes width
 - [`console-core-reconnect`](crates/console-core-reconnect) -- reaching again for something that has gone
-- [`console-cpu-boost`](crates/console-cpu-boost) -- the processors, asked to hurry while somebody waits
+- [`console-battery`](crates/console-battery) -- what the battery does on the way down, and where each step starts
+- [`console-cpu-boost`](crates/console-cpu-boost) -- the processors, asked to hurry while someone waits
 - [`console-default-applications`](crates/console-default-applications) -- what this desktop opens things with
+- [`console-defaults`](crates/console-defaults) -- the settings no one else owns, in one file
 - [`console-device`](crates/console-device) -- the handheld, reached from this checkout
+- [`console-device-name`](crates/console-device-name) -- which device `CONSOLE_HOST` names, read in one place
 - [`console-downloads`](crates/console-downloads) -- something off the net, into the folders this device plays out of
-- [`console-events`](crates/console-events) -- one subscription per source, and everybody else is told
+- [`console-events`](crates/console-events) -- one subscription per source, and everyone else is told
 - [`console-files`](crates/console-files) -- the files, as something the front of the machine can walk
 - [`console-home-screen`](crates/console-home-screen) -- what is on the wallpaper, and where the thumb is on it
-- [`console-input-controller`](crates/console-input-controller) -- input in, a doing out; it opens no device
+- [`console-input-controller`](crates/console-input-controller) -- input in, an action out; it opens no device
 - [`console-input-dictation`](crates/console-input-dictation) -- speaking instead of typing
 - [`console-input-focus`](crates/console-input-focus) -- input, claimed by whatever is in front of you
 - [`console-input-gamepad`](crates/console-input-gamepad) -- a Legion Go you can press, on a machine that is not one
-- [`console-input-keyboard`](crates/console-input-keyboard) -- the on-screen keyboard, and the one crate with a licence of its own
+- [`console-input-keyboard`](crates/console-input-keyboard) -- the on-screen keyboard, and the one crate with a license of its own
 - [`console-input-mapping`](crates/console-input-mapping) -- where the buttons are on a device that is not this one
 - [`console-input-pointer`](crates/console-input-pointer) -- a pointer made of nothing, for the checks to press with
 - [`console-input-touchscreen`](crates/console-input-touchscreen) -- a finger put down at a place on the picture
@@ -86,16 +89,17 @@ can be tried on a laptop in a second rather than over ssh.
 - [`console-media-viewer`](crates/console-media-viewer) -- a photograph and a film, on the machine that holds them
 - [`console-music`](crates/console-music) -- the music: what it draws, what it lists, what it presses
 - [`console-music-player`](crates/console-music-player) -- and what makes the sound: ffmpeg into pw-cat, answering on MPRIS
-- [`console-notifications`](crates/console-notifications) -- what the desktop has said, kept where somebody can look
+- [`console-notifications`](crates/console-notifications) -- what the desktop has said, kept where someone can look
 - [`console-onscreen`](crates/console-onscreen) -- whether something is on the screen, asked of the compositor
-- [`console-palette`](crates/console-palette) -- spends the palette into every file that holds a colour
+- [`console-palette`](crates/console-palette) -- spends the palette into every file that holds a color
 - [`console-panel`](crates/console-panel) -- a panel: tabs across the top, and under them only what that tab is about
 - [`console-panels`](crates/console-panels) -- one program, holding every panel
-- [`console-program-contract`](crates/console-program-contract) -- what a program here is: words in, doings out
+- [`console-program-contract`](crates/console-program-contract) -- what a program here is: words in, actions out
 - [`console-program-lifetime`](crates/console-program-lifetime) -- how long a started program lives, said at the call site
 - [`console-program-runtime`](crates/console-program-runtime) -- the loop that carries out what a program decided
+- [`console-rename`](crates/console-rename) -- changing a name everywhere this tree writes it
 - [`console-repository`](crates/console-repository) -- where the repository is, from anywhere inside it
-- [`console-response-times`](crates/console-response-times) -- how long the machine kept somebody waiting
+- [`console-response-times`](crates/console-response-times) -- how long the machine kept someone waiting
 - [`console-screen`](crates/console-screen) -- the device's screen, read out of the compositor's own file
 - [`console-session`](crates/console-session) -- which session has the screen, and how to get to the other one
 - [`console-settings`](crates/console-settings) -- what Legion right opens
@@ -135,19 +139,19 @@ can be tried on a laptop in a second rather than over ssh.
   - [`explicit019_no_if`](tools/explicit-rust/explicit019_no_if) -- no `if`; a decision is a `match` that names both outcomes
   - [`explicit020_no_comment`](tools/explicit-rust/explicit020_no_comment) -- no comments; a `//!` head and a `// SAFETY:` stay
 
-## Licence
+## License
 
 AGPL-3.0-or-later, for everything in this repository but one crate. Take it,
 change it, run it, sell it -- and whoever you hand it to, over a wire as much
 as on a disk, gets the source of what you handed them under the same terms.
 That is the whole reason for the choice: what is open here stays open
-downstream, and a desktop somebody serves rather than ships is not a hole in
+downstream, and a desktop someone serves rather than ships is not a hole in
 that.
 
 The exception is
 [`crates/console-input-keyboard`](crates/console-input-keyboard), which is
 GPL-3.0-or-later. It is a port of [wvkbd](https://git.sr.ht/~proycon/wvkbd) and
-carries the licence it was given; the AGPL is not a later version of the GPL, so
+carries the license it was given; the AGPL is not a later version of the GPL, so
 it was never ours to move. Its own module comment says so.
 
 The two forks named in [`docs/forks.md`](docs/forks.md) are not here and keep

@@ -10,8 +10,8 @@ name = "console_downloads"
 path = "src/lib.rs"
 
 [[bin]]
-name = "downloads-panel"
-path = "src/bin/downloads-panel.rs"
+name = "downloads"
+path = "src/bin/downloads.rs"
 
 # The looking and the fetching are programs of their own, because both take
 # longer than a frame and a panel that waits is a panel that has stopped
@@ -26,21 +26,23 @@ path = "src/bin/downloads-get.rs"
 
 # The same decision about formats, applied to what is in the folder already
 # rather than to what is arriving. Its own program because it is minutes of
-# ffmpeg over somebody's music and a panel cannot wait for that.
+# ffmpeg over someone's music and a panel cannot wait for that.
 [[bin]]
 name = "downloads-format"
 path = "src/bin/downloads-format.rs"
 
 [dependencies]
 console-core-atomic-writes.workspace = true
+console-core-places.workspace = true
 console-core-never.workspace = true
+console-core-localization.workspace = true
 console-core-words.workspace = true
 console-program-contract.workspace = true
 console-core-external-programs.workspace = true
 console-core-number-conversion.workspace = true
-gtk4 = "0.11"
 serde_json = "1"
-console-music.workspace = true
+console-music-player.workspace = true
+console-books.workspace = true
 console-panel.workspace = true
 
 [lints]

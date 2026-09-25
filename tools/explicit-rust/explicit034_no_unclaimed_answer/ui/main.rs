@@ -1,4 +1,4 @@
-// UI test for EXPLICIT034 — an answer nobody is asked to take.
+// UI test for EXPLICIT034 — an answer no one is asked to take.
 
 struct Held {
     named: String,
@@ -38,7 +38,7 @@ fn does(with: &Held) {
     let _ = &with.named;
 }
 
-// GOOD — the signature was somebody else's to choose.
+// GOOD — the signature was someone else's to choose.
 impl Default for Held {
     fn default() -> Self {
         Held {

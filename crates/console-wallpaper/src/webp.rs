@@ -7,8 +7,11 @@
 
 use console_core_geometry::Size;
 use console_core_never::Never;
+use console_core_number_conversion::{fitted, index};
 
 use crate::Unpainted;
+
+const RIFF_HEADER: u32 = 12;
 
 pub struct Frame {
     pub x: i32,
@@ -25,7 +28,7 @@ fn three(value: u32) -> Result<[u8; 3], Never> {
     Ok([first, second, third])
 }
 
-fn riff_length(bytes: usize) -> Result<u32, Unpainted> {
+fn riff_length(bytes: u64) -> Result<u32, Unpainted> {
     u32::try_from(bytes).map_err(|_| Unpainted::ChunkTooBig(bytes))
 }
 
@@ -34,7 +37,8 @@ fn side(pixels: i32) -> Result<u32, Unpainted> {
 }
 
 fn chunk(tag: &[u8; 4], body: &[u8]) -> Result<Vec<u8>, Unpainted> {
-    let measured = riff_length(body.len())?;
+    let Ok(bytes) = fitted::<_, u64>(body.len());
+    let measured = riff_length(bytes)?;
     let mut out = Vec::with_capacity(body.len().saturating_add(9));
     out.extend_from_slice(tag);
     out.extend_from_slice(&measured.to_le_bytes());
@@ -49,42 +53,39 @@ fn chunk(tag: &[u8; 4], body: &[u8]) -> Result<Vec<u8>, Unpainted> {
 }
 
 pub fn image_of(single: &[u8]) -> Result<&[u8], Unpainted> {
-    let mut at: usize = 12;
+    let Ok(header) = index(RIFF_HEADER);
 
-    while at.saturating_add(8) <= single.len() {
-        let tag = match single.get(at..at.saturating_add(4)) {
-            Some(tag) => tag,
-            None => return Err(Unpainted::CutShort),
+    let mut rest = match single.get(header..) {
+        Some(rest) => rest,
+        None => return Err(Unpainted::NoPicture),
+    };
+
+    loop {
+        let (tag, size) = match rest
+            .split_first_chunk::<4>()
+            .and_then(|(tag, after)| after.first_chunk::<4>().map(|size| (tag, u32::from_le_bytes(*size))))
+        {
+            Some(chunk) => chunk,
+            None => return Err(Unpainted::NoPicture),
         };
 
-        let said = match single.get(at.saturating_add(4)..at.saturating_add(8)) {
-            Some(said) => said,
-            None => return Err(Unpainted::CutShort),
-        };
-
-        let four: [u8; 4] = said.try_into().map_err(|_| Unpainted::CutShort)?;
-        let size = u32::from_le_bytes(four);
-        let counted = usize::try_from(size).map_err(|_| Unpainted::ChunkTooLong)?;
-        let whole = counted.saturating_add(counted & 1).saturating_add(8);
+        let Ok(whole) = index(size.saturating_add(size & 1).saturating_add(8));
 
         match tag == b"VP8 " || tag == b"VP8L" {
-            true => {
-                return single
-                    .get(at..at.saturating_add(whole))
-                    .ok_or(Unpainted::CutShort);
-            }
+            true => return rest.get(..whole).ok_or(Unpainted::CutShort),
             false => {},
         }
 
-        at = at.saturating_add(whole);
+        rest = match rest.get(whole..) {
+            Some(rest) => rest,
+            None => return Err(Unpainted::NoPicture),
+        };
     }
-
-    Err(Unpainted::NoPicture)
 }
 
 pub fn animation(size: Size<i32>, frames: &[Frame]) -> Result<Vec<u8>, Unpainted> {
-    let across = side(size.wide)?;
-    let down = side(size.tall)?;
+    let across = side(size.width)?;
+    let down = side(size.height)?;
 
     let Ok(wide) = three(across.saturating_sub(1));
 
@@ -121,7 +122,8 @@ pub fn animation(size: Size<i32>, frames: &[Frame]) -> Result<Vec<u8>, Unpainted
         body.extend(anmf);
     }
 
-    let whole = riff_length(body.len().saturating_add(4))?;
+    let Ok(bytes) = fitted::<_, u64>(body.len());
+    let whole = riff_length(bytes.saturating_add(4))?;
 
     Ok([
         b"RIFF".to_vec(),

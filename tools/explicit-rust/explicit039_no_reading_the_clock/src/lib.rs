@@ -6,13 +6,13 @@
 //! and cannot be asked the same question twice: pressed a second time it
 //! answers differently, and there is no arrangement of the test that makes it
 //! answer the same. `console-input-controller` is the shape the rest of the
-//! tree is walking towards for exactly this reason -- input is handed in and a
-//! `Doing` is handed back, so every decision can be asked twice and answered
+//! tree is walking toward for exactly this reason -- input is handed in and a
+//! `Effect` is handed back, so every decision can be asked twice and answered
 //! the same way -- and a `Instant::now()` inside one of those decisions is the
 //! one thing that takes it back.
 //!
 //! The tree already writes it the right way in the places that were hard
-//! enough to make somebody think about it. `console-cpu-boost` decides nothing
+//! enough to make someone think about it. `console-cpu-boost` decides nothing
 //! from the clock: `hurrying.asked(now)` takes the instant as a parameter, and
 //! the binary reads it. `console-program-runtime` does the same across its
 //! loop. What this rule does is say that out loud and stop the other spelling,
@@ -38,7 +38,7 @@
 //! already asked them to have names.
 //!
 //! It arrived `Warn` and is denied. What it bit was spread over most of the
-//! crates that draw anything, and it came out in two kinds. Where somebody at
+//! crates that draw anything, and it came out in two kinds. Where someone at
 //! the edge could hold the answer the reading moved out and became a parameter:
 //! the virtual keyboard's timestamp base is read by `keyboard` and handed to
 //! `Typist::new`, and where the machine is was a memo in the wallpaper's own

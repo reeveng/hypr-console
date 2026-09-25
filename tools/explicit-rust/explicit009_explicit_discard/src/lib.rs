@@ -44,7 +44,7 @@ impl<'tcx> LateLintPass<'tcx> for Explicit009ExplicitDiscard {
             stmt.span,
             "a `#[must_use]` value is being discarded silently",
             None,
-            "write `let _ = …;` so the discard is a decision somebody made on purpose",
+            "write `let _ = …;` so the discard is a decision someone made on purpose",
         );
     }
 }

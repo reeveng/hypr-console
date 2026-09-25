@@ -28,11 +28,11 @@ to keep.
 | **L1** and **R1** | the place before and the place after |
 | **Right paddle, top** | closes whatever is up |
 
-A means the highlighted row only for as long as a chooser is up. On the desktop
+A means the highlighted row only for as long as a picker is up. On the desktop
 A is a mouse click where the pointer is, because there is no highlight out there
 to confirm. That difference is a column in the controller daemon's table --
-`When::WithAChooserUp` against `When::OnTheDesktop` -- and the daemon knows
-which it is by asking the compositor whether a chooser is on the screen. A panel
+`When::WithAPickerUp` against `When::OnTheDesktop` -- and the daemon knows
+which it is by asking the compositor whether a picker is on the screen. A panel
 does not ask for anything and cannot get it wrong; it draws, and it is seen.
 
 It used to be two InputPlumber profiles swapped on the way in and out of every
@@ -41,16 +41,16 @@ is what the column buys now: a list on this device can be walked with a thumb.
 What it cost was the on-screen keyboard's device and the daemon's, several times
 a minute.
 
-A window that cannot be recognised as a chooser cannot be driven this way, which
+A window that cannot be recognised as a picker cannot be driven this way, which
 is the whole of why the files are ours and not Dolphin's.
 
-## Row nought is the way back
+## Row zero is the way back
 
 Wherever you are, the first row goes back one step: out of a folder, out of a
 question, out of the thing you opened.
 
 It is there because B has no answer for a finger. The panel's own way out is the
-**×**, and that closes the whole card, so without row nought anything opened by
+**×**, and that closes the whole card, so without row zero anything opened by
 touch could only be left by putting the device down and picking up the
 controller. Every button has to have an answer for a hand holding nothing, and
 this is B's.
@@ -70,7 +70,7 @@ does: there is more that way.
 A list that goes deeper looks exactly like one that does not, and without the
 mark the only way to find out was to press A and see where you ended up. The
 Defaults tab is six rows that each open onto their own choices, and it reads as
-six settings and their readings rather than as six lists somebody has to
+six settings and their readings rather than as six lists someone has to
 remember are there. A folder in the files wears the same mark, and so does the
 one row of Y's list that opens another one.
 
@@ -92,7 +92,7 @@ place. A folder wears the folder icon, which is symbolic and therefore drawn in
 whatever ink the row is written in, so it stays in the palette on a highlighted
 row as well as a dark one. Anything that has no picture worth making keeps the
 room and puts nothing in it, because a page of documents each wearing a small
-grey rectangle is harder to read than a page of names.
+gray rectangle is harder to read than a page of names.
 
 The picture itself comes out of one file. A row that opened its own was a file
 opened, a format worked out and an image scaled -- on the loop that draws,
@@ -118,7 +118,7 @@ of the folder above that, and only at the top of a place does B mean the panel.
 A page says what back means for it with `Page::on_back`, and saying true is
 saying there was nowhere left to go. Nothing else has to know.
 
-Pressing B until you are out is a habit somebody can have without being taught
+Pressing B until you are out is a habit someone can have without being taught
 it, and it only works if every surface unwinds by the same rule.
 
 ## The shoulders are places, never actions
@@ -135,7 +135,7 @@ on it draws nothing and reads nothing: the tab that was in front is still in
 front and still on the screen, it says so in mint rather than wearing the
 highlight, and the **×** takes the highlight instead. A closes the card from
 there, which is the shoulder still going somewhere and A still doing the thing.
-The d-pad hands the panel back to the list, so nobody is left standing on a
+The d-pad hands the panel back to the list, so no one is left standing on a
 button that closes it.
 
 ## Y is about the row, never about the selection
@@ -192,7 +192,7 @@ Every tab has one, and every one of them used to be written with `said`, which
 is a card the width of the panel in the ink an option is written in — the exact
 shape a thumb is aiming at. So a tab with nothing on it read as a tab with one
 thing on it, and the only way to find out otherwise was to press A and watch
-nothing happen. It declared no intent and no behaviour while wearing the shape
+nothing happen. It declared no intent and no behavior while wearing the shape
 of something that has both.
 
 It is drawn as what it is instead: no card, quiet, small, set across the middle
@@ -208,7 +208,7 @@ The device is a touchscreen and it is put down as often as it is held. A button
 whose job cannot be done by hand is a thing that can be looked at and not
 changed, which is worse than a thing that is missing.
 
-So: a tap on a row is A. Row nought is B. The **−** and **+** on a row are left
+So: a tap on a row is A. Row zero is B. The **−** and **+** on a row are left
 and right. The **‹** and **›** either side of the strip are the shoulders. The
 **⋯** beside a row is Y. The **×** is the way out of the card.
 `crates/console-manifest-engine` holds the bar to this, and the table in the
@@ -217,7 +217,7 @@ button contract is the list.
 A row may ask to wear no marks at all, by naming two ends that are both empty.
 It is what a picture asks for: the whole width is the picture's, a hand steps it
 by pushing it aside, and a button hung on the far edge would be a thing floating
-in the middle of what somebody is looking at. It takes the marks off and never
+in the middle of what someone is looking at. It takes the marks off and never
 the deed -- Y still answers on a bare row, drawn on the row beside it -- which
 is how a card with one subject ends up with one **⋯** rather than one per line
 it is written on. That is where the two viewers this was read against put it:
@@ -229,7 +229,7 @@ the ends of a level are drawn on every row that carries one, and it presses that
 row's own offer rather than whatever the highlight is on. That difference is the
 whole of why it is not simply Y wired to a button: a thumb asks about the row
 it is standing on, and a finger asks about the row it has landed on, and those
-are the same question only while nobody is using the screen.
+are the same question only while no one is using the screen.
 
 It is the mark the panel drew last, and what it cost to be without it is the
 measure of the rule. Renaming a file, deleting one, picking one up, what a
@@ -292,7 +292,7 @@ button is the finger's and Y is the thumb's, which is what it was before this.
 
 Left and right on a row that carries a level is the one thing this desktop
 offers that a finger could otherwise reach only by aiming at a mark the width of
-a thumbnail. Every gallery anybody arriving here has already used steps to the
+a thumbnail. Every gallery anyone arriving here has already used steps to the
 next picture by pushing the one in front of them out of the way, so a swipe is
 wired to the row's own level closure -- the same one the **−** and **+** press
 and the same one the d-pad calls. Nothing has to be taught it: a row that gains
@@ -329,7 +329,7 @@ one standing, B leaves the question the way **Cancel** does.
 
 A list here is a list of things to go into, and a question written as rows is a
 sentence in an inventory. It also cost the answer a row of its own: going ahead
-was a row saying "Yes, delete" and declining was row nought, which is the way
+was a row saying "Yes, delete" and declining was row zero, which is the way
 back and not an answer to anything.
 
 Nothing is pushed. The question stands over the list it was asked on and either
@@ -348,7 +348,7 @@ because the first press of A should do the obvious thing.
 A question is the exception, and it opens standing on **Cancel**. It is the one
 place where the obvious thing is a photograph thrown away by a thumb that
 pressed A twice. The answers that do something are drawn after it and wear the
-warmer colour.
+warmer color.
 
 ## What a press does is what the row it is on says
 
@@ -417,13 +417,13 @@ that has not finished loading rather than as one that is about a single song.
 
 `Page::in_the_middle` says the page is a card, and its rows are set in the
 middle of the room instead of from the top. It is a property of the page rather
-than something worked out from how many rows there are: a tab that centred
+than something worked out from how many rows there are: a tab that centered
 itself whenever its rows happened to be short would move every row on it the
 moment one more arrived, which is the fault the remembered rows exist to avoid.
 
 It is the same answer a picture opened out already got, and now it is one
-answer rather than two: `Opened::Out` centres what it draws because the screen
-is the picture's, and a card centres because the card is about one thing.
+answer rather than two: `Opened::Out` centers what it draws because the screen
+is the picture's, and a card centers because the card is about one thing.
 
 ## What is slow does not happen where the drawing happens
 
@@ -477,7 +477,7 @@ missing from the other.
 **The rows work.** This is the whole reason the reading is remembered and not
 the row. A row built from a remembered reading carries the same `Does` as the
 row that replaces it, so A on it does what it says while the machine is still
-being read. A greyed-out list of last time's words would keep the card the right
+being read. A grayed-out list of last time's words would keep the card the right
 height and be a page of things that cannot be pressed, which is the fault the
 empty list at least declared.
 
@@ -490,7 +490,7 @@ and the order it comes out in is read fresh.
 It is a cache and it says so. `~/.cache/console`, and not beside the notes under
 `~/.local/state/console` where a panel keeps the tab it was left on and the room
 it was granted: those are things the desktop remembers about itself and could
-not work out again, and this is the machine's own answer to a question anybody
+not work out again, and this is the machine's own answer to a question anyone
 can ask it again. Clearing it costs one opening, drawn the way every opening was
 drawn before any of this.
 
@@ -499,7 +499,7 @@ drawn before any of this.
 A watch is a program a tab keeps open so it is told when its own answer changed
 rather than asking on a clock: `pactl subscribe` under Sound, `busctl monitor`
 under the bell. Every one of them redraws the tab it belongs to and is ignored
-while any other tab is up, so a watch running behind a tab nobody is looking at
+while any other tab is up, so a watch running behind a tab no one is looking at
 was a process spending a battery to be thrown away. They start when their tab
 comes to the front and stop when it leaves, and the one that made that worth
 doing is Bluetooth.
@@ -509,23 +509,23 @@ power for as long as it lasts, and bluez holds what it finds only while it is
 still looking: stop, and everything not already paired is dropped within
 seconds. The tab used to offer a press that scanned for eight seconds, and then
 drew the list *after* the scan had ended -- the leavings of a scan, which is a
-column of nameless addresses that have not aged out yet and, most of the time,
-nothing at all of the mouse somebody was holding down a button on. It asked for
+column of untitled addresses that have not aged out yet and, most of the time,
+nothing at all of the mouse someone was holding down a button on. It asked for
 the answer at the one moment it was guaranteed to be gone.
 
 So the looking is the tab: `bluetoothctl scan on` is the tab's watch, and it
-runs for exactly as long as somebody is standing on that tab. What comes out of
+runs for exactly as long as someone is standing on that tab. What comes out of
 it is three things at once. The row where the press used to be says **Looking
 for devices** while the radio says `Discovering: yes`, which is a tab that
 answers a press instead of appearing to swallow it. Every line the scan prints
 redraws the list, so a device arrives when it arrives and its name arrives when
 the advertisement carrying it does, rather than both landing eight seconds later
-if they land at all. And nothing is dropped underneath somebody halfway through
+if they land at all. And nothing is dropped underneath someone halfway through
 reading it, because the discovery is still on while they read.
 
 A number does survive: `--timeout`, because bluetoothctl will not stay without
 one. It is a ceiling and not a wait -- the scan is killed the moment the tab
-stops being in front -- and ten minutes is longer than anybody stands on this
+stops being in front -- and ten minutes is longer than anyone stands on this
 tab and short enough that a panel left open on it overnight is not a radio left
 looking overnight.
 
@@ -533,12 +533,12 @@ looking overnight.
 
 A scan in a room is mostly watches, earbuds and phones, and bluez names a device
 that has told it nothing after its own address. So the list was a column of hex
-in whatever order bluez keeps its cache, with the one thing somebody wanted
+in whatever order bluez keeps its cache, with the one thing someone wanted
 somewhere in it.
 
 Both of the answers to that come off the reading already being taken. **What
 said a name goes above what did not**, because a device that has told the
-machine what it is is a device somebody might be looking for, and an address
+machine what it is is a device someone might be looking for, and an address
 written out with dashes is bluez saying it has nothing to offer. And **what is
 loud goes above what is faint**: `bluetoothctl info` carries an `RSSI` for
 anything heard during
@@ -553,22 +553,22 @@ same `…` it drew before, and is still a row that can be pressed.
 
 ## What an opening costs is written down as it happens
 
-Every one of the decisions above was made about a wait nobody had measured. The
+Every one of the decisions above was made about a wait no one had measured. The
 remembered rows, the reading on a thread of its own, the note in the corner:
-each of them is somebody's account of which part was slow, and none of them
+each of them is someone's account of which part was slow, and none of them
 could be checked afterwards on the machine it was decided for.
 
 So a panel times itself, and writes one line when it appears. From the press --
 the daemon stamps the moment it decided, in the child's environment, so what is
 timed is what the thumb waited and not what the program took -- through the
-loader, the wait for whatever chooser had the screen, GTK coming up, the card
+loader, the wait for whatever picker had the screen, GTK coming up, the card
 being built, the rows going on it, and the first frame. One line per opening,
 with the stretches as its fields, so a question about the menu is a question
-anybody can ask the file rather than a print somebody adds and takes out again.
+anyone can ask the file rather than a print someone adds and takes out again.
 `console_response_times` is the writing and `console-response-times` is the
 reading.
 
-It is on always. Timings that have to be asked for are timings nobody has when
+It is on always. Timings that have to be asked for are timings no one has when
 they want them, because the opening worth reading about already happened.
 
 The line is handed to a queue and written by a thread of the process's own, so
@@ -582,7 +582,7 @@ because a queued line is in that process and nowhere else.
 `press` is the only stretch nothing in the timed process can see, and it is
 there when whoever started the program stamped it. That is the daemon, which
 holds a press for as long as a turn of its loop takes before it starts
-anything, and a panel starting an application because somebody pressed a row.
+anything, and a panel starting an application because someone pressed a row.
 
 An opening from the bar carries one, and for a while it did not. The bar was
 waybar then, and waybar forked on the touch, so the fork *was* the press: `exec`
@@ -598,9 +598,37 @@ zero, because zero is a measurement and means the machine answered instantly.
 And a stamp goes stale: the environment is inherited, so a panel started by a
 press hands that press to everything it ever starts, and a stamp read back
 minutes later measured a wait that was over minutes ago. Anything past `STALE`
-is not a press, and anything a panel starts that nobody pressed -- a picture
+is not a press, and anything a panel starts that no one pressed -- a picture
 drawn in the background, a program asked a question, a watcher -- has both
 marks taken off it.
+
+### Frames, and putting a panel away
+
+An opening is one wait. A surface that is up is a run of frames, and what a
+person sees go wrong there is one frame arriving a refresh late. So
+`console-draw-surface` asks `wp_presentation` when each frame it commits
+reached the glass, and `console_response_times::frames` writes a `frame` line
+for any frame shown more than a refresh after its painting began, with the
+painting and the compositing as its stretches. It writes a `shown` line when
+the surface goes, with what it counted: the frames, the late ones, the ones
+the compositor discarded, and the ones painted into a buffer it had not handed
+back yet. Every surface this desktop draws goes through that crate, so the bar,
+the home screen and the notifications are timed the same way as a panel.
+
+The host writes `closing` from being told to put a panel away to the panel
+being gone. Its first reading found two waits that had nothing to do with
+drawing. The loop only read the flag that said to stop when it next woke, which
+with nothing loading was a whole resting poll later. And every change of tab,
+opening included, told the bar about it through a `pkill` that walked every
+process on the machine before the loop could go on. The loop is now woken by
+the same socket a picture wakes it with, and the bar writes its pid down so
+it can be signalled directly. `185-a-panel-is-put-away-at-once` presses
+both, in the nested desktop, against a panel held by a host the way the device
+holds one.
+
+That check also noticed that no opening had been written since the toolkit
+went: a host starts the stopwatch on the thread that took the request and
+draws on another, and the stopwatch is a thread-local. It is handed across now.
 
 ### What is timed that is not a panel
 
@@ -615,8 +643,8 @@ compiled and the one place it is likely to be slow.
 
 The **daemon** writes `controller`/`press`: the stretch between the pad saying
 something and the daemon deciding to act on it, which is what says whether a
-slow opening is the daemon or the toolkit. A turn happens twenty times a second
-and almost all of them decide nothing and write nothing. One that starts a
+slow opening is the daemon or the toolkit. A turn happens when something
+arrives, and many of them decide nothing and write nothing. One that starts a
 program always writes; one that only scrolled writes if it took longer than a
 frame.
 
@@ -624,7 +652,7 @@ The **session switch** is the longest wait on the machine. `console_session`
 times the steps of going and coming back, but a switch usually does not get to
 write its line -- the session going down takes the program writing it too. What
 always lands is `session`/`starting`, measured in the session coming up, which
-is the half somebody is sitting there watching.
+is the half someone is sitting there watching.
 
 Two things it says that reading the code does not. The first is that most of an
 opening is the rows: they are built one at a time and each of them opens its own
@@ -636,7 +664,7 @@ the price of the card being up at once, and worth knowing the size of.
 
 The store is `~/.local/state/console/waited.jsonl`, beside the tab a panel was
 left on, and not under `~/.cache` with the readings a tab draws itself from:
-those are the machine's own answers to questions anybody can ask it again, and
+those are the machine's own answers to questions anyone can ask it again, and
 this is the only record that the menu was slow on Tuesday.
 
 It is kept. The rotation is at ten gigabytes, which on this device is a stop
@@ -670,7 +698,7 @@ on its own behalf has already missed the part it would have helped most. It
 puts back what was there a moment later. `console_haste` is that, and it is one
 word per processor: there is no per-task version of it on this machine, so what
 is raised is the machine's own hint and it has to be given back or the profile
-somebody chose stops meaning anything.
+someone chose stops meaning anything.
 
 None of it is a reason not to do the other work. The rows are still built one
 at a time, the tab is still drawn twice, and both are still worth what they
@@ -694,14 +722,14 @@ ended — and what decides whether one may open at all is a `Door`, which is a
 name and a rule about opening it twice.
 
 **The panel's own program did not go away, and that is the load-bearing part.**
-The one-chooser lock is a `flock` held open for as long as a process lives, and
-the kernel drops it however that process ends — which is what lets a chooser
+The one-picker lock is a `flock` held open for as long as a process lives, and
+the kernel drops it however that process ends — which is what lets a picker
 that was killed outright leave nothing behind for the next one to trip on. A
 host that outlived every panel would be a host that never let go. So `launcher`
 is still exec'd by the bar, the paddle, the compositor's key and the menu's own
 `.desktop` file; it still takes the lock, and it now stands there with nothing
 to draw until the host says the surface is gone. Everything that reads the
-screen — the daemon deciding a chooser is up, the bar lighting an icon, a check
+screen — the daemon deciding a picker is up, the bar lighting an icon, a check
 asking `hyprctl` what is on which layer — sees exactly what it saw before,
 under the same namespace.
 
@@ -715,13 +743,13 @@ so on the journal rather than on the screen. It is the rule
 rather than hidden and shown, and the card is built by the same call the old
 `main` made. That gives back a little of what the change bought — the layer
 surface and the first frame are still per-opening — and it is worth it: a
-surface that survived would be a surface holding a reading nobody refreshed,
+surface that survived would be a surface holding a reading no one refreshed,
 which `docs/programs.md` names as the one real hazard in a program that holds
 state. The two caches the menu kept in `static`s are one opening's now for
 exactly that reason. `330-a-panel-opened-again-is-drawn-again` presses it on
 the device, and presses it three times rather than twice: it is the third
 opening, the one over a panel that was drawn in between, that would come back
-built out of somebody else's leavings.
+built out of someone else's leavings.
 
 **A closed panel has to cost nothing.** This is what a resident process owes a
 handheld, and it is not automatic. A GTK loop with no surface mapped has no
@@ -746,7 +774,7 @@ twice in the same place.
 
 `crates/console-input-controller/tests/what_reaches_the_desktop.rs` presses
 buttons against the one table that decides what they do, on the desktop and with
-a chooser up. Change what A does and it fails. It reads the table the daemon
+a picker up. Change what A does and it fails. It reads the table the daemon
 itself reads rather than a copy of it, which is why it does not go stale.
 `crates/console-input-gamepad/tests/the_button_contract.rs` keeps the part that
 is about the files: every profile the switcher names exists, and every one of
@@ -756,7 +784,7 @@ them publishes all three devices.
 whether anything was drawn. That is what catches a panel that raises a window
 and then fails on its first screenful, which no unit test can see.
 
-Everything else on this page is a decision somebody has to keep by hand. Row
-nought, the unwinding, what the shoulders are for and where a dangerous question
+Everything else on this page is a decision someone has to keep by hand. Row
+zero, the unwinding, what the shoulders are for and where a dangerous question
 opens are conventions, not checks. They are written here so that the next panel
 is built to them on purpose rather than by copying whichever one was nearest.

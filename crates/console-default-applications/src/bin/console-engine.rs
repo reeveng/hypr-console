@@ -10,7 +10,7 @@
 //! Told without a key it says again what is already true, which is what `console
 //! apply` runs: until an engine had been chosen on the panel these files had
 //! never been written at all, so a machine made from the manifest had browsers
-//! nobody had told anything and add-ons it was supposed to have installed.
+//! no one had told anything and add-ons it was supposed to have installed.
 //!
 //! A program of its own because all three browsers read their policy out of
 //! /etc, and both the panel that calls it and the person it belongs to are not
@@ -22,11 +22,12 @@
 //! The point of having three is that two of them are usually not the one being
 //! used, and a Wi-Fi panel does not fail because there is no Bluetooth.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use console_default_applications::engines;
 use console_default_applications::policies::{self, CHROMIUM, FIREFOX, LIBREWOLF, Where};
-use console_core_atomic_writes::{Held, Unwritten};
+use console_core_atomic_writes::Stored;
+use console_core_external_programs::{Installed, installed};
 use console_core_never::Never;
 
 fn main() -> std::process::ExitCode {
@@ -46,7 +47,7 @@ fn main() -> std::process::ExitCode {
     };
 
     for place in [&CHROMIUM, &FIREFOX, &LIBREWOLF] {
-        let Ok(installed) = here(place.program);
+        let Ok(installed) = installed(place.program);
 
         match installed {
             Installed::Yes => {}
@@ -60,7 +61,7 @@ fn main() -> std::process::ExitCode {
             false => policies::mozilla(place, engine, &shipped),
         };
 
-        match wrote(Path::new(place.file), &said) {
+        match console_core_atomic_writes::whole_with_folders(Path::new(place.file), said.as_bytes()) {
             Ok(()) => println!("{}: {}", engine.says, place.file),
             Err(why) => eprintln!("{}: {why}", place.file),
         }
@@ -76,9 +77,9 @@ fn shipped(place: &Where) -> Result<String, Never> {
             let Ok(held) = console_core_atomic_writes::read(std::path::Path::new(place.beneath));
 
             match held {
-                Held::Said(said) => said,
-                Held::Nothing => String::new(),
-                Held::Unreadable(fault) => {
+                Stored::Text(said) => said,
+                Stored::Absent => String::new(),
+                Stored::Failed(fault) => {
                     eprintln!("console-engine: {}: {fault}", place.beneath);
 
                     String::new()
@@ -88,38 +89,3 @@ fn shipped(place: &Where) -> Result<String, Never> {
     })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Installed {
-    Yes,
-    No,
-}
-
-fn here(program: &str) -> Result<Installed, Never> {
-    let Ok(told) = console_core_external_programs::path();
-
-    let path = match told {
-        Some(path) => path,
-        None => "/usr/bin:/usr/local/bin".to_string(),
-    };
-
-    let found = path
-        .split(':')
-        .filter(|at| !at.is_empty())
-        .any(|at| PathBuf::from(at).join(program).exists());
-
-    Ok(match found {
-        true => Installed::Yes,
-        false => Installed::No,
-    })
-}
-
-fn wrote(at: &Path, said: &str) -> Result<(), Unwritten> {
-    match at.parent() {
-        Some(parent) => {
-            std::fs::create_dir_all(parent).map_err(|fault| Unwritten::Making(parent.to_path_buf(), fault))?
-        }
-        None => {}
-    }
-
-    console_core_atomic_writes::whole(at, said.as_bytes())
-}

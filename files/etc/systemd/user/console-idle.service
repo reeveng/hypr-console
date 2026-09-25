@@ -46,7 +46,7 @@ ExecStart=/usr/bin/hypridle
 # is one nothing is left to wake.
 ExecStopPost=-/usr/local/bin/console-brightness undim
 ExecStopPost=-/usr/bin/hyprctl dispatch 'hl.dsp.dpms({ action = "enable" })'
-ExecStopPost=-/usr/local/bin/console-fell %n
+ExecStopPost=-/usr/local/bin/console-report-crash %n
 Restart=always
 RestartSec=5
 

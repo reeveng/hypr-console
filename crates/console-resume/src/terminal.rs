@@ -9,7 +9,7 @@
 //!
 //! ## Which terminal, and how it is told
 //!
-//! [`Spec`] is the table: whether a terminal takes a subcommand first, what its
+//! [`Configuration`] is the table: whether a terminal takes a subcommand first, what its
 //! option for a working directory is called and whether the value hangs off it
 //! or stands apart, and whether what to run follows an option or is simply the
 //! words at the end. A terminal that is not in the table is left exactly as it
@@ -30,7 +30,7 @@
 //! that was part way through changing the machine. [`NEVER_RESUMED`] is that
 //! list, and a `never-resume` file in this desktop's configuration replaces it
 //! rather than adding to it -- so an empty file means everything comes back, and
-//! somebody who disagrees with the list does not have to agree with half of it.
+//! someone who disagrees with the list does not have to agree with half of it.
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -51,7 +51,7 @@ const NEVER_RESUMED: &[&str] = &[
 
 const NEVER_RESUME_NAME: &str = "never-resume";
 
-const SEARCH_LIMIT: usize = 64;
+const SEARCH_LIMIT: u32 = 64;
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Occupant {
@@ -68,7 +68,7 @@ pub enum Resumable {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Directory {
-    Told,
+    Known,
     NotTold,
 }
 
@@ -82,76 +82,76 @@ enum Command {
     Trailing,
 }
 
-struct Spec {
+struct Configuration {
     subcommand: Option<&'static str>,
     directory: Option<(&'static str, Value)>,
     command: Command,
 }
 
-fn spec(binary: &str) -> Result<Option<Spec>, Never> {
+fn spec(binary: &str) -> Result<Option<Configuration>, Never> {
     let attached = |flag| Some((flag, Value::Attached));
     let separate = |flag| Some((flag, Value::Separate));
 
     Ok(Some(match binary {
-        "alacritty" => Spec {
+        "alacritty" => Configuration {
             subcommand: None,
             directory: separate("--working-directory"),
             command: Command::Flag("-e"),
         },
-        "foot" => Spec {
+        "foot" => Configuration {
             subcommand: None,
             directory: attached("--working-directory"),
             command: Command::Flag("-e"),
         },
-        "footclient" => Spec {
+        "footclient" => Configuration {
             subcommand: None,
             directory: attached("--working-directory"),
             command: Command::Trailing,
         },
-        "ghostty" => Spec {
+        "ghostty" => Configuration {
             subcommand: None,
             directory: attached("--working-directory"),
             command: Command::Flag("-e"),
         },
-        "gnome-terminal" => Spec {
+        "gnome-terminal" => Configuration {
             subcommand: None,
             directory: attached("--working-directory"),
             command: Command::Flag("--"),
         },
-        "kitty" => Spec {
+        "kitty" => Configuration {
             subcommand: None,
             directory: separate("--directory"),
             command: Command::Trailing,
         },
-        "konsole" => Spec {
+        "konsole" => Configuration {
             subcommand: None,
             directory: separate("--workdir"),
             command: Command::Flag("-e"),
         },
-        "rio" => Spec {
+        "rio" => Configuration {
             subcommand: None,
             directory: separate("--working-dir"),
             command: Command::Flag("-e"),
         },
         "st" | "xterm" => {
-            Spec { subcommand: None, directory: None, command: Command::Flag("-e") }
+            Configuration { subcommand: None, directory: None, command: Command::Flag("-e") }
         },
-        "terminator" | "xfce4-terminal" => Spec {
+        "terminator" | "xfce4-terminal" => Configuration {
             subcommand: None,
             directory: attached("--working-directory"),
             command: Command::Flag("-x"),
         },
-        "tilix" => Spec {
+        "tilix" => Configuration {
             subcommand: None,
             directory: attached("--working-directory"),
             command: Command::Flag("-e"),
         },
-        "rxvt" | "urxvt" | "urxvtc" => Spec {
+        "rxvt" | "urxvt" | "urxvtc" => Configuration {
             subcommand: None,
             directory: separate("-cd"),
             command: Command::Flag("-e"),
         },
-        "wezterm" => Spec {
+        "wezterm" => Configuration {
             subcommand: Some("start"),
             directory: separate("--cwd"),
             command: Command::Flag("--"),
@@ -160,10 +160,10 @@ fn spec(binary: &str) -> Result<Option<Spec>, Never> {
     }))
 }
 
-pub fn restored(argv: &[String], pid: i32) -> Result<Option<Vec<String>>, Never> {
+pub fn restored(arguments: &[String], pid: i32) -> Result<Option<Vec<String>>, Never> {
     let occupant = inspect(pid)?;
 
-    restore(argv, &occupant)
+    restore(arguments, &occupant)
 }
 
 pub fn inspect(pid: i32) -> Result<Occupant, Never> {
@@ -245,8 +245,8 @@ fn running(pid: i32) -> Result<Option<Vec<String>>, Never> {
     })
 }
 
-fn restore(argv: &[String], occupant: &Occupant) -> Result<Option<Vec<String>>, Never> {
-    let first = match argv.first() {
+fn restore(arguments: &[String], occupant: &Occupant) -> Result<Option<Vec<String>>, Never> {
+    let first = match arguments.first() {
         Some(first) => first,
         None => return Ok(None),
     };
@@ -267,7 +267,7 @@ fn restore(argv: &[String], occupant: &Occupant) -> Result<Option<Vec<String>>, 
         None => {},
     }
 
-    let rest = match argv.split_first() {
+    let rest = match arguments.split_first() {
         Some((_the_terminal_itself, rest)) => rest,
         None => &[],
     };
@@ -286,7 +286,7 @@ fn restore(argv: &[String], occupant: &Occupant) -> Result<Option<Vec<String>>, 
                 },
             }
 
-            Directory::Told
+            Directory::Known
         },
         (Some(_), None) | (None, _) => Directory::NotTold,
     };
@@ -307,7 +307,7 @@ fn restore(argv: &[String], occupant: &Occupant) -> Result<Option<Vec<String>>, 
 
     Ok(match (told, &inside) {
         (Directory::NotTold, None) => None,
-        (Directory::Told, _) | (_, Some(_)) => Some(line),
+        (Directory::Known, _) | (_, Some(_)) => Some(line),
     })
 }
 
@@ -318,7 +318,7 @@ fn inside(occupant: &Occupant, told: Directory) -> Result<Option<Vec<String>>, N
 
             format!("cd {quoted}; ")
         },
-        (Directory::NotTold, None) | (Directory::Told, _) => String::new(),
+        (Directory::NotTold, None) | (Directory::Known, _) => String::new(),
     };
 
     Ok(match (&occupant.program, &occupant.shell) {
@@ -357,7 +357,7 @@ fn shell_call(shell: Shell<'_>, line: &str) -> Result<Vec<String>, Never> {
     Ok(vec![shell.0.to_string(), "-i".to_string(), "-c".to_string(), line.to_string()])
 }
 
-fn options(words: &[String], spec: &Spec) -> Result<Vec<String>, Never> {
+fn options(words: &[String], spec: &Configuration) -> Result<Vec<String>, Never> {
     let mut kept = Vec::new();
     let mut skip_value = false;
 
@@ -433,14 +433,14 @@ fn never_resumed() -> Result<Vec<String>, Never> {
             .filter(|line| !line.is_empty() && !line.starts_with('#'))
             .map(str::to_string)
             .collect(),
-        Err(_nobody_has_written_one) => {
+        Err(_no_one_has_written_one) => {
             NEVER_RESUMED.iter().map(|name| (*name).to_string()).collect()
         },
     })
 }
 
 fn never_resume_path() -> Result<Option<PathBuf>, Never> {
-    let ours = console_core_places::Base::Config.ours()?;
+    let ours = console_core_places::Base::Configuration.ours()?;
 
     Ok(ours.map(|at| at.join(crate::OURS).join(NEVER_RESUME_NAME)))
 }
@@ -449,7 +449,7 @@ fn shell_within(pid: i32) -> Result<Option<i32>, Never> {
     let Ok(first) = children(pid);
 
     let mut queue = VecDeque::from(first);
-    let mut examined: usize = 0;
+    let mut examined: u32 = 0;
 
     while let Some(candidate) = queue.pop_front() {
         examined = examined.saturating_add(1);
@@ -514,12 +514,12 @@ fn children(pid: i32) -> Result<Vec<i32>, Never> {
     Ok(found)
 }
 
-struct Stat {
+struct FileStatus {
     group: i32,
     foreground: i32,
 }
 
-fn stat(pid: i32) -> Result<Option<Stat>, Never> {
+fn stat(pid: i32) -> Result<Option<FileStatus>, Never> {
     let raw = match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
         Ok(raw) => raw,
         Err(_it_is_gone) => return Ok(None),
@@ -532,17 +532,21 @@ fn stat(pid: i32) -> Result<Option<Stat>, Never> {
 
     let fields: Vec<&str> = after.split_whitespace().collect();
 
-    let at = |which: usize| match fields.get(which) {
-        Some(said) => {
-            let Ok(numbered) = numbered(said);
+    let at = |which: u32| {
+        let Ok(which) = console_core_number_conversion::index(which);
 
-            numbered
-        },
-        None => None,
+        match fields.get(which) {
+            Some(said) => {
+                let Ok(numbered) = numbered(said);
+
+                numbered
+            },
+            None => None,
+        }
     };
 
     Ok(match (at(2), at(5)) {
-        (Some(group), Some(foreground)) => Some(Stat { group, foreground }),
+        (Some(group), Some(foreground)) => Some(FileStatus { group, foreground }),
         (None, _) | (_, None) => None,
     })
 }
@@ -591,7 +595,7 @@ fn binary(word: &str) -> Result<&str, Never> {
 mod tests {
     use super::*;
 
-    fn argv(words: &[&str]) -> Vec<String> {
+    fn arguments(words: &[&str]) -> Vec<String> {
         words.iter().map(|word| (*word).to_string()).collect()
     }
 
@@ -600,14 +604,14 @@ mod tests {
             directory: Some(directory.to_string()),
             program: match program.is_empty() {
                 true => None,
-                false => Some(argv(program)),
+                false => Some(arguments(program)),
             },
             shell: Some("/usr/bin/zsh".to_string()),
         }
     }
 
     fn restore(words: &[&str], occupant: &Occupant) -> Option<Vec<String>> {
-        let Ok(line) = super::restore(&argv(words), occupant);
+        let Ok(line) = super::restore(&arguments(words), occupant);
 
         line
     }
@@ -619,7 +623,7 @@ mod tests {
                 &["foot", "--working-directory=/home/ada"],
                 &occupant("/home/ada/Documents/projects/website", &[])
             ),
-            Some(argv(&["foot", "--working-directory=/home/ada/Documents/projects/website"]))
+            Some(arguments(&["foot", "--working-directory=/home/ada/Documents/projects/website"]))
         );
     }
 
@@ -627,7 +631,7 @@ mod tests {
     fn brings_back_the_program_through_the_shell_that_ran_it() {
         assert_eq!(
             restore(&["foot"], &occupant("/home/ada/notes", &["nvim", "today.md"])),
-            Some(argv(&[
+            Some(arguments(&[
                 "foot",
                 "--working-directory=/home/ada/notes",
                 "-e",
@@ -653,7 +657,7 @@ mod tests {
     fn steps_into_the_directory_when_the_terminal_has_no_option_for_it() {
         assert_eq!(
             restore(&["xterm"], &occupant("/home/ada/notes", &["nvim"])),
-            Some(argv(&[
+            Some(arguments(&[
                 "xterm",
                 "-e",
                 "/usr/bin/zsh",
@@ -678,7 +682,7 @@ mod tests {
                 ],
                 &occupant("/tmp", &["nvim", "new.md"])
             ),
-            Some(argv(&[
+            Some(arguments(&[
                 "foot",
                 "--font=Mono:size=12",
                 "--working-directory=/tmp",
@@ -698,7 +702,7 @@ mod tests {
                 &["alacritty", "--working-directory", "/home/ada", "--title", "x"],
                 &occupant("/tmp", &[])
             ),
-            Some(argv(&["alacritty", "--title", "x", "--working-directory", "/tmp"]))
+            Some(arguments(&["alacritty", "--title", "x", "--working-directory", "/tmp"]))
         );
     }
 
@@ -706,7 +710,7 @@ mod tests {
     fn puts_a_subcommand_first_and_a_command_last() {
         assert_eq!(
             restore(&["wezterm", "start", "--cwd", "/home/ada"], &occupant("/tmp", &["btop"])),
-            Some(argv(&[
+            Some(arguments(&[
                 "wezterm",
                 "start",
                 "--cwd",
@@ -727,7 +731,7 @@ mod tests {
                 &["kitty", "--directory", "/home/ada", "nvim", "old.md"],
                 &occupant("/tmp", &["nvim", "new.md"])
             ),
-            Some(argv(&[
+            Some(arguments(&[
                 "kitty",
                 "--directory",
                 "/tmp",

@@ -20,7 +20,7 @@ The rename is done in this repository. It is not done on a device until
 `tools/console-migrate` has been run against it, which is what section 3 is
 about: a name in a file here is a string, and the same name on the machine is
 an enabled unit, an installed binary, a checkout at `/etc/legion` and
-directories in a home with somebody's own answers in them.
+directories in a home with someone's own answers in them.
 
 ## 1. What does not move
 
@@ -40,14 +40,14 @@ far.
 `@user@` is not a name and is not a prefix. It is the mark the manifest writes
 for whoever the desktop belongs to, filled in by `machine::whoever()` at apply.
 It stands in the path `files/home/@user@/`, and since the tree stopped naming
-anybody it also stands in the bodies of `/etc/sudoers.d/console` and
+anyone it also stands in the bodies of `/etc/sudoers.d/console` and
 `91-console-touchpad.rules`.
 
-`kew` was a fork of somebody else's GPL program, carried as a built binary at
+`kew` was a fork of someone else's GPL program, carried as a built binary at
 `/usr/local/bin/kew`, and it kept the name its project gave it: the panel
 started it by that name, and what was in front on the path was what answered.
 It is a crate now, `console-music-player`, and the binary is `music-player` --
-named for what somebody types rather than for whose program it once was.
+named for what someone types rather than for whose program it once was.
 
 `hyprsession` went the same way and kept its name for the same reason, until the
 source came into the tree. A crate the device builds is named for what it does
@@ -105,7 +105,7 @@ machine is called now and changes nothing.
 It has been run, and the attic it left is named in `docs/migrations.md`. It
 stays anyway: a machine that was never brought over is a machine this is the
 only way back for, and a sweep that exists only in a commit message is a sweep
-nobody can run.
+no one can run.
 
 Run it over ssh from a laptop, in a shell you are already sitting in. The
 desktop is down between the disable and the enable, so a machine doing this
@@ -131,7 +131,7 @@ The order it goes in, and why each step is where it is:
    state directory with `menu-counts` and the panels' tabs, the browser profile
    with history and logins. Renaming these in the files without moving them on
    the machine is a menu that has forgotten the order everything was in and a
-   browser that starts on an empty profile. The pictures somebody pressed are
+   browser that starts on an empty profile. The pictures someone pressed are
    moved too: `sky-press` writes them onto the device and nothing in the
    repository carries them.
 5. **`console apply`.** The first thing the new engine is asked to do, and the
@@ -160,7 +160,7 @@ clone the script was run from is done for you; the rest is
    migration, and it refuses to run while LibreWolf is open.
 4. **The prefix is `console-*`**, as the music panel set it.
 5. **The hardware keeps its name.** Section 1 is the whole of it.
-6. **A name has to be guessable by somebody who has never been here.** That is
+6. **A name has to be guessable by someone who has never been here.** That is
    the test every crate was held to, and why `again`, `door`, `haste`, `sky`,
    `garden`, `stage`, `flows`, `menu`, `words` and `pad` are all gone.
 7. **A crate is a thing, and never a place to put a function two callers
@@ -196,19 +196,19 @@ share:
 
 | Family | What it holds |
 | --- | --- |
-| `console-core-*` | what the rest imports and nothing outside the workspace ever names: the error of a function that cannot fail, the colour arithmetic, the one place a number changes width, the whole-file write, the language a person reads, the programs this desktop did not write, the retry |
+| `console-core-*` | what the rest imports and nothing outside the workspace ever names: the error of a function that cannot fail, the color arithmetic, the one place a number changes width, the whole-file write, the language a person reads, the programs this desktop did not write, the retry |
 | `console-input-*` | everything a press comes through: the controller, the pad it is emulated on, the mapping, what has the input, the pointer and the touchscreen the checks press with, the on-screen keyboard, dictation |
 | `console-manifest-*` | what a deploy is: the engine, the sweeps, the public copy |
 | `console-music-*` | the music: `console-music` is what it draws, lists and presses, and `console-music-player` is what makes the sound |
 | `console-program-*` | what a program on this device is: the contract, the loop that carries it out, how long a started one lives |
 | `console-test-*` | where a check runs: the checks themselves, the flows, the stages, the desktop nested here |
 
-Everything else is a thing somebody already has a word for -- `console-files`,
+Everything else is a thing someone already has a word for -- `console-files`,
 `console-settings`, `console-panel` -- and stays one word past the prefix.
 
 `console-music-*` is the newest of the families and is the clearest case of how
 one arrives. There was a crate called `console-music` and it was the panel;
-what played the sound was kew, which was nobody's here. When the player was
+what played the sound was kew, which was no one's here. When the player was
 written the panel's name stopped being available to it -- two crates cannot both
 be *the music* -- so the panel became `console-music-panel`, the player is
 `console-music-player`, and the word they share is the heading. A family is not
@@ -224,10 +224,10 @@ is a different job and not *the music*. The family word is still `music` and
 the crate that carries it bare is the head of it.
 
 The line `console-core-*` is drawn at: no machine, no feature, and no program
-somebody types. That is why `console-onscreen` and `console-screen` are not in
+someone types. That is why `console-onscreen` and `console-screen` are not in
 it -- both ask the compositor -- and why `console-repository` is not either,
 though its library is as internal as any of them: it ships `console-pull`, and a
-crate that owns a command is a crate somebody has heard of.
+crate that owns a command is a crate someone has heard of.
 
 The rule the families are an instance of: **a name is as few words as say what
 is inside, and no fewer.** Both halves have teeth. `console-event-broker`,
@@ -250,16 +250,16 @@ entries named after the viewer and the downloads. A machine that applied the
 commit before it has both units enabled and would have run the old pair beside
 the new -- two daemons on one pad -- so the sweep disables before it moves
 anything. Every other installed name was left where it was, on the
-grounds that it was already named for what somebody types -- which section 6 is
+grounds that it was already named for what someone types -- which section 6 is
 about, because for two names out of three it was not true.
 
 ## 6. The binaries
 
 `[build]` is the list of programs this device compiles for itself, and until
 this rename only about a third of them had a rule. *A binary is named for what
-somebody types* is true of `console`, `console-deploy` and `console-check`, and
+someone types* is true of `console`, `console-deploy` and `console-check`, and
 false of `bar-clock`, `home-square`, `panel-pictures` and `files-thumbs`, which
-nobody has ever typed: they are started by a unit, by the bar's configuration,
+no one has ever typed: they are started by a unit, by the bar's configuration,
 by a keybinding, or by another program of ours. With no rule covering them each
 was named by whoever wrote it, and there were four schemes in one list.
 
@@ -281,7 +281,7 @@ is in the `input` family and its subject is the keyboard.
 
 What that buys is that `[build]` sorted is `ls crates/` sorted. A reader
 looking at a name knows where to open it, and a crate that grows a second
-program gives it a name nobody has to choose.
+program gives it a name no one has to choose.
 
 `console-manifest-engine/tests/the_binaries.rs` holds it. What it cannot ask is
 whether the word a part opens with is the one worth opening with: `bar-` names
@@ -306,7 +306,7 @@ Seventeen names moved, and the shape of the list is the argument for them:
 | `download-find` | `downloads-find` | |
 | `download-get` | `downloads-get` | |
 | `one-format` | `downloads-format` | named for what it makes rather than for anything a reader could place |
-| `cover-ascii` | `music-cover` | named neither its crate nor, to anybody who had not read it, what it does |
+| `cover-ascii` | `music-cover` | named neither its crate nor, to anyone who had not read it, what it does |
 | `sky-press` | `wallpaper-press` | `console-wallpaper` built `console-sky` and `sky-press`: two words for one subject |
 | `console-sky` | `console-wallpaper` | |
 | `put-away` | `console-put-away` | typed, and said the way a person says it |

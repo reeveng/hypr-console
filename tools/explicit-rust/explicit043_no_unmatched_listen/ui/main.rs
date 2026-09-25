@@ -1,49 +1,49 @@
-// UI test for EXPLICIT043 — a topic listened to is a topic deafened. The
+// UI test for EXPLICIT043 — a topic listened to is a topic the program stops listening to. The
 // question is asked of the crate rather than of the line, so what this file
-// says once about `Listening` is what settles both of its calls.
+// says once about `Subscriber` is what settles both of its calls.
 
-pub struct Wants(pub &'static str);
+pub struct Subscription(pub &'static str);
 
-pub enum Doing {
-    Listen(Wants),
-    Deafen(Wants),
+pub enum Effect {
+    Subscribe(Subscription),
+    Unsubscribe(Subscription),
     Print(String),
 }
 
-pub struct Listening;
+pub struct Subscriber;
 
-impl Listening {
-    pub fn also(&self, _topic: &str) {}
+impl Subscriber {
+    pub fn subscribe(&self, _topic: &str) {}
 
-    pub fn not(&self, _topic: &str) {}
+    pub fn unsubscribe(&self, _topic: &str) {}
 }
 
-// BAD EXPLICIT043 — this crate says `Listen` and never says `Deafen`, so
+// BAD EXPLICIT043 — this crate says `Subscribe` and never says `Unsubscribe`, so
 // everything it listens to it listens to for as long as it runs.
-fn starts_caring() -> Doing {
+fn starts_caring() -> Effect {
     //~v EXPLICIT043_NO_UNMATCHED_LISTEN
-    Doing::Listen(Wants("sound"))
+    Effect::Subscribe(Subscription("sound"))
 }
 
 // GOOD — the pair is written, in the two places it belongs.
-fn starts(words: &Listening) {
-    words.also("sound");
+fn starts(words: &Subscriber) {
+    words.subscribe("sound");
 }
 
-fn stops(words: &Listening) {
-    words.not("sound");
+fn stops(words: &Subscriber) {
+    words.unsubscribe("sound");
 }
 
-// GOOD — handling a doing somebody else made is a pattern, not a listen.
-fn what_it_means(doing: &Doing) -> &'static str {
-    match doing {
-        Doing::Listen(_) => "started",
-        Doing::Deafen(_) => "stopped",
-        Doing::Print(_) => "said",
+// GOOD — handling an effect someone else made is a pattern, not a listen.
+fn what_it_means(effect: &Effect) -> &'static str {
+    match effect {
+        Effect::Subscribe(_) => "started",
+        Effect::Unsubscribe(_) => "stopped",
+        Effect::Print(_) => "said",
     }
 }
 
 fn main() {
     let _ = starts_caring();
-    let _ = what_it_means(&Doing::Print(String::new()));
+    let _ = what_it_means(&Effect::Print(String::new()));
 }

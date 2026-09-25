@@ -9,7 +9,7 @@ extern crate console_program_contract;
 
 use console_program_contract::Topic;
 
-// GOOD — the whole output of this program, and no `Doing` anywhere in it.
+// GOOD — the whole output of this program, and no `Effect` anywhere in it.
 fn draws(woken: Topic) {
     match woken {
         Topic::Player => println!("{{\"text\":\"playing\"}}"),

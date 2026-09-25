@@ -3,14 +3,14 @@
 //! bluez keeps what it found only while it is looking. Discovery stops and
 //! everything that was never paired is dropped within seconds, so a tab that
 //! scanned for eight seconds and then asked what was there read the leavings of
-//! a scan rather than the scan -- which is why a room's worth of nameless
-//! addresses arrived and the thing somebody was holding did not. The looking is
+//! a scan rather than the scan -- which is why a room's worth of untitled
+//! addresses arrived and the thing someone was holding did not. The looking is
 //! the tab being in front now, and whether the radio agreed is a question only
 //! a machine with a radio can be asked.
 
 use console_core_never::Never;
-use console_test_stages::checking::{Body, Check, Done, cannot, happened};
-use console_test_stages::device::{Device, PATIENCE, Seen};
+use console_test_stages::checking::{Body, Check, CheckResult, cannot, happened};
+use console_test_stages::device::{Device, PATIENCE, Ready};
 
 pub const LOOKS: Check = Check {
     name: "430-the-bluetooth-tab-looks",
@@ -24,16 +24,16 @@ const SHOW: &str = "bluetoothctl show";
 
 const TAB: &str = "settings-panel Bluetooth";
 
-fn looking(stage: &mut Device) -> Result<Seen, Never> {
+fn looking(stage: &mut Device) -> Result<Ready, Never> {
     let Ok(said) = stage.user(SHOW);
 
     Ok(match said.contains("Discovering: yes") {
-        true => Seen::Yes,
-        false => Seen::NotYet,
+        true => Ready::Yes,
+        false => Ready::NotYet,
     })
 }
 
-fn there(stage: &mut Device) -> Done {
+fn there(stage: &mut Device) -> CheckResult {
     let Ok(said) = stage.user(SHOW);
 
     match said.contains("Powered: yes") {
@@ -48,7 +48,7 @@ fn there(stage: &mut Device) -> Done {
 
     let Ok(looked) = stage.until(looking, PATIENCE);
     let Ok(()) = stage.press("b");
-    let Ok(gone) = stage.gone(PATIENCE);
+    let Ok(gone) = stage.closed(PATIENCE);
     let Ok(stopped) = stage.until(
         |seen| {
             let Ok(up) = looking(seen);
@@ -65,7 +65,7 @@ fn there(stage: &mut Device) -> Done {
     happened(gone, || "B did not put the panel away".to_string())?;
 
     happened(stopped, || {
-        "the panel went and the radio is still looking, which is a scan nobody asked for"
+        "the panel went and the radio is still looking, which is a scan no one asked for"
             .to_string()
     })
 }

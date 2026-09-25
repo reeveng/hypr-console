@@ -31,7 +31,7 @@ fn answers(well: bool) -> ExitCode {
     }
 }
 
-// GOOD — a number read off somebody else's process is not a way of leaving.
+// GOOD — a number read off someone else's process is not a way of leaving.
 fn what_it_said(status: ExitStatus) -> Option<i32> {
     status.code()
 }

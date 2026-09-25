@@ -3,11 +3,13 @@
 //! waybar, wofi, the panel, GTK's own themes and libadwaita all read GTK CSS
 //! and all support `@import`, so this is the only file among them that holds a
 //! hex. The names libadwaita and Breeze ask for are defined here too, as
-//! references rather than as colours, so that a role changing its shade
+//! references rather than as colors, so that a role changing its shade
 //! changes every name that stands for it.
 
-use console_core_colour::Short;
-use crate::palette::Palette;
+use console_core_color::Short;
+use crate::palette::{Palette, Spent};
+use console_core_number_conversion::{fitted, index};
+
 use crate::spend::{ROLES, breeze, widest};
 
 const ADWAITA: [(&str, &str); 28] = [
@@ -27,29 +29,24 @@ const ADWAITA: [(&str, &str); 28] = [
     ("window_bg_color", "panel"), ("window_fg_color", "text"),
 ];
 
-const ADWAITA_WIDTH: usize = 28;
+const ADWAITA_WIDTH: u32 = 28;
 
 const SUFFIX: &str = "_breeze";
 
 pub fn spend(palette: &Palette) -> Result<String, Short> {
-    let Ok(width) = widest(ROLES);
-    let colours = ROLES
-        .iter()
-        .map(|name| {
-            let colour = palette.must(name)?;
+    let Ok(width) = widest(&ROLES);
+    let Ok(width) = index(width);
+    let colors = palette.lines(&ROLES, |Spent { name, color }| format!("@define-color {name:<width$} #{color};"))?;
+    let colors = colors.into_iter();
 
-            Ok(format!("@define-color {name:<width$} #{colour};"))
-        })
-        .collect::<Result<Vec<_>, Short>>()?;
-    let colours = colours.into_iter();
-
-    let adwaita = ADWAITA.iter().map(|(name, role)| {
-        format!("@define-color {name:<ADWAITA_WIDTH$} @{role};")
+    let Ok(adwaita_width) = index(ADWAITA_WIDTH);
+    let adwaita = ADWAITA.iter().map(move |(name, role)| {
+        format!("@define-color {name:<adwaita_width$} @{role};")
     });
 
-    let Ok(widest) = widest(breeze::NAMES);
-
-    let breeze_width = widest.saturating_add(SUFFIX.len());
+    let Ok(widest) = widest(&breeze::NAMES);
+    let Ok(suffix) = fitted::<_, u32>(SUFFIX.len());
+    let Ok(breeze_width) = index(widest.saturating_add(suffix));
     let sorted = {
         let mut names = breeze::NAMES;
         names.sort_unstable();
@@ -66,11 +63,11 @@ pub fn spend(palette: &Palette) -> Result<String, Short> {
     let lines = [
         "/* Written by console-palette from theme/palette.toml.".to_string(),
         "   Everything on this machine that speaks GTK's stylesheet language".to_string(),
-        "   imports this file. Nothing else among them holds a colour. */".to_string(),
+        "   imports this file. Nothing else among them holds a color. */".to_string(),
         String::new(),
     ]
     .into_iter()
-    .chain(colours)
+    .chain(colors)
     .chain([
         String::new(),
         "/* The names libadwaita reads, as references: a role changing its".to_string(),
@@ -95,17 +92,17 @@ mod tests {
     use crate::spend::tests::blossom;
 
     #[test]
-    fn every_role_is_written_once_as_a_colour() {
-        let css = spend(&blossom()).expect("every colour it spends is declared");
+    fn every_role_is_written_once_as_a_color() {
+        let css = spend(&blossom()).expect("every color it spends is declared");
         for name in ROLES {
-            let written = css.lines().filter(|l| l.starts_with(&format!("@define-color {name} "))).count();
-            assert_eq!(written, 1, "{name} is defined {written} times");
+            let written: Vec<&str> = css.lines().filter(|l| l.starts_with(&format!("@define-color {name} "))).collect();
+            assert_eq!(written.len(), 1, "{name} is defined as {written:?}");
         }
     }
 
     #[test]
     fn only_the_roles_hold_a_hex_and_every_other_name_is_a_reference() {
-        let css = spend(&blossom()).expect("every colour it spends is declared");
+        let css = spend(&blossom()).expect("every color it spends is declared");
         let holds_hex = |line: &str| line.contains('#');
         for line in css.lines().filter(|l| l.starts_with("@define-color")).filter(|l| holds_hex(l)) {
             let name = line.split_whitespace().nth(1).expect("a name");
@@ -115,7 +112,7 @@ mod tests {
 
     #[test]
     fn every_reference_points_at_a_role_that_exists() {
-        let css = spend(&blossom()).expect("every colour it spends is declared");
+        let css = spend(&blossom()).expect("every color it spends is declared");
         for line in css.lines().filter(|l| l.contains(" @")) {
             let role = line.rsplit(" @").next().and_then(|r| r.strip_suffix(';')).expect("a role");
             assert!(ROLES.contains(&role), "{line} points at {role}, which is not a role");
@@ -124,7 +121,7 @@ mod tests {
 
     #[test]
     fn breeze_gets_every_name_it_asks_for() {
-        let css = spend(&blossom()).expect("every colour it spends is declared");
+        let css = spend(&blossom()).expect("every color it spends is declared");
         for name in breeze::NAMES {
             assert!(
                 css.contains(&format!("@define-color {name}_breeze ")),
@@ -135,7 +132,7 @@ mod tests {
 
     #[test]
     fn it_ends_in_exactly_one_newline() {
-        let css = spend(&blossom()).expect("every colour it spends is declared");
+        let css = spend(&blossom()).expect("every color it spends is declared");
         assert!(css.ends_with(";\n") && !css.ends_with("\n\n"));
     }
 }

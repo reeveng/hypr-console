@@ -23,7 +23,7 @@
 //! device groups any, a window's group is not something `console-compositor`
 //! carries, and the dispatcher that would rebuild one takes a direction rather
 //! than a window -- so it is a feature with a question inside it rather than a
-//! fix somebody is owed.
+//! fix someone is owed.
 //!
 //! What it asks of the machine besides the compositor is `/proc`: a window's
 //! process says what started it, and a terminal's process tree says what was
@@ -41,13 +41,13 @@ pub const OURS: &str = "resume";
 pub enum Unresumed {
     Making(std::path::PathBuf, std::io::Error),
     Unwritten(console_core_atomic_writes::Unwritten),
-    Unreadable(std::path::PathBuf, String),
+    Read(std::path::PathBuf, String),
     Unparsed(std::path::PathBuf, serde_json::Error),
     Removing(std::path::PathBuf, std::io::Error),
-    Asking(console_compositor::Unanswered),
+    Query(console_compositor::HyprctlError),
     Unsaid(String, std::io::Error),
     SaidNothing(String),
-    Nameless(String),
+    Untitled(String),
     StillOpen,
 }
 
@@ -56,7 +56,7 @@ impl std::fmt::Display for Unresumed {
         match self {
             Unresumed::Making(at, fault) => write!(to, "{}: making it: {fault}", at.display()),
             Unresumed::Unwritten(fault) => write!(to, "{fault}"),
-            Unresumed::Unreadable(at, fault) => {
+            Unresumed::Read(at, fault) => {
                 write!(to, "{}: reading it: {fault}", at.display())
             }
             Unresumed::Unparsed(at, fault) => {
@@ -65,10 +65,10 @@ impl std::fmt::Display for Unresumed {
             Unresumed::Removing(at, fault) => {
                 write!(to, "{}: removing it: {fault}", at.display())
             }
-            Unresumed::Asking(fault) => write!(to, "{fault}"),
+            Unresumed::Query(fault) => write!(to, "{fault}"),
             Unresumed::Unsaid(at, fault) => write!(to, "{at}: {fault}"),
             Unresumed::SaidNothing(at) => write!(to, "{at}: it is empty"),
-            Unresumed::Nameless(at) => write!(to, "{at}: it points at nothing with a name"),
+            Unresumed::Untitled(at) => write!(to, "{at}: it points at nothing with a name"),
             Unresumed::StillOpen => write!(
                 to,
                 "something would not close, so what was saved is not put back"
@@ -79,8 +79,8 @@ impl std::fmt::Display for Unresumed {
 
 impl std::error::Error for Unresumed {}
 
-impl From<console_compositor::Unanswered> for Unresumed {
-    fn from(fault: console_compositor::Unanswered) -> Self {
-        Unresumed::Asking(fault)
+impl From<console_compositor::HyprctlError> for Unresumed {
+    fn from(fault: console_compositor::HyprctlError) -> Self {
+        Unresumed::Query(fault)
     }
 }

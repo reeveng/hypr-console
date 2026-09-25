@@ -12,7 +12,7 @@
 //! `code:` rather than a keysym is the decision worth arguing. Hyprland will
 //! take either, and a keysym is what the key *produces*, which is a function
 //! of the layout the keyboard is wearing -- so a shortcut written as `I` stops
-//! working the moment somebody switches that keyboard to Greek, and stops
+//! working the moment someone switches that keyboard to Greek, and stops
 //! working differently on each layout. A code is the key itself, in the place
 //! it is on the board, whatever it is currently printing. That is what a
 //! person means by "Super and I": the key their finger is already on. The
@@ -21,14 +21,14 @@
 //!
 //! What is *not* here is what a key types. That is xkb's, and asking it is
 //! `console_input_keyboard::keymap` -- a crate this one may not link, because
-//! it is a port of wvkbd and carries wvkbd's licence. Nothing here needs it:
+//! it is a port of wvkbd and carries wvkbd's license. Nothing here needs it:
 //! a binding names a key, and naming a key is not the same question as what
 //! comes out when it is pressed.
 
 use std::str::FromStr;
 
 use console_core_never::Never;
-use evdev::KeyCode;
+use console_input_event_devices::KeyCode;
 
 use crate::Unbound;
 
@@ -99,10 +99,10 @@ const LETTERS: &str = "abcdefghijklmnopqrstuvwxyz";
 
 const DIGITS: &str = "1234567890";
 
-const FUNCTIONS: usize = 12;
+const FUNCTIONS: u32 = 12;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Words {
+pub enum KeyKind {
     AModifier,
     AKey,
 }
@@ -117,10 +117,10 @@ pub fn every() -> Result<Vec<String>, Never> {
     Ok(said)
 }
 
-pub fn is_a_modifier(word: &str) -> Result<Words, Never> {
+pub fn is_a_modifier(word: &str) -> Result<KeyKind, Never> {
     Ok(match MODIFIERS.iter().any(|(spoken, _, _, _, _)| *spoken == word) {
-        true => Words::AModifier,
-        false => Words::AKey,
+        true => KeyKind::AModifier,
+        false => KeyKind::AKey,
     })
 }
 
@@ -290,8 +290,8 @@ mod tests {
 
     #[test]
     fn a_modifier_is_held_and_the_compositor_has_its_own_word_for_it() {
-        assert_eq!(is_a_modifier("super"), Ok(Words::AModifier));
-        assert_eq!(is_a_modifier("i"), Ok(Words::AKey));
+        assert_eq!(is_a_modifier("super"), Ok(KeyKind::AModifier));
+        assert_eq!(is_a_modifier("i"), Ok(KeyKind::AKey));
         assert_eq!(ok(held_as("ctrl")), Some("CTRL"));
         assert_eq!(ok(modifier_of(KeyCode::KEY_RIGHTSHIFT)), Some("shift"));
     }

@@ -11,8 +11,9 @@ use std::path::{Path, PathBuf};
 
 const SOUND_TAB: &str = "Audio";
 const FILM_TAB: &str = "Video";
+const BOOK_TAB: &str = "Books";
 
-pub const TABS: [&str; 2] = [SOUND_TAB, FILM_TAB];
+pub const TABS: [&str; 3] = [SOUND_TAB, FILM_TAB, BOOK_TAB];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Words)]
 pub enum Kind {
@@ -20,29 +21,39 @@ pub enum Kind {
     Sound,
     #[words(word = "video", flag = "--video")]
     Film,
+    #[words(word = "book", flag = "--book")]
+    Book,
 }
 
 impl Kind {
     pub const BOTH: [Kind; 2] = [Kind::Sound, Kind::Film];
 
+    pub const ALL: [Kind; 3] = [Kind::Sound, Kind::Film, Kind::Book];
+
     pub fn tab(self) -> Result<&'static str, Never> {
         Ok(match self {
             Kind::Sound => SOUND_TAB,
             Kind::Film => FILM_TAB,
+            Kind::Book => BOOK_TAB,
         })
     }
 
-    pub fn other(self) -> Result<Kind, Never> {
+    pub fn other(self) -> Result<Option<Kind>, Never> {
         Ok(match self {
-            Kind::Sound => Kind::Film,
-            Kind::Film => Kind::Sound,
+            Kind::Sound => Some(Kind::Film),
+            Kind::Film => Some(Kind::Sound),
+            Kind::Book => None,
         })
     }
 
     pub fn read(said: &str) -> Result<Option<Kind>, Never> {
         let said = said.trim().trim_start_matches('-');
-        Ok(Kind::BOTH.into_iter().find(|kind| kind.word() == Ok(said)))
+        Ok(Kind::ALL.into_iter().find(|kind| kind.word() == Ok(said)))
     }
+}
+
+pub fn cache() -> Result<Option<PathBuf>, Never> {
+    console_core_places::Base::Cache.hers()
 }
 
 pub fn folder(cache: &Path) -> Result<PathBuf, Never> {
@@ -92,6 +103,7 @@ mod tests {
     fn a_kind_is_read_from_the_word_one_program_hands_the_next() {
         assert_eq!(Kind::read("--audio"), Ok(Some(Kind::Sound)));
         assert_eq!(Kind::read("video"), Ok(Some(Kind::Film)));
+        assert_eq!(Kind::read("--book"), Ok(Some(Kind::Book)));
         assert_eq!(Kind::read("--pictures"), Ok(None));
     }
 
@@ -103,7 +115,8 @@ mod tests {
 
         assert_ne!(sound, film);
         assert!(sound.starts_with(folder));
-        assert_eq!(Kind::Sound.other(), Ok(Kind::Film));
+        assert_eq!(Kind::Sound.other(), Ok(Some(Kind::Film)));
+        assert_eq!(Kind::Book.other(), Ok(None), "a book has no other way to be had");
     }
 
     #[test]

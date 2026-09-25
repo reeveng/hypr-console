@@ -3,7 +3,7 @@
 //! All of it arithmetic, and all of it the half that is wrong in quiet ways.
 //! A photograph off this device's own camera is several thousand pixels across
 //! and the card is about twelve hundred; a screenshot of the machine is
-//! exactly the screen; a favicon somebody saved is thirty-two square. Those
+//! exactly the screen; a favicon someone saved is thirty-two square. Those
 //! three want different answers and only one of them is interesting to look
 //! at, so the rules are written here where they can be argued with, rather
 //! than left implicit in whatever GTK does by default.
@@ -14,10 +14,10 @@
 //! *Fit* means the whole of it is on the screen, and for anything larger than
 //! the room that means shrinking it. For anything smaller it would mean
 //! blowing it up, and a thirty-two pixel icon drawn twelve hundred wide is not
-//! a bigger picture, it is a grid of coloured squares. So fitting is capped at
+//! a bigger picture, it is a grid of colored squares. So fitting is capped at
 //! the picture's own size: something smaller than the room is drawn at exactly
 //! the size it is, in the middle of the room, and there is a whole card of
-//! grey around it saying honestly that this is all there is.
+//! gray around it saying honestly that this is all there is.
 //!
 //! Zooming past that is still allowed, because it is asked for. The difference
 //! is between what the panel decides on your behalf and what you pressed for.
@@ -28,7 +28,7 @@
 //! of named steps rather than a continuous factor: the whole thing, then its
 //! own size, then twice and four times that. Four is where it stops because
 //! past it a photograph is one blurred pixel filling the card and the press
-//! that got there is a press nobody meant.
+//! that got there is a press no one meant.
 //!
 //! *Its own size* earns its place on a handheld. A 4000-pixel photograph fitted
 //! into a 1180-pixel card is at less than a third, so every detail in it --
@@ -42,7 +42,7 @@ use console_core_number_conversion::{Float, toward_zero_i32, toward_zero_u32};
 use console_core_words::Words;
 
 pub fn area(of: Size<u32>) -> Result<Area, Never> {
-    Ok(match of.wide > 0 && of.tall > 0 {
+    Ok(match of.width > 0 && of.height > 0 {
         true => Area::Some,
         false => Area::None,
     })
@@ -63,8 +63,8 @@ pub fn contain(of: Size<u32>, room: Size<u32>) -> Result<f64, Never> {
         false => {},
     }
 
-    let across = f64::from(room.wide) / f64::from(of.wide);
-    let down = f64::from(room.tall) / f64::from(of.tall);
+    let across = f64::from(room.width) / f64::from(of.width);
+    let down = f64::from(room.height) / f64::from(of.height);
 
     Ok(across.min(down).min(1.0))
 }
@@ -114,7 +114,7 @@ impl Zoom {
         let Ok(scale) = self.scale(of, room);
         let Ok(drawn) = drawn_at(of, scale);
 
-        Ok(match drawn.wide > room.wide || drawn.tall > room.tall {
+        Ok(match drawn.width > room.width || drawn.height > room.height {
             true => Hangs::Over,
             false => Hangs::Inside,
         })
@@ -128,29 +128,29 @@ pub enum Hangs {
 }
 
 pub fn drawn_at(of: Size<u32>, scale: f64) -> Result<Size<u32>, Never> {
-    let Ok(wide) = toward_zero_u32(f64::from(of.wide) * scale);
-    let Ok(tall) = toward_zero_u32(f64::from(of.tall) * scale);
+    let Ok(wide) = toward_zero_u32(f64::from(of.width) * scale);
+    let Ok(tall) = toward_zero_u32(f64::from(of.height) * scale);
 
-    Ok(Size { wide: wide.max(1), tall: tall.max(1) })
+    Ok(Size { width: wide.max(1), height: tall.max(1) })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Looking {
-    pub across: f64,
-    pub down: f64,
+    pub x: f64,
+    pub y: f64,
 }
 
 impl Default for Looking {
     fn default() -> Self {
-        Looking { across: 0.5, down: 0.5 }
+        Looking { x: 0.5, y: 0.5 }
     }
 }
 
 impl Looking {
     pub fn moved(self, by: Point<f64>) -> Result<Looking, Never> {
         Ok(Looking {
-            across: (self.across + by.across).clamp(0.0, 1.0),
-            down: (self.down + by.down).clamp(0.0, 1.0),
+            x: (self.x + by.x).clamp(0.0, 1.0),
+            y: (self.y + by.y).clamp(0.0, 1.0),
         })
     }
 }
@@ -165,8 +165,8 @@ pub fn corner(
 ) -> Result<(i32, i32), Never> {
     let Ok(scale) = zoom.scale(of, room);
     let Ok(drawn) = drawn_at(of, scale);
-    let Ok(across) = along(Across { drawn: drawn.wide, room: room.wide }, looking.across);
-    let Ok(down) = along(Across { drawn: drawn.tall, room: room.tall }, looking.down);
+    let Ok(across) = along(Across { drawn: drawn.width, room: room.width }, looking.x);
+    let Ok(down) = along(Across { drawn: drawn.height, room: room.height }, looking.y);
 
     Ok((across, down))
 }
@@ -196,8 +196,8 @@ fn along(across: Across, looking: f64) -> Result<i32, Never> {
 pub fn showing(of: Size<u32>, room: Size<u32>, zoom: Zoom) -> Result<f64, Never> {
     let Ok(scale) = zoom.scale(of, room);
     let Ok(drawn) = drawn_at(of, scale);
-    let across = (f64::from(room.wide) / f64::from(drawn.wide)).min(1.0);
-    let down = (f64::from(room.tall) / f64::from(drawn.tall)).min(1.0);
+    let across = (f64::from(room.width) / f64::from(drawn.width)).min(1.0);
+    let down = (f64::from(room.height) / f64::from(drawn.height)).min(1.0);
 
     Ok(across * down)
 }
@@ -209,15 +209,15 @@ pub fn percent(scale: f64) -> Result<u32, Never> {
 }
 
 pub fn room(card: Size<u32>, taken: u32) -> Result<Size<u32>, Never> {
-    Ok(Size { wide: card.wide, tall: card.tall.saturating_sub(taken).max(1) })
+    Ok(Size { width: card.width, height: card.height.saturating_sub(taken).max(1) })
 }
 
 pub fn said(of: Size<u32>) -> Result<String, Never> {
-    Ok(format!("{} x {}", of.wide, of.tall))
+    Ok(format!("{} x {}", of.width, of.height))
 }
 
 pub fn pixels(of: Size<u32>) -> Result<u64, Never> {
-    Ok(u64::from(of.wide).saturating_mul(u64::from(of.tall)))
+    Ok(u64::from(of.width).saturating_mul(u64::from(of.height)))
 }
 
 pub fn megapixels(of: Size<u32>) -> Result<f64, Never> {
@@ -231,10 +231,10 @@ pub fn megapixels(of: Size<u32>) -> Result<f64, Never> {
 mod tests {
     use super::*;
 
-    const CARD: Size<u32> = Size { wide: 1180, tall: 700 };
+    const CARD: Size<u32> = Size { width: 1180, height: 700 };
 
     fn sized(wide: u32, tall: u32) -> Size<u32> {
-        Size { wide, tall }
+        Size { width: wide, height: tall }
     }
 
     fn photograph() -> Size<u32> {
@@ -253,8 +253,8 @@ mod tests {
 
         let Ok(drawn) = drawn_at(photograph(), scale);
 
-        assert!(drawn.wide <= CARD.wide, "{drawn:?}");
-        assert!(drawn.tall <= CARD.tall, "{drawn:?}");
+        assert!(drawn.width <= CARD.width, "{drawn:?}");
+        assert!(drawn.height <= CARD.height, "{drawn:?}");
     }
 
     #[test]
@@ -270,8 +270,8 @@ mod tests {
         let of = sized(4000, 1000);
         let Ok(scale) = contain(of, CARD);
         let Ok(drawn) = drawn_at(of, scale);
-        let was = f64::from(of.wide) / f64::from(of.tall);
-        let now = f64::from(drawn.wide) / f64::from(drawn.tall);
+        let was = f64::from(of.width) / f64::from(of.height);
+        let now = f64::from(drawn.width) / f64::from(drawn.height);
 
         assert!((was - now).abs() < 0.01, "{was} became {now}");
     }
@@ -348,8 +348,8 @@ mod tests {
     fn what_fits_is_drawn_in_the_middle_of_the_room() {
         let Ok((left, top)) = corner(icon(), CARD, Zoom::Whole, Looking::default());
 
-        assert_eq!(left, i32::try_from((CARD.wide - icon().wide) / 2).expect("fits"));
-        assert_eq!(top, i32::try_from((CARD.tall - icon().tall) / 2).expect("fits"));
+        assert_eq!(left, i32::try_from((CARD.width - icon().width) / 2).expect("fits"));
+        assert_eq!(top, i32::try_from((CARD.height - icon().height) / 2).expect("fits"));
     }
 
     #[test]
@@ -361,44 +361,44 @@ mod tests {
             let Ok(drawn) = drawn_at(of, scale);
 
             for across in [-2.0, -0.5, 0.0, 0.25, 0.5, 0.75, 1.0, 1.5, 9.0] {
-                let looking = Looking { across, down: across };
+                let looking = Looking { x: across, y: across };
                 let Ok((left, top)) = corner(of, CARD, zoom, looking);
 
                 assert!(left <= 0, "a gap on the left at {across}: {left}");
                 assert!(top <= 0, "a gap at the top at {across}: {top}");
 
-                let right = left + i32::try_from(drawn.wide).expect("fits");
-                let bottom = top + i32::try_from(drawn.tall).expect("fits");
+                let right = left + i32::try_from(drawn.width).expect("fits");
+                let bottom = top + i32::try_from(drawn.height).expect("fits");
 
-                assert!(right >= i32::try_from(CARD.wide).expect("fits"), "a gap on the right");
-                assert!(bottom >= i32::try_from(CARD.tall).expect("fits"), "a gap at the bottom");
+                assert!(right >= i32::try_from(CARD.width).expect("fits"), "a gap on the right");
+                assert!(bottom >= i32::try_from(CARD.height).expect("fits"), "a gap at the bottom");
             }
         }
     }
 
     #[test]
     fn looking_is_kept_inside_the_picture() {
-        let Ok(looking) = Looking::default().moved(Point { across: 9.0, down: -9.0 });
+        let Ok(looking) = Looking::default().moved(Point { x: 9.0, y: -9.0 });
 
-        assert_eq!(looking.across, 1.0);
-        assert_eq!(looking.down, 0.0);
+        assert_eq!(looking.x, 1.0);
+        assert_eq!(looking.y, 0.0);
 
-        let Ok(stepped) = Looking::default().moved(Point { across: STEP, down: 0.0 });
+        let Ok(stepped) = Looking::default().moved(Point { x: STEP, y: 0.0 });
 
-        assert_eq!(stepped.across, 0.5 + STEP);
+        assert_eq!(stepped.x, 0.5 + STEP);
     }
 
     #[test]
     fn a_picture_is_crossed_in_five_presses() {
-        let mut looking = Looking { across: 0.0, down: 0.5 };
+        let mut looking = Looking { x: 0.0, y: 0.5 };
 
         for _ in 0..5 {
-            let Ok(moved) = looking.moved(Point { across: STEP, down: 0.0 });
+            let Ok(moved) = looking.moved(Point { x: STEP, y: 0.0 });
 
             looking = moved;
         }
 
-        assert!((looking.across - 1.0).abs() < 0.000_1, "{}", looking.across);
+        assert!((looking.x - 1.0).abs() < 0.000_1, "{}", looking.x);
     }
 
     #[test]

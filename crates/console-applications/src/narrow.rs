@@ -1,7 +1,7 @@
 //! Which applications a typed word leaves standing.
 //!
 //! Plain containment rather than anything cleverer. A fuzzy match is worth
-//! having where somebody types fast and looks at the results; here the letters
+//! having where someone types fast and looks at the results; here the letters
 //! arrive one thumb at a time off a keyboard that covers the bottom of the
 //! screen, and a list that reorders itself around a letter you did not mean to
 //! press is worse than one that simply gets shorter.

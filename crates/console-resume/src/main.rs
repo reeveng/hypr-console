@@ -3,7 +3,7 @@
 //! `console-session.service` starts it with no words at all, and no words is the
 //! whole of what this desktop asks of it: put back what was open, once for this
 //! compositor, and then keep saving what is on the screen. The other modes are
-//! here because somebody with a broken session needs a way to look at one and to
+//! here because someone with a broken session needs a way to look at one and to
 //! throw one away, and because `save` once is what a check presses.
 //!
 //! ## No words does not mean `load`
@@ -16,28 +16,29 @@
 //! So no words is [`Mode::Default`], which puts back only if
 //! `console_resume::already` says this compositor has not had it done yet, and
 //! watches either way. `load` is the word for doing it now regardless, and it is
-//! a word somebody has to type.
+//! a word someone has to type.
 //!
 //! ## Nothing saved is not a fault, and asking for a session that is not there is
 //!
-//! `load` typed by a person names a session, and a name nobody saved is worth a
+//! `load` typed by a person names a session, and a name no one saved is worth a
 //! word and a status: they asked for something that is not there. The desktop's
 //! own first start asks for the same thing and means something else -- a machine
 //! that has never saved a session has nothing to put back, which is what a first
 //! start *is*. Told those apart by the mode rather than by the file, because
 //! the file says the same thing to both.
 //!
-//! It was one sentence and both, which made the ordinary first start of a fresh
-//! device exit 1 without ever reaching the watching -- and `console-session`
-//! carries `ExecStopPost=console-fell`, so it said so on the screen as a program
-//! that had fallen over. `Restart=always` then started it again, the mark from
-//! the first attempt made the second one a no-op, and it watched. The desktop
-//! worked; the notice was true about the status and wrong about the desktop.
+//! It was one sentence and both, which made the ordinary first start of a
+//! fresh device exit 1 without ever reaching the watching -- and
+//! `console-session` carries `ExecStopPost=console-report-crash`, so it said
+//! so on the screen as a program that had fallen over. `Restart=always` then
+//! started it again, the mark from the first attempt made the second one a
+//! no-op, and it watched. The desktop worked; the notification was true about
+//! the status and wrong about the desktop.
 //!
 //! ## The words are read here rather than by a parser crate
 //!
 //! The fork took clap, which is a dependency and a help screen for a program
-//! nobody types. It is also what made `--help` harmless there and a swept desktop
+//! no one types. It is also what made `--help` harmless there and a swept desktop
 //! here: with clap gone, an argument nothing recognises left no mode word, and no
 //! mode word was `load`. A word this does not know now says which words it knows
 //! and stops, and that is the only thing an unknown word may do.
@@ -51,7 +52,7 @@ use std::time::Duration;
 use console_core_never::Never;
 use console_resume::Unresumed;
 use console_resume::already::Already;
-use console_resume::session::{Duplicates, PutBack, Really, Restoring, Sessions};
+use console_resume::session::{Duplicates, Restore, Really, Restoring, Sessions};
 
 const UNLESS_NAMED: &str = "default";
 
@@ -83,10 +84,10 @@ const EVERY: [(&str, Mode); 7] = [
 ];
 
 fn mode(word: &str) -> Result<Option<Mode>, Never> {
-    Ok(EVERY.iter().find(|(spelt, _mode)| *spelt == word).map(|(_spelt, mode)| *mode))
+    Ok(EVERY.iter().find(|(spelled, _mode)| *spelled == word).map(|(_spelt, mode)| *mode))
 }
 
-struct Asked {
+struct Arguments {
     mode: Mode,
     name: String,
     save_interval: Duration,
@@ -145,11 +146,11 @@ impl std::fmt::Display for Unstarted {
                 write!(to, "{word:?} is not one of --{}", FLAGS.join(", --"))
             }
             Unstarted::UnknownMode(said) => {
-                let every: Vec<&str> = EVERY.iter().map(|(spelt, _mode)| *spelt).collect();
+                let every: Vec<&str> = EVERY.iter().map(|(spelled, _mode)| *spelled).collect();
 
                 write!(to, "{said:?} is not one of {}", every.join(", "))
             }
-            Unstarted::NeverSaving => write!(to, "a save interval of nought is never"),
+            Unstarted::NeverSaving => write!(to, "a save interval of zero is never"),
             Unstarted::Homeless => write!(to, "there is no home to keep a session in"),
             Unstarted::Making(at, fault) => {
                 write!(to, "{}: making it: {fault}", at.display())
@@ -172,7 +173,7 @@ impl From<Unresumed> for Unstarted {
     }
 }
 
-fn asked(words: &[String]) -> Result<Asked, Unstarted> {
+fn asked(words: &[String]) -> Result<Arguments, Unstarted> {
     for word in words {
         let Ok(known) = known_flag(word);
 
@@ -216,7 +217,7 @@ fn asked(words: &[String]) -> Result<Asked, Unstarted> {
 
     let Ok(adjusting_for) = seconds(flag("load-time").as_deref(), ADJUSTING_FOR);
 
-    Ok(Asked {
+    Ok(Arguments {
         mode,
         name: match mode_and_name.next().cloned() {
             Some(name) => name,
@@ -260,7 +261,7 @@ fn putting_back(sessions: &Sessions, name: &str) -> Result<(), Unstarted> {
     let Ok(already) = console_resume::already::asked();
 
     match already {
-        Already::PutBack => {
+        Already::Restore => {
             println!("this compositor has had its windows put back already");
 
             return Ok(());
@@ -281,8 +282,8 @@ fn putting_back(sessions: &Sessions, name: &str) -> Result<(), Unstarted> {
     let put_back = sessions.load(name)?;
 
     match put_back {
-        PutBack::Windows => {},
-        PutBack::NothingSaved(at) => {
+        Restore::Windows => {},
+        Restore::NothingSaved(at) => {
             println!("{} has nothing saved in it yet, so there is nothing to put back", at.display());
         },
     }
@@ -314,8 +315,8 @@ fn run() -> Result<(), Unstarted> {
             let put_back = sessions.load(&asked.name)?;
 
             match put_back {
-                PutBack::Windows => {},
-                PutBack::NothingSaved(at) => return Err(Unstarted::NoSession(at)),
+                Restore::Windows => {},
+                Restore::NothingSaved(at) => return Err(Unstarted::NoSession(at)),
             }
         },
         Mode::Watch => {},
@@ -394,7 +395,7 @@ mod tests {
     }
 
     #[test]
-    fn a_mode_nobody_here_says_names_the_ones_that_are_said() {
+    fn a_mode_no_one_here_says_names_the_ones_that_are_said() {
         let why = match asked(&words(&["sideways"])) {
             Err(why) => why,
             Ok(_no_such_mode) => panic!("sideways was read as a mode"),

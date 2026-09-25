@@ -20,11 +20,11 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use console_core_external_programs::Program;
 use console_core_never::Never;
-use console_test_stages::checking::{Body, Check, Done, failed, same};
+use console_test_stages::checking::{Body, Check, CheckResult, failed, same};
 use console_test_stages::desktop::Desktop;
 use console_test_stages::device::Device;
 use console_test_stages::here::Here;
@@ -59,15 +59,15 @@ const HOLDS: [&str; 2] = [PACKAGE, SCRIPT];
 
 const UNZIPS_WITH: &str = "files-unzip";
 
-fn draws(stage: &mut Desktop) -> Done {
-    stage.open("files-panel")?;
+fn draws(stage: &mut Desktop) -> CheckResult {
+    stage.open("files")?;
     drew(stage)
 }
 
-fn here(_stage: &mut Here) -> Done {
+fn here(_stage: &mut Here) -> CheckResult {
     let Ok(root) = console_test_stages::root();
 
-    let Ok(at) = nobody_elses(&root);
+    let Ok(at) = no_one_elses(&root);
 
     let holding = at.join("holding");
 
@@ -100,7 +100,7 @@ fn here(_stage: &mut Here) -> Done {
     })
 }
 
-fn there(stage: &mut Device) -> Done {
+fn there(stage: &mut Device) -> CheckResult {
     let Ok(seven) = Program::SevenZip.name();
     let Ok(made) = stage.user(&format!(
         "rm -rf {AT} && mkdir -p {AT}/holding/{WRAPPED} \
@@ -133,7 +133,7 @@ enum Ran {
     Badly(String),
 }
 
-fn nobody_elses(root: &Path) -> Result<PathBuf, Never> {
+fn no_one_elses(root: &Path) -> Result<PathBuf, Never> {
     #[cfg_attr(
         dylint_lib = "explicit044_no_ambient_value",
         allow(
@@ -141,7 +141,7 @@ fn nobody_elses(root: &Path) -> Result<PathBuf, Never> {
             reason = "each unzipping needs a directory no other one in this process is in, and the checks that make them run beside each other with nothing above them to do the counting"
         )
     )]
-    static RUNS: AtomicUsize = AtomicUsize::new(0);
+    static RUNS: AtomicU32 = AtomicU32::new(0);
 
     let run = RUNS.fetch_add(1, Ordering::Relaxed);
     let whose = std::process::id();

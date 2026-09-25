@@ -1,4 +1,4 @@
-// UI test for EXPLICIT033 — an absence answered by a value nobody wrote down.
+// UI test for EXPLICIT033 — an absence answered by a value no one wrote down.
 
 // BAD EXPLICIT033 — the reader has to know the type to know what ran.
 fn named(of: &[String]) -> String {
@@ -28,7 +28,7 @@ fn chosen(said: Option<u32>) -> u32 {
 
 const WIDE: u32 = 1024;
 
-// GOOD — the absence is somebody else's business and is handed on.
+// GOOD — the absence is someone else's business and is handed on.
 fn handed(of: &[String]) -> Option<String> {
     of.first().cloned()
 }

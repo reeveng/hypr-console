@@ -32,7 +32,7 @@ source_devices:
       vendor_id: "17ef"
       product_id: "{618[2-4],61e[b-d]}" # Don't grab 5/e, thats FPS mode Keyboard events
       handler: event*
-  # The touchpad is claimed by nobody here.
+  # The touchpad is claimed by no one here.
   #
   # The shipped configuration claims this device and blocks it, which means
   # grabbing it so nothing else can read it and then discarding what it says.

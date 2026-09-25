@@ -30,6 +30,10 @@ pub const OBJECT: &str = "/org/mpris/MediaPlayer2";
 
 pub const PLAYER: &str = "org.mpris.MediaPlayer2.Player";
 
+pub const OURS: &str = "console.Player";
+
+pub const POSITION_CHANGED: &str = "PositionChanged";
+
 pub const ROOT: &str = "org.mpris.MediaPlayer2";
 
 pub const IDENTITY: &str = "Console";
@@ -86,10 +90,10 @@ pub struct Song {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Told {
+pub enum Reply {
     Track(String),
     Word(String),
-    Words(Vec<String>),
+    Strings(Vec<String>),
     Long(i64),
 }
 
@@ -97,22 +101,22 @@ pub fn url(at: &Path) -> Result<String, Never> {
     Ok(format!("file://{}", at.display()))
 }
 
-pub fn metadata(song: &Song) -> Result<Vec<(String, Told)>, Never> {
+pub fn metadata(song: &Song) -> Result<Vec<(String, Reply)>, Never> {
     let Ok(length) = micros(song.length);
 
     let mut said = vec![
-        ("mpris:trackid".to_string(), Told::Track(TRACK.to_string())),
-        ("mpris:length".to_string(), Told::Long(length)),
-        ("xesam:title".to_string(), Told::Word(song.title.clone())),
-        ("xesam:artist".to_string(), Told::Words(vec![song.artist.clone()])),
-        ("xesam:album".to_string(), Told::Word(song.album.clone())),
+        ("mpris:trackid".to_string(), Reply::Track(TRACK.to_string())),
+        ("mpris:length".to_string(), Reply::Long(length)),
+        ("xesam:title".to_string(), Reply::Word(song.title.clone())),
+        ("xesam:artist".to_string(), Reply::Strings(vec![song.artist.clone()])),
+        ("xesam:album".to_string(), Reply::Word(song.album.clone())),
     ];
 
     match &song.art {
         Some(art) => {
             let Ok(url) = url(art);
 
-            said.push(("mpris:artUrl".to_string(), Told::Word(url)));
+            said.push(("mpris:artUrl".to_string(), Reply::Word(url)));
         },
         None => {},
     }

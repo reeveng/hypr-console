@@ -31,7 +31,7 @@ fn off_the_list() {
     let _ = Command::new(Program::Hyprctl.named()).arg("monitors").status();
 }
 
-// GOOD — a name handed in is a name somebody else answered for.
+// GOOD — a name handed in is a name someone else answered for.
 fn handed(named: &str) {
     let _ = Command::new(named).status();
 }

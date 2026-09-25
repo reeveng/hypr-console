@@ -6,11 +6,11 @@
 //! tens of megabytes of compressed package files and a panel that unpacked
 //! them where it draws would answer nothing until it was done.
 //! `Showing::later` runs this and draws the folder again when it ends, so what
-//! arrived is on the screen without anybody asking for it.
+//! arrived is on the screen without anyone asking for it.
 //!
 //! The unpacking happens into a hidden folder beside the archive and the
 //! result is renamed into place, which is one rename rather than a folder that
-//! fills up while somebody watches it. A dot in front is all it takes: the
+//! fills up while someone watches it. A dot in front is all it takes: the
 //! listing does not show what starts with one, so an unzip that dies halfway
 //! leaves nothing on the screen to explain.
 //!
@@ -25,11 +25,11 @@ use console_core_external_programs::Program;
 use console_files::places::Is;
 use console_files::unzipping::{self, Lift};
 use console_core_never::Never;
-use console_panel::running::{Said, say};
+use console_panel::running::{Notification, say};
 
 const KIND: &str = "files-unzip";
 
-const FULL: &str = "There is nowhere left to unzip this: the folders beside it are all taken.";
+const FULL: &str = "No free folder name to unzip into.";
 
 fn main() -> ExitCode {
     let said = match std::env::args().nth(1) {
@@ -66,7 +66,7 @@ fn main() -> ExitCode {
     let into = match free {
         Some(into) => into,
         None => {
-            let Ok(()) = say(KIND, Said { summary: &named, body: FULL });
+            let Ok(()) = say(KIND, Notification { summary: &named, body: FULL });
 
             return ExitCode::FAILURE;
         }
@@ -75,9 +75,9 @@ fn main() -> ExitCode {
     let Ok(while_) = unzipping::while_unpacking(&named);
     let unpacking = holding.join(while_);
 
-    let Ok(gone) = unpacked(&archive, &named, &unpacking, &holding.join(into));
+    let Ok(unpacked) = unpacked(&archive, &named, &unpacking, &holding.join(into));
 
-    gone
+    unpacked
 }
 
 fn unpacked(
@@ -116,7 +116,7 @@ fn unpacked(
 
     let out_of = match lift {
         Lift::TheFolderInside(name) => unpacking.join(name),
-        Lift::Nothing => unpacking.to_path_buf(),
+        Lift::None => unpacking.to_path_buf(),
     };
 
     match std::fs::rename(&out_of, into) {
@@ -189,5 +189,5 @@ fn inside(unpacking: &Path) -> Result<Vec<(String, Is)>, Never> {
 struct Why<'a>(&'a str);
 
 fn told(named: &str, why: Why<'_>) -> Result<(), Never> {
-    say(KIND, Said { summary: &format!("{named} was not unzipped"), body: why.0 })
+    say(KIND, Notification { summary: &format!("Couldn't unzip {named}"), body: why.0 })
 }

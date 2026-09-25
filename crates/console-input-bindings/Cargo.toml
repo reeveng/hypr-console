@@ -8,18 +8,19 @@ license.workspace = true
 [dependencies]
 console-core-atomic-writes.workspace = true
 console-core-never.workspace = true
+console-core-number-conversion.workspace = true
 console-core-places.workspace = true
 # The pad's own words. A binding on the pad is checked against the buttons this
 # desktop routes, and that list is the gamepad's to keep; the keyboard's words
 # are here because nothing else in this workspace may hold them.
 console-core-words.workspace = true
 console-input-gamepad.workspace = true
-evdev = "0.13"
+console-input-event-devices.workspace = true
 serde = { version = "1", features = ["derive"] }
 toml = { version = "0.9", default-features = false, features = ["parse", "serde"] }
 
 [dev-dependencies]
-tempfile = "3"
+console-core-temporary-directories.workspace = true
 
 [lints]
 workspace = true

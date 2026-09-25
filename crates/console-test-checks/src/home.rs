@@ -21,13 +21,13 @@
 //! pointer as well as a d-pad, and until `console-point` there was nothing but
 //! a person to move one, so the hover was written and never pressed by
 //! anything. It runs in the emulator as well as on the device, because what
-//! says the highlight moved is the colour of the screen and both of them have
+//! says the highlight moved is the color of the screen and both of them have
 //! one. It reads the same edge `ARRANGING` reads, for the same reason and so
 //! that there is one answer here to where the highlight is standing: a square
 //! the pointer has raised is a square wearing `#square.here`, and that rule
 //! is the border.
 //!
-//! That colour is what the waiting is made of too. A repaint is not a thing the
+//! That color is what the waiting is made of too. A repaint is not a thing the
 //! home screen announces, so there is nothing to ask but the screen itself, and
 //! the checks here used to hand that to a number of seconds instead. They read
 //! it now: `settled` waits for the same reading twice running, which is a
@@ -60,13 +60,13 @@
 //! the square it started on. Pressing also says what it means: the number in
 //! the message is squares, which is what a grid is measured in, rather than a
 //! number of seconds worked back from the key-repeat timing and wrong the
-//! moment somebody changes it.
+//! moment someone changes it.
 //!
 //! The corner it is carried to is a pane further out than the file has. A
 //! square in the hand adds one to what `shown` answers, so there is always an
 //! empty pane past the last one to put something on, and the bottom right of
 //! the home screen while you are holding something is on it. That is the
-//! behaviour and this asserts it rather than working around it; the way back
+//! behavior and this asserts it rather than working around it; the way back
 //! is the same walk in reverse and the pane goes when the square leaves it.
 //!
 //! The second is the only thing here the file cannot say, and the answer was
@@ -80,25 +80,25 @@
 //! What that took away is worth naming, because it will be proposed again. The
 //! screen was read for `panel`, which is a dark neutral, against a wallpaper
 //! that is an animated photograph -- so the reading was hundreds of points of
-//! somebody's picture, moving, and the highlight was never in it. Reading the
+//! someone's picture, moving, and the highlight was never in it. Reading the
 //! `mint` edge instead of the plate would have worked, and it would still have
-//! been a screenshot per look, on a machine somebody else is using, for a fact
+//! been a screenshot per look, on a machine someone else is using, for a fact
 //! the home screen could simply have said.
 
 use console_core_geometry::Point;
 use std::collections::BTreeSet;
 
-use console_home_screen::{Holding, Home, Spot};
+use console_home_screen::{Holding, HomeScreen, Spot};
 use console_core_never::Never;
 use console_test_stages::checking::{
-    Body, Check, Done, cannot, empty, failed, happened, happened_handed, less_than, same, seen,
+    Body, Check, CheckResult, cannot, empty, failed, happened, happened_handed, less_than, same, seen,
 };
 use console_test_stages::desktop::Desktop;
-use console_test_stages::device::{Device, PATIENCE, Seen, Waited};
+use console_test_stages::device::{Device, PATIENCE, Ready, Outcome};
 use console_test_stages::here::{Here, TURNS};
 use console_test_stages::palette::palette;
 
-use console_test_stages::Awry;
+use console_test_stages::Error;
 
 use crate::Unchecked;
 
@@ -142,13 +142,13 @@ pub const POINTED: Check = Check {
     bodies: &[Body::Desktop(pointed_here), Body::Device(pointed_there)],
 };
 
-fn whose_here(stage: &mut Here) -> Done {
+fn whose_here(stage: &mut Here) -> CheckResult {
     stage.showing(THE_HOME_SCREEN)?;
 
     stage.press("a")?;
 
     let Ok(()) = stage.settle(TURNS);
-    let Ok(clicked) = stage.sent(evdev::EventType::KEY, evdev::KeyCode::BTN_LEFT.0, 1);
+    let Ok(clicked) = stage.sent(console_input_event_devices::EventType::KEY, console_input_event_devices::KeyCode::BTN_LEFT.0, 1);
 
     seen(clicked, || "A on a sleeping home screen was not the pointer's button".to_string())?;
 
@@ -163,7 +163,7 @@ fn whose_here(stage: &mut Here) -> Done {
     let Ok(()) = stage.settle(TURNS);
     let Ok(walked) = stage.told();
 
-    same(&walked, &[console_onscreen::Said::Right].as_slice(), || {
+    same(&walked, &[console_onscreen::PadInput::Right].as_slice(), || {
         format!("the d-pad said {walked:?} to the home screen")
     })?;
 
@@ -174,7 +174,7 @@ fn whose_here(stage: &mut Here) -> Done {
     let Ok(()) = stage.settle(TURNS);
     let Ok(awake) = stage.told();
 
-    same(&awake, &[console_onscreen::Said::Pressed].as_slice(), || {
+    same(&awake, &[console_onscreen::PadInput::Pressed].as_slice(), || {
         format!("A on an awake home screen said {awake:?}")
     })?;
 
@@ -189,24 +189,24 @@ fn whose_here(stage: &mut Here) -> Done {
     stage.press("a")?;
 
     let Ok(()) = stage.settle(TURNS);
-    let Ok(back) = stage.sent(evdev::EventType::KEY, evdev::KeyCode::BTN_LEFT.0, 1);
+    let Ok(back) = stage.sent(console_input_event_devices::EventType::KEY, console_input_event_devices::KeyCode::BTN_LEFT.0, 1);
 
     seen(back, || "B did not give A back to the pointer".to_string())
 }
 
-fn whose_there(stage: &mut Device) -> Done {
+fn whose_there(stage: &mut Device) -> CheckResult {
     cleared(stage)?;
     let Ok(holding) = stage.home_awake();
 
-    same(&holding, &Seen::NotYet, || {
-        "the home screen was holding a highlight with nobody having asked for one".to_string()
+    same(&holding, &Ready::NotYet, || {
+        "the home screen was holding a highlight with no one having asked for one".to_string()
     })?;
 
     let Ok(()) = stage.press("dpad-right");
     let Ok(_) = stage.until(Device::home_awake, PATIENCE);
     let Ok(woken) = stage.home_awake();
 
-    same(&woken, &Seen::Yes, || "the d-pad did not wake the home screen".to_string())?;
+    same(&woken, &Ready::Yes, || "the d-pad did not wake the home screen".to_string())?;
 
     let Ok(()) = stage.press("y");
     let Ok(_) = showing(stage, "home-square");
@@ -216,15 +216,15 @@ fn whose_there(stage: &mut Device) -> Done {
     seen(on_screen, || format!("Y on an awake home screen opened {up:?}"))?;
 
     let Ok(()) = stage.press("b");
-    let Ok(_) = stage.gone(PATIENCE);
+    let Ok(_) = stage.closed(PATIENCE);
     let Ok(()) = stage.press("b");
     let Ok(_) = stage.until(asleep, PATIENCE);
     let Ok(away) = stage.home_awake();
 
-    same(&away, &Seen::NotYet, || "B did not put the highlight away".to_string())
+    same(&away, &Ready::NotYet, || "B did not put the highlight away".to_string())
 }
 
-fn pressable_there(stage: &mut Device) -> Done {
+fn pressable_there(stage: &mut Device) -> CheckResult {
     cleared(stage)?;
     let Ok(bar) = stage.layer(console_onscreen::BAR);
 
@@ -265,16 +265,16 @@ fn pressable_there(stage: &mut Device) -> Done {
     Ok(())
 }
 
-fn cleared(stage: &mut Device) -> Done {
+fn cleared(stage: &mut Device) -> CheckResult {
     let Ok(()) = stage.fresh();
     let Ok(ready) = stage.until::<Never>(
         |seen| {
             let Ok(menus) = seen.menus();
             let Ok(worn) = seen.profile();
 
-            Ok(match menus.is_empty() && worn == crate::chooser::WORN {
-                true => Seen::Yes,
-                false => Seen::NotYet,
+            Ok(match menus.is_empty() && worn == crate::picker::WORN {
+                true => Ready::Yes,
+                false => Ready::NotYet,
             })
         },
         PATIENCE,
@@ -291,14 +291,14 @@ fn cleared(stage: &mut Device) -> Done {
     })
 }
 
-fn arranging_there(stage: &mut Device) -> Done {
+fn arranging_there(stage: &mut Device) -> CheckResult {
     cleared(stage)?;
     let Ok(before) = placed(stage);
     let Ok(holding) = before.holding();
 
     match holding {
-        Holding::Something => {},
-        Holding::Nothing => return cannot("the home screen has nothing on it to move"),
+        Holding::Some => {},
+        Holding::None => return cannot("the home screen has nothing on it to move"),
     }
 
     let Ok(shape) = shaped(stage);
@@ -331,6 +331,7 @@ fn arranging_there(stage: &mut Device) -> Done {
         )
     })?;
 
+    let Ok(panes) = console_core_number_conversion::fitted::<_, u32>(panes);
     let Ok(there) = far_corner(shape, panes);
     let Ok(back) = first_corner(shape, panes);
 
@@ -372,27 +373,31 @@ fn shaped(stage: &mut Device) -> Result<console_home_screen::Shape, Never> {
 
 fn first_corner(
     shape: console_home_screen::Shape,
-    panes: usize,
-) -> Result<Vec<(&'static str, usize)>, Never> {
+    panes: u32,
+) -> Result<Vec<(&'static str, u32)>, Never> {
     let Ok(across) = crossing(shape, panes);
+    let Ok(rows) = console_core_number_conversion::fitted::<_, u32>(shape.rows);
 
-    Ok(vec![("dpad-left", across), ("dpad-up", shape.rows)])
+    Ok(vec![("dpad-left", across), ("dpad-up", rows)])
 }
 
 fn far_corner(
     shape: console_home_screen::Shape,
-    panes: usize,
-) -> Result<Vec<(&'static str, usize)>, Never> {
+    panes: u32,
+) -> Result<Vec<(&'static str, u32)>, Never> {
     let Ok(across) = crossing(shape, panes);
+    let Ok(rows) = console_core_number_conversion::fitted::<_, u32>(shape.rows);
 
-    Ok(vec![("dpad-right", across), ("dpad-down", shape.rows)])
+    Ok(vec![("dpad-right", across), ("dpad-down", rows)])
 }
 
-fn crossing(shape: console_home_screen::Shape, panes: usize) -> Result<usize, Never> {
-    Ok(shape.columns.saturating_mul(panes.saturating_add(1)))
+fn crossing(shape: console_home_screen::Shape, panes: u32) -> Result<u32, Never> {
+    let Ok(columns) = console_core_number_conversion::fitted::<_, u32>(shape.columns);
+
+    Ok(columns.saturating_mul(panes.saturating_add(1)))
 }
 
-fn walking(stage: &mut Device, ways: &[(&str, usize)]) -> Done {
+fn walking(stage: &mut Device, ways: &[(&str, u32)]) -> CheckResult {
     for (way, steps) in ways {
         let Ok(()) = stage.presses(way, *steps);
     }
@@ -400,11 +405,11 @@ fn walking(stage: &mut Device, ways: &[(&str, usize)]) -> Done {
     Ok(())
 }
 
-fn carried(stage: &mut Device, ways: &[(&str, usize)]) -> Done {
+fn carried(stage: &mut Device, ways: &[(&str, u32)]) -> CheckResult {
     let Ok(was) = placed(stage);
     let Ok(awake) = stage.home_awake();
 
-    same(&awake, &Seen::Yes, || {
+    same(&awake, &Ready::Yes, || {
         "the home screen is asleep, so Y is the desktop's menu rather than what else can be \
          done with the square"
             .to_string()
@@ -418,7 +423,7 @@ fn carried(stage: &mut Device, ways: &[(&str, usize)]) -> Done {
     seen(on_screen, || format!("Y on the square under the highlight opened {up:?}"))?;
 
     let Ok(()) = stage.press("a");
-    let Ok(went) = stage.gone(PATIENCE);
+    let Ok(went) = stage.closed(PATIENCE);
 
     happened_handed(went, stage, |stage| {
         let Ok(up) = stage.menus();
@@ -449,21 +454,21 @@ fn carried(stage: &mut Device, ways: &[(&str, usize)]) -> Done {
     })
 }
 
-fn placed(stage: &mut Device) -> Result<Home, Never> {
+fn placed(stage: &mut Device) -> Result<HomeScreen, Never> {
     let home = stage.home()?;
     let at = console_home_screen::file(std::path::Path::new(&home))?;
     let said = stage.user(&format!("cat {} 2>/dev/null", at.display()))?;
 
-    Home::read(&said)
+    HomeScreen::read(&said)
 }
 
-fn asleep(seen: &mut Device) -> Result<Seen, Never> {
+fn asleep(seen: &mut Device) -> Result<Ready, Never> {
     let Ok(awake) = seen.home_awake();
 
     awake.flipped()
 }
 
-fn showing(stage: &mut Device, namespace: &str) -> Result<Waited, Never> {
+fn showing(stage: &mut Device, namespace: &str) -> Result<Outcome, Never> {
     stage.until(
         |seen| {
             let Ok(up) = seen.menus();
@@ -474,17 +479,17 @@ fn showing(stage: &mut Device, namespace: &str) -> Result<Waited, Never> {
     )
 }
 
-fn on_screen(up: &[String], namespace: &str) -> Result<Seen, Never> {
+fn on_screen(up: &[String], namespace: &str) -> Result<Ready, Never> {
     Ok(match up.iter().any(|name| name == namespace) {
-        true => Seen::Yes,
-        false => Seen::NotYet,
+        true => Ready::Yes,
+        false => Ready::NotYet,
     })
 }
 
 const STANDING: &str = "mint";
 
-const ACROSS: usize = 1;
-const DOWN: usize = 8;
+const ACROSS: u32 = 1;
+const DOWN: u32 = 8;
 
 const EDGE: u32 = 8;
 
@@ -506,23 +511,23 @@ fn settled(
         |settling, seen| {
             let Ok(()) = seen.again();
 
-            let found = lit(seen, over, spent, Device::colour)?;
+            let found = lit(seen, over, spent, Device::color)?;
             let same = settling.twice.as_ref() == Some(&found);
 
             settling.twice = Some(found.clone());
             settling.now = found;
 
             Ok(match same {
-                true => Seen::Yes,
-                false => Seen::NotYet,
+                true => Ready::Yes,
+                false => Ready::NotYet,
             })
         },
         PATIENCE,
     )?;
 
     match waited {
-        Waited::Happened => Ok(settling.now),
-        Waited::RanOut => Err(Unchecked::StillRepainting),
+        Outcome::Happened => Ok(settling.now),
+        Outcome::RanOut => Err(Unchecked::StillRepainting),
     }
 }
 
@@ -546,7 +551,7 @@ fn newly(
         |found, seen| {
             let Ok(()) = seen.again();
 
-            let now = lit(seen, over, spent, Device::colour)?;
+            let now = lit(seen, over, spent, Device::color)?;
 
             *found = now.difference(before).copied().collect();
 
@@ -556,8 +561,8 @@ fn newly(
             };
 
             Ok(match lighting == want {
-                true => Seen::Yes,
-                false => Seen::NotYet,
+                true => Ready::Yes,
+                false => Ready::NotYet,
             })
         },
         PATIENCE,
@@ -570,9 +575,9 @@ fn lit<S>(
     stage: &mut S,
     over: (u32, u32, u32, u32),
     spent: &str,
-    colour: impl Fn(&mut S, Point<f64>) -> Result<String, Awry>,
+    color: impl Fn(&mut S, Point<f64>) -> Result<String, Error>,
 ) -> Result<BTreeSet<u32>, Unchecked> {
-    let found = lit_at(stage, over, spent, colour)?;
+    let found = lit_at(stage, over, spent, color)?;
 
     Ok(found.into_iter().map(|(across, _down)| across).collect())
 }
@@ -581,7 +586,7 @@ fn lit_at<S>(
     stage: &mut S,
     over: (u32, u32, u32, u32),
     spent: &str,
-    colour: impl Fn(&mut S, Point<f64>) -> Result<String, Awry>,
+    color: impl Fn(&mut S, Point<f64>) -> Result<String, Error>,
 ) -> Result<BTreeSet<(u32, u32)>, Unchecked> {
     let Ok(every) = palette();
 
@@ -594,11 +599,13 @@ fn lit_at<S>(
     let band = top..top.saturating_add(tall);
     let side = left..left.saturating_add(wide);
     let mut found = BTreeSet::new();
+    let Ok(down_by) = console_core_number_conversion::index(DOWN);
+    let Ok(across_by) = console_core_number_conversion::index(ACROSS);
 
-    for down in band.step_by(DOWN) {
-        for across in side.clone().step_by(ACROSS) {
+    for down in band.step_by(down_by) {
+        for across in side.clone().step_by(across_by) {
             let said =
-                colour(stage, Point { across: f64::from(across), down: f64::from(down) })?;
+                color(stage, Point { x: f64::from(across), y: f64::from(down) })?;
 
             match &said == plate {
                 true => {
@@ -639,7 +646,7 @@ fn under(reaches: (u32, u32), at: u32) -> Result<Under, Never> {
     })
 }
 
-fn stood_on(reaches: (u32, u32), at: (u32, u32), wide: u32) -> Done {
+fn stood_on(reaches: (u32, u32), at: (u32, u32), wide: u32) -> CheckResult {
     let Ok(under) = under(reaches, at.0);
 
     same(&under, &Under::ThePointer, || {
@@ -651,17 +658,17 @@ fn stood_on(reaches: (u32, u32), at: (u32, u32), wide: u32) -> Done {
     })
 }
 
-fn pointed_here(stage: &mut Desktop) -> Done {
+fn pointed_here(stage: &mut Desktop) -> CheckResult {
     let screen = console_test_stages::screen()?;
     let Ok(room) = screen.logical();
 
-    let over = (0, 0, room.wide, room.tall);
-    let at = (room.wide.saturating_div(2), room.tall.saturating_div(2));
+    let over = (0, 0, room.width, room.height);
+    let at = (room.width.saturating_div(2), room.height.saturating_div(2));
 
     stage.open("console-home")?;
     stage.point(at)?;
 
-    let found = lit(stage, over, STANDING, Desktop::colour)?;
+    let found = lit(stage, over, STANDING, Desktop::color)?;
 
     let reached = match reaches(&found) {
         Ok(Some(reached)) => reached,
@@ -672,10 +679,10 @@ fn pointed_here(stage: &mut Desktop) -> Done {
         }
     };
 
-    stood_on(reached, at, room.wide)
+    stood_on(reached, at, room.width)
 }
 
-fn pointed_there(stage: &mut Device) -> Done {
+fn pointed_there(stage: &mut Device) -> CheckResult {
     cleared(stage)?;
     let Ok(drawn) = stage.layer("console-home");
 
@@ -709,7 +716,7 @@ fn pointed_there(stage: &mut Device) -> Done {
 
     let Ok(awake) = stage.home_awake();
 
-    same(&awake, &Seen::NotYet, || {
+    same(&awake, &Ready::NotYet, || {
         "the pointer woke the home screen, so A is the home screen's and not the pointer's"
             .to_string()
     })?;

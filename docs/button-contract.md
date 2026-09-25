@@ -6,7 +6,7 @@ that what is written here can be kept.
 A person holding this thing learns a few buttons once and then stops thinking
 about them. That only holds if the answer is the same in every program. What a
 button means used to be decided in four separate files; it is decided in one
-now. `crates/console-input-controller/src/means.rs` is a table of everything
+now. `crates/console-input-controller/src/actions.rs` is a table of everything
 this desktop does, when each of them applies, and what it is bound to, and the
 daemon carries it out, the setup screen writes to it and the guide reads it out
 loud. A key is in the same table as a button, on the argument in [The other
@@ -16,9 +16,9 @@ is held to it rather than remembered.
 
 | | |
 | --- | --- |
-| **D-pad** | Moves between things: options in a list, windows, the pages of a chooser. It never does anything, it only goes somewhere |
+| **D-pad** | Moves between things: options in a list, windows, the pages of a picker. It never does anything, it only goes somewhere |
 | **A** | Accepts. Whatever is highlighted, that one. On the desktop, where nothing is highlighted, accepting is clicking what the pointer is on. **The right stick pressed is the same button**, everywhere and with nothing of its own: that stick is the pointer and the scroll, so the thumb that moved to a thing is already on it, and having to leave for A to take the thing it is pointing at is a journey across the pad to say yes to where you already are |
-| **B** | Goes back. Cancels a chooser, closes what is open, and deletes in the keyboard |
+| **B** | Goes back. Cancels a picker, closes what is open, and deletes in the keyboard |
 | **X** | Shows the keyboard, and puts it away again, wherever you are |
 | **Y** | Is not spoken for by the desktop, which makes it the one that can be lent. A panel lends it *what else can be done with this row*, which right off the row also stands on; a page lends it a label over everything on it that can be pressed. Nothing may quietly give it a job one of the others already owns |
 
@@ -72,7 +72,7 @@ is read from the left, and it is as true read from the right: a mark drawn on
 the screen that no button walks onto is a thing that can be looked at and not
 pressed, which is the same fault wearing the other face.
 
-The **×** was that. B closed the panel all along, so nobody was shut in, but a
+The **×** was that. B closed the panel all along, so no one was shut in, but a
 thumb walking the top of a panel came to the last tab and stopped in front of a
 mark that plainly meant something. It is a place along the top now, one press
 of a shoulder past the last tab, and A on it closes the card. The **‹** and
@@ -92,7 +92,7 @@ rather than a feature of the machine.
 Only L2 carries anything. R2 and the two together are empty on purpose, and
 they are the room this leaves: a job can be moved onto a chord nothing else is
 on without taking a button off anything, and the guide draws a section for a
-layer only once there is something in it, so a machine nobody has changed does
+layer only once there is something in it, so a machine no one has changed does
 not show two headings with nothing under them.
 
 The brightness has always been on L2. The volume and the screenshot are there
@@ -103,7 +103,7 @@ for the one you look at, up and down for the one you hear. The rocker on the
 top edge is still the volume and nothing here takes it away -- it is a keyboard
 of its own and never comes through a profile, so it reaches the table the way
 any other keyboard does, as the three volume keys it sends rather than as a
-button somebody could move. So this is not two buttons doing one job, which
+button someone could move. So this is not two buttons doing one job, which
 the table below forbids. It is one job reachable without moving the hand that
 is holding the machine up, which is the whole difference between a level you
 can set and a level you can set while you are doing something else.
@@ -119,9 +119,9 @@ at it is what the eyes have just adapted to.
 What puts a job on the layer is not how rarely the job is wanted, it is where
 the button is. The four paddles are behind the machine, under the fingers that
 hold it up rather than under a thumb reaching for something, so a job on a
-bare paddle is a job that happens while nobody is doing anything at all. The
+bare paddle is a job that happens while no one is doing anything at all. The
 screenshot was exactly that: ninety-six pictures in two days, not one of them
-asked for, every one of them left in the folder somebody then has to go through.
+asked for, every one of them left in the folder someone then has to go through.
 The menu, closing and dictation stay bare, because each of those announces
 itself the instant it happens and is undone by pressing something else. A
 picture is filed in silence and is only ever found afterwards.
@@ -155,9 +155,9 @@ from a keyboard that appeared after it started.
 There used to be two profiles that swapped on the way in and out of every menu,
 which is that fault happening several times a minute. Each swap destroyed the
 pad and built another: the on-screen keyboard read one directly, so X was dead
-for as long as a chooser was open, and the controller daemon read from a pad
+for as long as a picker was open, and the controller daemon read from a pad
 that had been taken out from under it and fell over. That is gone. The desktop
-and a chooser are one profile now and the difference between them is a column
+and a picker are one profile now and the difference between them is a column
 in the daemon's table, so opening a menu changes nothing about what the machine
 is wearing. `opening_a_menu_does_not_change_the_profile` is the test that keeps
 it that way.
@@ -166,16 +166,16 @@ Every button is routed and none is silenced, which is the other half of the
 same change. A profile that gave a button `target_events: []` was a profile
 deciding that button meant nothing here, and where that decision belongs is the
 one table. `QuickAccess2` and `RightPaddle3` are the case that proves it:
-nobody who wrote these files knows where on the machine they are, so they are
+no one who wrote these files knows where on the machine they are, so they are
 routed to a key of their own like every other button, they have no job on them,
-and the setup screen can move one onto them the moment somebody presses one and
+and the setup screen can move one onto them the moment someone presses one and
 finds out what it is.
 
 `crates/console-input-gamepad/tests/the_button_contract.rs` keeps what is left
 of this that is genuinely about the files: every word the switcher takes names a
 profile that exists, and every profile publishes all three devices.
 
-The front of the machine keeps working with a chooser up. The settings button
+The front of the machine keeps working with a picker up. The settings button
 opens the settings and the menu button opens the guide, with a menu already up
 as much as without one, because a button on the front means one thing wherever
 it is pressed -- which is a row in the table saying `Anywhere` rather than two
@@ -190,7 +190,7 @@ button with a menu open.
 
 Legion left leaves this desktop for Game Mode, and Legion left held is what
 comes back. One button for the door, whichever side of it you are on, because
-somebody who learned the press should not have to learn a second answer for the
+someone who learned the press should not have to learn a second answer for the
 other direction.
 
 A hold there and a press here, because on that side the button is Steam's.
@@ -200,7 +200,7 @@ quit a game is worse off than one that takes a second to leave. So the press
 arrives at Steam untouched and opens what it always opened. Only keeping it
 down for a second means anything to us. It also has to be held alone: Steam's
 own shortcuts are that button and another one together, and holding Steam and B
-until a game gives up is somebody staying in Game Mode rather than leaving it.
+until a game gives up is someone staying in Game Mode rather than leaving it.
 
 Nothing translates it, so there is no mapping to read this off. `game.yaml`
 publishes the same three devices as every other profile and maps nothing at
@@ -213,7 +213,7 @@ enabled for the user, which would leave it reading the pad on the desktop too,
 behind the daemon that already reads it.
 
 Game Mode kept the shipped Default profile until this was written, and what
-that publishes was nobody's decision. A profile switch that destroys a target
+that publishes was no one's decision. A profile switch that destroys a target
 and builds another is the thing the section above is about, so every word
 `controller-profile` takes now names a file this desktop wrote, and there are
 two words left. `game.yaml` is in this repository and translates nothing.
@@ -230,7 +230,7 @@ wins. It is asked of the kernel now -- see the section below -- so leaving for
 Game Mode and coming back is the only profile switch left, which is a switch per
 session rather than one per surface.
 
-Reading a pad somebody else is also reading is the ordinary state of things
+Reading a pad someone else is also reading is the ordinary state of things
 here, and the section below is the other half of it: on the desktop the
 on-screen keyboard and the controller daemon hold that node at once. Steam does
 not take it either, which had to be read off the machine rather than reasoned
@@ -304,7 +304,7 @@ routed, and five of them -- `LeftPaddle1`, `LeftPaddle2`, `RightPaddle1`,
 `RightPaddle2` and `QuickAccess` -- exist because `50-legion_go.yaml` matched
 this machine's DMI and read them off hidraw. On an ordinary pad those five name
 nothing, and the menu, closing, dictation, the screenshot and the settings are
-all on buttons nobody can press. Four of the five are also the ones the
+all on buttons no one can press. Four of the five are also the ones the
 finger's table above answers for, so a device with no touchscreen loses them
 twice.
 
@@ -314,12 +314,12 @@ there. The question `console check` asks is the one that follows from that: of
 everything this desktop does, what is on a button nothing on this machine can
 press? It answers in the words the rows are written in -- "the settings, on
 legion-right" -- because a report that named `QuickAccess` would be telling
-somebody about a capability rather than about their machine.
+someone about a capability rather than about their machine.
 
 None of that stops an install, and it is deliberate that it does not. A desktop
 that refuses to install on a device missing one paddle is worse than one that
 installs and says which promise it cannot keep, so `console check` grows a
-`buttons` section and an apply raises a notice, and neither is counted as
+`buttons` section and an apply raises a notification, and neither is counted as
 drift: an apply cannot grow a paddle, and a report ending "3 differences,
 `console apply` settles them" while one of the three is a button that does not
 exist is the engine promising what it cannot do.
@@ -334,9 +334,9 @@ boot, while InputPlumber waits for udev.
 
 ### Where an answer is kept
 
-In `~/.config/console/buttons.toml`, and only what somebody moved. A job that
-is not in the file is a job where this desktop put it, so a machine nobody has
-touched has an empty file and the whole of its answer in `means.rs`. It is not
+In `~/.config/console/buttons.toml`, and only what someone moved. A job that
+is not in the file is a job where this desktop put it, so a machine no one has
+touched has an empty file and the whole of its answer in `actions.rs`. It is not
 in the manifest and never travels in this repository: it is the one file that
 is true of one person's machine and wrong for every other.
 
@@ -352,7 +352,7 @@ moved before the thumb is off it.
 
 A binding is a button and whatever is held with it, written the way it is said:
 `screenshot = "l2 + right-paddle-bottom"`. A job two buttons do is a list. A
-job somebody has taken the button off is `""`, said rather than left out,
+job someone has taken the button off is `""`, said rather than left out,
 because a row that is not in the file is a row that never moved.
 
 What a job is stays this desktop's. Which thumb does it is all the file may
@@ -360,7 +360,7 @@ say.
 
 ### Asking is a mode
 
-Moving a part onto a button is pressing the button you want. Nobody holding a
+Moving a part onto a button is pressing the button you want. No one holding a
 handheld knows which paddle `RightPaddle3` is, and a list of names is the worse
 screen for the same question.
 
@@ -379,12 +379,12 @@ the pad away from it. What that bought is what the claim gives without touching
 the device. One thing changed with it: a button the router profile does not
 carry no longer reaches the card at all, where the old profile could name it and
 then refuse it. That is the same answer arrived at earlier -- a button nothing
-routes is a button nothing could ever be bound to, and the notice after an apply
+routes is a button nothing could ever be bound to, and the notification after an apply
 already says which those are.
 
 Two parts cannot share a place. A place is a button and whatever is held with
 it, so X and L2 + X are two of them and nothing is being shared -- but one
-press doing two things is a press whose second job is the one nobody meant, so
+press doing two things is a press whose second job is the one no one meant, so
 pressing a button another part is already on gives it to the part being moved,
 and the part that had it is left playing nothing and says **no button** on its
 own row, where a press gives it another.
@@ -398,18 +398,18 @@ the button nor the job.
 
 The card says both lines now, in the words the rows are written in: what this
 part is on, and, underneath, which part has just been left without a button.
-Taking one away is the thing here that nobody asked for by name, and it is not
+Taking one away is the thing here that no one asked for by name, and it is not
 allowed to happen quietly.
 
 Putting it all back is the first row on the page rather than the last, and it
 asks before it does anything. Two presses can leave the menu with no button,
-and the row that undoes that must not be at the bottom of a list somebody now
+and the row that undoes that must not be at the bottom of a list someone now
 has to walk without it.
 
 Twenty-eight jobs and twenty-three buttons is still more jobs than buttons, and
 the layers are what keeps that from being a crowd: a button held with a trigger
 is a place of its own, so there are four times as many places as there are
-buttons and all but a handful of them are empty. Somebody putting a job
+buttons and all but a handful of them are empty. Someone putting a job
 somewhere of their own does not have to take it off anything.
 
 A device with more buttons than there are spare keys to lend them is a device
@@ -420,8 +420,8 @@ machine has twenty-three buttons a thumb can press.
 
 A keyboard is the second way in and never the first. Nothing on this machine
 needs one and most days there is not one attached, so what a key does is not a
-second desktop laid over the pad's: it is the doings the pad already names,
-reached by somebody whose hands are on keys rather than on buttons. A key and a
+second desktop laid over the pad's: it is the actions the pad already names,
+reached by someone whose hands are on keys rather than on buttons. A key and a
 button that open the same card are one thing with two handles.
 
 That was written in `hyprland.lua`, over thirty binds, for as long as the table
@@ -433,7 +433,7 @@ is on. Super and I and the settings button are two lines of one job.
 
 A list rather than a key is also what lets one job answer two hands on the same
 keyboard. Moving between windows is on the arrows and on HJKL, which is four
-jobs reached two ways and not eight jobs: somebody who moves around a file that
+jobs reached two ways and not eight jobs: someone who moves around a file that
 way moves around a screen that way and the row is already under their fingers,
 and the arrows stay for the hand that never learned vim. Shift with H and L
 carries the window, the way Shift with the arrows already did. Four letters go
@@ -453,12 +453,12 @@ compositor is the fault at the top of [Where a change
 goes](#where-a-change-goes): the modifier and the key arrive in one frame and
 the key gets acted on alone. A keyboard chord watched by the daemon is the
 mirror of it -- the daemon can see the keys and cannot stop them, so the job
-would happen *and* the letters would land in whatever somebody was typing in.
+would happen *and* the letters would land in whatever someone was typing in.
 Swallowing a chord is a thing only whoever owns modifier state can do.
 
 Three things follow, and all three were already true of the binds this
 replaces. A job reached from a keyboard has to be one that runs something:
-`Doing::Run` becomes `exec`, and a job that sends a key or tells the home
+`Action::Run` becomes `exec`, and a job that sends a key or tells the home
 screen has no keyboard binding, because a keyboard already has those keys. A
 keyboard binding is not held to `when`, because the compositor does not know
 what is on the screen. And a bind is `exec` and never a dispatch even where a
@@ -482,23 +482,23 @@ to disagree because only one of them existed.
 
 **Per keyboard, from its first switch.** Two boards on one desk are two
 people's habits as often as one person's, so what each is wearing is kept under
-its own name -- the compositor's for one somebody plugged in, `screen` for the
-one this desktop draws. A board nobody has met takes the machine's chosen
-alphabets and starts on the first, which is Latin; from the first time somebody
+its own name -- the compositor's for one someone plugged in, `screen` for the
+one this desktop draws. A board no one has met takes the machine's chosen
+alphabets and starts on the first, which is Latin; from the first time someone
 switches it, it keeps its own. `console_input_alphabets::wearing` is the chain
 and the argument for each step.
 
 **The layout list is pushed, never written.** `kb_layout` in the compositor's
 file is one word and stays `us`, which is what is right before anything of ours
 has run. What a keyboard is offered comes from the alphabets setting, set on
-every switch, so somebody who adds Greek in the settings has added it to the
+every switch, so someone who adds Greek in the settings has added it to the
 board on their desk as well as to the one on the screen. A list written in the
 compositor's file would be a second place saying what this machine types, and
-it would be wrong for everybody who changed the setting -- which is the whole
+it would be wrong for everyone who changed the setting -- which is the whole
 reason the setting exists.
 
 **Every keyboard steps, not the one in front.** The compositor has no notion of
-which board somebody's hands are on. A person with two who pressed the key on
+which board someone's hands are on. A person with two who pressed the key on
 one would be as surprised by the other staying behind as by it coming along,
 and only one of those two can be undone by pressing the key again. Each is
 stepped from wherever it was, so two boards a step apart stay a step apart.
@@ -511,17 +511,17 @@ thumb reaches that instead.
 
 Both ways round, and that is the half a keyboard on a desk was missing. The one
 on the screen has had two shoulders for it since it had a walk at all, L1 back
-and R1 on, and somebody who types three alphabets and overshoots on a desk had
+and R1 on, and someone who types three alphabets and overshoots on a desk had
 to go round the whole walk to come back one.
 
 Space, because that is the key every other desktop wears this on and the hands
 that arrive here arrive from one of them. What does not fit is the pair: Super
 and Space is the menu, which is the most-pressed key on this machine, so the
-walk gets the two chords left over rather than the one everybody knows and its
+walk gets the two chords left over rather than the one everyone knows and its
 shifted twin. Ctrl is the way back here and Shift is the way back everywhere
 else in the table, which is a wrinkle and is written down rather than argued
 away -- the alternative was a letter nothing in either hand associates with an
-alphabet, and a key nobody guesses is worse than a key that is a step off.
+alphabet, and a key no one guesses is worse than a key that is a step off.
 
 ### The way back
 
@@ -541,7 +541,7 @@ intends to put it back.
 It runs `console-brightness undim` rather than dispatching dpms, because that
 program is where putting the screen back already lives and this gets the
 backlight and the panel together. It answers with the screen locked: it only
-ever turns things on, nothing here blanks the panel, and a button somebody
+ever turns things on, nothing here blanks the panel, and a button someone
 reaches for in the dark must not be able to cause what they are reaching out
 of. The key gets as far as the compositor because logind is told to ignore it
 -- `HandlePowerKey`, in a drop-in this desktop does not own -- and because no
@@ -565,7 +565,7 @@ survives the break. Being a row in a table is a different bargain and it is
 worth naming rather than discovering. It no longer depends on a file parsing;
 it depends on the daemon coming up, which is a unit systemd restarts and which
 says so in the journal when it does not, where a Lua parse error is silent
-until somebody looks.
+until someone looks.
 
 It also depends on the push having happened, and that is where this was wrong
 for as long as it was written down. `hyprctl keyword` does not work against a
@@ -581,16 +581,16 @@ What is left of the original hole is the one it was: a reload keeps only what a
 file holds, and none of these are in one. The daemon does not wait to be
 restarted for that any more. It listens for `configreloaded` on the
 compositor's own socket -- and counts getting onto that socket as one, since a
-connection just made is a stretch nobody was watching, which is what a
+connection just made is a stretch no one was watching, which is what a
 compositor restarting under a daemon that did not looks like from here. What
 follows is not a blind re-push: the compositor is asked what it is holding,
 by the description each bind carries, and only what is missing is sent. So an
 event that meant nothing costs a question, and the same code path serves a
-reload, a reconnect and somebody moving a key on the setup screen.
+reload, a reconnect and someone moving a key on the setup screen.
 
 A cadence was the other way to do it and it is worth saying why it is not
 here. A number of seconds is an assumption about how long this is allowed to
-be broken, and nobody has measured that; asking at the moment the compositor
+be broken, and no one has measured that; asking at the moment the compositor
 says the thing that breaks it is both cheaper and tighter than any interval
 would have been. What it costs is a dependency on that event arriving. If it
 ever does not, the fault is the one above -- a dark panel, and a hard cut --
@@ -609,7 +609,7 @@ table hands it.
 
 Each job is named in the table in the words a person would use for it -- "a
 screenshot", "put away whatever is up" -- and the guide, the setup screen and
-the notice `console check` raises all print that one name. Renaming a job
+the notification `console check` raises all print that one name. Renaming a job
 renames it everywhere it is shown, and moving one moves it everywhere it is
 shown, which is what a table read by three programs buys.
 
@@ -621,12 +621,12 @@ keys went into the table and is not any more -- it binds nothing now, and the
 section at its foot says so rather than leaving a gap. Nothing keeps those honest. Change what
 the add-on does with Y and the guide will still say it labels the page.
 
-There is no check for it, and the reason is worth knowing before somebody
+There is no check for it, and the reason is worth knowing before someone
 writes one. Those rows are about things the table has no row for at all -- a
-rocker, a touchscreen, a fork of somebody else's keyboard, an add-on inside a
+rocker, a touchscreen, a fork of someone else's keyboard, an add-on inside a
 browser -- so there is nothing to check them against without writing down a
 second copy of what those programs do, in the file that was supposed to be
 checked against them, and the second copy is the one that goes stale. So the
 rule is the narrow one: anything a button on this machine does belongs in the
 table, where the guide will read it, and a row written by hand is a promise
-somebody has to keep by hand.
+someone has to keep by hand.

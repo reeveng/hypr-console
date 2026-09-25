@@ -27,12 +27,12 @@ dylint_linting::declare_late_lint! {
     ///
     /// What the warned tier was for is worth keeping written down, because
     /// nothing is standing in it now: a rule may be registered `Warn` while
-    /// the tree is still walking towards it, so that the distance is counted
+    /// the tree is still walking toward it, so that the distance is counted
     /// on every run rather than guessed at, and `just explicit` is where that
     /// count is read.
     ///
     /// Four kinds of function are not asked, and each is a signature that was
-    /// not chosen here: a method implementing somebody else's trait, an
+    /// not chosen here: a method implementing someone else's trait, an
     /// `extern` function whose shape belongs to the ABI, the program's own
     /// entry point, and anything that answers `!`.
     ///
@@ -63,10 +63,10 @@ fn implements_a_trait(cx: &LateContext<'_>, def_id: rustc_hir::def_id::LocalDefI
     )
 }
 
-// `fn main` answers to nobody. The rule's argument is that a caller should not
+// `fn main` answers to no one. The rule's argument is that a caller should not
 // have to change shape when the thing it calls learns how to fail, and the
 // entry point has no caller to spare. Asked by the entry point's own def id
-// rather than by the name, so a helper somebody called `main` is still asked.
+// rather than by the name, so a helper someone called `main` is still asked.
 fn is_the_entry_point(cx: &LateContext<'_>, def_id: rustc_hir::def_id::LocalDefId) -> bool {
     matches!(cx.tcx.entry_fn(()), Some((entry, _)) if entry == def_id.to_def_id())
 }

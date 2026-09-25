@@ -37,6 +37,6 @@ fn main() {
     let _ = home();
     let _ = host();
     let _ = how_many();
-    let _ = under("/home/somebody", "warm");
+    let _ = under("/home/someone", "warm");
     let _ = named();
 }

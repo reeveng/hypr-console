@@ -1,7 +1,7 @@
 //! Drawing one arrangement onto one frame.
 //!
 //! Everything here is decided somewhere else: `layout` says which keys there
-//! are and `layout::placed` says where, `config` says what colour they are and
+//! are and `layout::placed` says where, `configuration` says what color they are and
 //! what font is on them, and `drawing` does the cairo. This is the half page
 //! that puts those together, and it is separate from all three because it is
 //! the only part that has to happen inside a frame the compositor is waiting
@@ -9,11 +9,11 @@
 
 
 use console_core_never::Never;
-use console_core_number_conversion::fitted;
+use console_core_number_conversion::{fitted, index};
 use pango::FontDescription;
 
-use crate::config::{Config, Scheme};
-use crate::drawing::{Color, Rect, Surface};
+use crate::configuration::{Configuration, Scheme};
+use crate::drawing::{Rectangle, Surface};
 use crate::layout::{Key, Kind, Layout, Placed, mods};
 
 const NO_LANGUAGE_NAMED: &str = "";
@@ -22,38 +22,40 @@ const NO_LANGUAGE_NAMED: &str = "";
 const EDGE: f64 = 2.0;
 
 pub struct Look<'a> {
-    pub config: &'a Config,
+    pub configuration: &'a Configuration,
     pub layout: &'a Layout,
     pub keys: &'a [Placed],
-    pub pressed: Option<usize>,
+    pub pressed: Option<u32>,
     pub held: u8,
-    pub selected: Option<usize>,
+    pub selected: Option<u32>,
     pub language: Option<&'a str>,
-    pub wide: f64,
-    pub tall: f64,
+    pub width: f64,
+    pub height: f64,
 }
 
 pub fn keyboard(onto: &Surface, look: &Look) -> Result<(), Never> {
-    let Look { config, layout, keys, pressed, held, selected, language, wide, tall } = *look;
-    let font = FontDescription::from_string(&config.font);
+    let Look { configuration, layout, keys, pressed, held, selected, language, width: wide, height: tall } = *look;
+    let font = FontDescription::from_string(&configuration.font);
 
-    match config.schemes.first() {
+    match configuration.schemes.first() {
         Some(first) => {
-            let Ok(bg) = colour(first.bg);
-            let Ok(()) = onto.fill_rectangle(bg, Rect { x: 0.0, y: 0.0, w: wide, h: tall }, 0);
+            let Ok(()) = onto.fill_rectangle(first.bg, Rectangle { x: 0.0, y: 0.0, w: wide, h: tall }, 0);
         }
         None => {},
     }
 
     for placed in keys {
-        let key = match layout.keys.get(placed.at) {
+        let Ok(at) = index(placed.at);
+
+        let key = match layout.keys.get(at) {
             Some(key) => key,
             None => continue,
         };
 
-        let wanted = usize::from(key.scheme).min(config.schemes.len().saturating_sub(1));
+        let Ok(schemes) = fitted::<_, u32>(configuration.schemes.len());
+        let Ok(wanted) = index(u32::from(key.scheme).min(schemes.saturating_sub(1)));
 
-        let scheme = match config.schemes.get(wanted) {
+        let scheme = match configuration.schemes.get(wanted) {
             Some(scheme) => scheme,
             None => continue,
         };
@@ -64,8 +66,8 @@ pub fn keyboard(onto: &Surface, look: &Look) -> Result<(), Never> {
             (false, false) => Showing::Plain,
         };
 
-        let Ok(rounding) = fitted(config.rounding);
-        let Ok(()) = one(onto, key, placed, &Ink {
+        let Ok(rounding) = fitted(configuration.rounding);
+        let Ok(()) = one(onto, key, placed, &HexColor {
             scheme,
             showing,
             held,
@@ -85,7 +87,7 @@ enum Showing {
     Plain,
 }
 
-struct Ink<'a> {
+struct HexColor<'a> {
     scheme: &'a Scheme,
     showing: Showing,
     held: u8,
@@ -94,15 +96,14 @@ struct Ink<'a> {
     rounding: i32,
 }
 
-fn one(onto: &Surface, key: &Key, placed: &Placed, ink: &Ink) -> Result<(), Never> {
-    let Ink { scheme, showing, held, language, font, rounding } = *ink;
-    let at = Rect { x: placed.x, y: placed.y, w: placed.wide, h: placed.tall };
+fn one(onto: &Surface, key: &Key, placed: &Placed, ink: &HexColor) -> Result<(), Never> {
+    let HexColor { scheme, showing, held, language, font, rounding } = *ink;
+    let at = Rectangle { x: placed.x, y: placed.y, w: placed.width, h: placed.height };
     let face = match showing {
         Showing::Pressed => scheme.high,
         Showing::Under => scheme.sel,
         Showing::Plain => scheme.fg,
     };
-    let Ok(face) = colour(face);
     let Ok(inset) = at.inset(EDGE);
     let Ok(()) = onto.fill_rectangle(face, inset, rounding);
 
@@ -137,14 +138,9 @@ fn one(onto: &Surface, key: &Key, placed: &Placed, ink: &Ink) -> Result<(), Neve
         Showing::Under => scheme.text_sel,
         Showing::Plain => scheme.text,
     };
-    let Ok(ink) = colour(ink);
     let Ok(()) = onto.draw_text(ink, at, EDGE, label, font);
 
     Ok(())
-}
-
-fn colour(from: crate::config::Colour) -> Result<Color, Never> {
-    Ok(Color(from.0))
 }
 
 #[cfg(test)]
@@ -157,9 +153,9 @@ mod tests {
     fn what_is_drawn_is_inside_the_keyboard() {
         let Ok(name) = named("full");
         let Ok(layout) = of(name.expect("full"));
-        let Ok(keys) = placed(layout, Size { wide: 1024.0, tall: 260.0 });
+        let Ok(keys) = placed(layout, Size { width: 1024.0, height: 260.0 });
         for key in &keys {
-            let Ok(cell) = Rect { x: key.x, y: key.y, w: key.wide, h: key.tall }.inset(EDGE);
+            let Ok(cell) = Rectangle { x: key.x, y: key.y, w: key.width, h: key.height }.inset(EDGE);
             assert!(cell.w > 0.0 && cell.h > 0.0, "a key with no face left after its border");
             assert!(cell.x >= 0.0 && cell.y >= 0.0);
             assert!(cell.x + cell.w <= 1024.0);
@@ -169,8 +165,8 @@ mod tests {
 
     #[test]
     fn the_gap_between_two_keys_is_a_border_from_each() {
-        let Ok(left) = Rect { x: 0.0, y: 0.0, w: 100.0, h: 50.0 }.inset(EDGE);
-        let Ok(right) = Rect { x: 100.0, y: 0.0, w: 100.0, h: 50.0 }.inset(EDGE);
+        let Ok(left) = Rectangle { x: 0.0, y: 0.0, w: 100.0, h: 50.0 }.inset(EDGE);
+        let Ok(right) = Rectangle { x: 100.0, y: 0.0, w: 100.0, h: 50.0 }.inset(EDGE);
         let gap = right.x - (left.x + left.w);
         assert!((gap - EDGE * 2.0).abs() < 0.001, "the gap is {gap}");
     }

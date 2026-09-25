@@ -1,6 +1,6 @@
 //! Where everything to do with the wallpaper lives.
 //!
-//! One file, so that the panel that offers a picture, the press that writes one
+//! One file, so that the panel that offers a picture, the render that writes one
 //! and the daemon that puts one on the screen cannot disagree about where it
 //! is. They are three programs, and a path spelled out in three places is a
 //! path that is spelled two ways.
@@ -14,17 +14,17 @@ use std::path::{Path, PathBuf};
 
 use console_core_never::Never;
 use console_core_places::Base;
-use console_repository::Unfound;
+use console_repository::NotFound;
 
 pub const CAME_WITH: &str = "/usr/share/backgrounds/console";
 
-pub const TREE: &str = "/etc/console";
+pub const TREE: &str = console_repository::DEVICE_ROOT;
 
 pub fn tree() -> Result<PathBuf, Never> {
     Ok(match console_repository::root() {
         Ok(root) => root,
-        Err(Unfound::Outside(_this_is_not_a_checkout)) => PathBuf::from(TREE),
-        Err(fault @ Unfound::Nowhere(_)) => {
+        Err(NotFound::Outside(_this_is_not_a_checkout)) => PathBuf::from(TREE),
+        Err(fault @ NotFound::Nowhere(_)) => {
             eprintln!("console-wallpaper: {fault}");
 
             PathBuf::from(TREE)
@@ -51,7 +51,7 @@ pub fn dropped() -> Result<Option<PathBuf>, Never> {
 }
 
 pub fn asked() -> Result<Option<PathBuf>, Never> {
-    let ours = Base::Config.ours()?;
+    let ours = Base::Configuration.ours()?;
 
     Ok(ours.map(|at| at.join("sky.toml")))
 }
@@ -71,16 +71,16 @@ fn kept_as(picture: &Path) -> Result<Option<String>, Never> {
     Ok(Some(format!("{}__", said.replace('/', "_"))))
 }
 
-pub fn freshen(picture: &Path) -> Result<(), Never> {
+pub fn refresh(picture: &Path) -> Result<(), Never> {
     let kept = kept()?;
 
     match kept {
-        Some(kept) => freshen_in(&kept, picture),
+        Some(kept) => refresh_in(&kept, picture),
         None => Ok(()),
     }
 }
 
-fn freshen_in(kept: &Path, picture: &Path) -> Result<(), Never> {
+fn refresh_in(kept: &Path, picture: &Path) -> Result<(), Never> {
     let full = match picture.canonicalize() {
         Ok(full) => full,
         Err(_fault) => return Ok(()),
@@ -93,8 +93,8 @@ fn freshen_in(kept: &Path, picture: &Path) -> Result<(), Never> {
         None => return Ok(()),
     };
 
-    let pressed = match written(&full) {
-        Ok(pressed) => pressed,
+    let rendered = match written(&full) {
+        Ok(rendered) => rendered,
         Err(_fault) => return Ok(()),
     };
 
@@ -108,7 +108,7 @@ fn freshen_in(kept: &Path, picture: &Path) -> Result<(), Never> {
                 Some(named) => named.to_string_lossy().to_string(),
                 None => continue 'over_frames,
             };
-            let stale = written(&frames).is_ok_and(|kept| kept < pressed);
+            let stale = written(&frames).is_ok_and(|kept| kept < rendered);
 
             match named.starts_with(&name) && stale {
                 true => match std::fs::remove_file(&frames) {
@@ -160,12 +160,14 @@ pub fn every() -> Result<Vec<String>, Never> {
     for at in [hers, Some(PathBuf::from(CAME_WITH))].into_iter().flatten() {
         let found = match std::fs::read_dir(&at) {
             Ok(found) => found,
-            Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(fault) => {
-                eprintln!("console-wallpaper: {}: {fault}", at.display());
+            Err(fault) => match fault.kind() == std::io::ErrorKind::NotFound {
+                true => continue,
+                false => {
+                    eprintln!("console-wallpaper: {}: {fault}", at.display());
 
-                continue;
-            }
+                    continue;
+                }
+            },
         };
 
         'over_entries: for entry in found {
@@ -298,7 +300,7 @@ mod tests {
         touch(&fresh, written + std::time::Duration::from_secs(60));
         touch(&other, written - std::time::Duration::from_secs(60));
 
-        let Ok(()) = freshen_in(&here.join("awww"), &picture);
+        let Ok(()) = refresh_in(&here.join("awww"), &picture);
 
         assert!(
             !stale.exists(),
@@ -315,7 +317,7 @@ mod tests {
         std::fs::create_dir_all(&here).expect("somewhere");
         let picture = here.join("river.webp");
         std::fs::write(&picture, b"a picture").expect("a picture");
-        let Ok(()) = freshen_in(&here.join("nothing-is-kept-here"), &picture);
+        let Ok(()) = refresh_in(&here.join("nothing-is-kept-here"), &picture);
         let _ = std::fs::remove_dir_all(&here);
     }
 

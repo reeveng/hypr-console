@@ -1,6 +1,6 @@
 //! The download panel: it opens, and it draws the tab it opened on.
 
-use console_test_stages::checking::{Body, Check, Done};
+use console_test_stages::checking::{Body, Check, CheckResult};
 use console_test_stages::desktop::Desktop;
 
 use crate::panel::drew;
@@ -13,7 +13,7 @@ pub const DRAWS: Check = Check {
     bodies: &[Body::Desktop(draws)],
 };
 
-fn draws(stage: &mut Desktop) -> Done {
-    stage.open("downloads-panel")?;
+fn draws(stage: &mut Desktop) -> CheckResult {
+    stage.open("downloads")?;
     drew(stage)
 }

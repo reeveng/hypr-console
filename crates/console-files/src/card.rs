@@ -27,50 +27,48 @@
 
 use console_core_external_programs::Program;
 use console_core_never::Never;
-use console_core_number_conversion::fitted;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use console_core_places::Folder;
+use console_content_types::Table;
 use console_panel::icons::Icon;
-use gtk4::gio;
-use gtk4::glib::{self, UserDirectory};
-use gtk4::prelude::*;
-use crate::doing::{self, Carrying, Deed, Holding};
+use crate::doing::{self, Carrying, FileAction, Holding};
 use crate::listing::{self, Entry, Room, Shown, Worth};
 use crate::looking::{self, Found};
 use crate::places::{self, Place, WANTED};
 use crate::thumbs;
 use crate::standing::{
-    self, Closes, Files, HERE_START, Heard, Its, LINE, Line, Onto, Standing, WAYS_START, closes,
+    self, Closes, Files, HERE_START, FilesEvent, FilesEffect, LINE, Line, Destination, Standing, WAYS_START, closes,
     first_thing,
 };
-use console_panel::actor::{self, Addr, Answer as Reply};
-use console_program_contract::{Doing, Program as _, Turn, Word};
-use console_panel::page::{Answer, Aside, Does, Heading, Page, Picture, Row, Rows, Showing, Taken, Which};
-use console_panel::card::{Card, Door};
+use console_panel::actor::{self, Address, Answer as Reply};
+use console_program_contract::{Effect, Program as _, Update, Event};
+use console_panel::page::{Answer, Aside, Handler, Heading, Page, Picture, Row, Rows, Showing, OnChosen, Subject};
+use console_panel::card::Card;
 
 const NOTHING_SAYS_WHAT_IT_IS: &str = "";
 
 
-enum Msg {
-    Heard(Heard, Reply<Vec<Doing<Its>>>),
+enum Message {
+    Event(FilesEvent, Reply<Vec<Effect<FilesEffect>>>),
     At(Reply<Standing>),
 }
 
 struct Looking(Standing);
 
 impl actor::Machine for Looking {
-    type Msg = Msg;
+    type Message = Message;
 
-    fn step(self, message: Msg) -> Self {
+    fn step(self, message: Message) -> Self {
         match message {
-            Msg::Heard(heard, answer) => {
-                let Turn { now, doings } = Files::heard(&self.0, &Word::Its(heard));
-                let _ = answer.say(doings);
+            Message::Event(heard, answer) => {
+                let Update { state, effects } = Files::update(&self.0, &Event::Custom(heard));
+                let _ = answer.say(effects);
 
-                Looking(now)
+                Looking(state)
             }
-            Msg::At(answer) => {
+            Message::At(answer) => {
                 let _ = answer.say(self.0.clone());
 
                 self
@@ -79,113 +77,124 @@ impl actor::Machine for Looking {
     }
 }
 
-type Held = Addr<Msg>;
+type ActorAddress = Address<Message>;
 
-fn standing_of(held: &Held) -> Result<Standing, Never> {
-    match held.ask(Msg::At) {
+fn standing_of(held: &ActorAddress) -> Result<Standing, Never> {
+    match held.ask(Message::At) {
         Ok(standing) => Ok(standing),
         Err(_) => {
-            eprintln!("files-panel: the panel's own state has gone, so it drew nothing");
+            eprintln!("files: the panel's own state is missing, so it drew nothing");
 
             Standing::of(Vec::new())
         }
     }
 }
 
-fn decided(held: &Held, heard: Heard) -> Result<Vec<Doing<Its>>, Never> {
-    Ok(match held.ask(|answer| Msg::Heard(heard, answer)) {
-        Ok(doings) => doings,
+fn decided(held: &ActorAddress, heard: FilesEvent) -> Result<Vec<Effect<FilesEffect>>, Never> {
+    Ok(match held.ask(|answer| Message::Event(heard, answer)) {
+        Ok(effects) => effects,
         Err(_) => {
-            eprintln!("files-panel: the panel's own state has gone, so the press did nothing");
+            eprintln!("files: the panel's own state is missing, so the press did nothing");
 
             Vec::new()
         }
     })
 }
 
-fn press(held: &Held, heard: Heard, showing: &dyn Showing) -> Result<(), Never> {
-    let doings = decided(held, heard)?;
+fn press(held: &ActorAddress, heard: FilesEvent, showing: &dyn Showing) -> Result<(), Never> {
+    let effects = decided(held, heard)?;
 
-    for doing in doings {
-        match doing {
-            Doing::Its(Its::Replace(row)) => showing.replace(row),
-            Doing::Its(Its::ForgetTyping) => showing.forget_typing(),
-            Doing::Its(Its::WantingPictures(here)) => wanting_pictures(showing, &here)?,
+    for effect in effects {
+        match effect {
+            Effect::Custom(FilesEffect::Replace(row)) => {
+                let Ok(row) = console_core_number_conversion::fitted(row);
 
-            Doing::Ask(_)
-            | Doing::Watch(_)
-            | Doing::AskWhoever(_)
-            | Doing::Start(_)
-            | Doing::Listen(_)
-            | Doing::Deafen(_)
-            | Doing::Write(_)
-            | Doing::Say(_)
-            | Doing::Print(_)
-            | Doing::Stop(_) => {},
+                showing.replace(row)
+            }
+            Effect::Custom(FilesEffect::ForgetTyping) => showing.forget_typing(),
+            Effect::Custom(FilesEffect::WantingPictures(here)) => wanting_pictures(showing, &here)?,
+
+            Effect::Run(_)
+            | Effect::Stream(_)
+            | Effect::Prompt(_)
+            | Effect::Spawn(_)
+            | Effect::Subscribe(_)
+            | Effect::Unsubscribe(_)
+            | Effect::Write(_)
+            | Effect::Notify(_)
+            | Effect::Print(_)
+            | Effect::Stop(_) => {},
         }
     }
 
     Ok(())
 }
 
-fn quietly(held: &Held, heard: Heard) -> Result<(), Never> {
+fn quietly(held: &ActorAddress, heard: FilesEvent) -> Result<(), Never> {
     let _ = decided(held, heard)?;
 
     Ok(())
 }
 
-fn here_of(held: &Held, tab: usize) -> Result<PathBuf, Never> {
+fn here_of(held: &ActorAddress, tab: u32) -> Result<PathBuf, Never> {
     let standing = standing_of(held)?;
 
     standing::here(&standing, tab)
 }
 
-fn called(held: &Held, tab: usize) -> Result<String, Never> {
+fn called(held: &ActorAddress, tab: u32) -> Result<String, Never> {
     let standing = standing_of(held)?;
 
     standing::called(&standing, tab)
 }
 
-fn typed_in(held: &Held, tab: usize) -> Result<String, Never> {
+fn typed_in(held: &ActorAddress, tab: u32) -> Result<String, Never> {
     let standing = standing_of(held)?;
 
     standing::typed(&standing, tab)
 }
 
-fn stand_where_asked(held: &Held, tab: usize, showing: &dyn Showing) -> Result<(), Never> {
+fn stand_where_asked(held: &ActorAddress, tab: u32, showing: &dyn Showing) -> Result<(), Never> {
     let here = here_of(held, tab)?;
     let things = read(&here)?;
     let names = things.into_iter().map(|thing| thing.name).collect();
 
-    press(held, Heard::Arrived { tab, names }, showing)
+    press(held, FilesEvent::Arrived { tab, names }, showing)
 }
 
 fn look(
-    held: &Held,
-    tab: usize,
-    onto: Onto,
+    held: &ActorAddress,
+    tab: u32,
+    onto: Destination,
     showing: &dyn Showing,
     row: Line,
 ) -> Result<(), Never> {
-    press(held, Heard::Opened { tab, onto, row: row.0 }, showing)
+    press(held, FilesEvent::Opened { tab, onto, row: row.0 }, showing)
+}
+
+fn kinds() -> Result<Table, Never> {
+    Ok(match Table::here() {
+        Ok(kinds) => kinds,
+        Err(why) => {
+            eprintln!("files: nothing says what a file is: {why}");
+
+            Table::default()
+        }
+    })
 }
 
 fn read(path: &Path) -> Result<Vec<Entry>, Never> {
-    let asked = gio::File::for_path(path).enumerate_children(
-        "standard::name,standard::type,standard::size,standard::fast-content-type",
-        gio::FileQueryInfoFlags::NONE,
-        gio::Cancellable::NONE,
-    );
-
-    let children = match asked {
+    let children = match std::fs::read_dir(path) {
         Ok(children) => children,
-        Err(_fault) => return Ok(Vec::new()),
+        Err(_nothing_to_walk) => return Ok(Vec::new()),
     };
+
+    let Ok(kinds) = kinds();
 
     let mut things = Vec::new();
 
     for about in children.flatten() {
-        let name = about.name().to_string_lossy().to_string();
+        let name = about.file_name().to_string_lossy().to_string();
         let wanted = listing::wanted(&name)?;
 
         match wanted {
@@ -193,12 +202,20 @@ fn read(path: &Path) -> Result<Vec<Entry>, Never> {
             Shown::Yes => {},
         }
 
-        let kind = kind_said(&about)?;
-        let Ok(size) = fitted(about.size().max(0));
+        let at = about.path();
+        let Ok(kind) = console_content_types::of(&kinds, &at);
+
+        let (folder, size) = match at.metadata() {
+            Ok(held) => (held.is_dir(), held.len()),
+            Err(_nothing_says) => (at.is_dir(), 0),
+        };
 
         things.push(Entry {
-            folder: about.file_type() == gio::FileType::Directory,
-            kind,
+            folder,
+            kind: match folder {
+                true => NOTHING_SAYS_WHAT_IT_IS.to_string(),
+                false => kind,
+            },
             size,
             name,
         });
@@ -207,46 +224,31 @@ fn read(path: &Path) -> Result<Vec<Entry>, Never> {
     listing::sorted(things)
 }
 
-fn kind_said(about: &gio::FileInfo) -> Result<String, Never> {
-    Ok(match about.attribute_string("standard::fast-content-type") {
-        Some(kind) => kind.to_string(),
-        None => NOTHING_SAYS_WHAT_IT_IS.to_string(),
-    })
-}
-
 fn kind_of(path: &Path) -> Result<Option<String>, Never> {
-    let about = match gio::File::for_path(path).query_info(
-        "standard::content-type",
-        gio::FileQueryInfoFlags::NONE,
-        gio::Cancellable::NONE,
-    ) {
-        Ok(about) => about,
-        Err(_fault) => return Ok(None),
-    };
+    let Ok(kinds) = kinds();
+    let Ok(kind) = console_content_types::of(&kinds, path);
 
-    Ok(about.content_type().map(|kind| kind.to_string()))
-}
-
-fn programs(kind: &str) -> Result<Vec<(String, String)>, Never> {
-    Ok(gio::AppInfo::recommended_for_type(kind)
-        .iter()
-        .filter_map(|app| {
-            let id = app.id()?;
-
-            Some((app.name().to_string(), id.to_string()))
-        })
-        .collect())
+    Ok(match kind.is_empty() {
+        true => None,
+        false => Some(kind),
+    })
 }
 
 fn home() -> Result<Vec<Place>, Never> {
     let each = [
-        UserDirectory::Documents,
-        UserDirectory::Downloads,
-        UserDirectory::Music,
-        UserDirectory::Pictures,
-        UserDirectory::Videos,
+        Folder::Documents,
+        Folder::Downloads,
+        Folder::Music,
+        Folder::Pictures,
+        Folder::Videos,
     ];
-    let home = glib::home_dir();
+
+    let Ok(hers) = console_core_places::home();
+
+    let home = match hers {
+        Some(home) => home,
+        None => return Ok(Vec::new()),
+    };
 
     let (home_title, rest) = match WANTED.split_first() {
         Some((home_title, rest)) => (home_title, rest),
@@ -255,29 +257,42 @@ fn home() -> Result<Vec<Place>, Never> {
 
     let mut said: Vec<(&str, Option<PathBuf>)> = vec![(*home_title, Some(home.clone()))];
 
-    said.extend(rest.iter().copied().zip(each.map(glib::user_special_dir)));
+    said.extend(rest.iter().copied().zip(each.map(|folder| {
+        let Ok(at) = folder.under(&home);
+
+        Some(at)
+    })));
 
     let wanted = places::wanted_at(&home, &said)?;
 
     places::kept(wanted, |path| path.is_dir())
 }
 
-fn plugged_in() -> Result<Vec<Place>, Never> {
-    let mounted = gio::VolumeMonitor::get().mounts();
-    let mut places: Vec<Place> = Vec::new();
+fn cache_store() -> Result<PathBuf, Never> {
+    let Ok(cache) = console_core_places::Base::Cache.hers();
 
-    for mount in mounted.iter().filter(|mount| mount.can_unmount()) {
-        let at = match mount.root().path() {
-            Some(at) => at,
-            None => continue,
-        };
-
-        let place = Place::new(&mount.name(), at)?;
-
-        places.push(place);
+    match cache {
+        Some(cache) => thumbs::store(&cache),
+        None => Ok(PathBuf::new()),
     }
+}
 
-    Ok(places)
+fn plugged_in() -> Result<Vec<Place>, Never> {
+    let Ok(held) = console_core_atomic_writes::read(Path::new(places::MOUNTS));
+
+    let said = match held {
+        console_core_atomic_writes::Stored::Text(said) => said,
+
+        console_core_atomic_writes::Stored::Absent => String::new(),
+
+        console_core_atomic_writes::Stored::Failed(fault) => {
+            eprintln!("console-files: {}: what is plugged in: {fault}", places::MOUNTS);
+
+            String::new()
+        }
+    };
+
+    places::plugged_in(&said)
 }
 
 fn wanting_pictures(showing: &dyn Showing, here: &Path) -> Result<(), Never> {
@@ -288,7 +303,7 @@ fn wanting_pictures(showing: &dyn Showing, here: &Path) -> Result<(), Never> {
     Ok(())
 }
 
-fn folder_rows(held: &Held, tab: usize, here: &Path) -> Result<Vec<Row>, Never> {
+fn folder_rows(held: &ActorAddress, tab: u32, here: &Path) -> Result<Vec<Row>, Never> {
     let word = typed_in(held, tab)?;
 
     match word.trim().is_empty() {
@@ -331,10 +346,11 @@ fn folder_rows(held: &Held, tab: usize, here: &Path) -> Result<Vec<Row>, Never> 
 
     let things = read(here)?;
     let room = listing::wants_room(&things)?;
-    let store = thumbs::store(&glib::user_cache_dir())?;
+    let Ok(store) = cache_store();
 
     for thing in things {
-        let at = rows.len().saturating_add(LINE);
+        let Ok(many) = console_core_number_conversion::fitted::<_, u32>(rows.len());
+        let at = many.saturating_add(LINE);
         let picture = picture(&store, here, &thing, room)?;
         let row = thing_row(held, tab, &thing, Line(at), &picture)?;
 
@@ -357,12 +373,12 @@ fn folder_rows(held: &Held, tab: usize, here: &Path) -> Result<Vec<Row>, Never> 
     with_the_room(rows, room)
 }
 
-const ABOUT: &str = "Type to find, here and under here";
+const ABOUT: &str = "Search this folder";
 
 fn with_the_room(rows: Vec<Row>, room: Room) -> Result<Vec<Row>, Never> {
     match room {
         Room::Spared => return Ok(rows),
-        Room::Kept => {},
+        Room::Retained => {},
     }
 
     let mut kept: Vec<Row> = Vec::new();
@@ -376,7 +392,7 @@ fn with_the_room(rows: Vec<Row>, room: Room) -> Result<Vec<Row>, Never> {
     Ok(kept)
 }
 
-fn found_rows(held: &Held, tab: usize, here: &Path, word: &str) -> Result<Vec<Row>, Never> {
+fn found_rows(held: &ActorAddress, tab: u32, here: &Path, word: &str) -> Result<Vec<Row>, Never> {
     let folder = called(held, tab)?;
     let leaving = held.clone();
 
@@ -389,7 +405,7 @@ fn found_rows(held: &Held, tab: usize, here: &Path, word: &str) -> Result<Vec<Ro
 
     match found.is_empty() {
         true => {
-            let Ok(row) = Row::nothing("Nothing here answers to that");
+            let Ok(row) = Row::nothing("No Results");
 
             rows.push(row);
 
@@ -398,7 +414,7 @@ fn found_rows(held: &Held, tab: usize, here: &Path, word: &str) -> Result<Vec<Ro
         false => {},
     }
 
-    let store = thumbs::store(&glib::user_cache_dir())?;
+    let Ok(store) = cache_store();
     let things: Vec<Entry> = found.iter().map(|one| one.thing.clone()).collect();
     let room = listing::wants_room(&things)?;
 
@@ -417,7 +433,7 @@ fn found_rows(held: &Held, tab: usize, here: &Path, word: &str) -> Result<Vec<Ro
     with_the_room(rows, room)
 }
 
-fn found_row(held: &Held, tab: usize, one: &Found, picture: &Picture) -> Result<Row, Never> {
+fn found_row(held: &ActorAddress, tab: u32, one: &Found, picture: &Picture) -> Result<Row, Never> {
     let aside = one.aside()?;
 
     let row = match one.thing.folder {
@@ -425,12 +441,12 @@ fn found_row(held: &Held, tab: usize, one: &Found, picture: &Picture) -> Result<
             let held = held.clone();
             let steps = one.steps()?;
 
-            let Ok(walks) = Does::and_stay(move |showing| {
+            let Ok(walks) = Handler::and_stay(move |showing| {
                 showing.forget_typing();
 
                 let steps = steps.clone();
 
-                let Ok(()) = press(&held, Heard::Walked { tab, steps }, showing);
+                let Ok(()) = press(&held, FilesEvent::Walked { tab, steps }, showing);
             });
             let Ok(row) = Row::new(&one.thing.name, Aside(&aside), walks);
             let Ok(opens) = row.opening();
@@ -442,7 +458,7 @@ fn found_row(held: &Held, tab: usize, one: &Found, picture: &Picture) -> Result<
             let at = one.at(&here)?;
             let said = said(&at)?;
             let Ok(opens) = Program::XdgOpen.name();
-            let Ok(runs) = Does::run(&[opens, &said]);
+            let Ok(runs) = Handler::run(&[opens, &said]);
             let Ok(row) = Row::new(&one.thing.name, Aside(&aside), runs);
 
             row
@@ -452,14 +468,14 @@ fn found_row(held: &Held, tab: usize, one: &Found, picture: &Picture) -> Result<
     row.picturing(picture.clone())
 }
 
-fn stopped_looking(held: &Held, tab: usize, showing: &dyn Showing) -> Result<(), Never> {
-    press(held, Heard::Back { tab }, showing)
+fn stopped_looking(held: &ActorAddress, tab: u32, showing: &dyn Showing) -> Result<(), Never> {
+    press(held, FilesEvent::Back { tab }, showing)
 }
 
 fn picture(store: &Path, here: &Path, thing: &Entry, room: Room) -> Result<Picture, Never> {
     match room {
         Room::Spared => return Ok(Picture::None),
-        Room::Kept => {},
+        Room::Retained => {},
     }
 
     match thing.folder {
@@ -499,8 +515,8 @@ fn with_room(row: Row) -> Result<Row, Never> {
 }
 
 fn thing_row(
-    held: &Held,
-    tab: usize,
+    held: &ActorAddress,
+    tab: u32,
     thing: &Entry,
     at: Line,
     picture: &Picture,
@@ -512,10 +528,10 @@ fn thing_row(
             let held = held.clone();
             let name = thing.name.clone();
 
-            let Ok(enters) = Does::and_stay(move |showing| {
+            let Ok(enters) = Handler::and_stay(move |showing| {
                 let name = name.clone();
 
-                let Ok(()) = press(&held, Heard::Entered { tab, name, at: at.0 }, showing);
+                let Ok(()) = press(&held, FilesEvent::Entered { tab, name, at: at.0 }, showing);
             });
             let Ok(row) = Row::new(&thing.name, Aside(&aside), enters);
             let Ok(opens) = row.opening();
@@ -526,7 +542,7 @@ fn thing_row(
             let here = here_of(held, tab)?;
             let path = here.join(&thing.name);
             let Ok(opens) = Program::XdgOpen.name();
-            let Ok(runs) = Does::run(&[opens, &path.to_string_lossy()]);
+            let Ok(runs) = Handler::run(&[opens, &path.to_string_lossy()]);
             let Ok(row) = Row::new(&thing.name, Aside(&aside), runs);
 
             row
@@ -535,11 +551,14 @@ fn thing_row(
 
     let held = held.clone();
     let thing = thing.clone();
+    let here = here_of(&held, tab)?;
+    let key = said(&here.join(&thing.name))?;
 
     let Ok(pictured) = row.picturing(picture.clone());
+    let Ok(pictured) = pictured.selectable(&key);
 
     pictured.offering(move |showing| {
-        let onto = Onto::Ways { thing: thing.clone(), from: at.0 };
+        let onto = Destination::Ways { thing: thing.clone(), from: at.0 };
 
         let Ok(()) = look(&held, tab, onto, showing, Line(WAYS_START));
 
@@ -547,37 +566,37 @@ fn thing_row(
     })
 }
 
-fn put_down_row(held: &Held, holding: &Holding, here: &Path) -> Result<Row, Never> {
-    let argv = match holding.moving {
+fn put_down_row(held: &ActorAddress, holding: &Holding, here: &Path) -> Result<Row, Never> {
+    let arguments = match holding.moving {
         Carrying::ToMove => {
-            let Ok(argv) = Program::Mv.argv(&["--"]);
+            let Ok(arguments) = Program::Mv.arguments(&["--"]);
 
-            argv
+            arguments
         }
         Carrying::ToCopy => {
-            let Ok(argv) = Program::Cp.argv(&["-r", "--"]);
+            let Ok(arguments) = Program::Cp.arguments(&["-r", "--"]);
 
-            argv
+            arguments
         },
     };
-    let what = said(&holding.path)?;
+    let what: Vec<String> = holding.paths.iter().map(|path| path.to_string_lossy().to_string()).collect();
     let into = said(here)?;
-    let argv = [argv, vec![what, into]].concat();
+    let arguments = [arguments, what, vec![into]].concat();
     let held = held.clone();
     let says = holding.says()?;
 
-    let Ok(puts) = Does::and_stay(move |showing| {
-        let Ok(()) = press(&held, Heard::PutDown, showing);
+    let Ok(puts) = Handler::and_stay(move |showing| {
+        let Ok(()) = press(&held, FilesEvent::PutDown, showing);
 
-        showing.later(argv.clone());
+        showing.later(arguments.clone());
     });
 
     Row::new(&says, Aside(""), puts)
 }
 
 fn ask_for_a_folder(
-    held: &Held,
-    tab: usize,
+    held: &ActorAddress,
+    tab: u32,
     here: &Path,
     from: Line,
     showing: &dyn Showing,
@@ -597,7 +616,7 @@ fn ask_for_a_folder(
 
         let Ok(made) = said(&here.join(name));
 
-        let Ok(making) = Program::Mkdir.argv(&["--", &made]);
+        let Ok(making) = Program::Mkdir.arguments(&["--", &made]);
 
         showing.later(making);
     })?;
@@ -607,30 +626,30 @@ fn ask_for_a_folder(
     Ok(())
 }
 
-const NEW_FOLDER: &str = "New folder";
+const NEW_FOLDER: &str = "New Folder";
 
-fn new_folder_row(held: &Held, tab: usize, here: &Path, from: Line) -> Result<Row, Never> {
+fn new_folder_row(held: &ActorAddress, tab: u32, here: &Path, from: Line) -> Result<Row, Never> {
     let here = here.to_path_buf();
     let held = held.clone();
 
-    let Ok(asks) = Does::and_stay(move |showing| {
+    let Ok(asks) = Handler::and_stay(move |showing| {
         let Ok(()) = ask_for_a_folder(&held, tab, &here, from, showing);
     });
 
     Row::new(NEW_FOLDER, Aside(""), asks)
 }
 
-fn here_too(held: &Held, tab: usize, row: Row) -> Result<Row, Never> {
+fn here_too(held: &ActorAddress, tab: u32, row: Row) -> Result<Row, Never> {
     let held = held.clone();
 
     row.offering(move |showing| {
-        let Ok(()) = look(&held, tab, Onto::Here { from: LINE }, showing, Line(HERE_START));
+        let Ok(()) = look(&held, tab, Destination::Here { from: LINE }, showing, Line(HERE_START));
 
         false
     })
 }
 
-fn here_rows(held: &Held, tab: usize, here: &Path, from: Line) -> Result<Vec<Row>, Never> {
+fn here_rows(held: &ActorAddress, tab: u32, here: &Path, from: Line) -> Result<Vec<Row>, Never> {
     let folder = called(held, tab)?;
     let leaving = held.clone();
     let new_folder = new_folder_row(held, tab, here, from)?;
@@ -645,16 +664,16 @@ fn here_rows(held: &Held, tab: usize, here: &Path, from: Line) -> Result<Vec<Row
 
 const UNZIPS: &str = "files-unzip";
 
-const ONE_FORMAT: &str = "Make everything one format";
+const ONE_FORMAT: &str = "Convert All Media";
 const ONE_FORMAT_ASKS: &str =
-    "Make everything in here one format? Songs become opus and films become mkv.";
+    "Convert everything here? Songs become Opus, videos MKV.";
 const ONE_FORMAT_DOES: &str = "Convert";
 
-fn one_format_row(held: &Held, tab: usize, here: &Path, from: Line) -> Result<Row, Never> {
+fn one_format_row(held: &ActorAddress, tab: u32, here: &Path, from: Line) -> Result<Row, Never> {
     let here = here.to_path_buf();
     let held = held.clone();
 
-    let Ok(asks) = Does::and_stay(move |showing| {
+    let Ok(asks) = Handler::and_stay(move |showing| {
         let here = here.clone();
         let held = held.clone();
 
@@ -669,22 +688,22 @@ fn one_format_row(held: &Held, tab: usize, here: &Path, from: Line) -> Result<Ro
         let Ok(then) = taken(move |showing, _| {
             let Ok(()) = back_to_the_folder(&held, tab, showing, from);
 
-            showing.note(&format!("{folder} is being made one format, which takes a while"));
+            showing.note(&format!("Converting {folder}…"));
 
             let Ok(at) = said(&here);
 
             showing.later(vec!["downloads-format".to_string(), at]);
         });
 
-        showing.sure(ONE_FORMAT_ASKS, Which(&said_as), &[ONE_FORMAT_DOES], then);
+        showing.sure(ONE_FORMAT_ASKS, Subject(&said_as), &[ONE_FORMAT_DOES], then);
     });
 
     Row::new(ONE_FORMAT, Aside(""), asks)
 }
 
 fn way_rows(
-    held: &Held,
-    tab: usize,
+    held: &ActorAddress,
+    tab: u32,
     thing: &Entry,
     from: Line,
     here: &Path,
@@ -721,8 +740,8 @@ fn way_rows(
 }
 
 fn program_rows(
-    held: &Held,
-    tab: usize,
+    held: &ActorAddress,
+    tab: u32,
     thing: &Entry,
     from: Line,
     here: &Path,
@@ -730,10 +749,10 @@ fn program_rows(
     let path = here.join(&thing.name);
     let leaving = held.clone();
     let going_back = thing.clone();
-    let opens = Deed::OpenWith.says()?;
+    let opens = FileAction::OpenWith.says()?;
 
     let Ok(way_back) = Row::back(&thing.name, move |showing| {
-        let onto = Onto::Ways { thing: going_back.clone(), from: from.0 };
+        let onto = Destination::Ways { thing: going_back.clone(), from: from.0 };
 
         let Ok(()) = look(&leaving, tab, onto, showing, Line(WAYS_START));
     });
@@ -743,13 +762,13 @@ fn program_rows(
     let kind = kind_of(&path)?;
 
     let found = match kind {
-        Some(kind) => programs(&kind)?,
+        Some(kind) => crate::open_with::programs(&kind)?,
         None => Vec::new(),
     };
 
     match found.is_empty() {
         true => {
-            let Ok(row) = Row::nothing("Nothing here opens this");
+            let Ok(row) = Row::nothing("No App Opens This");
 
             rows.push(row);
 
@@ -761,8 +780,8 @@ fn program_rows(
     for (says, id) in found {
         let path = path.clone();
 
-        let Ok(starts) = Does::call(move |_| {
-            let Ok(()) = started(&id, &path);
+        let Ok(starts) = Handler::call(move |_| {
+            let Ok(()) = crate::open_with::started(&id, &path);
 
             true
         });
@@ -774,50 +793,37 @@ fn program_rows(
     Ok(rows)
 }
 
-fn started(id: &str, path: &Path) -> Result<(), Never> {
-    let found = gio::AppInfo::all();
-
-    let app = match found.iter().find(|app| app.id().is_some_and(|its| its == id)) {
-        Some(app) => app,
-        None => return Ok(()),
-    };
-
-    let _ = app.launch(&[gio::File::for_path(path)], gio::AppLaunchContext::NONE);
-
-    Ok(())
-}
-
 fn deed_row(
-    held: &Held,
-    tab: usize,
+    held: &ActorAddress,
+    tab: u32,
     thing: &Entry,
     from: Line,
     path: &Path,
-    deed: Deed,
+    deed: FileAction,
 ) -> Result<Row, Never> {
     let says = deed.says()?;
 
     match deed {
-        Deed::Open => {
+        FileAction::Open => {
             let Ok(opens) = Program::XdgOpen.name();
-            let Ok(runs) = Does::run(&[opens, &path.to_string_lossy()]);
+            let Ok(runs) = Handler::run(&[opens, &path.to_string_lossy()]);
 
             return Row::new(says, Aside(""), runs);
         }
-        Deed::Copy | Deed::Delete | Deed::Move | Deed::OpenWith | Deed::Rename
-        | Deed::Unzip | Deed::Wallpaper => {},
+        FileAction::Copy | FileAction::Delete | FileAction::Move | FileAction::OpenWith | FileAction::Rename
+        | FileAction::Select | FileAction::Unzip | FileAction::Wallpaper => {},
     }
 
     let held = held.clone();
     let thing = thing.clone();
     let path = path.to_path_buf();
 
-    let Ok(does) = Does::and_stay(move |showing| {
+    let Ok(does) = Handler::and_stay(move |showing| {
         let Ok(()) = done(&held, tab, &thing, from, &path, deed, showing);
     });
     let Ok(row) = Row::new(says, Aside(""), does);
 
-    Ok(match deed == Deed::OpenWith {
+    Ok(match deed == FileAction::OpenWith {
         true => {
             let Ok(opens) = row.opening();
 
@@ -828,22 +834,22 @@ fn deed_row(
 }
 
 fn done(
-    held: &Held,
-    tab: usize,
+    held: &ActorAddress,
+    tab: u32,
     thing: &Entry,
     from: Line,
     path: &Path,
-    deed: Deed,
+    deed: FileAction,
     showing: &dyn Showing,
 ) -> Result<(), Never> {
     match deed {
-        Deed::Open => (),
-        Deed::OpenWith => {
-            let onto = Onto::Programs { thing: thing.clone(), from: from.0 };
+        FileAction::Open => (),
+        FileAction::OpenWith => {
+            let onto = Destination::Programs { thing: thing.clone(), from: from.0 };
 
             look(held, tab, onto, showing, Line(1))?;
         }
-        Deed::Delete => {
+        FileAction::Delete => {
             let held = held.clone();
             let path = path.to_path_buf();
             let says = deed.says()?;
@@ -853,45 +859,49 @@ fn done(
 
                 let Ok(at) = said(&path);
 
-                let Ok(trashing) = Program::Gio.argv(&["trash", "--", &at]);
+                let Ok(trashing) = Program::Gio.arguments(&["trash", "--", &at]);
 
                 showing.later(trashing);
             })?;
 
-            showing.sure(doing::SURE, Which(&thing.name), &[says], then);
+            showing.sure(doing::SURE, Subject(&thing.name), &[says], then);
         }
-        Deed::Copy | Deed::Move => {
-            let carrying = match deed == Deed::Move {
+        FileAction::Copy | FileAction::Move => {
+            let carrying = match deed == FileAction::Move {
                 true => Carrying::ToMove,
                 false => Carrying::ToCopy,
             };
             let holding = Holding::of(thing, path.to_path_buf(), carrying)?;
 
-            quietly(held, Heard::Held(holding))?;
+            quietly(held, FilesEvent::PickedUp(holding))?;
             back_to_the_folder(held, tab, showing, from)?;
         }
-        Deed::Unzip => {
+        FileAction::Select => {
             back_to_the_folder(held, tab, showing, from)?;
 
-            showing.note(&format!("{} is being unzipped", thing.name));
+            let at = said(path)?;
+
+            showing.select(vec![at]);
+        }
+        FileAction::Unzip => {
+            back_to_the_folder(held, tab, showing, from)?;
+
+            showing.note(&format!("Unzipping {}…", thing.name));
 
             let at = said(path)?;
 
             showing.later(vec![UNZIPS.to_string(), at]);
         }
-        Deed::Wallpaper => {
+        FileAction::Wallpaper => {
             back_to_the_folder(held, tab, showing, from)?;
 
-            showing.note(&format!(
-                "{} is being made into a wallpaper, which takes about a minute",
-                thing.name
-            ));
+            showing.note(&format!("Setting {} as wallpaper…", thing.name));
 
             let at = said(path)?;
 
-            showing.later(vec!["wallpaper-press".to_string(), "--take".to_string(), at]);
+            showing.later(vec!["wallpaper-render".to_string(), "--take".to_string(), at]);
         }
-        Deed::Rename => {
+        FileAction::Rename => {
             let held = held.clone();
             let path = path.to_path_buf();
 
@@ -922,16 +932,16 @@ fn done(
 }
 
 fn back_to_the_folder(
-    held: &Held,
-    tab: usize,
+    held: &ActorAddress,
+    tab: u32,
     showing: &dyn Showing,
     from: Line,
 ) -> Result<(), Never> {
-    look(held, tab, Onto::Folder, showing, from)
+    look(held, tab, Destination::Folder, showing, from)
 }
 
-fn went_up(held: &Held, tab: usize, showing: &dyn Showing) -> Result<(), Never> {
-    press(held, Heard::Up { tab }, showing)
+fn went_up(held: &ActorAddress, tab: u32, showing: &dyn Showing) -> Result<(), Never> {
+    press(held, FilesEvent::Up { tab }, showing)
 }
 
 fn said(path: &Path) -> Result<String, Never> {
@@ -944,29 +954,30 @@ fn answered(
     Ok(Arc::new(then))
 }
 
-fn taken(then: impl Fn(&dyn Showing, usize) + Send + Sync + 'static) -> Result<Taken, Never> {
+fn taken(then: impl Fn(&dyn Showing, u32) + Send + Sync + 'static) -> Result<OnChosen, Never> {
     Ok(Arc::new(then))
 }
 
-fn rows(held: &Held, tab: usize) -> Result<Vec<Row>, Never> {
+fn rows(held: &ActorAddress, tab: u32) -> Result<Vec<Row>, Never> {
     let held_now = standing_of(held)?;
     let here = standing::here(&held_now, tab)?;
     let onto = standing::onto(&held_now, tab)?;
 
     match onto {
-        Onto::Folder => folder_rows(held, tab, &here),
-        Onto::Here { from } => here_rows(held, tab, &here, Line(from)),
-        Onto::Programs { thing, from } => program_rows(held, tab, &thing, Line(from), &here),
-        Onto::Ways { thing, from } => way_rows(held, tab, &thing, Line(from), &here),
+        Destination::Folder => folder_rows(held, tab, &here),
+        Destination::Here { from } => here_rows(held, tab, &here, Line(from)),
+        Destination::Programs { thing, from } => program_rows(held, tab, &thing, Line(from), &here),
+        Destination::Ways { thing, from } => way_rows(held, tab, &thing, Line(from), &here),
     }
 }
 
-fn pages(held: &Held) -> Result<Vec<Page>, Never> {
+fn pages(held: &ActorAddress) -> Result<Vec<Page>, Never> {
     let standing = standing_of(held)?;
     let titles = standing::titles(&standing)?;
     let mut pages: Vec<Page> = Vec::new();
 
     for (tab, title) in titles.iter().enumerate() {
+        let Ok(tab) = console_core_number_conversion::fitted::<_, u32>(tab);
         let page = page(held, tab, title)?;
 
         pages.push(page);
@@ -975,7 +986,18 @@ fn pages(held: &Held) -> Result<Vec<Page>, Never> {
     Ok(pages)
 }
 
-fn page(held: &Held, tab: usize, title: &str) -> Result<Page, Never> {
+fn carried_many(page: Page, held: &ActorAddress, deed: FileAction, moving: Carrying) -> Result<Page, Never> {
+    let held = held.clone();
+    let Ok(says) = deed.says();
+
+    page.selecting(says, move |_, keys| {
+        let paths = keys.iter().map(PathBuf::from).collect();
+        let Ok(holding) = Holding::many(paths, moving);
+        let Ok(()) = quietly(&held, FilesEvent::PickedUp(holding));
+    })
+}
+
+fn page(held: &ActorAddress, tab: u32, title: &str) -> Result<Page, Never> {
     let reading = held.clone();
     let backing = held.clone();
     let arriving = held.clone();
@@ -994,10 +1016,13 @@ fn page(held: &Held, tab: usize, title: &str) -> Result<Page, Never> {
 
         let Ok(()) = stand_where_asked(&arriving, tab, showing);
     });
+    let Ok(page) = carried_many(page, held, FileAction::Copy, Carrying::ToCopy);
+    let Ok(page) = carried_many(page, held, FileAction::Move, Carrying::ToMove);
+    let Ok(page) = page.trashing_selected();
     let Ok(page) = page.on_back(move |showing| {
         let Ok(was) = standing_of(&backing);
 
-        let Ok(()) = press(&backing, Heard::Back { tab }, showing);
+        let Ok(()) = press(&backing, FilesEvent::Back { tab }, showing);
 
         let Ok(closes) = closes(&was, tab);
 
@@ -1011,14 +1036,14 @@ fn page(held: &Held, tab: usize, title: &str) -> Result<Page, Never> {
     let onto = standing::onto(&standing, tab)?;
 
     match onto {
-        Onto::Folder => {},
-        Onto::Here { .. } | Onto::Programs { .. } | Onto::Ways { .. } => return Ok(page),
+        Destination::Folder => {},
+        Destination::Here { .. } | Destination::Programs { .. } | Destination::Ways { .. } => return Ok(page),
     }
 
     let typing = held.clone();
 
     page.searching(ABOUT, move |showing, word| {
-        let heard = Heard::Typed { tab, word: word.to_string() };
+        let heard = FilesEvent::Typed { tab, word: word.to_string() };
 
         let Ok(()) = press(&typing, heard, showing);
     })
@@ -1047,7 +1072,9 @@ fn went_to(standing: &mut Standing, said: &str) -> Result<Option<String>, Never>
     for step in &leading.steps {
         let onto = first_thing(standing, leading.place)?;
 
-        let walk = match standing.walks.get_mut(leading.place) {
+        let Ok(slot) = console_core_number_conversion::index(leading.place);
+
+        let walk = match standing.walks.get_mut(slot) {
             Some(walk) => walk,
             None => return Ok(None),
         };
@@ -1057,7 +1084,9 @@ fn went_to(standing: &mut Standing, said: &str) -> Result<Option<String>, Never>
 
     standing.stand_on = leading.stand_on.map(|name| (leading.place, name));
 
-    let place = match standing.places.get(leading.place) {
+    let Ok(slot) = console_core_number_conversion::index(leading.place);
+
+    let place = match standing.places.get(slot) {
         Some(place) => place,
         None => return Ok(None),
     };
@@ -1066,16 +1095,10 @@ fn went_to(standing: &mut Standing, said: &str) -> Result<Option<String>, Never>
 }
 
 
-pub const WHO: &str = "files-panel";
+pub const WHO: &str = "files";
 
-const DOOR: &str = "files";
-
-pub fn door(_argv: &[String]) -> Result<Door, Never> {
-    Door::closing(DOOR)
-}
-
-pub fn card(argv: &[String]) -> Result<Card, Never> {
-    let asked = argv.first().cloned();
+pub fn card(arguments: &[String]) -> Result<Card, Never> {
+    let asked = arguments.first().cloned();
     let Ok(mut places) = home();
     let Ok(plugged) = plugged_in();
 

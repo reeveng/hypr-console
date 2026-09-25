@@ -16,8 +16,8 @@ dylint_linting::declare_late_lint! {
     ///
     /// `console-program-lifetime` is this argument already made about a
     /// `std::process::Child`: at the call site a thing started to run alongside
-    /// and a thing started on somebody's behalf are the same three lines, and
-    /// afterwards they are not the same at all. `Alongside` and `LetGo` exist
+    /// and a thing started on someone's behalf are the same three lines, and
+    /// afterwards they are not the same at all. `BoundToParent` and `Detached` exist
     /// so that a caller has to say which it meant, in a word still there to
     /// read a year later, and
     /// `console-manifest-engine/tests/the_children.rs` holds that shut.
@@ -27,18 +27,18 @@ dylint_linting::declare_late_lint! {
     /// made it, so nothing can ask whether the thread is still running, nothing
     /// can wait for it, and nothing at the site says whether outliving its
     /// starter was meant or forgotten. A thread that panics takes its fault to
-    /// the handle nobody kept.
+    /// the handle no one kept.
     ///
     /// There are two answers and this rule asks for either. Hold the handle and
     /// `join` it where the thread ends, which is the shape whenever the thread
     /// is doing one thing the caller is waiting on. Or say that it was let go:
     /// `console_program_lifetime::threads::let_go` takes the handle and drops
     /// it, which is the same drop with a word on it, and it takes only a thread
-    /// that answers nothing -- an answer let go is a value nobody will ever
+    /// that answers nothing -- an answer let go is a value no one will ever
     /// read.
     ///
     /// A thread cannot be killed from outside in Rust, so there is no
-    /// `Alongside` for one. That asymmetry is the reason the word matters more
+    /// `BoundToParent` for one. That asymmetry is the reason the word matters more
     /// here than it does for a child: for a child the type also does something,
     /// and for a thread the only thing on offer is saying what was meant.
     pub EXPLICIT035_NO_LOOSE_THREAD,
@@ -103,7 +103,7 @@ impl<'tcx> LateLintPass<'tcx> for Explicit035NoLooseThread {
             None,
             "hold the handle and `join` it where the thread ends, or say that it was let go: \
              `console_program_lifetime::threads::let_go` is the same drop with a word on it, and it is \
-             the argument `Alongside` and `LetGo` already make about a child",
+             the argument `BoundToParent` and `Detached` already make about a child",
         );
     }
 }

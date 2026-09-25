@@ -2,10 +2,10 @@
 
 
 use console_core_never::Never;
-use console_core_number_conversion::{Float, toward_zero_usize};
+use console_core_number_conversion::{index, toward_zero_u32};
 pub const FULL: char = '█';
 pub const EMPTY: char = '░';
-pub const CELLS: usize = 8;
+pub const CELLS: u32 = 8;
 
 pub const STEP: i32 = 5;
 
@@ -15,12 +15,14 @@ pub enum Muted {
     No,
 }
 
-pub fn bar(level: i32, muted: Muted, cells: usize) -> Result<String, Never> {
-    let Ok(many) = cells.float();
+pub fn bar(level: i32, muted: Muted, cells: u32) -> Result<String, Never> {
+    let many = f64::from(cells);
     let Ok(filled) =
-        toward_zero_usize((f64::from(level) / 100.0 * many).round().clamp(0.0, many));
-    let drawn: String = std::iter::repeat_n(FULL, filled)
-        .chain(std::iter::repeat_n(EMPTY, cells.saturating_sub(filled)))
+        toward_zero_u32((f64::from(level) / 100.0 * many).round().clamp(0.0, many));
+    let Ok(full) = index(filled);
+    let Ok(empty) = index(cells.saturating_sub(filled));
+    let drawn: String = std::iter::repeat_n(FULL, full)
+        .chain(std::iter::repeat_n(EMPTY, empty))
         .collect();
 
     match (cells < CELLS, muted) {

@@ -7,14 +7,14 @@
 //! ```
 //!
 //! The setting is asked first either way, so a keyboard is offered whatever
-//! this machine is set to type at the moment somebody reaches for the key
+//! this machine is set to type at the moment someone reaches for the key
 //! rather than whatever it was set to when the session started. That is one
 //! `hyprctl keyword` per keyboard and it happens on a keypress, which is
 //! cheaper than the alternative: a daemon watching the setting so it could
 //! push the list the moment it changed, for a list that changes twice a year.
 //!
 //! Every keyboard, rather than the one in front. The compositor has no notion
-//! of which board somebody's hands are on, and a person with two of them who
+//! of which board someone's hands are on, and a person with two of them who
 //! pressed the key on one would be as surprised by the other staying behind as
 //! by it coming along -- but only one of those two can be undone by pressing
 //! the key again. What each keeps is still its own: they are stepped from
@@ -29,10 +29,10 @@
 //! under `wearing::SCREEN`, whenever the board the compositor calls the main
 //! one moves. The keyboard reads that and follows.
 //!
-//! One way round, and only from the leading board. Somebody typing Thai on the
+//! One way round, and only from the leading board. Someone typing Thai on the
 //! keys in front of them and then reaching for the screen expects the screen to
 //! be typing Thai: the two boards are one pair of hands, and a keyboard that
-//! came up in the alphabet before the last one somebody chose is the confusing
+//! came up in the alphabet before the last one someone chose is the confusing
 //! half of keeping a habit per board. What a second board is wearing is still
 //! its own, because only one of them can be the one being typed on.
 
@@ -48,7 +48,7 @@ fn main() -> std::process::ExitCode {
         false => Step::Forward,
     };
 
-    let devices = match console_compositor::asked(console_compositor::Asked::Devices) {
+    let devices = match console_compositor::query(console_compositor::Query::Devices) {
         Ok(devices) => devices,
         Err(fault) => {
             eprintln!("language-switch: {fault}");
@@ -56,7 +56,19 @@ fn main() -> std::process::ExitCode {
         }
     };
 
-    let Ok(keyboards) = console_compositor::keyboards(&devices);
+    let keyboards = match devices {
+        console_compositor::Answer::Devices(keyboards) => keyboards,
+        console_compositor::Answer::Layers(_)
+        | console_compositor::Answer::ActiveWorkspace(_)
+        | console_compositor::Answer::Workspaces(_)
+        | console_compositor::Answer::Monitors(_)
+        | console_compositor::Answer::EveryMonitor(_)
+        | console_compositor::Answer::Clients(_)
+        | console_compositor::Answer::Binds(_) => {
+            eprintln!("language-switch: hyprctl answered something other than what is plugged in");
+            return std::process::ExitCode::FAILURE;
+        }
+    };
     let Ok(walk) = console_input_alphabets::chosen();
     let Ok(said) = layouts(&walk);
     let Ok(home) = console_core_places::home();
@@ -64,7 +76,7 @@ fn main() -> std::process::ExitCode {
     let home = match home {
         Some(home) => home,
         None => {
-            eprintln!("language-switch: nobody's home is known, so nothing can be remembered");
+            eprintln!("language-switch: no one's home is known, so nothing can be remembered");
             return std::process::ExitCode::FAILURE;
         }
     };
@@ -79,22 +91,22 @@ fn main() -> std::process::ExitCode {
             false => along(&walk, worn, way),
         };
 
-        let Ok(told) = console_compositor::offers(&keyboard.name, console_compositor::Layouts(&said));
+        let Ok(told) = console_compositor::set_layouts(&keyboard.name, console_compositor::Layouts(&said));
 
         match told {
-            console_compositor::Done::Taken => {},
-            console_compositor::Done::Refused(why) => {
+            console_compositor::DispatchResult::Success => {},
+            console_compositor::DispatchResult::Failure(why) => {
                 eprintln!("language-switch: {} would not take {said:?}: {why}", keyboard.name);
                 continue;
             }
         }
 
         let Ok(which) = at(&walk, wants);
-        let Ok(switched) = console_compositor::wears(&keyboard.name, which);
+        let Ok(switched) = console_compositor::switch_layout(&keyboard.name, which);
 
         match switched {
-            console_compositor::Done::Taken => {},
-            console_compositor::Done::Refused(why) => {
+            console_compositor::DispatchResult::Success => {},
+            console_compositor::DispatchResult::Failure(why) => {
                 eprintln!("language-switch: {} would not wear {}: {why}", keyboard.name, wants.key);
                 continue;
             }

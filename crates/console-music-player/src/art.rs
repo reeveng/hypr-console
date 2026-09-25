@@ -16,7 +16,7 @@
 //! answer. glib is in the room for the bus, and `glib::user_cache_dir` would
 //! have been the shortest line here, but it answers something for a machine
 //! with no `HOME` and this desktop would rather write no picture than write one
-//! where nobody asked for it.
+//! where no one asked for it.
 
 use console_core_external_programs::Program;
 use console_core_never::Never;
@@ -36,7 +36,7 @@ pub fn of(song: &Path, turn: u64) -> Result<Option<PathBuf>, Never> {
     let folder = match covers {
         Some(folder) => folder,
         None => {
-            eprintln!("music-player: nobody's home, so the cover is not written anywhere");
+            eprintln!("music-player: no one's home, so the cover is not written anywhere");
 
             return Ok(None);
         },

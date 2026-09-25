@@ -4,7 +4,7 @@
 //! Nothing here can be tested without a machine, which is exactly why nothing
 //! here decides anything.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 
@@ -14,21 +14,22 @@ use console_core_places::Base;
 
 use crate::install::{USER, User, self};
 use crate::laying::{self, Back, Laid};
+use crate::modes;
 use crate::unapplied::Unapplied;
 
-pub struct Said {
+pub struct Output {
     pub out: String,
 }
 
-pub fn run(argv: &[&str]) -> Result<Said, Never> {
-    let (program, rest) = match argv.split_first() {
+pub fn run(arguments: &[&str]) -> Result<Output, Never> {
+    let (program, rest) = match arguments.split_first() {
         Some((program, rest)) => (program, rest),
-        None => return Ok(Said { out: String::new() }),
+        None => return Ok(Output { out: String::new() }),
     };
 
     Ok(match Command::new(program).args(rest).output() {
-        Ok(done) => Said { out: String::from_utf8_lossy(&done.stdout).trim().to_owned() },
-        Err(_) => Said { out: String::new() },
+        Ok(done) => Output { out: String::from_utf8_lossy(&done.stdout).trim().to_owned() },
+        Err(_) => Output { out: String::new() },
     })
 }
 
@@ -38,20 +39,20 @@ pub enum Ran {
     Badly,
 }
 
-pub struct Answered {
+pub struct CommandOutput {
     pub out: String,
     pub said: String,
     pub ran: Ran,
 }
 
-pub fn answered(argv: &[&str]) -> Result<Answered, Never> {
-    let (program, rest) = match argv.split_first() {
+pub fn answered(arguments: &[&str]) -> Result<CommandOutput, Never> {
+    let (program, rest) = match arguments.split_first() {
         Some((program, rest)) => (program, rest),
-        None => return Ok(Answered { out: String::new(), said: String::new(), ran: Ran::Badly }),
+        None => return Ok(CommandOutput { out: String::new(), said: String::new(), ran: Ran::Badly }),
     };
 
     Ok(match Command::new(program).args(rest).output() {
-        Ok(done) => Answered {
+        Ok(done) => CommandOutput {
             out: String::from_utf8_lossy(&done.stdout).trim().to_owned(),
             said: String::from_utf8_lossy(&done.stderr).trim().to_owned(),
             ran: match done.status.success() {
@@ -59,7 +60,7 @@ pub fn answered(argv: &[&str]) -> Result<Answered, Never> {
                 false => Ran::Badly,
             },
         },
-        Err(fault) => Answered {
+        Err(fault) => CommandOutput {
             out: String::new(),
             said: format!("{program}: {fault}"),
             ran: Ran::Badly,
@@ -67,8 +68,8 @@ pub fn answered(argv: &[&str]) -> Result<Answered, Never> {
     })
 }
 
-pub fn run_seen(argv: &[&str]) -> Result<Ran, Never> {
-    let (program, rest) = match argv.split_first() {
+pub fn run_seen(arguments: &[&str]) -> Result<Ran, Never> {
+    let (program, rest) = match arguments.split_first() {
         Some((program, rest)) => (program, rest),
         None => return Ok(Ran::Badly),
     };
@@ -85,13 +86,13 @@ pub fn run_seen(argv: &[&str]) -> Result<Ran, Never> {
 }
 
 pub fn run_watched<M>(
-    argv: &[&str],
+    arguments: &[&str],
     handed: &mut M,
     heard: impl Fn(&mut M, &str),
 ) -> Result<Ran, Never> {
     use std::io::{BufRead, BufReader};
 
-    let (program, rest) = match argv.split_first() {
+    let (program, rest) = match arguments.split_first() {
         Some((program, rest)) => (program, rest),
         None => return Ok(Ran::Badly),
     };
@@ -192,7 +193,7 @@ fn the_home_it_is_already_in() -> Result<Option<String>, Never> {
     let mut theirs: Vec<String> = homes
         .into_iter()
         .filter(|name| {
-            let Ok(ours) = Base::Config.ours_under(&Path::new("/home").join(name));
+            let Ok(ours) = Base::Configuration.ours_under(&Path::new("/home").join(name));
 
             ours.is_dir()
         })
@@ -215,33 +216,33 @@ fn the_account_numbered_1000() -> Result<Option<String>, Never> {
     }
 
     println!(
-        "no desktop in anybody's home yet, so this is being installed for {said}, who is the \
+        "no desktop in anyone's home yet, so this is being installed for {said}, who is the \
          account numbered 1000"
     );
 
     Ok(Some(said))
 }
 
-pub fn user_systemctl(args: &[&str]) -> Result<Said, Never> {
+pub fn user_systemctl(args: &[&str]) -> Result<Output, Never> {
     let Ok(whoever) = whoever();
     let Ok(systemctl) = Program::Systemctl.name();
 
     let owned = format!("{whoever}@");
-    let argv: Vec<&str> = [systemctl, "--user", "-M", &owned]
+    let arguments: Vec<&str> = [systemctl, "--user", "-M", &owned]
         .into_iter()
         .chain(args.iter().copied())
         .collect();
 
-    run(&argv)
+    run(&arguments)
 }
 
-pub fn mine(args: &[&str]) -> Result<Said, Never> {
+pub fn mine(args: &[&str]) -> Result<Output, Never> {
     let Ok(systemctl) = Program::Systemctl.name();
 
-    let argv: Vec<&str> =
+    let arguments: Vec<&str> =
         [systemctl, "--user"].into_iter().chain(args.iter().copied()).collect();
 
-    run(&argv)
+    run(&arguments)
 }
 
 pub fn in_the_session(command: &str) -> Result<(), Never> {
@@ -270,22 +271,22 @@ pub fn unit_state(unit: &str) -> Result<(String, String), Never> {
     Ok((enabled.out, active.out))
 }
 
-pub fn disk_free(at: &Path) -> Result<Said, Never> {
+pub fn disk_free(at: &Path) -> Result<Output, Never> {
     let Ok(df) = Program::Df.name();
     let where_it_is = at.display().to_string();
 
     run(&[df, "--block-size=1", "--output=avail", &where_it_is])
 }
 
-pub fn sizes_under(roots: &[&str]) -> Result<Said, Never> {
+pub fn sizes_under(roots: &[&str]) -> Result<Output, Never> {
     let Ok(du) = Program::Du.name();
 
-    let argv: Vec<&str> = [du, "--block-size=1", "--one-file-system", "--max-depth=1"]
+    let arguments: Vec<&str> = [du, "--block-size=1", "--one-file-system", "--max-depth=1"]
         .into_iter()
         .chain(roots.iter().copied())
         .collect();
 
-    run(&argv)
+    run(&arguments)
 }
 
 pub fn installed_packages() -> Result<Vec<String>, Never> {
@@ -300,8 +301,8 @@ pub fn wanted_packages() -> Result<Vec<String>, Never> {
     named(&[pacman, "-Qeq"])
 }
 
-fn named(argv: &[&str]) -> Result<Vec<String>, Never> {
-    let Ok(said) = run(argv);
+fn named(arguments: &[&str]) -> Result<Vec<String>, Never> {
+    let Ok(said) = run(arguments);
 
     Ok(said.out.split_whitespace().map(str::to_owned).collect())
 }
@@ -344,7 +345,7 @@ pub fn stage_file(from: &Path, live: &str) -> Result<(), Unapplied> {
     console_core_atomic_writes::settled(&staged, &content)
         .map_err(|fault| Unapplied::Unwritten(live.to_string(), fault))?;
 
-    let Ok(mode) = install::mode_of(live, &held);
+    let Ok(mode) = modes::of(live, &held);
     let Ok(permissions) = permissions(mode);
 
     std::fs::set_permissions(&staged, permissions).map_err(|fault| complain("its mode", fault))?;
@@ -365,7 +366,7 @@ pub fn swap_file(live: &str) -> Result<Back, Unapplied> {
         |what: &'static str, fault: std::io::Error| Unapplied::Staging(live.to_string(), what, fault);
 
     let back = match to.exists() {
-        false => Back::Gone,
+        false => Back::Closed,
         true => {
             let Ok(beside) = laying::kept(to);
 
@@ -380,7 +381,7 @@ pub fn swap_file(live: &str) -> Result<Back, Unapplied> {
 
             std::fs::hard_link(to, &kept).map_err(|fault| complain("keeping what was there", fault))?;
 
-            Back::Kept
+            Back::Retained
         }
     };
 
@@ -415,7 +416,7 @@ pub fn put_back(laid: &Laid) -> Result<(), Unapplied> {
     };
 
     match laid.back {
-        Back::Kept => {
+        Back::Retained => {
             let Ok(beside) = laying::kept(to);
 
             let kept = match beside {
@@ -427,19 +428,19 @@ pub fn put_back(laid: &Laid) -> Result<(), Unapplied> {
 
             std::fs::rename(kept, to).map_err(|fault| complain("putting back what was there", fault))
         }
-        Back::Gone => std::fs::remove_file(to)
+        Back::Closed => std::fs::remove_file(to)
             .map_err(|fault| complain("taking away what this put there", fault)),
     }
 }
 
-pub fn drop_staged(live: &str) -> Result<(), Never> {
+fn drop_beside(live: &str, beside: fn(&Path) -> Result<Option<PathBuf>, Never>) -> Result<(), Never> {
     let Ok(whoever) = whoever();
     let Ok(on) = install::on_machine(live, User(whoever));
-    let Ok(beside) = laying::staged(Path::new(&on));
+    let Ok(found) = beside(Path::new(&on));
 
-    match beside {
-        Some(staged) => {
-            let _ = std::fs::remove_file(staged);
+    match found {
+        Some(beside) => {
+            let _ = std::fs::remove_file(beside);
         }
         None => {}
     }
@@ -447,19 +448,12 @@ pub fn drop_staged(live: &str) -> Result<(), Never> {
     Ok(())
 }
 
+pub fn drop_staged(live: &str) -> Result<(), Never> {
+    drop_beside(live, laying::staged)
+}
+
 pub fn drop_kept(live: &str) -> Result<(), Never> {
-    let Ok(whoever) = whoever();
-    let Ok(on) = install::on_machine(live, User(whoever));
-    let Ok(beside) = laying::kept(Path::new(&on));
-
-    match beside {
-        Some(kept) => {
-            let _ = std::fs::remove_file(kept);
-        }
-        None => {}
-    }
-
-    Ok(())
+    drop_beside(live, laying::kept)
 }
 
 fn permissions(mode: u32) -> Result<std::fs::Permissions, Never> {
@@ -511,24 +505,24 @@ pub fn commit(root: &Path, what: &str, wrote: &[std::path::PathBuf]) -> Result<(
 
     let root = root.display().to_string();
     let named: Vec<String> = wrote.iter().map(|at| at.display().to_string()).collect();
-    let argv = |verb: &[&str]| -> Vec<String> {
-        let Ok(mut argv) = Program::Git.argv(&["-C", &root]);
+    let arguments = |verb: &[&str]| -> Vec<String> {
+        let Ok(mut arguments) = Program::Git.arguments(&["-C", &root]);
 
-        argv.extend(verb.iter().map(|word| (*word).to_string()));
-        argv.push("--".to_string());
-        argv.extend(named.iter().cloned());
-        argv
+        arguments.extend(verb.iter().map(|word| (*word).to_string()));
+        arguments.push("--".to_string());
+        arguments.extend(named.iter().cloned());
+        arguments
     };
-    let said = |argv: &[String]| {
-        let Ok(said) = run(&argv.iter().map(String::as_str).collect::<Vec<_>>());
+    let said = |arguments: &[String]| {
+        let Ok(said) = run(&arguments.iter().map(String::as_str).collect::<Vec<_>>());
 
         said
     };
-    let _ = said(&argv(&["add"]));
+    let _ = said(&arguments(&["add"]));
 
-    match !said(&argv(&["status", "--porcelain"])).out.is_empty() {
+    match !said(&arguments(&["status", "--porcelain"])).out.is_empty() {
         true => {
-            let _ = said(&argv(&["commit", "-m", what]));
+            let _ = said(&arguments(&["commit", "-m", what]));
         }
         false => {},
     }
@@ -582,8 +576,8 @@ impl laying::Lays for Here {
         let Ok(on) = install::on_machine(live, User(whoever));
 
         match Path::new(&on).exists() {
-            true => Back::Kept,
-            false => Back::Gone,
+            true => Back::Retained,
+            false => Back::Closed,
         }
     }
 
@@ -600,8 +594,8 @@ pub const PLAN: &str = "/var/lib/console/laying";
 
 fn line_of(laid: &Laid) -> Result<String, Never> {
     let back = match laid.back {
-        Back::Kept => "kept",
-        Back::Gone => "gone",
+        Back::Retained => "kept",
+        Back::Closed => "gone",
     };
 
     Ok(format!("{back} {}
@@ -627,10 +621,9 @@ fn wrote_plan(at: &Path, laid: &[Laid]) -> Result<(), Unapplied> {
 }
 
 fn forget_plan(at: &Path) -> Result<(), Never> {
-    match std::fs::remove_file(at) {
+    match console_core_atomic_writes::gone(at) {
         Ok(()) => {}
-        Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => {}
-        Err(fault) => eprintln!("console apply: {} will not go away: {fault}", at.display()),
+        Err(fault) => eprintln!("console apply: {fault}"),
     }
 
     Ok(())
@@ -644,7 +637,7 @@ mod tests {
     fn the_directory_that_marks_a_home_is_one_the_manifest_puts_there() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let held = std::fs::read_to_string(root.join("desktop.conf")).expect("the manifest");
-        let Ok(ours) = Base::Config.ours_under(&Path::new("/home").join(USER));
+        let Ok(ours) = Base::Configuration.ours_under(&Path::new("/home").join(USER));
 
         let under = format!("{}/", ours.display());
         assert!(

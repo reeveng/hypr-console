@@ -19,18 +19,18 @@ path = "src/bin/voice-compare.rs"
 
 [dependencies]
 console-program-lifetime.workspace = true
-console-default-applications.workspace = true
 console-core-external-programs.workspace = true
 console-core-atomic-writes.workspace = true
 console-core-never.workspace = true
-console-core-our-programs.workspace = true
+console-defaults.workspace = true
+console-core-internal-programs.workspace = true
 console-core-number-conversion.workspace = true
 console-core-places.workspace = true
 console-waiting.workspace = true
 console-response-times.workspace = true
 console-program-contract.workspace = true
 console-program-runtime.workspace = true
-libc = "0.2"
+rustix.workspace = true
 
 [lints]
 workspace = true

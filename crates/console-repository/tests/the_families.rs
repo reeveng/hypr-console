@@ -10,7 +10,7 @@
 //! Nothing was enforcing that. It was true, and it was true the way a rule kept
 //! by memory is true -- `console-core-reconnect` starts a thread, and a sweep
 //! for EXPLICIT035 nearly gave it a dependency on `console-program-lifetime`
-//! before anybody noticed which family it was in. A dependency added in a hurry
+//! before anyone noticed which family it was in. A dependency added in a hurry
 //! is exactly how a layer goes, and nothing about it looks wrong in the diff it
 //! arrives in.
 //!
@@ -26,7 +26,7 @@
 //! is that a rule is written the day the last name breaking it is gone.
 //! `engine` and `controller` are off both lists deliberately rather than by
 //! oversight: `console-manifest-engine` is the thing that applies and
-//! `console-input-controller` is the pad somebody holds, and neither word is
+//! `console-input-controller` is the pad someone holds, and neither word is
 //! standing in for what its crate does.
 //!
 //! The third question is what a core crate may reach for rather than what it
@@ -36,7 +36,7 @@
 //! place `HOME` is read once, and the place the locale variables are. Each of
 //! those is the crate that owns that question, which is the whole reason the
 //! other crates do not have to ask it -- so the rule is not that a core crate
-//! reaches nothing, it is that reaching is a thing somebody wrote down. The
+//! reaches nothing, it is that reaching is a thing someone wrote down. The
 //! list below is that writing, and a sixth core crate reaching for the
 //! filesystem, the environment or a process is red until it is either an edge
 //! on this list or not a core crate.
@@ -180,33 +180,15 @@ fn no_crate_is_named_for_the_mechanism_it_happens_to_be() {
 
 const MACHINE: [&str; 3] = ["std::fs", "std::env", "std::process"];
 
-const EDGES: [(&str, &str); 5] = [
+const EDGES: [(&str, &str); 7] = [
     ("console-core-atomic-writes", "the file writer EXPLICIT040 sends every write through"),
     ("console-core-external-programs", "the one list of programs this desktop did not write"),
-    ("console-core-our-programs", "the other list, and where a staged binary is found"),
+    ("console-core-internal-programs", "the other list, and where a staged binary is found"),
     ("console-core-places", "where `HOME` is read, once, for the whole tree"),
     ("console-core-localization", "where the locale variables are read, once"),
+    ("console-core-color", "where the palette beside the running program is read, once"),
+    ("console-core-temporary-directories", "an empty directory of this process's own, made once"),
 ];
-
-fn sources(at: &Path) -> Vec<PathBuf> {
-    let mut found = Vec::new();
-    let here = match std::fs::read_dir(at) {
-        Ok(here) => here,
-        Err(_nothing_there) => return found,
-    };
-
-    for at in here.flatten().map(|entry| entry.path()) {
-        match at.is_dir() {
-            true => found.extend(sources(&at)),
-            false => match at.extension().and_then(|it| it.to_str()) {
-                Some("rs") => found.push(at),
-                Some(_) | None => {}
-            },
-        }
-    }
-
-    found
-}
 
 #[test]
 fn a_core_crate_reaches_the_machine_only_where_it_is_the_edge() {
@@ -217,8 +199,9 @@ fn a_core_crate_reaches_the_machine_only_where_it_is_the_edge() {
         .filter(|named| named.starts_with(FAMILY))
         .filter(|named| !allowed.contains(&named.as_str()))
         .flat_map(|named| {
-            sources(&root().join("crates").join(named).join("src"))
+            console_repository::sources::under(&root().join("crates").join(named).join("src"))
                 .into_iter()
+                .flatten()
                 .filter_map(|at| std::fs::read_to_string(&at).ok().map(|said| (at, said)))
                 .flat_map(move |(at, said)| {
                     MACHINE
@@ -245,8 +228,9 @@ fn every_edge_named_here_is_still_a_core_crate_that_reaches() {
         .filter(|(named, _why)| {
             let gone = !held.contains_key(*named);
 
-            let quiet = sources(&root().join("crates").join(named).join("src"))
+            let quiet = console_repository::sources::under(&root().join("crates").join(named).join("src"))
                 .into_iter()
+                .flatten()
                 .filter_map(|at| std::fs::read_to_string(at).ok())
                 .all(|said| MACHINE.iter().all(|reach| !said.contains(reach)));
 

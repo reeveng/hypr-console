@@ -1,0 +1,52 @@
+#!/bin/sh
+# Puts ~/Shared/Documents and ~/Shared/Pictures in syncthing's configuration and
+# offers both to every machine this one is paired with. Run by syncthing.service
+# after the daemon is up, so a device paired later is offered them at the next
+# start rather than never.
+#
+# Syncthing keeps its folders in a config.xml that also holds this machine's
+# key and the other machines' names, so the file cannot be carried here. What
+# can is the ask: through its own command line, against the daemon that owns
+# that file, and only for what is not there already. The folder ids are fixed
+# because they are what the other end matches on; the path is whatever that end
+# chooses when it accepts.
+#
+# The other direction is the same promise: a folder any paired machine offers
+# is taken without anyone opening the page to say yes, and lands beside these
+# two as ~/Shared/<its label>. A phone that shares a new folder is asking for
+# it to be here, and a question on a page nobody visits is a folder that never
+# arrives.
+
+up() {
+    syncthing cli show system >/dev/null 2>&1
+}
+
+# The daemon was forked a moment ago and answers once its API is listening.
+# Bounded, because a syncthing that never answers is not a reason to hold the
+# unit's start open.
+waited=0
+until up; do
+    [ "$waited" -lt 60 ] || exit 1
+    sleep 1
+    waited=$((waited + 1))
+done
+
+devices=$(syncthing cli config devices list)
+
+syncthing cli config defaults folder path set "$HOME/Shared"
+for device in $devices; do
+    syncthing cli config devices "$device" auto-accept-folders set true
+done
+
+for name in Documents Pictures; do
+    id=shared-$(echo "$name" | tr '[:upper:]' '[:lower:]')
+    path=$HOME/Shared/$name
+    mkdir -p "$path"
+    syncthing cli config folders list | grep -qx "$id" ||
+        syncthing cli config folders add --id "$id" --label "$name" --path "$path"
+    sharing=$(syncthing cli config folders "$id" devices list)
+    for device in $devices; do
+        echo "$sharing" | grep -qx "$device" ||
+            syncthing cli config folders "$id" devices add --device-id "$device"
+    done
+done

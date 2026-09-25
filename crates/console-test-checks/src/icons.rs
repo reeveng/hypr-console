@@ -1,9 +1,9 @@
 //! Every icon a surface asks for is an icon the theme has.
 //!
-//! The colours have this already: `every_name_the_desktop_asks_for_is_defined`
+//! The colors have this already: `every_name_the_desktop_asks_for_is_defined`
 //! crosses every name a stylesheet asks for against the palette, because a GTK
-//! stylesheet that names a colour nobody defined drops the declaration and
-//! carries on. An icon name nobody has is the same fault with a louder ending
+//! stylesheet that names a color no one defined drops the declaration and
+//! carries on. An icon name no one has is the same fault with a louder ending
 //! -- GTK draws the broken square -- and until now nothing crossed the names
 //! against a theme.
 //!
@@ -13,7 +13,7 @@
 //! confidently.
 
 use console_panel::icons::{EVERY, Icon};
-use console_test_stages::checking::{Body, Check, Done, cannot, empty};
+use console_test_stages::checking::{Body, Check, CheckResult, cannot, empty};
 use console_test_stages::device::Device;
 
 pub const ICONS: Check = Check {
@@ -24,7 +24,7 @@ pub const ICONS: Check = Check {
     bodies: &[Body::Device(there)],
 };
 
-fn there(stage: &mut Device) -> Done {
+fn there(stage: &mut Device) -> CheckResult {
     let Ok(theme) = stage.icon_theme();
 
     match theme.is_empty() {

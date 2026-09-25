@@ -10,7 +10,7 @@ Runs the device's own desktop on this machine, at the device's size.
     console-desktop clean                delete stages nothing is using
 
 `console-desktop` is `cargo run --bin console-desktop --`; `just desktop` and
-`just shot` are the two of these anybody types often.
+`just shot` are the two of these anyone types often.
 
 The desktop is laid out in 1024x640 and drawn at two and a half times that, so a
 picture comes out 2560x1600. Positions are given in the 1024x640.
@@ -42,14 +42,14 @@ first. The screen here is set from outside the config for that reason.
 A dispatcher is Lua too, and takes what it takes. Pressing a key at whatever
 has the keyboard is `hyprctl dispatch 'hl.dsp.send_shortcut{mods="", key="a"}'`,
 a table and not a string. `hl.dsp` holds the names, and one it does not know
-comes back as a nil value rather than as a dispatcher nobody has.
+comes back as a nil value rather than as a dispatcher no one has.
 
 Which names it holds can be asked without pressing anything. Reading one is
 silent whether or not it is there and calling one is not, so `hyprctl eval
 'local d = hl.dsp.window.resize({})'` answers either with the arguments that
 dispatcher wanted or with the nil value it is. Building a dispatcher is not
 dispatching it -- `hl.bind` takes one built -- so the question is safe to ask
-on a desktop somebody is using, which is how `window.resize` was found to exist
+on a desktop someone is using, which is how `window.resize` was found to exist
 and `window.size` not to.
 
 `HOME` is the stage, not this machine's home. A program that reads a file out
@@ -60,18 +60,18 @@ An absolute path compiled into a program is this machine's, not the stage's.
 Every file under `files/` is rewritten on the way in, so a path written in one
 of them points back into the stage; a path written in Rust is not rewritten by
 anything. Ask where the running program is and work out from there --
-`console_core_colour::spent::beside` finds the palette its own tree spends, and
+`console_core_color::spent::beside` finds the palette its own tree spends, and
 `console_input_keyboard::asked::beside` finds the keyboard installed next to
 whoever is asking. Both of those were `/usr/local/...` once, which is why the
 keyboard stood on this stage for as long as it did with nothing able to raise it
-and no colour on it that this repository spends. On the device the two answers
+and no color on it that this repository spends. On the device the two answers
 are the same path, so a program that asks is right in both places and a program
 that knows is right in one.
 
 A path in Rust that cannot be worked out from where the program is has to be
 asked for instead. `/run/console/updating` is the one of those: the engine is
 root and the bar is hers, so the file the strip reads cannot live in either's
-home, and on a laptop it is under a directory nobody is allowed to make.
+home, and on a laptop it is under a directory no one is allowed to make.
 `CONSOLE_UPDATING_PATH` is what the staged session is told, the same way it is
 told a home and four XDG directories, and the check that looks at the strip
 fills a file of its own rather than this machine's `/run`.
@@ -82,7 +82,7 @@ mode at whatever scale leaves room on the machine running it, so a row worked
 out from the device's own 2.5 is a row somewhere else entirely -- and reading
 the wrong row looks exactly like a surface that does not paint. The picture
 comes with what the compositor said about its screen at the moment it was
-taken, and `Desktop::colour` divides by that.
+taken, and `Desktop::color` divides by that.
 
 A picture is taken as soon as something reaches the screen, which is before a
 panel that is still reading the machine has drawn its rows. A tab that

@@ -5,7 +5,7 @@ and the row taken is fetched into a folder this device already plays out of.
 Two tabs: **Audio** puts the sound of a thing into Music, **Video** puts the
 whole of it into Videos.
 
-`downloads-panel` is the card, and it is the same card as everything else here.
+`downloads` is the card, and it is the same card as everything else here.
 [`docs/panels.md`](panels.md) is how one is built; this is what is decided
 inside this one.
 
@@ -18,13 +18,13 @@ typed twice, and the shoulders are the whole of the difference.
 
 They are drawn differently, because they are chosen differently. A song is
 chosen by whose it is, so the Audio tab says the artist and the length. A video
-is chosen by whether it is the one everybody means, so the Video tab says the
+is chosen by whether it is the one everyone means, so the Video tab says the
 length and how many have watched it. A thing already in the folder it would land
 in says **have it** at the end of the line, which is the one thing worth knowing
 before pressing A and the one thing the site cannot say.
 
 Y over a row offers the other kind of the same thing, and the thing itself in
-the browser. Somebody in Video who wanted the song is one press from it rather
+the browser. Someone in Video who wanted the song is one press from it rather
 than a shoulder, a second search and a press.
 
 ## The search is a row, not a keystroke
@@ -40,13 +40,13 @@ the line onto the first row under it, so asking costs the press that was going
 to be made anyway.
 
 A link is taken as well as words. Pasting one in beats typing a title with a
-thumb, and the browser is the other way anybody arrives at one of these.
+thumb, and the browser is the other way anyone arrives at one of these.
 
 ## What is fetched, and why nothing is asked
 
 Nothing on this panel asks about formats. A person who typed a song's name has
 said what they want, and a list of codecs is a question about containers put to
-somebody holding a handheld.
+someone holding a handheld.
 
 So the file is chosen by a rule written once, in `console_downloads::getting`:
 
@@ -59,7 +59,7 @@ already lists.
 **A film** is the smallest file at the height worth having, which is
 `res:1080,+size` and no higher. The screen is 2560 by 1600 and this is well
 under it, and the size above it is three times the file and three times the
-battery to decode for a difference nobody can see at arm's length. `TALL` in
+battery to decode for a difference no one can see at arm's length. `TALL` in
 that module is the one number here worth arguing about, which is why it is a
 name rather than a number inside a string.
 
@@ -67,9 +67,9 @@ The picture goes inside the file either way, though not by the same hand: yt-dlp
 attaches it to an mkv with ffmpeg and writes it into an opus with mutagen, which
 is why `python-mutagen` is in the manifest beside yt-dlp. It is an optional
 dependency of yt-dlp and so is not installed with it, and without it a song
-arrives with no cover and a warning nobody is standing in front of.
+arrives with no cover and a warning no one is standing in front of.
 
-A song with no cover is a grey square in the music panel, and the picture is on
+A song with no cover is a gray square in the music panel, and the picture is on
 the page the thing came from anyway. It is converted to jpg first, because the
 site's own is a webp that half the players on this machine draw as nothing.
 
@@ -95,7 +95,7 @@ program is started.
 
 Not politeness. Asked twice, yt-dlp downloads the whole thing again, hands it to
 a converter that will not write over what is there, and fails at the last step
-with `Conversion failed!` -- which is a minute of somebody's tether spent to
+with `Conversion failed!` -- which is a minute of someone's tether spent to
 produce a card that says nothing they can act on. Worse, the converter that died
 leaves what it had made: a `.meta` and a half-written `.temp.opus`, and that
 second one ends in an extension the music panel lists, so the folder quietly
@@ -114,7 +114,7 @@ something else.
 
 ## Three programs, because two of them are slow
 
-`downloads-panel` draws and holds nothing but where each tab is standing.
+`downloads` draws and holds nothing but where each tab is standing.
 
 `downloads-find` does the looking: one call to yt-dlp with `--flat-playlist`,
 which is the whole of why a search takes a second rather than a minute, then the
@@ -159,9 +159,9 @@ spend on a file extension without being asked.
 
 Sound is **re-encoded**, at 128k, and that is a real loss: an mp3 made opus has
 been through two lossy encoders. It is done anyway, because 128k opus off a
-320k mp3 is a thing nobody picks out on a handheld's speakers, because the file
+320k mp3 is a thing no one picks out on a handheld's speakers, because the file
 gets smaller, and because the alternative is the folder staying nine formats
-for ever. A flac made opus is the one that costs something somebody may care
+for ever. A flac made opus is the one that costs something someone may care
 about, which is the other reason the original goes to the wastebasket rather
 than being unlinked.
 
@@ -172,10 +172,10 @@ is taken out, and put back as `METADATA_BLOCK_PICTURE`, which is the comment
 the format actually keeps a picture in and what everything else that writes one
 writes.
 
-One folder, not the tree under it: a folder is what somebody is standing in and
+One folder, not the tree under it: a folder is what someone is standing in and
 what they asked about, and a tree is a thing that runs for an hour over places
 they were not thinking of. A name that is already taken is left alone, because
-two files that would become one name are two files somebody chose to keep.
+two files that would become one name are two files someone chose to keep.
 
 ## What is not here
 

@@ -4,7 +4,7 @@
 //! costs milliseconds however small the program is. It is written as one short
 //! call, and a short call inside a loop is where a desktop goes to sit down:
 //! `hyprctl` asked once per window is a launcher that opens in half a second on
-//! the day somebody has thirty of them open, and there is no line anywhere
+//! the day someone has thirty of them open, and there is no line anywhere
 //! saying that is what will happen.
 //!
 //! This is EXPLICIT028's argument about a different multiplication, and on this
@@ -34,11 +34,11 @@
 //!
 //! A loop whose length was fixed when it was written is not asked about, which
 //! is EXPLICIT028's rule said about the other multiplication. `for at in
-//! [INTO_IT, "0"]` is two attempts at one film; `for argv in [cloning,
+//! [INTO_IT, "0"]` is two attempts at one film; `for arguments in [cloning,
 //! configuring, compiling]` is three steps that are three different programs
 //! and could never have been one. Neither is a fan-out and there is nothing to
 //! hoist out of either -- what the rule is against is a program run once per
-//! thing in a list nobody has counted.
+//! thing in a list no one has counted.
 //!
 //! A closure stops the walk upward unless something above it says when it runs,
 //! which is EXPLICIT028's sentence and the same one here: the iterator words
@@ -210,7 +210,7 @@ fn is_many<'tcx>(cx: &LateContext<'tcx>, walked: &'tcx Expr<'tcx>) -> bool {
     }
 }
 
-// A loop that runs as many times as somebody typed. An array literal, an array
+// A loop that runs as many times as someone typed. An array literal, an array
 // type, a `const` or a `static`: each of those multiplies by a number that was
 // decided when the code was written, which is not what this rule is against.
 fn was_fixed_when_written<'tcx>(cx: &LateContext<'tcx>, walked: &'tcx Expr<'tcx>) -> bool {

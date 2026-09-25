@@ -29,6 +29,11 @@
 //! it out; where the panel itself sits is the compositor's to say, and it says
 //! it at the moment of the press rather than whenever the harness last looked.
 //!
+//! `--drag` holds the button down at the place and carries it through the
+//! places after it before letting go, which is a line drawn rather than a
+//! click: `console-point --in settings-login-pattern 40 60 --drag 90 60 90 110`
+//! is a stroke across three places the way a hand draws one.
+//!
 //! Everything here is the decision; `console-point` is the compositor.
 
 use std::fmt;
@@ -36,11 +41,12 @@ use std::fmt;
 use console_core_geometry::{Point, Size};
 use console_core_never::Never;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Does {
-    Nothing,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PointerAction {
+    None,
     Click,
     Scroll(i32),
+    Drag(Vec<Point<u32>>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,10 +56,10 @@ pub enum Measured {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Asked {
+pub struct Request {
     pub at: Point<u32>,
     pub measured: Measured,
-    pub does: Does,
+    pub does: PointerAction,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,8 +68,7 @@ pub enum Where {
     OffIt,
 }
 
-pub const SAID: &str =
-    "say where: console-point [--in NAMESPACE] ACROSS DOWN [--click] [--scroll NOTCHES]";
+pub const SAID: &str = "say where: console-point [--in NAMESPACE] ACROSS DOWN [--click] [--scroll NOTCHES] [--drag ACROSS DOWN ...]";
 
 const NUDGE: u32 = 4;
 
@@ -100,15 +105,16 @@ impl fmt::Display for Unsaid {
 
 impl std::error::Error for Unsaid {}
 
-pub fn asked(words: &[String]) -> Result<Asked, Unsaid> {
+pub fn asked(words: &[String]) -> Result<Request, Unsaid> {
     let mut places: Vec<u32> = Vec::new();
-    let mut does = Does::Nothing;
+    let mut does = PointerAction::None;
     let mut measured = Measured::FromTheScreen;
     let mut words = words.iter();
 
     while let Some(word) = words.next() {
         match word.as_str() {
-            "--click" => does = Does::Click,
+            "--click" => does = PointerAction::Click,
+            "--drag" => does = PointerAction::Drag(Vec::new()),
             "--in" => {
                 let said = match words.next() {
                     Some(said) => said,
@@ -127,26 +133,39 @@ pub fn asked(words: &[String]) -> Result<Asked, Unsaid> {
                     .parse::<i32>()
                     .map_err(|_| Unsaid::NotNotches(said.clone()))?;
 
-                does = Does::Scroll(notches);
+                does = PointerAction::Scroll(notches);
             },
-            said if said.starts_with("--") => {
-                return Err(Unsaid::Unknown(said.to_string()));
-            },
-            said => {
-                let place = said
-                    .parse::<u32>()
-                    .map_err(|_| Unsaid::NotAPlace(said.to_string()))?;
+            said => match said.starts_with("--") {
+                true => return Err(Unsaid::Unknown(said.to_string())),
+                false => {
+                    let place = said
+                        .parse::<u32>()
+                        .map_err(|_| Unsaid::NotAPlace(said.to_string()))?;
 
-                places.push(place);
+                    places.push(place);
+                }
             },
         }
     }
 
-    match places.as_slice() {
-        [across, down] => {
-            Ok(Asked { at: Point { across: *across, down: *down }, measured, does })
-        },
+    let mut pairs = places.chunks(2).map(|pair| match pair {
+        [across, down] => Ok(Point { x: *across, y: *down }),
         _ => Err(Unsaid::NotTwoPlaces),
+    });
+    let first = pairs.next().ok_or(Unsaid::NotTwoPlaces)?;
+    let at = first?;
+    let collected: Result<Vec<Point<u32>>, Unsaid> = pairs.collect();
+    let rest = collected?;
+
+    match (does, rest.is_empty()) {
+        (PointerAction::Drag(_), false) => Ok(Request { at, measured, does: PointerAction::Drag(rest) }),
+        (does @ (PointerAction::None | PointerAction::Click | PointerAction::Scroll(_)), true) => {
+            Ok(Request { at, measured, does })
+        }
+        (PointerAction::Drag(_), true)
+        | (PointerAction::None | PointerAction::Click | PointerAction::Scroll(_), false) => {
+            Err(Unsaid::NotTwoPlaces)
+        }
     }
 }
 
@@ -156,14 +175,14 @@ pub fn from_the_corner(at: Point<u32>, corner: Point<i64>) -> Result<Point<u32>,
         Err(_) => Err(Unsaid::OffTheScreen(edge)),
     };
 
-    let across = moved(at.across, corner.across)?;
-    let down = moved(at.down, corner.down)?;
+    let across = moved(at.x, corner.x)?;
+    let down = moved(at.y, corner.y)?;
 
-    Ok(Point { across, down })
+    Ok(Point { x: across, y: down })
 }
 
 pub fn on_the_screen(at: Point<u32>, room: Size<u32>) -> Result<Where, Never> {
-    match at.across <= room.wide && at.down <= room.tall {
+    match at.x <= room.width && at.y <= room.height {
         true => Ok(Where::OnTheScreen),
         false => Ok(Where::OffIt),
     }
@@ -175,7 +194,7 @@ pub fn approach(at: Point<u32>, room: Size<u32>) -> Result<Point<u32>, Never> {
         false => place.saturating_sub(NUDGE),
     };
 
-    Ok(Point { across: toward(at.across, room.wide), down: toward(at.down, room.tall) })
+    Ok(Point { x: toward(at.x, room.width), y: toward(at.y, room.height) })
 }
 
 #[cfg(test)]
@@ -183,7 +202,7 @@ mod tests {
     use super::*;
 
     fn at(across: u32, down: u32) -> Point<u32> {
-        Point { across, down }
+        Point { x: across, y: down }
     }
 
     fn words(said: &str) -> Vec<String> {
@@ -194,10 +213,10 @@ mod tests {
     fn a_place_is_two_numbers_and_nothing_else_is_needed() {
         assert_eq!(
             asked(&words("322 212")),
-            Ok(Asked {
+            Ok(Request {
                 at: at(322, 212),
                 measured: Measured::FromTheScreen,
-                does: Does::Nothing
+                does: PointerAction::None
             })
         );
     }
@@ -206,30 +225,44 @@ mod tests {
     fn what_it_does_when_it_gets_there_is_said_after_the_place() {
         assert_eq!(
             asked(&words("10 20 --click")),
-            Ok(Asked {
+            Ok(Request {
                 at: at(10, 20),
                 measured: Measured::FromTheScreen,
-                does: Does::Click
+                does: PointerAction::Click
             })
         );
         assert_eq!(
             asked(&words("10 20 --scroll -3")),
-            Ok(Asked {
+            Ok(Request {
                 at: at(10, 20),
                 measured: Measured::FromTheScreen,
-                does: Does::Scroll(-3)
+                does: PointerAction::Scroll(-3)
             })
         );
+    }
+
+    #[test]
+    fn a_drag_is_held_from_the_place_through_every_place_after_it() {
+        assert_eq!(
+            asked(&words("--in pad 10 20 --drag 30 40 50 60")),
+            Ok(Request {
+                at: at(10, 20),
+                measured: Measured::FromTheCorner("pad".to_string()),
+                does: PointerAction::Drag(vec![at(30, 40), at(50, 60)])
+            })
+        );
+        assert!(asked(&words("10 20 --drag")).is_err(), "a drag that goes nowhere");
+        assert!(asked(&words("10 20 --drag 30")).is_err(), "half a place to drag to");
     }
 
     #[test]
     fn a_place_can_be_said_inside_a_surface_rather_than_on_the_screen() {
         assert_eq!(
             asked(&words("--in settings-panel 40 60")),
-            Ok(Asked {
+            Ok(Request {
                 at: at(40, 60),
                 measured: Measured::FromTheCorner("settings-panel".to_string()),
-                does: Does::Nothing
+                does: PointerAction::None
             })
         );
     }
@@ -238,10 +271,10 @@ mod tests {
     fn the_name_after_in_is_not_read_as_a_place() {
         assert_eq!(
             asked(&words("10 20 --in launcher --click")),
-            Ok(Asked {
+            Ok(Request {
                 at: at(10, 20),
                 measured: Measured::FromTheCorner("launcher".to_string()),
-                does: Does::Click
+                does: PointerAction::Click
             })
         );
         assert!(asked(&words("--in 10 20")).is_err(), "the name ate a number");
@@ -250,15 +283,15 @@ mod tests {
 
     #[test]
     fn a_place_inside_a_surface_is_the_corner_plus_the_place() {
-        assert_eq!(from_the_corner(at(40, 60), Point { across: 260, down: 140 }), Ok(at(300, 200)));
-        assert_eq!(from_the_corner(at(0, 0), Point { across: 260, down: 140 }), Ok(at(260, 140)), "the corner itself");
-        assert_eq!(from_the_corner(at(40, 60), Point { across: 0, down: 0 }), Ok(at(40, 60)), "a surface filling it");
+        assert_eq!(from_the_corner(at(40, 60), Point { x: 260, y: 140 }), Ok(at(300, 200)));
+        assert_eq!(from_the_corner(at(0, 0), Point { x: 260, y: 140 }), Ok(at(260, 140)), "the corner itself");
+        assert_eq!(from_the_corner(at(40, 60), Point { x: 0, y: 0 }), Ok(at(40, 60)), "a surface filling it");
     }
 
     #[test]
     fn a_corner_off_this_screen_is_said_rather_than_turned_into_the_top_left() {
-        assert!(from_the_corner(at(40, 60), Point { across: -1920, down: 0 }).is_err(), "a screen to the left");
-        assert!(from_the_corner(at(40, 60), Point { across: 0, down: -40 }).is_err(), "a surface above the top");
+        assert!(from_the_corner(at(40, 60), Point { x: -1920, y: 0 }).is_err(), "a screen to the left");
+        assert!(from_the_corner(at(40, 60), Point { x: 0, y: -40 }).is_err(), "a surface above the top");
     }
 
     #[test]
@@ -273,7 +306,7 @@ mod tests {
 
     #[test]
     fn somewhere_off_the_edge_is_not_on_the_screen() {
-        let room = Size { wide: 1024, tall: 640 };
+        let room = Size { width: 1024, height: 640 };
 
         assert_eq!(on_the_screen(at(0, 0), room), Ok(Where::OnTheScreen));
         assert_eq!(on_the_screen(at(1024, 640), room), Ok(Where::OnTheScreen), "the far corner");
@@ -283,7 +316,7 @@ mod tests {
 
     #[test]
     fn the_pointer_comes_in_from_the_middle_and_never_from_off_the_screen() {
-        let room = Size { wide: 1024, tall: 640 };
+        let room = Size { width: 1024, height: 640 };
 
         assert_eq!(approach(at(0, 0), room), Ok(at(NUDGE, NUDGE)), "the near corner");
         assert_eq!(

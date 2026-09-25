@@ -13,7 +13,7 @@ use rustc_lint::{LateContext, LateLintPass, LintContext};
 dylint_linting::declare_late_lint! {
     /// EXPLICIT015: bare arithmetic on integers is forbidden. `+`, `-`, `*`
     /// and the shifts panic in a debug build and wrap in a release build --
-    /// behaviour that differs by profile is the definition of implicit -- and
+    /// behavior that differs by profile is the definition of implicit -- and
     /// `/` and `%` panic on zero in both. `checked_*`, `saturating_*` and
     /// `wrapping_*` each name a policy at the site, and what they return is a
     /// value the other rules make sure is met.
@@ -21,7 +21,7 @@ dylint_linting::declare_late_lint! {
     /// Const contexts are left alone: arithmetic the compiler evaluates fails
     /// the build, which is a failure with a name, at the right time. A negated
     /// literal is left alone for the same reason -- `-1` is how a negative
-    /// number is written, not a subtraction anybody performs.
+    /// number is written, not a subtraction anyone performs.
     ///
     /// `/` and `%` by a `NonZero` are left alone as well, and they are the one
     /// case where the policy is a type rather than a method. Division has
@@ -40,7 +40,7 @@ dylint_linting::declare_late_lint! {
 }
 
 // Tests are exempt. A test that panics is a test that fails, which is what a
-// test is for, and `as` in a fixture is arithmetic nobody ships. `opts.test`
+// test is for, and `as` in a fixture is arithmetic no one ships. `opts.test`
 // is true only for the harness build of a target -- the ordinary build of the
 // same library is linted as production, so nothing real is lost by skipping
 // this one.
@@ -85,7 +85,7 @@ fn is_divided_by_proof(cx: &LateContext<'_>, op: BinOpKind, rhs: &Expr<'_>) -> b
     matches!(op, BinOpKind::Div | BinOpKind::Rem) && is_non_zero(cx, rhs)
 }
 
-// `-1` is a negative number written down, not a subtraction anybody performs.
+// `-1` is a negative number written down, not a subtraction anyone performs.
 // The compiler evaluates it, and a literal too large for its own type fails the
 // build -- which is the same reason const contexts are left alone above, said
 // about the one piece of arithmetic that is spelled with an operator and is

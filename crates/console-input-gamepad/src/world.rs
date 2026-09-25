@@ -7,13 +7,13 @@
 //! devices built from the same capture the real emulator uses.
 //!
 //! What this gives that the real thing cannot is a clock. Time is a number
-//! somebody else holds, so a stick held for exactly one second scrolls exactly
+//! someone else holds, so a stick held for exactly one second scrolls exactly
 //! as far as the arithmetic says, every run, on any machine.
 
 use std::collections::BTreeMap;
 
 use console_core_never::Never;
-use evdev::{EventType, InputEvent};
+use console_input_event_devices::{EventType, InputEvent};
 
 use crate::capture::Descriptor;
 use crate::devices::{Has, Sink};
@@ -128,7 +128,7 @@ impl Sink for World {
     fn write(&mut self, role: &str, kind: EventType, code: u16, value: i32) {
         match self.devices.get_mut(role) {
             Some(device) => {
-                device.waiting.push(InputEvent::new(kind.0, code, value));
+                device.waiting.push(InputEvent { kind, code, value });
                 self.log.push((role.to_string(), Written { kind, code, value }));
             }
             None => {},
@@ -138,7 +138,7 @@ impl Sink for World {
     fn syn(&mut self, role: &str) {
         match self.devices.get_mut(role) {
             Some(device) => {
-                device.waiting.push(InputEvent::new(EventType::SYNCHRONIZATION.0, 0, 0));
+                device.waiting.push(InputEvent::REPORT);
             }
             None => {},
         }

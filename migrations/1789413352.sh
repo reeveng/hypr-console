@@ -20,7 +20,7 @@
 # runs its migrations before any section, so this is the moment there is one of
 # each.
 #
-# The menu entry is smaller and is the one somebody sees. `console-music.desktop`
+# The menu entry is smaller and is the one someone sees. `console-music.desktop`
 # is what mimeapps.list points at now; `console-music-panel.desktop` is still in
 # /usr/share/applications, still names a program that still exists, and so still
 # draws a second Music in the launcher, identical to the first.

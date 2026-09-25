@@ -1,9 +1,9 @@
 //! Meeting a device for the first time: what to ask, in what order, and how to
 //! read what came back.
 //!
-//! Three things have to be true before a keyboard somebody has just bought
+//! Three things have to be true before a keyboard someone has just bought
 //! works twice. Pairing exchanges the keys. Trusting is what lets it back in
-//! after a reboot without anybody being asked again. Connecting is what makes
+//! after a reboot without anyone being asked again. Connecting is what makes
 //! it work now. bluez has a separate word for each, a panel row runs one
 //! program with one list of words, and the tab used to offer only the third --
 //! which is the one word bluez refuses for anything it has not been introduced
@@ -40,25 +40,25 @@ pub enum Went {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Asked {
+pub enum Command {
     Introduce(String),
-    Nothing,
+    None,
 }
 
-pub fn asked(words: &[String]) -> Result<Asked, Never> {
+pub fn asked(words: &[String]) -> Result<Command, Never> {
     let doing = match words.first() {
         Some(doing) => doing,
-        None => return Ok(Asked::Nothing),
+        None => return Ok(Command::None),
     };
 
     let address = match words.get(1) {
         Some(address) => address,
-        None => return Ok(Asked::Nothing),
+        None => return Ok(Command::None),
     };
 
     Ok(match doing == INTRODUCE {
-        true => Asked::Introduce(address.clone()),
-        false => Asked::Nothing,
+        true => Command::Introduce(address.clone()),
+        false => Command::None,
     })
 }
 
@@ -105,9 +105,9 @@ pub fn joined(said: &str) -> Result<Went, Never> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Answered<'a>(pub &'a str);
+pub struct Reply<'a>(pub &'a str);
 
-pub fn would_not(says: &str, said: Answered<'_>) -> Result<String, Never> {
+pub fn would_not(says: &str, said: Reply<'_>) -> Result<String, Never> {
     let last = said.0.lines().map(str::trim).rfind(|line| !line.is_empty());
 
     Ok(match last {
@@ -120,8 +120,8 @@ pub fn would_not(says: &str, said: Answered<'_>) -> Result<String, Never> {
 mod tests {
     use super::*;
 
-    fn words(argv: &[String]) -> Vec<&str> {
-        argv.iter().map(String::as_str).collect()
+    fn words(arguments: &[String]) -> Vec<&str> {
+        arguments.iter().map(String::as_str).collect()
     }
 
     #[test]
@@ -157,7 +157,7 @@ mod tests {
         assert_eq!(joined("Failed to connect: org.bluez.Error.AlreadyConnected"), Ok(Went::Well));
     }
 
-    fn asking(words: &[&str]) -> Asked {
+    fn asking(words: &[&str]) -> Command {
         let words: Vec<String> = words.iter().map(|word| (*word).to_string()).collect();
         let Ok(asked) = asked(&words);
 
@@ -168,11 +168,11 @@ mod tests {
     fn nothing_but_the_word_and_an_address_is_a_press_this_understands() {
         assert_eq!(
             asking(&[INTRODUCE, "AA:BB:CC:DD:EE:FF"]),
-            Asked::Introduce("AA:BB:CC:DD:EE:FF".to_string())
+            Command::Introduce("AA:BB:CC:DD:EE:FF".to_string())
         );
-        assert_eq!(asking(&[INTRODUCE]), Asked::Nothing);
-        assert_eq!(asking(&["forget", "AA:BB:CC:DD:EE:FF"]), Asked::Nothing);
-        assert_eq!(asking(&[]), Asked::Nothing);
+        assert_eq!(asking(&[INTRODUCE]), Command::None);
+        assert_eq!(asking(&["forget", "AA:BB:CC:DD:EE:FF"]), Command::None);
+        assert_eq!(asking(&[]), Command::None);
     }
 
     #[test]
@@ -180,12 +180,12 @@ mod tests {
         assert_eq!(
             would_not(
                 "Blue Keys would not pair:",
-                Answered("Attempting to pair\nDevice AA not available\n")
+                Reply("Attempting to pair\nDevice AA not available\n")
             ),
             Ok("Blue Keys would not pair: Device AA not available".to_string())
         );
         assert_eq!(
-            would_not("Blue Keys would not pair:", Answered("   \n")),
+            would_not("Blue Keys would not pair:", Reply("   \n")),
             Ok("Blue Keys would not pair: and said nothing about why".to_string())
         );
     }

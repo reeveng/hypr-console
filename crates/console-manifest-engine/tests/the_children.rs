@@ -12,9 +12,9 @@
 //! The panel's mistake is not visible at the line that made it. `spawn` hands
 //! back a `Child`, a `Child` that is dropped is not killed, and a field holding
 //! one says nothing about whether that is meant. `console-program-lifetime` has
-//! the two answers as types -- `Alongside`, which dies with whoever started it,
-//! and `LetGo`, which is meant not to -- and both of them survive the paths
-//! nobody thought about, because one is a kernel signal and the other is a
+//! the two answers as types -- `BoundToParent`, which dies with whoever started it,
+//! and `Detached`, which is meant not to -- and both of them survive the paths
+//! no one thought about, because one is a kernel signal and the other is a
 //! drop. What this test does is make them the only answers available: a
 //! `Child` named anywhere else is a third answer, given by not answering.
 //!
@@ -39,7 +39,7 @@ fn nothing_holds_a_child_without_saying_how_long_for() {
     assert!(
         holding.is_empty(),
         "these hold a process without saying whether it outlives them; ask \
-         console_program_lifetime for an Alongside or a LetGo: {holding:?}"
+         console_program_lifetime for an BoundToParent or a Detached: {holding:?}"
     );
 }
 
@@ -48,8 +48,8 @@ fn the_crate_that_declares_them_still_does() {
     let declaring = root().join("crates/console-program-lifetime/src/lib.rs");
     let said = std::fs::read_to_string(declaring).expect("the crate that holds the two answers");
 
-    assert!(said.contains("pub struct Alongside"), "the one that dies with us is gone");
-    assert!(said.contains("pub struct LetGo"), "the one that is meant not to is gone");
+    assert!(said.contains("pub struct BoundToParent"), "the one that dies with us is gone");
+    assert!(said.contains("pub struct Detached"), "the one that is meant not to is gone");
     assert!(
         said.contains("PR_SET_PDEATHSIG"),
         "the kernel's half is gone, and the drop is alone again"

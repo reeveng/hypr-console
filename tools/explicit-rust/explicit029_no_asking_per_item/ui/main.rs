@@ -35,7 +35,7 @@ fn run_each(names: &[String]) -> usize {
 }
 
 // GOOD — two attempts at one thing, and a loop that runs as many times as
-// somebody typed. There is no fan-out here and nothing to hoist.
+// someone typed. There is no fan-out here and nothing to hoist.
 fn twice(name: &str) -> usize {
     let mut held = 0usize;
 

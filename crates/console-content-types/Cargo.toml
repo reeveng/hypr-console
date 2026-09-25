@@ -1,0 +1,23 @@
+[package]
+name = "console-content-types"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# What kind of thing a file is, by the name it has.
+#
+# Three crates asked a toolkit what a file was and got the same table back:
+# shared-mime-info's, which is on the machine as one line per pattern. This
+# reads that file and answers the same question without the toolkit.
+
+[lib]
+name = "console_content_types"
+path = "src/lib.rs"
+
+[dependencies]
+console-core-atomic-writes.workspace = true
+console-core-never.workspace = true
+
+[lints]
+workspace = true

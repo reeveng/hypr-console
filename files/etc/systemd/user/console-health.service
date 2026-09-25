@@ -1,0 +1,34 @@
+[Unit]
+Description=Startup check
+PartOf=console.target
+# After the pieces it asks about, so a unit that is still starting is not
+# reported as one that did not. The timer is what actually spaces this out; this
+# only settles the order if both are pulled in at once.
+After=console-input-controller.service console-bar.service console-wallpaper.service
+
+[Service]
+Type=oneshot
+# The leading dash on purpose. `console health` exits non-zero when it finds
+# something, and that is an answer rather than a failure of this unit: without
+# the dash systemd marks the unit failed, `console-report-crash` raises a
+# second card saying the fault-finder fell over, and the real card is the one
+# underneath it.
+ExecStart=-/usr/local/bin/console health
+# No ExecStopPost=console-report-crash here, for the same reason. A oneshot
+# that has finished is a oneshot that has finished.
+
+# No [Install]. The timer is what pulls this in, and it is the only thing that
+# should: enabled on its own it would also be a unit the manifest names and
+# therefore a unit `console health` asks about, and a oneshot that has
+# finished is `inactive` -- so it would find itself down at every hour and
+# raise a card about the program that raised it.
+
+# What this reaches past `console-.service.d/confining.conf`, and why.
+#
+# It reads: the manifest, the files the manifest names, and what the manager
+# says about the units. Reading is all of it -- nothing here repairs anything,
+# which is this unit's own argument above -- so the home directory is read-only
+# and there is no device and no way off the machine.
+PrivateDevices=yes
+ProtectHome=read-only
+RestrictAddressFamilies=AF_UNIX AF_NETLINK

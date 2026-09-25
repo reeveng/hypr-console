@@ -7,7 +7,7 @@
 //!
 //! Every step is asked before the next one is taken, which is `set -e` said in
 //! a way that can be pressed. The one exception is the group, which is allowed
-//! to fail: a machine with no `SUDO_USER` and no login name is one nobody can
+//! to fail: a machine with no `SUDO_USER` and no login name is one no one can
 //! be added for, and that is not a reason for the udev rule to have not been
 //! written.
 //!
@@ -15,10 +15,10 @@
 //! because a rule that was written is not the same as a device that took it,
 //! and that listing is the only place a person can tell the two apart.
 
-use console_core_external_programs::Program as Theirs;
+use console_core_external_programs::Program as ExternalProgram;
 use console_core_never::Never;
 use console_program_contract::{
-    Argv, Doing, Ending, Opening, Program, Runs, Turn, Went, Word, Writing,
+    Arguments, Effect, Exit, Initial, Program, Command, Update, ExitStatus, Event, FileWrite,
 };
 
 pub const MODULE: &str = "/etc/modules-load.d/uinput.conf";
@@ -36,14 +36,14 @@ KERNEL==\"uinput\", SUBSYSTEM==\"misc\", TAG+=\"uaccess\", GROUP=\"input\", MODE
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Whoever {
     Root,
-    Somebody,
+    Someone,
 }
 
 impl Whoever {
     pub fn of(uid: Option<&str>) -> Result<Self, Never> {
         Ok(match uid {
             Some("0") => Whoever::Root,
-            Some(_) | None => Whoever::Somebody,
+            Some(_) | None => Whoever::Someone,
         })
     }
 }
@@ -62,221 +62,222 @@ pub struct Allow;
 
 impl Program for Allow {
     type State = Allowing;
-    type Hears = Never;
-    type Does = Never;
+    type Event = Never;
+    type Effect = Never;
 
-    fn opening(argv: &Argv) -> Opening<Allowing> {
-        let Ok(named) = argv.after("--for");
+    fn init(arguments: &Arguments) -> Initial<Allowing> {
+        let Ok(named) = arguments.after("--for");
         let whom = named.filter(|whom| !whom.is_empty()).map(str::to_string);
-        let Ok(first) = argv.first();
+        let Ok(first) = arguments.first();
         let Ok(whoever) = Whoever::of(first);
-        let Ok(opening) = Opening::holding(Allowing::Opening { whoever, whom });
+        let Ok(opening) = Initial::new(Allowing::Opening { whoever, whom });
 
         opening
     }
 
-    fn heard(state: &Allowing, word: &Word<Never>) -> Turn<Allowing, Never> {
-        let Ok(turn) = match (state, word) {
-            (Allowing::Opening { whoever: Whoever::Somebody, .. }, Word::Opened) => Turn::doing(
+    fn update(state: &Allowing, event: &Event<Never>) -> Update<Allowing, Never> {
+        let Ok(turn) = match (state, event) {
+            (Allowing::Opening { whoever: Whoever::Someone, .. }, Event::Opened) => Update::new(
                 state.clone(),
-                vec![Doing::Stop(Ending::Badly(
+                vec![Effect::Stop(Exit::Failure(
                     "run this with sudo: sudo cargo run --bin allow-uinput".to_string(),
                 ))],
             ),
 
-            (Allowing::Opening { whoever: Whoever::Root, whom }, Word::Opened) => {
-                let Ok(loading) = Runs::theirs(Theirs::Modprobe, &["uinput"]);
+            (Allowing::Opening { whoever: Whoever::Root, whom }, Event::Opened) => {
+                let Ok(loading) = Command::external(ExternalProgram::Modprobe, &["uinput"]);
 
-                Turn::doing(
+                Update::new(
                     Allowing::Loading { whom: whom.clone() },
                     vec![
-                        Doing::Print(
+                        Effect::Print(
                             "loading the uinput module, now and at every boot".to_string(),
                         ),
-                        Doing::Ask(loading),
+                        Effect::Run(loading),
                     ],
                 )
             }
 
-            (Allowing::Loading { whom }, Word::Answered(answer)) => match answer.went {
-                Went::Well => {
+            (Allowing::Loading { whom }, Event::Replied(answer)) => match answer.status {
+                ExitStatus::Success => {
                     let Ok(reloading) =
-                        Runs::theirs(Theirs::Udevadm, &["control", "--reload-rules"]);
+                        Command::external(ExternalProgram::Udevadm, &["control", "--reload-rules"]);
 
-                    Turn::doing(
+                    Update::new(
                         Allowing::Reloading { whom: whom.clone() },
                         vec![
-                            Doing::Write(Writing {
-                                at: std::path::PathBuf::from(MODULE),
-                                what: "uinput\n".to_string(),
+                            Effect::Write(FileWrite {
+                                path: std::path::PathBuf::from(MODULE),
+                                contents: "uinput\n".to_string(),
                             }),
-                            Doing::Write(Writing { at: std::path::PathBuf::from(RULE), what: RULED.to_string() }),
-                            Doing::Print(
+                            Effect::Write(FileWrite { path: std::path::PathBuf::from(RULE), contents: RULED.to_string() }),
+                            Effect::Print(
                                 "granting the seat's own user a way in to /dev/uinput".to_string(),
                             ),
-                            Doing::Ask(reloading),
+                            Effect::Run(reloading),
                         ],
                     )
                 }
-                Went::Badly(_) => stopped("the uinput module would not load"),
+                ExitStatus::Failure(_) => stopped("the uinput module would not load"),
             },
 
-            (Allowing::Reloading { whom }, Word::Answered(answer)) => match answer.went {
-                Went::Well => {
+            (Allowing::Reloading { whom }, Event::Replied(answer)) => match answer.status {
+                ExitStatus::Success => {
                     let Ok(triggering) =
-                        Runs::theirs(Theirs::Udevadm, &["trigger", "--name-match=uinput"]);
+                        Command::external(ExternalProgram::Udevadm, &["trigger", "--name-match=uinput"]);
 
-                    Turn::doing(
+                    Update::new(
                         Allowing::Triggering { whom: whom.clone() },
-                        vec![Doing::Ask(triggering)],
+                        vec![Effect::Run(triggering)],
                     )
                 }
-                Went::Badly(_) => stopped("udev would not read the rule that was just written"),
+                ExitStatus::Failure(_) => stopped("udev would not read the rule that was just written"),
             },
 
-            (Allowing::Triggering { whom }, Word::Answered(answer)) => match answer.went {
-                Went::Well => match whom {
+            (Allowing::Triggering { whom }, Event::Replied(answer)) => match answer.status {
+                ExitStatus::Success => match whom {
                     Some(whom) => {
                         let Ok(grouping) =
-                            Runs::theirs(Theirs::Usermod, &["-aG", "input", whom]);
+                            Command::external(ExternalProgram::Usermod, &["-aG", "input", whom]);
 
-                        Turn::doing(
+                        Update::new(
                             Allowing::Grouping(whom.clone()),
-                            vec![Doing::Ask(grouping)],
+                            vec![Effect::Run(grouping)],
                         )
                     }
-                    None => listing("nobody could be named to put in the input group"),
+                    None => listing("no one could be named to put in the input group"),
                 },
-                Went::Badly(_) => stopped("udev would not apply the rule to /dev/uinput"),
+                ExitStatus::Failure(_) => stopped("udev would not apply the rule to /dev/uinput"),
             },
 
-            (Allowing::Grouping(whom), Word::Answered(answer)) => match answer.went {
-                Went::Well => listing(&format!(
+            (Allowing::Grouping(whom), Event::Replied(answer)) => match answer.status {
+                ExitStatus::Success => listing(&format!(
                     "{whom} is in the input group now, which counts from their next login"
                 )),
-                Went::Badly(_) => listing(&format!(
+                ExitStatus::Failure(_) => listing(&format!(
                     "{whom} could not be put in the input group; the udev rule is in either way"
                 )),
             },
 
-            (Allowing::Listing, Word::Answered(answer)) => Turn::doing(
+            (Allowing::Listing, Event::Replied(answer)) => Update::new(
                 Allowing::Listing,
                 vec![
-                    Doing::Print(answer.said.trim_end().to_string()),
-                    Doing::Print(
+                    Effect::Print(answer.output.trim_end().to_string()),
+                    Effect::Print(
                         "if that still says only root, log out and back in, or reboot".to_string(),
                     ),
-                    Doing::Stop(Ending::Done),
+                    Effect::Stop(Exit::Success),
                 ],
             ),
 
-            (_, _) => Turn::nothing(state.clone()),
+            (_, _) => Update::none(state.clone()),
         };
 
         turn
     }
 }
 
-fn stopped(why: &str) -> Result<Turn<Allowing, Never>, Never> {
-    Turn::doing(
+fn stopped(why: &str) -> Result<Update<Allowing, Never>, Never> {
+    Update::new(
         Allowing::Opening { whoever: Whoever::Root, whom: None },
-        vec![Doing::Stop(Ending::Badly(why.to_string()))],
+        vec![Effect::Stop(Exit::Failure(why.to_string()))],
     )
 }
 
-fn listing(said: &str) -> Result<Turn<Allowing, Never>, Never> {
-    let listing = Runs::theirs(Theirs::Ls, &["-l", "/dev/uinput"])?;
+fn listing(said: &str) -> Result<Update<Allowing, Never>, Never> {
+    let listing = Command::external(ExternalProgram::Ls, &["-l", "/dev/uinput"])?;
 
-    Turn::doing(
+    Update::new(
         Allowing::Listing,
-        vec![Doing::Print(said.to_string()), Doing::Ask(listing)],
+        vec![Effect::Print(said.to_string()), Effect::Run(listing)],
     )
 }
 
 #[cfg(test)]
 mod tests {
-    use console_program_contract::{Answer, told};
+    use console_program_contract::{Answer, run};
 
     use super::*;
 
-    fn well() -> Word<Never> {
-        let Ok(ran) = Runs::theirs(Theirs::Modprobe, &["uinput"]);
+    fn well() -> Event<Never> {
+        let Ok(ran) = Command::external(ExternalProgram::Modprobe, &["uinput"]);
 
-        Word::Answered(Answer { ran, said: String::new(), went: Went::Well })
+        Event::Replied(Answer { command: ran, output: String::new(), status: ExitStatus::Success })
     }
 
-    fn badly() -> Word<Never> {
-        let Ok(ran) = Runs::theirs(Theirs::Modprobe, &["uinput"]);
+    fn badly() -> Event<Never> {
+        let Ok(ran) = Command::external(ExternalProgram::Modprobe, &["uinput"]);
 
-        Word::Answered(Answer { ran, said: String::new(), went: Went::Badly(Some(1)) })
+        Event::Replied(Answer { command: ran, output: String::new(), status: ExitStatus::Failure(Some(1)) })
     }
 
-    fn asked(words: &[Word<Never>]) -> Vec<Doing<Never>> {
-        let Ok(argv) = Argv::of(&["0", "--for", "someone"]);
-        let Ok(said) = told::<Allow>(&argv, words);
-        let Ok(doings) = said.doings();
+    fn asked(events: &[Event<Never>]) -> Vec<Effect<Never>> {
+        let Ok(arguments) = Arguments::of(&["0", "--for", "someone"]);
+        let Ok(said) = run::<Allow>(&arguments, events);
+        let Ok(effects) = said.effects();
 
-        doings
+        effects
     }
 
     #[test]
     fn without_root_it_writes_nothing_and_says_how_to_run_it() {
-        let Ok(argv) = Argv::of(&["1000"]);
-        let Ok(said) = told::<Allow>(&argv, &[Word::Opened]);
-        let Ok(doings) = said.doings();
+        let Ok(arguments) = Arguments::of(&["1000"]);
+        let Ok(said) = run::<Allow>(&arguments, &[Event::Opened]);
+        let Ok(effects) = said.effects();
 
         assert!(
-            doings.iter().all(|doing| !matches!(doing, Doing::Write(_) | Doing::Ask(_))),
+            effects.iter().all(|effect| !matches!(effect, Effect::Write(_) | Effect::Run(_))),
             "it reached for the machine without being root"
         );
-        assert!(matches!(doings.last(), Some(Doing::Stop(Ending::Badly(_)))));
+        assert!(matches!(effects.last(), Some(Effect::Stop(Exit::Failure(_)))));
     }
 
     #[test]
     fn the_rule_is_only_written_once_the_module_has_loaded() {
-        let first = asked(&[Word::Opened]);
+        let first = asked(&[Event::Opened]);
 
         assert!(
-            first.iter().all(|doing| !matches!(doing, Doing::Write(_))),
+            first.iter().all(|effect| !matches!(effect, Effect::Write(_))),
             "the rule was written before the module was known to load"
         );
 
-        let after = asked(&[Word::Opened, well()]);
-        let written: Vec<&Writing> = after
+        let after = asked(&[Event::Opened, well()]);
+        let written: Vec<&FileWrite> = after
             .iter()
-            .filter_map(|doing| match doing {
-                Doing::Write(writing) => Some(writing),
-                _ => None,
+            .filter_map(|effect| {
+                let Ok(written) = effect.written();
+
+                written
             })
             .collect();
 
         assert_eq!(written.len(), 2);
-        assert_eq!(written.first().map(|writing| writing.at.as_path()), Some(MODULE.as_ref()));
-        assert_eq!(written.last().map(|writing| writing.at.as_path()), Some(RULE.as_ref()));
+        assert_eq!(written.first().map(|writing| writing.path.as_path()), Some(MODULE.as_ref()));
+        assert_eq!(written.last().map(|writing| writing.path.as_path()), Some(RULE.as_ref()));
     }
 
     #[test]
     fn a_module_that_will_not_load_stops_before_anything_is_written() {
-        let said = asked(&[Word::Opened, badly()]);
+        let said = asked(&[Event::Opened, badly()]);
 
-        assert!(said.iter().all(|doing| !matches!(doing, Doing::Write(_))));
-        assert!(matches!(said.last(), Some(Doing::Stop(Ending::Badly(_)))));
+        assert!(said.iter().all(|effect| !matches!(effect, Effect::Write(_))));
+        assert!(matches!(said.last(), Some(Effect::Stop(Exit::Failure(_)))));
     }
 
     #[test]
     fn a_group_that_will_not_take_the_user_is_not_a_failure() {
-        let said = asked(&[Word::Opened, well(), well(), well(), badly(), well()]);
+        let said = asked(&[Event::Opened, well(), well(), well(), badly(), well()]);
 
-        assert_eq!(said.last(), Some(&Doing::Stop(Ending::Done)));
+        assert_eq!(said.last(), Some(&Effect::Stop(Exit::Success)));
     }
 
     #[test]
-    fn a_machine_with_nobody_to_name_still_gets_the_rule() {
-        let Ok(argv) = Argv::of(&["0"]);
-        let Ok(said) = told::<Allow>(&argv, &[Word::Opened, well(), well(), well(), well()]);
-        let Ok(doings) = said.doings();
+    fn a_machine_with_no_one_to_name_still_gets_the_rule() {
+        let Ok(arguments) = Arguments::of(&["0"]);
+        let Ok(said) = run::<Allow>(&arguments, &[Event::Opened, well(), well(), well(), well()]);
+        let Ok(effects) = said.effects();
 
-        assert!(doings.iter().any(|doing| matches!(doing, Doing::Write(_))));
-        assert_eq!(doings.last(), Some(&Doing::Stop(Ending::Done)));
+        assert!(effects.iter().any(|effect| matches!(effect, Effect::Write(_))));
+        assert_eq!(effects.last(), Some(&Effect::Stop(Exit::Success)));
     }
 }

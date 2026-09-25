@@ -82,7 +82,7 @@ fn cornered(wanted: &[String]) -> usize {
     found
 }
 
-// GOOD — the loop runs as many times as somebody typed, so the walk is linear
+// GOOD — the loop runs as many times as someone typed, so the walk is linear
 // however long the list is.
 fn checked(held: &[String]) -> usize {
     let mut found = 0usize;

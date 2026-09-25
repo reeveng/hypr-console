@@ -14,7 +14,7 @@
 //! device. A switch usually does not get to write its line: the session going
 //! down takes the program writing it with it, somewhere inside
 //! `steamos-session-select`. What always lands is `session`/`starting`, which
-//! is measured in the session that is coming up, and that is the half somebody
+//! is measured in the session that is coming up, and that is the half someone
 //! is actually sitting there watching.
 
 pub mod radio;
@@ -89,13 +89,15 @@ pub const HANDED_OVER: [&str; 5] = [
 pub const TARGET: &str = "console.target";
 
 pub fn starting() -> Result<Vec<Vec<String>>, Never> {
-    let Ok(mut handing) = Program::Systemctl.argv(&["--user", "import-environment"]);
+    let Ok(mut handing) = Program::Systemctl.arguments(&["--user", "import-environment"]);
 
     handing.extend(HANDED_OVER.iter().map(|name| (*name).to_string()));
 
+    let Ok(scale) = InternalProgram::Scale.path();
+
     Ok(vec![
         handing,
-        vec![SIZE.to_string(), "apply".to_string()],
+        vec![scale.to_string(), "apply".to_string()],
         vec![
             "systemctl".to_string(),
             "--user".to_string(),
@@ -106,13 +108,12 @@ pub fn starting() -> Result<Vec<Vec<String>>, Never> {
     ])
 }
 
-const SIZE: &str = "/usr/local/bin/console-scale";
-
 use std::process::Command;
 
 use console_core_external_programs::Program;
 use console_response_times::Wait;
 use console_core_never::Never;
+use console_core_internal_programs::InternalProgram;
 use console_core_words::Words;
 
 pub fn here(target: &str) -> Result<Session, Never> {
@@ -131,15 +132,15 @@ pub fn here(target: &str) -> Result<Session, Never> {
     dylint_lib = "explicit029_no_asking_per_item",
     allow(
         explicit029_no_asking_per_item,
-        reason = "the list is programs: each step is a different argv and the whole of what this does is run them in order, stopping at the first that says no"
+        reason = "the list is programs: each step is a different arguments and the whole of what this does is run them in order, stopping at the first that says no"
     )
 )]
 pub fn run_each(what: &str, steps: &[Vec<String>]) -> Result<(), Never> {
     let Ok(mut waiting) =
         console_response_times::Waiting::on(Wait { who: "session", what });
 
-    for argv in steps {
-        let (program, rest) = match argv.split_first() {
+    for arguments in steps {
+        let (program, rest) = match arguments.split_first() {
             Some((program, rest)) => (program, rest),
             None => continue,
         };
@@ -149,14 +150,16 @@ pub fn run_each(what: &str, steps: &[Vec<String>]) -> Result<(), Never> {
         let Ok(()) = console_response_times::not_a_press(&mut starting);
 
         match starting.status() {
-            Ok(how) if how.success() => {
-                let Ok(plainly) = plainly(program);
-                let Ok(()) = waiting.mark(&plainly);
-            }
-            Ok(how) => {
-                eprintln!("{program} said {how}");
-                return Ok(());
-            }
+            Ok(how) => match how.success() {
+                true => {
+                    let Ok(plainly) = plainly(program);
+                    let Ok(()) = waiting.mark(&plainly);
+                }
+                false => {
+                    eprintln!("{program} said {how}");
+                    return Ok(());
+                }
+            },
             Err(why) => {
                 eprintln!("no {program} to run: {why}");
                 return Ok(());
@@ -234,12 +237,11 @@ mod tests {
         assert_eq!(steps, vec![vec![SWITCHER, "plasma"]]);
     }
 
-    fn the_desktop() -> (usize, Vec<String>) {
+    fn the_desktop() -> (u32, Vec<String>) {
         let Ok(starting) = starting();
 
-        starting
-            .into_iter()
-            .enumerate()
+        (0..)
+            .zip(starting)
             .find(|(_, step)| step.contains(&TARGET.to_string()))
             .expect("nothing in the session starts the desktop")
     }
@@ -263,11 +265,12 @@ mod tests {
     #[test]
     fn the_screen_is_put_back_to_its_size_before_the_desktop_is_started() {
         let Ok(starting) = starting();
-        let at = starting
-            .iter()
-            .position(|step| step[0] == SIZE)
+        let Ok(scale) = InternalProgram::Scale.path();
+        let (at, step) = (0..)
+            .zip(&starting)
+            .find(|(_, step)| step[0] == scale)
             .expect("nothing puts the screen back to the size it was left at");
-        assert_eq!(starting[at][1], "apply");
+        assert_eq!(step[1], "apply");
         assert!(at < the_desktop().0, "the desktop is drawn before the screen is the right size");
     }
 }

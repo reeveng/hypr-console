@@ -16,6 +16,7 @@ path = "src/bin/calendar-panel.rs"
 [dependencies]
 console-core-external-programs.workspace = true
 console-core-never.workspace = true
+console-core-number-conversion.workspace = true
 console-panel.workspace = true
 
 [dev-dependencies]

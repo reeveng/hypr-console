@@ -10,31 +10,36 @@
 //! `desktop.conf` is the mark. It is at the top and nowhere else, and a
 //! directory that has one is this repository by the same definition the rest
 //! of the desktop uses.
-
-pub mod pulling;
-pub mod renaming;
+//!
+//! [`DEVICE_ROOT`] is where the same tree is checked out on the handheld,
+//! which is what a deploy pushes into, what the engine applies from, and what a
+//! program run outside any checkout falls back to.
 
 use console_core_never::Never;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
+pub mod sources;
+
 pub const MARK: &str = "desktop.conf";
+
+pub const DEVICE_ROOT: &str = "/etc/console";
 
 pub fn above(here: &Path) -> Result<Option<PathBuf>, Never> {
     Ok(here.ancestors().find(|at| at.join(MARK).is_file()).map(Path::to_path_buf))
 }
 
 #[derive(Debug)]
-pub enum Unfound {
+pub enum NotFound {
     Nowhere(std::io::Error),
     Outside(PathBuf),
 }
 
-impl fmt::Display for Unfound {
+impl fmt::Display for NotFound {
     fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Unfound::Nowhere(fault) => write!(to, "no working directory: {fault}"),
-            Unfound::Outside(here) => write!(
+            NotFound::Nowhere(fault) => write!(to, "no working directory: {fault}"),
+            NotFound::Outside(here) => write!(
                 to,
                 "no {MARK} above {}; run this inside the repository",
                 here.display()
@@ -43,21 +48,21 @@ impl fmt::Display for Unfound {
     }
 }
 
-impl std::error::Error for Unfound {}
+impl std::error::Error for NotFound {}
 
 #[cfg_attr(
     dylint_lib = "explicit044_no_ambient_value",
     allow(
         explicit044_no_ambient_value,
-        reason = "where the program was run from is the question this crate exists to answer: somebody typing inside a checkout means that checkout, and the head above is why the walk is here rather than in each of the four programs that want it"
+        reason = "where the program was run from is the question this crate exists to answer: someone typing inside a checkout means that checkout, and the head above is why the walk is here rather than in each of the four programs that want it"
     )
 )]
-pub fn root() -> Result<PathBuf, Unfound> {
-    let here = std::env::current_dir().map_err(Unfound::Nowhere)?;
+pub fn root() -> Result<PathBuf, NotFound> {
+    let here = std::env::current_dir().map_err(NotFound::Nowhere)?;
 
     let Ok(above) = above(&here);
 
-    above.ok_or(Unfound::Outside(here))
+    above.ok_or(NotFound::Outside(here))
 }
 
 #[cfg(test)]

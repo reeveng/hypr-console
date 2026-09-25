@@ -4,7 +4,7 @@
 //! publishes beside it, and the controller's own touchpad. This is all of the
 //! deciding, and none of the opening.
 
-use evdev::{AbsoluteAxisCode, EventType, KeyCode};
+use console_input_event_devices::{AbsoluteAxisCode, EventType, KeyCode};
 
 use console_core_geometry::Point;
 use console_core_never::Never;
@@ -15,12 +15,12 @@ use console_input_gamepad::vocabulary::spoken_for;
 use console_input_bindings::bound::Input;
 
 use crate::buttons;
-use crate::doing::Doing;
-use crate::means::{Job, Press, Repeats, Table};
+use crate::effect::Effect;
+use crate::actions::{Task, ButtonPress, RepeatMode, Table};
 use crate::touch::Axis;
-use crate::mode::{Acts, Mode};
+use crate::mode::{InputHandling, Mode};
 use crate::scroll::{Stick, Wheel, pushed};
-use crate::touch::Finger;
+use crate::touch::Touch;
 
 pub const CARRY_HELD: f64 = 0.5;
 
@@ -31,7 +31,7 @@ pub const STEP_FASTEST: f64 = 0.080;
 
 const STEP_GATHER: f64 = 0.85;
 
-pub const AT_ONCE: usize = 10;
+pub const AT_ONCE: u32 = 10;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Words)]
 pub enum From {
@@ -41,7 +41,7 @@ pub enum From {
     Keys,
     #[words(said = "touchpad", called = "CONSOLE_TOUCHPAD")]
     Touch,
-    #[words(said = "keyboard somebody plugged in", called = "CONSOLE_TYPING")]
+    #[words(said = "keyboard someone plugged in", called = "CONSOLE_TYPING")]
     Typing,
 }
 
@@ -53,8 +53,8 @@ pub enum Wants {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Meant {
-    Something,
-    Nothing,
+    Some,
+    None,
 }
 
 impl From {
@@ -69,8 +69,10 @@ impl From {
         let Ok(called) = self.called();
 
         Ok(match std::env::var(called) {
-            Ok(said) if !said.is_empty() => Some(said),
-            Ok(_) => None,
+            Ok(said) => match said.is_empty() {
+                true => None,
+                false => Some(said),
+            },
             Err(std::env::VarError::NotPresent) => None,
             Err(fault) => {
                 eprintln!("{called}: {fault}; finding that device instead");
@@ -96,13 +98,22 @@ pub struct Ranges {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Trigger {
-    Held,
+    Pressed,
     Loose,
+}
+
+pub fn pulled(value: i32, (low, high): (i32, i32)) -> Result<Trigger, Never> {
+    let span = f64::from(high.saturating_sub(low).max(1));
+
+    Ok(match f64::from(value.saturating_sub(low)) / span > CARRY_HELD {
+        true => Trigger::Pressed,
+        false => Trigger::Loose,
+    })
 }
 
 fn pulled_by(value: i32) -> Result<Trigger, Never> {
     Ok(match value == 1 {
-        true => Trigger::Held,
+        true => Trigger::Pressed,
         false => Trigger::Loose,
     })
 }
@@ -124,12 +135,12 @@ impl Pulled {
         let mut said = Vec::new();
 
         match self.l2 {
-            Trigger::Held => said.push("l2"),
+            Trigger::Pressed => said.push("l2"),
             Trigger::Loose => {},
         }
 
         match self.r2 {
-            Trigger::Held => said.push("r2"),
+            Trigger::Pressed => said.push("r2"),
             Trigger::Loose => {},
         }
 
@@ -146,7 +157,7 @@ impl Default for Ranges {
 #[derive(Debug, Clone, PartialEq)]
 struct Stepping {
     button: &'static str,
-    job: &'static Job,
+    job: &'static Task,
     until: f64,
     gap: f64,
 }
@@ -156,12 +167,12 @@ pub struct Controller {
     pub mode: Mode,
     pub pulled: Pulled,
     pub wheel: Wheel,
-    pub finger: Finger,
+    pub finger: Touch,
     pub ranges: Ranges,
     pub table: Table,
     using: Option<Input>,
-    holding: Vec<(&'static str, &'static Job)>,
-    down: Vec<&'static str>,
+    holding: Vec<(&'static str, &'static Task)>,
+    pressed_buttons: Vec<&'static str>,
     stepping: Option<Stepping>,
     hat: (i32, i32),
     stick: (f64, f64),
@@ -174,24 +185,24 @@ impl Controller {
         Ok(())
     }
 
-    pub fn now_in(&mut self, mode: Mode) -> Result<Vec<Doing>, Never> {
+    pub fn now_in(&mut self, mode: Mode) -> Result<Vec<Effect>, Never> {
         let was = std::mem::replace(&mut self.mode, mode);
-        let Ok(before) = was.acts();
-        let Ok(now) = mode.acts();
+        let Ok(before) = was.input_handling();
+        let Ok(now) = mode.input_handling();
 
         match (before, now) {
-            (Acts::OnPresses, Acts::NotReading) => self.let_go(),
-            (Acts::OnPresses, Acts::OnPresses)
-            | (Acts::NotReading, Acts::NotReading)
-            | (Acts::NotReading, Acts::OnPresses) => Ok(Vec::new()),
+            (InputHandling::Enabled, InputHandling::Disabled) => self.let_go(),
+            (InputHandling::Enabled, InputHandling::Enabled)
+            | (InputHandling::Disabled, InputHandling::Disabled)
+            | (InputHandling::Disabled, InputHandling::Enabled) => Ok(Vec::new()),
         }
     }
 
-    pub fn pad_went(&mut self) -> Result<Vec<Doing>, Never> {
+    pub fn pad_went(&mut self) -> Result<Vec<Effect>, Never> {
         self.stick = (0.0, 0.0);
         self.hat = (0, 0);
         self.pulled = Pulled::default();
-        self.down.clear();
+        self.pressed_buttons.clear();
 
         self.let_go()
     }
@@ -203,7 +214,7 @@ impl Controller {
         code: u16,
         value: i32,
         now: f64,
-    ) -> Result<Vec<Doing>, Never> {
+    ) -> Result<Vec<Effect>, Never> {
         match from {
             From::Pad => self.on_pad(kind, code, value),
             From::Keys => self.on_keys(kind, code, value),
@@ -218,30 +229,33 @@ impl Controller {
         Ok(())
     }
 
-    fn on_typing(&mut self, kind: EventType, value: i32) -> Result<Vec<Doing>, Never> {
+    fn on_typing(&mut self, kind: EventType, value: i32) -> Result<Vec<Effect>, Never> {
         match (kind, value) {
             (EventType::KEY, 1) => self.now_using(Input::Keyboard),
             (_, _) => Ok(Vec::new()),
         }
     }
 
-    fn now_using(&mut self, on: Input) -> Result<Vec<Doing>, Never> {
+    fn now_using(&mut self, on: Input) -> Result<Vec<Effect>, Never> {
         match self.using {
-            Some(was) if was == on => return Ok(Vec::new()),
-            Some(_) | None => {},
+            Some(was) => match was == on {
+                true => return Ok(Vec::new()),
+                false => {},
+            },
+            None => {},
         }
 
         self.using = Some(on);
 
-        Ok(vec![Doing::Using(on)])
+        Ok(vec![Effect::Using(on)])
     }
 
-    fn on_pad(&mut self, kind: EventType, code: u16, value: i32) -> Result<Vec<Doing>, Never> {
+    fn on_pad(&mut self, kind: EventType, code: u16, value: i32) -> Result<Vec<Effect>, Never> {
         let Ok(meant) = self.meant(kind, code, value);
 
         let Ok(mut done) = match meant {
-            Meant::Something => self.now_using(Input::Pad),
-            Meant::Nothing => Ok(Vec::new()),
+            Meant::Some => self.now_using(Input::Pad),
+            Meant::None => Ok(Vec::new()),
         };
 
         let Ok(rest) = match kind {
@@ -265,15 +279,15 @@ impl Controller {
     fn meant(&self, kind: EventType, code: u16, value: i32) -> Result<Meant, Never> {
         Ok(match kind {
             EventType::KEY => match value {
-                1 => Meant::Something,
-                _ => Meant::Nothing,
+                1 => Meant::Some,
+                _ => Meant::None,
             },
             EventType::ABSOLUTE => {
                 let Ok(moved) = self.moved(code, value);
 
                 moved
             }
-            _ => Meant::Nothing,
+            _ => Meant::None,
         })
     }
 
@@ -283,8 +297,8 @@ impl Controller {
         match hat {
             Hat::Axis => {
                 return Ok(match value {
-                    0 => Meant::Nothing,
-                    _ => Meant::Something,
+                    0 => Meant::None,
+                    _ => Meant::Some,
                 });
             }
             Hat::NotAnAxis => {},
@@ -294,11 +308,11 @@ impl Controller {
 
         match trigger {
             true => {
-                let Ok(pulled) = self.pulled(value);
+                let Ok(pulled) = pulled(value, self.ranges.trigger);
 
                 return Ok(match pulled {
-                    Trigger::Held => Meant::Something,
-                    Trigger::Loose => Meant::Nothing,
+                    Trigger::Pressed => Meant::Some,
+                    Trigger::Loose => Meant::None,
                 });
             }
             false => {},
@@ -307,12 +321,12 @@ impl Controller {
         let Ok(pushed) = pushed(Stick { value, span: self.ranges.stick });
 
         Ok(match pushed.abs() > 0.0 {
-            true => Meant::Something,
-            false => Meant::Nothing,
+            true => Meant::Some,
+            false => Meant::None,
         })
     }
 
-    fn on_trigger_button(&mut self, code: u16, value: i32) -> Result<Vec<Doing>, Never> {
+    fn on_trigger_button(&mut self, code: u16, value: i32) -> Result<Vec<Effect>, Never> {
         let Ok(pulled) = pulled_by(value);
 
         match (code == KeyCode::BTN_TL2.0, code == KeyCode::BTN_TR2.0) {
@@ -324,10 +338,10 @@ impl Controller {
         Ok(Vec::new())
     }
 
-    fn on_axis(&mut self, code: u16, value: i32) -> Result<Vec<Doing>, Never> {
+    fn on_axis(&mut self, code: u16, value: i32) -> Result<Vec<Effect>, Never> {
         match code == AbsoluteAxisCode::ABS_Z.0 || code == AbsoluteAxisCode::ABS_RZ.0 {
             true => {
-                let Ok(pulled) = self.pulled(value);
+                let Ok(pulled) = pulled(value, self.ranges.trigger);
 
                 match code == AbsoluteAxisCode::ABS_Z.0 {
                     true => self.pulled.l2 = pulled,
@@ -357,17 +371,7 @@ impl Controller {
         Ok(Vec::new())
     }
 
-    fn pulled(&self, value: i32) -> Result<Trigger, Never> {
-        let (low, high) = self.ranges.trigger;
-        let span = f64::from(high.saturating_sub(low).max(1));
-
-        Ok(match f64::from(value.saturating_sub(low)) / span > CARRY_HELD {
-            true => Trigger::Held,
-            false => Trigger::Loose,
-        })
-    }
-
-    fn on_hat(&mut self, code: u16, value: i32) -> Result<Vec<Doing>, Never> {
+    fn on_hat(&mut self, code: u16, value: i32) -> Result<Vec<Effect>, Never> {
         let was = match code == AbsoluteAxisCode::ABS_HAT0X.0 {
             true => std::mem::replace(&mut self.hat.0, value),
             false => std::mem::replace(&mut self.hat.1, value),
@@ -405,7 +409,7 @@ impl Controller {
         Ok(done)
     }
 
-    fn on_keys(&mut self, kind: EventType, code: u16, value: i32) -> Result<Vec<Doing>, Never> {
+    fn on_keys(&mut self, kind: EventType, code: u16, value: i32) -> Result<Vec<Effect>, Never> {
         match kind == EventType::KEY {
             true => {},
             false => return Ok(Vec::new()),
@@ -419,7 +423,7 @@ impl Controller {
         }
     }
 
-    fn pressed(&mut self, button: &'static str, value: i32) -> Result<Vec<Doing>, Never> {
+    fn pressed(&mut self, button: &'static str, value: i32) -> Result<Vec<Effect>, Never> {
         let Ok(button) = spoken_for(button);
 
         match value {
@@ -432,21 +436,23 @@ impl Controller {
                 let Ok(held) = self.held();
                 let Ok(found) = buttons::job_for(&self.table, self.mode, &held, button);
 
-                self.down.push(button);
+                self.pressed_buttons.push(button);
 
                 let job = match found {
                     Some(job) => job,
                     None => return Ok(Vec::new()),
                 };
 
-                match self.holding.len() < AT_ONCE {
+                let Ok(holding) = console_core_number_conversion::fitted::<_, u32>(self.holding.len());
+
+                match holding < AT_ONCE {
                     true => {
                         self.holding.push((button, job));
 
-                        let Ok(repeats) = job.what.repeats();
+                        let Ok(repeats) = job.action.repeats();
 
                         match repeats {
-                            Repeats::WhileHeld => {
+                            RepeatMode::WhileHeld => {
                                 self.stepping = Some(Stepping {
                                     button,
                                     job,
@@ -454,32 +460,30 @@ impl Controller {
                                     gap: STEP_FIRST,
                                 });
                             }
-                            Repeats::Once => {},
+                            RepeatMode::Once => {},
                         }
                     }
                     false => {},
                 }
 
-                let Ok(acted) = buttons::acted(job, Press::Down);
+                let Ok(acted) = buttons::acted(job, ButtonPress::Down);
 
                 Ok(acted.into_iter().collect())
             }
             0 => {
-                self.down.retain(|held| *held != button);
+                self.pressed_buttons.retain(|held| *held != button);
 
-                let at = match self.holding.iter().position(|(down, _)| *down == button) {
-                    Some(at) => at,
+                let (_, job) = match self.holding.iter().position(|(down, _)| *down == button) {
+                    Some(at) => self.holding.remove(at),
                     None => return Ok(Vec::new()),
                 };
-
-                let (_, job) = self.holding.remove(at);
 
                 match self.stepping.as_ref().is_some_and(|held| held.button == button) {
                     true => self.stepping = None,
                     false => {},
                 }
 
-                let Ok(acted) = buttons::acted(job, Press::Up);
+                let Ok(acted) = buttons::acted(job, ButtonPress::Up);
 
                 Ok(acted.into_iter().collect())
             }
@@ -490,12 +494,12 @@ impl Controller {
     fn held(&self) -> Result<Vec<&'static str>, Never> {
         let Ok(mut held) = self.pulled.said();
 
-        held.extend(self.down.iter().copied());
+        held.extend(self.pressed_buttons.iter().copied());
 
         Ok(held)
     }
 
-    fn let_go(&mut self) -> Result<Vec<Doing>, Never> {
+    fn let_go(&mut self) -> Result<Vec<Effect>, Never> {
         self.stepping = None;
 
         let held = std::mem::take(&mut self.holding);
@@ -503,7 +507,7 @@ impl Controller {
         Ok(held
             .into_iter()
             .filter_map(|(_, job)| {
-                let Ok(acted) = buttons::acted(job, Press::Up);
+                let Ok(acted) = buttons::acted(job, ButtonPress::Up);
 
                 acted
             })
@@ -516,26 +520,29 @@ impl Controller {
         code: u16,
         value: i32,
         now: f64,
-    ) -> Result<Vec<Doing>, Never> {
+    ) -> Result<Vec<Effect>, Never> {
+        const TOUCHED: u16 = KeyCode::BTN_TOUCH.0;
+        const PRESSED: u16 = KeyCode::BTN_0.0;
+        const ACROSS: u16 = AbsoluteAxisCode::ABS_X.0;
+        const DOWN: u16 = AbsoluteAxisCode::ABS_Y.0;
+
         match (kind, code) {
-            (EventType::KEY, code) if code == KeyCode::BTN_TOUCH.0 => {
+            (EventType::KEY, TOUCHED) => {
                 let down = match value == 1 {
-                    true => Press::Down,
-                    false => Press::Up,
+                    true => ButtonPress::Down,
+                    false => ButtonPress::Up,
                 };
 
                 self.finger.touched(down, now)
             }
-            (EventType::KEY, code) if code == KeyCode::BTN_0.0 => self.finger.pressed(value),
-            (EventType::ABSOLUTE, code)
-                if code == AbsoluteAxisCode::ABS_X.0 || code == AbsoluteAxisCode::ABS_Y.0 =>
-            {
-                let along = match code == AbsoluteAxisCode::ABS_X.0 {
-                    true => Axis::Sideways,
-                    false => Axis::Down,
-                };
+            (EventType::KEY, PRESSED) => self.finger.pressed(value),
+            (EventType::ABSOLUTE, ACROSS) => {
+                let Ok(()) = self.finger.at(Axis::Sideways, value);
 
-                let Ok(()) = self.finger.at(along, value);
+                Ok(Vec::new())
+            }
+            (EventType::ABSOLUTE, DOWN) => {
+                let Ok(()) = self.finger.at(Axis::Down, value);
 
                 Ok(Vec::new())
             }
@@ -543,20 +550,20 @@ impl Controller {
         }
     }
 
-    pub fn tick(&mut self, seconds: f64) -> Result<Vec<Doing>, Never> {
+    pub fn tick(&mut self, seconds: f64) -> Result<Vec<Effect>, Never> {
         let Ok(mut done) = self.stepped(seconds);
-        let by = Point { across: self.stick.0, down: self.stick.1 };
+        let by = Point { x: self.stick.0, y: self.stick.1 };
         let Ok(notches) = self.wheel.turned(by, seconds);
 
         match notches.is_empty() {
             true => {},
-            false => done.push(Doing::Frame(notches)),
+            false => done.push(Effect::Frame(notches)),
         }
 
         Ok(done)
     }
 
-    fn stepped(&mut self, seconds: f64) -> Result<Vec<Doing>, Never> {
+    fn stepped(&mut self, seconds: f64) -> Result<Vec<Effect>, Never> {
         let held = match &mut self.stepping {
             Some(held) => held,
             None => return Ok(Vec::new()),
@@ -573,24 +580,56 @@ impl Controller {
         held.until = held.gap;
 
         let job = held.job;
-        let Ok(acted) = buttons::acted(job, Press::Down);
+        let Ok(acted) = buttons::acted(job, ButtonPress::Down);
 
         Ok(acted.into_iter().collect())
     }
 
-    pub fn poll(&self) -> Result<f64, Never> {
-        Ok(match self.finger.down {
-            true => crate::touch::POLL,
-            false => POLL,
-        })
+    pub fn wake(&self) -> Result<Wake, Never> {
+        let finger = match self.finger.in_contact {
+            true => Wake::Within(crate::touch::POLL),
+            false => Wake::OnInput,
+        };
+
+        let stepping = match self.stepping {
+            Some(_) => Wake::Within(POLL),
+            None => Wake::OnInput,
+        };
+
+        let stick = match self.stick.0.abs() > 0.0 || self.stick.1.abs() > 0.0 {
+            true => Wake::Within(POLL),
+            false => Wake::OnInput,
+        };
+
+        let Ok(sooner) = finger.sooner(stepping);
+
+        sooner.sooner(stick)
     }
 }
 
 pub const POLL: f64 = 0.02;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Wake {
+    OnInput,
+    Within(f64),
+}
+
+impl Wake {
+    pub fn sooner(self, other: Wake) -> Result<Wake, Never> {
+        Ok(match (self, other) {
+            (Wake::OnInput, Wake::OnInput) => Wake::OnInput,
+            (Wake::Within(seconds), Wake::OnInput) | (Wake::OnInput, Wake::Within(seconds)) => {
+                Wake::Within(seconds)
+            }
+            (Wake::Within(one), Wake::Within(other)) => Wake::Within(one.min(other)),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::doing::Carry;
+    use crate::effect::Payload;
     use super::*;
 
     fn ok<T>(answer: Result<T, Never>) -> T {
@@ -598,8 +637,8 @@ mod tests {
 
         value
     }
-    use crate::doing::Out;
-    use evdev::RelativeAxisCode;
+    use crate::effect::Output;
+    use console_input_event_devices::RelativeAxisCode;
 
     fn ranges() -> Ranges {
         Ranges { stick: 32767, trigger: (0, 1023) }
@@ -618,22 +657,22 @@ mod tests {
         held
     }
 
-    fn pressed(held: &mut Controller, from: From, code: KeyCode) -> Vec<Doing> {
+    fn pressed(held: &mut Controller, from: From, code: KeyCode) -> Vec<Effect> {
         let down = ok(held.saw(from, EventType::KEY, code.0, 1, 1000.0));
         ok(held.saw(from, EventType::KEY, code.0, 0, 1000.0));
         down
     }
 
-    fn brighter(held: &mut Controller) -> Vec<Doing> {
+    fn brighter(held: &mut Controller) -> Vec<Effect> {
         ok(held.saw(From::Pad, EventType::KEY, KeyCode::BTN_TL2.0, 1, 1000.0));
         ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_HAT0X.0, 1, 1000.0))
     }
 
-    fn ticked(held: &mut Controller, seconds: f64) -> usize {
+    fn ticked(held: &mut Controller, seconds: f64) -> u32 {
         let mut steps = 0;
         let mut left = seconds;
         while left > 0.0 {
-            steps += ok(held.tick(POLL)).len();
+            steps += u32::try_from(ok(held.tick(POLL)).len()).unwrap();
             left -= POLL;
         }
         steps
@@ -642,7 +681,8 @@ mod tests {
     #[test]
     fn a_scale_held_down_goes_on_stepping() {
         let mut held = controller();
-        let step = ok(Doing::run(&["/usr/local/bin/console-brightness", "up"]));
+        let brightness = ok(console_core_internal_programs::InternalProgram::Brightness.path());
+        let step = ok(Effect::run(&[brightness, "up"]));
         assert_eq!(brighter(&mut held), std::slice::from_ref(&step), "the press itself");
         assert_eq!(ticked(&mut held, STEP_AFTER - 0.1), 0, "before the delay is up");
         assert!(ticked(&mut held, 0.4) > 0, "after it");
@@ -660,7 +700,7 @@ mod tests {
     fn a_job_that_is_not_a_scale_does_not_repeat_when_it_is_held() {
         let mut held = controller();
         let down = ok(held.saw(From::Keys, EventType::KEY, KeyCode::KEY_F13.0, 1, 1000.0));
-        assert_eq!(down, [ok(Doing::run(&["launcher", "--keep"]))]);
+        assert_eq!(down, [ok(Effect::run(&["launcher", "--keep"]))]);
         assert_eq!(ticked(&mut held, 3.0), 0, "the menu opened again on its own");
     }
 
@@ -680,7 +720,7 @@ mod tests {
         let first = ticked(&mut held, 1.0);
         let later = ticked(&mut held, 1.0);
         assert!(later > first, "it did not gather: {first} then {later}");
-        let most = (1.0 / STEP_FASTEST).ceil() as usize;
+        let most = (1.0 / STEP_FASTEST).ceil() as u32;
         assert!(later <= most, "{later} steps in a second is past {most}");
         let settled = ticked(&mut held, 1.0);
         assert!(
@@ -694,7 +734,7 @@ mod tests {
         let mut held = controller();
         assert_eq!(
             ok(held.saw(From::Keys, EventType::KEY, KeyCode::KEY_F13.0, 1, 1000.0)),
-            [ok(Doing::run(&["launcher", "--keep"]))]
+            [ok(Effect::run(&["launcher", "--keep"]))]
         );
         assert!(ok(held.saw(From::Keys, EventType::KEY, KeyCode::KEY_F13.0, 0, 1000.0)).is_empty());
     }
@@ -703,26 +743,26 @@ mod tests {
     fn a_button_that_sends_a_key_sends_it_down_and_up() {
         let mut held = controller();
         let down = ok(held.saw(From::Pad, EventType::KEY, KeyCode::BTN_SOUTH.0, 1, 1000.0));
-        assert_eq!(down, [Doing::Frame(vec![ok(Out::key(KeyCode::BTN_LEFT.0, 1))])]);
+        assert_eq!(down, [Effect::Frame(vec![ok(Output::key(KeyCode::BTN_LEFT.0, 1))])]);
         let up = ok(held.saw(From::Pad, EventType::KEY, KeyCode::BTN_SOUTH.0, 0, 1000.0));
-        assert_eq!(up, [Doing::Frame(vec![ok(Out::key(KeyCode::BTN_LEFT.0, 0))])]);
+        assert_eq!(up, [Effect::Frame(vec![ok(Output::key(KeyCode::BTN_LEFT.0, 0))])]);
     }
 
     #[test]
     fn the_dpad_arrives_as_a_hat_and_is_read_as_four_buttons() {
         let mut held = controller();
         let up = ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_HAT0Y.0, -1, 1000.0));
-        assert_eq!(up, [Doing::Frame(vec![ok(Out::key(KeyCode::KEY_UP.0, 1))])]);
+        assert_eq!(up, [Effect::Frame(vec![ok(Output::key(KeyCode::KEY_UP.0, 1))])]);
         let over = ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_HAT0Y.0, 1, 1000.0));
         assert_eq!(
             over,
             [
-                Doing::Frame(vec![ok(Out::key(KeyCode::KEY_UP.0, 0))]),
-                Doing::Frame(vec![ok(Out::key(KeyCode::KEY_DOWN.0, 1))]),
+                Effect::Frame(vec![ok(Output::key(KeyCode::KEY_UP.0, 0))]),
+                Effect::Frame(vec![ok(Output::key(KeyCode::KEY_DOWN.0, 1))]),
             ]
         );
         let middle = ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_HAT0Y.0, 0, 1000.0));
-        assert_eq!(middle, [Doing::Frame(vec![ok(Out::key(KeyCode::KEY_DOWN.0, 0))])]);
+        assert_eq!(middle, [Effect::Frame(vec![ok(Output::key(KeyCode::KEY_DOWN.0, 0))])]);
     }
 
     #[test]
@@ -748,7 +788,7 @@ mod tests {
         let mut held = controller();
         ok(held.saw(From::Pad, EventType::KEY, KeyCode::BTN_SOUTH.0, 1, 1000.0));
 
-        assert!(ok(held.now_in(Mode::Tabs)).is_empty(), "a chooser opening let go of A");
+        assert!(ok(held.now_in(Mode::Tabs)).is_empty(), "a picker opening let go of A");
     }
 
     #[test]
@@ -757,24 +797,24 @@ mod tests {
         ok(held.saw(From::Pad, EventType::KEY, KeyCode::BTN_SOUTH.0, 1, 1000.0));
         let _ = ok(held.now_in(Mode::Tabs));
         let up = ok(held.saw(From::Pad, EventType::KEY, KeyCode::BTN_SOUTH.0, 0, 1000.0));
-        assert_eq!(up, [Doing::Frame(vec![ok(Out::key(KeyCode::BTN_LEFT.0, 0))])], "not Enter");
+        assert_eq!(up, [Effect::Frame(vec![ok(Output::key(KeyCode::BTN_LEFT.0, 0))])], "not Enter");
     }
 
     #[test]
     fn a_pad_that_went_away_lets_go_of_what_was_held() {
         let mut held = controller();
         ok(held.saw(From::Pad, EventType::KEY, KeyCode::BTN_SOUTH.0, 1, 1000.0));
-        assert_eq!(ok(held.pad_went()), [Doing::Frame(vec![ok(Out::key(KeyCode::BTN_LEFT.0, 0))])]);
+        assert_eq!(ok(held.pad_went()), [Effect::Frame(vec![ok(Output::key(KeyCode::BTN_LEFT.0, 0))])]);
         assert!(ok(held.pad_went()).is_empty(), "and only the once");
     }
 
     #[test]
     fn the_shoulders_carry_the_window_while_l2_is_held() {
         let mut held = controller();
-        assert_eq!(pressed(&mut held, From::Pad, KeyCode::BTN_TR), [ok(Doing::workspace("+1", Carry::Nothing))]);
+        assert_eq!(pressed(&mut held, From::Pad, KeyCode::BTN_TR), [ok(Effect::workspace("+1", Payload::None))]);
         ok(held.saw(From::Pad, EventType::KEY, KeyCode::BTN_TL2.0, 1, 1000.0));
-        assert_eq!(held.pulled.l2, Trigger::Held);
-        assert_eq!(pressed(&mut held, From::Pad, KeyCode::BTN_TR), [ok(Doing::workspace("+1", Carry::Window))]);
+        assert_eq!(held.pulled.l2, Trigger::Pressed);
+        assert_eq!(pressed(&mut held, From::Pad, KeyCode::BTN_TR), [ok(Effect::workspace("+1", Payload::Window))]);
     }
 
     #[test]
@@ -783,9 +823,9 @@ mod tests {
         ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_Z.0, 400, 1000.0));
         assert_eq!(held.pulled.l2, Trigger::Loose, "not far enough");
         ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_Z.0, 900, 1000.0));
-        assert_eq!(held.pulled.l2, Trigger::Held);
+        assert_eq!(held.pulled.l2, Trigger::Pressed);
         ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_RZ.0, 900, 1000.0));
-        assert_eq!(held.pulled.r2, Trigger::Held);
+        assert_eq!(held.pulled.r2, Trigger::Pressed);
     }
 
     #[test]
@@ -796,9 +836,9 @@ mod tests {
         ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_RY.0, -32767, 1000.0));
         let turned = ok(held.tick(1.0));
 
-        let Ok(wanted) = console_core_number_conversion::toward_zero_usize(crate::scroll::MAX_HZ);
+        let Ok(wanted) = console_core_number_conversion::toward_zero_u32(crate::scroll::MAX_HZ);
 
-        assert!(matches!(turned.as_slice(), [Doing::Frame(notches)] if notches.len() == wanted));
+        assert!(matches!(turned.as_slice(), [Effect::Frame(notches)] if u32::try_from(notches.len()).unwrap() == wanted));
     }
 
     #[test]
@@ -820,17 +860,53 @@ mod tests {
     #[test]
     fn a_finger_on_the_pad_is_read_at_the_pads_own_pace() {
         let mut held = controller();
-        assert_eq!(ok(held.poll()), POLL);
         ok(held.saw(From::Touch, EventType::KEY, KeyCode::BTN_TOUCH.0, 1, 1000.0));
-        assert_eq!(ok(held.poll()), crate::touch::POLL);
+        assert_eq!(ok(held.wake()), Wake::Within(crate::touch::POLL));
+        ok(held.saw(From::Touch, EventType::KEY, KeyCode::BTN_TOUCH.0, 0, 1000.5));
+        assert_eq!(ok(held.wake()), Wake::OnInput, "a finger lifted is nothing to look at");
     }
 
     #[test]
-    fn a_key_on_a_keyboard_somebody_plugged_in_says_which_input_is_being_used() {
+    fn a_controller_nobody_is_holding_waits_for_a_press() {
+        let mut held = controller();
+        assert_eq!(ok(held.wake()), Wake::OnInput);
+        pressed(&mut held, From::Pad, KeyCode::BTN_SOUTH);
+        ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_RX.0, 12, 1000.0));
+        assert_eq!(ok(held.wake()), Wake::OnInput, "a press let go and a stick resting are not held");
+    }
+
+    #[test]
+    fn a_stick_pushed_is_looked_at_until_it_is_let_go() {
+        let mut held = controller();
+        ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_RY.0, -32767, 1000.0));
+        assert_eq!(ok(held.wake()), Wake::Within(POLL));
+        ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_RY.0, 0, 1000.5));
+        assert_eq!(ok(held.wake()), Wake::OnInput);
+    }
+
+    #[test]
+    fn a_button_that_repeats_is_looked_at_while_it_is_held() {
+        let mut held = controller();
+        brighter(&mut held);
+        assert_eq!(ok(held.wake()), Wake::Within(POLL));
+        ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_HAT0X.0, 0, 1000.5));
+        assert_eq!(ok(held.wake()), Wake::OnInput);
+    }
+
+    #[test]
+    fn the_sooner_of_two_wakes_is_the_one_kept() {
+        assert_eq!(ok(Wake::OnInput.sooner(Wake::OnInput)), Wake::OnInput);
+        assert_eq!(ok(Wake::OnInput.sooner(Wake::Within(1.0))), Wake::Within(1.0));
+        assert_eq!(ok(Wake::Within(1.0).sooner(Wake::OnInput)), Wake::Within(1.0));
+        assert_eq!(ok(Wake::Within(1.0).sooner(Wake::Within(POLL))), Wake::Within(POLL));
+    }
+
+    #[test]
+    fn a_key_on_a_keyboard_someone_plugged_in_says_which_input_is_being_used() {
         let mut held = controller();
         let typed = ok(held.saw(From::Typing, EventType::KEY, KeyCode::KEY_I.0, 1, 1000.0));
 
-        assert_eq!(typed, vec![Doing::Using(Input::Keyboard)]);
+        assert_eq!(typed, vec![Effect::Using(Input::Keyboard)]);
 
         let again = ok(held.saw(From::Typing, EventType::KEY, KeyCode::KEY_J.0, 1, 1000.0));
 
@@ -838,16 +914,16 @@ mod tests {
 
         let back = pressed(&mut held, From::Pad, KeyCode::BTN_SOUTH);
 
-        assert_eq!(back.first(), Some(&Doing::Using(Input::Pad)), "the last press wins");
+        assert_eq!(back.first(), Some(&Effect::Using(Input::Pad)), "the last press wins");
     }
 
     #[test]
-    fn a_key_on_a_keyboard_somebody_plugged_in_does_nothing_else_at_all() {
+    fn a_key_on_a_keyboard_someone_plugged_in_does_nothing_else_at_all() {
         let mut held = controller();
         let typed = ok(held.saw(From::Typing, EventType::KEY, KeyCode::KEY_I.0, 1, 1000.0));
 
         assert!(
-            !typed.iter().any(|what| matches!(what, Doing::Run(_) | Doing::Frame(_))),
+            !typed.iter().any(|what| matches!(what, Effect::Run(_) | Effect::Frame(_))),
             "the compositor carries a key, and the daemon acting on one too is it happening twice"
         );
 
@@ -863,7 +939,7 @@ mod tests {
 
         let drift = ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_RX.0, 12, 1000.0));
 
-        assert!(drift.is_empty(), "a stick resting on its centre is nobody using anything");
+        assert!(drift.is_empty(), "a stick resting on its center is no one using anything");
 
         let resting = ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_Z.0, 3, 1000.0));
 
@@ -872,7 +948,7 @@ mod tests {
         let moved =
             ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_RX.0, 32767, 1000.0));
 
-        assert_eq!(moved.first(), Some(&Doing::Using(Input::Pad)), "a stick pushed is meant");
+        assert_eq!(moved.first(), Some(&Effect::Using(Input::Pad)), "a stick pushed is meant");
     }
 
     #[test]
@@ -882,7 +958,7 @@ mod tests {
 
         assert_eq!(
             typed,
-            vec![Doing::Using(Input::Keyboard)],
+            vec![Effect::Using(Input::Keyboard)],
             "a daemon that was told nothing says what the first press was"
         );
     }
@@ -893,11 +969,11 @@ mod tests {
         ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_RX.0, 32767, 1000.0));
         let turned = ok(held.tick(1.0));
         let notches = match turned.first() {
-            Some(Doing::Frame(notches)) => notches,
-            Some(Doing::Run(_) | Doing::Tell(_) | Doing::Using(_)) | None => {
+            Some(Effect::Frame(notches)) => notches,
+            Some(Effect::Run(_) | Effect::Tell(_) | Effect::Using(_)) | None => {
                 panic!("a frame of notches")
             }
         };
-        assert!(notches.contains(&ok(Out::rel(RelativeAxisCode::REL_HWHEEL.0, 1))));
+        assert!(notches.contains(&ok(Output::rel(RelativeAxisCode::REL_HWHEEL.0, 1))));
     }
 }

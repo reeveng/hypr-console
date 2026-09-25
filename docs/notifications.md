@@ -1,6 +1,6 @@
 # Notifications
 
-What this desktop says to somebody who is not in a terminal. A fault it met, a
+What this desktop says to someone who is not in a terminal. A fault it met, a
 wallpaper it has set going, the dictation saying it is listening: one card,
 top right, under the bar.
 
@@ -10,7 +10,7 @@ here speaks to it. Between the two sits `console-say`, which counts.
 ## The name
 
 `org.freedesktop.Notifications` has exactly one owner on a session bus, and for
-a year on this machine that owner was nobody.
+a year on this machine that owner was no one.
 
 The only file claiming the name was `plasma-workspace`'s, which is installed
 because `cachyos-handheld` wants the login manager and the login manager wants
@@ -19,7 +19,7 @@ the device -- every fault, every press of the dictation paddle -- was answered
 by D-Bus starting a program that failed, fifty seconds later, with the caller
 waiting the whole time.
 
-Nothing said this. `notify-send` prints its complaint to a stderr nobody was
+Nothing said this. `notify-send` prints its complaint to a stderr no one was
 reading, the desktop went on working, and the promise in `console-say` that a
 fault reaches the screen had never once been kept.
 
@@ -47,8 +47,8 @@ not.
 
 What was lost is everything the unit around a notification daemon is for.
 `ExecStopPost` never ran, so a daemon that died said nothing -- on the one
-daemon whose whole purpose is that a thing which broke while nobody was looking
-is still there when somebody looks. There is no `Restart=` on the package's
+daemon whose whole purpose is that a thing which broke while no one was looking
+is still there when someone looks. There is no `Restart=` on the package's
 unit, and it is `PartOf=graphical-session.target` rather than this desktop's.
 
 `mako.service` is masked, under `[masked]` in the manifest beside the autologin
@@ -60,7 +60,7 @@ win the same race. On a machine that never had mako the mask is a symlink to
 
 ## What draws the card
 
-mako was the last surface on this desktop drawn in somebody else's colours.
+mako was the last surface on this desktop drawn in someone else's colors.
 Every other half of a notification was already in this tree -- `console-say`
 is what raises one, `console_notifications::reading` and `rows` are what keep
 and draw it afterwards, and what was asked of `makoctl` was a list, a mode and
@@ -70,14 +70,14 @@ repository already is.
 
 `console-notify` is that. It answers `Notify`, `CloseNotification`,
 `GetCapabilities` and `GetServerInformation`, emits `NotificationClosed` with
-the reason the specification asks for, and adds `console.Notices` beside them,
+the reason the specification asks for, and adds `console.Notifications` beside them,
 with `ClearAll` and `Quieten` -- the two presses this desktop makes on its own
 daemon and the two the freedesktop interface has no word for.
 
 The wire is `console-bus`, written here rather than taken from zbus. What a
 notification daemon needs is a connection, a name and one signature --
 `susssasa{sv}i` -- and zbus brings an async runtime, a proc-macro layer and a
-type system for a bus this desktop speaks to nobody else on. What is here is a
+type system for a bus this desktop speaks to no one else on. What is here is a
 header, an alignment table and a walk over a signature. `tests/the_bus.rs`
 takes a name on a live session bus and has `busctl` call back into it, which is
 the only way to be sure of a wire format: a marshaller tested against its own
@@ -94,14 +94,14 @@ it goes wrong.
 What this must not become is a general notification server. No actions, no icon
 data, no fd passing, no hints beyond urgency and progress, because everything
 that raises a notification here is named in one module. The day a program
-nobody wrote raises one is the day that question is worth answering, and
+no one wrote raises one is the day that question is worth answering, and
 the backlog says what it would take.
 
 ## Five seconds, or until it is seen
 
-Everything is drawn the same, out of `theme/palette.toml`, on the panel colour
+Everything is drawn the same, out of `theme/palette.toml`, on the panel color
 every other card in front of the wallpaper is drawn on. Which used to mean a
-second stylesheet: `console-palette` wrote mako's colours into
+second stylesheet: `console-palette` wrote mako's colors into
 `~/.config/mako/config` in mako's own spelling, and a daemon reads its config
 once, when it starts. So `just theme` on a running desktop changed every surface
 except the one that arrives uninvited, and it went on being yesterday's palette
@@ -114,7 +114,7 @@ ordinary edge for the rest.
 
 A notification goes after five seconds. Critical ones do not go at all, and
 everything `console-say` raises is critical, because the whole point of it is
-that a thing which broke while nobody was looking is still there when somebody
+that a thing which broke while no one was looking is still there when someone
 looks.
 
 ## What a card says
@@ -127,7 +127,7 @@ under it, and it is allowed to be missing.
 What was there before was a paragraph. A card that explains why the thing is
 worth knowing, what the machine is going to do about it and what to type is four
 sentences of argument on a surface that is gone in five seconds, and none of it
-is read: somebody who has just been handed a card is deciding whether to stop
+is read: someone who has just been handed a card is deciding whether to stop
 what they are doing, and that is one word of work. The argument belongs in the
 file that decided it and the detail belongs in the journal, which is where the
 reason a service fell over is now written rather than on the card.
@@ -141,7 +141,7 @@ asked for it*. Nothing on the screen is the place to say how something works.
 
 The screen and the volume both say where they got to, and both are raised by
 the press that caused them. The battery has the same shape of reading and no
-press: it moves while nobody is doing anything, so something has to be watching
+press: it moves while no one is doing anything, so something has to be watching
 and whatever watches has to decide when a crossing happened rather than when a
 number was read.
 
@@ -149,17 +149,17 @@ Three crossings, and each is a number a person sets on the Battery tab. Getting
 low is a card that goes by itself; getting really low is a card that stays,
 because it is asking for a cable; and the third stops the machine before the
 battery does. The first two sit where the icon on the bar already changes
-colour, so the card and the icon say the same thing at the same moment. Any of
+color, so the card and the icon say the same thing at the same moment. Any of
 them can be walked down to *never*.
 
 `console-bar` is what watches -- `dwindling` is that half of it -- and it is
 the only thing on the machine reading the battery at all: it takes a reading for
 the icon it draws, when udev says a supply changed and on its own tick under
 that, and a second program on a second clock would be two opinions about when
-one battery crossed something. What a crossing *is* --
-`console_default_applications::battery` -- is a function of the reading, the
-levels and what has already been said, so it can be asked without a battery.
-What is done about one is `console-battery`, a program of its own, because the
+one battery crossed something. What a crossing *is* -- the `console-battery`
+crate -- is a function of the reading, the levels and what has already been
+said, so it can be asked without a battery. What is done about one is the
+`console-battery` program in `console-settings`, a program of its own, because the
 third of them waits a quarter of a minute under a card and the bar is not a
 thing that should be holding still for that.
 
@@ -184,7 +184,7 @@ to outlive that.
 
 ### What "stop" means depends on the machine
 
-Hibernating is the answer everybody wants: the session goes to disk, the
+Hibernating is the answer everyone wants: the session goes to disk, the
 machine goes off, and plugging in puts it all back. This handheld cannot. Its
 only swap is zram, which is memory, and nothing on the kernel command line
 names a device to come back from -- `/sys/power/resume` reads `0:0` -- so
@@ -194,7 +194,7 @@ So `console_settings::stopping` asks the kernel what this machine can do and
 the card says which of the two it will be. A device with a real swap partition
 hibernates and is told everything will be where it left it. This one shuts
 down, and is told plainly that what is open will not be saved, because a card
-that promised otherwise would be a lie written where somebody goes to trust it.
+that promised otherwise would be a lie written where someone goes to trust it.
 
 Shutting down is still the right answer of the three available. Sleeping keeps
 the session in the memory the failing battery is what powers, so a suspend at
@@ -202,7 +202,7 @@ five per cent is the session lost in an hour and a hard cut when the cell
 empties -- and `hypridle.conf` already refuses to sleep this machine
 unattended, for the separate reason that nothing here has ever proved it wakes.
 Doing nothing is the same loss with a dirty filesystem and a cell taken to
-nought, which is the one thing that damages a battery rather than merely
+zero, which is the one thing that damages a battery rather than merely
 emptying it.
 
 Fifteen seconds sit between the card and the stopping, and the card says how
@@ -232,14 +232,14 @@ else says when that changed.
 
 ## The strip
 
-Four pixels under the bar, the width of the screen, the colour of the bar. It
+Four pixels under the bar, the width of the screen, the color of the bar. It
 fills from the left while `console apply` runs and is invisible the rest of the
 time.
 
 It exists because a card cannot answer the one question an apply raises. An
 apply is minutes -- pacman, a release build of every program on the machine,
 sixty files, two profiles, a dozen services -- and the card that goes up says
-one is running and then says the same sentence for the whole of it. Somebody
+one is running and then says the same sentence for the whole of it. Someone
 standing over the device is not asking what it is doing; the lines already say
 that. They are asking whether to keep standing there.
 
@@ -284,20 +284,20 @@ still steps where the report does.
 The row is bought rather than taken: it is reserved whether an apply is running
 or not. A strip that appeared only during one would shove every window on the
 screen down and back again, and one that reserved nothing would sit on top of
-the bar instead of under it. Idle, it is the same colour as the bar above it, so
+the bar instead of under it. Idle, it is the same color as the bar above it, so
 what it reads as is the bar being a row taller.
 
 None of that is believed from the arithmetic. `440-the-strip-under-the-bar-fills`
 puts a number in the file the strip reads, brings the nested desktop up with it
-already there, and reads the row back off the screen: the fill colour on the
+already there, and reads the row back off the screen: the fill color on the
 left of where the number says, the bar's own ground on the right of it. Back
-when the bar was waybar, a stylesheet naming a colour nobody defined did not
+when the bar was waybar, a stylesheet naming a color no one defined did not
 fail -- GTK drops the declaration and carries on -- so the file parsed, the
 widget laid out, the bar exited 0 and the journal was empty while the strip
 filled to nothing. That is how it shipped once, and asking the machine three
 ways got three answers about the plumbing. The path is `CONSOLE_UPDATING_PATH` when something says so, which is
 how a staged session is filled without writing into the laptop's own `/run`;
-the engine runs as root outside anybody's session and is never told.
+the engine runs as root outside anyone's session and is never told.
 
 ## The panel
 
@@ -321,13 +321,13 @@ per draw and another per tick, and `busctl monitor` showed the bell's own asking
 as traffic to be woken by.
 
 The file goes with the thing that wrote it. `ExecStopPost` takes it away when
-the daemon stops, because a file nobody is writing any more still reads as a
+the daemon stops, because a file no one is writing any more still reads as a
 count, and a bell lit over a daemon that is gone is a reading and it is wrong.
 
 Nothing is asked before clearing. What is cleared is in Earlier a moment
 later, so it is a press that moves things rather than one that throws them
 away, and a question about a press that can be walked back is a question
-somebody learns to answer without reading it.
+someone learns to answer without reading it.
 
 **Earlier** is what the daemon has finished holding, and nothing else. It keeps
 the last twenty,
@@ -338,13 +338,13 @@ gone down without opening anything.
 
 There was no panel and no history for a long time, on the argument that what is
 on the screen is what there is and the journal has the rest. The journal is not
-a place anybody holding a handheld stands, which is the same argument the top
-of this page makes about a fault that reached a stderr nobody was reading.
+a place anyone holding a handheld stands, which is the same argument the top
+of this page makes about a fault that reached a stderr no one was reading.
 
 ## Quiet, without going deaf
 
 The last row of Waiting keeps cards off the screen. It is `Quieten` on
-`console.Notices`, which flips the daemon and answers with the state it is now
+`console.Notifications`, which flips the daemon and answers with the state it is now
 in, so the row that pressed it is not left guessing at what it did.
 
 That is the whole of what it does. What was sent is still held, the bell still
@@ -359,7 +359,7 @@ So the bell is the one thing that says the desktop has been quietened. The
 cards are gone by definition, and nothing else on the screen would tell you.
 
     journalctl --user -t console        every fault console-say has counted
-    cat "$XDG_RUNTIME_DIR"/console/notices.json
+    cat "$XDG_RUNTIME_DIR"/console/notifications.json
                                         what is waiting, what the Earlier tab
                                         is, and whether cards are held back
     busctl --user introspect org.freedesktop.Notifications \

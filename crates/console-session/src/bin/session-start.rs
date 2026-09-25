@@ -4,7 +4,7 @@
 //!
 //! The radio is put back last, after the desktop has been asked for, because
 //! powering an adapter that Steam turned off is the better part of two seconds
-//! and none of it is anything somebody is waiting to see.
+//! and none of it is anything someone is waiting to see.
 
 use console_core_never::Never;
 use console_session::{radio, run_each, starting};

@@ -13,6 +13,16 @@
 //! asked for and would rather she saw it happen than waited for the next time
 //! this came round.
 //!
+//! The weather is asked for rather than told, so the one number here is how
+//! long to wait before asking again: twenty minutes when there was an answer,
+//! and a minute when there was not, widening to twenty over the same steps a
+//! console service's restarts widen over. A handheld is carried out of range
+//! of a network and left there, and the first minute after the wifi drops is
+//! worth another try while the rest of the night is not -- a question nobody
+//! can answer, asked fourteen hundred times before morning, is a radio kept
+//! awake for nothing. What the picture is drawn from in the meantime is the
+//! last answer, which `keeping` holds rather than throwing away.
+//!
 //! Nothing here decides anything. What picture answers a rainy dusk is
 //! `console_wallpaper::choose`, whether the wallpaper is covered is
 //! `console_wallpaper::covered`, where the sun is is `console_wallpaper::sun`,
@@ -26,16 +36,17 @@ use std::process::ExitCode;
 use std::sync::mpsc::{RecvTimeoutError, Sender, channel};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use console_events::listening;
+use console_events::subscription::{self, Received};
 use console_core_external_programs::Program;
 use console_core_never::Never;
-use console_program_contract::{Argv, Doing, Program as _, Topic, Turn as Turn_, Word};
+use console_program_contract::{Arguments, Effect, Program as _, Topic, Update, Event};
 use console_program_lifetime::threads;
 use console_wallpaper::choose::{self, Outside, Set, Turn, Wanted};
-use console_wallpaper::keeping::{self, Chosen, Going, Heard, Its, Painted, Sky, Sun};
-use console_wallpaper::{covered, here, moon, place, sun, weather};
+use console_wallpaper::keeping::{self, Chosen, Going, WallpaperEvent, WallpaperEffect, Rendered, Sky, Sun};
+use console_wallpaper::{covered, place};
+use console_weather::{conditions as weather, here};
 use console_wallpaper::covered::Worth;
-use console_wallpaper::weather::Weather;
+use console_weather::conditions::Weather;
 
 const ASK_AGAIN: Duration = Duration::from_secs(1200);
 
@@ -48,9 +59,9 @@ enum Woke {
 
 fn main() -> ExitCode {
     let told: Vec<String> = std::env::args().skip(1).collect();
-    let Ok(argv) = Argv::of(&told.iter().map(String::as_str).collect::<Vec<&str>>());
+    let Ok(arguments) = Arguments::of(&told.iter().map(String::as_str).collect::<Vec<&str>>());
 
-    match run(&argv) {
+    match run(&arguments) {
         Ok(()) => ExitCode::SUCCESS,
         Err(fault) => {
             eprintln!("{fault}");
@@ -61,14 +72,14 @@ fn main() -> ExitCode {
 
 #[derive(Debug)]
 enum Untabled {
-    Unreadable(std::path::PathBuf, std::io::Error),
+    Read(std::path::PathBuf, std::io::Error),
     Unparsed(std::path::PathBuf, toml::de::Error),
 }
 
 impl std::fmt::Display for Untabled {
     fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Untabled::Unreadable(at, fault) => {
+            Untabled::Read(at, fault) => {
                 write!(to, "{} could not be read: {fault}", at.display())
             }
             Untabled::Unparsed(at, fault) => {
@@ -80,12 +91,12 @@ impl std::fmt::Display for Untabled {
 
 impl std::error::Error for Untabled {}
 
-fn run(argv: &Argv) -> Result<(), Untabled> {
+fn run(arguments: &Arguments) -> Result<(), Untabled> {
     let table = read_table()?;
-    let mut sky = Sun::opening(argv).state;
-    let Ok(mut kept) = here::Kept::none();
-    let mut told = weather::Told::default();
-    let mut answering = covered::Told::default();
+    let mut sky = Sun::init(arguments).state;
+    let Ok(mut kept) = here::CachedLocation::none();
+    let mut told = weather::Notified::default();
+    let mut answering = covered::Notified::default();
 
     let (say, woken) = channel();
 
@@ -107,7 +118,7 @@ fn run(argv: &Argv) -> Result<(), Untabled> {
             }
         }
         Going::KeepGoing => {
-            let Ok(()) = listen(say.clone());
+            let Ok(()) = subscribe(say.clone());
 
             let Ok(()) = ask_the_weather(say);
         }
@@ -127,13 +138,7 @@ fn run(argv: &Argv) -> Result<(), Untabled> {
         };
         let Ok(at) = kept.here(Instant::now());
 
-        let Ok(moon) = moon::moon(seconds);
-
-        let Ok(season) = sun::season(&at, seconds);
-
-        let Ok(band) = sun::sky(&at, seconds);
-
-        let here = Outside { moon, season, sky: band, weather: sky.weather };
+        let Ok(here) = Outside::at(&at, seconds, sky.weather);
 
         let Ok(asked) = Wanted::asked();
 
@@ -155,15 +160,15 @@ fn run(argv: &Argv) -> Result<(), Untabled> {
 
         let Ok(covered) = covered::now(&mut answering);
 
-        let looked = Heard::Looked { seconds, covered, chosen };
-        let Turn_ { now, doings } = Sun::heard(&sky, &Word::Its(looked));
+        let looked = WallpaperEvent::Looked { seconds, covered, chosen };
+        let Update { state, effects } = Sun::update(&sky, &Event::Custom(looked));
 
-        sky = now;
+        sky = state;
 
-        let Ok(mut waiting) = keeping::wake(&doings);
+        let Ok(mut waiting) = keeping::wake(&effects);
 
-        for doing in &doings {
-            let Ok(carried) = carry(&mut sky, doing);
+        for effect in &effects {
+            let Ok(carried) = carry(&mut sky, effect);
 
             match carried {
                 Carried::Stopped => return Ok(()),
@@ -181,7 +186,17 @@ fn run(argv: &Argv) -> Result<(), Untabled> {
             Ok(Woke::Weather(said)) => {
                 let Ok(()) = told_the_weather(&mut sky, said);
             }
-            Ok(Woke::Compositor) | Err(RecvTimeoutError::Timeout) => (),
+            Ok(Woke::Compositor) => {
+                for queued in woken.try_iter() {
+                    match queued {
+                        Woke::Weather(said) => {
+                            let Ok(()) = told_the_weather(&mut sky, said);
+                        }
+                        Woke::Compositor => {},
+                    }
+                }
+            }
+            Err(RecvTimeoutError::Timeout) => (),
             #[cfg_attr(
                 dylint_lib = "explicit021_no_sleeping",
                 allow(
@@ -200,25 +215,25 @@ enum Carried {
     Again(Duration),
 }
 
-fn carry(sky: &mut Sky, doing: &Doing<Its>) -> Result<Carried, Never> {
-    match doing {
-        Doing::Its(Its::Freshen(moving)) => {
-            place::freshen(moving)?;
+fn carry(sky: &mut Sky, effect: &Effect<WallpaperEffect>) -> Result<Carried, Never> {
+    match effect {
+        Effect::Custom(WallpaperEffect::Refresh(moving)) => {
+            place::refresh(moving)?;
 
             Ok(Carried::Went)
         }
 
-        Doing::Its(Its::Paint(picture)) => {
+        Effect::Custom(WallpaperEffect::Paint(picture)) => {
             let went = paint(picture)?;
 
-            let Turn_ { now, doings } = Sun::heard(
+            let Update { state, effects } = Sun::update(
                 sky,
-                &Word::Its(Heard::Painted { at: picture.clone(), went }),
+                &Event::Custom(WallpaperEvent::Rendered { at: picture.clone(), went }),
             );
 
-            *sky = now;
+            *sky = state;
 
-            let waking = keeping::wake(&doings)?;
+            let waking = keeping::wake(&effects)?;
 
             Ok(match waking {
                 Some(sooner) => Carried::Again(sooner),
@@ -226,47 +241,58 @@ fn carry(sky: &mut Sky, doing: &Doing<Its>) -> Result<Carried, Never> {
             })
         }
 
-        Doing::Stop(_) => Ok(Carried::Stopped),
+        Effect::Stop(_) => Ok(Carried::Stopped),
 
-        Doing::Its(Its::Again(_))
-        | Doing::Ask(_)
-        | Doing::Watch(_)
-        | Doing::AskWhoever(_)
-        | Doing::Start(_)
-        | Doing::Listen(_)
-        | Doing::Deafen(_)
-        | Doing::Write(_)
-        | Doing::Say(_)
-        | Doing::Print(_) => Ok(Carried::Went),
+        Effect::Custom(WallpaperEffect::Again(_))
+        | Effect::Run(_)
+        | Effect::Stream(_)
+        | Effect::Prompt(_)
+        | Effect::Spawn(_)
+        | Effect::Subscribe(_)
+        | Effect::Unsubscribe(_)
+        | Effect::Write(_)
+        | Effect::Notify(_)
+        | Effect::Print(_) => Ok(Carried::Went),
     }
 }
 
 fn told_the_weather(sky: &mut Sky, said: Option<Weather>) -> Result<(), Never> {
-    let Turn_ { now, .. } = Sun::heard(sky, &Word::Its(Heard::Weather(said)));
+    let Update { state, .. } = Sun::update(sky, &Event::Custom(WallpaperEvent::Weather(said)));
 
-    *sky = now;
+    *sky = state;
 
     Ok(())
 }
 
 fn ask_the_weather(say: Sender<Woke>) -> Result<(), Never> {
     let Ok(()) = threads::let_go(std::thread::spawn(move || {
-        let Ok(mut kept) = here::Kept::none();
-        let mut told = weather::Told::default();
+        let Ok(mut kept) = here::CachedLocation::none();
+        let mut told = weather::Notified::default();
+        let mut sooner = ASK_SOONER;
 
         loop {
             let Ok(at) = kept.here(Instant::now());
 
             let Ok(said) = weather::now(&at, &mut told);
 
-            let again = match said.is_some() {
-                true => ASK_AGAIN,
-                false => ASK_SOONER,
+            let again = match said {
+                Some(_) => {
+                    sooner = ASK_SOONER;
+
+                    ASK_AGAIN
+                }
+                None => {
+                    let waiting = sooner;
+
+                    sooner = sooner.saturating_mul(2).min(ASK_AGAIN);
+
+                    waiting
+                }
             };
 
             match say.send(Woke::Weather(said)) {
                 Ok(()) => {},
-                Err(_nobody_is_listening) => return,
+                Err(_no_one_is_listening) => return,
             }
 
             #[cfg_attr(
@@ -287,12 +313,12 @@ fn read_table() -> Result<Set, Untabled> {
     let Ok(at) = place::table();
 
     let held = std::fs::read_to_string(&at)
-        .map_err(|fault| Untabled::Unreadable(at.clone(), fault))?;
+        .map_err(|fault| Untabled::Read(at.clone(), fault))?;
 
     toml::from_str(&held).map_err(|fault| Untabled::Unparsed(at, fault))
 }
 
-fn paint(picture: &Path) -> Result<Painted, Never> {
+fn paint(picture: &Path) -> Result<Rendered, Never> {
     let Ok(mut asking) = Program::Awww.command();
 
     let told = asking
@@ -302,54 +328,56 @@ fn paint(picture: &Path) -> Result<Painted, Never> {
         .output();
 
     match told {
-        Ok(done) if done.status.success() => up(picture),
-        Ok(done) => {
-            eprintln!(
-                "the wallpaper would not take {}: {}",
-                picture.display(),
-                String::from_utf8_lossy(&done.stderr).trim()
-            );
+        Ok(done) => match done.status.success() {
+            true => up(picture),
+            false => {
+                eprintln!(
+                    "the wallpaper would not take {}: {}",
+                    picture.display(),
+                    String::from_utf8_lossy(&done.stderr).trim()
+                );
 
-            Ok(Painted::No)
-        }
+                Ok(Rendered::No)
+            }
+        },
         Err(fault) => {
             eprintln!("the wallpaper daemon could not be told: {fault}");
 
-            Ok(Painted::No)
+            Ok(Rendered::No)
         }
     }
 }
 
-fn up(picture: &Path) -> Result<Painted, Never> {
+fn up(picture: &Path) -> Result<Rendered, Never> {
     let name = match picture.to_str() {
         Some(name) => name,
-        None => return Ok(Painted::No),
+        None => return Ok(Rendered::No),
     };
 
     let Ok(mut asking) = Program::Awww.command();
 
     let said = match asking.arg("query").output() {
         Ok(said) => said,
-        Err(_fault) => return Ok(Painted::No),
+        Err(_fault) => return Ok(Rendered::No),
     };
 
     Ok(match String::from_utf8_lossy(&said.stdout).contains(name) {
-        true => Painted::Yes,
-        false => Painted::No,
+        true => Rendered::Yes,
+        false => Rendered::No,
     })
 }
 
-fn listen(say: Sender<Woke>) -> Result<(), Never> {
-    let listening = listening::listen(&[Topic::Compositor])?;
+fn subscribe(say: Sender<Woke>) -> Result<(), Never> {
+    let subscriber = subscription::connect(&[Topic::Compositor])?;
 
     let Ok(()) = threads::let_go(std::thread::spawn(move || {
-        let Ok(heard) = listening.heard();
+        let Ok(received) = subscriber.received();
 
-        for heard in heard.iter() {
-            let worth = match &heard {
-                listening::Heard::GotIn => Worth::Waking,
-                listening::Heard::Said(changed) => {
-                    let Ok(worth) = covered::worth_waking_for(&changed.said);
+        for event in received.iter() {
+            let worth = match &event {
+                Received::Connected => Worth::Waking,
+                Received::Event(change) => {
+                    let Ok(worth) = covered::worth_waking_for(&change.text);
 
                     worth
                 }
@@ -359,7 +387,7 @@ fn listen(say: Sender<Woke>) -> Result<(), Never> {
                 Worth::Waking => {
                     match say.send(Woke::Compositor) {
                         Ok(()) => {},
-                        Err(_nobody_is_listening) => return,
+                        Err(_no_one_is_listening) => return,
                     }
                 }
                 Worth::Ignoring => {},

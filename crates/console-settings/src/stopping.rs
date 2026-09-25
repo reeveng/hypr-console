@@ -1,5 +1,5 @@
 //! What a battery running out puts on the screen, and how the machine stops.
-//! Where the three steps stand is `console_default_applications::battery`,
+//! Where the three steps stand is `console_battery`,
 //! which is a setting. What each of them says, and what the last one does, is
 //! here, because it is about this machine rather than about a number.  The last
 //! one is the only part that had to be asked of the hardware. "Save everything
@@ -13,20 +13,22 @@
 //! honest half of it. The other half is why stopping is still better than the
 //! two things it might have been. Sleeping keeps the session in the memory that
 //! the battery about to run out is what powers, so a suspend at five per cent
-//! is the session lost in an hour and a hard cut when the cell empties -- and
-//! `hypridle.conf` already refuses to sleep this machine unattended, for the
-//! separate reason that nothing here has ever proved it wakes. Doing nothing is
-//! the same loss with a dirty filesystem and a cell taken to nought, which is
-//! the one thing that damages a battery rather than merely emptying it.  A
-//! device that can hibernate gets hibernation. Nothing here is written for this
-//! handheld's answer; it asks, and the card follows what it was told.
+//! is the session lost in an hour and a hard cut when the cell empties. That
+//! `hypridle.conf` does sleep this machine unattended is not an argument for
+//! sleeping it here: what that saves is the hours a full battery would have
+//! been spent awake for nothing, and this card is about the minutes a nearly
+//! empty one has left. Doing nothing is the same loss with a dirty filesystem
+//! and a cell taken to zero, which is the one thing that damages a battery
+//! rather than merely emptying it.  A device that can hibernate gets
+//! hibernation. Nothing here is written for this handheld's answer; it asks,
+//! and the card follows what it was told.
 
 use std::time::Duration;
 
-use console_default_applications::battery::Step;
+use console_battery::Step;
 use console_core_external_programs::Program;
 use console_core_never::Never;
-use console_notifications::saying::{Notice, Said};
+use console_notifications::saying::{Notification, Content};
 
 pub const GRACE: Duration = Duration::from_secs(15);
 
@@ -52,13 +54,13 @@ impl Stop {
         })
     }
 
-    pub fn argv(self) -> Result<Vec<String>, Never> {
+    pub fn arguments(self) -> Result<Vec<String>, Never> {
         let what = match self {
             Stop::Hibernate => "hibernate",
             Stop::PowerOff => "poweroff",
         };
 
-        Program::Systemctl.argv(&[what])
+        Program::Systemctl.arguments(&[what])
     }
 
     pub fn instead(self) -> Result<Option<Self>, Never> {
@@ -81,53 +83,53 @@ pub fn stop() -> Result<Stop, Never> {
     Stop::of(&said(STATE), Resume(&said(RESUME)))
 }
 
-pub fn card(step: Step, charge: i32, stop: Stop) -> Result<Notice, Never> {
+pub fn card(step: Step, charge: i32, stop: Stop) -> Result<Notification, Never> {
     let left = format!("{charge}% left.");
 
     match step {
         Step::Low => {
-            let Ok(notice) = Notice::new(Said { summary: "Battery low", body: &left });
-            let Ok(notice) = notice.lasting(6000);
+            let Ok(notification) = Notification::new(Content { summary: "Low Battery", body: &left });
+            let Ok(notification) = notification.lasting(6000);
 
-            notice.valued(i64::from(charge))
+            notification.valued(i64::from(charge))
         },
         Step::Lower => {
-            let Ok(notice) = Notice::new(Said {
-                summary: "Battery very low",
+            let Ok(notification) = Notification::new(Content {
+                summary: "Very Low Battery",
                 body: &format!("{left} Plug in soon."),
             });
-            let Ok(notice) = notice.urgent();
-            let Ok(notice) = notice.staying();
+            let Ok(notification) = notification.urgent();
+            let Ok(notification) = notification.staying();
 
-            notice.valued(i64::from(charge))
+            notification.valued(i64::from(charge))
         },
         Step::Protect => stopping(charge, stop),
     }
 }
 
-fn stopping(charge: i32, stop: Stop) -> Result<Notice, Never> {
+fn stopping(charge: i32, stop: Stop) -> Result<Notification, Never> {
     let seconds = GRACE.as_secs();
     let (summary, body) = match stop {
         Stop::Hibernate => (
-            format!("Saving and stopping in {seconds} seconds"),
-            format!("{charge}% left. Everything will be where you left it. Plug in to carry on."),
+            format!("Going to sleep in {seconds} seconds"),
+            format!("{charge}% left. Your work is kept. Plug in to keep going."),
         ),
         Stop::PowerOff => (
             format!("Shutting down in {seconds} seconds"),
-            format!("{charge}% left. Open work can't be saved. Plug in to carry on."),
+            format!("{charge}% left. Unsaved work is lost. Plug in to keep going."),
         ),
     };
-    let Ok(notice) = Notice::new(Said { summary: &summary, body: &body });
-    let Ok(notice) = notice.urgent();
-    let Ok(notice) = notice.staying();
+    let Ok(notification) = Notification::new(Content { summary: &summary, body: &body });
+    let Ok(notification) = notification.urgent();
+    let Ok(notification) = notification.staying();
 
-    notice.valued(i64::from(charge))
+    notification.valued(i64::from(charge))
 }
 
-pub fn saved() -> Result<Notice, Never> {
-    let Ok(notice) = Notice::new(Said { summary: "Plugged in", body: "Nothing was stopped." });
+pub fn saved() -> Result<Notification, Never> {
+    let Ok(notification) = Notification::new(Content { summary: "Charging", body: "Nothing was turned off." });
 
-    notice.lasting(4000)
+    notification.lasting(4000)
 }
 
 pub fn for_the_journal(charge: i32, stop: Stop) -> Result<String, Never> {
@@ -156,12 +158,12 @@ mod tests {
         let Ok(stopping) = card(Step::Protect, 5, Stop::PowerOff);
 
         assert!(stopping.summary.contains("Shutting down"), "{}", stopping.summary);
-        assert!(stopping.body.contains("can't be saved"), "{}", stopping.body);
+        assert!(stopping.body.contains("is lost"), "{}", stopping.body);
 
         let Ok(saving) = card(Step::Protect, 5, Stop::Hibernate);
 
-        assert!(saving.summary.contains("Saving"), "{}", saving.summary);
-        assert!(saving.body.contains("where you left it"), "{}", saving.body);
+        assert!(saving.summary.contains("sleep"), "{}", saving.summary);
+        assert!(saving.body.contains("is kept"), "{}", saving.body);
     }
 
     #[test]
@@ -187,7 +189,7 @@ mod tests {
 
     #[test]
     fn every_card_draws_what_is_left() {
-        for step in console_default_applications::battery::EVERY {
+        for step in console_battery::EVERY {
             let Ok(said) = card(step, 7, Stop::PowerOff);
 
             assert_eq!(said.value, Some(7));

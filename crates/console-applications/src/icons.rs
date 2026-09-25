@@ -13,10 +13,9 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use console_core_never::Never;
+use console_core_number_conversion::fitted;
 
 pub const THEMES: [&str; 5] = ["Papirus-Dark", "Papirus", "hicolor", "breeze-dark", "breeze"];
-
-const BEHIND_EVERY_THEME_WE_KNOW: usize = THEMES.len();
 
 const WHEN_NO_SIZE_IS_SAID: &str = "48";
 
@@ -26,7 +25,7 @@ pub const SMALLEST: i64 = 24;
 
 pub const PLACEHOLDER: &str = "/usr/share/icons/console-placeholder.svg";
 
-type Score = (usize, u8, i64);
+type Score = (u32, u8, i64);
 
 type Best = (Score, String);
 
@@ -39,9 +38,10 @@ pub struct Icon<'a> {
 
 pub fn rank(icon: Icon<'_>) -> Result<Option<Score>, Never> {
     let Icon { theme, size, suffix } = icon;
-    let theme = match THEMES.iter().position(|known| *known == theme) {
-        Some(at) => at,
-        None => BEHIND_EVERY_THEME_WE_KNOW,
+    let Ok(behind_every_theme_we_know) = fitted::<_, u32>(THEMES.len());
+    let theme = match (0..).zip(THEMES).find(|(_, known)| *known == theme) {
+        Some((at, _)) => at,
+        None => behind_every_theme_we_know,
     };
 
     let said = digits(size)?;
@@ -157,11 +157,16 @@ pub fn built(roots: &[PathBuf]) -> Result<BTreeMap<String, String>, Never> {
         });
 
         for (stem, (score, at)) in found {
-            match best.get(&stem) {
-                Some((already, _)) if *already <= score => {},
-                Some(_) | None => {
+            let nearer = match best.get(&stem) {
+                Some((already, _)) => score < *already,
+                None => true,
+            };
+
+            match nearer {
+                true => {
                     best.insert(stem, (score, at));
                 }
+                false => {},
             }
         }
     }
@@ -170,27 +175,30 @@ pub fn built(roots: &[PathBuf]) -> Result<BTreeMap<String, String>, Never> {
 }
 
 fn under(root: &Path) -> Result<Vec<PathBuf>, Never> {
-    let reading = match std::fs::read_dir(root) {
-        Ok(reading) => reading,
-        Err(_fault) => return Ok(Vec::new()),
-    };
-
     let mut found = Vec::new();
+    let mut waiting = listed(root)?;
 
-    for entry in reading.filter_map(Result::ok) {
-        let path = entry.path();
-
+    while let Some(path) = waiting.pop() {
         match path.is_dir() {
             true => {
-                let deeper = under(&path)?;
+                let deeper = listed(&path)?;
 
-                found.extend(deeper);
+                waiting.extend(deeper);
             }
             false => found.push(path),
         }
     }
 
     Ok(found)
+}
+
+fn listed(directory: &Path) -> Result<Vec<PathBuf>, Never> {
+    let reading = match std::fs::read_dir(directory) {
+        Ok(reading) => reading,
+        Err(_fault) => return Ok(Vec::new()),
+    };
+
+    Ok(reading.filter_map(Result::ok).map(|entry| entry.path()).collect())
 }
 
 pub fn steam_appid(name: &str) -> Result<Option<&str>, Never> {
@@ -203,6 +211,8 @@ pub fn steam_appid(name: &str) -> Result<Option<&str>, Never> {
 }
 
 pub const FALLBACKS: [&str; 3] = ["library_600x900.jpg", "logo.png", "library_header.jpg"];
+
+pub const UNPICTURED: &str = "application-x-executable";
 
 #[cfg(test)]
 mod tests {

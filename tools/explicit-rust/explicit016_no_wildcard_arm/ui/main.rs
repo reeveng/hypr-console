@@ -38,6 +38,23 @@ fn named(stage: &Stage) -> u8 {
     }
 }
 
+// BAD EXPLICIT016 — somebody else's open enum is read wide rather than asked a question.
+fn foreign(fault: &std::io::Error) -> u8 {
+    match fault.kind() {
+        std::io::ErrorKind::NotFound => 1,
+        //~v EXPLICIT016_NO_WILDCARD_ARM
+        _ => 0,
+    }
+}
+
+// GOOD — the question, asked, with both of its answers named.
+fn asked(fault: &std::io::Error) -> u8 {
+    match fault.kind() == std::io::ErrorKind::NotFound {
+        true => 1,
+        false => 0,
+    }
+}
+
 // GOOD — a wildcard over an integer is not an enum losing a variant.
 fn numbers(n: u8) -> u8 {
     match n {
@@ -52,5 +69,7 @@ fn main() {
         binding(Stage::Drawing),
         named(&Stage::Leaving),
         numbers(0),
+        foreign(&std::io::Error::other("")),
+        asked(&std::io::Error::other("")),
     );
 }

@@ -1,24 +1,24 @@
 //! What the short-road radio was doing before the machine left for Steam.
 //!
-//! `/etc/bluetooth/main.conf` says the radio stays off until somebody asks,
-//! because a radio nobody is listening to is a radio spending a battery, and
+//! `/etc/bluetooth/main.conf` says the radio stays off until someone asks,
+//! because a radio no one is listening to is a radio spending a battery, and
 //! that once it has been asked for it stays on. Game Mode is the hole in that
 //! sentence. Steam powers the adapter down a second after it comes up, and
-//! coming back put nothing back: a keyboard somebody was typing on, gone, with
+//! coming back put nothing back: a keyboard someone was typing on, gone, with
 //! nothing on the screen saying who took it. The journal says it plainly --
 //! `btd_adv_monitor_power_down` one second after `steam`, and nothing after it
-//! until somebody reached for the tab.
+//! until someone reached for the tab.
 //!
 //! So what it was is written down on the way out and put back on the way in.
 //! One way round only: a radio the person turned off before leaving is one
 //! they turned off, and Steam's own power-down is not an answer worth keeping.
-//! A radio somebody turned on in Game Mode is theirs as well, and comes back
+//! A radio someone turned on in Game Mode is theirs as well, and comes back
 //! on.
 //!
 //! Under the runtime directory rather than the state directory, and that is
 //! the whole of what keeps the policy. What is written there is gone at the
 //! next boot, so a machine shut down from Game Mode comes up with the radio
-//! off, the way a machine nobody has asked yet is supposed to.
+//! off, the way a machine no one has asked yet is supposed to.
 //!
 //! The word `Powered` is bluez's and is spelled in two other crates -- the
 //! settings tab, which offers the row that turns it on, and the bar, which
@@ -60,7 +60,7 @@ impl Radio {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Unkept {
     Unasked(String),
-    Unreadable(String),
+    Read(String),
     Unwritten(String),
 }
 
@@ -68,7 +68,7 @@ impl fmt::Display for Unkept {
     fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Unkept::Unasked(why) => write!(to, "bluez would not say whether the radio is on: {why}"),
-            Unkept::Unreadable(why) => write!(to, "what the radio was doing: {why}"),
+            Unkept::Read(why) => write!(to, "what the radio was doing: {why}"),
             Unkept::Unwritten(why) => write!(to, "writing down what the radio is doing: {why}"),
         }
     }
@@ -129,9 +129,9 @@ pub fn remembered(runtime: &Path) -> Result<Option<Radio>, Unkept> {
     let Ok(held) = console_core_atomic_writes::read(&at);
 
     match held {
-        console_core_atomic_writes::Held::Nothing => Ok(None),
-        console_core_atomic_writes::Held::Unreadable(why) => Err(Unkept::Unreadable(why)),
-        console_core_atomic_writes::Held::Said(said) => {
+        console_core_atomic_writes::Stored::Absent => Ok(None),
+        console_core_atomic_writes::Stored::Failed(why) => Err(Unkept::Read(why)),
+        console_core_atomic_writes::Stored::Text(said) => {
             let Ok(radio) = Radio::of_word(&said);
 
             Ok(radio)
@@ -144,8 +144,10 @@ pub fn forget(runtime: &Path) -> Result<(), Unkept> {
 
     match std::fs::remove_file(&at) {
         Ok(()) => Ok(()),
-        Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(fault) => Err(Unkept::Unreadable(fault.to_string())),
+        Err(fault) => match fault.kind() == std::io::ErrorKind::NotFound {
+            true => Ok(()),
+            false => Err(Unkept::Read(fault.to_string())),
+        },
     }
 }
 
@@ -165,7 +167,7 @@ mod tests {
     }
 
     #[test]
-    fn a_radio_steam_turned_off_comes_back_and_one_somebody_turned_off_does_not() {
+    fn a_radio_steam_turned_off_comes_back_and_one_someone_turned_off_does_not() {
         let Ok(bluetoothctl) = Program::Bluetoothctl.name();
         let on = vec![bluetoothctl.to_string(), "power".to_string(), "on".to_string()];
 

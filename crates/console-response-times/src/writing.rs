@@ -5,7 +5,7 @@
 //! of it is not: the first line a process writes has to make the directory,
 //! open the file and ask how long it already is, and every line after it pays
 //! for a `write` on the thread that has just finished drawing a window and is
-//! about to draw the next one. On a handheld that is the frame somebody sees.
+//! about to draw the next one. On a handheld that is the frame someone sees.
 //!
 //! So nothing on the timed thread touches the disk. It renders the line, hands
 //! it to a queue and goes back to what it was doing; one thread per process,
@@ -28,7 +28,7 @@
 //! whose whole run is one wait -- going to Game Mode, coming back, the desktop
 //! starting -- calls `settled` before it returns, which waits for the queue to
 //! empty and no longer. A panel does not need to: it writes its opening and
-//! then stays up for as long as somebody is looking at it.
+//! then stays up for as long as someone is looking at it.
 //!
 //! ## When the file is long
 //!
@@ -44,15 +44,15 @@ use std::sync::OnceLock;
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 
 use console_core_never::Never;
-use console_core_number_conversion::fitted;
+use console_core_number_conversion::{fitted, index};
 
 use crate::where_;
 
 pub const CAP: u64 = 10 << 30;
 
-const QUEUE: usize = 4096;
+const QUEUE: u32 = 4096;
 
-enum Asked {
+enum Message {
     Line(String),
     Settled(SyncSender<()>),
 }
@@ -73,7 +73,7 @@ pub fn line(said: &str) -> Result<(), Never> {
         }
     };
 
-    match say.try_send(Asked::Line(whole.clone())) {
+    match say.try_send(Message::Line(whole.clone())) {
         Ok(()) => {}
         Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {
             let Ok(()) = by_hand(&whole);
@@ -93,7 +93,7 @@ pub fn settled() -> Result<(), Never> {
 
     let (told, back) = sync_channel(0);
 
-    match say.send(Asked::Settled(told)) {
+    match say.send(Message::Settled(told)) {
         Ok(()) => {
             let _ = back.recv();
         }
@@ -103,7 +103,7 @@ pub fn settled() -> Result<(), Never> {
     Ok(())
 }
 
-fn writer() -> Result<Option<&'static SyncSender<Asked>>, Never> {
+fn writer() -> Result<Option<&'static SyncSender<Message>>, Never> {
     #[cfg_attr(
         dylint_lib = "explicit044_no_ambient_value",
         allow(
@@ -111,7 +111,7 @@ fn writer() -> Result<Option<&'static SyncSender<Asked>>, Never> {
             reason = "one thread per process holds the file open for the life of it, which is what this crate's head argues for: the queue is what every timed thread hands a line to, and a sender held by any one of them would be a sender the next one cannot find"
         )
     )]
-    static WRITER: OnceLock<Option<SyncSender<Asked>>> = OnceLock::new();
+    static WRITER: OnceLock<Option<SyncSender<Message>>> = OnceLock::new();
 
     let held = WRITER.get_or_init(|| {
         let Ok(started) = start();
@@ -122,8 +122,9 @@ fn writer() -> Result<Option<&'static SyncSender<Asked>>, Never> {
     Ok(held.as_ref())
 }
 
-fn start() -> Result<Option<SyncSender<Asked>>, Never> {
-    let (say, heard) = sync_channel(QUEUE);
+fn start() -> Result<Option<SyncSender<Message>>, Never> {
+    let Ok(queue) = index(QUEUE);
+    let (say, heard) = sync_channel(queue);
 
     let Ok(at) = where_();
 
@@ -146,17 +147,17 @@ fn start() -> Result<Option<SyncSender<Asked>>, Never> {
     }
 }
 
-fn keep(heard: &Receiver<Asked>, at: &Path) -> Result<(), Never> {
+fn keep(heard: &Receiver<Message>, at: &Path) -> Result<(), Never> {
     let mut store: Option<Store> = None;
 
     for asked in heard {
         match asked {
-            Asked::Line(said) => {
+            Message::Line(said) => {
                 let Ok(held) = written(store, at, &said);
 
                 store = held;
             }
-            Asked::Settled(told) => {
+            Message::Settled(told) => {
                 let _ = told.send(());
             }
         }
@@ -318,9 +319,9 @@ mod tests {
         let (say, heard) = sync_channel(8);
         let there = at.clone();
         let thread = std::thread::spawn(move || keep(&heard, &there));
-        say.send(Asked::Line("one\n".to_string())).expect("a queue with room in it");
+        say.send(Message::Line("one\n".to_string())).expect("a queue with room in it");
         let (told, back) = sync_channel(0);
-        say.send(Asked::Settled(told)).expect("a queue with room in it");
+        say.send(Message::Settled(told)).expect("a queue with room in it");
         back.recv().expect("the thread says when it has caught up");
         assert_eq!(std::fs::read_to_string(&at).unwrap_or_default(), "one\n");
         drop(say);

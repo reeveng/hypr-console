@@ -2,7 +2,7 @@
 //! it.
 //!
 //! Nothing here has a machine. What this device can send and what the table
-//! says are both handed in, so the screen somebody sees on a handheld that has
+//! says are both handed in, so the screen someone sees on a handheld that has
 //! never existed can be asked for on a laptop.
 //!
 //! One page per input, and the same rows on each. A job is a job whichever
@@ -10,36 +10,41 @@
 //! walk from the controller to the keyboard -- only what it says beside each
 //! row. That is why `parts` takes an input rather than returning everything at
 //! once: a row showing a button and a chord and a key all at the same time is a
-//! row nobody can read on a screen this size, and a person changing what a key
+//! row no one can read on a screen this size, and a person changing what a key
 //! does is not thinking about the pad while they do it.
 
 use std::collections::BTreeMap;
 
-use console_input_controller::means::{Table, ours};
+use console_input_controller::actions::{Action, ButtonPress, Table, ours};
+use console_input_controller::effect::Effect;
 use console_input_gamepad::devices::Has;
 use console_input_gamepad::front::Front;
 use console_input_gamepad::vocabulary::{self, Names, button_name, spoken_for};
 use console_input_bindings::bound::{Binding, Input, Played};
 use console_core_never::Never;
-use console_panel::page::{Aside, Does, Row};
+use console_panel::page::{Aside, Handler, Row};
 
-pub const NOWHERE: &str = "not on this device";
+pub const NOWHERE: &str = "Not available";
 
-pub const UNPLAYED_ON_THE_PAD: &str = "no button";
+pub const UNPLAYED_ON_THE_PAD: &str = "None";
 
-pub const UNPLAYED_ON_A_KEYBOARD: &str = "no key";
+pub const UNPLAYED_ON_A_KEYBOARD: &str = "None";
 
-pub const PUT_BACK: &str = "Put every button back";
+pub const PUT_BACK: &str = "Reset All Buttons";
 
-pub const PUT_BACK_ASIDE: &str = "undoes every move";
-pub const PUT_BACK_SURE: &str = "Put every button back where it started?";
-pub const PUT_BACK_YES: &str = "Put back";
+pub const PUT_BACK_ASIDE: &str = "Restores the defaults";
+pub const PUT_BACK_SURE: &str = "Reset all buttons to their defaults?";
+pub const PUT_BACK_YES: &str = "Reset";
 
-pub const WAITING_ON_THE_PAD: &str =
-    "hold anything you want held first, or wait and nothing moves";
+pub const ADD_ON_THE_PAD: &str = "Add Button";
 
-pub const WAITING_ON_A_KEYBOARD: &str =
-    "hold Super, Ctrl, Shift or Alt first, or wait and nothing moves";
+pub const ADD_ON_A_KEYBOARD: &str = "Add Shortcut";
+
+pub const REMOVE: &str = "Remove";
+
+pub const WAITING_ON_THE_PAD: &str = "Hold a button to combine, or wait to cancel";
+
+pub const WAITING_ON_A_KEYBOARD: &str = "Hold Super, Ctrl, Shift or Alt, or wait to cancel";
 
 pub fn tabs() -> Result<Vec<&'static str>, Never> {
     let mut tabs = Vec::new();
@@ -62,6 +67,7 @@ pub struct Plays {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Part {
     pub slug: String,
+    pub action: Action,
     pub does: String,
     pub on: Input,
     pub plays: Vec<Plays>,
@@ -149,7 +155,7 @@ pub fn parts(table: &Table, front: &Front, on: Input) -> Result<Vec<Part>, Never
         .map(|(job, bound)| {
             let Ok(defaults) = ours(job);
             let mine: Vec<&Binding> = bound.iter().filter(|one| one.on == on).collect();
-            let Ok(says) = job.what.says();
+            let Ok(says) = job.action.says();
             let Ok(does) = capitalised(says);
             let moved = mine.iter().map(|one| (*one).clone()).collect::<Vec<Binding>>()
                 != defaults
@@ -160,6 +166,7 @@ pub fn parts(table: &Table, front: &Front, on: Input) -> Result<Vec<Part>, Never
 
             Part {
                 slug: job.slug.to_string(),
+                action: job.action,
                 does,
                 on,
                 plays: mine
@@ -180,9 +187,9 @@ pub fn parts(table: &Table, front: &Front, on: Input) -> Result<Vec<Part>, Never
         let Ok(here) = part.here();
 
         match (played, here) {
-            (Played::ByAPress, Has::No) => 0,
-            (Played::ByNothing, _) => 1,
-            (Played::ByAPress, Has::Yes) => 2,
+            (Played::ByAPress, Has::Yes) => 0,
+            (Played::ByAPress, Has::No) => 1,
+            (Played::ByNothing, _) => 2,
         }
     });
 
@@ -253,7 +260,7 @@ fn split(named: &str) -> Result<String, Never> {
     Ok(said)
 }
 
-pub fn rows(parts: &[Part], moving: impl Fn(&Part) -> Does, putting_back: Does) -> Result<Vec<Row>, Never> {
+pub fn rows(parts: &[Part], made: impl Fn(&Part) -> Row, putting_back: Handler) -> Result<Vec<Row>, Never> {
     let mut rows: Vec<Row> = Vec::new();
 
     match parts.iter().any(|part| part.moved) {
@@ -265,21 +272,74 @@ pub fn rows(parts: &[Part], moving: impl Fn(&Part) -> Does, putting_back: Does) 
         false => {}
     }
 
-    rows.extend(parts.iter().map(|part| {
-        let Ok(aside) = part.aside();
-        let Ok(row) = Row::new(&part.does, Aside(&aside), moving(part));
+    rows.extend(parts.iter().map(made));
 
-        row
-    }));
     Ok(rows)
 }
 
+pub fn row(part: &Part) -> Result<Row, Never> {
+    let Ok(aside) = part.aside();
+    let Ok(runs) = runs(part.action);
+
+    match runs {
+        Some(arguments) => Row::new(&part.does, Aside(&aside), Handler::Run(arguments)),
+        None => Row::said(&part.does, Aside(&aside)),
+    }
+}
+
+pub fn runs(action: Action) -> Result<Option<Vec<String>>, Never> {
+    let tapped = match action == Action::PutAway {
+        true => Action::CloseWindow,
+        false => action,
+    };
+    let Ok(does) = tapped.does(ButtonPress::Down);
+
+    let doing = match does {
+        Some(doing) => doing,
+        None => return Ok(None),
+    };
+
+    Ok(match doing {
+        Effect::Run(arguments) => Some(arguments),
+        Effect::Frame(_) | Effect::Tell(_) | Effect::Using(_) => None,
+    })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Choice {
+    Add,
+    Remove(Binding),
+}
+
+pub fn choices(part: &Part) -> Result<Vec<(String, Choice)>, Never> {
+    let adding = match part.on {
+        Input::Pad => ADD_ON_THE_PAD,
+        Input::Keyboard => ADD_ON_A_KEYBOARD,
+    };
+    let mut choices = vec![(adding.to_string(), Choice::Add)];
+
+    for one in &part.plays {
+        let Ok(played) = one.binding.played();
+
+        match played {
+            Played::ByAPress => {
+                let Ok(said) = aloud(&one.binding);
+
+                choices.push((format!("{REMOVE} {said}"), Choice::Remove(one.binding.clone())));
+            }
+            Played::ByNothing => {},
+        }
+    }
+
+    Ok(choices)
+}
+
 pub fn question(part: &Part) -> Result<String, Never> {
-    let Ok(does) = lowered(&part.does);
+    let does = &part.does;
 
     Ok(match part.on {
-        Input::Pad => format!("Press the button for {does}"),
-        Input::Keyboard => format!("Press the keys for {does}"),
+        Input::Pad => format!("Press a button for \u{201c}{does}\u{201d}"),
+        Input::Keyboard => format!("Press keys for \u{201c}{does}\u{201d}"),
     })
 }
 
@@ -308,7 +368,7 @@ mod tests {
     use super::*;
     use std::collections::BTreeSet;
 
-    use console_input_bindings::moved::Jobs;
+    use console_input_bindings::moved::Tasks;
     use console_input_gamepad::vocabulary::capability_of;
 
     fn ordinary() -> Front {
@@ -327,9 +387,9 @@ mod tests {
         Front { capabilities: Some(has), touchscreen: Some(false) }
     }
 
-    fn runs() -> Does {
+    fn runs() -> Handler {
         let Ok(name) = Program::True.name();
-        let Ok(does) = Does::run(&[name]);
+        let Ok(does) = Handler::run(&[name]);
 
         does
     }
@@ -341,7 +401,7 @@ mod tests {
     }
 
     fn moved(said: &str) -> Table {
-        let Ok(table) = Table::of(&Jobs::read(said).expect("a table"));
+        let Ok(table) = Table::of(&Tasks::read(said).expect("a table"));
 
         table
     }
@@ -388,8 +448,14 @@ mod tests {
         asked
     }
 
-    fn rows(parts: &[Part], moving: impl Fn(&Part) -> Does, putting_back: Does) -> Vec<Row> {
-        let Ok(rows) = super::rows(parts, moving, putting_back);
+    fn made(part: &Part) -> Row {
+        let Ok(row) = super::row(part);
+
+        row
+    }
+
+    fn rows(parts: &[Part], putting_back: Handler) -> Vec<Row> {
+        let Ok(rows) = super::rows(parts, made, putting_back);
 
         rows
     }
@@ -409,7 +475,7 @@ mod tests {
         let parts = parts(&ours(), &Front::default());
         let menu = named(&parts, "menu");
 
-        assert_eq!(menu.does, "The menu");
+        assert_eq!(menu.does, "Open the menu");
         assert_eq!(aside(menu), "left paddle top");
         assert!(!menu.moved);
     }
@@ -488,11 +554,53 @@ mod tests {
     }
 
     #[test]
-    fn what_this_device_has_not_got_is_at_the_top() {
+    fn what_plays_something_comes_first_and_a_job_with_nothing_on_it_last() {
         let parts = parts(&ours(), &ordinary());
+        let order: Vec<(Played, Has)> = parts.iter().map(|part| (played(part), here(part))).collect();
+        assert_eq!(order.first(), Some(&(Played::ByAPress, Has::Yes)), "{order:?}");
+        assert!(
+            order.iter().skip_while(|one| one.0 != Played::ByNothing).all(|one| *one != (Played::ByAPress, Has::No)),
+            "{order:?}"
+        );
+        assert_eq!(order.last().map(|one| one.0), Some(Played::ByNothing));
+    }
 
-        assert_eq!(parts.first().map(here), Some(Has::No));
-        assert_eq!(parts.last().map(here), Some(Has::Yes));
+    #[test]
+    fn a_page_opens_on_what_is_bound_rather_than_on_a_screen_of_nothing() {
+        let front = Front::default();
+
+        for on in [parts(&ours(), &front), typed(&ours(), &front)] {
+            assert_eq!(on.first().map(played), Some(Played::ByAPress));
+        }
+    }
+
+    #[test]
+    fn a_row_does_what_it_names_and_the_paddle_closes_the_window_behind_the_panel() {
+        let parts = parts(&ours(), &Front::default());
+        let Ok(files) = super::runs(Action::Files);
+        let Ok(put_away) = super::runs(Action::PutAway);
+        let Ok(close) = super::runs(Action::CloseWindow);
+
+        assert_eq!(files, Some(vec!["/usr/local/bin/files".to_string()]));
+        assert_eq!(put_away, close);
+        assert!(put_away.is_some());
+        assert!(made(named(&parts, "files")).does.is_some());
+        assert!(made(named(&parts, "back")).does.is_none(), "going back is only a press");
+    }
+
+    #[test]
+    fn y_offers_to_add_and_to_remove_each_place_a_job_is_played() {
+        let parts = parts(&ours(), &Front::default());
+        let Ok(keyboard) = choices(named(&parts, "keyboard"));
+        let Ok(terminal) = choices(named(&parts, "terminal"));
+        let said: Vec<&str> = keyboard.iter().map(|(said, _)| said.as_str()).collect();
+
+        assert_eq!(said, [ADD_ON_THE_PAD, "Remove x", "Remove keyboard"]);
+        assert_eq!(terminal, [(ADD_ON_THE_PAD.to_string(), Choice::Add)], "nothing to remove");
+
+        let Ok(typed) = choices(named(&typed(&ours(), &Front::default()), "terminal"));
+
+        assert_eq!(typed.first().map(|(said, _)| said.as_str()), Some(ADD_ON_A_KEYBOARD));
     }
 
     #[test]
@@ -518,27 +626,27 @@ mod tests {
 
         assert_eq!(
             question(named(&parts(&ours(), &front), "menu")),
-            "Press the button for the menu"
+            "Press a button for \u{201c}Open the menu\u{201d}"
         );
         assert_eq!(
             question(named(&typed(&ours(), &front), "menu")),
-            "Press the keys for the menu"
+            "Press keys for \u{201c}Open the menu\u{201d}"
         );
     }
 
     #[test]
     fn the_card_says_what_can_be_held() {
         assert!(WAITING_ON_A_KEYBOARD.contains("Super") && WAITING_ON_A_KEYBOARD.contains("Ctrl"));
-        assert!(WAITING_ON_THE_PAD.contains("held"));
+        assert!(WAITING_ON_THE_PAD.contains("Hold"));
     }
 
     #[test]
     fn putting_it_all_back_is_the_first_row_once_something_has_moved() {
-        let plain = rows(&parts(&ours(), &ordinary()), |_| runs(), runs());
+        let plain = rows(&parts(&ours(), &ordinary()), runs());
 
         assert_ne!(plain.first().map(|row| row.says.clone()), Some(PUT_BACK.to_string()));
 
-        let after = rows(&parts(&moved("[jobs]\nmenu = \"a\"\n"), &ordinary()), |_| runs(), runs());
+        let after = rows(&parts(&moved("[jobs]\nmenu = \"a\"\n"), &ordinary()), runs());
 
         assert_eq!(after.len(), plain.len().saturating_add(1));
         assert_eq!(after.first().map(|row| row.says.clone()), Some(PUT_BACK.to_string()));
@@ -556,7 +664,7 @@ mod tests {
 
     #[test]
     fn a_job_left_with_no_button_is_something_to_put_back() {
-        let rows = rows(&parts(&moved("[jobs]\nmenu = \"\"\n"), &ordinary()), |_| runs(), runs());
+        let rows = rows(&parts(&moved("[jobs]\nmenu = \"\"\n"), &ordinary()), runs());
 
         assert_eq!(rows.first().map(|row| row.says.clone()), Some(PUT_BACK.to_string()));
     }

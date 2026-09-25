@@ -4,7 +4,7 @@
 //! names, and in a debug build that is gigabytes of unstripped binary; written
 //! out with `std::fs::copy` it was gigabytes off the disk and back onto it for
 //! every session, and a laptop with a thousand of them left on it had thirty-six
-//! gigabytes of stages nobody had looked at. `FICLONE` is the same file with the
+//! gigabytes of stages no one had looked at. `FICLONE` is the same file with the
 //! same path and its own inode, sharing the extents it came from until something
 //! writes, so a stage costs what its names cost and the writing that follows
 //! cannot reach `target/`. A filesystem that cannot share extents says so and
@@ -16,6 +16,7 @@
 
 
 use console_core_ini_files::Under;
+use console_manifest_engine::modes;
 use console_core_geometry::Size;
 use console_core_never::Never;
 use console_core_number_conversion::{Float, toward_zero_u32};
@@ -29,32 +30,21 @@ use crate::{HOME, Unnested, nested, root, screen, session, stage};
 
 pub const ROOM: f64 = 0.9;
 
-pub fn mode_of(live: &str, head: &[u8]) -> Result<u32, Never> {
-    Ok(match live {
-        path if path.contains("/bin/") || path.contains("/sbin/") => 0o755,
-        _ => match head {
-            [b'#', b'!', ..] | [0x7f, b'E', b'L', b'F', ..] => 0o755,
-            _ => 0o644,
-        },
-    })
-}
-
-pub fn walk(at: &Path) -> Result<Vec<PathBuf>, Never> {
+pub fn walk(root: &Path) -> Result<Vec<PathBuf>, Never> {
     let mut found = Vec::new();
+    let mut waiting = vec![root.to_path_buf()];
 
-    let entries = match std::fs::read_dir(at) {
-        Ok(entries) => entries,
-        Err(_fault) => return Ok(found),
-    };
+    while let Some(folder) = waiting.pop() {
+        let entries = match std::fs::read_dir(&folder) {
+            Ok(entries) => entries,
+            Err(_fault) => continue,
+        };
 
-    for path in entries.flatten().map(|entry| entry.path()) {
-        match path.is_dir() && !path.is_symlink() {
-            true => {
-                let Ok(under) = walk(&path);
-
-                found.extend(under);
+        for path in entries.flatten().map(|entry| entry.path()) {
+            match path.is_dir() && !path.is_symlink() {
+                true => waiting.push(path),
+                false => found.push(path),
             }
-            false => found.push(path),
         }
     }
 
@@ -108,23 +98,27 @@ fn head_of(at: &Path) -> std::io::Result<Vec<u8>> {
     Ok(head)
 }
 
-fn copied(from: &Path, to: &Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(to)?;
+fn copied(root: &Path, into: &Path) -> std::io::Result<()> {
+    let mut waiting = vec![(root.to_path_buf(), into.to_path_buf())];
 
-    let listed = std::fs::read_dir(from)?;
+    while let Some((from, to)) = waiting.pop() {
+        std::fs::create_dir_all(&to)?;
 
-    for entry in listed.flatten() {
-        let (source, target) = (entry.path(), to.join(entry.file_name()));
+        let listed = std::fs::read_dir(&from)?;
 
-        match (source.is_symlink(), source.is_dir()) {
-            (true, _) => {
-                let at = std::fs::read_link(&source)?;
-                let _ = std::fs::remove_file(&target);
-                std::os::unix::fs::symlink(at, &target)?;
-            }
-            (_, true) => copied(&source, &target)?,
-            _ => {
-                let _shared = cloned(&source, &target)?;
+        for entry in listed.flatten() {
+            let (source, target) = (entry.path(), to.join(entry.file_name()));
+
+            match (source.is_symlink(), source.is_dir()) {
+                (true, _) => {
+                    let at = std::fs::read_link(&source)?;
+                    let _ = std::fs::remove_file(&target);
+                    std::os::unix::fs::symlink(at, &target)?;
+                }
+                (_, true) => waiting.push((source, target)),
+                _ => {
+                    let _shared = cloned(&source, &target)?;
+                }
             }
         }
     }
@@ -149,7 +143,7 @@ pub fn built() -> Result<Vec<(String, PathBuf)>, Never> {
 
     let Ok(root) = root();
 
-    let at = root.join("desktop.conf");
+    let at = root.join(console_repository::MARK);
     let held = match std::fs::read_to_string(&at) {
         Ok(held) => held,
         Err(fault) => {
@@ -211,16 +205,15 @@ fn rewritten(said: &str, here: Here<'_>) -> Result<String, Never> {
 }
 
 pub fn room_here(go: &console_screen::Screen) -> Result<Size<u32>, Never> {
-    let said = match console_compositor::asked(console_compositor::Asked::Monitors) {
-        Ok(said) => said,
+    let monitors = match console_compositor::query(console_compositor::Query::Monitors) {
+        Ok(console_compositor::Answer::Monitors(monitors)) => monitors,
+        Ok(_not_what_was_asked) => Vec::new(),
         Err(_no_compositor_here) => {
             let Ok(pixels) = go.pixels();
 
             return Ok(pixels);
         }
     };
-
-    let Ok(monitors) = console_compositor::monitors(&said);
 
     let logical = |monitor: &console_compositor::Monitor| {
         let (wide, tall) = monitor.size?;
@@ -235,14 +228,16 @@ pub fn room_here(go: &console_screen::Screen) -> Result<Size<u32>, Never> {
         (f64::max(held.0, room.0), f64::max(held.1, room.1))
     });
 
-    Ok(match largest {
-        (wide, tall) if wide.is_finite() && tall.is_finite() => {
+    let (wide, tall) = largest;
+
+    Ok(match wide.is_finite() && tall.is_finite() {
+        true => {
             let Ok(wide) = toward_zero_u32(wide * ROOM);
             let Ok(tall) = toward_zero_u32(tall * ROOM);
 
-            Size { wide, tall }
+            Size { width: wide, height: tall }
         }
-        _ => {
+        false => {
             let Ok(pixels) = go.pixels();
 
             pixels
@@ -251,7 +246,7 @@ pub fn room_here(go: &console_screen::Screen) -> Result<Size<u32>, Never> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Told {
+pub enum Verbosity {
     Aloud,
     Quietly,
 }
@@ -262,7 +257,7 @@ pub enum Screen {
     InAWindow,
 }
 
-pub fn staged(told: Told, headless: Screen, wallpaper: Wallpaper) -> Result<PathBuf, Unnested> {
+pub fn staged(told: Verbosity, headless: Screen, wallpaper: Wallpaper) -> Result<PathBuf, Unnested> {
     let Ok(()) = session::swept();
     let Ok(here) = stage();
 
@@ -330,12 +325,12 @@ pub fn staged(told: Told, headless: Screen, wallpaper: Wallpaper) -> Result<Path
             Ok(under) => under.display().to_string(),
             Err(_outside_the_stage) => path.display().to_string(),
         };
-        let Ok(mode) = mode_of(&format!("/{live}"), &head);
+        let Ok(mode) = modes::of(&format!("/{live}"), &head);
         let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode));
     }
 
     let go = screen()?;
-    let Ok(ours) = console_core_places::Base::Config.ours_under(&here.join("home"));
+    let Ok(ours) = console_core_places::Base::Configuration.ours_under(&here.join("home"));
 
     let device_config = ours.join("hypr/hyprland.lua");
     let at_scale = match headless {
@@ -344,10 +339,10 @@ pub fn staged(told: Told, headless: Screen, wallpaper: Wallpaper) -> Result<Path
             let Ok(room) = room_here(&go);
             let Ok(cut) = go.cut_to(room);
 
-            match told == Told::Aloud && (cut - go.scale).abs() > f64::EPSILON {
+            match told == Verbosity::Aloud && (cut - go.scale).abs() > f64::EPSILON {
                 true => {
                     let Ok(pixels) = go.pixels();
-                    let (wide, tall) = (pixels.wide, pixels.tall);
+                    let (wide, tall) = (pixels.width, pixels.height);
 
                     eprintln!(
                         "this screen cannot hold {wide}x{tall}, so the window is at a scale of \
@@ -375,7 +370,7 @@ pub fn staged(told: Told, headless: Screen, wallpaper: Wallpaper) -> Result<Path
     };
     let config = ours.join("hypr/nested.lua");
     let Ok(nested) = nested::config(
-        nested::Said { screen: &said, device: &device_config.display().to_string() },
+        nested::Names { screen: &said, device: &device_config.display().to_string() },
         wallpaper,
     );
 
@@ -383,8 +378,8 @@ pub fn staged(told: Told, headless: Screen, wallpaper: Wallpaper) -> Result<Path
         .map_err(unwritten("the nested config"))?;
 
     match told {
-        Told::Aloud => println!("staged in {}", here.display()),
-        Told::Quietly => {},
+        Verbosity::Aloud => println!("staged in {}", here.display()),
+        Verbosity::Quietly => {},
     }
 
     Ok(config)
@@ -415,13 +410,6 @@ pub fn environment() -> Result<Vec<(String, String)>, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn anything_under_bin_is_staged_able_to_run() {
-        assert_eq!(mode_of("/usr/local/bin/launcher", b"#!/b"), Ok(0o755));
-        assert_eq!(mode_of("/usr/local/lib/console/palette.sh", b"#!/b"), Ok(0o755));
-        assert_eq!(mode_of("/home/@user@/.config/console/hypr/hyprland.lua", b"-- a"), Ok(0o644));
-    }
 
     #[test]
     fn the_stage_starts_the_keyboard_the_unit_starts_and_from_inside_the_stage() {

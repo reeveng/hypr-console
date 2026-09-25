@@ -4,14 +4,14 @@
 //! environment is the one thing `console_device::migrating` may not do. The
 //! top of the tree is found here for the same reason: what is pushed is this
 //! checkout's history, and `git` run from three directories down would push
-//! somebody else's.
+//! someone else's.
 
 use std::process::ExitCode;
 
 use console_device::migrating::Migrate;
-use console_device::naming::device;
-use console_program_contract::Argv;
-use console_program_runtime::Nothing;
+use console_device_name::device;
+use console_program_contract::Arguments;
+use console_program_runtime::Pure;
 
 #[cfg_attr(
     dylint_lib = "explicit044_no_ambient_value",
@@ -51,11 +51,11 @@ fn main() -> ExitCode {
         }
     }
 
-    let Ok(argv) = Argv::of(&given);
-    let Ok(how) = console_program_runtime::run::<Migrate, Nothing>(
+    let Ok(arguments) = Arguments::of(&given);
+    let Ok(how) = console_program_runtime::run::<Migrate, Pure>(
         "console-migrate",
-        &argv,
-        &mut Nothing,
+        &arguments,
+        &mut Pure,
     );
 
     how

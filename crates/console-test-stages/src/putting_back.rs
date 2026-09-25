@@ -1,6 +1,6 @@
 //! What was true on the machine before a run, and putting it back after.
 //!
-//! A device run is minutes of somebody's handheld doing things by itself, and
+//! A device run is minutes of someone's handheld doing things by itself, and
 //! every one of those things is a change to a machine that was lent rather
 //! than given. It moves between workspaces, it opens a window so there is
 //! something to carry, it turns the screen up and the sound down. Until this
@@ -19,13 +19,13 @@
 //!
 //! The arithmetic is kept away from the machine on purpose. `wanted` is handed
 //! what was found, what is true now, and what the run opened, and answers with
-//! a list of doings; carrying them out is a walk over that list and decides
+//! a list of effects; carrying them out is a walk over that list and decides
 //! nothing. So what a run would put back can be asked twice and answered the
 //! same way, and it is pressed in `cargo test` with no device anywhere near
 //! it.
 //!
 //! Nothing is put back that the machine would not say. A brightness that could
-//! not be read is not a brightness of nought, and a run that treated it as one
+//! not be read is not a brightness of zero, and a run that treated it as one
 //! would hand back a black screen -- the `unwrap_or_default` fault wearing a
 //! different hat, and the whole reason `Level` has a word for the machine
 //! saying nothing. The same goes for a workspace or a profile with no name:
@@ -35,17 +35,17 @@
 //! is on the way the file declares it -- `Router`, `Game` -- and
 //! `controller-profile` is asked for it in the word it takes, which is that
 //! name in lower case; `worn_as` is where the two meet, so a profile put back
-//! is loaded rather than silently refused as a word nobody knows.
+//! is loaded rather than silently refused as a word no one knows.
 //!
 //! What it cannot put back it does not pretend to. A window the run closed is
 //! gone, which is why nothing here closes a window it did not open and why
-//! `030` opens its own to close. A file somebody's program wrote is theirs,
+//! `030` opens its own to close. A file someone's program wrote is theirs,
 //! which is why the screenshot check takes away the picture it made rather
 //! than this sweeping a folder it does not own.
 
 use console_core_never::Never;
 
-use crate::device::{Device, Level, PATIENCE, Seen, Waited};
+use crate::device::{Device, Level, PATIENCE, Ready, Outcome};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Found {
@@ -53,7 +53,7 @@ pub struct Found {
     pub brightness: Level,
     pub volume: Level,
     pub profile: String,
-    pub keyboard: Seen,
+    pub keyboard: Ready,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,7 +63,7 @@ pub enum Show {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Putting {
+pub enum Restore {
     Close(String),
     Keyboard(Show),
     Brightness(i64),
@@ -72,24 +72,24 @@ pub enum Putting {
     Workspace(String),
 }
 
-impl Putting {
+impl Restore {
     pub fn said(&self) -> Result<String, Never> {
         Ok(match self {
-            Putting::Close(which) => format!("the window it opened at {which}"),
-            Putting::Keyboard(Show::Up) => "the keyboard (up)".to_string(),
-            Putting::Keyboard(Show::Away) => "the keyboard (away)".to_string(),
-            Putting::Brightness(level) => format!("the brightness ({level})"),
-            Putting::Volume(level) => format!("the volume ({level}%)"),
-            Putting::Profile(name) => format!("the pad ({name})"),
-            Putting::Workspace(name) => format!("the workspace ({name})"),
+            Restore::Close(which) => format!("the window it opened at {which}"),
+            Restore::Keyboard(Show::Up) => "the keyboard (up)".to_string(),
+            Restore::Keyboard(Show::Away) => "the keyboard (away)".to_string(),
+            Restore::Brightness(level) => format!("the brightness ({level})"),
+            Restore::Volume(level) => format!("the volume ({level}%)"),
+            Restore::Profile(name) => format!("the pad ({name})"),
+            Restore::Workspace(name) => format!("the workspace ({name})"),
         })
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Handed {
-    pub back: Vec<Putting>,
-    pub stuck: Vec<Putting>,
+pub struct Provided {
+    pub back: Vec<Restore>,
+    pub stuck: Vec<Restore>,
 }
 
 fn back_to(found: Level, now: Level) -> Result<Option<i64>, Never> {
@@ -120,49 +120,49 @@ fn back_on(then: Then<'_>) -> Result<Option<String>, Never> {
     })
 }
 
-pub fn wanted(found: &Found, now: &Found, opened: &[String]) -> Result<Vec<Putting>, Never> {
-    let mut wanted: Vec<Putting> =
-        opened.iter().map(|which| Putting::Close(which.clone())).collect();
+pub fn wanted(found: &Found, now: &Found, opened: &[String]) -> Result<Vec<Restore>, Never> {
+    let mut wanted: Vec<Restore> =
+        opened.iter().map(|which| Restore::Close(which.clone())).collect();
 
     match (found.keyboard, now.keyboard) {
-        (Seen::NotYet, Seen::Yes) => wanted.push(Putting::Keyboard(Show::Away)),
-        (Seen::Yes, Seen::NotYet) => wanted.push(Putting::Keyboard(Show::Up)),
-        (Seen::Yes, Seen::Yes) | (Seen::NotYet, Seen::NotYet) => {},
+        (Ready::NotYet, Ready::Yes) => wanted.push(Restore::Keyboard(Show::Away)),
+        (Ready::Yes, Ready::NotYet) => wanted.push(Restore::Keyboard(Show::Up)),
+        (Ready::Yes, Ready::Yes) | (Ready::NotYet, Ready::NotYet) => {},
     }
 
     let Ok(brightness) = back_to(found.brightness, now.brightness);
 
     match brightness {
-        Some(was) => wanted.push(Putting::Brightness(was)),
+        Some(was) => wanted.push(Restore::Brightness(was)),
         None => {},
     }
 
     let Ok(volume) = back_to(found.volume, now.volume);
 
     match volume {
-        Some(was) => wanted.push(Putting::Volume(was)),
+        Some(was) => wanted.push(Restore::Volume(was)),
         None => {},
     }
 
     let Ok(profile) = back_on(Then { found: &found.profile, now: &now.profile });
 
     match profile {
-        Some(was) => wanted.push(Putting::Profile(was)),
+        Some(was) => wanted.push(Restore::Profile(was)),
         None => {},
     }
 
     let Ok(workspace) = back_on(Then { found: &found.workspace, now: &now.workspace });
 
     match workspace {
-        Some(was) => wanted.push(Putting::Workspace(was)),
+        Some(was) => wanted.push(Restore::Workspace(was)),
         None => {},
     }
 
     Ok(wanted)
 }
 
-pub fn said(handed: &Handed) -> Result<String, Never> {
-    let sentence = |every: &[Putting]| {
+pub fn said(handed: &Provided) -> Result<String, Never> {
+    let sentence = |every: &[Restore]| {
         let said: Vec<String> = every
             .iter()
             .map(|putting| {
@@ -209,7 +209,7 @@ fn worn_as(name: &str) -> Result<String, Never> {
     Ok(name.to_lowercase())
 }
 
-fn keyboard(stage: &mut Device, show: Show) -> Result<Waited, Never> {
+fn keyboard(stage: &mut Device, show: Show) -> Result<Outcome, Never> {
     let Ok(()) = stage.press("x");
 
     stage.until::<Never>(
@@ -217,47 +217,47 @@ fn keyboard(stage: &mut Device, show: Show) -> Result<Waited, Never> {
             let Ok(up) = seen.keyboard();
 
             Ok(match (show, up) {
-                (Show::Up, Seen::Yes) | (Show::Away, Seen::NotYet) => Seen::Yes,
-                (Show::Up, Seen::NotYet) | (Show::Away, Seen::Yes) => Seen::NotYet,
+                (Show::Up, Ready::Yes) | (Show::Away, Ready::NotYet) => Ready::Yes,
+                (Show::Up, Ready::NotYet) | (Show::Away, Ready::Yes) => Ready::NotYet,
             })
         },
         PATIENCE,
     )
 }
 
-fn levelled(
+fn leveled(
     stage: &mut Device,
     reading: fn(&mut Device) -> Result<Level, Never>,
     to: i64,
-) -> Result<Waited, Never> {
+) -> Result<Outcome, Never> {
     stage.until::<Never>(
         |seen| {
             let Ok(now) = reading(seen);
 
             Ok(match now == Level::At(to) {
-                true => Seen::Yes,
-                false => Seen::NotYet,
+                true => Ready::Yes,
+                false => Ready::NotYet,
             })
         },
         PATIENCE,
     )
 }
 
-fn carried(stage: &mut Device, putting: &Putting) -> Result<Waited, Never> {
+fn carried(stage: &mut Device, putting: &Restore) -> Result<Outcome, Never> {
     match putting {
-        Putting::Close(which) => stage.close_window(which),
-        Putting::Keyboard(show) => keyboard(stage, *show),
-        Putting::Brightness(level) => {
+        Restore::Close(which) => stage.close_window(which),
+        Restore::Keyboard(show) => keyboard(stage, *show),
+        Restore::Brightness(level) => {
             let Ok(()) = stage.brightness_to(*level);
 
-            levelled(stage, Device::brightness, *level)
+            leveled(stage, Device::brightness, *level)
         }
-        Putting::Volume(level) => {
+        Restore::Volume(level) => {
             let Ok(()) = stage.volume_to(*level);
 
-            levelled(stage, Device::volume, *level)
+            leveled(stage, Device::volume, *level)
         }
-        Putting::Profile(name) => {
+        Restore::Profile(name) => {
             let Ok(word) = worn_as(name);
             let Ok(()) = stage.load_profile(&word);
             let wanted = name.clone();
@@ -267,29 +267,29 @@ fn carried(stage: &mut Device, putting: &Putting) -> Result<Waited, Never> {
                     let Ok(now) = seen.profile();
 
                     Ok(match now == wanted {
-                        true => Seen::Yes,
-                        false => Seen::NotYet,
+                        true => Ready::Yes,
+                        false => Ready::NotYet,
                     })
                 },
                 PATIENCE,
             )
         }
-        Putting::Workspace(name) => stage.go_to(name),
+        Restore::Workspace(name) => stage.go_to(name),
     }
 }
 
-pub fn back(stage: &mut Device, was: &Found) -> Result<Handed, Never> {
+pub fn back(stage: &mut Device, was: &Found) -> Result<Provided, Never> {
     let Ok(opened) = stage.opened();
     let Ok(now) = found(stage);
     let Ok(wanted) = wanted(was, &now, &opened);
-    let mut handed = Handed { back: Vec::new(), stuck: Vec::new() };
+    let mut handed = Provided { back: Vec::new(), stuck: Vec::new() };
 
     for putting in wanted {
         let Ok(went) = carried(stage, &putting);
 
         match went {
-            Waited::Happened => handed.back.push(putting),
-            Waited::RanOut => handed.stuck.push(putting),
+            Outcome::Happened => handed.back.push(putting),
+            Outcome::RanOut => handed.stuck.push(putting),
         }
     }
 
@@ -306,17 +306,17 @@ mod tests {
             brightness: Level::At(24000),
             volume: Level::At(40),
             profile: "Router".to_string(),
-            keyboard: Seen::NotYet,
+            keyboard: Ready::NotYet,
         }
     }
 
-    fn wanted(found: &Found, now: &Found, opened: &[String]) -> Vec<Putting> {
+    fn wanted(found: &Found, now: &Found, opened: &[String]) -> Vec<Restore> {
         let Ok(wanted) = super::wanted(found, now, opened);
 
         wanted
     }
 
-    fn said(handed: &Handed) -> String {
+    fn said(handed: &Provided) -> String {
         let Ok(said) = super::said(handed);
 
         said
@@ -334,17 +334,17 @@ mod tests {
             brightness: Level::At(30000),
             volume: Level::At(55),
             profile: "Gamepad".to_string(),
-            keyboard: Seen::Yes,
+            keyboard: Ready::Yes,
         };
 
         assert_eq!(
             wanted(&found(), &now, &[]),
             [
-                Putting::Keyboard(Show::Away),
-                Putting::Brightness(24000),
-                Putting::Volume(40),
-                Putting::Profile("Router".to_string()),
-                Putting::Workspace("3".to_string()),
+                Restore::Keyboard(Show::Away),
+                Restore::Brightness(24000),
+                Restore::Volume(40),
+                Restore::Profile("Router".to_string()),
+                Restore::Workspace("3".to_string()),
             ]
         );
     }
@@ -375,18 +375,18 @@ mod tests {
         assert_eq!(
             wanted(&found(), &now, &opened),
             [
-                Putting::Close("0xa1".to_string()),
-                Putting::Close("0xb2".to_string()),
-                Putting::Workspace("3".to_string()),
+                Restore::Close("0xa1".to_string()),
+                Restore::Close("0xb2".to_string()),
+                Restore::Workspace("3".to_string()),
             ]
         );
     }
 
     #[test]
     fn a_keyboard_that_was_up_before_the_run_is_put_back_up() {
-        let was_up = Found { keyboard: Seen::Yes, ..found() };
+        let was_up = Found { keyboard: Ready::Yes, ..found() };
 
-        assert_eq!(wanted(&was_up, &found(), &[]), [Putting::Keyboard(Show::Up)]);
+        assert_eq!(wanted(&was_up, &found(), &[]), [Restore::Keyboard(Show::Up)]);
     }
 
     #[test]
@@ -400,8 +400,8 @@ mod tests {
 
     #[test]
     fn what_was_handed_back_is_said_and_so_is_what_would_not_go() {
-        let handed = Handed {
-            back: vec![Putting::Brightness(24000), Putting::Workspace("3".to_string())],
+        let handed = Provided {
+            back: vec![Restore::Brightness(24000), Restore::Workspace("3".to_string())],
             stuck: Vec::new(),
         };
 
@@ -410,9 +410,9 @@ mod tests {
             "handed back: the brightness (24000), the workspace (3)"
         );
 
-        let stuck = Handed {
+        let stuck = Provided {
             back: Vec::new(),
-            stuck: vec![Putting::Close("0xa1".to_string())],
+            stuck: vec![Restore::Close("0xa1".to_string())],
         };
 
         assert_eq!(
@@ -420,7 +420,7 @@ mod tests {
             "could not put back: the window it opened at 0xa1"
         );
 
-        let nothing = Handed { back: Vec::new(), stuck: Vec::new() };
+        let nothing = Provided { back: Vec::new(), stuck: Vec::new() };
 
         assert_eq!(said(&nothing), "the device is as it was found");
     }

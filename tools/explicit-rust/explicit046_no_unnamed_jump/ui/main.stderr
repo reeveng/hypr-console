@@ -4,7 +4,7 @@ error: this `break` is inside more than one loop and names none of them
 LL |                 true => break,
    |                         ^^^^^
    |
-   = help: label the loop this leaves and say it here: `'over_rows: for ...` and `break 'over_rows`. A bare jump leaves the innermost loop, which is a fact about where the line happens to sit rather than about what it means, and it moves the next time somebody wraps a loop around it
+   = help: label the loop this leaves and say it here: `'over_rows: for ...` and `break 'over_rows`. A bare jump leaves the innermost loop, which is a fact about where the line happens to sit rather than about what it means, and it moves the next time someone wraps a loop around it
    = note: `#[deny(explicit046_no_unnamed_jump)]` on by default
 
 error: this `continue` is inside more than one loop and names none of them
@@ -13,7 +13,7 @@ error: this `continue` is inside more than one loop and names none of them
 LL |                 true => continue,
    |                         ^^^^^^^^
    |
-   = help: label the loop this leaves and say it here: `'over_rows: for ...` and `break 'over_rows`. A bare jump leaves the innermost loop, which is a fact about where the line happens to sit rather than about what it means, and it moves the next time somebody wraps a loop around it
+   = help: label the loop this leaves and say it here: `'over_rows: for ...` and `break 'over_rows`. A bare jump leaves the innermost loop, which is a fact about where the line happens to sit rather than about what it means, and it moves the next time someone wraps a loop around it
 
 error: aborting due to 2 previous errors
 

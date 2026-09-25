@@ -2,15 +2,15 @@
 //!
 //! One rule here is worth the file. Turning it up also unsilences: the rocker
 //! was bound straight at the volume, so on a muted machine pressing it moved a
-//! number nobody could hear and the buttons read as broken. Turning it down
-//! does not unsilence, because somebody who has just silenced the thing and
+//! number no one could hear and the buttons read as broken. Turning it down
+//! does not unsilence, because someone who has just silenced the thing and
 //! reaches for down means quieter still, not louder.
 //!
 //! The other half is where the number went when it left the bar. The bar wears
 //! a glyph and no percentage: three speaker marks say quiet, middling and loud,
 //! which is what an icon is for. What the number was actually for is this
-//! rocker -- pressing it and seeing the figure move is how anybody knows it did
-//! anything -- so the figure is said at the moment it changes, where somebody
+//! rocker -- pressing it and seeing the figure move is how anyone knows it did
+//! anything -- so the figure is said at the moment it changes, where someone
 //! is already looking.
 
 use console_core_never::Never;
@@ -25,33 +25,33 @@ pub const SINK: &str = "@DEFAULT_SINK@";
 pub const STEP: &str = "5%";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Press {
+pub enum ButtonPress {
     Up,
     Down,
     Mute,
 }
 
-impl Press {
+impl ButtonPress {
     pub fn named(word: &str) -> Result<Option<Self>, Never> {
         match word {
-            "up" => Ok(Some(Press::Up)),
-            "down" => Ok(Some(Press::Down)),
-            "mute" => Ok(Some(Press::Mute)),
+            "up" => Ok(Some(ButtonPress::Up)),
+            "down" => Ok(Some(ButtonPress::Down)),
+            "mute" => Ok(Some(ButtonPress::Mute)),
             _ => Ok(None),
         }
     }
 }
 
-pub fn asks(press: Press) -> Result<Vec<Vec<String>>, Never> {
-    let words = |argv: &[&str]| argv.iter().map(|word| (*word).to_string()).collect();
+pub fn asks(press: ButtonPress) -> Result<Vec<Vec<String>>, Never> {
+    let words = |arguments: &[&str]| arguments.iter().map(|word| (*word).to_string()).collect();
 
     match press {
-        Press::Up => Ok(vec![
+        ButtonPress::Up => Ok(vec![
             words(&["set-sink-mute", SINK, "0"]),
             words(&["set-sink-volume", SINK, &format!("+{STEP}")]),
         ]),
-        Press::Down => Ok(vec![words(&["set-sink-volume", SINK, &format!("-{STEP}")])]),
-        Press::Mute => Ok(vec![words(&["set-sink-mute", SINK, "toggle"])]),
+        ButtonPress::Down => Ok(vec![words(&["set-sink-volume", SINK, &format!("-{STEP}")])]),
+        ButtonPress::Mute => Ok(vec![words(&["set-sink-mute", SINK, "toggle"])]),
     }
 }
 
@@ -101,7 +101,7 @@ mod tests {
 
     #[test]
     fn turning_it_up_unsilences_it_first() {
-        let asked = asks(Press::Up).expect("what it asks");
+        let asked = asks(ButtonPress::Up).expect("what it asks");
         assert_eq!(asked[0][0], "set-sink-mute");
         assert_eq!(asked[0][2], "0");
         assert_eq!(asked[1][0], "set-sink-volume");
@@ -109,24 +109,24 @@ mod tests {
 
     #[test]
     fn turning_it_down_leaves_it_silenced() {
-        let asked = asks(Press::Down).expect("what it asks");
+        let asked = asks(ButtonPress::Down).expect("what it asks");
         assert_eq!(asked.len(), 1);
-        assert!(!asked.iter().any(|argv| argv[0] == "set-sink-mute"));
+        assert!(!asked.iter().any(|arguments| arguments[0] == "set-sink-mute"));
     }
 
     #[test]
     fn mute_is_a_toggle_and_moves_no_number() {
         assert_eq!(
-            asks(Press::Mute),
+            asks(ButtonPress::Mute),
             Ok(vec![vec!["set-sink-mute".to_string(), SINK.to_string(), "toggle".to_string()]])
         );
     }
 
     #[test]
     fn nothing_but_the_three_words_is_a_press() {
-        assert_eq!(Press::named("up"), Ok(Some(Press::Up)));
-        assert_eq!(Press::named("UP"), Ok(None));
-        assert_eq!(Press::named(""), Ok(None));
+        assert_eq!(ButtonPress::named("up"), Ok(Some(ButtonPress::Up)));
+        assert_eq!(ButtonPress::named("UP"), Ok(None));
+        assert_eq!(ButtonPress::named(""), Ok(None));
     }
 
     #[test]

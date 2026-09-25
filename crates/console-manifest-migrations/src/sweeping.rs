@@ -1,6 +1,6 @@
 //! What a migration says it sweeps, and how the directory is read.
 //!
-//! A migration is a shell script, because what it does is move files somebody
+//! A migration is a shell script, because what it does is move files someone
 //! installed and there is no better language for that. What it is *for* cannot
 //! be read out of shell, though: a script that moves `/usr/local/bin/osk` has
 //! not thereby said it answers for `osk` leaving `[build]`, and a gate that
@@ -14,7 +14,7 @@
 //!
 //! The file name is the commit's own unix time, which omarchy arrived at for
 //! the reason that matters here too: it sorts into history order without a
-//! counter anybody has to keep, and two people writing a migration on the same
+//! counter anyone has to keep, and two people writing a migration on the same
 //! afternoon get different names without talking to each other.
 //!
 //! It is also what says a file *is* one. `attic.sh` lives in the same directory
@@ -27,7 +27,7 @@
 //! the `# sweeps:` lines for them; what it cannot write is why -- what reads
 //! the old name, what a person sees with two of them, what a machine that
 //! misses this is left holding. So the stub it writes leaves
-//! `console_repository::renaming::UNSAID` where the argument goes, and
+//! `console_rename::UNSAID` where the argument goes, and
 //! `every_removal_is_swept` refuses a migration still carrying it. The marker
 //! belongs to the tool that writes it rather than to this crate, because this
 //! crate cannot import that one -- the dependency runs the other way, since a
@@ -72,8 +72,10 @@ pub fn on_purpose(said: &str) -> Result<BTreeSet<String>, Never> {
 pub fn every(at: &Path) -> Result<Vec<Migration>, Undone> {
     let entries = match std::fs::read_dir(at) {
         Ok(entries) => entries,
-        Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(fault) => return Err(Undone::Listing(at.to_path_buf(), fault)),
+        Err(fault) => match fault.kind() == std::io::ErrorKind::NotFound {
+            true => return Ok(Vec::new()),
+            false => return Err(Undone::Listing(at.to_path_buf(), fault)),
+        },
     };
 
     let mut found = Vec::new();
@@ -95,7 +97,7 @@ pub fn every(at: &Path) -> Result<Vec<Migration>, Undone> {
                 let name = path
                     .file_name()
                     .map(|name| name.to_string_lossy().to_string())
-                    .ok_or_else(|| Undone::Nameless(path.clone()))?;
+                    .ok_or_else(|| Undone::Untitled(path.clone()))?;
 
                 let Ok(claimed) = claimed(&said);
 

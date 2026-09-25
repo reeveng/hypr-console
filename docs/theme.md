@@ -4,7 +4,7 @@ The desktop is pink, dark, and measured.
 
 ## One place
 
-Every colour is decided in `theme/palette.toml`. Nothing else on the machine
+Every color is decided in `theme/palette.toml`. Nothing else on the machine
 decides one.
 
 Almost nothing on the machine holds one either. A stylesheet, a Lua table, a
@@ -18,13 +18,13 @@ and everything else imports whichever speaks its own:
 | `~/.config/console/palette.css` | the bar, the panels, GTK 3, GTK 4, libadwaita, Breeze |
 | `~/.config/console/palette.toml` | alacritty |
 | `~/.librewolf/console/chrome/palette.css` | `userChrome.css`, `userContent.css` |
-| `/usr/local/lib/console/palette.sh` | the keyboard, which reads it on the way in and hands the colours to itself as arguments |
+| `/usr/local/lib/console/palette.sh` | the keyboard, which reads it on the way in and hands the colors to itself as arguments |
 
 The stylesheets say `@pink` and `@text`. The keyboard says `"$pink"`. None of
 them holds a hex, so none of them can fall behind.
 
 The names libadwaita asks for and the longer list Breeze asks for are defined
-in `palette.css` as references rather than as colours, so a role changing its
+in `palette.css` as references rather than as colors, so a role changing its
 shade changes every name that stands for it.
 
 Four cannot import anything and are written into between a pair of markers:
@@ -34,9 +34,9 @@ Four cannot import anything and are written into between a pair of markers:
 - `user.js`, because a browser preferences file is a list of literals.
 - `hyprland.lua`. Lua could import it, and the compositor is the one place
   where a file failing to load costs the whole session rather than one window,
-  so its two border colours are written rather than read.
+  so its two border colors are written rather than read.
 - `console-paper.service`, because a systemd unit is a list of literals too. Its
-  one colour is the ground the wallpaper daemon fills the screen with before
+  one color is the ground the wallpaper daemon fills the screen with before
   `console-wallpaper` has chosen a picture.
 
 The placeholder icon is drawn. The wallpaper is a picture and cannot be read
@@ -48,20 +48,20 @@ back the way the rest can, which is what the section below is about.
 
 Two tests stand behind that. One refuses a checkout where a generated file no
 longer matches the palette. The other reads every file under `files/` and
-refuses any colour, in any of the five ways a colour is written down here,
+refuses any color, in any of the five ways a color is written down here,
 that the palette does not declare. A hex typed in by hand is invisible until
-somebody looks at the screen in the right light, and by then it has been there
+someone looks at the screen in the right light, and by then it has been there
 for months.
 
-## How the colours are chosen
+## How the colors are chosen
 
-They are not chosen. A colour is declared as a hue and how much of it, together
+They are not chosen. A color is declared as a hue and how much of it, together
 with what it has to be readable against, and the lightness is computed: the
 softest shade of that hue that still clears the ratio it was given.
 
 That is why the theme can be pastel and still legible. Pastel and readable pull
-the same way on a dark ground, so asking for the palest colour that clears 7:1
-gets a colour that is both, and gets it again on its own if the ground behind
+the same way on a dark ground, so asking for the palest color that clears 7:1
+gets a color that is both, and gets it again on its own if the ground behind
 it ever moves.
 
 ## What is promised
@@ -79,27 +79,27 @@ The exceptions are named:
   would stop meaning black.
 
 Nothing else is under AAA, including text Qt considers disabled and text a menu
-has greyed out. Fading an entry until it cannot be read is a convention, and on
-a device somebody is meant to be able to use it is a bad one, so Qt's dimming
+has grayed out. Fading an entry until it cannot be read is a convention, and on
+a device someone is meant to be able to use it is a bad one, so Qt's dimming
 is turned off rather than tuned.
 
-The two scripts that print to a terminal ask for colours by number rather than
+The two scripts that print to a terminal ask for colors by number rather than
 by shade, so they answer to the same palette. Neither uses the dim attribute,
-which halves whatever colour it lands on: half of a colour picked to clear 7:1
-is a colour that does not.
+which halves whatever color it lands on: half of a color picked to clear 7:1
+is a color that does not.
 
 ## Where the numbers come from
 
-Contrast is WCAG 2.1 relative luminance, measured after the colour has been
+Contrast is WCAG 2.1 relative luminance, measured after the color has been
 quantised to eight bits a channel. That is what a checker reads off a screen,
 and it sits about a tenth of a point away from the same arithmetic done on the
 unrounded values: the difference between a palette that measures 7.02:1 and one
-that measures 6.92:1 to anybody who tests it.
+that measures 6.92:1 to anyone who tests it.
 
-`crates/console-core-colour` is the arithmetic, in Oklch. It is the same
+`crates/console-core-color` is the arithmetic, in Oklch. It is the same
 arithmetic as `Codincod.Design.Oklch` in the Codincod repository, which was
 written first and for a different purpose, and the two were checked against each
-other: colours and ratios agree to four decimal places. Those cases are vectors
+other: colors and ratios agree to four decimal places. Those cases are vectors
 in `crates/console-palette/tests/the_desktop.rs`, so this implementation cannot
 drift away from the other one without a test saying so.
 
@@ -123,7 +123,7 @@ written down. What belongs here is the one picture that is ours:
 `/usr/share/backgrounds/console.webp`, the cherry blossom garden, which is the
 ground `console-paper` fills the screen with and which `awww img` still paints
 by hand. It is a fixed file now. The program that drew it out of the palette is
-gone -- `git log -- crates/console-garden` is where it went -- so a colour
+gone -- `git log -- crates/console-garden` is where it went -- so a color
 moving in `theme/palette.toml` no longer moves that picture, and the two can
 drift. Nothing checks that they have not.
 
@@ -141,8 +141,8 @@ measured on the device at twenty-five seconds of a core. Emptied at every
 start, that was paid at every boot, at every return from Game Mode, and every
 time a window stopped covering the screen. What is thrown away instead is the
 entries older than the picture they are entries for:
-`console_wallpaper::place::freshen` does it by their date, before that picture
-goes up, and `wallpaper-press` throws the cache away when it writes one.
+`console_wallpaper::place::refresh` does it by their date, before that picture
+goes up, and `wallpaper-render` throws the cache away when it writes one.
 `console apply` throws it away when it writes a background, which covers
 `console.webp`: that one is painted by hand rather than by `console-wallpaper`,
 so nothing else holds its date against what the daemon kept. It is an entry in
@@ -165,7 +165,7 @@ usually in the second:
    frames differ.
 
 One caution about the second rung, because `150-the-wallpaper` now says it in
-its own failure message and somebody will read it as a verdict. An mtime stands
+its own failure message and someone will read it as a verdict. An mtime stands
 in for the thing actually wanted, which is that the cache was decoded from these
 bytes, and the two can disagree: a picture restored from a backup or copied with
 its times kept is new in content and old on paper. Older than the picture is

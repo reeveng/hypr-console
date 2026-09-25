@@ -7,7 +7,7 @@
 //! the same commit, so a wire that could disagree with itself is a problem
 //! this machine cannot have.
 //!
-//! A topic is one token, which is what makes `said <topic> <the line>`
+//! A topic is one token, which is what makes `publish <topic> <the line>`
 //! unambiguous. The only topic with anything in it is a path, and a path may
 //! contain a space, so it is escaped -- and that escaping is the whole reason
 //! this module has tests rather than being three `format!`s at the call sites.
@@ -15,72 +15,72 @@
 use std::path::PathBuf;
 
 use console_core_never::Never;
-use console_program_contract::{Changed, Topic};
+use console_program_contract::{Change, Topic};
 
 const NOTHING_AFTER_IT: &str = "";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Says {
-    Listen(Topic),
-    Deafen(Topic),
-    Said(Changed),
+pub enum Message {
+    Subscribe(Topic),
+    Unsubscribe(Topic),
+    Publish(Change),
 }
 
-pub fn spelt(says: &Says) -> Result<String, Never> {
-    Ok(match says {
-        Says::Listen(topic) => {
+pub fn encoded(message: &Message) -> Result<String, Never> {
+    Ok(match message {
+        Message::Subscribe(topic) => {
             let Ok(token) = token(topic);
 
-            format!("listen {token}")
+            format!("subscribe {token}")
         }
-        Says::Deafen(topic) => {
+        Message::Unsubscribe(topic) => {
             let Ok(token) = token(topic);
 
-            format!("deafen {token}")
+            format!("unsubscribe {token}")
         }
-        Says::Said(changed) => {
-            let Ok(token) = token(&changed.about);
+        Message::Publish(change) => {
+            let Ok(token) = token(&change.topic);
 
-            format!("said {token} {}", changed.said)
+            format!("publish {token} {}", change.text)
         }
     })
 }
 
-pub fn read(line: &str) -> Result<Option<Says>, Never> {
+pub fn decoded(line: &str) -> Result<Option<Message>, Never> {
     let (verb, rest) = match line.split_once(' ') {
         Some((verb, rest)) => (verb, rest),
         None => return Ok(None),
     };
 
     Ok(match verb {
-        "listen" => {
-            let about = match topic(rest) {
-                Ok(Some(about)) => about,
+        "subscribe" => {
+            let requested = match topic(rest) {
+                Ok(Some(requested)) => requested,
                 Ok(None) | Err(_) => return Ok(None),
             };
 
-            Some(Says::Listen(about))
+            Some(Message::Subscribe(requested))
         }
-        "deafen" => {
-            let about = match topic(rest) {
-                Ok(Some(about)) => about,
+        "unsubscribe" => {
+            let requested = match topic(rest) {
+                Ok(Some(requested)) => requested,
                 Ok(None) | Err(_) => return Ok(None),
             };
 
-            Some(Says::Deafen(about))
+            Some(Message::Unsubscribe(requested))
         }
-        "said" => {
-            let (spelt, said) = match rest.split_once(' ') {
+        "publish" => {
+            let (spelled, text) = match rest.split_once(' ') {
                 Some(both) => both,
                 None => (rest, NOTHING_AFTER_IT),
             };
 
-            let about = match topic(spelt) {
-                Ok(Some(about)) => about,
+            let requested = match topic(spelled) {
+                Ok(Some(requested)) => requested,
                 Ok(None) | Err(_) => return Ok(None),
             };
 
-            Some(Says::Said(Changed { about, said: said.to_string() }))
+            Some(Message::Publish(Change { topic: requested, text: text.to_string() }))
         }
         _ => None,
     })
@@ -91,7 +91,10 @@ pub fn token(topic: &Topic) -> Result<String, Never> {
         Topic::Compositor => "compositor".to_string(),
         Topic::Sound => "sound".to_string(),
         Topic::Network => "network".to_string(),
-        Topic::Notices => "notices".to_string(),
+        Topic::Wifi => "wifi".to_string(),
+        Topic::Bluetooth => "bluetooth".to_string(),
+        Topic::Battery => "battery".to_string(),
+        Topic::Notifications => "notifications".to_string(),
         Topic::Units => "units".to_string(),
         Topic::Player => "player".to_string(),
         Topic::Path(at) => {
@@ -107,7 +110,10 @@ pub fn topic(token: &str) -> Result<Option<Topic>, Never> {
         "compositor" => Some(Topic::Compositor),
         "sound" => Some(Topic::Sound),
         "network" => Some(Topic::Network),
-        "notices" => Some(Topic::Notices),
+        "wifi" => Some(Topic::Wifi),
+        "bluetooth" => Some(Topic::Bluetooth),
+        "battery" => Some(Topic::Battery),
+        "notifications" => Some(Topic::Notifications),
         "units" => Some(Topic::Units),
         "player" => Some(Topic::Player),
         _ => {
@@ -153,9 +159,9 @@ fn plain(at: &str) -> Result<String, Never> {
 mod tests {
     use super::*;
 
-    fn round(says: &Says) -> Option<Says> {
-        let Ok(spelt) = spelt(says);
-        let Ok(read) = read(&spelt);
+    fn round(message: &Message) -> Option<Message> {
+        let Ok(spelled) = encoded(message);
+        let Ok(read) = decoded(&spelled);
 
         read
     }
@@ -166,45 +172,48 @@ mod tests {
             Topic::Compositor,
             Topic::Sound,
             Topic::Network,
-            Topic::Notices,
+            Topic::Wifi,
+            Topic::Bluetooth,
+            Topic::Battery,
+            Topic::Notifications,
             Topic::Units,
             Topic::Player,
         ] {
-            assert_eq!(round(&Says::Listen(topic.clone())), Some(Says::Listen(topic)));
+            assert_eq!(round(&Message::Subscribe(topic.clone())), Some(Message::Subscribe(topic)));
         }
     }
 
     #[test]
     fn a_watched_path_with_a_space_in_it_comes_back_whole() {
         let at = PathBuf::from("/home/someone/My Pictures/a\\b");
-        let says = Says::Listen(Topic::Path(at.clone()));
+        let message = Message::Subscribe(Topic::Path(at.clone()));
 
-        assert_eq!(round(&says), Some(Says::Listen(Topic::Path(at))));
+        assert_eq!(round(&message), Some(Message::Subscribe(Topic::Path(at))));
     }
 
     #[test]
     fn what_a_source_said_is_passed_on_exactly() {
-        let said = Changed {
-            about: Topic::Compositor,
-            said: "openwindow>>a1b2,1,alacritty,a terminal".to_string(),
+        let change = Change {
+            topic: Topic::Compositor,
+            text: "openwindow>>a1b2,1,alacritty,a terminal".to_string(),
         };
 
-        assert_eq!(round(&Says::Said(said.clone())), Some(Says::Said(said)));
+        assert_eq!(round(&Message::Publish(change.clone())), Some(Message::Publish(change)));
     }
 
     #[test]
     fn a_word_with_nothing_after_it_is_still_a_word() {
-        let said = Changed { about: Topic::Sound, said: String::new() };
+        let change = Change { topic: Topic::Sound, text: String::new() };
 
-        assert_eq!(round(&Says::Said(said.clone())), Some(Says::Said(said)));
+        assert_eq!(round(&Message::Publish(change.clone())), Some(Message::Publish(change)));
     }
 
     #[test]
-    fn nonsense_on_a_socket_anybody_can_open_is_refused_rather_than_guessed_at() {
-        let Ok(nothing) = read("");
-        let Ok(a_verb_alone) = read("listen");
-        let Ok(an_unknown_topic) = read("listen nothing-like-that");
-        let Ok(an_unknown_verb) = read("shout compositor");
+    fn nonsense_on_a_socket_anyone_can_open_is_refused_rather_than_guessed_at() {
+        let Ok(nothing) = decoded("");
+        let Ok(a_verb_alone) = decoded("subscribe");
+        let Ok(an_unknown_topic) = decoded("subscribe nothing-like-that");
+        let Ok(an_unknown_verb) = decoded("shout compositor");
 
         assert_eq!(nothing, None);
         assert_eq!(a_verb_alone, None);

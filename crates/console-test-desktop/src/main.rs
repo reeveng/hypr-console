@@ -13,9 +13,12 @@
 //!                            and not return until it has been drawn to again
 //! console-desktop shot FILE --clients AT what windows it had, written to AT
 //! console-desktop shot FILE --monitors AT what screen it was, written to AT
+//! console-desktop describe --open C --until AT [--press S]
+//!                            C alone and headless, until it has described
+//!                            itself to AT and S has been drawn; no picture
 //! console-desktop probe      what the nested compositor thinks
 //! console-desktop stage      the staged copy, and nothing else
-//! console-desktop clean      forget what nobody is using
+//! console-desktop clean      forget what no one is using
 //! ```
 //!
 //! The compositor is started in a control group of its own, named after this
@@ -23,10 +26,10 @@
 //! backgrounds a pool, a bar, a keyboard and a wallpaper; when the compositor
 //! goes they are reparented to the user manager and land in the control group
 //! of whoever is logged in, where nothing can tell them from the desktop
-//! somebody is using. An afternoon of runs left eight hundred of them on this
+//! someone is using. An afternoon of runs left eight hundred of them on this
 //! laptop, sixty `pactl subscribe` among them -- four short of the number
 //! pipewire-pulse serves before it starts refusing, which is the volume keys
-//! going quiet for a reason nobody would find. Stopping the scope takes all of
+//! going quiet for a reason no one would find. Stopping the scope takes all of
 //! it without naming one process, which matters because the names are the
 //! session's own.
 //!
@@ -44,14 +47,14 @@ use console_core_geometry::{Point, Size};
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
 use console_program_lifetime::{Wrapped, in_a_scope_of_its_own, nothing_left_in};
-use console_waiting::{Patience, Seen, until_handed};
+use console_waiting::{Schedule, Ready, until_handed};
 use std::path::PathBuf;
 use std::process::{Child, Command, ExitCode, Stdio};
 use std::time::Duration;
 
 use console_test_desktop::nested::Wallpaper;
-use console_test_desktop::staging::{Screen, Told, environment, staged};
-use console_test_desktop::talking::{Inside, Instance, Waited};
+use console_test_desktop::staging::{Screen, Verbosity, environment, staged};
+use console_test_desktop::connection::{Inside, Instance, Outcome};
 use console_test_desktop::{Unnested, screen, scope_of, session, stage};
 use console_test_stages::picture::{Picture, where_};
 
@@ -62,10 +65,10 @@ const KILLED_BY_A_SIGNAL: i32 = -1;
     dylint_lib = "explicit048_no_unreal_state",
     allow(
         explicit048_no_unreal_state,
-        reason = "what somebody typed, one field per word: a window and a file and a number of seconds are asked for together or not at all, and the combinations are the command lines rather than states"
+        reason = "what someone typed, one field per word: a window and a file and a number of seconds are asked for together or not at all, and the combinations are the command lines rather than states"
     )
 )]
-struct Asked {
+struct Arguments {
     command: String,
     file: Option<PathBuf>,
     seconds: Option<f64>,
@@ -81,7 +84,7 @@ struct Asked {
     bare: bool,
 }
 
-fn asked(words: Vec<String>) -> Result<Asked, Never> {
+fn asked(words: Vec<String>) -> Result<Arguments, Never> {
     let every = |what: &str| {
         words
             .iter()
@@ -103,7 +106,7 @@ fn asked(words: Vec<String>) -> Result<Asked, Never> {
         .map(|(_, word)| word)
         .collect();
 
-    Ok(Asked {
+    Ok(Arguments {
         command: bare
             .first()
             .map_or_else(|| "run".to_string(), |word| (*word).clone()),
@@ -141,15 +144,16 @@ fn main() -> ExitCode {
 
     let done = match asked.command.as_str() {
         "clean" => clean(),
-        "stage" => staged(Told::Aloud, Screen::InAWindow, Wallpaper::Started).map(|_| 0),
+        "stage" => staged(Verbosity::Aloud, Screen::InAWindow, Wallpaper::Started).map(|_| 0),
         "verify" => verify(),
-        "probe" => run(&asked, None, Doing::Probing),
+        "probe" => run(&asked, None, Action::Probing),
+        "describe" => run(&asked, None, Action::Describing),
         "pressing" => pressing(&asked),
         "shot" => match asked.file.clone() {
-            Some(file) => run(&asked, Some(file), Doing::Running),
+            Some(file) => run(&asked, Some(file), Action::Running),
             None => Err(Unnested::NowhereToWrite),
         },
-        _ => run(&asked, None, Doing::Running),
+        _ => run(&asked, None, Action::Running),
     };
 
     match asked.command.as_str() {
@@ -169,7 +173,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn pressing(asked: &Asked) -> Result<u8, Unnested> {
+fn pressing(asked: &Arguments) -> Result<u8, Unnested> {
     let at = match &asked.file {
         Some(at) => at,
         None => return Err(Unnested::NothingToPress),
@@ -183,8 +187,8 @@ fn pressing(asked: &Asked) -> Result<u8, Unnested> {
     let Ok(drew) = session::wait_for_written(at, session::A_LINE);
 
     match drew {
-        session::Wrote::Something => {},
-        session::Wrote::Nothing => eprintln!(
+        session::Wrote::Some => {},
+        session::Wrote::None => eprintln!(
             "console-desktop: nothing had drawn to {} in {}s, and {command} is pressed anyway",
             at.display(),
             session::A_LINE.as_secs()
@@ -208,8 +212,8 @@ fn pressing(asked: &Asked) -> Result<u8, Unnested> {
     let Ok(again) = session::wait_for_more_than(at, before, session::A_LINE);
 
     Ok(match again {
-        session::Wrote::Something => 0,
-        session::Wrote::Nothing => {
+        session::Wrote::Some => 0,
+        session::Wrote::None => {
             eprintln!(
                 "console-desktop: {command} drew nothing new to {} in {}s",
                 at.display(),
@@ -229,8 +233,8 @@ fn out_of_the_way() -> Result<(), Never> {
         Some(_a_compositor_to_stand_out_of_the_way_of) => {},
     }
 
-    let Ok(_said) = console_compositor::told(
-        console_compositor::Told::Eval,
+    let Ok(_said) = console_compositor::request(
+        console_compositor::Request::Eval,
         r#"hl.window_rule({ name = "the nested desktop stays out of the way", match = { class = "aquamarine" }, workspace = "special:console-desktop silent" })"#,
     );
 
@@ -251,7 +255,7 @@ fn clean() -> Result<u8, Unnested> {
 }
 
 fn verify() -> Result<u8, Unnested> {
-    let nested = staged(Told::Quietly, Screen::InAWindow, Wallpaper::Started)?;
+    let nested = staged(Verbosity::Quietly, Screen::InAWindow, Wallpaper::Started)?;
     let Ok(mut asking) = Program::Hyprland.command();
 
     asking.args(["--verify-config", "-c"]).arg(&nested);
@@ -273,9 +277,10 @@ fn verify() -> Result<u8, Unnested> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Doing {
+enum Action {
     Probing,
     Running,
+    Describing,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -284,13 +289,13 @@ enum Ended {
     ByTheCompositor,
 }
 
-fn run(asked: &Asked, shot: Option<PathBuf>, probe: Doing) -> Result<u8, Unnested> {
+fn run(asked: &Arguments, shot: Option<PathBuf>, probe: Action) -> Result<u8, Unnested> {
     let headless = !asked.window;
-    let showing = match headless && shot.is_some() {
-        true => Screen::Headless,
-        false => Screen::InAWindow,
+    let showing = match (headless, &shot, probe) {
+        (true, Some(_), Action::Probing | Action::Running | Action::Describing) | (true, None, Action::Describing) => Screen::Headless,
+        (true, None, Action::Probing | Action::Running) | (false, Some(_) | None, Action::Probing | Action::Running | Action::Describing) => Screen::InAWindow,
     };
-    let ended = match shot.is_none() && asked.seconds.is_none() && probe == Doing::Running {
+    let ended = match shot.is_none() && asked.seconds.is_none() && probe == Action::Running {
         true => Ended::ByTheCompositor,
         false => Ended::ByThis,
     };
@@ -298,14 +303,14 @@ fn run(asked: &Asked, shot: Option<PathBuf>, probe: Doing) -> Result<u8, Unneste
         Ended::ByThis => Wallpaper::Started,
         Ended::ByTheCompositor => Wallpaper::LeftOut,
     };
-    let nested = staged(Told::Quietly, showing, wallpaper)?;
+    let nested = staged(Verbosity::Quietly, showing, wallpaper)?;
     let Ok(where_) = environment();
     let Ok(()) = out_of_the_way();
     let Ok(here) = stage();
     let Ok(named) = scope_of(&here);
-    let Ok(argv) =
+    let Ok(arguments) =
         Program::Hyprland.words(vec!["-c".to_string(), nested.display().to_string()]);
-    let Ok((wrapped, argv)) = in_a_scope_of_its_own(named.as_deref(), &argv);
+    let Ok((wrapped, arguments)) = in_a_scope_of_its_own(named.as_deref(), &arguments);
 
     match wrapped {
         Wrapped::InAScope => {},
@@ -315,7 +320,7 @@ fn run(asked: &Asked, shot: Option<PathBuf>, probe: Doing) -> Result<u8, Unneste
         ),
     }
 
-    let (program, rest) = match argv.split_first() {
+    let (program, rest) = match arguments.split_first() {
         Some(said) => said,
         None => return Err(Unnested::NoCompositor),
     };
@@ -363,27 +368,31 @@ fn run(asked: &Asked, shot: Option<PathBuf>, probe: Doing) -> Result<u8, Unneste
     let Ok(inside) = Inside::new(where_, Instance { socket: &socket, signature: &signature });
 
     let go = screen()?;
-    let looked_at = match headless {
-        true => "HEADLESS-1",
-        false => "WAYLAND-1",
+    let Ok(looked_at) = looked_at(asked);
+
+    let Ok(made) = match headless {
+        true => inside.make_the_screen(&go),
+        false => Ok(Outcome::Happened),
     };
 
-    match headless {
-        true => {
-            let Ok(()) = inside.make_the_screen(&go);
+    match made {
+        Outcome::Happened => {},
+        Outcome::RanOut => {
+            let Ok(()) = stop(&mut compositor.0, &signature, &inside, named.as_deref());
+
+            return Err(Unnested::NoScreen);
         }
-        false => {},
     }
 
     let Ok(waited) = inside.wait_for_screen(looked_at);
 
     match waited {
-        Waited::RanOut => {
+        Outcome::RanOut => {
             let Ok(()) = stop(&mut compositor.0, &signature, &inside, named.as_deref());
 
             return Err(Unnested::NoScreen);
         }
-        Waited::Happened => {},
+        Outcome::Happened => {},
     }
 
     match asked.bare {
@@ -395,6 +404,38 @@ fn run(asked: &Asked, shot: Option<PathBuf>, probe: Doing) -> Result<u8, Unneste
         }
     }
 
+    let Ok(opened) = opening(asked, &inside);
+    let Ok(()) = looking(asked, &inside, probe);
+    let Ok(monitors) = recording(asked, &inside);
+
+    match &shot {
+        Some(file) => {
+            picturing(asked, &inside, file, &monitors, &go)?;
+        }
+        None => {},
+    }
+
+    match asked.seconds {
+        Some(seconds) => {
+            #[cfg_attr(
+                dylint_lib = "explicit021_no_sleeping",
+                allow(
+                    explicit021_no_sleeping,
+                    reason = "`--seconds N` is how long someone asked to be left looking at the desktop; nothing else ends this wait, because nothing else is meant to"
+                )
+            )]
+            std::thread::sleep(Duration::from_secs_f64(seconds));
+        }
+        None => {},
+    }
+
+    let Ok(()) = stop(&mut compositor.0, &signature, &inside, named.as_deref());
+    let Ok(()) = nothing_left_running(opened);
+
+    Ok(0)
+}
+
+fn opening(asked: &Arguments, inside: &Inside) -> Result<Vec<(String, Child)>, Never> {
     let Ok(was) = inside.surfaces();
 
     #[cfg_attr(
@@ -434,8 +475,8 @@ fn run(asked: &Asked, shot: Option<PathBuf>, probe: Doing) -> Result<u8, Unneste
             let Ok(waited) = inside.wait_for_something(&was);
 
             match waited {
-                Waited::RanOut => eprintln!("nothing that was asked for reached the screen"),
-                Waited::Happened => {},
+                Outcome::RanOut => eprintln!("nothing that was asked for reached the screen"),
+                Outcome::Happened => {},
             }
 
             let Ok(()) = inside.show_a_window();
@@ -443,8 +484,12 @@ fn run(asked: &Asked, shot: Option<PathBuf>, probe: Doing) -> Result<u8, Unneste
         }
     }
 
+    Ok(opened)
+}
+
+fn looking(asked: &Arguments, inside: &Inside, probe: Action) -> Result<(), Never> {
     match probe {
-        Doing::Probing => {
+        Action::Probing => {
             for question in ["monitors", "workspaces", "clients"] {
                 println!("== {question}");
                 let Ok(said) = inside.hyprctl(&[question, "-j"]);
@@ -452,7 +497,7 @@ fn run(asked: &Asked, shot: Option<PathBuf>, probe: Doing) -> Result<u8, Unneste
                 println!("{}", said.chars().take(1200).collect::<String>());
             }
         }
-        Doing::Running => {},
+        Action::Running | Action::Describing => {},
     }
 
     match &asked.until {
@@ -460,8 +505,8 @@ fn run(asked: &Asked, shot: Option<PathBuf>, probe: Doing) -> Result<u8, Unneste
             let Ok(wrote) = session::wait_for_written(at, session::A_LINE);
 
             match wrote {
-                session::Wrote::Something => {},
-                session::Wrote::Nothing => {
+                session::Wrote::Some => {},
+                session::Wrote::None => {
                     eprintln!(
                         "console-desktop: nothing wrote a line to {} in {}s",
                         at.display(),
@@ -488,8 +533,8 @@ fn run(asked: &Asked, shot: Option<PathBuf>, probe: Doing) -> Result<u8, Unneste
         None => {},
     }
 
-    match asked.settle {
-        Some(seconds) => {
+    match (asked.settle, probe) {
+        (Some(seconds), Action::Probing | Action::Running | Action::Describing) => {
             #[cfg_attr(
                 dylint_lib = "explicit021_no_sleeping",
                 allow(
@@ -499,11 +544,16 @@ fn run(asked: &Asked, shot: Option<PathBuf>, probe: Doing) -> Result<u8, Unneste
             )]
             std::thread::sleep(Duration::from_secs_f64(seconds));
         }
-        None => {
+        (None, Action::Describing) => {},
+        (None, Action::Probing | Action::Running) => {
             let Ok(_still) = inside.wait_for_a_still_screen();
         },
     }
 
+    Ok(())
+}
+
+fn recording(asked: &Arguments, inside: &Inside) -> Result<String, Never> {
     match &asked.clients {
         Some(at) => {
             let Ok(said) = inside.hyprctl(&["clients", "-j"]);
@@ -528,50 +578,46 @@ fn run(asked: &Asked, shot: Option<PathBuf>, probe: Doing) -> Result<u8, Unneste
         None => {},
     }
 
-    match &shot {
-        Some(file) => {
-            let Ok(mut asking) = inside.command("grim");
+    Ok(monitors)
+}
 
-            let taken = asking
-                .args(["-o", looked_at])
-                .arg(file)
-                .output()
-                .map_err(Unnested::Machine)?;
+fn looked_at(asked: &Arguments) -> Result<&'static str, Never> {
+    Ok(match asked.window {
+        true => "WAYLAND-1",
+        false => "HEADLESS-1",
+    })
+}
 
-            match taken.status.success() {
-                true => {
-                    println!("{}", file.display());
-                    let Ok(()) = say_the_colours(file, &asked.sample, &monitors, &go);
-                }
-                false => {
-                    eprintln!(
-                        "no picture: {}",
-                        String::from_utf8_lossy(&taken.stderr).trim()
-                    );
-                }
-            }
+fn picturing(
+    asked: &Arguments,
+    inside: &Inside,
+    file: &std::path::Path,
+    monitors: &str,
+    go: &console_screen::Screen,
+) -> Result<(), Unnested> {
+    let Ok(looked_at) = looked_at(asked);
+    let Ok(mut asking) = inside.command("grim");
+
+    let taken = asking
+        .args(["-o", looked_at])
+        .arg(file)
+        .output()
+        .map_err(Unnested::Machine)?;
+
+    match taken.status.success() {
+        true => {
+            println!("{}", file.display());
+            let Ok(()) = say_the_colors(file, &asked.sample, monitors, go);
         }
-        None => {},
+        false => {
+            eprintln!(
+                "no picture: {}",
+                String::from_utf8_lossy(&taken.stderr).trim()
+            );
+        }
     }
 
-    match asked.seconds {
-        Some(seconds) => {
-            #[cfg_attr(
-                dylint_lib = "explicit021_no_sleeping",
-                allow(
-                    explicit021_no_sleeping,
-                    reason = "`--seconds N` is how long somebody asked to be left looking at the desktop; nothing else ends this wait, because nothing else is meant to"
-                )
-            )]
-            std::thread::sleep(Duration::from_secs_f64(seconds));
-        }
-        None => {},
-    }
-
-    let Ok(()) = stop(&mut compositor.0, &signature, &inside, named.as_deref());
-    let Ok(()) = nothing_left_running(opened);
-
-    Ok(0)
+    Ok(())
 }
 
 const GOING: Duration = Duration::from_secs(3);
@@ -594,19 +640,19 @@ fn nothing_left_running(opened: Vec<(String, Child)>) -> Result<(), Never> {
         }
     }
 
-    let Ok(patience) = Patience::asking_every(GOING, Duration::from_millis(100));
+    let Ok(patience) = Schedule::asking_every(GOING, Duration::from_millis(100));
     let Ok(all_gone) = until_handed(patience, &mut going, |going| {
         going.retain_mut(|(_, process)| !matches!(process.try_wait(), Ok(Some(_))));
 
         Ok(match going.is_empty() {
-            true => Seen::Yes,
-            false => Seen::NotYet,
+            true => Ready::Yes,
+            false => Ready::NotYet,
         })
     });
 
     match all_gone {
-        Waited::Happened => return Ok(()),
-        Waited::RanOut => {},
+        Outcome::Happened => return Ok(()),
+        Outcome::RanOut => {},
     }
 
     for (command, mut process) in going {
@@ -638,22 +684,22 @@ fn stop(
     // SAFETY: a signal to the compositor this started, by its own pid.
     unsafe { libc::kill(which, libc::SIGTERM) };
 
-    let Ok(patience) = Patience::asking_every(Duration::from_secs(10), Duration::from_millis(100));
+    let Ok(patience) = Schedule::asking_every(Duration::from_secs(10), Duration::from_millis(100));
     let Ok(ended) = until_handed(patience, compositor, |compositor| {
         Ok(match compositor.try_wait().is_ok_and(|ended| ended.is_some()) {
-            true => Seen::Yes,
-            false => Seen::NotYet,
+            true => Ready::Yes,
+            false => Ready::NotYet,
         })
     });
 
     match ended {
-        Waited::Happened => {
+        Outcome::Happened => {
             let Ok(()) = session::left_behind(signature);
             let Ok(()) = nothing_left(named);
 
             return Ok(());
         }
-        Waited::RanOut => {},
+        Outcome::RanOut => {},
     }
 
     let _ = compositor.kill();
@@ -700,12 +746,10 @@ fn say_what_died(opened: &mut [(String, Child)]) -> Result<(), Never> {
 fn live(monitors: &str, go: &console_screen::Screen) -> Result<Size<u32>, Never> {
     let Ok(declared) = go.logical();
 
-    let said = match console_compositor::read(monitors) {
-        Ok(said) => said,
+    let monitors = match console_compositor::read_monitors(monitors) {
+        Ok(monitors) => monitors,
         Err(_nothing_to_read) => return Ok(declared),
     };
-
-    let Ok(monitors) = console_compositor::monitors(&said);
 
     let asked = monitors.first().and_then(|first| {
         let Ok(logical) = first.logical();
@@ -719,7 +763,7 @@ fn live(monitors: &str, go: &console_screen::Screen) -> Result<Size<u32>, Never>
     })
 }
 
-fn say_the_colours(
+fn say_the_colors(
     shot: &std::path::Path,
     sample: &[String],
     monitors: &str,
@@ -740,7 +784,7 @@ fn say_the_colours(
     for place in sample {
         match place == "most" {
             true => {
-                let Ok(most) = picture.commonest();
+                let Ok(most) = picture.most_common();
 
                 println!("  most of it   #{most}");
                 continue;
@@ -758,8 +802,8 @@ fn say_the_colours(
             (Err(_), _) | (_, Err(_)) => continue,
         };
 
-        match where_(&picture, Point { across, down }, logical) {
-            Ok(colour) => println!("  {:<12} #{colour}", format!("{across},{down}")),
+        match where_(&picture, Point { x: across, y: down }, logical) {
+            Ok(color) => println!("  {:<12} #{color}", format!("{across},{down}")),
             Err(why) => eprintln!("  {place}: {why}"),
         }
     }

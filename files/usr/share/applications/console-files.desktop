@@ -2,7 +2,7 @@
 Type=Application
 Name=Files
 Comment=What is on this device, and where
-Exec=/usr/local/bin/files-panel
+Exec=/usr/local/bin/files
 Icon=folder
 Terminal=false
 Categories=System;FileTools;

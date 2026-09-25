@@ -2,7 +2,7 @@
 //!
 //! The manifest is the source of truth and everything else here is only the
 //! engine that reads it. Anything installed or enabled outside it is invisible,
-//! which is the point: a desktop assembled by hand is one nobody can put back
+//! which is the point: a desktop assembled by hand is one no one can put back
 //! together.
 //!
 //! # Who owns what is inside a file
@@ -22,13 +22,13 @@
 //! A card that names two files that are always named teaches the person to read
 //! past it, and that cost a morning once: an inputplumber upgrade laid its own
 //! `50-legion_go.yaml` back over ours, the touchpad went dead, and the card said
-//! so in the same sentence and the same colour as the two that mean nothing.
+//! so in the same sentence and the same color as the two that mean nothing.
 //!
-//! So a path may carry one word after it. `theirs` says the manifest ships what
+//! So a path may carry one word after it. `once` says the manifest ships what
 //! the file starts as and no more: it is installed when it is not there, it is
 //! never compared, `console save` with nothing named does not sweep it back into
 //! the tree, and a difference in it is not news. It is only accepted in
-//! `[files]`, because a package or a unit has no inside for anybody to own.
+//! `[files]`, because a package or a unit has no inside for anyone to own.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -62,46 +62,34 @@ impl Section {
         Section::Services,
         Section::Masked,
     ];
-
-    pub fn named(name: &str) -> Result<Option<Self>, Never> {
-        Ok(match name {
-            "packages" => Some(Section::Packages),
-            "build" => Some(Section::Build),
-            "files" => Some(Section::Files),
-            "services" => Some(Section::Services),
-            "masked" => Some(Section::Masked),
-            "elsewhere" => Some(Section::Elsewhere),
-            _ => None,
-        })
-    }
 }
 
-pub const THEIRS: &str = "theirs";
+pub const ONCE: &str = "once";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Whose {
-    Ours,
-    Theirs,
+pub enum Written {
+    Always,
+    Once,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Manifest {
     sections: BTreeMap<Section, Vec<String>>,
-    theirs: BTreeSet<String>,
+    written_once: BTreeSet<String>,
 }
 
-pub const MARK: &str = "desktop.conf";
+pub use console_repository::MARK;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Conf<'a>(pub &'a str);
+pub struct Configuration<'a>(pub &'a str);
 
 impl Manifest {
     pub fn read(text: &str) -> Result<Self, Unapplied> {
-        Manifest::default().folding(Conf(MARK), text)
+        Manifest::default().folding(Configuration(MARK), text)
     }
 
-    pub fn and(self, conf: Conf<'_>, text: &str) -> Result<Self, Unapplied> {
-        let Conf(file) = conf;
+    pub fn and(self, conf: Configuration<'_>, text: &str) -> Result<Self, Unapplied> {
+        let Configuration(file) = conf;
         let added = Manifest::default().folding(conf, text)?;
 
         for section in Section::EVERY {
@@ -131,8 +119,8 @@ impl Manifest {
             held = opened;
 
             for entry in entries {
-                let Ok(whose) = added.whose(entry);
-                let Ok(holding) = held.holding(*section, entry, whose);
+                let Ok(written) = added.written(entry);
+                let Ok(holding) = held.holding(*section, entry, written);
 
                 held = holding;
             }
@@ -141,8 +129,8 @@ impl Manifest {
         Ok(held)
     }
 
-    fn folding(self, conf: Conf<'_>, text: &str) -> Result<Self, Unapplied> {
-        let Conf(file) = conf;
+    fn folding(self, conf: Configuration<'_>, text: &str) -> Result<Self, Unapplied> {
+        let Configuration(file) = conf;
 
         text.lines()
             .map(|line| {
@@ -158,7 +146,7 @@ impl Manifest {
 
                     match heading {
                         Some(name) => {
-                            let Ok(named) = Section::named(name);
+                            let Ok(named) = Section::from_name(name);
 
                             match named {
                                 Some(section) => {
@@ -174,8 +162,8 @@ impl Manifest {
                         }
                         None => match current {
                             Some(section) => {
-                                let (name, whose) = said_in(conf, section, line)?;
-                                let Ok(holding) = held.holding(section, &name, whose);
+                                let (name, written) = said_in(conf, section, line)?;
+                                let Ok(holding) = held.holding(section, &name, written);
 
                                 Ok((holding, current))
                             }
@@ -194,10 +182,10 @@ impl Manifest {
         Ok(self.sections.get(&section).map_or(&[], Vec::as_slice))
     }
 
-    pub fn whose(&self, path: &str) -> Result<Whose, Never> {
-        Ok(match self.theirs.contains(path) {
-            true => Whose::Theirs,
-            false => Whose::Ours,
+    pub fn written(&self, path: &str) -> Result<Written, Never> {
+        Ok(match self.written_once.contains(path) {
+            true => Written::Once,
+            false => Written::Always,
         })
     }
 
@@ -218,22 +206,22 @@ impl Manifest {
         Ok(self)
     }
 
-    fn holding(mut self, section: Section, name: &str, whose: Whose) -> Result<Self, Never> {
+    fn holding(mut self, section: Section, name: &str, written: Written) -> Result<Self, Never> {
         self.sections.entry(section).or_default().push(name.to_owned());
 
-        match whose {
-            Whose::Theirs => {
-                let _ = self.theirs.insert(name.to_owned());
+        match written {
+            Written::Once => {
+                let _ = self.written_once.insert(name.to_owned());
             }
-            Whose::Ours => {},
+            Written::Always => {},
         }
 
         Ok(self)
     }
 }
 
-fn said_in(conf: Conf<'_>, section: Section, entry: &str) -> Result<(String, Whose), Unapplied> {
-    let Conf(file) = conf;
+fn said_in(conf: Configuration<'_>, section: Section, entry: &str) -> Result<(String, Written), Unapplied> {
+    let Configuration(file) = conf;
 
     let mut words = entry.split_whitespace();
 
@@ -246,15 +234,15 @@ fn said_in(conf: Conf<'_>, section: Section, entry: &str) -> Result<(String, Who
     let Ok(under) = section.name();
 
     Ok(match rest.as_slice() {
-        [] => (name, Whose::Ours),
-        [THEIRS] => match section {
-            Section::Files => (name, Whose::Theirs),
+        [] => (name, Written::Always),
+        [ONCE] => match section {
+            Section::Files => (name, Written::Once),
             Section::Packages
             | Section::Build
             | Section::Services
             | Section::Masked
             | Section::Elsewhere => {
-                return Err(Unapplied::TheirsIsForFiles(
+                return Err(Unapplied::OnceIsForFiles(
                     file.to_string(),
                     entry.to_string(),
                     under.to_string(),
@@ -262,7 +250,7 @@ fn said_in(conf: Conf<'_>, section: Section, entry: &str) -> Result<(String, Who
             }
         },
         _ => {
-            return Err(Unapplied::OnlyTheirs(
+            return Err(Unapplied::OnlyOnce(
                 file.to_string(),
                 entry.to_string(),
                 under.to_string(),
@@ -327,40 +315,40 @@ mod tests {
 
     #[test]
     fn a_file_something_else_writes_is_a_path_with_a_word_after_it() {
-        let read = Manifest::read("[files]\n/etc/a\n/home/@user@/.config/console/bar.css theirs\n")
+        let read = Manifest::read("[files]\n/etc/a\n/home/@user@/.config/console/bar.css once\n")
             .expect("it reads");
         assert_eq!(of(&read, Section::Files), ["/etc/a", "/home/@user@/.config/console/bar.css"]);
 
-        let Ok(ours) = read.whose("/etc/a");
-        let Ok(theirs) = read.whose("/home/@user@/.config/console/bar.css");
+        let Ok(replaced) = read.written("/etc/a");
+        let Ok(kept) = read.written("/home/@user@/.config/console/bar.css");
 
-        assert_eq!(ours, Whose::Ours);
-        assert_eq!(theirs, Whose::Theirs);
+        assert_eq!(replaced, Written::Always);
+        assert_eq!(kept, Written::Once);
     }
 
     #[test]
-    fn a_path_nobody_marked_is_ours_and_so_is_a_path_the_manifest_never_named() {
+    fn a_path_no_one_marked_is_ours_and_so_is_a_path_the_manifest_never_named() {
         let read = Manifest::read("[files]\n/etc/a\n").expect("it reads");
-        let Ok(named) = read.whose("/etc/a");
-        let Ok(never) = read.whose("/etc/somewhere-else");
+        let Ok(named) = read.written("/etc/a");
+        let Ok(never) = read.written("/etc/somewhere-else");
 
-        assert_eq!(named, Whose::Ours);
-        assert_eq!(never, Whose::Ours);
+        assert_eq!(named, Written::Always);
+        assert_eq!(never, Written::Always);
     }
 
     #[test]
-    fn a_word_after_a_path_that_nobody_reads_is_refused_rather_than_taken_as_part_of_it() {
+    fn a_word_after_a_path_that_no_one_reads_is_refused_rather_than_taken_as_part_of_it() {
         let fault = Manifest::read("[files]\n/etc/a mine\n").expect_err("no such word");
-        assert!(fault.to_string().contains("theirs"), "{fault}");
+        assert!(fault.to_string().contains("once"), "{fault}");
         assert!(fault.to_string().contains("/etc/a mine"), "{fault}");
     }
 
     #[test]
-    fn only_a_file_has_an_inside_for_anybody_to_own() {
-        let fault = Manifest::read("[packages]\nhyprland theirs\n").expect_err("not a file");
+    fn only_a_file_has_an_inside_for_anyone_to_own() {
+        let fault = Manifest::read("[packages]\nhyprland once\n").expect_err("not a file");
         assert!(fault.to_string().contains("packages"), "{fault}");
 
-        let fault = Manifest::read("[services]\nconsole.target theirs\n").expect_err("not a file");
+        let fault = Manifest::read("[services]\nconsole.target once\n").expect_err("not a file");
         assert!(fault.to_string().contains("services"), "{fault}");
     }
 
@@ -368,9 +356,9 @@ mod tests {
     fn the_manifest_this_desktop_wears_marks_the_files_something_else_on_it_writes() {
         let held = include_str!("../../../desktop.conf");
         let read = Manifest::read(held).expect("desktop.conf reads");
-        let Ok(hyprland) = read.whose("/home/@user@/.config/console/hypr/hyprland.lua");
+        let Ok(hyprland) = read.written("/home/@user@/.config/console/hypr/hyprland.lua");
 
-        assert_eq!(hyprland, Whose::Ours);
+        assert_eq!(hyprland, Written::Always);
     }
 
     #[test]
@@ -378,15 +366,19 @@ mod tests {
         let held = include_str!("../../../machines.conf");
         let Ok(mine) = crate::machines::of(held, crate::machines::Named("legion-go"));
         let read = Manifest::read(&mine).expect("the handheld's own block reads");
-        let Ok(session) = read.whose("/etc/plasmalogin.conf.d/zz-steamos-autologin.conf");
+        let Ok(session) = read.written("/etc/plasmalogin.conf.d/zz-steamos-autologin.conf");
 
-        assert_eq!(session, Whose::Theirs, "steamos-session-select rewrites this on the way out");
+        assert_eq!(session, Written::Once, "steamos-session-select rewrites this on the way out");
+
+        let Ok(profiles) = read.written("/home/@user@/.librewolf/profiles.ini");
+
+        assert_eq!(profiles, Written::Once, "the browser keeps its own list of profiles");
     }
 
     #[test]
     fn a_line_in_both_files_is_one_of_them_being_wrong() {
         let read = Manifest::read("[files]\n/etc/a\n").expect("it reads");
-        let fault = read.and(Conf("machines.conf"), "[files]\n/etc/a\n").expect_err("twice");
+        let fault = read.and(Configuration("machines.conf"), "[files]\n/etc/a\n").expect_err("twice");
 
         assert!(fault.to_string().contains("/etc/a"), "{fault}");
         assert!(fault.to_string().contains("machines.conf"), "{fault}");
@@ -395,14 +387,14 @@ mod tests {
     #[test]
     fn a_machine_with_no_block_gets_the_manifest_and_nothing_else() {
         let read = Manifest::read("[files]\n/etc/a\n").expect("it reads");
-        let whole = read.and(Conf("machines.conf"), "").expect("nothing to add");
+        let whole = read.and(Configuration("machines.conf"), "").expect("nothing to add");
         let Ok(files) = whole.of(Section::Files);
 
         assert_eq!(files, ["/etc/a"]);
     }
 
     #[test]
-    fn a_section_nobody_named_is_refused_rather_than_skipped() {
+    fn a_section_no_one_named_is_refused_rather_than_skipped() {
         let fault = Manifest::read("[packagez]\nhyprland\n").expect_err("no such section");
         assert!(fault.to_string().contains("packagez"), "{fault}");
     }

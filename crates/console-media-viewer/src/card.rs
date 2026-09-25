@@ -1,22 +1,22 @@
-//! A photograph and a film, drawn.
+//! A photograph drawn, and a film named.
 //!
 //! ```text
-//!     viewer-panel ~/Pictures/beach.jpg
-//!     viewer-panel ~/Pictures
-//!     viewer-panel
+//!     viewer ~/Pictures/beach.jpg
+//!     viewer ~/Pictures
+//!     viewer
 //! ```
 //!  Opened by pressing A on a picture in the files panel, which is xdg-open,
 //! which is `console-media-viewer.desktop`, which is this. Handed a folder
 //! instead it opens on the first thing in it that can be shown, and handed
 //! nothing at all it opens the pictures folder: the same entry is on the home
 //! screen, and a card on the home screen that starts a program which prints a
-//! usage line to a stderr nobody can see is a card that does nothing.
+//! usage line to a stderr no one can see is a card that does nothing.
 //!
 //! That argument was made here and then only half kept. A folder with no
 //! picture and no film in it -- which is what a pictures folder is on a device
-//! nobody has taken a photograph on yet -- took the other road: the panel
-//! decided it was not worth opening, said so on the same stderr nobody can
-//! see, and exited nought. Pressing Viewer on the home screen did nothing at
+//! no one has taken a photograph on yet -- took the other road: the panel
+//! decided it was not worth opening, said so on the same stderr no one can
+//! see, and exited zero. Pressing Viewer on the home screen did nothing at
 //! all, and a press that does nothing at all reads as a program that fell over
 //! rather than as an empty folder. So a folder always opens now, and one with
 //! nothing to show opens on the row the panel already draws for a list with
@@ -24,8 +24,8 @@
 //! files panel is on the screen already, and leaving it there is better than
 //! taking the screen to say no.
 //!
-//! What is here is the reading of a disk, GStreamer, and the drawing of a card.
-//! Everything that is a decision -- which things in a folder can be shown,
+//! What is here is the reading of a disk and the drawing of a card. Everything
+//! that is a decision -- which things in a folder can be shown,
 //! which one is next, what the row under the picture says, and what a press
 //! forgets about the last thing -- is `console_media_viewer`, where it is
 //! tested without either. `watching` is the composition of the rest of it and
@@ -39,17 +39,17 @@
 //! why it is a shelf of everything now, and what a heading over it stands
 //! for.
 //!
-//! ## Which is why an empty folder cannot be the end of it
+//! ## Subject is why an empty folder cannot be the end of it
 //!
 //! The shelf arrived after the paragraph above and the two were never held
 //! against each other. A pictures folder with nothing in it took the short road
 //! -- one row saying nothing here, and no second page at all -- so a device
 //! with two films in Videos and no photographs said it had nothing on it, from
 //! the panel whose second page exists to answer exactly that. The check that
-//! would have caught it is the one nobody had written: there was no press of
+//! would have caught it is the one no one had written: there was no press of
 //! this panel at any stage.
 //!
-//! So the folder the panel opens on is where somebody came in and never the
+//! So the folder the panel opens on is where someone came in and never the
 //! whole of what there is. When it holds nothing to show, the shelf is walked
 //! and the panel stands on the first thing it found, wherever that was filed;
 //! only a shelf that is empty too is a device with nothing on it, and only then
@@ -57,47 +57,59 @@
 //! falls back on is the first of Pictures, Videos and Downloads that exists,
 //! rather than Pictures or nothing -- a machine that has films and has never
 //! been photographed on is the ordinary state of this one.
+//!
+//! ## A film plays on the card it was already shown on
+//!
+//! The frames came out of GStreamer into a GTK paintable once, and went with
+//! the toolkit. They come back through `film` now: the row that shows a film
+//! is the row that shows a photograph, and what is drawn in it is whatever
+//! frame the player last handed `console_panel::frames`. Every read of the
+//! rows keeps the player in step with what was pressed -- play, pause, a seek,
+//! a speed, a subtitle track -- and the clock under the picture comes back out
+//! of the player on the same read.
 
-use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
-use console_core_external_programs::Program;
+use console_core_localization::positional;
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
 use console_panel::icons::Icon;
-use console_panel::card::{Card, Door};
-use console_panel::page::{Aside, Bar, Does, Ends, InEffect, Page, Picture, Press, Row, Rows, Stirred, Watch, Which};
-use console_program_contract::{Doing, Program as _, Turn, Word};
+use console_panel::card::Card;
+use console_panel::page::{Aside, Bar, Handler, Ends, Active, Page, Picture, ButtonPress, Row, Rows, WakeOutcome, Subject};
+use console_program_contract::{Effect, Program as _, Update, Event};
+use crate::editing::{self, Edit, Filter};
 use crate::index;
 use crate::kinds::Kind;
 use crate::{playing, saying};
-use crate::playing::Running;
 use crate::reel::Reel;
-use crate::waking::Awake;
-use crate::playing::Captions;
+use crate::waking::Woken;
 use crate::watching::{
-    Alone, Its, Since, Watch as Watched, Watching, alone, awake, stirred,
+    Alone, ViewerEffect, Since, Watch as Watched, Watching, alone, awake, stirred,
 };
-use gstreamer::prelude::*;
-use gtk4::glib::UserDirectory;
+use console_content_types::Table;
+use console_core_geometry::Size;
+use console_core_number_conversion::{Float, toward_zero_u64};
+use console_core_places::Folder;
+use console_music_player::sounding::{Progress, Sounding};
+use crate::film::{self, PlaybackRequest, Facts, Film};
+use crate::playing::Running;
 
-fn kind_of(path: &Path) -> Result<String, Never> {
-    let name = match path.file_name().and_then(|name| name.to_str()) {
-        Some(name) => name,
-        None => return Ok(String::new()),
-    };
+fn kinds() -> Result<Table, Never> {
+    Ok(match Table::here() {
+        Ok(table) => table,
+        Err(why) => {
+            eprintln!("viewer: nothing says what a file is: {why}");
 
-    let (kind, _) = gtk4::gio::functions::content_type_guess(Some(name), None::<&[u8]>);
-
-    Ok(match gtk4::gio::functions::content_type_get_mime_type(&kind) {
-        Some(said) => said.to_string(),
-        None => NOTHING_SAYS_WHAT_IT_IS.to_string(),
+            Table::default()
+        }
     })
 }
 
 fn listing(folder: &Path) -> Result<Vec<(String, String)>, Never> {
+    let Ok(kinds) = kinds();
+
     let mut found: Vec<(String, String)> = std::fs::read_dir(folder)
         .into_iter()
         .flatten()
@@ -107,7 +119,7 @@ fn listing(folder: &Path) -> Result<Vec<(String, String)>, Never> {
             let name = match entry.file_name().into_string() {
                 Ok(name) => name,
                 Err(_fault) => {
-                    eprintln!("viewer-panel: {:?}: this name is not text", entry.file_name());
+                    eprintln!("viewer: {:?}: this name is not text", entry.file_name());
 
                     return None;
                 }
@@ -116,7 +128,7 @@ fn listing(folder: &Path) -> Result<Vec<(String, String)>, Never> {
             match name.starts_with('.') {
                 true => None,
                 false => {
-                    let Ok(kind) = kind_of(&entry.path());
+                    let Ok(kind) = console_content_types::of(&kinds, &entry.path());
 
                     Some((name, kind))
                 },
@@ -133,6 +145,10 @@ struct Looking {
     folder: PathBuf,
     watching: Watching,
     began: Instant,
+    film: Option<Film>,
+    facts: Option<(PathBuf, Option<Facts>)>,
+    sound: Option<Arc<Sounding>>,
+    measured: Option<(PathBuf, (u32, u32))>,
 }
 
 impl Looking {
@@ -171,7 +187,15 @@ impl Looking {
                 reason = "`watching` takes every decision from a `Since` handed in and this is the one reading those are counted from, made where the panel goes up rather than anywhere a decision is taken"
             )
         )]
-        Ok(Some(Looking { folder, watching, began: Instant::now() }))
+        Ok(Some(Looking {
+            folder,
+            watching,
+            began: Instant::now(),
+            film: None,
+            facts: None,
+            sound: None,
+            measured: None,
+        }))
     }
 
     fn now(&self) -> Result<Since, Never> {
@@ -190,73 +214,248 @@ impl Looking {
         Ok(match std::fs::metadata(&at) {
             Ok(held) => held.len(),
             Err(fault) => {
-                eprintln!("viewer-panel: {}: {fault}", at.display());
+                eprintln!("viewer: {}: {fault}", at.display());
 
                 0
             }
         })
     }
 
-    fn shape(&self) -> Result<(u32, u32), Never> {
+    fn shape(&mut self) -> Result<(u32, u32), Never> {
         let Ok(showing) = self.watching.showing();
+        let kind = showing.kind;
         let Ok(at) = self.at();
 
-        Ok(match showing.kind {
-            Kind::Film => (0, 0),
-            Kind::Picture => match gtk4::gdk_pixbuf::Pixbuf::file_info(at) {
-                Some((_, wide, tall)) => (wide.unsigned_abs(), tall.unsigned_abs()),
-                None => (0, 0),
+        match &self.measured {
+            Some((was, shape)) => match *was == at {
+                true => return Ok(*shape),
+                false => {},
             },
-        })
+            None => {},
+        }
+
+        let shape = match kind {
+            Kind::Film => (0, 0),
+            Kind::Picture => match console_pictures::measured(&at) {
+                Ok(Some(Size { width: wide, height: tall })) => (wide, tall),
+                Ok(None) => (0, 0),
+                Err(why) => {
+                    eprintln!("viewer: {}: {why}", at.display());
+
+                    (0, 0)
+                }
+            },
+        };
+
+        self.measured = Some((at, shape));
+
+        Ok(shape)
     }
 
-    fn heard(&mut self, heard: crate::watching::Heard) -> Result<Vec<Doing<Its>>, Never> {
-        let Turn { now, doings } = Watched::heard(&self.watching, &Word::Its(heard));
+    fn facts(&mut self, at: &Path) -> Result<Option<Facts>, Never> {
+        match &self.facts {
+            Some((was, facts)) => match was.as_path() == at {
+                true => return Ok(facts.clone()),
+                false => {},
+            },
+            None => {},
+        }
 
-        self.watching = now;
+        let Ok(facts) = film::facts(at);
 
-        Ok(doings)
+        self.facts = Some((at.to_path_buf(), facts.clone()));
+
+        match &facts {
+            Some(facts) => {
+                let Ok(whole) = toward_zero_u64(facts.seconds.ceil());
+                let Ok(tracks) = film::sidecars(at);
+                let at = self.watching.along.at;
+                let Ok(beside) = fitted::<_, u32>(tracks.len());
+                let _ = self.heard(ViewerEvent::Where { at, whole });
+                let _ = self.heard(ViewerEvent::Tracks(facts.words.saturating_add(beside)));
+            },
+            None => {},
+        }
+
+        Ok(facts)
+    }
+
+    fn sound(&mut self) -> Result<Arc<Sounding>, Never> {
+        match &self.sound {
+            Some(sound) => return Ok(Arc::clone(sound)),
+            None => {},
+        }
+
+        let Ok(sound) = Sounding::new(|progress| match progress {
+            Progress::Ended => console_panel::frames::tell(console_panel::frames::Notice::Rows),
+            Progress::ASecondPlayed => Ok(()),
+        });
+        let sound = Arc::new(sound);
+
+        self.sound = Some(Arc::clone(&sound));
+
+        Ok(sound)
+    }
+
+    fn in_step(&mut self) -> Result<(), Never> {
+        let Ok(showing) = self.watching.showing();
+        let kind = showing.kind;
+        let Ok(at) = self.at();
+
+        let facts = match kind {
+            Kind::Film => {
+                let Ok(facts) = self.facts(&at);
+
+                facts
+            },
+            Kind::Picture => None,
+        };
+
+        let whole = self.watching.along.whole;
+        let ended = match &self.film {
+            Some(film) => {
+                let Ok(ended) = film.ended();
+
+                ended
+            },
+            None => film::Ended::No,
+        };
+
+        match ended {
+            film::Ended::Yes => {
+                self.film = None;
+
+                let Ok(now) = self.now();
+                let _ = self.heard(ViewerEvent::Where { at: whole, whole });
+                let _ = self.heard(ViewerEvent::Running(now));
+            },
+            film::Ended::No => {},
+        }
+
+        let playing = self.film.as_ref().map(|film| film.asked.clone());
+        let watching = &self.watching;
+        let wanted = match (kind, watching.running, &facts) {
+            (Kind::Film, Running::Yes, Some(_)) => Some(PlaybackRequest {
+                film: at.clone(),
+                from: 0.0,
+                speed: watching.speed,
+                captions: watching.captions,
+                sought: watching.sought,
+            }),
+            (Kind::Film, Running::Yes, None)
+            | (Kind::Film, Running::Paused, _)
+            | (Kind::Picture, _, _) => None,
+        };
+
+        let Ok(next) = film::next(playing.as_ref(), wanted.as_ref());
+        let heard_at = match &self.film {
+            Some(film) => {
+                let Ok(at) = film.at();
+
+                Some(at)
+            },
+            None => None,
+        };
+
+        match (next, wanted, facts) {
+            (film::Next::None, _, _) => match heard_at {
+                Some(heard_at) => {
+                    let Ok(at) = toward_zero_u64(heard_at);
+                    let _ = self.heard(ViewerEvent::Where { at, whole });
+                },
+                None => {},
+            },
+            (film::Next::Stop, _, _) => {
+                self.film = None;
+
+                match heard_at {
+                    Some(heard_at) => {
+                        let Ok(at) = toward_zero_u64(heard_at);
+                        let _ = self.heard(ViewerEvent::Where { at, whole });
+                    },
+                    None => {},
+                }
+            },
+            (film::Next::Start, Some(wanted), Some(facts)) => {
+                let same_film = playing.as_ref().is_some_and(|playing| playing.film == wanted.film);
+                let moved = playing.as_ref().is_some_and(|playing| playing.sought != wanted.sought);
+                let along = self.watching.along;
+                let Ok(finished) = along.ended_now();
+
+                let from = match (same_film, moved, heard_at, finished) {
+                    (true, false, Some(heard_at), _) => heard_at,
+                    (_, _, _, playing::Ended::Yes) => 0.0,
+                    (true, true, _, playing::Ended::No)
+                    | (true, false, None, playing::Ended::No)
+                    | (false, _, _, playing::Ended::No) => {
+                        let Ok(from) = along.at.float();
+
+                        from
+                    },
+                };
+
+                self.film = None;
+
+                let Ok(sound) = self.sound();
+                let room = match console_panel::frames::room(&at) {
+                    Ok(Some(room)) => room,
+                    Ok(None) | Err(_) => Size { width: 1280, height: 720 },
+                };
+                let Ok(started) = Film::start(PlaybackRequest { from, ..wanted }, &facts, room, sound);
+
+                self.film = Some(started);
+            },
+            (film::Next::Start, None, _) | (film::Next::Start, Some(_), None) => {},
+        }
+
+        Ok(())
+    }
+
+    fn heard(&mut self, heard: crate::watching::ViewerEvent) -> Result<Vec<Effect<ViewerEffect>>, Never> {
+        let Update { state, effects } = Watched::update(&self.watching, &Event::Custom(heard));
+
+        self.watching = state;
+
+        Ok(effects)
     }
 }
 
-type Held = Arc<Mutex<Looking>>;
+type Shared = Arc<Mutex<Looking>>;
 
-use crate::watching::Heard;
-
-const NOTHING_SAYS_WHAT_IT_IS: &str = "";
+use crate::watching::ViewerEvent;
 
 const HERE: &str = ".";
 
 
 fn press(
-    held: &Held,
-    heard: Heard,
+    held: &Shared,
+    heard: ViewerEvent,
     showing: &dyn console_panel::page::Showing,
 ) -> Result<(), Never> {
-    let doings = match held.lock() {
+    let effects = match held.lock() {
         Ok(mut looking) => {
-            let Ok(doings) = looking.heard(heard);
+            let Ok(effects) = looking.heard(heard);
 
-            doings
+            effects
         },
         Err(_the_lock_is_poisoned) => Vec::new(),
     };
 
-    for doing in doings {
-        match doing {
-            Doing::Its(Its::Refresh) => showing.refresh(),
-            Doing::Its(Its::TurnToTheCard) => showing.turn_to(CARD),
+    for effect in effects {
+        match effect {
+            Effect::Custom(ViewerEffect::Refresh) => showing.refresh(),
+            Effect::Custom(ViewerEffect::TurnToTheCard) => showing.turn_to(CARD),
 
-            Doing::Ask(_)
-            | Doing::Watch(_)
-            | Doing::AskWhoever(_)
-            | Doing::Start(_)
-            | Doing::Listen(_)
-            | Doing::Deafen(_)
-            | Doing::Write(_)
-            | Doing::Say(_)
-            | Doing::Print(_)
-            | Doing::Stop(_) => {},
+            Effect::Run(_)
+            | Effect::Stream(_)
+            | Effect::Prompt(_)
+            | Effect::Spawn(_)
+            | Effect::Subscribe(_)
+            | Effect::Unsubscribe(_)
+            | Effect::Write(_)
+            | Effect::Notify(_)
+            | Effect::Print(_)
+            | Effect::Stop(_) => {},
         }
     }
 
@@ -264,39 +463,39 @@ fn press(
 }
 
 fn shown_in_the_files(
-    held: &Held,
+    held: &Shared,
     at: &Path,
 ) -> Result<impl Fn(&dyn console_panel::page::Showing) -> bool + Send + Sync + 'static, Never> {
     let asking = Arc::clone(held);
     let at = at.to_path_buf();
 
     Ok(move |_: &dyn console_panel::page::Showing| {
-        let doings = match asking.lock() {
+        let effects = match asking.lock() {
             Ok(mut looking) => {
-                let Ok(doings) = looking.heard(Heard::Shown(at.clone()));
+                let Ok(effects) = looking.heard(ViewerEvent::Shown(at.clone()));
 
-                doings
+                effects
             },
             Err(_the_lock_is_poisoned) => Vec::new(),
         };
 
-        for doing in &doings {
-            match doing {
-                Doing::Start(runs) => {
+        for effect in &effects {
+            match effect {
+                Effect::Spawn(runs) => {
                     let Ok(whole) = whole(runs);
                     let Ok(()) = console_panel::running::left_running(&whole);
                 }
 
-                Doing::Its(_)
-                | Doing::Ask(_)
-                | Doing::Watch(_)
-                | Doing::AskWhoever(_)
-                | Doing::Listen(_)
-                | Doing::Deafen(_)
-                | Doing::Write(_)
-                | Doing::Say(_)
-                | Doing::Print(_)
-                | Doing::Stop(_) => {},
+                Effect::Custom(_)
+                | Effect::Run(_)
+                | Effect::Stream(_)
+                | Effect::Prompt(_)
+                | Effect::Subscribe(_)
+                | Effect::Unsubscribe(_)
+                | Effect::Write(_)
+                | Effect::Notify(_)
+                | Effect::Print(_)
+                | Effect::Stop(_) => {},
             }
         }
 
@@ -304,17 +503,17 @@ fn shown_in_the_files(
     })
 }
 
-fn whole(runs: &console_program_contract::Runs) -> Result<Vec<String>, Never> {
+fn whole(runs: &console_program_contract::Command) -> Result<Vec<String>, Never> {
     let Ok(name) = runs.program.name();
 
-    let mut argv = vec![name.to_string()];
+    let mut arguments = vec![name.to_string()];
 
-    argv.extend(runs.argv.clone());
+    arguments.extend(runs.arguments.clone());
 
-    Ok(argv)
+    Ok(arguments)
 }
 
-fn quietly(held: &Held, heard: Heard) -> Result<(), Never> {
+fn quietly(held: &Shared, heard: ViewerEvent) -> Result<(), Never> {
     match held.lock() {
         Ok(mut looking) => {
             let _ = looking.heard(heard);
@@ -325,252 +524,7 @@ fn quietly(held: &Held, heard: Heard) -> Result<(), Never> {
     Ok(())
 }
 
-thread_local! {
-    static REEL: RefCell<Option<Reeling>> = const { RefCell::new(None) };
-}
-
-struct Reeling {
-    at: PathBuf,
-    play: gstreamer::Element,
-    surface: gtk4::gdk::Paintable,
-    rate: f64,
-    told: Option<Captions>,
-}
-
-impl Drop for Reeling {
-    fn drop(&mut self) {
-        match self.play.set_state(gstreamer::State::Null) {
-            Ok(_) => {},
-            Err(fault) => {
-                eprintln!("viewer-panel: {}: will not stop: {fault}", self.at.display());
-            }
-        }
-    }
-}
-
-fn words_beside(at: &Path) -> Result<Option<PathBuf>, Never> {
-    let name = match at.file_name().and_then(|name| name.to_str()) {
-        Some(name) => name,
-        None => return Ok(None),
-    };
-
-    let folder = match at.parent() {
-        Some(folder) => folder,
-        None => return Ok(None),
-    };
-
-    let Ok(beside) = playing::beside(name);
-
-    Ok(beside.into_iter().map(|name| folder.join(name)).find(|beside| beside.is_file()))
-}
-
-fn open(at: &Path) -> Result<Option<Reeling>, Never> {
-    let uri = match gtk4::glib::filename_to_uri(at, None) {
-        Ok(uri) => uri,
-        Err(fault) => {
-            eprintln!("viewer-panel: {}: {fault}", at.display());
-
-            return Ok(None);
-        }
-    };
-
-    let sink = match gstreamer::ElementFactory::make("gtk4paintablesink").build() {
-        Ok(sink) => sink,
-        Err(fault) => {
-            eprintln!("viewer-panel: no gtk4paintablesink, so no film can be drawn: {fault}");
-            eprintln!("viewer-panel: it is gst-plugin-gtk4, which desktop.conf names");
-
-            return Ok(None);
-        }
-    };
-
-    let surface: gtk4::gdk::Paintable = sink.property("paintable");
-
-    let mut building = gstreamer::ElementFactory::make("playbin")
-        .property("uri", &uri)
-        .property("video-sink", &sink);
-
-    let Ok(beside) = words_beside(at);
-
-    match beside {
-        Some(beside) => match gtk4::glib::filename_to_uri(&beside, None) {
-            Ok(uri) => building = building.property("suburi", uri),
-            Err(fault) => eprintln!("viewer-panel: {}: {fault}", beside.display()),
-        },
-        None => {},
-    }
-
-    let play = match building.build() {
-        Ok(play) => play,
-        Err(fault) => {
-            eprintln!("viewer-panel: {}: {fault}", at.display());
-
-            return Ok(None);
-        }
-    };
-
-    match play.set_state(gstreamer::State::Paused) {
-        Ok(_) => {},
-        Err(fault) => {
-            eprintln!("viewer-panel: {}: will not open: {fault}", at.display());
-
-            return Ok(None);
-        }
-    }
-
-    Ok(Some(Reeling {
-        at: at.to_path_buf(),
-        play,
-        surface,
-        rate: 1.0,
-        told: None,
-    }))
-}
-
-const TEXT: &str = "current-text";
-const TRACKS: &str = "n-text";
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Has {
-    It,
-    Not,
-}
-
-fn has(play: &gstreamer::Element, named: &str) -> Result<Has, Never> {
-    Ok(match play.find_property(named).is_some() {
-        true => Has::It,
-        false => {
-            eprintln!("viewer-panel: this player has no {named}, so subtitles cannot be chosen");
-
-            Has::Not
-        }
-    })
-}
-
-fn reeling(held: &Held, at: &Path) -> Result<Option<gtk4::gdk::Paintable>, Never> {
-    Ok(REEL.with_borrow_mut(|reel| {
-        match reel.as_ref().is_none_or(|open| open.at != at) {
-            true => {
-                let Ok(opened) = open(at);
-
-                *reel = opened;
-            }
-            false => {},
-        }
-
-        let open = reel.as_mut()?;
-
-        let mut looking = match held.lock() {
-            Ok(looking) => looking,
-            Err(_fault) => return Some(open.surface.clone()),
-        };
-
-        match looking.watching.sought.take() {
-            Some(to) => {
-                let flags = gstreamer::SeekFlags::FLUSH | gstreamer::SeekFlags::KEY_UNIT;
-                let sought =
-                    open.play.seek_simple(flags, gstreamer::ClockTime::from_seconds(to));
-
-                match sought {
-                    Ok(()) => {},
-                    Err(fault) => {
-                        eprintln!("viewer-panel: {}: will not seek: {fault}", at.display());
-                    }
-                }
-            }
-            None => {},
-        }
-
-        let Ok((_, rate)) = playing::speed(looking.watching.speed);
-
-        match rate == open.rate {
-            true => {},
-            false => {
-                let at_now = match open.play.query_position::<gstreamer::ClockTime>() {
-                    Some(at_now) => at_now,
-                    None => gstreamer::ClockTime::ZERO,
-                };
-                let flags = gstreamer::SeekFlags::FLUSH | gstreamer::SeekFlags::ACCURATE;
-
-                match open.play.seek(
-                    rate,
-                    flags,
-                    gstreamer::SeekType::Set,
-                    at_now,
-                    gstreamer::SeekType::End,
-                    gstreamer::ClockTime::ZERO,
-                ) {
-                    Ok(()) => open.rate = rate,
-                    Err(fault) => {
-                        eprintln!(
-                            "viewer-panel: {}: will not run at {rate}: {fault}",
-                            at.display()
-                        );
-                    }
-                }
-            }
-        }
-
-        let Ok(text) = has(&open.play, TEXT);
-        let Ok(tracks) = has(&open.play, TRACKS);
-
-        match text == Has::It && tracks == Has::It {
-            true => {
-                match open.told == Some(looking.watching.captions) {
-                    true => {},
-                    false => {
-                        let Ok(track) = looking.watching.captions.track();
-
-                        let told = match track {
-                            Some(track) => {
-                                let Ok(told) = fitted(track);
-
-                                told
-                            }
-                            None => -1,
-                        };
-
-                        open.play.set_property(TEXT, told);
-                        open.told = Some(looking.watching.captions);
-                    }
-                }
-
-                let Ok(tracks) = fitted(open.play.property::<i32>(TRACKS).max(0));
-
-                looking.watching.tracks = tracks;
-            }
-            false => {},
-        }
-
-        let wanted = match looking.watching.running {
-            Running::Yes => gstreamer::State::Playing,
-            Running::Paused => gstreamer::State::Paused,
-        };
-
-        match open.play.set_state(wanted) {
-            Ok(_) => {},
-            Err(fault) => {
-                eprintln!("viewer-panel: {}: will not {wanted:?}: {fault}", at.display());
-            }
-        }
-
-        let at = open
-            .play
-            .query_position::<gstreamer::ClockTime>()
-            .map_or(looking.watching.along.at, |now| now.seconds());
-        let whole = open
-            .play
-            .query_duration::<gstreamer::ClockTime>()
-            .map_or(looking.watching.along.whole, |whole| whole.seconds());
-
-        let _ = looking.heard(Heard::Where { at, whole });
-
-        Some(open.surface.clone())
-    }))
-}
-
-
-fn rows(held: &Held) -> Result<Vec<Row>, Never> {
+fn rows(held: &Shared) -> Result<Vec<Row>, Never> {
     let mut looking = match held.lock() {
         Ok(looking) => looking,
         Err(_fault) => return Ok(Vec::new()),
@@ -583,9 +537,11 @@ fn rows(held: &Held) -> Result<Vec<Row>, Never> {
         false => {
             let Ok(listing) = listing(&looking.folder);
             let Ok(at) = looking.now();
-            let _ = looking.heard(Heard::Listed { listing, at });
+            let _ = looking.heard(ViewerEvent::Listed { listing, at });
         }
     }
+
+    let Ok(()) = looking.in_step();
 
     let Ok(now) = looking.now();
     let Ok(showing) = looking.watching.showing();
@@ -599,9 +555,9 @@ fn rows(held: &Held) -> Result<Vec<Row>, Never> {
         Kind::Picture => Row::showing(Picture::Showing(shown.clone())),
         Kind::Film => Row::showing(Picture::Playing(shown.clone())),
     };
-    let Ok(opens) = Does::and_stay(|showing| showing.open_out());
+    let Ok(opens) = Handler::and_stay(|showing| showing.open_out());
     let Ok(card) = card.choosing(opens);
-    let Ok(card) = card.levelled(Arc::new(move |by| {
+    let Ok(card) = card.leveled(Arc::new(move |by| {
         let Ok(by) = fitted(by);
         let Ok(()) = walk(&stepping, by);
     }));
@@ -612,8 +568,8 @@ fn rows(held: &Held) -> Result<Vec<Row>, Never> {
     let Ok(awake) = awake(&looking.watching, now);
 
     match awake {
-        Awake::No => return Ok(every),
-        Awake::Yes => {},
+        Woken::No => return Ok(every),
+        Woken::Yes => {},
     }
 
     let Ok(where_in) = where_in(&looking.watching);
@@ -631,20 +587,9 @@ fn rows(held: &Held) -> Result<Vec<Row>, Never> {
         Kind::Picture => {},
     }
 
-    let Ok(alone) = alone(&looking.watching);
-
-    match shot.kind == Kind::Film || alone == Alone::No {
-        true => {
-            let Ok(transport) = transport(held, &looking.watching);
-
-            every.push(transport);
-        }
-        false => {},
-    }
-
     let facts = match shown.is_some() {
         true => {
-            let size = console_core_geometry::Size { wide, tall };
+            let size = console_core_geometry::Size { width: wide, height: tall };
             let Ok(bytes) = looking.bytes();
             let Ok(said) = saying::under(shot.kind, size, bytes, looking.watching.along);
 
@@ -657,7 +602,12 @@ fn rows(held: &Held) -> Result<Vec<Row>, Never> {
         },
     };
 
-    what_is_this(every, held, shot.kind, &facts, looking.watching.tracks)
+    let Ok(mut every) = what_is_this(every, held, shot.kind, &facts, looking.watching.tracks);
+    let Ok(transport) = transport(held, &looking.watching);
+
+    every.push(transport);
+
+    Ok(every)
 }
 
 fn where_in(watching: &Watching) -> Result<String, Never> {
@@ -676,10 +626,10 @@ fn where_in(watching: &Watching) -> Result<String, Never> {
 
 fn what_is_this(
     rows: Vec<Row>,
-    held: &Held,
+    held: &Shared,
     kind: Kind,
     facts: &str,
-    tracks: usize,
+    tracks: u32,
 ) -> Result<Vec<Row>, Never> {
     Ok(rows.into_iter()
         .map(|row| {
@@ -706,26 +656,49 @@ fn what_is_this(
 }
 
 fn what_else(
-    held: &Held,
+    held: &Shared,
     showing: &dyn console_panel::page::Showing,
     kind: Kind,
     facts: &str,
-    tracks: usize,
+    tracks: u32,
 ) -> Result<(), Never> {
     let speeding = Arc::clone(held);
     let wording = Arc::clone(held);
     let about = facts.to_string();
 
     match kind {
-        Kind::Picture => showing.sure(
-            "About this picture",
-            Which(facts),
-            &[FULL_SCREEN],
-            Arc::new(move |showing, _| showing.open_out()),
-        ),
+        Kind::Picture => {
+            let editing = Arc::clone(held);
+            let mut does: Vec<&str> = editing::EDITS
+                .iter()
+                .map(|edit| {
+                    let Ok(says) = edit.says();
+
+                    says
+                })
+                .collect();
+
+            does.push(FULL_SCREEN);
+
+            showing.sure(
+                "About This Picture",
+                Subject(facts),
+                &does,
+                Arc::new(move |showing, which| {
+                    let Ok(which) = console_core_number_conversion::index(which);
+
+                    match editing::EDITS.get(which) {
+                        Some(edit) => {
+                            let Ok(()) = edited(&editing, showing, *edit);
+                        },
+                        None => showing.open_out(),
+                    }
+                }),
+            )
+        },
         Kind::Film => showing.sure(
-            "About this film",
-            Which(facts),
+            "About This Video",
+            Subject(facts),
             &["Speed", "Subtitles", FULL_SCREEN],
             Arc::new(move |showing, which| match which {
                 0 => {
@@ -742,10 +715,72 @@ fn what_else(
     Ok(())
 }
 
-const FULL_SCREEN: &str = "Full screen";
+const FULL_SCREEN: &str = "Full Screen";
+
+const ZOOM_IN_FIRST: &str = "Zoom in on what to keep, then choose Crop.";
+
+const NOT_SAVED: &str = "The edited picture couldn't be saved.";
+
+fn edited(held: &Shared, showing: &dyn console_panel::page::Showing, edit: Edit) -> Result<(), Never> {
+    let mut looking = match held.lock() {
+        Ok(looking) => looking,
+        Err(_the_lock_is_poisoned) => return Ok(()),
+    };
+
+    let Ok(at) = looking.at();
+    let Ok((wide, tall)) = looking.shape();
+    let Ok(framed) = showing.framed();
+
+    let region = match (edit, framed) {
+        (Edit::Crop, Some(framed)) => match framed.of == at {
+            true => {
+                let Ok(region) = editing::kept(&framed, Size { width: wide, height: tall });
+
+                region
+            },
+            false => None,
+        },
+        (Edit::Crop, None) | (Edit::RotateLeft | Edit::RotateRight | Edit::Flip, _) => None,
+    };
+
+    let Ok(filter) = editing::filter(edit, region);
+
+    let filter = match filter {
+        Filter::Is(filter) => filter,
+        Filter::ZoomInFirst => {
+            showing.note(ZOOM_IN_FIRST);
+
+            return Ok(());
+        },
+    };
+
+    let into = match editing::saved(&at, &filter) {
+        Ok(into) => into,
+        Err(why) => {
+            eprintln!("viewer: {why}");
+            showing.note(NOT_SAVED);
+
+            return Ok(());
+        },
+    };
+
+    let Ok(found) = Looking::of(&into);
+
+    match found {
+        Some(found) => {
+            looking.folder = found.folder;
+            looking.watching = found.watching;
+        },
+        None => {},
+    }
+
+    showing.refresh();
+
+    Ok(())
+}
 
 fn how_fast(
-    held: &Held,
+    held: &Shared,
     showing: &dyn console_panel::page::Showing,
     name: &str,
 ) -> Result<(), Never> {
@@ -753,12 +788,13 @@ fn how_fast(
     let says: Vec<&str> = playing::SPEEDS.iter().map(|(says, _)| *says).collect();
 
     showing.sure(
-        "How fast",
-        Which(name),
+        "Playback Speed",
+        Subject(name),
         &says,
         Arc::new(move |_, which| {
+            let Ok(which) = console_core_number_conversion::fitted(which);
             let Ok(at) = now(&setting);
-            let Ok(()) = quietly(&setting, Heard::Speed { which, at });
+            let Ok(()) = quietly(&setting, ViewerEvent::Speed { which, at });
         }),
     );
 
@@ -766,10 +802,10 @@ fn how_fast(
 }
 
 fn which_words(
-    held: &Held,
+    held: &Shared,
     showing: &dyn console_panel::page::Showing,
     name: &str,
-    tracks: usize,
+    tracks: u32,
 ) -> Result<(), Never> {
     let setting = Arc::clone(held);
     let Ok(said) = playing::captions(tracks);
@@ -777,94 +813,145 @@ fn which_words(
 
     showing.sure(
         "Subtitles",
-        Which(name),
+        Subject(name),
         &says,
         Arc::new(move |_, which| {
+            let Ok(which) = console_core_number_conversion::fitted(which);
             let Ok(at) = now(&setting);
-            let Ok(()) = quietly(&setting, Heard::Words { which, at });
+            let Ok(()) = quietly(&setting, ViewerEvent::Text { which, at });
         }),
     );
 
     Ok(())
 }
 
-fn transport(held: &Held, watching: &Watching) -> Result<Row, Never> {
+fn transport(held: &Shared, watching: &Watching) -> Result<Row, Never> {
     let running = watching.running;
     let Ok(only) = alone(watching);
     let Ok(showing) = watching.showing();
-    let plays = showing.kind == Kind::Film;
-    let (back, on, forward) = (Arc::clone(held), Arc::clone(held), Arc::clone(held));
+    let kind = showing.kind;
+    let name = showing.name.clone();
+    let tracks = watching.tracks;
 
     let mut presses = Vec::new();
 
-    match only {
-        Alone::Yes => {},
-        Alone::No => {
-            let Ok(previous) = Press::new(Icon::Previous, InEffect::No, move |showing| {
-                let Ok(()) = walk(&back, -1);
+    let Ok(()) = walking(held, only, Icon::Previous, -1, &mut presses);
 
-                showing.refresh();
-            });
-
-            presses.push(previous);
-        }
-    }
-
-    match plays {
-        true => {
+    let at = match kind {
+        Kind::Film => {
+            let Ok(skip) = fitted::<u64, i32>(playing::SKIP.saturating_div(playing::STEP));
+            let Ok(back) = skipping(held, Icon::Rewind, skip.saturating_neg());
+            let (on, wording) = (Arc::clone(held), Arc::clone(held));
             let Ok(icon) = running.icon();
-            let Ok(running) = Press::new(icon, InEffect::No, move |showing| {
+            let Ok(running) = ButtonPress::new(icon, Active::No, move |showing| {
                 let Ok(at) = now(&on);
-                let Ok(()) = press(&on, Heard::Running(at), showing);
+                let Ok(()) = press(&on, ViewerEvent::Running(at), showing);
             });
             let Ok(running) = running.chief();
-
-            presses.push(running);
-        }
-        false => {},
-    }
-
-    match only {
-        Alone::Yes => {},
-        Alone::No => {
-            let Ok(next) = Press::new(Icon::Next, InEffect::No, move |showing| {
-                let Ok(()) = walk(&forward, 1);
-
-                showing.refresh();
+            let Ok(forward) = skipping(held, Icon::FastForward, skip);
+            let Ok(words) = ButtonPress::new(Icon::Subtitles, Active::No, move |showing| {
+                let Ok(()) = which_words(&wording, showing, &name, tracks);
             });
 
-            presses.push(next);
-        }
-    }
+            presses.push(back);
 
-    let at = match (only, plays) {
-        (Alone::Yes, _) => 0,
-        (Alone::No, true) => 1,
-        (Alone::No, false) => 0,
+            let Ok(at) = fitted::<_, u32>(presses.len());
+
+            presses.push(running);
+            presses.push(forward);
+
+            let Ok(()) = walking(held, only, Icon::Next, 1, &mut presses);
+
+            presses.push(words);
+
+            at
+        }
+        Kind::Picture => {
+            let Ok(further) = zooming(Icon::ZoomOut, Closer::No);
+            let Ok(closer) = zooming(Icon::ZoomIn, Closer::Yes);
+
+            presses.push(further);
+
+            let Ok(at) = fitted::<_, u32>(presses.len());
+
+            presses.push(closer);
+
+            let Ok(()) = walking(held, only, Icon::Next, 1, &mut presses);
+
+            at
+        }
     };
+
+    let Ok(whole) = ButtonPress::new(Icon::FullScreen, Active::No, |showing| showing.toggle_full_screen());
+    let Ok(whole) = whole.cornered();
+
+    presses.push(whole);
 
     Row::pressing(presses, at)
 }
 
-fn bar_row(held: &Held, along: playing::Along) -> Result<Row, Never> {
+fn walking(held: &Shared, only: Alone, icon: Icon, by: i32, presses: &mut Vec<ButtonPress>) -> Result<(), Never> {
+    match only {
+        Alone::Yes => {},
+        Alone::No => {
+            let stepping = Arc::clone(held);
+            let Ok(walk) = ButtonPress::new(icon, Active::No, move |showing| {
+                let Ok(()) = walk(&stepping, by);
+
+                showing.refresh();
+            });
+
+            presses.push(walk);
+        }
+    }
+
+    Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Closer {
+    Yes,
+    No,
+}
+
+fn zooming(icon: Icon, closer: Closer) -> Result<ButtonPress, Never> {
+    let factor = match closer {
+        Closer::Yes => console_panel::zoom::STEP,
+        Closer::No => 1.0 / console_panel::zoom::STEP,
+    };
+
+    ButtonPress::new(icon, Active::No, move |showing| showing.zoom_by(factor))
+}
+
+fn skipping(held: &Shared, icon: Icon, by: i32) -> Result<ButtonPress, Never> {
+    let skipping = Arc::clone(held);
+
+    ButtonPress::new(icon, Active::No, move |showing| {
+        let Ok(()) = scrub(&skipping, by);
+
+        showing.refresh();
+    })
+}
+
+fn bar_row(held: &Shared, along: playing::Along) -> Result<Row, Never> {
     let stepping = Arc::clone(held);
     let tapped = Arc::clone(held);
 
     let whole = match along.whole > 0 {
         true => {
-            let Ok(clock) = playing::clock(along.whole);
+            let Ok(clock) = positional(Duration::from_secs(along.whole));
 
             clock
         },
         false => String::new(),
     };
 
-    let Ok(at) = playing::clock(along.at);
-    let Ok(nothing) = Does::and_stay(|_| {});
+    let Ok(at) = positional(Duration::from_secs(along.at));
+    let Ok(nothing) = Handler::and_stay(|_| {});
     let Ok(row) = Row::new(&at, Aside(&whole), nothing);
     let Ok(row) = row.picturing(Picture::Bar(Bar { at: along.at, of: along.whole }));
     let Ok(row) = row.ended(Ends { less: "", more: "" });
-    let Ok(row) = row.levelled(Arc::new(move |by| {
+    let Ok(row) = row.leveled(Arc::new(move |by| {
         let Ok(()) = scrub(&stepping, by);
     }));
 
@@ -875,7 +962,7 @@ fn bar_row(held: &Held, along: playing::Along) -> Result<Row, Never> {
     })
 }
 
-fn now(held: &Held) -> Result<Since, Never> {
+fn now(held: &Shared) -> Result<Since, Never> {
     Ok(match held.lock() {
         Ok(looking) => {
             let Ok(now) = looking.now();
@@ -886,30 +973,36 @@ fn now(held: &Held) -> Result<Since, Never> {
     })
 }
 
-fn seek_to(held: &Held, fraction: f64) -> Result<(), Never> {
+fn seek_to(held: &Shared, fraction: f64) -> Result<(), Never> {
     let Ok(at) = now(held);
 
-    quietly(held, Heard::SoughtTo { fraction, at })
+    quietly(held, ViewerEvent::SoughtTo { fraction, at })
 }
 
-fn scrub(held: &Held, by: i32) -> Result<(), Never> {
+fn scrub(held: &Shared, by: i32) -> Result<(), Never> {
     let Ok(at) = now(held);
 
-    quietly(held, Heard::Scrubbed { by, at })
+    quietly(held, ViewerEvent::Scrubbed { by, at })
 }
 
-fn walk(held: &Held, by: isize) -> Result<(), Never> {
+fn walk(held: &Shared, by: i32) -> Result<(), Never> {
     let Ok(at) = now(held);
 
-    quietly(held, Heard::Stepped { by, at })
+    quietly(held, ViewerEvent::Stepped { by, at })
 }
 
-const CARD: usize = 0;
+const MEDIA: [Folder; 3] = [Folder::Pictures, Folder::Videos, Folder::Downloads];
+
+const CARD: u32 = 0;
 
 fn media_folders(here: &Path) -> Result<Vec<PathBuf>, Never> {
-    let mut folders: Vec<PathBuf> = [UserDirectory::Pictures, UserDirectory::Videos, UserDirectory::Downloads]
+    let mut folders: Vec<PathBuf> = MEDIA
         .into_iter()
-        .filter_map(gtk4::glib::user_special_dir)
+        .filter_map(|folder| {
+            let Ok(hers) = folder.hers();
+
+            hers
+        })
         .filter(|at| at.is_dir())
         .collect();
 
@@ -919,6 +1012,8 @@ fn media_folders(here: &Path) -> Result<Vec<PathBuf>, Never> {
 }
 
 fn read_for_the_index(at: &Path) -> Result<Vec<index::Read>, Never> {
+    let Ok(kinds) = kinds();
+
     Ok(std::fs::read_dir(at)
         .into_iter()
         .flatten()
@@ -934,7 +1029,7 @@ fn read_for_the_index(at: &Path) -> Result<Vec<index::Read>, Never> {
             let mime = match folder {
                 true => String::new(),
                 false => {
-                    let Ok(mime) = kind_of(&path);
+                    let Ok(mime) = console_content_types::of(&kinds, &path);
 
                     mime
                 },
@@ -945,7 +1040,7 @@ fn read_for_the_index(at: &Path) -> Result<Vec<index::Read>, Never> {
         .collect())
 }
 
-fn indexed(held: &Held) -> Result<Vec<index::Found>, Never> {
+fn indexed(held: &Shared) -> Result<Vec<index::Found>, Never> {
     let here = match held.lock() {
         Ok(looking) => looking.folder.clone(),
         Err(_the_lock_is_poisoned) => return Ok(Vec::new()),
@@ -956,7 +1051,7 @@ fn indexed(held: &Held) -> Result<Vec<index::Found>, Never> {
     index::under(&folders, &read_for_the_index)
 }
 
-fn media_rows(held: &Held) -> Result<Vec<Row>, Never> {
+fn media_rows(held: &Shared) -> Result<Vec<Row>, Never> {
     let standing = match held.lock() {
         Ok(looking) => looking.folder.join(&{
             let Ok(showing) = looking.watching.reel.showing();
@@ -983,12 +1078,16 @@ fn media_rows(held: &Held) -> Result<Vec<Row>, Never> {
             false => "",
         };
 
-        let Ok(stands) = Does::and_stay(move |showing| {
+        let Ok(stands) = Handler::and_stay(move |showing| {
             let Ok(()) = looked_at(&going, &at, showing);
         });
         let Ok(row) = Row::new(&thing.name, Aside(aside), stands);
         let Ok(row) = row.picturing(picture);
-        let Ok(offering) = shown_in_the_files(held, &thing.path);
+        let Ok(row) = row.selectable(&thing.path.to_string_lossy());
+        let Ok(shows) = shown_in_the_files(held, &thing.path);
+        let Ok(offering) = console_panel::page::shown_or_selected(&thing.name, &thing.path, move |showing| {
+            let _ = shows(showing);
+        });
         let Ok(row) = row.offering(offering);
 
         rows.push(row);
@@ -997,7 +1096,7 @@ fn media_rows(held: &Held) -> Result<Vec<Row>, Never> {
     console_panel::page::lettered(rows)
 }
 
-fn looked_at(held: &Held, at: &Path, showing: &dyn console_panel::page::Showing) -> Result<(), Never> {
+fn looked_at(held: &Shared, at: &Path, showing: &dyn console_panel::page::Showing) -> Result<(), Never> {
     let here = match held.lock() {
         Ok(looking) => looking.folder.clone(),
         Err(_the_lock_is_poisoned) => return Ok(()),
@@ -1012,7 +1111,7 @@ fn looked_at(held: &Held, at: &Path, showing: &dyn console_panel::page::Showing)
         true => {
             let Ok(now) = now(held);
 
-            return press(held, Heard::StoodOn { name, at: now }, showing);
+            return press(held, ViewerEvent::StoodOn { name, at: now }, showing);
         },
         false => {},
     }
@@ -1036,39 +1135,32 @@ fn looked_at(held: &Held, at: &Path, showing: &dyn console_panel::page::Showing)
     Ok(())
 }
 
-fn stir(held: &Held) -> Result<Stirred, Never> {
+fn stir(held: &Shared) -> Result<WakeOutcome, Never> {
     let mut looking = match held.lock() {
         Ok(looking) => looking,
-        Err(_fault) => return Ok(Stirred::Awake),
+        Err(_fault) => return Ok(WakeOutcome::AlreadyAwake),
     };
 
     let Ok(at) = looking.now();
     let Ok(was) = stirred(&looking.watching, at);
-    let _ = looking.heard(Heard::Stirred(at));
+    let _ = looking.heard(ViewerEvent::WakeOutcome(at));
 
     Ok(match was {
-        crate::watching::Stirred::Awake => Stirred::Awake,
-        crate::watching::Stirred::Woke => Stirred::Woke,
+        crate::watching::WakeOutcome::AlreadyAwake => WakeOutcome::AlreadyAwake,
+        crate::watching::WakeOutcome::Woke => WakeOutcome::Woke,
     })
 }
 
-fn pages(held: &Held) -> Result<Vec<Page>, Never> {
+fn pages(held: &Shared) -> Result<Vec<Page>, Never> {
     let drawing = Arc::clone(held);
     let stirring = Arc::clone(held);
     let listing = Arc::clone(held);
-    let Ok(shell) = Program::Sh.name();
-
     let Ok(asked) = Rows::asked(move || {
         let Ok(rows) = rows(&drawing);
 
         rows
     });
-    let Ok(page) = Page::new("Looking", asked);
-    let Ok(watch) = Watch::on(
-        &[shell, "-c", "while true; do echo tick; sleep 1; done"],
-        "tick",
-    );
-    let Ok(page) = page.watching(watch);
+    let Ok(page) = Page::new("Viewing", asked);
     let Ok(looking) = page.stirring(move || {
         let Ok(stirred) = stir(&stirring);
 
@@ -1080,14 +1172,19 @@ fn pages(held: &Held) -> Result<Vec<Page>, Never> {
         rows
     });
     let Ok(media) = Page::new("Media", asked);
+    let Ok(media) = media.trashing_selected();
 
     Ok(vec![looking, media])
 }
 
 fn by_default() -> Result<Option<PathBuf>, Never> {
-    Ok([UserDirectory::Pictures, UserDirectory::Videos, UserDirectory::Downloads]
+    Ok(MEDIA
         .into_iter()
-        .filter_map(gtk4::glib::user_special_dir)
+        .filter_map(|folder| {
+            let Ok(hers) = folder.hers();
+
+            hers
+        })
         .find(|folder| folder.is_dir()))
 }
 
@@ -1111,22 +1208,16 @@ fn standing_on(asked: &Path) -> Result<Option<Looking>, Never> {
 }
 
 
-pub const WHO: &str = "viewer-panel";
-
-const DOOR: &str = "viewer";
+pub const WHO: &str = "viewer";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Worth {
     Opening,
-    Nothing,
+    None,
 }
 
-pub fn door(_argv: &[String]) -> Result<Door, Never> {
-    Door::closing(DOOR)
-}
-
-pub fn worth_opening(argv: &[String]) -> Result<Worth, Never> {
-    let Ok(asked) = asked_for(argv);
+pub fn worth_opening(arguments: &[String]) -> Result<Worth, Never> {
+    let Ok(asked) = asked_for(arguments);
 
     let asked = match asked {
         Some(asked) => asked,
@@ -1143,15 +1234,15 @@ pub fn worth_opening(argv: &[String]) -> Result<Worth, Never> {
     match found {
         Some(_) => Ok(Worth::Opening),
         None => {
-            eprintln!("viewer-panel: {}: this is neither a picture nor a film", asked.display());
+            eprintln!("viewer: {}: this is neither a picture nor a film", asked.display());
 
-            Ok(Worth::Nothing)
+            Ok(Worth::None)
         }
     }
 }
 
-fn asked_for(argv: &[String]) -> Result<Option<PathBuf>, Never> {
-    let said = argv.first().filter(|said| !said.is_empty()).map(PathBuf::from);
+fn asked_for(arguments: &[String]) -> Result<Option<PathBuf>, Never> {
+    let said = arguments.first().filter(|said| !said.is_empty()).map(PathBuf::from);
 
     match said {
         Some(said) => Ok(Some(said)),
@@ -1168,9 +1259,9 @@ fn asked_for(argv: &[String]) -> Result<Option<PathBuf>, Never> {
     }
 }
 
-const NOTHING_HERE: &str = "There is no picture and no film on this device";
+const NOTHING_HERE: &str = "No Pictures or Videos";
 
-const NO_FOLDER: &str = "There is no pictures folder";
+const NO_FOLDER: &str = "No Pictures Folder";
 
 fn saying_only(says: &'static str) -> Result<Card, Never> {
     Card::new(Arc::new(move || {
@@ -1185,8 +1276,8 @@ fn saying_only(says: &'static str) -> Result<Card, Never> {
     }))
 }
 
-pub fn card(argv: &[String]) -> Result<Card, Never> {
-    let Ok(asked) = asked_for(argv);
+pub fn card(arguments: &[String]) -> Result<Card, Never> {
+    let Ok(asked) = asked_for(arguments);
 
     let asked = match asked {
         Some(asked) => asked,
@@ -1200,29 +1291,83 @@ pub fn card(argv: &[String]) -> Result<Card, Never> {
         None => return saying_only(NOTHING_HERE),
     };
 
-    match gstreamer::init() {
-        Ok(()) => {},
-        Err(fault) => eprintln!("viewer-panel: no film can be read: {fault}"),
-    }
-
-    let held: Held = Arc::new(Mutex::new(looking));
+    let held: Shared = Arc::new(Mutex::new(looking));
     let drawing = Arc::clone(&held);
-    let reading = Arc::clone(&held);
 
-    let Ok(()) = console_panel::panel::films(move |at| {
-        let Ok(drawn) = reeling(&reading, at);
-
-        drawn
-    });
     let Ok(card) = Card::new(Arc::new(move || {
         let Ok(pages) = pages(&drawing);
 
         pages
     }));
 
-    card.shutting(Box::new(|| {
-        REEL.with(|held| *held.borrow_mut() = None);
+    card.shutting(Box::new(|| Ok(())))
+}
 
-        Ok(())
-    }))
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn a_folder_with_a_film() -> PathBuf {
+        let folder = std::env::temp_dir().join(format!("console-viewer-card-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&folder);
+        let Ok(mut making) = console_core_external_programs::Program::Ffmpeg.command();
+        let made = making
+            .args(["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=s=64x48:r=25:d=4"])
+            .arg(folder.join("silent.mkv"))
+            .status();
+
+        assert!(made.is_ok_and(|how| how.success()), "ffmpeg made no film to play");
+
+        folder
+    }
+
+    #[test]
+    fn play_starts_the_film_its_clock_moves_on_and_pause_stops_it_where_it_was() {
+        let folder = a_folder_with_a_film();
+        let film = folder.join("silent.mkv");
+        let mut looking = match Looking::of(&film) {
+            Ok(Some(looking)) => looking,
+            Ok(None) | Err(_) => panic!("a folder with a film in it opens on the film"),
+        };
+
+        let Ok(()) = looking.in_step();
+
+        assert!(looking.film.is_none(), "a film opens stopped");
+        assert_eq!(looking.watching.along.whole, 4, "the length of the film is known before it plays");
+
+        let _ = looking.heard(ViewerEvent::Running(Since::ZERO));
+        let Ok(()) = looking.in_step();
+
+        assert!(looking.film.is_some(), "play started nothing");
+
+        let patience = console_waiting::Schedule::of(std::time::Duration::from_secs(20)).expect("a patience");
+        let Ok(moved) = console_waiting::until(patience, || {
+            let Ok(()) = looking.in_step();
+
+            Ok(match looking.watching.along.at >= 1 {
+                true => console_waiting::Ready::Yes,
+                false => console_waiting::Ready::NotYet,
+            })
+        });
+
+        assert_eq!(moved, console_waiting::Outcome::Happened, "the clock under the film never moved");
+
+        let _ = looking.heard(ViewerEvent::Running(Since::ZERO));
+        let Ok(()) = looking.in_step();
+        let stopped_at = looking.watching.along.at;
+
+        assert!(looking.film.is_none(), "pause left the film playing");
+        assert!(stopped_at >= 1, "pause lost the place: {stopped_at}");
+
+        let _ = looking.heard(ViewerEvent::Running(Since::ZERO));
+        let Ok(()) = looking.in_step();
+        let from = looking.film.as_ref().map(|film| film.at());
+
+        let _ = std::fs::remove_dir_all(&folder);
+
+        match from {
+            Some(Ok(from)) => assert!(from >= 1.0, "play again started from the beginning: {from}"),
+            Some(Err(_)) | None => panic!("play again started nothing"),
+        }
+    }
 }

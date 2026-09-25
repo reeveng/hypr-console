@@ -9,8 +9,8 @@ license = "GPL-3.0-or-later"
 #
 # The one crate here that does not say what the workspace says. It is a port
 # of wvkbd, which is GPL-3.0-or-later, and a later version of the GPL is the
-# only thing that permission reaches -- the AGPL is a different licence and
-# not ours to move somebody else's work under. `src/lib.rs` is the rest.
+# only thing that permission reaches -- the AGPL is a different license and
+# not ours to move someone else's work under. `src/lib.rs` is the rest.
 
 [lib]
 name = "console_input_keyboard"
@@ -30,7 +30,7 @@ name = "console-keyboard"
 path = "src/bin/keyboard.rs"
 required-features = ["port"]
 
-# The two ways anybody outside asks for the keyboard, which were the last two
+# The two ways anyone outside asks for the keyboard, which were the last two
 # shell scripts in `files/usr/local/bin` that were ours. Deliberately not behind
 # `port`: they signal a process by path and never draw anything, so a machine
 # that could not build a compositor client can still put the keyboard up.
@@ -50,8 +50,8 @@ path = "src/bin/show.rs"
 # now, and the first build after the switch pays for all of them at once.
 #
 # Still a feature rather than nothing, because the palette binding is a library
-# and answers without a compositor: `tests/the_keyboard_colours.rs` asks which
-# colour every key is against the palette this repository spends, and that
+# and answers without a compositor: `tests/the_keyboard_colors.rs` asks which
+# color every key is against the palette this repository spends, and that
 # question has no business pulling in cairo, pango and a Wayland client to be
 # answered.
 [features]
@@ -62,7 +62,7 @@ port = [
     "dep:console-input-gamepad",
     "dep:console-input-focus",
     "dep:console-response-times",
-    "dep:evdev",
+    "dep:console-input-event-devices",
     "dep:libc",
     "dep:xkbcommon",
     "dep:cairo-rs",
@@ -77,7 +77,7 @@ port = [
 console-core-number-conversion.workspace = true
 # The palette that the binding reads and the runtime will eventually spend
 # directly. The one dependency that is not the runtime's.
-console-core-colour.workspace = true
+console-core-color.workspace = true
 # What a program is, and the loop that carries out what one decided. The two
 # asking programs above are the whole of what this is for here; the keyboard
 # itself has its own loop, because a Wayland client is one.
@@ -107,14 +107,14 @@ console-input-gamepad = { workspace = true, optional = true }
 # different way; `console_input_focus`'s own prose is the argument, and finding
 # the devices is its job now rather than this one's.
 console-input-focus = { workspace = true, optional = true }
-# How long the keyboard kept somebody waiting: coming up with the session, and
+# How long the keyboard kept someone waiting: coming up with the session, and
 # every time it is asked onto the screen. It is the one surface here that is not
 # GTK, so `console_panel::opening` -- which times every other surface without
-# anybody remembering to -- does not reach it and it says so itself.
+# anyone remembering to -- does not reach it and it says so itself.
 console-response-times = { workspace = true, optional = true }
 # Which alphabets this machine types. A crate of its own rather than a list in
 # `layout`, because the settings panel writes it and the panel cannot depend on
-# this crate: that is the licence line `src/lib.rs` argues for, and a list two
+# this crate: that is the license line `src/lib.rs` argues for, and a list two
 # programs have to agree on cannot live on either side of it.
 console-input-alphabets = { workspace = true, optional = true }
 # Where a person's own state is, once. What the keyboard was last switched to
@@ -122,7 +122,7 @@ console-input-alphabets = { workspace = true, optional = true }
 console-core-places = { workspace = true, optional = true }
 # The axis and event types the claim hands back. The devices themselves are
 # opened by the claim; this is the vocabulary for reading what comes out.
-evdev = { version = "0.13", optional = true }
+console-input-event-devices = { workspace = true, optional = true }
 # memfd_create for the keymap fd, and errno for the failure messages.
 libc = { version = "0.2", optional = true }
 # Compose a keymap from the system's installed languages. xkbcommon has every

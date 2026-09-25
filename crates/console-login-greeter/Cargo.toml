@@ -1,0 +1,33 @@
+[package]
+name = "console-login-greeter"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# The screen the way in is drawn on: the dots, drawn straight to the display
+# with no compositor, and the pad read straight off the kernel.
+
+[lib]
+name = "console_login_greeter"
+path = "src/lib.rs"
+
+[[bin]]
+name = "login-greeter"
+path = "src/bin/login-greeter.rs"
+
+[dependencies]
+console-core-color.workspace = true
+console-core-geometry.workspace = true
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+console-core-shapes.workspace = true
+console-draw-painting.workspace = true
+console-input-event-devices.workspace = true
+console-login-pattern.workspace = true
+console-login-window.workspace = true
+console-program-contract.workspace = true
+console-screen.workspace = true
+
+[lints]
+workspace = true

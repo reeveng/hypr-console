@@ -1,10 +1,20 @@
 //! L2 and the d-pad move the volume.
+//!
+//! On the device the check starts at the bottom of the range rather than
+//! where it found the level: louder from silence, quieter from one per cent.
+//! Somebody may be listening to a song while the checks run, and a step up
+//! and back from wherever they left it is heard twice. The run puts their
+//! level back after the last check.
 
-use console_test_stages::checking::{Body, Check, Done, failed, less_than, more_than, same};
-use console_test_stages::device::{Device, PATIENCE};
-use console_test_stages::here::{Here, TURNS};
+use console_test_stages::checking::{Body, Check, CheckResult};
+use console_test_stages::device::{Device, Way};
+use console_test_stages::here::Here;
 
 const UNSAID: &str = "the machine would not say how loud it is";
+
+const SILENT: i64 = 0;
+
+const BARELY: i64 = 1;
 
 pub const LOUDER: Check = Check {
     name: "092-louder",
@@ -22,66 +32,41 @@ pub const QUIETER: Check = Check {
     bodies: &[Body::Here(quieter_here), Body::Device(quieter_there)],
 };
 
-fn louder_here(stage: &mut Here) -> Done {
+fn louder_here(stage: &mut Here) -> CheckResult {
     stage.trigger("l2", 1.0)?;
     stage.press("dpad-up")?;
-    let Ok(()) = stage.settle(TURNS);
-    let Ok(commands) = stage.commands();
-    let ran = commands.to_vec();
-
-    same(&ran, &[["/usr/local/bin/console-volume", "up"]], || format!("it ran {ran:?}"))
+    stage.ran(&[&["/usr/local/bin/console-volume", "up"]])
 }
 
-fn louder_there(stage: &mut Device) -> Done {
-    stage.trigger("l2", 1.0)?;
-
-    let Ok(started) = stage.volume();
-    let Ok(()) = stage.press("dpad-down");
-    let Ok(_) = stage.changed(Device::volume, &started, PATIENCE);
-    let Ok(was) = stage.volume();
-    let Ok(()) = stage.press("dpad-up");
-    let Ok(_) = stage.changed(Device::volume, &was, PATIENCE);
-
-    stage.trigger("l2", 0.0)?;
-
-    let Ok(now) = stage.volume();
-
-    let (was, now) = match (was.told(), now.told()) {
-        (Ok(Some(was)), Ok(Some(now))) => (was, now),
-        (Ok(None) | Err(_), _) | (_, Ok(None) | Err(_)) => return failed(UNSAID.to_string()),
-    };
-
-    more_than(now, was, || format!("it was {was} and is {now}"))
+fn louder_there(stage: &mut Device) -> CheckResult {
+    stepped(stage, Step { from: SILENT, button: "dpad-up", way: Way::Up })
 }
 
-fn quieter_here(stage: &mut Here) -> Done {
+fn quieter_here(stage: &mut Here) -> CheckResult {
     stage.trigger("l2", 1.0)?;
     stage.press("dpad-down")?;
-    let Ok(()) = stage.settle(TURNS);
-    let Ok(commands) = stage.commands();
-    let ran = commands.to_vec();
-
-    same(&ran, &[["/usr/local/bin/console-volume", "down"]], || format!("it ran {ran:?}"))
+    stage.ran(&[&["/usr/local/bin/console-volume", "down"]])
 }
 
-fn quieter_there(stage: &mut Device) -> Done {
+fn quieter_there(stage: &mut Device) -> CheckResult {
+    stepped(stage, Step { from: BARELY, button: "dpad-down", way: Way::Down })
+}
+
+struct Step {
+    from: i64,
+    button: &'static str,
+    way: Way,
+}
+
+fn stepped(stage: &mut Device, Step { from, button, way }: Step) -> CheckResult {
     stage.trigger("l2", 1.0)?;
 
-    let Ok(started) = stage.volume();
-    let Ok(()) = stage.press("dpad-up");
-    let Ok(_) = stage.changed(Device::volume, &started, PATIENCE);
-    let Ok(was) = stage.volume();
-    let Ok(()) = stage.press("dpad-down");
-    let Ok(_) = stage.changed(Device::volume, &was, PATIENCE);
+    let Ok(()) = stage.volume_to(from);
+    let Ok(was) = stage.stepped(button, Device::volume);
 
     stage.trigger("l2", 0.0)?;
 
     let Ok(now) = stage.volume();
 
-    let (was, now) = match (was.told(), now.told()) {
-        (Ok(Some(was)), Ok(Some(now))) => (was, now),
-        (Ok(None) | Err(_), _) | (_, Ok(None) | Err(_)) => return failed(UNSAID.to_string()),
-    };
-
-    less_than(now, was, || format!("it was {was} and is {now}"))
+    now.went(way, was, UNSAID)
 }

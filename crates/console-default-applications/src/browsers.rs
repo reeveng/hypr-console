@@ -37,7 +37,7 @@ pub fn asking() -> Result<[&'static str; 3], Never> {
 }
 
 pub fn telling(desktop: &str) -> Result<Vec<String>, Never> {
-    Program::XdgSettings.argv(&["set", "default-web-browser", desktop])
+    Program::XdgSettings.arguments(&["set", "default-web-browser", desktop])
 }
 
 #[cfg(test)]

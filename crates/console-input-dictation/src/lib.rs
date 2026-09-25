@@ -21,6 +21,7 @@ use std::path::{Path, PathBuf};
 
 use console_core_external_programs::Program;
 use console_core_never::Never;
+use console_core_number_conversion::{fitted, index};
 
 pub const MODEL: &str = "ggml-large-v3-turbo-q5_0.bin";
 
@@ -257,6 +258,7 @@ pub fn level(wav: &[u8]) -> Result<Level, Never> {
         None => return Ok(Level::default()),
     };
 
+    let Ok(frame) = index(FRAME);
     let mut frames: Vec<f32> = sound
         .chunks_exact(2)
         .map(|pair| match pair {
@@ -264,11 +266,13 @@ pub fn level(wav: &[u8]) -> Result<Level, Never> {
             _ => 0.0,
         })
         .collect::<Vec<f32>>()
-        .chunks_exact(usize::from(FRAME))
+        .chunks_exact(frame)
         .map(|frame| (frame.iter().map(|one| one * one).sum::<f32>() / f32::from(FRAME)).sqrt())
         .collect();
 
-    match frames.len() < ENOUGH {
+    let Ok(counted) = fitted::<_, u32>(frames.len());
+
+    match counted < ENOUGH {
         true => return Ok(Level::default()),
         false => {},
     }
@@ -290,60 +294,66 @@ fn data(wav: &[u8]) -> Result<Option<&[u8]>, Never> {
         (Some(_) | None, _) => return Ok(None),
     }
 
-    let mut at: usize = 12;
+    let Ok(header) = index(RIFF_HEADER);
 
-    while at.saturating_add(8) <= wav.len() {
-        let kind = match wav.get(at..at.saturating_add(4)) {
-            Some(kind) => kind,
+    let mut rest = match wav.get(header..) {
+        Some(rest) => rest,
+        None => return Ok(None),
+    };
+
+    loop {
+        let (kind, size, body) = match rest
+            .split_first_chunk::<4>()
+            .and_then(|(kind, rest)| rest.split_first_chunk::<4>().map(|(size, body)| (kind, u32::from_le_bytes(*size), body)))
+        {
+            Some(chunk) => chunk,
             None => return Ok(None),
         };
 
-        let (first, second, third, fourth) =
-            match wav.get(at.saturating_add(4)..at.saturating_add(8)) {
-                Some([first, second, third, fourth]) => (first, second, third, fourth),
-                Some(_) | None => return Ok(None),
-            };
-
-        let long = match usize::try_from(u32::from_le_bytes([*first, *second, *third, *fourth])) {
-            Ok(long) => long,
-            Err(_fault) => return Ok(None),
-        };
-
-        let from = at.saturating_add(8);
-        let to = from.saturating_add(long).min(wav.len());
+        let Ok(long) = index(size);
 
         match kind == b"data" {
-            true => return Ok(wav.get(from..to)),
+            true => {
+                return Ok(Some(match body.get(..long) {
+                    Some(chunk) => chunk,
+                    None => body,
+                }));
+            }
             false => {},
         }
 
-        at = from.saturating_add(long).saturating_add(long & 1);
-    }
+        let Ok(padded) = index(size.saturating_add(size & 1));
 
-    Ok(None)
+        rest = match body.get(padded..) {
+            Some(rest) => rest,
+            None => return Ok(None),
+        };
+    }
 }
 
-const ENOUGH: usize = 10;
+const RIFF_HEADER: u32 = 12;
+
+const ENOUGH: u32 = 10;
 
 pub const SPEAKS: f32 = 2.5;
 
 pub const LOUD: f32 = 0.20;
 
-pub fn anything_said(wav: &[u8]) -> Result<Heard, Never> {
+pub fn detect_speech(wav: &[u8]) -> Result<VoiceActivity, Never> {
     let Ok(heard) = level(wav);
     let spoke =
         (heard.loud > 0.0 && heard.loud >= heard.middle * SPEAKS) || heard.middle >= LOUD;
 
     Ok(match spoke {
-        true => Heard::Something,
-        false => Heard::Nothing,
+        true => VoiceActivity::Speech,
+        false => VoiceActivity::Silence,
     })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Heard {
-    Something,
-    Nothing,
+pub enum VoiceActivity {
+    Speech,
+    Silence,
 }
 
 pub fn tidy(heard: &str) -> Result<String, Never> {
@@ -376,7 +386,7 @@ fn is_a_noise(line: &str) -> Result<Line, Never> {
     })
 }
 
-pub const SHORT: usize = 6;
+pub const SHORT: u32 = 6;
 
 pub fn plainly(said: &str) -> Result<String, Never> {
     let Ok(spoken) = spoken(said);
@@ -391,6 +401,7 @@ pub fn plainly(said: &str) -> Result<String, Never> {
         .iter()
         .enumerate()
         .map(|(at, one)| {
+            let Ok(at) = fitted(at);
             let Ok(letter) = is_a_word(*one, &letters, at);
 
             match letter {
@@ -403,7 +414,7 @@ pub fn plainly(said: &str) -> Result<String, Never> {
     Ok(bare.split_whitespace().collect::<Vec<&str>>().join(" "))
 }
 
-fn is_a_word(one: char, said: &[char], at: usize) -> Result<Letter, Never> {
+fn is_a_word(one: char, said: &[char], at: u32) -> Result<Letter, Never> {
     let Ok(upon) = is_upon_a_letter(one);
 
     match one.is_alphanumeric() || one.is_whitespace() || upon == Letter::OfAWord {
@@ -412,9 +423,9 @@ fn is_a_word(one: char, said: &[char], at: usize) -> Result<Letter, Never> {
     }
 
     let letter = |one: Option<&char>| one.is_some_and(|one| one.is_alphanumeric());
-    let inside_a_word = at > 0
-        && letter(said.get(at.saturating_sub(1)))
-        && letter(said.get(at.saturating_add(1)));
+    let Ok(before) = index(at.saturating_sub(1));
+    let Ok(after) = index(at.saturating_add(1));
+    let inside_a_word = at > 0 && letter(said.get(before)) && letter(said.get(after));
     let Ok(starts) = starts_a_word(said, at);
     let kept =
         matches!(one, '\'' | '\u{2019}' | '-') && (inside_a_word || starts == Letter::OfAWord);
@@ -425,11 +436,14 @@ fn is_a_word(one: char, said: &[char], at: usize) -> Result<Letter, Never> {
     })
 }
 
-fn starts_a_word(said: &[char], at: usize) -> Result<Letter, Never> {
+fn starts_a_word(said: &[char], at: u32) -> Result<Letter, Never> {
     let boundary = |one: Option<&char>| one.is_none_or(|one| !one.is_alphanumeric());
-    let opens = boundary(said.get(at.wrapping_sub(1)).filter(|_| at > 0))
-        && said.get(at.saturating_add(1)).is_some_and(|one| one.is_alphabetic())
-        && boundary(said.get(at.saturating_add(2)));
+    let Ok(before) = index(at.saturating_sub(1));
+    let Ok(after) = index(at.saturating_add(1));
+    let Ok(beyond) = index(at.saturating_add(2));
+    let opens = boundary(said.get(before).filter(|_| at > 0))
+        && said.get(after).is_some_and(|one| one.is_alphabetic())
+        && boundary(said.get(beyond));
 
     Ok(match opens {
         true => Letter::OfAWord,
@@ -453,20 +467,22 @@ fn is_upon_a_letter(one: char) -> Result<Letter, Never> {
     })
 }
 
-fn spoken(said: &str) -> Result<usize, Never> {
+fn spoken(said: &str) -> Result<u32, Never> {
     Ok(said
         .split_whitespace()
         .map(|word| {
-            word.chars()
+            let Ok(counted) = fitted::<_, u32>(word
+                .chars()
                 .filter(|one| {
                     let Ok(script) = unspaced(one);
 
                     script == Script::Unspaced
                 })
-                .count()
-                .max(1)
+                .count());
+
+            counted.max(1)
         })
-        .sum())
+        .fold(0, u32::saturating_add))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -487,33 +503,33 @@ mod tests {
     use super::*;
 
     fn recording(into: &Path) -> Vec<String> {
-        let Ok(argv) = super::recording(into);
+        let Ok(arguments) = super::recording(into);
 
-        argv
+        arguments
     }
 
     fn hearing(whisper: &Path, model: &Path, said: &Path, language: &str) -> Vec<String> {
-        let Ok(argv) = super::hearing(whisper, model, said, language);
+        let Ok(arguments) = super::hearing(whisper, model, said, language);
 
-        argv
+        arguments
     }
 
     fn typing(words: &str) -> Vec<String> {
-        let Ok(argv) = super::typing(words);
+        let Ok(arguments) = super::typing(words);
 
-        argv
+        arguments
     }
 
     fn cloning(into: &Path) -> Vec<String> {
-        let Ok(argv) = super::cloning(into);
+        let Ok(arguments) = super::cloning(into);
 
-        argv
+        arguments
     }
 
     fn configuring(at: &Path) -> Vec<String> {
-        let Ok(argv) = super::configuring(at);
+        let Ok(arguments) = super::configuring(at);
 
-        argv
+        arguments
     }
 
     fn tidy(heard: &str) -> String {
@@ -528,8 +544,8 @@ mod tests {
         level
     }
 
-    fn anything_said(wav: &[u8]) -> Heard {
-        let Ok(heard) = super::anything_said(wav);
+    fn detect_speech(wav: &[u8]) -> VoiceActivity {
+        let Ok(heard) = super::detect_speech(wav);
 
         heard
     }
@@ -578,32 +594,32 @@ mod tests {
 
     #[test]
     fn a_recording_is_one_channel_at_the_rate_the_hearing_wants() {
-        let argv = recording(Path::new("/run/said.wav"));
+        let arguments = recording(Path::new("/run/said.wav"));
         let Ok(pw_record) = Program::PwRecord.name();
 
-        assert_eq!(argv.first().map(String::as_str), Some(pw_record));
-        assert!(argv.windows(2).any(|pair| pair == ["--rate", RATE]));
-        assert!(argv.windows(2).any(|pair| pair == ["--channels", "1"]));
-        assert_eq!(argv.last().map(String::as_str), Some("/run/said.wav"));
+        assert_eq!(arguments.first().map(String::as_str), Some(pw_record));
+        assert!(arguments.windows(2).any(|pair| pair == ["--rate", RATE]));
+        assert!(arguments.windows(2).any(|pair| pair == ["--channels", "1"]));
+        assert_eq!(arguments.last().map(String::as_str), Some("/run/said.wav"));
     }
 
     #[test]
     fn the_hearing_is_told_the_model_the_file_and_to_say_nothing_else() {
         let (whisper, model) = (Path::new("/keep/whisper-cli"), Path::new("/keep/model.bin"));
-        let argv = hearing(whisper, model, Path::new("/run/said.wav"), "auto");
-        assert_eq!(argv.first().map(String::as_str), Some("/keep/whisper-cli"));
-        assert!(argv.windows(2).any(|pair| pair == ["--model", "/keep/model.bin"]));
-        assert!(argv.windows(2).any(|pair| pair == ["--file", "/run/said.wav"]));
-        assert!(argv.iter().any(|word| word == "--no-timestamps"));
-        assert!(argv.iter().any(|word| word == "--no-prints"));
+        let arguments = hearing(whisper, model, Path::new("/run/said.wav"), "auto");
+        assert_eq!(arguments.first().map(String::as_str), Some("/keep/whisper-cli"));
+        assert!(arguments.windows(2).any(|pair| pair == ["--model", "/keep/model.bin"]));
+        assert!(arguments.windows(2).any(|pair| pair == ["--file", "/run/said.wav"]));
+        assert!(arguments.iter().any(|word| word == "--no-timestamps"));
+        assert!(arguments.iter().any(|word| word == "--no-prints"));
     }
 
     #[test]
     fn the_hearing_listens_for_the_language_that_was_chosen() {
         for language in &languages::EVERY {
-            let argv = hearing(Path::new("w"), Path::new("m"), Path::new("s"), language.key);
+            let arguments = hearing(Path::new("w"), Path::new("m"), Path::new("s"), language.key);
             assert!(
-                argv.windows(2).any(|pair| pair == ["--language", language.key]),
+                arguments.windows(2).any(|pair| pair == ["--language", language.key]),
                 "{} was not asked for",
                 language.says
             );
@@ -754,21 +770,21 @@ mod tests {
         let mut wav = a_wav(&a_sentence(300, 9000));
         let extra = b"LIST\x04\x00\x00\x00abcd";
         wav.splice(12..12, extra.iter().copied());
-        assert_eq!(anything_said(&wav), Heard::Something);
+        assert_eq!(detect_speech(&wav), VoiceActivity::Speech);
     }
 
     #[test]
     fn what_is_not_a_recording_is_not_a_sentence() {
         assert_eq!(level(b""), Level::default());
         assert_eq!(level(b"this is not a wav at all"), Level::default());
-        assert_eq!(anything_said(b""), Heard::Nothing);
+        assert_eq!(detect_speech(b""), VoiceActivity::Silence);
     }
 
     #[test]
-    fn a_room_with_nobody_in_it_is_not_asked_about() {
-        assert_eq!(anything_said(&a_wav(&a_room(0))), Heard::Nothing);
-        assert_eq!(anything_said(&a_wav(&a_room(300))), Heard::Nothing);
-        assert_eq!(anything_said(&a_wav(&a_sentence(300, 400))), Heard::Nothing);
+    fn a_room_with_no_one_in_it_is_not_asked_about() {
+        assert_eq!(detect_speech(&a_wav(&a_room(0))), VoiceActivity::Silence);
+        assert_eq!(detect_speech(&a_wav(&a_room(300))), VoiceActivity::Silence);
+        assert_eq!(detect_speech(&a_wav(&a_sentence(300, 400))), VoiceActivity::Silence);
     }
 
     #[test]
@@ -776,13 +792,13 @@ mod tests {
         for level in [118, 455, 1541, 4260] {
             let voice = (i32::from(level) * 8).min(30_000) as i16;
             assert_eq!(
-                anything_said(&a_wav(&a_room(level))),
-                Heard::Nothing,
+                detect_speech(&a_wav(&a_room(level))),
+                VoiceActivity::Silence,
                 "{level} is a room"
             );
             assert_eq!(
-                anything_said(&a_wav(&a_sentence(level, voice))),
-                Heard::Something,
+                detect_speech(&a_wav(&a_sentence(level, voice))),
+                VoiceActivity::Speech,
                 "{level} is spoken"
             );
         }
@@ -790,26 +806,26 @@ mod tests {
 
     #[test]
     fn talking_all_the_way_through_is_talking() {
-        assert_eq!(anything_said(&a_wav(&a_room(9000))), Heard::Something);
+        assert_eq!(detect_speech(&a_wav(&a_room(9000))), VoiceActivity::Speech);
     }
 
     #[test]
     fn a_recording_too_short_to_have_a_middle_is_nothing_said() {
-        assert_eq!(anything_said(&a_wav(&a_room(9000)[..1000])), Heard::Nothing);
+        assert_eq!(detect_speech(&a_wav(&a_room(9000)[..1000])), VoiceActivity::Silence);
     }
 
     #[test]
     fn the_hearing_is_built_for_the_card_this_machine_has() {
-        let argv = configuring(Path::new("/run/whisper.cpp"));
-        assert!(argv.iter().any(|word| word == "-DGGML_VULKAN=ON"));
-        assert!(argv.iter().any(|word| word == "-DBUILD_SHARED_LIBS=OFF"));
+        let arguments = configuring(Path::new("/run/whisper.cpp"));
+        assert!(arguments.iter().any(|word| word == "-DGGML_VULKAN=ON"));
+        assert!(arguments.iter().any(|word| word == "-DBUILD_SHARED_LIBS=OFF"));
     }
 
     #[test]
     fn the_source_of_the_hearing_is_pinned() {
-        let argv = cloning(Path::new("/run/whisper.cpp"));
-        assert!(argv.windows(2).any(|pair| pair == ["--branch", WHISPER_AT]));
-        assert!(argv.iter().any(|word| word == WHISPER_FROM));
+        let arguments = cloning(Path::new("/run/whisper.cpp"));
+        assert!(arguments.windows(2).any(|pair| pair == ["--branch", WHISPER_AT]));
+        assert!(arguments.iter().any(|word| word == WHISPER_FROM));
         assert!(WHISPER_AT.starts_with('v'), "a tag, not a branch");
     }
 
@@ -817,9 +833,9 @@ mod tests {
     fn the_build_tree_does_not_outlive_the_build() {
         // SAFETY: one thread, and both variables are put back before it ends.
         unsafe { std::env::set_var("XDG_RUNTIME_DIR", "/run/user/1000") };
-        unsafe { std::env::set_var("XDG_DATA_HOME", "/home/somebody/.local/share") };
+        unsafe { std::env::set_var("XDG_DATA_HOME", "/home/someone/.local/share") };
         assert!(making().starts_with("/run/user/1000"));
-        assert!(whisper().starts_with("/home/somebody/.local/share"));
+        assert!(whisper().starts_with("/home/someone/.local/share"));
         assert_eq!(whisper().parent(), model().parent(), "beside the model");
         unsafe { std::env::remove_var("XDG_RUNTIME_DIR") };
         unsafe { std::env::remove_var("XDG_DATA_HOME") };
@@ -829,10 +845,10 @@ mod tests {
     fn the_recording_waits_where_a_session_ending_clears_it() {
         // SAFETY: one thread, and both variables are put back before it ends.
         unsafe { std::env::set_var("XDG_RUNTIME_DIR", "/run/user/1000") };
-        unsafe { std::env::set_var("XDG_DATA_HOME", "/home/somebody/.local/share") };
+        unsafe { std::env::set_var("XDG_DATA_HOME", "/home/someone/.local/share") };
         assert_eq!(said(41), Path::new("/run/user/1000/console/voice/said-41.wav"));
         assert_eq!(taking(), Path::new("/run/user/1000/console/voice/taking.pid"));
-        assert_eq!(model(), Path::new("/home/somebody/.local/share/console/voice").join(MODEL));
+        assert_eq!(model(), Path::new("/home/someone/.local/share/console/voice").join(MODEL));
         unsafe { std::env::remove_var("XDG_RUNTIME_DIR") };
         unsafe { std::env::remove_var("XDG_DATA_HOME") };
     }

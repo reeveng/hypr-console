@@ -1,7 +1,7 @@
-//! What somebody holding the device sees while the checks are run at it.
+//! What someone holding the device sees while the checks are run at it.
 //!
 //! A device run is driven from a laptop, and everything it says it says there:
-//! a line per check on somebody else's terminal, in another room. The person
+//! a line per check on someone else's terminal, in another room. The person
 //! actually holding the machine sees the menus open by themselves for several
 //! minutes and has nothing at all telling them what it is, how much of it is
 //! left, or that it ended well.
@@ -16,7 +16,7 @@
 //! it is filled here over the same ssh the checks are pressed through.
 //!
 //! Not a panel. A panel over the desktop is a layer the checks then have to
-//! press through, and several of them ask what is on the screen and what colour
+//! press through, and several of them ask what is on the screen and what color
 //! it is -- a surface put up to report the run would be the run's own worst
 //! interference, and it would be the checks that went red for it.
 //!
@@ -34,7 +34,7 @@
 //! What is drawn is the run's own fill and never the check's. A bar that filled
 //! for the check that is running restarts at nothing a dozen times in a run,
 //! which is a bar that moves in steps however smoothly each step is drawn --
-//! and the question nobody was asking is how far through the fourth check it
+//! and the question no one was asking is how far through the fourth check it
 //! is. The counter and the name say which check; the bar says how much of the
 //! run is left, from the first second to the last, and it only ever goes
 //! forward.
@@ -88,10 +88,10 @@
 //! -- so a person whose device has begun pressing its own buttons is told why
 //! -- and replaced by one at the end saying how it went. Replaced rather than
 //! added: one run is one card, which is the same rule everything else here
-//! raising a notice keeps.
+//! raising a notification keeps.
 //!
 //! The card at the end stays on the screen when something failed. A run that
-//! ends badly while somebody is making tea is the whole reason to say it twice.
+//! ends badly while someone is making tea is the whole reason to say it twice.
 //!
 //! The strip is drawn from two places and wiped by whoever is about to print,
 //! and the end of a run is where that showed. The thread here redraws it on a
@@ -115,14 +115,14 @@ use std::time::{Duration, Instant};
 use console_core_never::Never;
 use console_core_number_conversion::toward_zero_u16;
 use console_how_far::Bar;
-use console_notifications::saying::{Notice, Said};
-use console_notifications::updating::{self, Far};
-use console_waiting::{Patience, Seen, until};
+use console_notifications::saying::{Notification, Content};
+use console_notifications::updating::{self, Progress};
+use console_waiting::{Schedule, Ready, until};
 
 use crate::device::{Device, quoted};
 use crate::lasting::{Ahead, WHOLE, about, crept, over};
 
-pub fn writing(far: &Far) -> Result<String, Never> {
+pub fn writing(far: &Progress) -> Result<String, Never> {
     let Ok(where_at) = updating::at();
     let Ok(written) = updating::written(far);
 
@@ -141,8 +141,8 @@ pub fn writing(far: &Far) -> Result<String, Never> {
 }
 
 pub fn showing(device: &mut Device, ahead: &Ahead, doing: &str) -> Result<(), Never> {
-    let Ok(thousandths) = ahead.far();
-    let Ok(said) = writing(&Far { thousandths, doing: doing.to_string() });
+    let Ok(permille) = ahead.far();
+    let Ok(said) = writing(&Progress { permille, label: doing.to_string() });
     let Ok(_) = device.ssh(&said);
 
     Ok(())
@@ -154,8 +154,8 @@ pub struct Reached {
     pub far: u16,
 }
 
-pub fn late(gone: Duration, expecting: Duration) -> Result<String, Never> {
-    let Ok(over) = over(gone, expecting);
+pub fn late(elapsed: Duration, expecting: Duration) -> Result<String, Never> {
+    let Ok(over) = over(elapsed, expecting);
 
     let over = match over {
         Some(over) => over,
@@ -171,17 +171,21 @@ pub fn late(gone: Duration, expecting: Duration) -> Result<String, Never> {
 pub struct Reaching {
     pub at: u16,
     pub span: u16,
-    pub gone: Duration,
+    pub elapsed: Duration,
     pub expecting: Duration,
 }
 
 pub fn reached(reaching: Reaching) -> Result<Reached, Never> {
-    let Reaching { at, span, gone, expecting } = reaching;
-    let Ok(part) = crept(gone, expecting);
+    let Reaching { at, span, elapsed, expecting } = reaching;
+    let Ok(part) = crept(elapsed, expecting);
     let Ok(into) = console_how_far::percent(part);
     let Ok(inside) = toward_zero_u16(f64::from(span) * part);
 
     Ok(Reached { into, far: at.saturating_add(inside).min(WHOLE) })
+}
+
+pub fn percent_of(permille: u16) -> Result<u16, Never> {
+    console_how_far::percent(f64::from(permille) / f64::from(WHOLE))
 }
 
 pub const BETWEEN: Duration = Duration::from_millis(200);
@@ -212,7 +216,7 @@ pub struct Watching {
     )
 )]
 impl Watching {
-    pub fn of(many: usize) -> Result<Self, Never> {
+    pub fn of(many: u32) -> Result<Self, Never> {
         let Ok(bar) = Bar::of(many);
 
         Ok(Watching {
@@ -234,8 +238,9 @@ impl Watching {
         self.doing = doing.to_string();
 
         let Ok(along) = ahead.along(Duration::ZERO);
+        let Ok(into) = percent_of(along);
 
-        self.bar.onto(doing, along)
+        self.bar.onto(doing, into)
     }
 
     pub fn ended(&self) -> Result<Ended, Never> {
@@ -253,12 +258,13 @@ impl Watching {
             None => return Ok(()),
         };
 
-        let gone = self.started.elapsed();
-        let Ok(along) = ahead.along(gone);
+        let elapsed = self.started.elapsed();
+        let Ok(along) = ahead.along(elapsed);
         let Ok(expecting) = ahead.expecting();
-        let Ok(late) = late(gone, expecting);
+        let Ok(late) = late(elapsed, expecting);
+        let Ok(into) = percent_of(along);
 
-        self.bar.filling(along, &late)
+        self.bar.filling(into, &late)
     }
 
     pub fn tick(&mut self) -> Result<String, Never> {
@@ -278,7 +284,7 @@ impl Watching {
 
         self.said = far;
 
-        let Ok(said) = writing(&Far { thousandths: far, doing: self.doing.clone() });
+        let Ok(said) = writing(&Progress { permille: far, label: self.doing.clone() });
 
         Ok(format!("; {said}"))
     }
@@ -332,18 +338,18 @@ pub fn ending(watching: &Mutex<Watching>) -> Result<(), Never> {
 
 pub fn drawing(watching: Arc<Mutex<Watching>>) -> Result<std::thread::JoinHandle<()>, Never> {
     Ok(std::thread::spawn(move || {
-        let Ok(patience) = Patience::asking_every(OUTSIDE, BETWEEN);
+        let Ok(patience) = Schedule::asking_every(OUTSIDE, BETWEEN);
         let Ok(_) = until(patience, || {
             let Ok(mut held) = held(&watching);
             let Ok(ended) = held.ended();
 
             Ok(match ended {
-                Ended::Yes => Seen::Yes,
+                Ended::Yes => Ready::Yes,
 
                 Ended::No => {
                     let Ok(()) = held.drawn();
 
-                    Seen::NotYet
+                    Ready::NotYet
                 }
             })
         });
@@ -370,10 +376,10 @@ fn holding_of(at: &str) -> Result<String, Never> {
     })
 }
 
-pub fn said(device: &mut Device, notice: &Notice) -> Result<Option<u32>, Never> {
-    let Ok(said) = notice.argv();
+pub fn said(device: &mut Device, notification: &Notification) -> Result<Option<u32>, Never> {
+    let Ok(said) = notification.arguments();
 
-    let argv: Vec<String> = said
+    let arguments: Vec<String> = said
         .iter()
         .map(|word| {
             let Ok(quoted) = quoted(word);
@@ -381,7 +387,7 @@ pub fn said(device: &mut Device, notice: &Notice) -> Result<Option<u32>, Never> 
             quoted
         })
         .collect();
-    let Ok(said) = device.in_session(&argv.join(" "));
+    let Ok(said) = device.in_session(&arguments.join(" "));
 
     Ok(match said.trim().parse::<u32>() {
         Ok(id) => Some(id),
@@ -391,7 +397,7 @@ pub fn said(device: &mut Device, notice: &Notice) -> Result<Option<u32>, Never> 
 
 pub const STARTING: &str = "Checking the desktop";
 
-pub fn starting(many: usize, ahead: &Ahead) -> Result<Notice, Never> {
+pub fn starting(many: u32, ahead: &Ahead) -> Result<Notification, Never> {
     let Ok(whole) = ahead.whole();
 
     let long = match whole {
@@ -403,54 +409,62 @@ pub fn starting(many: usize, ahead: &Ahead) -> Result<Notice, Never> {
         None => String::new(),
     };
 
-    let Ok(notice) = Notice::new(Said {
+    let Ok(notification) = Notification::new(Content {
         summary: STARTING,
         body: &format!("{many} checks{long}. Don't touch the controls."),
     });
 
-    notice.staying()
+    notification.staying()
 }
 
 pub fn ended(
-    ok: usize,
+    ok: u32,
     failed: &[String],
     took: Duration,
     was: Option<u32>,
-) -> Result<Notice, Never> {
-    let notice = match failed.first() {
+) -> Result<Notification, Never> {
+    let notification = match failed.first() {
         None => {
             let Ok(about) = about(took);
-            let Ok(notice) = Notice::new(Said {
+            let Ok(notification) = Notification::new(Content {
                 summary: "Checks passed",
                 body: &format!("{ok} of them, in {about}."),
             });
-            let Ok(notice) = notice.lasting(8000);
+            let Ok(notification) = notification.lasting(8000);
 
-            notice
+            notification
         }
 
         Some(_something) => {
-            let Ok(notice) = Notice::new(Said {
+            let Ok(notification) = Notification::new(Content {
                 summary: "Checks failed",
                 body: &format!("{ok} passed, {} failed: {}.", failed.len(), failed.join(", ")),
             });
-            let Ok(notice) = notice.urgent();
-            let Ok(notice) = notice.staying();
+            let Ok(notification) = notification.urgent();
+            let Ok(notification) = notification.staying();
 
-            notice
+            notification
         }
     };
 
-    notice.replacing(was)
+    notification.replacing(was)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::checking::{Body, Check, Done};
+    use crate::checking::{Body, Check, CheckResult};
 
-    fn nothing(_device: &mut Device) -> Done {
+    fn nothing(_device: &mut Device) -> CheckResult {
         Ok(())
+    }
+
+    #[test]
+    fn the_bar_is_drawn_in_percent_though_the_run_is_counted_in_thousandths() {
+        assert_eq!(percent_of(0), Ok(0));
+        assert_eq!(percent_of(WHOLE / 2), Ok(50));
+        assert_eq!(percent_of(WHOLE / 10), Ok(10));
+        assert_eq!(percent_of(WHOLE), Ok(console_how_far::WHOLE));
     }
 
     const fn check(name: &'static str) -> Check {
@@ -477,17 +491,17 @@ mod tests {
         let ahead = ok(Ahead::of(&crate::lasting::Lengths::default(), &[]));
         let said = ok(starting(10, &ahead));
 
-        assert!(!said.body.contains("about"), "a machine nobody timed was promised a length");
+        assert!(!said.body.contains("about"), "a machine no one timed was promised a length");
     }
 
     #[test]
     fn the_card_at_the_end_replaces_the_one_at_the_start() {
         let said = ok(ended(10, &[], Duration::from_secs(120), Some(41)));
 
-        let argv = ok(said.argv());
+        let arguments = ok(said.arguments());
 
         assert_eq!(said.replacing, Some(41));
-        assert!(argv.iter().any(|word| word == "--replace-id=41"));
+        assert!(arguments.iter().any(|word| word == "--replace-id=41"));
     }
 
     #[test]
@@ -517,7 +531,7 @@ mod tests {
 
     #[test]
     fn what_is_written_is_the_file_the_strip_reads_and_the_number_it_reads() {
-        let Ok(said) = writing(&Far { thousandths: 400, doing: "120-a-page".to_string() });
+        let Ok(said) = writing(&Progress { permille: 400, label: "120-a-page".to_string() });
 
         assert!(said.contains("/run/console/updating"), "{said}");
         assert!(said.contains("400 120-a-page"), "{said}");
@@ -543,7 +557,7 @@ mod tests {
             reached(Reaching {
             at: 20,
             span: 10,
-            gone: Duration::ZERO,
+            elapsed: Duration::ZERO,
             expecting: Duration::from_secs(60),
         }),
             Ok(Reached { into: 0, far: 20 })
@@ -555,7 +569,7 @@ mod tests {
         let Ok(reached) = reached(Reaching {
             at: 20,
             span: 10,
-            gone: Duration::from_secs(30),
+            elapsed: Duration::from_secs(30),
             expecting: Duration::from_secs(60),
         });
 
@@ -581,7 +595,7 @@ mod tests {
         let Ok(reached) = reached(Reaching {
             at: 20,
             span: 10,
-            gone: Duration::from_secs(6000),
+            elapsed: Duration::from_secs(6000),
             expecting: Duration::from_secs(60),
         });
 
@@ -595,7 +609,7 @@ mod tests {
             reached(Reaching {
             at: 20,
             span: 10,
-            gone: Duration::from_secs(30),
+            elapsed: Duration::from_secs(30),
             expecting: Duration::ZERO,
         }),
             Ok(Reached { into: 0, far: 20 }),
@@ -608,7 +622,7 @@ mod tests {
         let Ok(reached) = reached(Reaching {
             at: 960,
             span: 100,
-            gone: Duration::from_secs(600),
+            elapsed: Duration::from_secs(600),
             expecting: Duration::from_secs(1),
         });
 

@@ -2,10 +2,10 @@
 #
 # There is no Plasma session on this machine, so nothing generates this file
 # and nothing overwrites it. Fusion is the widget style because it answers to
-# the colours below; the Breeze style paints some of its own and would leave a
+# the colors below; the Breeze style paints some of its own and would leave a
 # print dialogue looking like it came from another desktop.
 #
-# The colours between the markers are written by console-palette out of
+# The colors between the markers are written by console-palette out of
 # theme/palette.toml. Change them there.
 
 [General]
@@ -22,10 +22,10 @@ contrast=4
 frameContrast=0.2
 widgetStyle=Fusion
 
-# Qt dims what it considers disabled or inactive by mixing it towards the
-# background. Every foreground here already clears AAA, and there is nobody
+# Qt dims what it considers disabled or inactive by mixing it toward the
+# background. Every foreground here already clears AAA, and there is no one
 # this device is for who is helped by a menu entry being faded until it cannot
-# be read, so the dimming is turned off and greyed-out text stays legible.
+# be read, so the dimming is turned off and grayed-out text stays legible.
 [ColorEffects:Disabled]
 ChangeSelectionColor=false
 ColorAmount=0

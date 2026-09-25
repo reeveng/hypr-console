@@ -1,14 +1,14 @@
 //! What was asked of each pairing, and what it actually reached.
 
-use console_core_colour::{Ground, Ink};
-use console_core_colour::{self as col, Short};
+use console_core_color::{Ground, HexColor};
+use console_core_color::{self as col, Short};
 use console_core_never::Never;
 
 use crate::palette::Palette;
-use crate::spec::Spec;
+use crate::configuration::Configuration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Lc {
+pub enum Contrast {
     Wanted,
     NotAsked,
 }
@@ -18,7 +18,7 @@ pub enum Kind {
     Text,
     Edge,
     Seen,
-    Quiet,
+    Muted,
 }
 
 impl Kind {
@@ -26,43 +26,65 @@ impl Kind {
         Ok(match name {
             "edge" => Kind::Edge,
             "seen" => Kind::Seen,
-            "quiet" => Kind::Quiet,
+            "quiet" => Kind::Muted,
             _ => Kind::Text,
         })
     }
 
-    pub fn wants_lc(self) -> Result<Lc, Never> {
+    pub fn wants_lc(self) -> Result<Contrast, Never> {
         Ok(match self != Kind::Seen {
-            true => Lc::Wanted,
-            false => Lc::NotAsked,
+            true => Contrast::Wanted,
+            false => Contrast::NotAsked,
         })
     }
 
     pub fn grade(self, ratio: f64) -> Result<&'static str, Never> {
-        Ok(match (self, ratio) {
-            (Kind::Edge, ratio) if ratio >= 3.0 => "clears the 3:1 a border needs",
-            (Kind::Seen, ratio) if ratio >= 1.05 => "a visible step",
-            (Kind::Seen, _) => "flat",
-            (Kind::Quiet, ratio) if ratio >= 4.5 => "AA, on purpose",
-            (Kind::Edge | Kind::Quiet, _) => "under",
-            (Kind::Text, ratio) if ratio >= 7.0 => "AAA",
-            (Kind::Text, ratio) if ratio >= 4.5 => "AA",
-            (Kind::Text, _) => "under",
+        Ok(match self {
+            Kind::Edge => match ratio >= 3.0 {
+                true => "clears the 3:1 a border needs",
+                false => "under",
+            },
+            Kind::Seen => match ratio >= 1.05 {
+                true => "a visible step",
+                false => "flat",
+            },
+            Kind::Muted => match ratio >= 4.5 {
+                true => "AA, on purpose",
+                false => "under",
+            },
+            Kind::Text => match ratio >= 7.0 {
+                true => "AAA",
+                false => match ratio >= 4.5 {
+                    true => "AA",
+                    false => "under",
+                },
+            },
         })
     }
 
     pub fn grade_lc(self, lc: f64) -> Result<&'static str, Never> {
         let lc = lc.abs();
 
-        Ok(match (self, lc) {
-            (Kind::Seen, _) => "not a contrast claim",
-            (Kind::Edge, lc) if lc >= 30.0 => "clears the Lc 30 a border needs",
-            (Kind::Quiet, lc) if lc >= 45.0 => "Lc 45, on purpose",
-            (Kind::Edge | Kind::Quiet, _) => "under",
-            (Kind::Text, lc) if lc >= 90.0 => "Lc 90, preferred for body text",
-            (Kind::Text, lc) if lc >= 75.0 => "Lc 75, body text",
-            (Kind::Text, lc) if lc >= 60.0 => "Lc 60, larger text only",
-            (Kind::Text, _) => "under",
+        Ok(match self {
+            Kind::Seen => "not a contrast claim",
+            Kind::Edge => match lc >= 30.0 {
+                true => "clears the Contrast 30 a border needs",
+                false => "under",
+            },
+            Kind::Muted => match lc >= 45.0 {
+                true => "Contrast 45, on purpose",
+                false => "under",
+            },
+            Kind::Text => match lc >= 90.0 {
+                true => "Contrast 90, preferred for body text",
+                false => match lc >= 75.0 {
+                    true => "Contrast 75, body text",
+                    false => match lc >= 60.0 {
+                        true => "Contrast 60, larger text only",
+                        false => "under",
+                    },
+                },
+            },
         })
     }
 }
@@ -110,8 +132,8 @@ impl Row {
     }
 }
 
-pub fn measure(spec: &Spec, palette: &Palette) -> Result<Vec<Row>, Short> {
-    spec.pairs
+pub fn measure(configuration: &Configuration, palette: &Palette) -> Result<Vec<Row>, Short> {
+    configuration.pairs
         .iter()
         .flat_map(|pair| {
             let Ok(each) = pair.front.each();
@@ -123,19 +145,19 @@ pub fn measure(spec: &Spec, palette: &Palette) -> Result<Vec<Row>, Short> {
                     let Ok(wants) = kind.wants_lc();
 
                     let asked_lc = match (wants, pair.lc) {
-                        (Lc::Wanted, None) => Err(Short(format!(
+                        (Contrast::Wanted, None) => Err(Short(format!(
                             "{front} on {back} says what it must clear as a ratio \
                              and not as an lc"
                         ))),
-                        (Lc::Wanted, Some(lc)) => Ok(lc),
-                        (Lc::NotAsked, _) => Ok(0.0),
+                        (Contrast::Wanted, Some(lc)) => Ok(lc),
+                        (Contrast::NotAsked, _) => Ok(0.0),
                     }?;
 
                     let ink = palette.must(front)?;
                     let ground = palette.must(back)?;
 
-                    let Ok(got) = col::contrast(Ink(ink), Ground(ground));
-                    let Ok(got_lc) = col::lc(Ink(ink), Ground(ground));
+                    let Ok(got) = col::contrast(HexColor(ink), Ground(ground));
+                    let Ok(got_lc) = col::lc(HexColor(ink), Ground(ground));
 
                     Ok(Row {
                         front: front.clone(),
@@ -180,8 +202,8 @@ mod tests {
 
     #[test]
     fn quiet_says_it_is_aa_on_purpose() {
-        assert_eq!(Kind::Quiet.grade(4.5), Ok("AA, on purpose"));
-        assert_eq!(Kind::Quiet.grade(4.49), Ok("under"));
+        assert_eq!(Kind::Muted.grade(4.5), Ok("AA, on purpose"));
+        assert_eq!(Kind::Muted.grade(4.49), Ok("under"));
     }
 
     #[test]
@@ -222,27 +244,27 @@ mod tests {
 
     #[test]
     fn a_pairing_only_seen_is_asked_for_no_lc_at_all() {
-        assert_eq!(Kind::Seen.wants_lc(), Ok(Lc::NotAsked));
-        for kind in [Kind::Text, Kind::Edge, Kind::Quiet] {
-            assert_eq!(kind.wants_lc(), Ok(Lc::Wanted), "{kind:?} should have to declare one");
+        assert_eq!(Kind::Seen.wants_lc(), Ok(Contrast::NotAsked));
+        for kind in [Kind::Text, Kind::Edge, Kind::Muted] {
+            assert_eq!(kind.wants_lc(), Ok(Contrast::Wanted), "{kind:?} should have to declare one");
         }
     }
 
     #[test]
     fn text_is_graded_against_apca_on_a_run_rather_than_in_bands() {
-        assert_eq!(Kind::Text.grade_lc(-90.0), Ok("Lc 90, preferred for body text"));
-        assert_eq!(Kind::Text.grade_lc(-75.0), Ok("Lc 75, body text"));
-        assert_eq!(Kind::Text.grade_lc(-60.0), Ok("Lc 60, larger text only"));
+        assert_eq!(Kind::Text.grade_lc(-90.0), Ok("Contrast 90, preferred for body text"));
+        assert_eq!(Kind::Text.grade_lc(-75.0), Ok("Contrast 75, body text"));
+        assert_eq!(Kind::Text.grade_lc(-60.0), Ok("Contrast 60, larger text only"));
         assert_eq!(Kind::Text.grade_lc(-59.9), Ok("under"));
-        assert_eq!(Kind::Text.grade_lc(90.0), Ok("Lc 90, preferred for body text"));
+        assert_eq!(Kind::Text.grade_lc(90.0), Ok("Contrast 90, preferred for body text"));
     }
 
     #[test]
     fn an_edge_and_a_quiet_ink_keep_their_own_lc_floors() {
-        assert_eq!(Kind::Edge.grade_lc(-30.0), Ok("clears the Lc 30 a border needs"));
+        assert_eq!(Kind::Edge.grade_lc(-30.0), Ok("clears the Contrast 30 a border needs"));
         assert_eq!(Kind::Edge.grade_lc(-29.9), Ok("under"));
-        assert_eq!(Kind::Quiet.grade_lc(-45.0), Ok("Lc 45, on purpose"));
-        assert_eq!(Kind::Quiet.grade_lc(-44.9), Ok("under"));
+        assert_eq!(Kind::Muted.grade_lc(-45.0), Ok("Contrast 45, on purpose"));
+        assert_eq!(Kind::Muted.grade_lc(-44.9), Ok("under"));
         assert_eq!(Kind::Seen.grade_lc(-8.5), Ok("not a contrast claim"));
     }
 }

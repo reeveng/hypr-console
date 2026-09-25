@@ -7,27 +7,39 @@
 //!
 //! A sort of device is one of them or all of them, and [`From::wants`] is
 //! where that is said. Three of the four are one apiece -- there is one pad,
-//! one keyboard InputPlumber makes, one touchpad -- and a keyboard somebody
+//! one keyboard InputPlumber makes, one touchpad -- and a keyboard someone
 //! plugged in is every one of them, because two are as ordinary as one and a
 //! press on the second has to count as much as a press on the first. That is
 //! also why the hunt keeps looking after one is open: a second keyboard
 //! arrives an hour later and nothing else would go and find it.
+//!
+//! How long to wait before the next turn is said here too, as a [`Wake`],
+//! because it is a fact about what is held rather than about the machine. A
+//! turn used to come fifty times a second forever, idle with the screen dark,
+//! when almost everything this reads arrives as an event the kernel would wake
+//! the loop for. What does not is a stick held over, a button repeating, a
+//! finger on the pad and a device that is missing, so those are what ask for a
+//! turn on a clock, and everything else waits for a press. The time a turn
+//! hands the wheel and the repeat is the time since the last one only when one
+//! of them was being looked at across it: a stick pushed after a minute of
+//! nothing is a stick pushed now, not a minute of scrolling owed.
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
 use console_core_never::Never;
-use evdev::InputEvent;
+use console_input_event_devices::InputEvent;
 
-use crate::doing::Doing;
-use crate::finding::{self, Says};
-use crate::means::Table;
-use crate::reading::{Controller, From, Ranges, Wants};
+use crate::clock::Instant;
+use crate::effect::Effect;
+use crate::finding::{self, DeviceInfo};
+use crate::actions::Table;
+use crate::reading::{Controller, From, Ranges, Wake, Wants};
 
 const NEVER_LOOKED: f64 = f64::NEG_INFINITY;
 
 
-pub struct Gone;
+pub struct Closed;
 
 pub const READ: [From; 4] = [From::Pad, From::Keys, From::Touch, From::Typing];
 
@@ -35,24 +47,24 @@ pub const AWAY_SECONDS: f64 = 0.25;
 
 pub const SETTLING_SECONDS: f64 = 0.5;
 
-const DRY: usize = 64;
+const DRY: u32 = 64;
 
 pub const HUNT_SECONDS: f64 = 1.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Took {
-    Held,
-    Refused,
+    Acquired,
+    Denied,
 }
 
 pub trait Plugged {
-    fn every(&self) -> Vec<Says>;
+    fn every(&self) -> Vec<DeviceInfo>;
 
     fn open(&mut self, path: &str) -> Took;
 
     fn ranges(&self, path: &str) -> Ranges;
 
-    fn drain(&mut self, path: &str) -> Result<Vec<InputEvent>, Gone>;
+    fn drain(&mut self, path: &str) -> Result<Vec<InputEvent>, Closed>;
 }
 
 #[derive(Debug, Default)]
@@ -61,7 +73,7 @@ pub struct Turning {
     told: BTreeMap<From, String>,
     open: BTreeMap<From, BTreeSet<String>>,
     hunted: BTreeMap<From, f64>,
-    last: Option<f64>,
+    last: Option<Instant>,
     settling: Option<f64>,
 }
 
@@ -70,10 +82,22 @@ impl Turning {
         Ok(Turning { told, ..Turning::default() })
     }
 
-    pub fn turn(&mut self, machine: &mut impl Plugged, now: f64) -> Result<Vec<Doing>, Never> {
-        let since = self.last.map_or(0.0, |was| now - was);
-        let away = self.last.is_some() && since > AWAY_SECONDS;
-        self.last = Some(now);
+    pub fn turn(&mut self, machine: &mut impl Plugged, when: Instant) -> Result<Vec<Effect>, Never> {
+        let Ok(across) = self.held.wake();
+
+        let (gap, slept) = match self.last {
+            Some(was) => (when.since_boot - was.since_boot, when.suspended - was.suspended),
+            None => (0.0, 0.0),
+        };
+
+        let since = match across {
+            Wake::Within(_) => gap,
+            Wake::OnInput => 0.0,
+        };
+
+        let away = slept > AWAY_SECONDS;
+        let now = when.since_boot;
+        self.last = Some(when);
 
         match away {
             true => self.settling = Some(now + SETTLING_SECONDS),
@@ -89,7 +113,7 @@ impl Turning {
 
         let Ok(()) = self.find(machine, now);
 
-        let mut doing: Vec<Doing> = Vec::new();
+        let mut effect: Vec<Effect> = Vec::new();
 
         for which in READ {
             let paths: Vec<String> = match self.open.get(&which) {
@@ -107,13 +131,13 @@ impl Turning {
                             let dry = arrived.is_empty();
 
                             for event in arrived {
-                                let kind = event.event_type();
+                                let kind = event.kind;
                                 let Ok(did) =
-                                    self.held.saw(which, kind, event.code(), event.value(), now);
+                                    self.held.saw(which, kind, event.code, event.value, now);
 
                                 match deaf {
                                     true => {},
-                                    false => doing.extend(did),
+                                    false => effect.extend(did),
                                 }
                             }
 
@@ -122,10 +146,10 @@ impl Turning {
                                 false => {},
                             }
                         }
-                        Err(Gone) => {
+                        Err(Closed) => {
                             let Ok(went) = self.went(which, &path);
 
-                            doing.extend(went);
+                            effect.extend(went);
                             break 'over_tries;
                         }
                     }
@@ -141,10 +165,10 @@ impl Turning {
         let Ok(carried) = self.held.finger.carried();
         let Ok(ticked) = self.held.tick(since);
 
-        doing.extend(carried);
-        doing.extend(ticked);
+        effect.extend(carried);
+        effect.extend(ticked);
 
-        Ok(doing)
+        Ok(effect)
     }
 
     pub fn bound_by(&mut self, table: Table) -> Result<(), Never> {
@@ -153,8 +177,25 @@ impl Turning {
         Ok(())
     }
 
-    pub fn poll(&self) -> Result<f64, Never> {
-        self.held.poll()
+    pub fn wake(&self) -> Result<Wake, Never> {
+        let Ok(held) = self.held.wake();
+
+        let lost = READ.into_iter().any(|which| {
+            let Ok(wants) = which.wants();
+
+            wants == Wants::One && !self.open.contains_key(&which)
+        });
+
+        match lost {
+            true => held.sooner(Wake::Within(HUNT_SECONDS)),
+            false => Ok(held),
+        }
+    }
+
+    pub fn hunt_now(&mut self) -> Result<(), Never> {
+        self.hunted.clear();
+
+        Ok(())
     }
 
     pub fn missing(&self) -> Result<Vec<From>, Never> {
@@ -172,7 +213,7 @@ impl Turning {
             .collect())
     }
 
-    fn went(&mut self, which: From, path: &str) -> Result<Vec<Doing>, Never> {
+    fn went(&mut self, which: From, path: &str) -> Result<Vec<Effect>, Never> {
         let empty = match self.open.get_mut(&which) {
             Some(paths) => {
                 let _ = paths.remove(path);
@@ -232,8 +273,8 @@ impl Turning {
                 }
 
                 match machine.open(&path) {
-                    Took::Refused => continue 'over_paths,
-                    Took::Held => {},
+                    Took::Denied => continue 'over_paths,
+                    Took::Acquired => {},
                 }
 
                 match which {
@@ -277,5 +318,95 @@ impl Turning {
         };
 
         Ok(every.into_iter().map(|says| says.path.clone()).collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ok<T>(answer: Result<T, Never>) -> T {
+        let Ok(value) = answer;
+
+        value
+    }
+
+    #[derive(Default)]
+    struct Machine {
+        plugged: BTreeSet<String>,
+    }
+
+    impl Plugged for Machine {
+        fn every(&self) -> Vec<DeviceInfo> {
+            Vec::new()
+        }
+
+        fn open(&mut self, path: &str) -> Took {
+            match self.plugged.contains(path) {
+                true => Took::Acquired,
+                false => Took::Denied,
+            }
+        }
+
+        fn ranges(&self, _path: &str) -> Ranges {
+            Ranges::default()
+        }
+
+        fn drain(&mut self, path: &str) -> Result<Vec<InputEvent>, Closed> {
+            match self.plugged.contains(path) {
+                true => Ok(Vec::new()),
+                false => Err(Closed),
+            }
+        }
+    }
+
+    const PAD: &str = "/dev/input/event1";
+
+    fn told() -> BTreeMap<From, String> {
+        [(From::Pad, PAD), (From::Keys, "/dev/input/event2"), (From::Touch, "/dev/input/event3")]
+            .into_iter()
+            .map(|(which, at)| (which, at.to_string()))
+            .collect()
+    }
+
+    fn at(since_boot: f64) -> Instant {
+        Instant { since_boot, suspended: 0.0 }
+    }
+
+    #[test]
+    fn with_everything_found_and_nothing_held_it_waits_for_a_press() {
+        let mut machine = Machine { plugged: told().into_values().collect() };
+        let mut turning = ok(Turning::pointed_at(told()));
+
+        ok(turning.turn(&mut machine, at(1000.0)));
+
+        assert_eq!(ok(turning.wake()), Wake::OnInput);
+    }
+
+    #[test]
+    fn a_pad_that_is_missing_is_looked_for_on_a_clock() {
+        let mut machine = Machine { plugged: told().into_values().filter(|at| at != PAD).collect() };
+        let mut turning = ok(Turning::pointed_at(told()));
+
+        ok(turning.turn(&mut machine, at(1000.0)));
+
+        assert_eq!(ok(turning.wake()), Wake::Within(HUNT_SECONDS));
+    }
+
+    #[test]
+    fn something_plugged_in_is_looked_for_at_once_rather_than_after_the_hunt() {
+        let mut machine = Machine { plugged: told().into_values().filter(|at| at != PAD).collect() };
+        let mut turning = ok(Turning::pointed_at(told()));
+
+        ok(turning.turn(&mut machine, at(1000.0)));
+        machine.plugged.insert(PAD.to_string());
+        ok(turning.turn(&mut machine, at(1000.1)));
+
+        assert_eq!(ok(turning.missing()), [From::Pad, From::Typing], "not yet: the hunt was a moment ago");
+
+        ok(turning.hunt_now());
+        ok(turning.turn(&mut machine, at(1000.2)));
+
+        assert_eq!(ok(turning.missing()), [From::Typing]);
     }
 }

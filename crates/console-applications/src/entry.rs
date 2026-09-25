@@ -16,11 +16,7 @@ pub struct Application {
     pub icon: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Installed {
-    Yes,
-    No,
-}
+pub use console_core_external_programs::Installed;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Worth {
@@ -173,21 +169,15 @@ pub fn files(roots: &[PathBuf]) -> Result<Vec<PathBuf>, Never> {
 }
 
 fn under(root: &Path) -> Result<Vec<PathBuf>, Never> {
-    let reading = match std::fs::read_dir(root) {
-        Ok(reading) => reading,
-        Err(_fault) => return Ok(Vec::new()),
-    };
-
     let mut found: Vec<PathBuf> = Vec::new();
-    let mut names: Vec<PathBuf> = reading.filter_map(Result::ok).map(|entry| entry.path()).collect();
-    names.sort();
+    let mut waiting = listed(root)?;
 
-    for path in names {
+    while let Some(path) = waiting.pop() {
         match path.is_dir() {
             true => {
-                let deeper = under(&path)?;
+                let deeper = listed(&path)?;
 
-                found.extend(deeper);
+                waiting.extend(deeper);
             }
             false => match path.extension().is_some_and(|kind| kind == "desktop") {
                 true => found.push(path),
@@ -197,6 +187,19 @@ fn under(root: &Path) -> Result<Vec<PathBuf>, Never> {
     }
 
     Ok(found)
+}
+
+fn listed(directory: &Path) -> Result<Vec<PathBuf>, Never> {
+    let reading = match std::fs::read_dir(directory) {
+        Ok(reading) => reading,
+        Err(_fault) => return Ok(Vec::new()),
+    };
+
+    let mut names: Vec<PathBuf> = reading.filter_map(Result::ok).map(|entry| entry.path()).collect();
+    names.sort();
+    names.reverse();
+
+    Ok(names)
 }
 
 #[cfg(test)]
@@ -211,7 +214,7 @@ Exec=firefox %u
 Icon=firefox
 Terminal=false
 
-[Desktop Action new-window]
+[Desktop Effect new-window]
 Name=New Window
 Exec=firefox --new-window
 ";
@@ -273,7 +276,7 @@ Exec=firefox --new-window
             name: "Hacker News".to_string(),
             command: "xdg-open \"https://news.ycombinator.com/?q=a b\"".to_string(),
             terminal: false,
-            icon: "/home/somebody/.local/share/console/bookmark-icons/abc".to_string(),
+            icon: "/home/someone/.local/share/console/bookmark-icons/abc".to_string(),
         };
         let Ok(said) = written(&app);
 

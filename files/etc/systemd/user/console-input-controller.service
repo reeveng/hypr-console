@@ -20,7 +20,7 @@ ExecStartPost=-/usr/local/bin/controller-profile router
 # A profile switch destroys and recreates the pad. The daemon waits for a new
 # one, but if it ever dies for another reason it must not stay dead: losing it
 # silently takes the workspace and close buttons with it.
-ExecStopPost=-/usr/local/bin/console-fell %n
+ExecStopPost=-/usr/local/bin/console-report-crash %n
 Restart=always
 RestartSec=2
 

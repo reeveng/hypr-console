@@ -4,7 +4,7 @@
 //! nothing of it on the screen: `--hidden` starts it away, and the controller
 //! shows and hides it with a signal, because a keyboard that was started and
 //! stopped would pay for a compositor connection, ten composed keymaps and a
-//! font every time somebody wanted to type a word.
+//! font every time someone wanted to type a word.
 //!
 //!     console-keyboard --landscape-layers landscape,thai,landscapespecial
 //!
@@ -20,8 +20,8 @@
 //! There is a second tree: the nested desktop stages the whole of this desktop
 //! under a directory of its own and runs it there, and a keyboard that joined
 //! the palette onto `/` found the machine's own `/usr/local`, read nothing,
-//! kept the colours in `config::Scheme::default` and drew a keyboard in green
-//! and red that no check could believe. `console_core_colour::spent::beside` is
+//! kept the colors in `configuration::Scheme::default` and drew a keyboard in green
+//! and red that no check could believe. `console_core_color::palette::beside` is
 //! where that is decided, and on the device the two answers are one file.
 //!
 //! The loop is a `State` and its methods rather than one `while` body: what a
@@ -34,7 +34,7 @@
 //!
 //! A turn also asks what alphabet this keyboard should be wearing, which is a
 //! few bytes under the state directory that `language-switch` writes when the
-//! board somebody is typing on moves. Asked here rather than waited for: the
+//! board someone is typing on moves. KeyboardCommand here rather than waited for: the
 //! keyboard already has three signals and a fourth would be a fourth program
 //! to send it, and a turn happens when something happened -- a press, a frame,
 //! a wake -- so this is one small read on a loop that is not spinning. What it
@@ -44,19 +44,19 @@
 
 use console_core_geometry::{Point, Size};
 use console_core_never::Never;
-use console_core_number_conversion::fitted;
+use console_core_number_conversion::{fitted, index};
 use std::process::ExitCode;
 
-use console_core_colour::spent::{beside, read};
-use console_input_focus::{self as claim, CONTROLLER, Claim, Heard, Spans};
-use evdev::{AbsoluteAxisCode, EventType};
-use console_input_alphabets::{self as alphabets, Held as Holding};
-use console_input_keyboard::config::{self, Config};
+use console_core_color::palette::{beside, read};
+use console_input_focus::{self as claim, CONTROLLER, Claim, Received, Spans};
+use console_input_event_devices::{AbsoluteAxisCode, EventType};
+use console_input_alphabets::{self as alphabets, Orientation as Holding};
+use console_input_keyboard::configuration::{self, Configuration};
 use console_input_keyboard::drawing::{Stride, Surface};
-use console_input_keyboard::gamepad::{self, Asked, Held, Repeats};
-use console_input_keyboard::layout::{Drops, Kind, Which, key, mods, named, of, placed, toward, under};
+use console_input_keyboard::gamepad::{self, KeyboardCommand, PendingRepeat, RepeatMode};
+use console_input_keyboard::layout::{Drops, Kind, LayoutKind, key, mods, named, of, placed, toward, under};
 use console_input_keyboard::paint;
-use console_input_keyboard::surface::{Gone, Missing, Poke, Screen, Showing};
+use console_input_keyboard::surface::{Closed, SurfaceError, PointerEvent, Screen, Showing};
 use std::time::Instant;
 use console_input_keyboard::typing::{After, Typist};
 use console_response_times::{Wait, Waiting};
@@ -71,7 +71,7 @@ enum Shape {
 }
 
 fn landscape(room: Size<u32>) -> Result<Shape, Never> {
-    Ok(match room.wide > room.tall {
+    Ok(match room.width > room.height {
         true => Shape::Landscape,
         false => Shape::Portrait,
     })
@@ -79,9 +79,9 @@ fn landscape(room: Size<u32>) -> Result<Shape, Never> {
 
 fn main() -> ExitCode {
     let Ok(mut waiting) = Waiting::on(Wait { who: "keyboard", what: "starting" });
-    let argv: Vec<String> = std::env::args().collect();
+    let arguments: Vec<String> = std::env::args().collect();
 
-    match argv.iter().any(|word| word == "--help" || word == "-h") {
+    match arguments.iter().any(|word| word == "--help" || word == "-h") {
         true => {
             println!("usage: console-keyboard [--hidden] [-H height] [-l layers] [--fn font]");
             return ExitCode::SUCCESS;
@@ -89,9 +89,9 @@ fn main() -> ExitCode {
         false => {},
     }
 
-    match argv.iter().any(|word| word == "--list-layers") {
+    match arguments.iter().any(|word| word == "--list-layers") {
         true => {
-            for which in Which::ALL {
+            for which in LayoutKind::ALL {
                 let Ok(of) = of(which);
 
                 println!("{}", of.name);
@@ -102,12 +102,12 @@ fn main() -> ExitCode {
         false => {},
     }
 
-    let Ok(flags) = dressed(&argv);
+    let Ok(flags) = dressed(&arguments);
 
     let Ok(()) = waiting.mark("palette");
 
-    let config = match config::from_env(&flags) {
-        Ok(config) => config,
+    let configuration = match configuration::from_env(&flags) {
+        Ok(configuration) => configuration,
         Err(why) => {
             eprintln!("console-keyboard: {why:?}");
             return ExitCode::FAILURE;
@@ -116,7 +116,7 @@ fn main() -> ExitCode {
 
     let Ok(()) = waiting.mark("asked");
 
-    match run(&config, waiting) {
+    match run(&configuration, waiting) {
         Ok(()) => ExitCode::SUCCESS,
         Err(why) => {
             eprintln!("console-keyboard: {why}");
@@ -125,7 +125,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn dressed(argv: &[String]) -> Result<Vec<String>, Never> {
+fn dressed(arguments: &[String]) -> Result<Vec<String>, Never> {
     let Ok(me) = me();
     let Ok(at) = beside(&me);
 
@@ -143,19 +143,19 @@ fn dressed(argv: &[String]) -> Result<Vec<String>, Never> {
         true => {},
         false => {
             eprintln!(
-                "console-keyboard: the palette has no {}, so the keyboard keeps its own colour \
+                "console-keyboard: the palette has no {}, so the keyboard keeps its own color \
                  for those",
                 missing.join(", ")
             );
         }
     }
 
-    let flags = match argv.split_first() {
+    let flags = match arguments.split_first() {
         Some((_, flags)) => flags,
         None => &[],
     };
 
-    console_input_keyboard::palette::argv(&palette, flags)
+    console_input_keyboard::palette::arguments(&palette, flags)
 }
 
 fn me() -> Result<std::path::PathBuf, Never> {
@@ -172,29 +172,29 @@ fn me() -> Result<std::path::PathBuf, Never> {
 struct State<'a> {
     screen: Screen,
     signals: std::os::fd::RawFd,
-    config: &'a Config,
+    configuration: &'a Configuration,
     height: u32,
     typist: Typist,
-    held: Held,
-    down: Option<usize>,
-    shown: Option<Drawn>,
+    held: PendingRepeat,
+    pressed: Option<u32>,
+    shown: Option<KeyboardState>,
     showing: Option<Waiting>,
     reading: Option<Reading>,
-    complained: Quiet,
-    worn: Which,
-    selected: Option<usize>,
+    complained: Logged,
+    worn: LayoutKind,
+    selected: Option<u32>,
 }
 
 impl State<'_> {
-    fn while_open(&mut self) -> Result<(), Missing> {
-        while self.screen.closed() == Ok(Gone::No) {
+    fn while_open(&mut self) -> Result<(), SurfaceError> {
+        while self.screen.closed() == Ok(Closed::No) {
             self.once_around()?;
         }
 
         Ok(())
     }
 
-    fn once_around(&mut self) -> Result<(), Missing> {
+    fn once_around(&mut self) -> Result<(), SurfaceError> {
         let Ok(showing_now) = self.screen.showing();
         let Ok(()) = keeping(showing_now, &mut self.reading, &mut self.complained);
 
@@ -211,19 +211,19 @@ impl State<'_> {
 
         self.drawing(showing_now)?;
 
-        let spoke = self.waiting_on()?;
+        let sevent = self.waiting_on()?;
         let now = Instant::now();
 
-        self.told(spoke)?;
+        self.signalled(sevent)?;
 
         let Ok(()) = self.wants(now);
-        let Ok(()) = self.pokes();
+        let Ok(()) = self.pointer_events();
 
         Ok(())
     }
 
     fn follows(&mut self) -> Result<(), Never> {
-        let Ok(shape) = landscape(Size { wide: u32::MAX, tall: self.config.height });
+        let Ok(shape) = landscape(Size { width: u32::MAX, height: self.configuration.height });
         let Ok(worn) = left_on(shape);
 
         let wanted = match worn {
@@ -244,13 +244,13 @@ impl State<'_> {
         Ok(())
     }
 
-    fn drawing(&mut self, showing_now: Showing) -> Result<(), Missing> {
+    fn drawing(&mut self, showing_now: Showing) -> Result<(), SurfaceError> {
         let Ok(size) = self.screen.size();
         let Ok(scale) = self.screen.scale();
-        let frame = Drawn {
+        let frame = KeyboardState {
             showing: self.typist.showing,
             held: self.typist.held,
-            pressed: self.down,
+            pressed: self.pressed,
             selected: self.selected,
             size,
             scale,
@@ -260,9 +260,9 @@ impl State<'_> {
             true => {
                 let Ok(layout) = self.typist.layout();
                 let modifiers = self.typist.held;
-                let pressed = self.down;
+                let pressed = self.pressed;
                 let selected = self.selected;
-                let config = self.config;
+                let configuration = self.configuration;
                 let Ok(next) = self.typist.next_language();
                 let language = next.map(|which| {
                     let Ok(of) = of(which);
@@ -288,17 +288,17 @@ impl State<'_> {
 
                         let across = f64::from(wide) / f64::from(scale);
                         let deep = f64::from(tall) / f64::from(scale);
-                        let Ok(keys) = placed(layout, Size { wide: across, tall: deep });
+                        let Ok(keys) = placed(layout, Size { width: across, height: deep });
                         let Ok(()) = paint::keyboard(&onto, &paint::Look {
-                            config,
+                            configuration,
                             layout,
                             keys: &keys,
                             pressed,
                             held: modifiers,
                             selected,
                             language,
-                            wide: across,
-                            tall: deep,
+                            width: across,
+                            height: deep,
                         });
                     })?;
 
@@ -318,7 +318,7 @@ impl State<'_> {
         Ok(())
     }
 
-    fn waiting_on(&mut self) -> Result<u32, Missing> {
+    fn waiting_on(&mut self) -> Result<u32, SurfaceError> {
         let now = Instant::now();
         let mut watching: Vec<std::os::fd::RawFd> = vec![self.signals];
 
@@ -336,21 +336,21 @@ impl State<'_> {
         self.screen.wait_with(&watching, until)
     }
 
-    fn told(&mut self, spoke: u32) -> Result<(), Missing> {
-        match spoke & 1 != 0 {
+    fn signalled(&mut self, sevent: u32) -> Result<(), SurfaceError> {
+        match sevent & 1 != 0 {
             true => {
                 let Ok(woken) = woken(self.signals);
                 let Ok(showing_now) = self.screen.showing();
 
                 match woken {
-                    Some(Told::Show) => match showing_now {
+                    Some(Signal::Show) => match showing_now {
                         Showing::No => self.onto_the_screen()?,
                         Showing::Yes => {},
                     },
-                    Some(Told::Hide) => {
+                    Some(Signal::Hide) => {
                         let Ok(()) = self.away();
                     },
-                    Some(Told::Either) => match showing_now {
+                    Some(Signal::Toggle) => match showing_now {
                         Showing::Yes => {
                             let Ok(()) = self.away();
                         },
@@ -366,7 +366,7 @@ impl State<'_> {
     }
 
     fn wants(&mut self, now: Instant) -> Result<(), Never> {
-        let mut wants: Vec<Asked> = Vec::new();
+        let mut wants: Vec<KeyboardCommand> = Vec::new();
 
         match self.reading.as_mut() {
             Some(at_hand) => {
@@ -376,10 +376,10 @@ impl State<'_> {
 
                 wants.extend(asked);
 
-                match heard.gone.is_empty() {
+                match heard.unplugged.is_empty() {
                     true => {},
                     false => {
-                        eprintln!("console-keyboard: the controller has gone; taking it again");
+                        eprintln!("console-keyboard: the controller is missing; taking it again");
                         self.reading = None;
                     },
                 }
@@ -405,15 +405,15 @@ impl State<'_> {
             };
 
             let Ok(layout) = self.typist.layout();
-            let Ok(keys) = placed(layout, Size { wide: f64::from(wide), tall: f64::from(tall) });
+            let Ok(keys) = placed(layout, Size { width: f64::from(wide), height: f64::from(tall) });
 
             match want {
-                Asked::Toggle => {
+                KeyboardCommand::Toggle => {
                     let Ok(()) = self.away();
 
                     self.selected = None;
                 },
-                _ if matches!(want.direction(), Ok(Some(_))) => {
+                KeyboardCommand::Up | KeyboardCommand::Down | KeyboardCommand::Left | KeyboardCommand::Right => {
                     let Ok(direction) = want.direction();
 
                     let (dx, dy) = match direction {
@@ -421,20 +421,22 @@ impl State<'_> {
                         None => NOWHERE,
                     };
 
-                    let Ok(onto) = toward(&keys, self.selected, Point { across: dx, down: dy });
+                    let Ok(onto) = toward(&keys, self.selected, Point { x: dx, y: dy });
 
                     self.selected = onto;
                 },
-                Asked::Press => {
+                KeyboardCommand::Select => {
                     let at = match self.selected {
                         Some(at) => at,
                         None => {
-                            let Ok(onto) = toward(&keys, None, Point { across: 0, down: 0 });
+                            let Ok(onto) = toward(&keys, None, Point { x: 0, y: 0 });
 
                             self.selected = onto;
                             continue;
                         }
                     };
+
+                    let Ok(at) = index(at);
 
                     let key = match layout.keys.get(at) {
                         Some(key) => key,
@@ -448,60 +450,61 @@ impl State<'_> {
                         false => {},
                     }
                 },
-                Asked::Backspace => {
+                KeyboardCommand::Backspace => {
                     let Ok(()) = self.typist.tap(key::BACKSPACE);
                 },
-                Asked::Enter => {
+                KeyboardCommand::Enter => {
                     let Ok(()) = self.typist.tap(key::ENTER);
                 },
-                Asked::Shift => {
-                    let Ok(_) = self.typist.pressed(Kind::Mod(mods::SHIFT), mods::NONE, Drops::Nothing);
+                KeyboardCommand::Shift => {
+                    let Ok(_) = self.typist.pressed(Kind::Mod(mods::SHIFT), mods::NONE, Drops::None);
                 },
-                Asked::PreviousLanguage | Asked::NextLanguage => {
+                KeyboardCommand::PreviousLanguage | KeyboardCommand::NextLanguage => {
                     let Ok(mut waiting) =
                         Waiting::here(Wait { who: "keyboard", what: "language" });
-                    let Ok(_) = self.typist.pressed(Kind::Language, mods::NONE, Drops::Nothing);
+                    let Ok(_) = self.typist.pressed(Kind::Language, mods::NONE, Drops::None);
                     let Ok(()) = waiting.mark("keymap");
                     let Ok(()) = waiting.done();
 
                     self.selected = None;
                 },
-                Asked::Up | Asked::Down | Asked::Left | Asked::Right => {},
             }
         }
 
         Ok(())
     }
 
-    fn pokes(&mut self) -> Result<(), Never> {
+    fn pointer_events(&mut self) -> Result<(), Never> {
         let (wide, tall) = match self.screen.size() {
             Ok(Some((wide, tall))) => (wide, tall),
             Ok(None) | Err(_) => {
-                let Ok(_) = self.screen.pokes();
+                let Ok(_) = self.screen.pointer_events();
 
                 return Ok(());
             }
         };
 
-        let Ok(pokes) = self.screen.pokes();
+        let Ok(pointer_events) = self.screen.pointer_events();
 
-        for poke in pokes {
+        for event in pointer_events {
             let Ok(layout) = self.typist.layout();
-            let Ok(keys) = placed(layout, Size { wide: f64::from(wide), tall: f64::from(tall) });
+            let Ok(keys) = placed(layout, Size { width: f64::from(wide), height: f64::from(tall) });
 
-            match poke {
-                Poke::Down { x, y } => {
-                    let hit = match under(&keys, Point { across: x, down: y }) {
+            match event {
+                PointerEvent::Down { x, y } => {
+                    let hit = match under(&keys, Point { x, y }) {
                         Ok(Some(hit)) => hit,
                         Ok(None) | Err(_) => continue,
                     };
 
-                    let key = match layout.keys.get(hit.at) {
+                    let Ok(at) = index(hit.at);
+
+                    let key = match layout.keys.get(at) {
                         Some(key) => key,
                         None => continue,
                     };
 
-                    self.down = Some(hit.at);
+                    self.pressed = Some(hit.at);
                     let kind = key.kind;
                     let force = key.force;
                     let reset = key.reset;
@@ -526,8 +529,8 @@ impl State<'_> {
 
                     match after {
                         After::Draw => {
-                            self.down = match kind {
-                                Kind::Code { .. } => self.down,
+                            self.pressed = match kind {
+                                Kind::Code { .. } => self.pressed,
                                 Kind::Pad
                                 | Kind::Mod(_)
                                 | Kind::Copy { .. }
@@ -543,15 +546,15 @@ impl State<'_> {
                         After::Still => {},
                     }
                 },
-                Poke::Moved { .. } => {},
-                Poke::Up => self.down = None,
+                PointerEvent::Moved { .. } => {},
+                PointerEvent::Up => self.pressed = None,
             }
         }
 
         Ok(())
     }
 
-    fn onto_the_screen(&mut self) -> Result<(), Missing> {
+    fn onto_the_screen(&mut self) -> Result<(), SurfaceError> {
         let Ok(mut waiting) = Waiting::here(Wait { who: "keyboard", what: "showing" });
 
         self.screen.show(self.height)?;
@@ -568,8 +571,8 @@ impl State<'_> {
 
         self.shown = None;
         self.showing = None;
-        self.down = None;
-        self.held = Held::default();
+        self.pressed = None;
+        self.held = PendingRepeat::default();
 
         Ok(())
     }
@@ -581,7 +584,7 @@ enum Unopened {
     NoLayer(Vec<String>),
     NoSignals(std::io::Error),
     NoTyping,
-    Screen(Missing),
+    Screen(SurfaceError),
 }
 
 impl std::fmt::Display for Unopened {
@@ -607,23 +610,23 @@ impl std::fmt::Display for Unopened {
 
 impl std::error::Error for Unopened {}
 
-impl std::convert::From<Missing> for Unopened {
-    fn from(why: Missing) -> Self {
+impl std::convert::From<SurfaceError> for Unopened {
+    fn from(why: SurfaceError) -> Self {
         Unopened::Screen(why)
     }
 }
 
-fn run(config: &Config, mut waiting: Waiting) -> Result<(), Unopened> {
+fn run(configuration: &Configuration, mut waiting: Waiting) -> Result<(), Unopened> {
     let Ok(root) = console_input_keyboard::keymap::default_symbols_root();
     let alphabets = console_input_keyboard::keymap::available("evdev", &root)
         .map_err(Unopened::NoKeymaps)?;
 
     let Ok(()) = waiting.mark("keymaps");
 
-    let Ok(shape) = landscape(Size { wide: u32::MAX, tall: config.height });
-    let Ok((asked, height)) = orientation(config, shape);
+    let Ok(shape) = landscape(Size { width: u32::MAX, height: configuration.height });
+    let Ok((asked, height)) = orientation(configuration, shape);
     let Ok(opening) = left_on(shape);
-    let walk: Vec<Which> = asked
+    let walk: Vec<LayoutKind> = asked
         .iter()
         .filter_map(|name| {
             let Ok(named) = named(name.as_str());
@@ -642,7 +645,7 @@ fn run(config: &Config, mut waiting: Waiting) -> Result<(), Unopened> {
 
     let Ok(()) = waiting.mark("compositor");
 
-    match config.hidden {
+    match configuration.hidden {
         true => {},
         false => screen.show(height)?,
     }
@@ -662,15 +665,15 @@ fn run(config: &Config, mut waiting: Waiting) -> Result<(), Unopened> {
     let mut state = State {
         screen,
         signals,
-        config,
+        configuration,
         height,
         typist,
-        held: Held::default(),
-        down: None,
+        held: PendingRepeat::default(),
+        pressed: None,
         shown: None,
         showing: None,
         reading: None,
-        complained: Quiet::No,
+        complained: Logged::No,
         worn,
         selected: None,
     };
@@ -685,12 +688,12 @@ struct Reading {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Quiet {
+enum Logged {
     Yes,
     No,
 }
 
-fn keeping(showing: Showing, reading: &mut Option<Reading>, complained: &mut Quiet) -> Result<(), Never> {
+fn keeping(showing: Showing, reading: &mut Option<Reading>, complained: &mut Logged) -> Result<(), Never> {
     match showing {
         Showing::No => *reading = None,
         Showing::Yes => match reading {
@@ -706,7 +709,7 @@ fn keeping(showing: Showing, reading: &mut Option<Reading>, complained: &mut Qui
     Ok(())
 }
 
-fn taking(complained: &mut Quiet) -> Result<Option<Reading>, Never> {
+fn taking(complained: &mut Logged) -> Result<Option<Reading>, Never> {
     Ok(match Claim::of(&CONTROLLER) {
         Ok(claim) => {
             let Ok(holding) = claim.holding();
@@ -717,7 +720,7 @@ fn taking(complained: &mut Quiet) -> Result<Option<Reading>, Never> {
                 eprintln!("console-keyboard: reading the {said} at {path}");
             }
 
-            let spans = match claim.spans(claim::Which::Pad) {
+            let spans = match claim.spans(claim::DeviceKind::Pad) {
                 Ok(spans) => spans,
 
                 Err(refused) => {
@@ -728,20 +731,20 @@ fn taking(complained: &mut Quiet) -> Result<Option<Reading>, Never> {
                     Spans::new()
                 },
             };
-            *complained = Quiet::No;
+            *complained = Logged::No;
 
             Some(Reading { claim, spans })
         },
 
         Err(refused) => {
             match *complained {
-                Quiet::Yes => {},
-                Quiet::No => {
+                Logged::Yes => {},
+                Logged::No => {
                     let Ok(said) = refused.said();
 
                     eprintln!("console-keyboard: {said}, so it is touch only");
 
-                    *complained = Quiet::Yes;
+                    *complained = Logged::Yes;
                 },
             }
 
@@ -750,30 +753,30 @@ fn taking(complained: &mut Quiet) -> Result<Option<Reading>, Never> {
     })
 }
 
-fn from_controller(heard: &Heard, spans: &Spans, held: &mut Held, now: Instant) -> Result<Vec<Asked>, Never> {
+fn from_controller(heard: &Received, spans: &Spans, held: &mut PendingRepeat, now: Instant) -> Result<Vec<KeyboardCommand>, Never> {
     let mut out = Vec::new();
 
     for (which, event) in &heard.events {
-        let kind = event.event_type();
-        let Ok(said) = claim::said(*which, kind, event.code(), event.value());
+        let kind = event.kind;
+        let Ok(named) = claim::said(*which, kind, event.code, event.value);
         let axis = match kind {
-            EventType::ABSOLUTE => Some((AbsoluteAxisCode(event.code()), event.value())),
+            EventType::ABSOLUTE => Some((AbsoluteAxisCode(event.code), event.value)),
             _ => None,
         };
-        let Ok(wanted) = gamepad::wanted(said, axis, spans);
-        let moving = wanted.is_none_or(|asked| {
-            let Ok(repeats) = asked.repeats();
+        let Ok(command) = gamepad::command_for(named, axis, spans);
+        let moving = command.is_none_or(|command| {
+            let Ok(mode) = command.repeat_mode();
 
-            repeats == Repeats::Held
+            mode == RepeatMode::Repeating
         });
 
         match moving {
             true => {
-                let Ok(went) = held.went(wanted, now);
+                let Ok(pressed) = held.pressed(command, now);
 
-                out.extend(went);
+                out.extend(pressed);
             },
-            false => out.extend(wanted),
+            false => out.extend(command),
         }
     }
 
@@ -781,16 +784,16 @@ fn from_controller(heard: &Heard, spans: &Spans, held: &mut Held, now: Instant) 
 }
 
 #[derive(Clone, Copy, PartialEq)]
-struct Drawn {
-    showing: Which,
+struct KeyboardState {
+    showing: LayoutKind,
     held: u8,
-    pressed: Option<usize>,
-    selected: Option<usize>,
+    pressed: Option<u32>,
+    selected: Option<u32>,
     size: Option<(u32, u32)>,
     scale: i32,
 }
 
-fn left_on(shape: Shape) -> Result<Option<Which>, Never> {
+fn left_on(shape: Shape) -> Result<Option<LayoutKind>, Never> {
     let Ok(home) = console_core_places::home();
 
     let home = match home {
@@ -808,7 +811,7 @@ fn left_on(shape: Shape) -> Result<Option<Which>, Never> {
     named(arrangement)
 }
 
-fn keeps_its_own(showing: Which) -> Result<(), Never> {
+fn keeps_its_own(showing: LayoutKind) -> Result<(), Never> {
     let Ok(home) = console_core_places::home();
 
     let home = match home {
@@ -834,12 +837,12 @@ fn keeps_its_own(showing: Which) -> Result<(), Never> {
     Ok(())
 }
 
-fn orientation(config: &Config, shape: Shape) -> Result<(Vec<String>, u32), Never> {
+fn orientation(configuration: &Configuration, shape: Shape) -> Result<(Vec<String>, u32), Never> {
     let (given, holding, height) = match shape {
         Shape::Landscape => {
-            (&config.landscape_layers, Holding::Across, config.landscape_height)
+            (&configuration.landscape_layers, Holding::Across, configuration.landscape_height)
         },
-        Shape::Portrait => (&config.layers, Holding::Upright, config.height),
+        Shape::Portrait => (&configuration.layers, Holding::Upright, configuration.height),
     };
 
     let asked = match given.is_empty() {
@@ -855,10 +858,10 @@ fn orientation(config: &Config, shape: Shape) -> Result<(Vec<String>, u32), Neve
     Ok((asked, height))
 }
 
-enum Told {
+enum Signal {
     Show,
     Hide,
-    Either,
+    Toggle,
 }
 
 fn listening() -> Result<std::os::fd::RawFd, std::io::Error> {
@@ -884,14 +887,16 @@ fn listening() -> Result<std::os::fd::RawFd, std::io::Error> {
     }
 }
 
-fn woken(from: std::os::fd::RawFd) -> Result<Option<Told>, Never> {
+fn woken(from: std::os::fd::RawFd) -> Result<Option<Signal>, Never> {
     // SAFETY: a struct the kernel fills, read whole or not at all.
     let said = unsafe {
         let mut said: libc::signalfd_siginfo = std::mem::zeroed();
-        let size = std::mem::size_of::<libc::signalfd_siginfo>();
-        let got = libc::read(from, std::ptr::from_mut(&mut said).cast(), size);
-
-        let Ok(wanted) = fitted::<usize, isize>(size);
+        let Ok(wanted) = fitted::<_, i64>(std::mem::size_of::<libc::signalfd_siginfo>());
+        let Ok(got) = fitted::<_, i64>(libc::read(
+            from,
+            std::ptr::from_mut(&mut said).cast(),
+            std::mem::size_of::<libc::signalfd_siginfo>(),
+        ));
 
         match got != wanted {
             true => return Ok(None),
@@ -904,9 +909,9 @@ fn woken(from: std::os::fd::RawFd) -> Result<Option<Told>, Never> {
     let Ok(signal) = fitted::<u32, i32>(said.ssi_signo);
 
     Ok(match signal {
-        libc::SIGUSR1 => Some(Told::Hide),
-        libc::SIGUSR2 => Some(Told::Show),
-        _ => Some(Told::Either),
+        libc::SIGUSR1 => Some(Signal::Hide),
+        libc::SIGUSR2 => Some(Signal::Show),
+        _ => Some(Signal::Toggle),
     })
 }
 

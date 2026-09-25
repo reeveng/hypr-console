@@ -17,7 +17,7 @@
 //!
 //! Rounding is up, and it has to be. A buffer a pixel short of the destination
 //! is a row of whatever was behind it down one edge of the surface, which is
-//! the kind of fault that shows up on one machine at one scale and on nobody
+//! the kind of fault that shows up on one machine at one scale and on no one
 //! else's.
 
 use console_core_geometry::Size;
@@ -40,10 +40,10 @@ impl Scale {
     }
 
     pub fn device(self, logical: Size<u32>) -> Result<Size<u32>, Never> {
-        let Ok(wide) = self.along(logical.wide);
-        let Ok(tall) = self.along(logical.tall);
+        let Ok(wide) = self.along(logical.width);
+        let Ok(tall) = self.along(logical.height);
 
-        Ok(Size { wide, tall })
+        Ok(Size { width: wide, height: tall })
     }
 
     fn along(self, logical: u32) -> Result<u32, Never> {
@@ -58,31 +58,31 @@ mod tests {
     #[test]
     fn the_scale_this_device_is_driven_at_is_a_whole_number_of_hundred_twentieths() {
         let Ok(two_and_a_half) = Scale::of(300);
-        let Ok(device) = two_and_a_half.device(Size { wide: 768, tall: 480 });
+        let Ok(device) = two_and_a_half.device(Size { width: 768, height: 480 });
 
-        assert_eq!(device, Size { wide: 1920, tall: 1200 });
+        assert_eq!(device, Size { width: 1920, height: 1200 });
     }
 
     #[test]
     fn a_scale_of_one_leaves_the_size_alone() {
-        let Ok(device) = Scale::ONE.device(Size { wide: 320, tall: 44 });
+        let Ok(device) = Scale::ONE.device(Size { width: 320, height: 44 });
 
-        assert_eq!(device, Size { wide: 320, tall: 44 });
+        assert_eq!(device, Size { width: 320, height: 44 });
     }
 
     #[test]
     fn a_size_that_does_not_divide_rounds_up_rather_than_leaving_an_edge_short() {
         let Ok(third) = Scale::of(160);
-        let Ok(device) = third.device(Size { wide: 101, tall: 1 });
+        let Ok(device) = third.device(Size { width: 101, height: 1 });
 
-        assert_eq!(device, Size { wide: 135, tall: 2 });
+        assert_eq!(device, Size { width: 135, height: 2 });
     }
 
     #[test]
     fn a_compositor_that_answers_nothing_is_not_a_surface_of_no_pixels() {
         let Ok(none) = Scale::of(0);
-        let Ok(device) = none.device(Size { wide: 320, tall: 44 });
+        let Ok(device) = none.device(Size { width: 320, height: 44 });
 
-        assert_eq!(device, Size { wide: 3, tall: 1 });
+        assert_eq!(device, Size { width: 3, height: 1 });
     }
 }

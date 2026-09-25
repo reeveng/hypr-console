@@ -100,7 +100,7 @@ fn the_desktop_file_hands_the_panel_the_file_that_was_opened() {
         .expect("an Exec line")
         .to_string();
 
-    assert!(exec.contains("viewer-panel"), "{exec}");
+    assert!(exec.contains("viewer"), "{exec}");
     assert!(exec.trim_end().ends_with("%f"), "{exec}");
 }
 
@@ -220,7 +220,7 @@ fn the_panel_is_shown_and_set_as_the_default_together_or_not_at_all() {
         !hidden, is_default,
         "this panel is shown on the menu: {}; it is the default for what it opens: {is_default}. \
          Both or neither -- a card on the home screen that opens nothing is the worse half, \
-         because it needs nobody to go looking for it.",
+         because it needs no one to go looking for it.",
         !hidden
     );
 }

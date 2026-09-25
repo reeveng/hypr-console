@@ -1,4 +1,4 @@
-//! Saying something where somebody who is not in a terminal sees it.
+//! Saying something where someone who is not in a terminal sees it.
 //!
 //! Three programs raise notifications on this desktop and until now each of
 //! them was a shell script that had worked out the same two things for itself.
@@ -6,9 +6,9 @@
 //! console-updating; two of them is not yet a pattern worth a file of its own* --
 //! and there were three by then.
 //!
-//! The two things are these. A notice that replaces the one before it rather
+//! The two things are these. A notification that replaces the one before it rather
 //! than landing under it, which is what makes a rocker held down one card
-//! rather than twenty. And a notice that stops repeating itself, because
+//! rather than twenty. And a notification that stops repeating itself, because
 //! everything that raises one here is inside a loop of some sort and the way a
 //! machine shouting over itself ends is with the notifications turned off and
 //! the fault still there.
@@ -27,7 +27,8 @@ use std::time::Instant;
 use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_core_words::Words;
-use console_waiting::{Patience, Seen, Waited, until_handed};
+use console_waiting::{Schedule, Ready, Outcome, until_handed};
+use rustix::process::getuid;
 
 const NEVER_SAID_BEFORE: u32 = 0;
 
@@ -56,7 +57,7 @@ impl Expiry {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Notice {
+pub struct Notification {
     pub urgency: Urgency,
     pub expiry: Expiry,
     pub summary: String,
@@ -66,14 +67,14 @@ pub struct Notice {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Said<'a> {
+pub struct Content<'a> {
     pub summary: &'a str,
     pub body: &'a str,
 }
 
-impl Notice {
-    pub fn new(said: Said<'_>) -> Result<Self, Never> {
-        Ok(Notice {
+impl Notification {
+    pub fn new(said: Content<'_>) -> Result<Self, Never> {
+        Ok(Notification {
             urgency: Urgency::Normal,
             expiry: Expiry::Milliseconds(4000),
             summary: said.summary.to_string(),
@@ -113,11 +114,11 @@ impl Notice {
         Ok(self)
     }
 
-    pub fn argv(&self) -> Result<Vec<String>, Never> {
+    pub fn arguments(&self) -> Result<Vec<String>, Never> {
         let Ok(urgency) = self.urgency.said();
         let Ok(expiry) = self.expiry.said();
 
-        let mut argv = vec![
+        let mut arguments = vec![
             "notify-send".to_string(),
             "--app-name=Console".to_string(),
             "--print-id".to_string(),
@@ -127,39 +128,39 @@ impl Notice {
 
         match self.value {
             Some(value) => {
-                argv.push("-h".to_string());
-                argv.push(format!("int:value:{value}"));
+                arguments.push("-h".to_string());
+                arguments.push(format!("int:value:{value}"));
             }
             None => {}
         }
 
         match self.replacing {
-            Some(was) => argv.push(format!("--replace-id={was}")),
+            Some(was) => arguments.push(format!("--replace-id={was}")),
             None => {}
         }
 
-        argv.push("--".to_string());
-        argv.push(self.summary.clone());
-        argv.push(self.body.clone());
+        arguments.push("--".to_string());
+        arguments.push(self.summary.clone());
+        arguments.push(self.body.clone());
 
-        Ok(argv)
+        Ok(arguments)
     }
 }
 
 pub const LOUD: u32 = 5;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Showing {
+pub enum Visibility {
     Shown,
     Last,
-    Quiet,
+    Hidden,
 }
 
-pub fn showing(count: u32) -> Result<Showing, Never> {
-    Ok(match count {
-        count if count < LOUD => Showing::Shown,
-        count if count == LOUD => Showing::Last,
-        _ => Showing::Quiet,
+pub fn visibility(count: u32) -> Result<Visibility, Never> {
+    Ok(match count.cmp(&LOUD) {
+        std::cmp::Ordering::Less => Visibility::Shown,
+        std::cmp::Ordering::Equal => Visibility::Last,
+        std::cmp::Ordering::Greater => Visibility::Hidden,
     })
 }
 
@@ -172,47 +173,47 @@ pub fn last_of_them(body: &str) -> Result<String, Never> {
     })
 }
 
-pub fn fault(said: Said<'_>, count: u32) -> Result<Option<Notice>, Never> {
-    let Ok(showing) = showing(count);
+pub fn fault(said: Content<'_>, count: u32) -> Result<Option<Notification>, Never> {
+    let Ok(visibility) = visibility(count);
 
-    match showing {
-        Showing::Quiet => Ok(None),
+    match visibility {
+        Visibility::Hidden => Ok(None),
 
-        Showing::Shown => {
-            let Ok(notice) = alarming(said);
+        Visibility::Shown => {
+            let Ok(notification) = alarming(said);
 
-            Ok(Some(notice))
+            Ok(Some(notification))
         }
 
-        Showing::Last => {
+        Visibility::Last => {
             let Ok(body) = last_of_them(said.body);
-            let Ok(notice) = alarming(Said { summary: said.summary, body: &body });
+            let Ok(notification) = alarming(Content { summary: said.summary, body: &body });
 
-            Ok(Some(notice))
+            Ok(Some(notification))
         }
     }
 }
 
-fn alarming(said: Said<'_>) -> Result<Notice, Never> {
-    let Ok(notice) = Notice::new(said);
-    let Ok(notice) = notice.urgent();
+fn alarming(said: Content<'_>) -> Result<Notification, Never> {
+    let Ok(notification) = Notification::new(said);
+    let Ok(notification) = notification.urgent();
 
-    notice.staying()
+    notification.staying()
 }
 
-pub fn once(said: Said<'_>, count: u32) -> Result<Option<Notice>, Never> {
+pub fn once(said: Content<'_>, count: u32) -> Result<Option<Notification>, Never> {
     match count {
         1 => {
-            let Ok(notice) = alarming(said);
+            let Ok(notification) = alarming(said);
 
-            Ok(Some(notice))
+            Ok(Some(notification))
         }
         _ => Ok(None),
     }
 }
 
-pub fn for_the_journal(kind: &str, said: Said<'_>) -> Result<String, Never> {
-    let Said { summary, body } = said;
+pub fn for_the_journal(kind: &str, said: Content<'_>) -> Result<String, Never> {
+    let Content { summary, body } = said;
 
     Ok(match body.is_empty() {
         true => format!("{kind}: {summary}"),
@@ -223,55 +224,37 @@ pub fn for_the_journal(kind: &str, said: Said<'_>) -> Result<String, Never> {
 pub fn under() -> Result<PathBuf, Never> {
     let ours = console_core_places::runtime_ours()?;
 
-    Ok(match ours {
-        Some(ours) => ours,
-        None => {
-            // SAFETY: `getuid` reads this process's own real user id out of the
-            let mine = unsafe { libc::getuid() };
+Ok(match ours {
+            Some(ours) => ours,
+            None => {
+                let mine = getuid();
 
-            PathBuf::from(format!("/run/user/{mine}")).join(console_core_places::OURS)
-        }
-    })
+                PathBuf::from(format!("/run/user/{mine}")).join(console_core_places::OURS)
+            }
+        })
 }
 
-pub struct Kept(PathBuf);
+pub struct StatePath(PathBuf);
 
-impl Kept {
+impl StatePath {
     pub fn named(name: &str) -> Result<Self, Never> {
         let Ok(under) = under();
 
-        Ok(Kept(under.join(name)))
+        Ok(StatePath(under.join(name)))
     }
 
     pub fn counting(kind: &str) -> Result<Self, Never> {
         let Ok(under) = under();
 
-        Ok(Kept(under.join("said").join(kind)))
+        Ok(StatePath(under.join("said").join(kind)))
     }
 
     pub fn read(&self) -> Result<Option<u32>, Never> {
-        let said = match std::fs::read_to_string(&self.0) {
-            Ok(said) => said,
-            Err(_fault) => return Ok(None),
-        };
-
-        let number = match said.trim().parse::<u32>() {
-            Ok(number) => number,
-            Err(_fault) => return Ok(None),
-        };
-
-        Ok(Some(number))
+        console_core_atomic_writes::number(&self.0)
     }
 
     pub fn write(&self, number: u32) -> Result<(), Never> {
-        match self.0.parent() {
-            Some(above) => {
-                let _ = std::fs::create_dir_all(above);
-            }
-            None => {}
-        }
-
-        let _ = console_core_atomic_writes::whole(&self.0, format!("{number}\n").as_bytes());
+        let _ = console_core_atomic_writes::whole_with_folders(&self.0, format!("{number}\n").as_bytes());
 
         Ok(())
     }
@@ -300,9 +283,9 @@ impl Kept {
 
 const WAITING: Duration = Duration::from_secs(2);
 
-pub fn raise(notice: &Notice) -> Result<Option<u32>, Never> {
-    let Ok(argv) = notice.argv();
-    let Ok(said) = said_within(&argv, WAITING);
+pub fn raise(notification: &Notification) -> Result<Option<u32>, Never> {
+    let Ok(arguments) = notification.arguments();
+    let Ok(said) = said_within(&arguments, WAITING);
 
     let said = match said {
         Some(said) => said,
@@ -317,8 +300,8 @@ pub fn raise(notice: &Notice) -> Result<Option<u32>, Never> {
     Ok(Some(number))
 }
 
-fn said_within(argv: &[String], waiting: Duration) -> Result<Option<String>, Never> {
-    let (program, rest) = match argv.split_first() {
+fn said_within(arguments: &[String], waiting: Duration) -> Result<Option<String>, Never> {
+    let (program, rest) = match arguments.split_first() {
         Some((program, rest)) => (program, rest),
         None => return Ok(None),
     };
@@ -333,17 +316,17 @@ fn said_within(argv: &[String], waiting: Duration) -> Result<Option<String>, Nev
         Err(_fault) => return Ok(None),
     };
 
-    let Ok(patience) = Patience::asking_every(waiting, LOOKING);
+    let Ok(patience) = Schedule::asking_every(waiting, LOOKING);
     let Ok(ended) = until_handed(patience, &mut running, |running| {
         Ok(match running.try_wait() {
-            Ok(Some(_)) => Seen::Yes,
-            Ok(None) => Seen::NotYet,
-            Err(_nothing_can_be_asked_about_it) => Seen::Yes,
+            Ok(Some(_)) => Ready::Yes,
+            Ok(None) => Ready::NotYet,
+            Err(_nothing_can_be_asked_about_it) => Ready::Yes,
         })
     });
 
     match ended {
-        Waited::Happened => {
+        Outcome::Happened => {
             let said = match running.wait_with_output() {
                 Ok(said) => said,
                 Err(_fault) => return Ok(None),
@@ -351,7 +334,7 @@ fn said_within(argv: &[String], waiting: Duration) -> Result<Option<String>, Nev
 
             return Ok(Some(String::from_utf8_lossy(&said.stdout).into_owned()));
         }
-        Waited::RanOut => {},
+        Outcome::RanOut => {},
     }
 
     let _ = running.kill();
@@ -362,10 +345,10 @@ fn said_within(argv: &[String], waiting: Duration) -> Result<Option<String>, Nev
 
 const LOOKING: Duration = Duration::from_millis(20);
 
-pub fn raise_kept(notice: Notice, kept: &Kept) -> Result<(), Never> {
+pub fn raise_kept(notification: Notification, kept: &StatePath) -> Result<(), Never> {
     let Ok(read) = kept.read();
-    let Ok(notice) = notice.replacing(read);
-    let Ok(raised) = raise(&notice);
+    let Ok(notification) = notification.replacing(read);
+    let Ok(raised) = raise(&notification);
 
     match raised {
         Some(number) => {
@@ -395,7 +378,7 @@ pub fn closing(number: u32) -> Result<Vec<String>, Never> {
     .to_vec())
 }
 
-pub fn withdraw(kept: &Kept) -> Result<(), Never> {
+pub fn withdraw(kept: &StatePath) -> Result<(), Never> {
     let Ok(read) = kept.read();
 
     let number = match read {
@@ -413,11 +396,11 @@ pub fn withdraw(kept: &Kept) -> Result<(), Never> {
 pub fn journal(said: &str) -> Result<(), Never> {
     let Ok(logger) = Program::Logger.name();
 
-    let argv = [logger, "-t", "console", "-p", "user.warning", "--", said]
+    let arguments = [logger, "-t", "console", "-p", "user.warning", "--", said]
         .map(str::to_string)
         .to_vec();
 
-    let Ok(_) = said_within(&argv, WAITING);
+    let Ok(_) = said_within(&arguments, WAITING);
 
     Ok(())
 }
@@ -430,9 +413,9 @@ mod tests {
     fn something_that_will_not_answer_is_not_waited_on_for_ever() {
         let Ok(sh) = Program::Sh.name();
 
-        let argv = [sh, "-c", "exec sleep 30"].map(str::to_string).to_vec();
+        let arguments = [sh, "-c", "exec sleep 30"].map(str::to_string).to_vec();
         let began = Instant::now();
-        let said = said_within(&argv, Duration::from_millis(200));
+        let said = said_within(&arguments, Duration::from_millis(200));
         assert_eq!(said, Ok(None), "a program that had to be killed said nothing");
         assert!(
             began.elapsed() < Duration::from_secs(5),
@@ -443,109 +426,109 @@ mod tests {
 
     #[test]
     fn something_that_answers_in_time_is_heard() {
-        let Ok(argv) = Program::Echo.argv(&["41"]);
+        let Ok(arguments) = Program::Echo.arguments(&["41"]);
 
-        let Ok(said) = said_within(&argv, Duration::from_secs(5));
+        let Ok(said) = said_within(&arguments, Duration::from_secs(5));
 
         assert_eq!(said.as_deref().map(str::trim), Some("41"));
     }
 
     #[test]
     fn a_program_that_does_not_exist_is_answered_at_once() {
-        let argv = ["console-nothing-is-called-this".to_string()];
-        assert_eq!(said_within(&argv, Duration::from_secs(30)), Ok(None));
+        let arguments = ["console-nothing-is-called-this".to_string()];
+        assert_eq!(said_within(&arguments, Duration::from_secs(30)), Ok(None));
     }
 
     #[test]
     fn the_first_few_are_shown_and_the_rest_are_the_journals() {
-        assert_eq!(showing(1), Ok(Showing::Shown));
-        assert_eq!(showing(LOUD - 1), Ok(Showing::Shown));
-        assert_eq!(showing(LOUD), Ok(Showing::Last));
-        assert_eq!(showing(LOUD + 1), Ok(Showing::Quiet));
-        assert_eq!(showing(200), Ok(Showing::Quiet));
+        assert_eq!(visibility(1), Ok(Visibility::Shown));
+        assert_eq!(visibility(LOUD - 1), Ok(Visibility::Shown));
+        assert_eq!(visibility(LOUD), Ok(Visibility::Last));
+        assert_eq!(visibility(LOUD + 1), Ok(Visibility::Hidden));
+        assert_eq!(visibility(200), Ok(Visibility::Hidden));
     }
 
     #[test]
     fn the_last_one_says_it_is_the_last_one() {
-        let Ok(fault) = fault(Said { summary: "The picture would not delete", body: "" }, LOUD);
-        let notice = fault.expect("the last");
-        assert!(notice.body.contains("Not shown again"));
+        let Ok(fault) = fault(Content { summary: "The picture would not delete", body: "" }, LOUD);
+        let notification = fault.expect("the last");
+        assert!(notification.body.contains("Not shown again"));
     }
 
     #[test]
     fn the_last_ones_sentence_comes_after_what_the_fault_said() {
-        let said = Said { summary: "Gone wrong", body: "The folder is read-only." };
+        let said = Content { summary: "Closed wrong", body: "The folder is read-only." };
         let Ok(fault) = fault(said, LOUD);
-        let notice = fault.expect("the last");
-        assert!(notice.body.starts_with("The folder is read-only."));
+        let notification = fault.expect("the last");
+        assert!(notification.body.starts_with("The folder is read-only."));
     }
 
     #[test]
     fn nothing_is_shown_once_the_screen_has_had_enough() {
-        assert_eq!(fault(Said { summary: "Gone wrong", body: "again" }, LOUD + 1), Ok(None));
+        assert_eq!(fault(Content { summary: "Closed wrong", body: "again" }, LOUD + 1), Ok(None));
     }
 
     #[test]
     fn a_fault_stays_on_the_screen() {
-        let Ok(fault) = fault(Said { summary: "Gone wrong", body: "" }, 1);
-        let notice = fault.expect("the first");
-        assert_eq!(notice.expiry, Expiry::Stays);
-        assert_eq!(notice.urgency, Urgency::Critical);
+        let Ok(fault) = fault(Content { summary: "Closed wrong", body: "" }, 1);
+        let notification = fault.expect("the first");
+        assert_eq!(notification.expiry, Expiry::Stays);
+        assert_eq!(notification.urgency, Urgency::Critical);
     }
 
     #[test]
     fn the_journal_is_told_the_kind_as_well_as_what_happened() {
         assert_eq!(
-            for_the_journal("unit-x", Said { summary: "x stopped", body: "why" }),
+            for_the_journal("unit-x", Content { summary: "x stopped", body: "why" }),
             Ok("unit-x: x stopped - why".to_string())
         );
         assert_eq!(
-            for_the_journal("unit-x", Said { summary: "x stopped", body: "" }),
+            for_the_journal("unit-x", Content { summary: "x stopped", body: "" }),
             Ok("unit-x: x stopped".to_string())
         );
     }
 
     #[test]
-    fn a_notice_that_replaces_another_says_which() {
-        let Ok(notice) = Notice::new(Said { summary: "Volume 40%", body: "" });
-        let Ok(notice) = notice.replacing(Some(17));
-        let Ok(argv) = notice.argv();
+    fn a_notification_that_replaces_another_says_which() {
+        let Ok(notification) = Notification::new(Content { summary: "Volume 40%", body: "" });
+        let Ok(notification) = notification.replacing(Some(17));
+        let Ok(arguments) = notification.arguments();
 
-        assert!(argv.contains(&"--replace-id=17".to_string()));
+        assert!(arguments.contains(&"--replace-id=17".to_string()));
     }
 
     #[test]
-    fn a_notice_that_replaces_nothing_asks_to_replace_nothing() {
-        let Ok(notice) = Notice::new(Said { summary: "Volume 40%", body: "" });
-        let Ok(argv) = notice.argv();
+    fn a_notification_that_replaces_nothing_asks_to_replace_nothing() {
+        let Ok(notification) = Notification::new(Content { summary: "Volume 40%", body: "" });
+        let Ok(arguments) = notification.arguments();
 
-        assert!(!argv.iter().any(|word| word.starts_with("--replace-id")));
+        assert!(!arguments.iter().any(|word| word.starts_with("--replace-id")));
     }
 
     #[test]
     fn what_was_said_is_held_off_from_the_options() {
-        let Ok(notice) = Notice::new(Said { summary: "--urgent", body: "-h" });
-        let Ok(argv) = notice.argv();
-        let end = argv.iter().position(|word| word == "--").expect("the end of the options");
-        assert_eq!(&argv[end + 1..], ["--urgent", "-h"]);
+        let Ok(notification) = Notification::new(Content { summary: "--urgent", body: "-h" });
+        let Ok(arguments) = notification.arguments();
+        let after: Vec<&String> = arguments.iter().skip_while(|word| *word != "--").skip(1).collect();
+        assert_eq!(after, ["--urgent", "-h"]);
     }
 
     #[test]
     fn a_reading_carries_its_number_for_anything_that_can_draw_one() {
-        let Ok(notice) = Notice::new(Said { summary: "Volume 40%", body: "" });
-        let Ok(notice) = notice.valued(40);
-        let Ok(argv) = notice.argv();
+        let Ok(notification) = Notification::new(Content { summary: "Volume 40%", body: "" });
+        let Ok(notification) = notification.valued(40);
+        let Ok(arguments) = notification.arguments();
 
-        assert!(argv.contains(&"int:value:40".to_string()));
+        assert!(arguments.contains(&"int:value:40".to_string()));
     }
 
     #[test]
     fn how_long_it_stays_is_said_the_way_notify_send_reads_it() {
-        let Ok(notice) = Notice::new(Said { summary: "a", body: "" });
-        let Ok(staying) = notice.clone().staying();
-        let Ok(staying) = staying.argv();
-        let Ok(lasting) = notice.lasting(1500);
-        let Ok(lasting) = lasting.argv();
+        let Ok(notification) = Notification::new(Content { summary: "a", body: "" });
+        let Ok(staying) = notification.clone().staying();
+        let Ok(staying) = staying.arguments();
+        let Ok(lasting) = notification.lasting(1500);
+        let Ok(lasting) = lasting.arguments();
 
         assert!(staying.contains(&"--expire-time=0".to_string()));
         assert!(lasting.contains(&"--expire-time=1500".to_string()));
@@ -553,20 +536,20 @@ mod tests {
 
     #[test]
     fn taking_a_card_down_names_it_by_the_number_it_came_back_under() {
-        let Ok(argv) = closing(7);
+        let Ok(arguments) = closing(7);
 
-        assert_eq!(argv.last().map(String::as_str), Some("7"));
-        assert!(argv.contains(&"CloseNotification".to_string()), "{argv:?}");
-        assert!(argv.contains(&"u".to_string()), "the number goes out untyped: {argv:?}");
+        assert_eq!(arguments.last().map(String::as_str), Some("7"));
+        assert!(arguments.contains(&"CloseNotification".to_string()), "{arguments:?}");
+        assert!(arguments.contains(&"u".to_string()), "the number goes out untyped: {arguments:?}");
     }
 
     #[test]
-    fn a_card_nobody_kept_a_number_for_is_left_alone() {
+    fn a_card_no_one_kept_a_number_for_is_left_alone() {
         let at = std::env::temp_dir()
             .join(format!("console-withdraw-{}-{}", std::process::id(), line!()));
         let _ = std::fs::remove_file(&at);
 
-        let kept = Kept(at.clone());
+        let kept = StatePath(at.clone());
         let Ok(()) = withdraw(&kept);
 
         assert_eq!(kept.read(), Ok(None));

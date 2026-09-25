@@ -7,8 +7,8 @@
 
 use std::sync::Arc;
 
-use console_panel::page::{Aside, Page, Row, Rows, Which};
-use console_panel::panel;
+use console_panel::page::{Aside, Page, Row, Rows, Subject};
+use console_panel::surface;
 
 fn main() {
     let build = Arc::new(|| {
@@ -19,10 +19,10 @@ fn main() {
         });
         let Ok(page) = Page::new("Pictures", asked);
         let Ok(page) = page.on_arriving(|showing| {
-            showing.sure("Delete this?", Which("holiday.jpg"), &["Delete"], Arc::new(|_, _| ()));
+            showing.sure("Delete this?", Subject("holiday.jpg"), &["Delete"], Arc::new(|_, _| ()));
         });
 
         vec![page]
     });
-    let Ok(()) = panel::show(build, 0, None);
+    let Ok(()) = surface::show(build, 0, None);
 }

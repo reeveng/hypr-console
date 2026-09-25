@@ -1,0 +1,707 @@
+//! A panel saying what it drew, and where, so a check can press it.
+//!
+//! Every question ever asked of a surface here was asked of the wrong thing. Is
+//! it up, is it the right size, is it on the right layer, is the pixel in the
+//! middle the color the palette says -- and a surface can answer yes to every
+//! one of those and still be a thing no one can use. Y had no mark on any row
+//! in any panel for as long as this desktop has existed. The way out of a
+//! picture opened over the whole screen was hidden with the strip that carried
+//! it. Both were drawn, both were correct, and neither could be pressed.
+//!
+//! So the panel writes down what it put on the screen: what each row says, and
+//! the rectangle of every part of it a hand could land on. That is enough to
+//! ask the three questions worth asking, and the first two need no compositor
+//! at all:
+//!
+//!   * is the mark there -- a row that offers something and draws nothing for
+//!     it is Y with no answer for a finger;
+//!   * is it *on* the screen -- the way out of a full-screen picture was drawn
+//!     at a place a margin past the right edge of the glass, which every
+//!     screenshot showed and no check could see;
+//!   * and does it do anything -- which is a press at the middle of the
+//!     rectangle, with `console-point`, and the next line this writes.
+//!
+//! Each line also says where the highlight is: on the row, beside it on what
+//! else that row offers, or nowhere. A press that only moves the highlight
+//! changes nothing else a check could see, so without this the d-pad's own
+//! answers could be reasoned about and never pressed.
+//!
+//! A line per draw, appended. The stage that drives a panel presses several
+//! times and looks once, so what a check reads is the whole run in order rather
+//! than the last frame of it.
+//!
+//! A line per *painted* frame, and this is the part that had to be learnt. A
+//! panel that has just rebuilt its card knows where nothing is: the widgets are
+//! in the tree and the frame that lays them out has not run, so every mark
+//! measured in that moment comes back at its smallest size, centered on the left
+//! edge of the window, because nothing has been given any room yet. Written
+//! down, that is a line saying the way out of a full-screen picture is half off
+//! the glass on a machine where it is not, and the check it fails is red for a
+//! reason that is not the panel -- which is worse than no check at all. It came
+//! and went with how busy the machine was, which is how a line written from an
+//! idle callback fails: the idle is now and the frame is at the next vertical
+//! blank. So the line is written from the frame clock's own after-paint, where
+//! what it reads is what was put on the glass a moment ago, and a second ask
+//! while one is already waiting joins it rather than adding a line of its own.
+//!
+//! Off unless asked for. `CONSOLE_PANEL_TELLS` names the file, nothing else
+//! turns it on, and a panel on the device writes nothing.
+
+use std::fmt::Write as _;
+
+use console_core_never::Never;
+use console_core_number_conversion::fitted;
+
+const SAID_NOTHING: &str = "";
+
+fn word_in(held: &serde_json::Value, key: &str) -> Result<String, Never> {
+    Ok(match held.get(key).and_then(|held| held.as_str()) {
+        Some(said) => said.to_string(),
+        None => SAID_NOTHING.to_string(),
+    })
+}
+
+fn words_listed(held: &serde_json::Value, key: &str) -> Result<Vec<String>, Never> {
+    Ok(match held.get(key).and_then(|held| held.as_array()) {
+        Some(every) => every.iter().filter_map(|held| held.as_str()).map(str::to_string).collect(),
+        None => Vec::new(),
+    })
+}
+
+fn words_said(words: &[String]) -> Result<String, Never> {
+    let every: Vec<String> = words
+        .iter()
+        .map(|word| {
+            let Ok(word) = quoted(word);
+
+            word
+        })
+        .collect();
+
+    Ok(format!("[{}]", every.join(",")))
+}
+
+fn spots_in(held: &serde_json::Value) -> Result<Vec<Spot>, Never> {
+    let every = match held.get("spots").and_then(|held| held.as_array()) {
+        Some(every) => every,
+        None => return Ok(Vec::new()),
+    };
+
+    Ok(every
+        .iter()
+        .filter_map(|held| {
+            let Ok(spot) = spot_of(held);
+
+            spot
+        })
+        .collect())
+}
+
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Spot {
+    pub name: String,
+    pub at: (i32, i32),
+    pub big: (i32, i32),
+    pub scrolls: Scrolls,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Scrolls {
+    Yes,
+    No,
+}
+
+impl Spot {
+    pub fn middle(&self) -> Result<(i32, i32), Never> {
+        Ok((
+            self.at.0.saturating_add(self.big.0.saturating_div(2)),
+            self.at.1.saturating_add(self.big.1.saturating_div(2)),
+        ))
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Reachable {
+    Yes,
+    No,
+}
+
+pub fn reachable(spot: &Spot, room: (i32, i32)) -> Result<Reachable, Never> {
+    let right = spot.at.0.saturating_add(spot.big.0);
+    let bottom = spot.at.1.saturating_add(spot.big.1);
+
+    let across = spot.big.0 > 0 && spot.at.0 >= 0 && right <= room.0;
+
+    let down = match spot.scrolls {
+        Scrolls::Yes => spot.big.1 > 0,
+        Scrolls::No => spot.big.1 > 0 && spot.at.1 >= 0 && bottom <= room.1,
+    };
+
+    Ok(match across && down {
+        true => Reachable::Yes,
+        false => Reachable::No,
+    })
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Offers {
+    Yes,
+    No,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Bare {
+    Yes,
+    No,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Heading {
+    Yes,
+    No,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Standing {
+    On,
+    Beside,
+    No,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Line {
+    pub at: u32,
+    pub says: String,
+    pub aside: String,
+    pub offers: Offers,
+    pub bare: Bare,
+    pub heading: Heading,
+    pub standing: Standing,
+    pub spots: Vec<Spot>,
+    pub cells: Vec<String>,
+    pub drew: Vec<String>,
+}
+
+impl Line {
+    pub fn wearing(&self, name: &str) -> Result<Option<&Spot>, Never> {
+        Ok(self.spots.iter().find(|spot| spot.name == name))
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Output {
+    Yes,
+    No,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Description {
+    pub panel: String,
+    pub tab: String,
+    pub out: Output,
+    pub room: (i32, i32),
+    pub lines: Vec<Line>,
+    pub spots: Vec<Spot>,
+}
+
+impl Description {
+    pub fn every_spot(&self) -> Result<Vec<&Spot>, Never> {
+        Ok(self.spots.iter().chain(self.lines.iter().flat_map(|line| line.spots.iter())).collect())
+    }
+
+    pub fn wearing(&self, name: &str) -> Result<Option<&Spot>, Never> {
+        let Ok(every) = self.every_spot();
+
+        Ok(every.into_iter().find(|spot| spot.name == name))
+    }
+
+    pub fn line_saying(&self, said: &str) -> Result<Option<&Line>, Never> {
+        Ok(self.lines.iter().find(|line| line.says == said))
+    }
+}
+
+pub const OFFERED: [&str; 7] = ["tab", "shut", "more", "step", "else", "press", "answer"];
+
+#[cfg_attr(
+    dylint_lib = "explicit026_env_read_once",
+    allow(
+        explicit026_env_read_once,
+        reason = "CONSOLE_PANEL_TELLS is how a panel is told where to say what it did, and a panel is what this crate is"
+    )
+)]
+pub fn where_to() -> Result<Option<String>, Never> {
+    Ok(match std::env::var("CONSOLE_PANEL_TELLS") {
+        Ok(said) => match said.is_empty() {
+            true => None,
+            false => Some(said),
+        },
+        Err(std::env::VarError::NotPresent) => None,
+        Err(fault) => {
+            eprintln!("console-panel: CONSOLE_PANEL_TELLS: {fault}");
+
+            None
+        }
+    })
+}
+
+pub fn wrote(told: &Description, where_to: Option<&str>) -> Result<(), Never> {
+    let where_to = match where_to {
+        Some(where_to) => where_to,
+        None => return Ok(()),
+    };
+
+    let Ok(said) = said(told);
+    let line = format!("{said}\n");
+
+    #[cfg_attr(
+        dylint_lib = "explicit040_no_torn_write",
+        allow(
+            explicit040_no_torn_write,
+            reason = "what a panel says about itself, appended a line at a time for whoever is watching the file; losing the last line costs a reading of a screen and a rename over it would take away every line before it"
+        )
+    )]
+    match std::fs::OpenOptions::new().create(true).append(true).open(where_to) {
+        Ok(mut file) => match std::io::Write::write_all(&mut file, line.as_bytes()) {
+            Ok(()) => {},
+            Err(fault) => eprintln!("console-panel: {where_to}: {fault}"),
+        },
+        Err(fault) => eprintln!("console-panel: {where_to}: {fault}"),
+    }
+
+    Ok(())
+}
+
+fn quoted(said: &str) -> Result<String, Never> {
+    Ok(serde_json::Value::String(said.to_string()).to_string())
+}
+
+fn spots_said(spots: &[Spot]) -> Result<String, Never> {
+    let every: Vec<String> = spots
+        .iter()
+        .map(|spot| {
+            let Ok(name) = quoted(&spot.name);
+
+            format!(
+                "{{\"name\":{},\"at\":[{},{}],\"big\":[{},{}],\"scrolls\":{}}}",
+                name,
+                spot.at.0,
+                spot.at.1,
+                spot.big.0,
+                spot.big.1,
+                match spot.scrolls {
+                    Scrolls::Yes => "true",
+                    Scrolls::No => "false",
+                }
+            )
+        })
+        .collect();
+
+    Ok(format!("[{}]", every.join(",")))
+}
+
+pub fn said(told: &Description) -> Result<String, Never> {
+    let mut out = String::new();
+    let lines: Vec<String> = told
+        .lines
+        .iter()
+        .map(|line| {
+            let Ok(says) = quoted(&line.says);
+            let Ok(aside) = quoted(&line.aside);
+            let Ok(spots) = spots_said(&line.spots);
+            let Ok(cells) = words_said(&line.cells);
+            let Ok(drew) = words_said(&line.drew);
+
+            format!(
+                "{{\"at\":{},\"says\":{},\"aside\":{},\"offers\":{},\"bare\":{},\
+                 \"heading\":{},\"standing\":{},\"spots\":{},\"cells\":{},\"drew\":{}}}",
+                line.at,
+                says,
+                aside,
+                match line.offers {
+                    Offers::Yes => "true",
+                    Offers::No => "false",
+                },
+                match line.bare {
+                    Bare::Yes => "true",
+                    Bare::No => "false",
+                },
+                match line.heading {
+                    Heading::Yes => "true",
+                    Heading::No => "false",
+                },
+                match line.standing {
+                    Standing::On => "\"on\"",
+                    Standing::Beside => "\"beside\"",
+                    Standing::No => "\"no\"",
+                },
+                spots,
+                cells,
+                drew
+            )
+        })
+        .collect();
+    let Ok(panel) = quoted(&told.panel);
+    let Ok(tab) = quoted(&told.tab);
+    let Ok(spots) = spots_said(&told.spots);
+
+    let _ = write!(
+        out,
+        "{{\"panel\":{},\"tab\":{},\"out\":{},\"room\":[{},{}],\"spots\":{},\"lines\":[{}]}}",
+        panel,
+        tab,
+        match told.out {
+            Output::Yes => "true",
+            Output::No => "false",
+        },
+        told.room.0,
+        told.room.1,
+        spots,
+        lines.join(",")
+    );
+
+    Ok(out)
+}
+
+fn number(held: Option<&serde_json::Value>) -> Result<Option<i32>, Never> {
+    let held = match held {
+        Some(held) => held,
+        None => return Ok(None),
+    };
+
+    let whole = match held.as_i64() {
+        Some(whole) => whole,
+        None => return Ok(None),
+    };
+
+    let Ok(whole) = fitted::<i64, i32>(whole);
+
+    Ok(Some(whole))
+}
+
+fn pair(held: &serde_json::Value, called: &str) -> Result<Option<(i32, i32)>, Never> {
+    let named = match held.get(called) {
+        Some(named) => named,
+        None => return Ok(None),
+    };
+
+    let every = match named.as_array() {
+        Some(every) => every,
+        None => return Ok(None),
+    };
+
+    let across = match number(every.first()) {
+        Ok(Some(across)) => across,
+        Ok(None) | Err(_) => return Ok(None),
+    };
+
+    let down = match number(every.get(1)) {
+        Ok(Some(down)) => down,
+        Ok(None) | Err(_) => return Ok(None),
+    };
+
+    Ok(Some((across, down)))
+}
+
+fn spot_of(held: &serde_json::Value) -> Result<Option<Spot>, Never> {
+    let named = match held.get("name") {
+        Some(named) => named,
+        None => return Ok(None),
+    };
+
+    let name = match named.as_str() {
+        Some(name) => name,
+        None => return Ok(None),
+    };
+
+    let at = match pair(held, "at") {
+        Ok(Some(at)) => at,
+        Ok(None) | Err(_) => return Ok(None),
+    };
+
+    let big = match pair(held, "big") {
+        Ok(Some(big)) => big,
+        Ok(None) | Err(_) => return Ok(None),
+    };
+
+    Ok(Some(Spot {
+        name: name.to_string(),
+        at,
+        big,
+        scrolls: match held.get("scrolls").and_then(serde_json::Value::as_bool) {
+            Some(true) => Scrolls::Yes,
+            Some(false) | None => Scrolls::No,
+        },
+    }))
+}
+
+#[derive(Debug)]
+pub enum RenderError {
+    Unparsed(serde_json::Error, String),
+    NoRoom,
+    NoLines,
+}
+
+impl std::fmt::Display for RenderError {
+    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RenderError::Unparsed(fault, said) => write!(to, "{fault}: {said}"),
+            RenderError::NoRoom => write!(to, "no room"),
+            RenderError::NoLines => write!(to, "no lines"),
+        }
+    }
+}
+
+impl std::error::Error for RenderError {}
+
+pub fn read(said: &str) -> Result<Description, RenderError> {
+    let held: serde_json::Value = serde_json::from_str(said)
+        .map_err(|fault| RenderError::Unparsed(fault, said.to_string()))?;
+
+    let Ok(room) = pair(&held, "room");
+
+    let room = match room {
+        Some(room) => room,
+        None => return Err(RenderError::NoRoom),
+    };
+
+    let lines = held
+        .get("lines")
+        .and_then(|held| held.as_array())
+        .ok_or(RenderError::NoLines)?;
+
+    Ok(Description {
+        panel: {
+            let Ok(panel) = word_in(&held, "panel");
+
+            panel
+        },
+        tab: {
+            let Ok(tab) = word_in(&held, "tab");
+
+            tab
+        },
+        out: match held.get("out").and_then(|held| held.as_bool()) {
+            Some(true) => Output::Yes,
+            Some(false) | None => Output::No,
+        },
+        room,
+        spots: {
+            let Ok(spots) = spots_in(&held);
+
+            spots
+        },
+        lines: lines
+            .iter()
+            .enumerate()
+            .map(|(at, held)| Line {
+                at: match held.get("at").and_then(|held| held.as_u64()) {
+                    Some(held) => {
+                        let Ok(held) = fitted::<u64, u32>(held);
+
+                        held
+                    },
+                    None => {
+                        let Ok(at) = fitted::<_, u32>(at);
+
+                        at
+                    },
+                },
+                says: {
+                    let Ok(says) = word_in(held, "says");
+
+                    says
+                },
+                aside: {
+                    let Ok(aside) = word_in(held, "aside");
+
+                    aside
+                },
+                offers: match held.get("offers").and_then(|held| held.as_bool()) {
+                    Some(true) => Offers::Yes,
+                    Some(false) | None => Offers::No,
+                },
+                bare: match held.get("bare").and_then(|held| held.as_bool()) {
+                    Some(true) => Bare::Yes,
+                    Some(false) | None => Bare::No,
+                },
+                heading: match held.get("heading").and_then(|held| held.as_bool()) {
+                    Some(true) => Heading::Yes,
+                    Some(false) | None => Heading::No,
+                },
+                standing: match held.get("standing").and_then(|held| held.as_str()) {
+                    Some("on") => Standing::On,
+                    Some("beside") => Standing::Beside,
+                    Some(_) | None => Standing::No,
+                },
+                spots: {
+                    let Ok(spots) = spots_in(held);
+
+                    spots
+                },
+                cells: {
+                    let Ok(cells) = words_listed(held, "cells");
+
+                    cells
+                },
+                drew: {
+                    let Ok(drew) = words_listed(held, "drew");
+
+                    drew
+                },
+            })
+            .collect(),
+    })
+}
+
+
+pub fn every(said: &str) -> Result<Vec<Description>, RenderError> {
+    said.lines().filter(|line| !line.trim().is_empty()).map(read).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn spot(name: &str, at: (i32, i32), big: (i32, i32)) -> Spot {
+        Spot { name: name.to_string(), at, big, scrolls: Scrolls::No }
+    }
+
+    fn scrolling(name: &str, at: (i32, i32), big: (i32, i32)) -> Spot {
+        Spot { name: name.to_string(), at, big, scrolls: Scrolls::Yes }
+    }
+
+    fn told() -> Description {
+        Description {
+            panel: "viewer-panel".to_string(),
+            tab: "Looking".to_string(),
+            out: Output::No,
+            room: (1024, 640),
+            spots: vec![spot("shut", (954, 14), (56, 44))],
+            lines: vec![
+                Line {
+                    at: 0,
+                    says: String::new(),
+                    aside: String::new(),
+                    offers: Offers::Yes,
+                    bare: Bare::Yes,
+                    heading: Heading::No,
+                    standing: Standing::No,
+                    spots: Vec::new(),
+                    cells: Vec::new(),
+                    drew: Vec::new(),
+                },
+                Line {
+                    at: 1,
+                    says: "beach.jpg".to_string(),
+                    aside: "2 of 7".to_string(),
+                    offers: Offers::Yes,
+                    bare: Bare::No,
+                    heading: Heading::No,
+                    standing: Standing::Beside,
+                    spots: vec![spot("else", (900, 300), (40, 30))],
+                    cells: vec!["1".to_string(), "2".to_string()],
+                    drew: vec!["beach.jpg".to_string(), "2 of 7".to_string()],
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn what_was_drawn_survives_the_trip_through_a_file() {
+        let Ok(said) = said(&told());
+
+        assert_eq!(read(&said).expect("what was drawn"), told());
+    }
+
+    #[test]
+    fn a_run_is_read_back_as_the_draws_it_was() {
+        let Ok(said) = said(&told());
+        let run = format!("{said}\n{said}\n");
+
+        assert_eq!(every(&run).expect("two draws").len(), 2);
+    }
+
+    #[test]
+    fn a_line_that_is_not_this_files_own_is_said_rather_than_skipped() {
+        assert!(every("{\"panel\":\"x\"}").is_err());
+        assert!(read("not json at all").is_err());
+    }
+
+    #[test]
+    fn a_mark_is_found_by_the_name_it_is_drawn_under() {
+        let told = told();
+
+        let shut = match told.wearing("shut") {
+            Ok(Some(shut)) => shut,
+            Ok(None) | Err(_) => panic!("the way out is drawn"),
+        };
+
+        let Ok(middle) = shut.middle();
+        let line = match told.line_saying("beach.jpg") {
+            Ok(Some(line)) => line,
+            Ok(None) | Err(_) => panic!("the row is drawn"),
+        };
+
+        let Ok(worn) = line.wearing("else");
+
+        assert_eq!(middle, (982, 36));
+        assert!(worn.is_some());
+        assert_eq!(told.wearing("nothing-is-called-this"), Ok(None));
+    }
+
+    #[test]
+    fn a_mark_inside_the_screen_can_be_reached_and_one_hanging_off_it_cannot() {
+        let room = (1024, 640);
+        assert_eq!(reachable(&spot("shut", (954, 14), (56, 44)), room), Ok(Reachable::Yes));
+        assert_eq!(reachable(&spot("shut", (0, 0), (1024, 640)), room), Ok(Reachable::Yes));
+    }
+
+    #[test]
+    fn the_fault_this_was_written_for_is_one_this_can_see() {
+        let room = (1024, 640);
+        assert_eq!(reachable(&spot("shut", (982, 14), (56, 44)), room), Ok(Reachable::No));
+        assert_eq!(reachable(&spot("shut", (-4, 14), (56, 44)), room), Ok(Reachable::No));
+        assert_eq!(reachable(&spot("shut", (900, 620), (56, 44)), room), Ok(Reachable::No));
+    }
+
+    #[test]
+    fn a_mark_the_thumb_can_scroll_to_is_a_mark_a_hand_can_reach() {
+        let room = (1024, 640);
+        assert_eq!(reachable(&scrolling("else", (865, 4805), (44, 29)), room), Ok(Reachable::Yes));
+        assert_eq!(reachable(&spot("else", (865, 4805), (44, 29)), room), Ok(Reachable::No));
+    }
+
+    #[test]
+    fn scrolling_does_not_excuse_a_mark_off_the_side() {
+        let room = (1024, 640);
+        assert_eq!(reachable(&scrolling("else", (1000, 300), (44, 29)), room), Ok(Reachable::No));
+        assert_eq!(reachable(&scrolling("else", (-4, 300), (44, 29)), room), Ok(Reachable::No));
+    }
+
+    #[test]
+    fn a_mark_with_no_size_is_a_mark_nothing_can_land_on() {
+        assert_eq!(reachable(&spot("else", (10, 10), (0, 30)), (1024, 640)), Ok(Reachable::No));
+        assert_eq!(reachable(&spot("else", (10, 10), (40, 0)), (1024, 640)), Ok(Reachable::No));
+    }
+
+    #[test]
+    fn a_row_that_offers_something_and_wears_nothing_is_the_fault_being_looked_for() {
+        let told = told();
+
+        for line in &told.lines {
+            let Ok(worn) = line.wearing("else");
+
+            let answered = worn.is_some() || line.bare == Bare::Yes;
+
+            assert!(answered, "row {} offers something a finger cannot reach", line.at);
+        }
+    }
+
+    #[test]
+    fn every_part_a_hand_is_offered_is_one_the_walk_looks_for() {
+        for name in ["tab", "shut", "more", "step", "else", "press", "answer"] {
+            assert!(OFFERED.contains(&name), "{name} is drawn to be pressed and never looked for");
+        }
+    }
+}

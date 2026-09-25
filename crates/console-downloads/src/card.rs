@@ -1,8 +1,9 @@
-//! Music and video off the net, drawn.
+//! Music, video and books off the net, drawn.
 //!
 //! ```text
-//!     downloads-panel
-//!     downloads-panel Video
+//!     downloads
+//!     downloads Video
+//!     downloads Books
 //! ```
 //!
 //! Two tabs over one search. What is typed is the same question either way, and
@@ -10,7 +11,7 @@
 //! sound of a thing into the folder the music player reads, the Video tab puts
 //! the whole of it into Videos. That is also why the two lists are drawn
 //! differently -- a song is chosen by whose it is and a video by whether it is
-//! the one everybody means -- and why they are two tabs of one panel rather
+//! the one everyone means -- and why they are two tabs of one app rather
 //! than two programs.
 //!
 //! Nothing slow happens here. Looking is `downloads-find` and fetching is
@@ -21,45 +22,43 @@
 //! whether a thing has already arrived. Where each tab is standing and what a
 //! press does about it is `crate::standing`, which is a
 //! `console_program_contract::Program`. The actor is what makes that state
-//! reachable from a closure on GTK's thread; it steps by asking `heard`, and
-//! the doings are carried out in the callback holding the surface.
+//! reachable from a closure on GTK's thread; it steps by asking `update`, and
+//! the effects are carried out in the callback holding the surface.
 
 use std::path::Path;
-use std::sync::Arc;
 
-use gtk4::glib;
 use crate::getting;
 use crate::looking::{self, Found, Looked};
-use crate::rows::{self, ABOUT};
+use crate::rows;
 use crate::standing::{
-    Closes, Downloads, Heard, Its, Onto, Standing, Tab, closes,
+    Closes, Downloads, DownloadsEvent, DownloadsEffect, Destination, Standing, Tab, closes,
 };
 use crate::store::{self, Kind};
 use console_core_never::Never;
-use console_panel::actor::{self, Addr, Answer};
-use console_panel::page::{Aside, Does, Page, Picture, Row, Rows, Showing};
-use console_panel::card::{Card, Door};
-use console_program_contract::{Argv, Doing, Named, Program, Turn, Word};
+use console_panel::actor::{self, Address, Answer};
+use console_panel::page::{Aside, Handler, Page, Picture, Row, Rows, Showing};
+use console_panel::card::Card;
+use console_program_contract::{Arguments, Effect, Executable, Program, Update, Event};
 
-enum Msg {
-    Heard(Heard, Answer<Vec<Doing<Its>>>),
-    At { tab: usize, answer: Answer<Tab> },
+enum Message {
+    Event(DownloadsEvent, Answer<Vec<Effect<DownloadsEffect>>>),
+    At { tab: u32, answer: Answer<Tab> },
 }
 
-struct Held(Standing);
+struct Actor(Standing);
 
-impl actor::Machine for Held {
-    type Msg = Msg;
+impl actor::Machine for Actor {
+    type Message = Message;
 
-    fn step(self, message: Msg) -> Self {
+    fn step(self, message: Message) -> Self {
         match message {
-            Msg::Heard(heard, answer) => {
-                let Turn { now, doings } = Downloads::heard(&self.0, &Word::Its(heard));
-                let _ = answer.say(doings);
+            Message::Event(heard, answer) => {
+                let Update { state, effects } = Downloads::update(&self.0, &Event::Custom(heard));
+                let _ = answer.say(effects);
 
-                Held(now)
+                Actor(state)
             }
-            Msg::At { tab, answer } => {
+            Message::At { tab, answer } => {
                 let Ok(at) = self.0.at(tab);
                 let _ = answer.say(at);
 
@@ -69,73 +68,84 @@ impl actor::Machine for Held {
     }
 }
 
-type Panel = Addr<Msg>;
+type Panel = Address<Message>;
 
-fn at(held: &Panel, tab: usize) -> Result<Tab, Never> {
-    Ok(match held.ask(|answer| Msg::At { tab, answer }) {
+fn at(held: &Panel, tab: u32) -> Result<Tab, Never> {
+    Ok(match held.ask(|answer| Message::At { tab, answer }) {
         Ok(tab) => tab,
         Err(_) => {
-            eprintln!("downloads-panel: the panel's own state has gone, so it drew as it opened");
+            eprintln!("downloads: the panel's own state is missing, so it drew as it opened");
 
             Tab::default()
         }
     })
 }
 
-fn decided(held: &Panel, heard: Heard) -> Result<Vec<Doing<Its>>, Never> {
-    Ok(match held.ask(|answer| Msg::Heard(heard, answer)) {
-        Ok(doings) => doings,
+fn decided(held: &Panel, heard: DownloadsEvent) -> Result<Vec<Effect<DownloadsEffect>>, Never> {
+    Ok(match held.ask(|answer| Message::Event(heard, answer)) {
+        Ok(effects) => effects,
         Err(_) => {
-            eprintln!("downloads-panel: the panel's own state has gone, so the press did nothing");
+            eprintln!("downloads: the panel's own state is missing, so the press did nothing");
 
             Vec::new()
         }
     })
 }
 
-fn press(held: &Panel, heard: Heard, showing: &dyn Showing) -> Result<(), Never> {
-    let Ok(doings) = decided(held, heard);
+fn press(held: &Panel, heard: DownloadsEvent, showing: &dyn Showing) -> Result<(), Never> {
+    let Ok(effects) = decided(held, heard);
 
-    for doing in &doings {
-        let Ok(()) = carry(doing, showing);
+    for effect in &effects {
+        let Ok(()) = carry(effect, showing);
     }
 
     Ok(())
 }
 
-fn carry(doing: &Doing<Its>, showing: &dyn Showing) -> Result<(), Never> {
-    match doing {
-        Doing::Its(Its::Replace(row)) => showing.replace(*row),
-        Doing::Its(Its::Refresh) => showing.refresh(),
-        Doing::Its(Its::Note(said)) => showing.note(said),
-        Doing::Its(Its::ForgetTyping) => showing.forget_typing(),
+fn carry(effect: &Effect<DownloadsEffect>, showing: &dyn Showing) -> Result<(), Never> {
+    match effect {
+        Effect::Custom(DownloadsEffect::Replace(row)) => {
+            let Ok(row) = console_core_number_conversion::fitted(*row);
 
-        Doing::Ask(runs) => match runs.program {
-            Named::Ours(name) => {
+            showing.replace(row)
+        }
+        Effect::Custom(DownloadsEffect::Refresh) => showing.refresh(),
+        Effect::Custom(DownloadsEffect::Note(said)) => showing.note(said),
+        Effect::Custom(DownloadsEffect::ForgetTyping) => showing.forget_typing(),
+
+        Effect::Run(runs) => match runs.program {
+            Executable::Internal(name) => {
                 let mut whole = vec![name.to_string()];
 
-                whole.extend(runs.argv.clone());
+                whole.extend(runs.arguments.clone());
                 showing.later(whole);
             }
-            Named::Theirs(_) => {},
+            Executable::External(_) => {},
         },
 
-        Doing::Watch(_)
-        | Doing::AskWhoever(_)
-        | Doing::Start(_)
-        | Doing::Listen(_)
-        | Doing::Deafen(_)
-        | Doing::Write(_)
-        | Doing::Say(_)
-        | Doing::Print(_)
-        | Doing::Stop(_) => {},
+        Effect::Stream(_)
+        | Effect::Prompt(_)
+        | Effect::Spawn(_)
+        | Effect::Subscribe(_)
+        | Effect::Unsubscribe(_)
+        | Effect::Write(_)
+        | Effect::Notify(_)
+        | Effect::Print(_)
+        | Effect::Stop(_) => {},
     }
 
     Ok(())
 }
 
 fn looked(kind: Kind) -> Result<Looked, Never> {
-    let Ok(at) = store::found_at(&glib::user_cache_dir(), kind);
+    let Ok(cache) = store::cache();
+
+    let cache = match cache {
+        Some(cache) => cache,
+        None => return Ok(Looked::default()),
+    };
+
+    let Ok(at) = store::found_at(&cache, kind);
 
     let said = match std::fs::read_to_string(at) {
         Ok(said) => said,
@@ -154,33 +164,41 @@ fn folder(kind: Kind) -> Result<String, Never> {
     })
 }
 
-fn rows_of(held: &Panel, tab: usize, kind: Kind) -> Result<Vec<Row>, Never> {
+fn rows_of(held: &Panel, tab: u32, kind: Kind) -> Result<Vec<Row>, Never> {
     let Ok(looked) = looked(kind);
-    let _ = decided(held, Heard::Landed { tab, asked: looked.asked.clone() });
+    let _ = decided(held, DownloadsEvent::Landed { tab, asked: looked.asked.clone() });
     let Ok(Tab { typed, asking, onto }) = at(held, tab);
 
     match onto {
-        Onto::Ways { found, .. } => ways(held, tab, kind, &found),
-        Onto::List => {
-            let cache = glib::user_cache_dir();
+        Destination::Ways { found, .. } => ways(held, tab, kind, &found),
+        Destination::List => {
+            let Ok(cache) = store::cache();
+
+            let cache = match cache {
+                Some(cache) => cache,
+                None => return Ok(Vec::new()),
+            };
+
             let Ok(into) = getting::into(kind);
             let Ok(looking_for) = looking_for(held, tab, kind);
 
-            rows::rows(&typed, asking.as_deref(), &looked, looking_for, &|at, found| {
+            let Ok(rows) = rows::rows(&typed, asking.as_deref(), &looked, looking_for, &|at, found| {
                 let Ok(thing) = thing(held, tab, kind, Line(at), found, &cache, &into);
 
                 thing
-            })
+            });
+
+            rows::noted(kind, rows)
         }
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Line(usize);
+struct Line(u32);
 
 fn thing(
     held: &Panel,
-    tab: usize,
+    tab: u32,
     kind: Kind,
     at: Line,
     found: &Found,
@@ -195,20 +213,21 @@ fn thing(
 
     let Ok(row) = Row::new(&found.title, Aside(&aside), chose);
     let Ok(pictured) = row.picturing(picture);
+    let Ok(pictured) = pictured.selectable(&found.id);
 
     pictured.offering(offers)
 }
 
-fn chose(held: &Panel, tab: usize, kind: Kind, found: &Found) -> Result<Does, Never> {
+fn chose(held: &Panel, tab: u32, kind: Kind, found: &Found) -> Result<Handler, Never> {
     let held = held.clone();
     let found = found.clone();
 
-    Does::and_stay(move |showing| {
+    Handler::and_stay(move |showing| {
         let Ok(into) = getting::into(kind);
         let Ok(have) = getting::holds(&into, &found.id);
         let Ok(folder) = folder(kind);
 
-        let Ok(()) = press(&held, Heard::Chose {
+        let Ok(()) = press(&held, DownloadsEvent::Chose {
             tab,
             kind,
             found: found.clone(),
@@ -220,7 +239,7 @@ fn chose(held: &Panel, tab: usize, kind: Kind, found: &Found) -> Result<Does, Ne
 
 fn offers(
     held: &Panel,
-    tab: usize,
+    tab: u32,
     found: &Found,
     from: Line,
 ) -> Result<impl Fn(&dyn Showing) -> bool + Send + Sync + 'static, Never> {
@@ -229,7 +248,7 @@ fn offers(
     let from = from.0;
 
     Ok(move |showing: &dyn Showing| {
-        let Ok(()) = press(&held, Heard::Offered { tab, found: found.clone(), from }, showing);
+        let Ok(()) = press(&held, DownloadsEvent::Offered { tab, found: found.clone(), from }, showing);
 
         false
     })
@@ -239,39 +258,75 @@ fn picture(cache: &Path, found: &Found) -> Result<Picture, Never> {
     let Ok(at) = store::picture_of(cache, &found.id);
 
     Ok(match at {
-        Some(at) if at.exists() => Picture::At(at),
-        Some(_) | None => Picture::Space,
+        Some(at) => match at.exists() {
+            true => Picture::At(at),
+            false => Picture::Space,
+        },
+        None => Picture::Space,
     })
 }
 
-fn ways(held: &Panel, tab: usize, kind: Kind, found: &Found) -> Result<Vec<Row>, Never> {
+fn ways(held: &Panel, tab: u32, kind: Kind, found: &Found) -> Result<Vec<Row>, Never> {
     let Ok(other) = kind.other();
     let backing = held.clone();
-    let Ok(chose) = chose(held, tab, other, found);
 
-    rows::ways(
-        found,
-        other,
-        move |showing| {
-            let Ok(()) = press(&backing, Heard::Back { tab }, showing);
+    let other = match other {
+        Some(other) => {
+            let Ok(chose) = chose(held, tab, other, found);
+
+            Some((other, chose))
         },
-        chose,
-    )
+        None => None,
+    };
+
+    let selecting = held.clone();
+    let id = found.id.clone();
+    let Ok(ways) = rows::ways(
+        found,
+        move |showing| {
+            let Ok(()) = press(&backing, DownloadsEvent::Back { tab }, showing);
+        },
+        other,
+    );
+    let Ok(selects) = Handler::and_stay(move |showing| {
+        let Ok(()) = press(&selecting, DownloadsEvent::Back { tab }, showing);
+
+        showing.select(vec![id.clone()]);
+    });
+    let Ok(select) = Row::new(console_panel::page::SELECT, Aside(""), selects);
+
+    Ok([ways, vec![select]].concat())
 }
 
-fn looking_for(held: &Panel, tab: usize, kind: Kind) -> Result<Does, Never> {
+fn fetched_together(held: &Panel, tab: u32, kind: Kind, showing: &dyn Showing, keys: &[String]) -> Result<(), Never> {
+    let Ok(looked) = looked(kind);
+    let wanted: std::collections::BTreeSet<&String> = keys.iter().collect();
+
+    for found in looked.found.iter().filter(|found| wanted.contains(&found.id)) {
+        let Ok(into) = getting::into(kind);
+        let Ok(have) = getting::holds(&into, &found.id);
+        let Ok(folder) = folder(kind);
+
+        let Ok(()) = press(held, DownloadsEvent::Chose { tab, kind, found: found.clone(), have, into: folder }, showing);
+    }
+
+    Ok(())
+}
+
+fn looking_for(held: &Panel, tab: u32, kind: Kind) -> Result<Handler, Never> {
     let held = held.clone();
 
-    Does::and_stay(move |showing| {
-        let Ok(()) = press(&held, Heard::LookFor { tab, kind }, showing);
+    Handler::and_stay(move |showing| {
+        let Ok(()) = press(&held, DownloadsEvent::LookFor { tab, kind }, showing);
     })
 }
 
 fn pages(held: &Panel) -> Result<Vec<Page>, Never> {
-    Ok(Kind::BOTH
+    Ok(Kind::ALL
         .iter()
         .enumerate()
         .map(|(tab, kind)| {
+            let Ok(tab) = console_core_number_conversion::fitted::<_, u32>(tab);
             let Ok(page) = page(held, tab, *kind);
 
             page
@@ -279,7 +334,9 @@ fn pages(held: &Panel) -> Result<Vec<Page>, Never> {
         .collect())
 }
 
-fn page(held: &Panel, tab: usize, kind: Kind) -> Result<Page, Never> {
+const DOWNLOAD: &str = "Download";
+
+fn page(held: &Panel, tab: u32, kind: Kind) -> Result<Page, Never> {
     let reading = held.clone();
     let backing = held.clone();
     let Ok(word) = kind.tab();
@@ -289,11 +346,15 @@ fn page(held: &Panel, tab: usize, kind: Kind) -> Result<Page, Never> {
         rows
     });
     let Ok(page) = Page::new(word, asked);
+    let fetching = held.clone();
+    let Ok(page) = page.selecting(DOWNLOAD, move |showing, keys| {
+        let Ok(()) = fetched_together(&fetching, tab, kind, showing, keys);
+    });
     let Ok(page) = page.on_back(move |showing| {
         let Ok(at) = at(&backing, tab);
         let was = Standing { tabs: vec![at] };
 
-        let Ok(()) = press(&backing, Heard::Back { tab }, showing);
+        let Ok(()) = press(&backing, DownloadsEvent::Back { tab }, showing);
 
         let Ok(closes) = closes(&was, 0);
 
@@ -305,38 +366,25 @@ fn page(held: &Panel, tab: usize, kind: Kind) -> Result<Page, Never> {
     let Ok(held_at) = at(held, tab);
 
     match held_at.onto {
-        Onto::List => {},
-        Onto::Ways { .. } => return Ok(page),
+        Destination::List => {},
+        Destination::Ways { .. } => return Ok(page),
     }
 
     let typing = held.clone();
 
-    page.searching(ABOUT, move |showing, word| {
-        let Ok(()) = press(&typing, Heard::Typed { tab, word: word.to_string() }, showing);
+    let Ok(about) = rows::about(kind);
+
+    page.searching(about, move |showing, word| {
+        let Ok(()) = press(&typing, DownloadsEvent::Typed { tab, word: word.to_string() }, showing);
     })
 }
 
 
-pub const WHO: &str = "downloads-panel";
+pub const WHO: &str = "downloads";
 
-const DOOR: &str = "download";
+pub fn card(arguments: &[String]) -> Result<Card, Never> {
+    let init = Downloads::init(&Arguments::default());
+    let Ok(card) = Card::supervised(move || Actor(init.state.clone()), pages);
 
-pub fn door(_argv: &[String]) -> Result<Door, Never> {
-    Door::closing(DOOR)
-}
-
-pub fn card(argv: &[String]) -> Result<Card, Never> {
-    let tab = argv.first().cloned();
-    let opening = Downloads::opening(&Argv::default());
-    let Ok(standing) = actor::supervise(move || Held(opening.state.clone()));
-    let held = standing.addr.clone();
-
-    let Ok(card) = Card::new(Arc::new(move || {
-        let Ok(pages) = pages(&held);
-
-        pages
-    }));
-    let Ok(card) = card.opening_at(tab.as_deref());
-
-    card.shutting(Box::new(move || standing.shutdown()))
+    card.opening_at(arguments.first().map(String::as_str))
 }

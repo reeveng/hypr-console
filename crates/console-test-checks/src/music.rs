@@ -3,14 +3,14 @@
 //! It starts by asking whether anything is playing, and stands down when
 //! something is. What it does to press this is stop whoever holds the player
 //! and start one of its own on a song it chose, and a check cannot put a song
-//! back where it was in somebody's afternoon -- the position is gone and so is
+//! back where it was in someone's afternoon -- the position is gone and so is
 //! whatever they had queued. So the machine listening to something is the one
 //! machine this is not asked of, which costs a skipped line and a sentence
 //! saying why.
 //!
 //! What it asks for is the player's own vocabulary, imported rather than
 //! spelled. The bus name moved when the player stopped being kew and this did
-//! not, and a name nobody holds is answered by busctl with "not activatable"
+//! not, and a name no one holds is answered by busctl with "not activatable"
 //! -- which is a sentence about the bus and not about the music, so the check
 //! went red naming the wrong thing twice: once when it asked whether anything
 //! was already playing, and again when it asked the player it had just started
@@ -18,15 +18,15 @@
 //!
 //! What it stands down for is a song being played and not a player being up.
 //! The panel starts the player and leaves it standing when the song ends, so a
-//! process is on every machine somebody has opened the Music panel on, and a
+//! process is on every machine someone has opened the Music panel on, and a
 //! guard that asked for one would have stood every run of this down and gone
 //! quiet rather than red -- which is the worse of the two. `PlaybackStatus` is
-//! the question the sentence above promises: a stopped player is not somebody's
+//! the question the sentence above promises: a stopped player is not someone's
 //! afternoon and this may take it.
 //!
 //! What the last check here presses is the player being started again, which is
 //! the only way to ask whether it comes up holding the song it was left on. It
-//! writes over the note that remembers that song, which is somebody's own --
+//! writes over the note that remembers that song, which is someone's own --
 //! the thing they were in the middle of -- so the note is read before the first
 //! press and written back after the last one, and a machine that had none has
 //! none afterwards.
@@ -36,9 +36,10 @@ use std::collections::BTreeSet;
 use console_core_never::Never;
 use console_music_player::answers::{NAME, OBJECT, PLAYER, Status};
 use console_core_places::{Base, OURS};
-use console_music_player::remembering::NOTE;
-use console_test_stages::checking::{Body, Check, Done, Why, cannot, failed};
-use console_test_stages::device::{Device, PATIENCE, Seen};
+use console_music_player::bookmark::NOTE;
+use console_awake::InhibitReason;
+use console_test_stages::checking::{Body, Check, CheckResult, Why, cannot, failed};
+use console_test_stages::device::{Device, PATIENCE, Ready};
 
 pub const LIBRARY: Check = Check {
     name: "280-a-song-pressed-plays-the-library",
@@ -64,7 +65,16 @@ pub const AGAIN: Check = Check {
     bodies: &[Body::Device(again)],
 };
 
-const WALK: usize = 6;
+pub const AWAKE: Check = Check {
+    name: "283-a-song-playing-keeps-the-machine-from-sleeping",
+    about: "Playing, the player holds a sleep lock; paused, it lets it go, so a dark screen \
+            over a running track is not a suspend five minutes later.",
+    feature: "music",
+    since: "2026-09-21",
+    bodies: &[Body::Device(awake)],
+};
+
+const WALK: u32 = 6;
 
 const SWITCH: f64 = 1.5;
 
@@ -74,21 +84,21 @@ const KINDS: &str = "flac mp3 opus m4a ogg wav";
 
 const PROGRAM: &str = "music-player";
 
-fn answering(seen: &mut Device) -> Result<Seen, Never> {
+fn answering(seen: &mut Device) -> Result<Ready, Never> {
     let Ok(said) = shuffle(seen);
 
     Ok(match said.trim().starts_with("b ") {
-        true => Seen::Yes,
-        false => Seen::NotYet,
+        true => Ready::Yes,
+        false => Ready::NotYet,
     })
 }
 
-fn shuffling(seen: &mut Device) -> Result<Seen, Never> {
+fn shuffling(seen: &mut Device) -> Result<Ready, Never> {
     let Ok(said) = shuffle(seen);
 
     Ok(match said.trim() == "b true" {
-        true => Seen::Yes,
-        false => Seen::NotYet,
+        true => Ready::Yes,
+        false => Ready::NotYet,
     })
 }
 
@@ -96,16 +106,16 @@ fn shuffle(seen: &mut Device) -> Result<String, Never> {
     seen.user(&format!("busctl --user get-property {NAME} {OBJECT} {PLAYER} Shuffle"))
 }
 
-fn there(stage: &mut Device) -> Done {
+fn there(stage: &mut Device) -> CheckResult {
     let Ok(playing) = playing(stage);
 
     match playing {
-        Seen::Yes => {
+        Ready::Yes => {
             return cannot(
                 "this machine is already playing something, and the check would have to stop it",
             );
         }
-        Seen::NotYet => {},
+        Ready::NotYet => {},
     }
 
     let Ok(songs) = library(stage);
@@ -115,7 +125,8 @@ fn there(stage: &mut Device) -> Done {
         false => {}
     }
 
-    let far = songs.len().min(WALK);
+    let Ok(many) = console_core_number_conversion::fitted::<_, u32>(songs.len());
+    let far = many.min(WALK);
 
     let first = songs.first().ok_or(Why::Cannot("no songs".to_string()))?;
 
@@ -166,23 +177,23 @@ fn there(stage: &mut Device) -> Done {
     Ok(())
 }
 
-fn quiet(stage: &mut Device) -> Done {
+fn quiet(stage: &mut Device) -> CheckResult {
     let Ok(playing) = playing(stage);
 
     match playing {
-        Seen::Yes => {
+        Ready::Yes => {
             return cannot(
                 "this machine is already playing something, and the check would have to stop it",
             );
         }
-        Seen::NotYet => {},
+        Ready::NotYet => {},
     }
 
     let Ok(rested) = at_rest(stage);
 
     match rested {
-        Seen::Yes => {},
-        Seen::NotYet => {
+        Ready::Yes => {},
+        Ready::NotYet => {
             return cannot("something else on this machine is already holding the sound open");
         }
     }
@@ -202,8 +213,8 @@ fn quiet(stage: &mut Device) -> Done {
     let Ok(heard) = sounding(stage);
 
     match heard {
-        Seen::Yes => {}
-        Seen::NotYet => {
+        Ready::Yes => {}
+        Ready::NotYet => {
             let Ok(()) = ended(stage);
 
             return cannot("nothing came out of this machine while a song was playing");
@@ -217,24 +228,111 @@ fn quiet(stage: &mut Device) -> Done {
     let Ok(()) = ended(stage);
 
     match rested {
-        Seen::Yes => Ok(()),
-        Seen::NotYet => failed(format!(
+        Ready::Yes => Ok(()),
+        Ready::NotYet => failed(format!(
             "the song was paused and a sink was still running {SETTLING} seconds later, \
              so the machine goes on driving the speakers with nothing to play"
         )),
     }
 }
 
-fn again(stage: &mut Device) -> Done {
+fn awake(stage: &mut Device) -> CheckResult {
     let Ok(playing) = playing(stage);
 
     match playing {
-        Seen::Yes => {
+        Ready::Yes => {
             return cannot(
                 "this machine is already playing something, and the check would have to stop it",
             );
         }
-        Seen::NotYet => {},
+        Ready::NotYet => {},
+    }
+
+    let Ok(already) = locked(stage);
+
+    match already {
+        Ready::Yes => {
+            return cannot("something on this machine is already holding a sleep lock");
+        }
+        Ready::NotYet => {},
+    }
+
+    let Ok(songs) = library(stage);
+
+    match songs.is_empty() {
+        true => return cannot("this machine has no music on it to play"),
+        false => {}
+    }
+
+    let first = songs.first().ok_or(Why::Cannot("no songs".to_string()))?;
+
+    playing_the_library(stage, first)?;
+
+    let Ok(_) = stage.until(locked, PATIENCE);
+    let Ok(held) = locked(stage);
+
+    match held {
+        Ready::Yes => {}
+        Ready::NotYet => {
+            let Ok(()) = ended(stage);
+
+            let Ok(what) = InhibitReason::FromSleeping.what();
+
+            return failed(format!(
+                "a song was playing and nothing held a {what} lock, so the desktop will suspend \
+                 out from under it once the screen has been dark long enough"
+            ));
+        }
+    }
+
+    let Ok(_) = stage.user(&format!("busctl --user call {NAME} {OBJECT} {PLAYER} Pause"));
+    let Ok(_) = stage.until(unlocked, SETTLING);
+    let Ok(after) = locked(stage);
+
+    let Ok(()) = ended(stage);
+
+    let Ok(what) = InhibitReason::FromSleeping.what();
+
+    match after {
+        Ready::NotYet => Ok(()),
+        Ready::Yes => failed(format!(
+            "the song was paused and a {what} lock was still held {SETTLING} seconds later, \
+             so a machine holding a paused song can no longer be put to sleep at all"
+        )),
+    }
+}
+
+fn locked(stage: &mut Device) -> Result<Ready, Never> {
+    let Ok(who) = InhibitReason::FromSleeping.who();
+    let Ok(said) = stage.user(&format!(
+        "systemd-inhibit --list --no-legend --no-pager 2>/dev/null | grep -c '{who}' || true"
+    ));
+
+    Ok(match said.trim() == "0" {
+        true => Ready::NotYet,
+        false => Ready::Yes,
+    })
+}
+
+fn unlocked(stage: &mut Device) -> Result<Ready, Never> {
+    let Ok(held) = locked(stage);
+
+    Ok(match held {
+        Ready::Yes => Ready::NotYet,
+        Ready::NotYet => Ready::Yes,
+    })
+}
+
+fn again(stage: &mut Device) -> CheckResult {
+    let Ok(playing) = playing(stage);
+
+    match playing {
+        Ready::Yes => {
+            return cannot(
+                "this machine is already playing something, and the check would have to stop it",
+            );
+        }
+        Ready::NotYet => {},
     }
 
     let Ok(songs) = library(stage);
@@ -263,7 +361,7 @@ fn again(stage: &mut Device) -> Done {
         true => {}
         false => {
             return failed(format!(
-                "the player was left on {was} and came up holding {}, so the panel opens on                  nothing until somebody goes and finds a song",
+                "the player was left on {was} and came up holding {}, so the panel opens on                  nothing until someone goes and finds a song",
                 match now.is_empty() {
                     true => "nothing at all".to_string(),
                     false => now,
@@ -273,8 +371,8 @@ fn again(stage: &mut Device) -> Done {
     }
 
     match held {
-        Seen::Yes => Ok(()),
-        Seen::NotYet => failed(format!(
+        Ready::Yes => Ok(()),
+        Ready::NotYet => failed(format!(
             "the player came up holding {was} and not paused on it, so a device switched on in              a bag decides for itself what the room hears"
         )),
     }
@@ -289,16 +387,20 @@ fn started(stage: &mut Device) -> Result<(), Never> {
     Ok(())
 }
 
-fn paused(stage: &mut Device) -> Result<Seen, Never> {
-    let Ok(word) = Status::Paused.said();
+fn status_is(stage: &mut Device, status: Status) -> Result<Ready, Never> {
+    let Ok(word) = status.said();
     let Ok(said) = stage.user(&format!(
         "busctl --user get-property {NAME} {OBJECT} {PLAYER} PlaybackStatus 2>&1"
     ));
 
     Ok(match said.trim() == format!("s \"{word}\"") {
-        true => Seen::Yes,
-        false => Seen::NotYet,
+        true => Ready::Yes,
+        false => Ready::NotYet,
     })
+}
+
+fn paused(stage: &mut Device) -> Result<Ready, Never> {
+    status_is(stage, Status::Paused)
 }
 
 fn kept() -> Result<String, Never> {
@@ -328,34 +430,26 @@ fn put_back(stage: &mut Device, note: &str) -> Result<(), Never> {
     Ok(())
 }
 
-fn sounding(stage: &mut Device) -> Result<Seen, Never> {
+fn sounding(stage: &mut Device) -> Result<Ready, Never> {
     let Ok(said) = stage.user("pactl list short sinks");
 
     Ok(match said.contains("RUNNING") {
-        true => Seen::Yes,
-        false => Seen::NotYet,
+        true => Ready::Yes,
+        false => Ready::NotYet,
     })
 }
 
-fn at_rest(stage: &mut Device) -> Result<Seen, Never> {
+fn at_rest(stage: &mut Device) -> Result<Ready, Never> {
     let Ok(heard) = sounding(stage);
 
     Ok(match heard {
-        Seen::Yes => Seen::NotYet,
-        Seen::NotYet => Seen::Yes,
+        Ready::Yes => Ready::NotYet,
+        Ready::NotYet => Ready::Yes,
     })
 }
 
-fn playing(stage: &mut Device) -> Result<Seen, Never> {
-    let Ok(word) = Status::Playing.said();
-    let Ok(said) = stage.user(&format!(
-        "busctl --user get-property {NAME} {OBJECT} {PLAYER} PlaybackStatus 2>&1"
-    ));
-
-    Ok(match said.trim() == format!("s \"{word}\"") {
-        true => Seen::Yes,
-        false => Seen::NotYet,
-    })
+fn playing(stage: &mut Device) -> Result<Ready, Never> {
+    status_is(stage, Status::Playing)
 }
 
 fn library(stage: &mut Device) -> Result<Vec<String>, Never> {
@@ -367,7 +461,7 @@ fn library(stage: &mut Device) -> Result<Vec<String>, Never> {
     Ok(found.lines().map(str::trim).filter(|line| !line.is_empty()).map(String::from).collect())
 }
 
-fn playing_the_library(stage: &mut Device, song: &str) -> Done {
+fn playing_the_library(stage: &mut Device, song: &str) -> CheckResult {
     let Ok(quoted) = single_quoted(song);
 
     let Ok(()) = ended(stage);
@@ -403,7 +497,7 @@ fn ended(stage: &mut Device) -> Result<(), Never> {
     Ok(())
 }
 
-fn walk(stage: &mut Device, far: usize) -> Result<Vec<String>, Never> {
+fn walk(stage: &mut Device, far: u32) -> Result<Vec<String>, Never> {
     let mut played = Vec::new();
 
     for _ in 0..far {

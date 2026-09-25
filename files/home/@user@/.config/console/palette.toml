@@ -1,5 +1,5 @@
 # Written by console-palette from theme/palette.toml.
-# Imported by alacritty.toml, which holds no colour of its own.
+# Imported by alacritty.toml, which holds no color of its own.
 
 [colors.primary]
 background = "0x110b12"

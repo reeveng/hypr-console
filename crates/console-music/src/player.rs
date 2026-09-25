@@ -6,7 +6,7 @@
 //!
 //! This half did not change when the player stopped being kew, and that was the
 //! point of leaving MPRIS where it was: a panel that had to be rewritten to
-//! meet its own player would have made the swap something nobody could press
+//! meet its own player would have made the swap something no one could press
 //! twice and compare. What did change is one member. `xesam:url` said which
 //! file was playing so the card could offer to show it in Files, and both the
 //! answer and the offer are gone.
@@ -29,6 +29,10 @@
 //! answer it. A watch that took the monitor's lines whole would ask because it
 //! had asked, which is the fault the bar's sound reading was, so what is worth
 //! asking after is said here where what the reading comes from is known.
+//!
+//! The card under a song asks after one thing more, which is the player saying
+//! a second has been played: the clock and the bar move on that, and nothing
+//! else does, since the bars have no clock to move.
 
 
 use console_core_external_programs::Program;
@@ -36,7 +40,8 @@ use console_core_never::Never;
 use console_core_words::Words;
 use console_events::again::Worth;
 use console_events::bus;
-use console_waiting::{Patience, Seen, Waited, until};
+use console_music_player::answers;
+use console_waiting::{Schedule, Ready, Outcome, until};
 use console_core_number_conversion::{Float, toward_zero_i64};
 use std::path::PathBuf;
 
@@ -44,13 +49,13 @@ use console_panel::running::said;
 
 use serde_json::Value;
 
-use console_core_walking::{Between, Ring};
+use console_core_walking::{Between, Ring, where_it_is};
 
 const NOTHING_SAID: &str = "";
 
-const THE_FIRST_WAY_ROUND: usize = 0;
+const THE_FIRST_WAY_ROUND: u32 = 0;
 
-const NO_PRESSES: usize = 0;
+const NO_PRESSES: u32 = 0;
 
 const AT_THE_START: i64 = 0;
 
@@ -122,8 +127,18 @@ pub fn worth_asking_after(line: &str) -> Result<Worth, Never> {
     };
 
     Ok(match said.member {
-        "PropertiesChanged" => Worth::Asking,
+        "PropertiesChanged" => Worth::Querying,
         _asking_what_is_playing_is_not_it_changing => Worth::Ignoring,
+    })
+}
+
+pub fn worth_moving_the_clock(line: &str) -> Result<Worth, Never> {
+    let Ok(said) = bus::message(line);
+    let Ok(the_song_changed) = worth_asking_after(line);
+
+    Ok(match said.map(|said| (said.interface, said.member)) {
+        Some((answers::OURS, answers::POSITION_CHANGED)) => Worth::Querying,
+        Some((_, _)) | None => the_song_changed,
     })
 }
 
@@ -268,8 +283,10 @@ impl Over {
         Ok(Over::default())
     }
 
-    fn place(self) -> Result<usize, Never> {
-        Ok(match Over::ROUND.into_iter().position(|over| over == self) {
+    fn place(self) -> Result<u32, Never> {
+        let Ok(found) = where_it_is(&Over::ROUND, &self);
+
+        Ok(match found {
             Some(at) => at,
             None => THE_FIRST_WAY_ROUND,
         })
@@ -313,7 +330,7 @@ fn press(property: Property<'_>) -> Result<(), Never> {
     Ok(())
 }
 
-pub fn presses(from: Over, to: Over) -> Result<usize, Never> {
+pub fn presses(from: Over, to: Over) -> Result<u32, Never> {
     let to = to.place()?;
     let from = from.place()?;
 
@@ -395,19 +412,19 @@ pub fn onward_for(song: &std::path::Path) -> Result<Vec<String>, Never> {
 }
 
 fn waited_for() -> Result<About, Never> {
-    let Ok(patience) = Patience::asking_every(COMES_UP, BREATH);
+    let Ok(patience) = Schedule::asking_every(COMES_UP, BREATH);
     let Ok(came) = until(patience, || {
         let about = about()?;
 
         Ok(match about {
-            About::Yes => Seen::Yes,
-            About::No => Seen::NotYet,
+            About::Yes => Ready::Yes,
+            About::No => Ready::NotYet,
         })
     });
 
     Ok(match came {
-        Waited::Happened => About::Yes,
-        Waited::RanOut => About::No,
+        Outcome::Happened => About::Yes,
+        Outcome::RanOut => About::No,
     })
 }
 
@@ -537,7 +554,7 @@ mod tests {
         );
         let Ok(worth) = worth_asking_after(line);
 
-        assert_eq!(worth, Worth::Asking);
+        assert_eq!(worth, Worth::Querying);
     }
 
     #[test]
@@ -550,6 +567,30 @@ mod tests {
         let Ok(worth) = worth_asking_after(line);
 
         assert_eq!(worth, Worth::Ignoring);
+    }
+
+    #[test]
+    fn a_second_played_moves_the_card_and_not_the_bar() {
+        let line = concat!(
+            "  Sender=:1.65 Path=/org/mpris/MediaPlayer2 ",
+            "Interface=console.Player  Member=PositionChanged"
+        );
+        let Ok(card) = worth_moving_the_clock(line);
+        let Ok(bar) = worth_asking_after(line);
+
+        assert_eq!(card, Worth::Querying);
+        assert_eq!(bar, Worth::Ignoring);
+    }
+
+    #[test]
+    fn the_card_still_hears_the_song_changing() {
+        let line = concat!(
+            "  Sender=:1.65 Path=/org/mpris/MediaPlayer2 ",
+            "Interface=org.freedesktop.DBus.Properties  Member=PropertiesChanged"
+        );
+        let Ok(worth) = worth_moving_the_clock(line);
+
+        assert_eq!(worth, Worth::Querying);
     }
 
     #[test]
@@ -581,21 +622,21 @@ mod tests {
         ];
         for path in awkward {
             let under = std::path::Path::new("/home/x/My Music (all of it)");
-            let Ok(argv) = opening(std::path::Path::new(path), under);
+            let Ok(arguments) = opening(std::path::Path::new(path), under);
 
             let Ok(mut asking) = Program::Sh.command();
 
             let checked = asking
                 .arg("-n")
                 .arg("-c")
-                .arg(&argv[2])
+                .arg(&arguments[2])
                 .output()
                 .expect("a shell to ask");
             assert!(
                 checked.status.success(),
                 "sh cannot read the line for {path:?}: {}\n{}",
                 String::from_utf8_lossy(&checked.stderr),
-                argv[2]
+                arguments[2]
             );
         }
     }
@@ -603,29 +644,29 @@ mod tests {
     #[test]
     fn a_name_the_shell_would_read_as_words_stays_one_word() {
         let under = std::path::Path::new("/home/x/Music");
-        let Ok(argv) = opening(std::path::Path::new("/home/x/Don't Stop.mp3"), under);
+        let Ok(arguments) = opening(std::path::Path::new("/home/x/Don't Stop.mp3"), under);
 
-        assert_eq!(argv[0], "sh");
-        assert!(argv[2].contains(r"'/home/x/Don'\''t Stop.mp3'"));
+        assert_eq!(arguments[0], "sh");
+        assert!(arguments[2].contains(r"'/home/x/Don'\''t Stop.mp3'"));
     }
 
     #[test]
     fn a_player_that_will_not_be_told_is_started_again() {
         let under = std::path::Path::new("/music");
-        let Ok(argv) = opening(std::path::Path::new("/music/Vol. 2"), under);
+        let Ok(arguments) = opening(std::path::Path::new("/music/Vol. 2"), under);
 
-        assert!(argv[2].contains("OpenUri"));
-        assert!(argv[2].contains("pkill -x music-player"));
-        assert!(argv[2].contains("exec music-player '/music'"));
+        assert!(arguments[2].contains("OpenUri"));
+        assert!(arguments[2].contains("pkill -x music-player"));
+        assert!(arguments[2].contains("exec music-player '/music'"));
     }
 
     #[test]
     fn the_player_is_started_on_the_library_rather_than_on_the_song() {
         let under = std::path::Path::new("/music");
-        let Ok(argv) = opening(std::path::Path::new("/music/b/505.opus"), under);
+        let Ok(arguments) = opening(std::path::Path::new("/music/b/505.opus"), under);
 
-        assert!(argv[2].contains("OpenUri s '/music/b/505.opus'"));
-        assert!(argv[2].contains("exec music-player '/music'"));
+        assert!(arguments[2].contains("OpenUri s '/music/b/505.opus'"));
+        assert!(arguments[2].contains("exec music-player '/music'"));
     }
 
     #[test]

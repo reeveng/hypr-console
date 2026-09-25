@@ -9,7 +9,7 @@
 //!
 //! It is also the fault that cannot be found by using the thing. Two loops over
 //! a list of six are free, over a list of sixty are unnoticeable, and over the
-//! list somebody's music folder turns out to hold are a desktop that has
+//! list someone's music folder turns out to hold are a desktop that has
 //! stopped. So it is worth a compiler saying it while the list is still small,
 //! because the day it is not small there is nothing to notice.
 //!
@@ -51,7 +51,7 @@
 //!
 //! The loop over the search is asked the same question, because a square needs
 //! both of its sides. `for step in EVERY { settings.iter().find(…) }` runs the
-//! walk as many times as somebody typed, which is linear however long the list
+//! walk as many times as someone typed, which is linear however long the list
 //! is. So a loop whose length was fixed when it was written -- an array, a
 //! `const`, a `static` -- does not count as standing over anything, and it is a
 //! loop that is not fixed, somewhere above, that makes this a rule.
@@ -72,7 +72,7 @@
 //! tree said "a handful of open menus, a handful of networks in range" at most
 //! of the sites and wrote the sentence instead of the fix; the sentence was
 //! wrong at every one of them, because a handful is what a list is on the day
-//! somebody writes the allow and not on the day it matters. Every one of them
+//! someone writes the allow and not on the day it matters. Every one of them
 //! is a set or a map now, and the shapes they turned into are worth knowing:
 //! a `BTreeSet` beside the list where the order of the list is the answer, an
 //! `entry` on a `BTreeMap` where the walk was really grouping, and
@@ -127,7 +127,7 @@ fn is_a_list<'tcx>(cx: &LateContext<'tcx>, expr: &Expr<'tcx>) -> bool {
 }
 
 // A list whose length was decided when this was written. An array carries its
-// length in its type; a `const` or a `static` is a table somebody typed out.
+// length in its type; a `const` or a `static` is a table someone typed out.
 // Neither is a list that grows, and neither is what a square is made of.
 fn was_fixed_when_written<'tcx>(cx: &LateContext<'tcx>, expr: &Expr<'tcx>) -> bool {
     match cx.typeck_results().expr_ty(expr).peel_refs().kind() {
@@ -315,7 +315,7 @@ fn is_many<'tcx>(cx: &LateContext<'tcx>, walked: &'tcx Expr<'tcx>) -> bool {
     }
 }
 
-// A loop that runs as many times as somebody typed multiplies by a number
+// A loop that runs as many times as someone typed multiplies by a number
 // decided when the code was written, which is not a square.
 fn a_fixed_loop<'tcx>(cx: &LateContext<'tcx>, walked: &'tcx Expr<'tcx>) -> bool {
     let root = what_is_walked(walked);

@@ -1,0 +1,19 @@
+[package]
+name = "console-defaults"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_defaults"
+path = "src/lib.rs"
+
+[dependencies]
+console-core-atomic-writes.workspace = true
+console-core-never.workspace = true
+console-core-places.workspace = true
+rustix.workspace = true
+
+[lints]
+workspace = true

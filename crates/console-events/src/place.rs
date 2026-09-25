@@ -4,6 +4,8 @@ use std::path::PathBuf;
 
 use crate::Unserved;
 
+pub const SOCKET: &str = "events.sock";
+
 pub fn socket() -> Result<PathBuf, Unserved> {
     let Ok(ours) = console_core_places::runtime_ours();
 
@@ -12,5 +14,5 @@ pub fn socket() -> Result<PathBuf, Unserved> {
         None => return Err(Unserved::Sessionless),
     };
 
-    Ok(ours.join("events.sock"))
+    Ok(ours.join(SOCKET))
 }

@@ -39,7 +39,7 @@ console-program-contract.workspace = true
 console-program-runtime.workspace = true
 console-repository.workspace = true
 console-core-number-conversion.workspace = true
-evdev = "0.13"
+console-input-event-devices.workspace = true
 libc = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -47,7 +47,7 @@ serde_yaml_ng = { version = "0.10", optional = true }
 
 # This crate, so that its own tests always have the reader. Every test here
 # that opens a profile would otherwise need `--all-features` on the command
-# line, and a test that only compiles when somebody remembers a flag is a test
+# line, and a test that only compiles when someone remembers a flag is a test
 # that stops being run.
 [dev-dependencies]
 console-input-gamepad = { path = ".", features = ["read"] }

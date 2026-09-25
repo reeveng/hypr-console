@@ -20,6 +20,12 @@ path = "src/bin/settings-panel.rs"
 name = "console-machine"
 path = "src/bin/console-machine.rs"
 
+# The pattern the login window asks for: drawn twice on the greeter's dots and
+# kept as a hash in the person's own configuration, or forgotten with `off`.
+[[bin]]
+name = "settings-login-pattern"
+path = "src/bin/settings-login-pattern.rs"
+
 [[bin]]
 name = "console-battery"
 path = "src/bin/console-battery.rs"
@@ -29,6 +35,12 @@ path = "src/bin/console-battery.rs"
 [[bin]]
 name = "console-bluetooth"
 path = "src/bin/console-bluetooth.rs"
+
+# Keeps the machine on the stronger of the Wi-Fi networks it knows, woken by
+# NetworkManager finishing a scan.
+[[bin]]
+name = "console-wifi"
+path = "src/bin/console-wifi.rs"
 
 [[bin]]
 name = "console-brightness"
@@ -48,18 +60,33 @@ path = "src/bin/console-scale.rs"
 
 [dependencies]
 console-applications.workspace = true
+console-books.workspace = true
 console-core-places.workspace = true
+console-core-qr-codes.workspace = true
+console-pictures.workspace = true
+console-core-internal-programs.workspace = true
 console-compositor.workspace = true
 console-core-external-programs.workspace = true
 console-core-geometry.workspace = true
 console-core-never.workspace = true
+console-battery.workspace = true
 console-core-atomic-writes.workspace = true
+console-core-color.workspace = true
+console-core-shapes.workspace = true
+console-draw-painting.workspace = true
+console-draw-surface.workspace = true
+console-input-event-devices.workspace = true
+console-login-greeter.workspace = true
+console-login-pattern.workspace = true
+console-login-window.workspace = true
 console-core-words.workspace = true
 console-waiting.workspace = true
 console-core-number-conversion.workspace = true
+console-sound-effects.workspace = true
 console-default-applications.workspace = true
 console-home-screen.workspace = true
 console-program-contract.workspace = true
+console-events.workspace = true
 console-notifications.workspace = true
 console-panel.workspace = true
 console-screen.workspace = true
@@ -67,7 +94,7 @@ console-wallpaper.workspace = true
 console-input-alphabets.workspace = true
 # The program that steps a keyboard on to the next alphabet, for its name and
 # the word that means settle rather than step. Changing what this machine types
-# has to reach a keyboard somebody plugged in as well as the one on the screen.
+# has to reach a keyboard someone plugged in as well as the one on the screen.
 console-input-language.workspace = true
 console-input-dictation.workspace = true
 console-core-localization.workspace = true

@@ -1,11 +1,11 @@
 //! Put the pointer somewhere on the screen, at a place on the picture.
 //!
-//!     console-point [--in NAMESPACE] ACROSS DOWN [--click] [--scroll NOTCHES]
+//!     console-point [--in NAMESPACE] ACROSS DOWN [--click] [--scroll NOTCHES] [--drag ACROSS DOWN ...]
 //!  Where ACROSS and DOWN are a place on the picture, in the size the desktop
 //! is laid out in -- the numbers `hyprctl layers` answers in and the numbers
 //! anything drawing a surface thinks in. How big that is, is asked of the
 //! compositor rather than read out of the tree: the density is a setting
-//! somebody can change while the desktop is running, and a place measured
+//! someone can change while the desktop is running, and a place measured
 //! against the size the screen used to be lands somewhere else entirely.
 //! `--in` says the place is inside a surface instead, measured from its corner:
 //! `--in settings-panel 40 60` is forty across and sixty down from wherever the
@@ -13,7 +13,7 @@
 //! being pointed at, at the moment of the press -- which is the whole reason it
 //! is a word on this command line rather than arithmetic in a check. A check
 //! that measured the corner first would be pointing at where the panel was, and
-//! a check that guessed it would be pressing a place nobody drew. Both of those
+//! a check that guessed it would be pressing a place no one drew. Both of those
 //! go green just as readily as the right answer does.  The two questions are
 //! asked of the same walk `console_onscreen` already makes for "is this up", so
 //! a surface this can be measured against is exactly a surface the rest of the
@@ -37,7 +37,7 @@ use console_core_geometry::{Point, Size};
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
 use console_input_pointer::{
-    Does, Measured, Unsaid, Where, approach, asked, from_the_corner, on_the_screen,
+    PointerAction, Measured, Unsaid, Where, approach, asked, from_the_corner, on_the_screen,
 };
 use wayland_client::protocol::wl_pointer::{Axis, AxisSource, ButtonState};
 use wayland_client::protocol::{wl_output, wl_registry, wl_seat};
@@ -75,7 +75,7 @@ fn main() -> ExitCode {
 enum Unpointed {
     Unsaid(Unsaid),
     Undeclared(console_screen::Undeclared),
-    Onscreen(console_onscreen::Amiss),
+    Onscreen(console_onscreen::Error),
     NotUp(String),
     PastTheSurface(Point<u32>, Size<u32>, String),
     OffTheScreen(Point<u32>, Size<u32>),
@@ -99,12 +99,12 @@ impl std::fmt::Display for Unpointed {
             Unpointed::PastTheSurface(at, room, namespace) => write!(
                 to,
                 "({}, {}) is past the {}x{} of {namespace}",
-                at.across, at.down, room.wide, room.tall
+                at.x, at.y, room.width, room.height
             ),
             Unpointed::OffTheScreen(at, room) => write!(
                 to,
                 "({}, {}) is not on a {}x{} screen",
-                at.across, at.down, room.wide, room.tall
+                at.x, at.y, room.width, room.height
             ),
             Unpointed::NoCompositor(fault) => write!(to, "no compositor to point at: {fault}"),
             Unpointed::Unsized(fault) => {
@@ -135,8 +135,8 @@ impl From<console_screen::Undeclared> for Unpointed {
     }
 }
 
-impl From<console_onscreen::Amiss> for Unpointed {
-    fn from(fault: console_onscreen::Amiss) -> Self {
+impl From<console_onscreen::Error> for Unpointed {
+    fn from(fault: console_onscreen::Error) -> Self {
         Unpointed::Onscreen(fault)
     }
 }
@@ -144,10 +144,7 @@ impl From<console_onscreen::Amiss> for Unpointed {
 fn pointed() -> Result<(), Unpointed> {
     let words: Vec<String> = std::env::args().skip(1).collect();
     let asked = asked(&words)?;
-    let at = match &asked.measured {
-        Measured::FromTheScreen => asked.at,
-        Measured::FromTheCorner(namespace) => in_the_surface(asked.at, namespace)?,
-    };
+    let at = placed(asked.at, &asked.measured)?;
 
     let pointer = Pointer::new()?;
     let room = pointer.room;
@@ -174,9 +171,20 @@ fn pointed() -> Result<(), Unpointed> {
     pointer.to(at)?;
 
     match asked.does {
-        Does::Nothing => {},
-        Does::Click => pointer.click()?,
-        Does::Scroll(notches) => pointer.scroll(notches)?,
+        PointerAction::None => {},
+        PointerAction::Click => pointer.click()?,
+        PointerAction::Scroll(notches) => pointer.scroll(notches)?,
+        PointerAction::Drag(through) => {
+            let mut places = Vec::new();
+
+            for place in through {
+                let place = placed(place, &asked.measured)?;
+
+                places.push(place);
+            }
+
+            pointer.drag(&places)?;
+        },
     }
 
     #[cfg_attr(
@@ -191,28 +199,35 @@ fn pointed() -> Result<(), Unpointed> {
     Ok(())
 }
 
+fn placed(at: Point<u32>, measured: &Measured) -> Result<Point<u32>, Unpointed> {
+    match measured {
+        Measured::FromTheScreen => Ok(at),
+        Measured::FromTheCorner(namespace) => in_the_surface(at, namespace),
+    }
+}
+
 fn in_the_surface(at: Point<u32>, namespace: &str) -> Result<Point<u32>, Unpointed> {
     let screens = console_onscreen::screens()?;
     let Ok(drawn) = console_onscreen::standing(&screens, namespace);
 
     let standing = drawn.ok_or_else(|| Unpointed::NotUp(namespace.to_string()))?;
 
-    let Ok(wide) = fitted::<i64, u32>(standing.wide);
-    let Ok(tall) = fitted::<i64, u32>(standing.tall);
-    let Ok(inside) = on_the_screen(at, Size { wide, tall });
+    let Ok(wide) = fitted::<i64, u32>(standing.width);
+    let Ok(tall) = fitted::<i64, u32>(standing.height);
+    let Ok(inside) = on_the_screen(at, Size { width: wide, height: tall });
 
     match inside {
         Where::OnTheScreen => {},
         Where::OffIt => {
             return Err(Unpointed::PastTheSurface(
                 at,
-                Size { wide, tall },
+                Size { width: wide, height: tall },
                 namespace.to_string(),
             ));
         },
     }
 
-    from_the_corner(at, Point { across: standing.across, down: standing.down })
+    from_the_corner(at, Point { x: standing.x, y: standing.y })
         .map_err(Unpointed::Unsaid)
 }
 
@@ -251,9 +266,7 @@ impl Pointer {
             (Some(_), None) | (None, _) => {},
         }
 
-        let asked = queue.roundtrip(&mut found);
-
-        match asked {
+        match queue.roundtrip(&mut found) {
             Ok(_answered) => {},
             Err(fault) => eprintln!("console-point: the screen said nothing of its size: {fault}"),
         }
@@ -292,7 +305,7 @@ impl Pointer {
     fn to(&self, at: Point<u32>) -> Result<(), Unpointed> {
         let Ok(now) = self.now();
 
-        self.said.motion_absolute(now, at.across, at.down, self.room.wide, self.room.tall);
+        self.said.motion_absolute(now, at.x, at.y, self.room.width, self.room.height);
         self.said.frame();
 
         self.flush()
@@ -322,6 +335,43 @@ impl Pointer {
         self.flush()
     }
 
+    fn button(&self, state: ButtonState) -> Result<(), Unpointed> {
+        let Ok(now) = self.now();
+
+        self.said.button(now, BTN_LEFT, state);
+        self.said.frame();
+
+        self.flush()
+    }
+
+    fn drag(&self, through: &[Point<u32>]) -> Result<(), Unpointed> {
+        self.button(ButtonState::Pressed)?;
+
+        for place in through {
+            #[cfg_attr(
+                dylint_lib = "explicit021_no_sleeping",
+                allow(
+                    explicit021_no_sleeping,
+                    reason = "a line is drawn at a hand's pace: every place is a motion of its own, in a frame of its own, and motions written in one frame arrive as one jump"
+                )
+            )]
+            std::thread::sleep(STEP);
+
+            self.to(*place)?;
+        }
+
+        #[cfg_attr(
+            dylint_lib = "explicit021_no_sleeping",
+            allow(
+                explicit021_no_sleeping,
+                reason = "the last place is reached before the button lets go, and released in the same frame as the motion the lift would land before the place did"
+            )
+        )]
+        std::thread::sleep(PRESSED);
+
+        self.button(ButtonState::Released)
+    }
+
     fn scroll(&self, notches: i32) -> Result<(), Unpointed> {
         let far = f64::from(notches) * NOTCH;
         let Ok(now) = self.now();
@@ -335,6 +385,13 @@ impl Pointer {
 }
 
 impl Dispatch<wl_registry::WlRegistry, ()> for Found {
+    #[cfg_attr(
+        dylint_lib = "explicit016_no_wildcard_arm",
+        allow(
+            explicit016_no_wildcard_arm,
+            reason = "a Wayland protocol enum is somebody else's and is marked non_exhaustive, so the compiler demands an arm for the events this version of the protocol has not heard of; what this desktop does about one is nothing"
+        )
+    )]
     fn event(
         found: &mut Self,
         registry: &wl_registry::WlRegistry,
@@ -356,8 +413,11 @@ impl Dispatch<wl_registry::WlRegistry, ()> for Found {
                 found.sizes = Some(registry.bind(name, version.min(3), handle, ()));
             },
             "wl_seat" => found.seat = Some(registry.bind(name, version.min(5), handle, ())),
-            "wl_output" if found.screen.is_none() => {
-                found.screen = Some(registry.bind(name, version.min(3), handle, ()));
+            "wl_output" => match found.screen.is_none() {
+                true => {
+                    found.screen = Some(registry.bind(name, version.min(3), handle, ()));
+                }
+                false => {},
             },
             _ => {},
         }
@@ -365,6 +425,13 @@ impl Dispatch<wl_registry::WlRegistry, ()> for Found {
 }
 
 impl Dispatch<ZxdgOutputV1, ()> for Found {
+    #[cfg_attr(
+        dylint_lib = "explicit016_no_wildcard_arm",
+        allow(
+            explicit016_no_wildcard_arm,
+            reason = "a Wayland protocol enum is somebody else's and is marked non_exhaustive, so the compiler demands an arm for the events this version of the protocol has not heard of; what this desktop does about one is nothing"
+        )
+    )]
     fn event(
         found: &mut Self,
         _: &ZxdgOutputV1,
@@ -381,7 +448,7 @@ impl Dispatch<ZxdgOutputV1, ()> for Found {
         let Ok(wide) = fitted(width);
         let Ok(tall) = fitted(height);
 
-        found.room = Some(Size { wide, tall });
+        found.room = Some(Size { width: wide, height: tall });
     }
 }
 

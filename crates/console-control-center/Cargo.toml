@@ -1,0 +1,36 @@
+[package]
+name = "console-control-center"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_control_center"
+path = "src/lib.rs"
+
+# The strip along the top edge and the sheet it pulls down: one process, one
+# layer surface, stood up again at each size rather than stretched.
+[[bin]]
+name = "console-control-center"
+path = "src/bin/console-control-center.rs"
+
+[dependencies]
+console-core-color.workspace = true
+console-core-fonts.workspace = true
+console-core-geometry.workspace = true
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+console-core-shapes.workspace = true
+# The screenshot, named rather than spelled, and started so that it outlives
+# the sheet that asked for it.
+console-core-internal-programs.workspace = true
+console-program-lifetime.workspace = true
+# The namespace this surface answers to, which is also what keeps it out of
+# every question about what is in front of the desktop.
+console-onscreen.workspace = true
+console-draw-painting.workspace = true
+console-draw-surface.workspace = true
+
+[lints]
+workspace = true

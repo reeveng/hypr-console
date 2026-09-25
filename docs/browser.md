@@ -51,13 +51,13 @@ plainly attached and not so far as to cover what is written there: a label that
 hides the word *Home* has answered the first question by destroying the answer
 to the second. A thing too thin to be bitten into -- a link in the middle of a
 sentence -- has its label hung just above instead, touching the top of the
-word, because a label sitting on a word is a word nobody can read, and what is
+word, because a label sitting on a word is a word no one can read, and what is
 above a line of prose is usually more prose rather than another thing to press.
 
 Where that corner is already taken, the label moves on to the next corner of
 the same thing that is free, and a thing wide enough to hold several -- a nav
 bar, a row -- offers the places along its own top edge. Two labels drawn in the
-same place are two labels nobody can read, which on a page of small links used
+same place are two labels no one can read, which on a page of small links used
 to be most of them.
 
 ## What is along the bottom
@@ -75,11 +75,11 @@ is one thing to press and not two:
 
 Pressed a second time, **Y** asks the other question: *open in a new tab*.
 That is the second thing a link can do, on the button whose job is what else
-can be done with the thing in front of you, rather than on a modifier nobody
+can be done with the thing in front of you, rather than on a modifier no one
 would find.
 
 It used to be the same screen with a different line of text along the bottom,
-which is a mode nobody sees: the eyes are on the labels, and the labels had not
+which is a mode no one sees: the eyes are on the labels, and the labels had not
 changed. So the second press draws a different page. Only links are labelled,
 because opening in a new tab is the one thing only a link can do and a label on
 a button would have been a label that lies -- the press would have been the
@@ -94,7 +94,7 @@ Y is a right click, and taking a right click away would take the browser's menu
 -- copy a link, save a picture -- off the machine altogether. It is not taken.
 A press of Y is the pad, which is a mouse; a finger held on the page is a
 touch, and the event says which it was. So the pad gets the labels and a finger
-held down gets the menu Firefox draws, and neither is a mode anybody has to
+held down gets the menu Firefox draws, and neither is a mode anyone has to
 know they are in.
 
 Every deed along the bottom can also simply be tapped, and every card draws a
@@ -114,19 +114,19 @@ for a thumb.
 
 *Look for something* and *The tabs* draw a card, and it is deliberately the
 card the menu and the panels draw: a line to type into at the top, rows under
-it, the one your thumb is on in pink and what is already true in mint. Somebody
+it, the one your thumb is on in pink and what is already true in mint. Someone
 who has used the menu has used this. It is drawn in a shadow root out of the
 browser's own palette file, so a site's stylesheet cannot dress it and it
 cannot break the site.
 
 The keyboard comes up with it. A card with a line to type into is a card
-somebody came to type into, so it is raised with the card rather than waited
+someone came to type into, so it is raised with the card rather than waited
 for: the surface used to arrive having made every decision except the one it
 was drawn for, and the press of X afterwards was a press that only ever had one
 answer. X still works, and now what it does is put the keyboard away.
 
 The same rule reaches a field on the page. Taking one with A focuses it and
-raises the keyboard, because that is the same decision made about somebody
+raises the keyboard, because that is the same decision made about someone
 else's form.
 
 ## Where a question goes is the browser's own answer
@@ -137,12 +137,12 @@ panel's **Web** tab writes a policy that tells the browser which engine to
 default to --
 [`crates/console-default-applications`](../crates/console-default-applications)
 is that -- and this reads back whatever that came to. A list here would be the
-same choice made twice, and wrong the first day somebody changed it.
+same choice made twice, and wrong the first day someone changed it.
 
 Under the engines are two more places to look: **on this site**, which is the
 same engine asked about this host alone, and **on this page**, which is the
 browser's own find. What is found stays on the screen with the count beside it
-and the d-pad steps through the matches, because a count nobody can walk to is
+and the d-pad steps through the matches, because a count no one can walk to is
 not an answer.
 
 There is no way to type an address into this card, and that is on purpose: a
@@ -155,7 +155,7 @@ browser's own address bar is a row on the bar along the bottom.
 
 The new tab is a page of the add-on's own, and it opens with the search card up,
 the keyboard up, and the line already holding the keys. There was nothing else it could
-usefully be: a new tab on a handheld is somebody about to ask something, and
+usefully be: a new tab on a handheld is someone about to ask something, and
 the alternative was a blank page with an address bar at the top of it that
 takes a pointer to reach.
 
@@ -192,7 +192,7 @@ The third is not the browser at all. The on-screen keyboard is a program of
 this desktop's, raised by a signal, and no page and no ordinary add-on may send
 one -- which is the same test the other two pass. `keyboard-show` is what it
 runs, and it is deliberately not `keyboard-toggle`: a program asking on
-somebody's behalf is asking for a keyboard, not for the other side of a switch,
+someone's behalf is asking for a keyboard, not for the other side of a switch,
 and a card opening while the keyboard happened to be up would otherwise have
 taken it away from the person it was drawn for. Nothing waits on the answer. A
 keyboard that did not come up leaves a card that still draws, still takes a
@@ -206,7 +206,7 @@ add-on in that order, so one restart has both.
 
 ## A bookmark is a thing the machine opens
 
-The pages somebody keeps were behind the browser: open it, reach the address
+The pages someone keeps were behind the browser: open it, reach the address
 bar or a list drawn at the top of the screen, and take one. That is three
 surfaces to arrive somewhere the home screen arrives in one press, and the home
 screen already holds a handful of things by name.
@@ -249,7 +249,7 @@ none already looks like.
 
 It does nothing at all when nothing has changed, which is nearly every apply. A
 browser takes an add-on again when the version in it goes up, so a version
-raised for its own sake would be the browser reinstalling something nobody had
+raised for its own sake would be the browser reinstalling something no one had
 touched every time the machine was told to catch up. The note beside the file
 is what makes that answerable without unpacking anything.
 
@@ -258,16 +258,16 @@ An add-on is a zip; a stored zip is a legal one and is what a browser reads
 either way, and it is a hundred lines rather than a compressor pulled onto a
 handheld to save forty kilobytes on a file read once at startup.
 
-Nobody has signed it and nobody is going to. LibreWolf is built to install an
-add-on that nobody has signed, and the profile says so in `user.js`; release
+No one has signed it and no one is going to. LibreWolf is built to install an
+add-on that no one has signed, and the profile says so in `user.js`; release
 Firefox is not, and would refuse this every start without saying so anywhere
-anybody is looking. That is why the policy offers it to LibreWolf alone, which
+anyone is looking. That is why the policy offers it to LibreWolf alone, which
 `the_add_on_this_desktop_wrote_is_offered_to_the_browser_that_can_take_it`
 holds it to.
 
 ## What it does not reach
 
-Worth knowing before somebody meets one of these with a thumb and thinks it is
+Worth knowing before someone meets one of these with a thumb and thinks it is
 broken.
 
 A page inside a page. The add-on runs in the top frame only, so a comment box

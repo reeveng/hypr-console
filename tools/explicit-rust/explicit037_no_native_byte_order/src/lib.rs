@@ -27,13 +27,13 @@ dylint_linting::declare_late_lint! {
     ///
     /// It arrives with nothing to say, which is the point of writing it now.
     /// There is no `ne` in the tree today, and a rule that is already kept
-    /// costs a reader nothing and holds the day somebody reaches for the
+    /// costs a reader nothing and holds the day someone reaches for the
     /// spelling that looks like it means "no conversion". `to_le_bytes` and
-    /// `to_be_bytes` say which end, and where the end is a value somebody was
+    /// `to_be_bytes` say which end, and where the end is a value someone was
     /// told, it is that value the code should be asking.
     pub EXPLICIT037_NO_NATIVE_BYTE_ORDER,
     Deny,
-    "a number laid out in the machine's own byte order is a layout nobody wrote down"
+    "a number laid out in the machine's own byte order is a layout no one wrote down"
 }
 
 fn is_test_build(cx: &LateContext<'_>) -> bool {

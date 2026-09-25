@@ -12,7 +12,7 @@ path = "src/lib.rs"
 [dependencies]
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true
-libc = "0.2"
+rustix.workspace = true
 
 [dev-dependencies]
 # The one thing the byte arrays cannot say is that a real bus agrees, so the

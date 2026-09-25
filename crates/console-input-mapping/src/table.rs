@@ -6,7 +6,7 @@
 //! Writing the file is the whole of a move now. It used to be half: a button's
 //! meaning lived in an InputPlumber profile under `/etc`, so saying a job had
 //! moved meant asking root to write the profiles again, and the screen carried
-//! the one line in this repository that crossed into `/etc` on somebody's say
+//! the one line in this repository that crossed into `/etc` on someone's say
 //! so. The profile no longer decides what a button means -- it says only what
 //! each button is -- and the daemon reads this file itself. There is nothing
 //! left to make true.
@@ -14,10 +14,10 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-use console_input_controller::means::Table;
+use console_input_controller::actions::Table;
 use console_input_gamepad::front::{DEVICES, Front, Read, asking};
-use console_input_bindings::moved::{Jobs, path_in};
-use console_core_atomic_writes::Held;
+use console_input_bindings::moved::{Tasks, path_in};
+use console_core_atomic_writes::Stored;
 use console_core_never::Never;
 
 use crate::Unmapped;
@@ -35,42 +35,42 @@ pub fn at() -> Result<Option<PathBuf>, Never> {
     Ok(Some(at))
 }
 
-pub fn read() -> Result<Jobs, Never> {
+pub fn read() -> Result<Tasks, Never> {
     let Ok(at) = at();
 
     let at = match at {
         Some(at) => at,
-        None => return Ok(Jobs::default()),
+        None => return Ok(Tasks::default()),
     };
 
     let Ok(held) = console_core_atomic_writes::read(&at);
 
     let said = match held {
-        Held::Said(said) => said,
-        Held::Nothing => return Ok(Jobs::default()),
+        Stored::Text(said) => said,
+        Stored::Absent => return Ok(Tasks::default()),
 
-        Held::Unreadable(fault) => {
+        Stored::Failed(fault) => {
             eprintln!("{}: reading the button table: {fault}", at.display());
-            return Ok(Jobs::default());
+            return Ok(Tasks::default());
         }
     };
 
-    Ok(match Jobs::read(&said) {
+    Ok(match Tasks::read(&said) {
         Ok(jobs) => jobs,
 
         Err(fault) => {
             eprintln!("{}: {fault}", at.display());
-            Jobs::default()
+            Tasks::default()
         }
     })
 }
 
-pub fn write(jobs: &Jobs) -> Result<(), Unmapped> {
+pub fn write(jobs: &Tasks) -> Result<(), Unmapped> {
     let Ok(at) = at();
 
     let at = match at {
         Some(at) => at,
-        None => return Err(Unmapped::Nobodys),
+        None => return Err(Unmapped::NoOnes),
     };
 
     match at.parent() {
@@ -109,8 +109,8 @@ fn devices() -> Result<String, Never> {
     })
 }
 
-pub fn said(argv: &[&str]) -> Result<String, Never> {
-    let (program, rest) = match argv.split_first() {
+pub fn said(arguments: &[&str]) -> Result<String, Never> {
+    let (program, rest) = match arguments.split_first() {
         Some((program, rest)) => (program, rest),
         None => return Ok(String::new()),
     };
@@ -119,7 +119,7 @@ pub fn said(argv: &[&str]) -> Result<String, Never> {
         Ok(done) => String::from_utf8_lossy(&done.stdout).trim().to_string(),
 
         Err(fault) => {
-            eprintln!("{}: {fault}", argv.join(" "));
+            eprintln!("{}: {fault}", arguments.join(" "));
             String::new()
         }
     })

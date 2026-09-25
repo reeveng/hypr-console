@@ -38,7 +38,7 @@ console-onscreen.workspace = true
 # program's own connection to the compositor is a line down the pool's socket.
 console-events.workspace = true
 console-input-bindings.workspace = true
-# What a keyboard somebody plugged in is set to type. The daemon puts each one
+# What a keyboard someone plugged in is set to type. The daemon puts each one
 # back on what it was last switched to when the session comes up, which is the
 # only part of that question a program started by a keypress cannot answer.
 console-input-language.workspace = true
@@ -50,10 +50,11 @@ console-program-runtime.workspace = true
 console-core-atomic-writes.workspace = true
 console-core-geometry.workspace = true
 console-core-never.workspace = true
+console-core-internal-programs.workspace = true
 console-core-places.workspace = true
 serde_json = "1"
-evdev = "0.13"
-libc = "0.2"
+console-input-event-devices.workspace = true
+rustix.workspace = true
 
 # The harness builds a pad out of the profiles in the checkout, which the daemon
 # itself never does: it is handed one. So `read` is asked for here rather than

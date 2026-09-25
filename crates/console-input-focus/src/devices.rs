@@ -1,7 +1,7 @@
 //! The layer that talks to the machine: an input device, taken and handed back.
-//! Which device is which is not decided here. `console_input_gamepad::finding`
+//! DeviceKind device is which is not decided here. `console_input_gamepad::finding`
 //! is the one place that says the pad to read is the one InputPlumber made
-//! rather than the one somebody is holding, and the daemon applies exactly that
+//! rather than the one someone is holding, and the daemon applies exactly that
 //! rule -- so a claim that went looking on its own could take a different
 //! device than the daemon reads, which is the fault this crate exists to stop,
 //! arrived at from inside.
@@ -10,29 +10,29 @@ use std::collections::BTreeMap;
 use std::os::fd::{AsRawFd, RawFd};
 
 use console_core_words::Words;
-use console_input_gamepad::finding::{self, Says};
+use console_input_gamepad::finding::{self, DeviceInfo};
 use console_core_never::Never;
-use evdev::{AbsoluteAxisCode, Device, InputEvent};
+use console_input_event_devices::{AbsoluteAxisCode, Device, InputEvent};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Words)]
-pub enum Which {
+pub enum DeviceKind {
     #[words(said = "gamepad")]
     Pad,
     #[words(said = "keyboard")]
     Keys,
-    #[words(said = "a keyboard somebody plugged in")]
+    #[words(said = "a keyboard someone plugged in")]
     Typing,
     #[words(said = "touchpad")]
     Touch,
 }
 
-impl Which {
-    fn among(self, said: &[Says]) -> Result<Vec<&Says>, Never> {
+impl DeviceKind {
+    fn among(self, said: &[DeviceInfo]) -> Result<Vec<&DeviceInfo>, Never> {
         let one = match self {
-            Which::Pad => finding::gamepad(said)?,
-            Which::Keys => finding::keyboard(said)?,
-            Which::Typing => return finding::typing(said),
-            Which::Touch => finding::touchpad(said)?,
+            DeviceKind::Pad => finding::gamepad(said)?,
+            DeviceKind::Keys => finding::keyboard(said)?,
+            DeviceKind::Typing => return finding::typing(said),
+            DeviceKind::Touch => finding::touchpad(said)?,
         };
 
         Ok(one.into_iter().collect())
@@ -41,55 +41,55 @@ impl Which {
 
 pub type Spans = Vec<(AbsoluteAxisCode, (i32, i32))>;
 
-pub const CONTROLLER: [Which; 2] = [Which::Pad, Which::Keys];
+pub const CONTROLLER: [DeviceKind; 2] = [DeviceKind::Pad, DeviceKind::Keys];
 
-pub const EVERYTHING_PRESSED: [Which; 3] = [Which::Pad, Which::Keys, Which::Typing];
+pub const EVERYTHING_PRESSED: [DeviceKind; 3] = [DeviceKind::Pad, DeviceKind::Keys, DeviceKind::Typing];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Refused {
+pub enum ClaimError {
     NothingToTake,
     HeldElsewhere { path: String, why: String },
-    Fault { path: String, why: String },
+    Failed { path: String, why: String },
 }
 
-impl Refused {
+impl ClaimError {
     pub fn said(&self) -> Result<String, Never> {
         Ok(match self {
-            Refused::NothingToTake => {
+            ClaimError::NothingToTake => {
                 "nothing to read: none of these devices is on this machine".to_string()
             }
-            Refused::HeldElsewhere { path, why } => {
+            ClaimError::HeldElsewhere { path, why } => {
                 format!("{path}: something else has the input ({why})")
             }
-            Refused::Fault { path, why } => format!("{path}: {why}"),
+            ClaimError::Failed { path, why } => format!("{path}: {why}"),
         })
     }
 }
 
-struct Taken {
+struct Claimed {
     path: String,
-    which: Which,
+    which: DeviceKind,
     device: Device,
 }
 
 pub struct Claim {
-    held: Vec<Taken>,
+    held: Vec<Claimed>,
 }
 
 impl Claim {
-    pub fn of(wanted: &[Which]) -> Result<Claim, Refused> {
-        let seen: Vec<(String, Device)> = evdev::enumerate()
-            .map(|(path, device)| (path.display().to_string(), device))
-            .collect();
-        let said: Vec<Says> = seen
+    pub fn of(wanted: &[DeviceKind]) -> Result<Claim, ClaimError> {
+        let Ok(every) = Device::every();
+        let seen: Vec<(String, Device)> =
+            every.into_iter().map(|device| (device.path.display().to_string(), device)).collect();
+        let said: Vec<DeviceInfo> = seen
             .iter()
             .map(|(path, device)| {
-                let Ok(says) = finding::says(path, device);
+                let Ok(says) = finding::describe(path, device);
 
                 says
             })
             .collect();
-        let mut found: BTreeMap<String, Which> = BTreeMap::new();
+        let mut found: BTreeMap<String, DeviceKind> = BTreeMap::new();
 
         for which in wanted {
             let Ok(among) = which.among(&said);
@@ -100,7 +100,7 @@ impl Claim {
         }
 
         match found.is_empty() {
-            true => return Err(Refused::NothingToTake),
+            true => return Err(ClaimError::NothingToTake),
             false => {}
         }
 
@@ -122,7 +122,7 @@ impl Claim {
         Ok(Claim { held })
     }
 
-    pub fn holding(&self) -> Result<Vec<(Which, &str)>, Never> {
+    pub fn holding(&self) -> Result<Vec<(DeviceKind, &str)>, Never> {
         Ok(self.held.iter().map(|taken| (taken.which, taken.path.as_str())).collect())
     }
 
@@ -130,39 +130,41 @@ impl Claim {
         Ok(self.held.iter().map(|taken| taken.device.as_raw_fd()).collect())
     }
 
-    pub fn spans(&self, which: Which) -> Result<Spans, Refused> {
+    pub fn spans(&self, which: DeviceKind) -> Result<Spans, ClaimError> {
         let mut spans = Spans::new();
 
         for taken in self.held.iter().filter(|taken| taken.which == which) {
-            let told = match taken.device.get_absinfo() {
+            let told = match taken.device.absolute() {
                 Ok(told) => told,
                 Err(fault) => {
-                    return Err(Refused::Fault {
+                    return Err(ClaimError::Failed {
                         path: taken.path.clone(),
                         why: format!("it would not say what its sticks run between: {fault}"),
                     });
                 }
             };
 
-            spans.extend(told.map(|(axis, info)| (axis, (info.minimum(), info.maximum()))));
+            spans.extend(told.into_iter().map(|(axis, info)| (axis, (info.minimum, info.maximum))));
         }
 
         Ok(spans)
     }
 
-    pub fn arrived(&mut self) -> Result<Heard, Never> {
-        let mut heard = Heard::default();
+    pub fn arrived(&mut self) -> Result<Received, Never> {
+        let mut heard = Received::default();
 
         let mut lost: Vec<String> = Vec::new();
 
         for taken in &mut self.held {
-            match taken.device.fetch_events() {
-                Ok(arrived) => heard.events.extend(arrived.map(|event| (taken.which, event))),
-                Err(fault) if fault.kind() == std::io::ErrorKind::WouldBlock => {}
-                Err(_) => {
-                    heard.gone.push(taken.which);
-                    lost.push(taken.path.clone());
-                }
+            match taken.device.read_events() {
+                Ok(arrived) => heard.events.extend(arrived.into_iter().map(|event| (taken.which, event))),
+                Err(fault) => match fault.kind() == std::io::ErrorKind::WouldBlock {
+                    true => {}
+                    false => {
+                        heard.unplugged.push(taken.which);
+                        lost.push(taken.path.clone());
+                    }
+                },
             }
         }
 
@@ -188,16 +190,16 @@ impl Drop for Claim {
 }
 
 #[derive(Debug, Default)]
-pub struct Heard {
-    pub events: Vec<(Which, InputEvent)>,
-    pub gone: Vec<Which>,
+pub struct Received {
+    pub events: Vec<(DeviceKind, InputEvent)>,
+    pub unplugged: Vec<DeviceKind>,
 }
 
-fn take(path: String, which: Which, mut device: Device) -> Result<Taken, Refused> {
-    match device.set_nonblocking(true) {
+fn take(path: String, which: DeviceKind, device: Device) -> Result<Claimed, ClaimError> {
+    match device.nonblocking() {
         Ok(()) => {}
         Err(fault) => {
-            return Err(Refused::Fault {
+            return Err(ClaimError::Failed {
                 path,
                 why: format!("it will not read without blocking: {fault}"),
             });
@@ -205,8 +207,8 @@ fn take(path: String, which: Which, mut device: Device) -> Result<Taken, Refused
     }
 
     match device.grab() {
-        Ok(()) => Ok(Taken { path, which, device }),
-        Err(fault) => Err(Refused::HeldElsewhere { path, why: fault.to_string() }),
+        Ok(()) => Ok(Claimed { path, which, device }),
+        Err(fault) => Err(ClaimError::HeldElsewhere { path, why: fault.to_string() }),
     }
 }
 
@@ -216,13 +218,13 @@ mod tests {
 
     #[test]
     fn the_controller_is_both_of_the_devices_a_button_arrives_on() {
-        assert_eq!(CONTROLLER, [Which::Pad, Which::Keys]);
-        assert!(!CONTROLLER.contains(&Which::Touch), "a finger is not a button");
+        assert_eq!(CONTROLLER, [DeviceKind::Pad, DeviceKind::Keys]);
+        assert!(!CONTROLLER.contains(&DeviceKind::Touch), "a finger is not a button");
     }
 
     #[test]
     fn every_device_says_what_it_is_in_words() {
-        for which in [Which::Pad, Which::Keys, Which::Typing, Which::Touch] {
+        for which in [DeviceKind::Pad, DeviceKind::Keys, DeviceKind::Typing, DeviceKind::Touch] {
             let Ok(said) = which.said();
 
             assert!(!said.is_empty(), "{which:?} has no name to complain in");
@@ -231,12 +233,12 @@ mod tests {
 
     #[test]
     fn a_refusal_says_which_it_was_in_words() {
-        let elsewhere = Refused::HeldElsewhere {
+        let elsewhere = ClaimError::HeldElsewhere {
             path: "/dev/input/event5".to_string(),
             why: "Device or resource busy".to_string(),
         };
         let Ok(said) = elsewhere.said();
-        let Ok(nothing) = Refused::NothingToTake.said();
+        let Ok(nothing) = ClaimError::NothingToTake.said();
 
         assert!(said.contains("something else has the input"));
         assert!(said.contains("event5"), "and which device it was");

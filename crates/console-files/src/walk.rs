@@ -8,7 +8,7 @@ use console_core_never::Never;
 pub struct Walk {
     top: PathBuf,
     at: PathBuf,
-    marks: Vec<usize>,
+    marks: Vec<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,14 +58,14 @@ impl Walk {
         })
     }
 
-    pub fn enter(&mut self, name: &str, from: usize) -> Result<(), Never> {
+    pub fn enter(&mut self, name: &str, from: u32) -> Result<(), Never> {
         self.at.push(name);
         self.marks.push(from);
 
         Ok(())
     }
 
-    pub fn up(&mut self) -> Result<Option<usize>, Never> {
+    pub fn up(&mut self) -> Result<Option<u32>, Never> {
         let back_to = match self.marks.pop() {
             Some(back_to) => back_to,
             None => return Ok(None),
@@ -103,7 +103,7 @@ mod tests {
         walk
     }
 
-    fn into(walk: &mut Walk, name: &str, from: usize) {
+    fn into(walk: &mut Walk, name: &str, from: u32) {
         let Ok(()) = walk.enter(name, from);
     }
 

@@ -18,18 +18,23 @@ path = "src/bin/console-panels.rs"
 
 [dependencies]
 console-input-mapping.workspace = true
+console-calculator.workspace = true
 console-calendar.workspace = true
 console-downloads.workspace = true
 console-files.workspace = true
+console-forecast.workspace = true
 console-launcher.workspace = true
 console-music.workspace = true
+console-core-internal-programs.workspace = true
 console-core-never.workspace = true
 console-notifications.workspace = true
 console-panel.workspace = true
 console-settings.workspace = true
 console-media-viewer.workspace = true
 console-response-times.workspace = true
-gtk4 = "0.11"
+# A pipe, which is how a panel that put itself away wakes the host that is
+# asleep in a poll.
+rustix.workspace = true
 libc = "0.2"
 
 [lints]

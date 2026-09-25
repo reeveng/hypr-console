@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Weather
+Comment=What it is doing outside, and the week ahead
+Exec=/usr/local/bin/forecast-panel
+Icon=weather-few-clouds
+Terminal=false
+Categories=Utility;

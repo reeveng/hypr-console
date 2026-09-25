@@ -1,0 +1,26 @@
+[package]
+name = "console-calculator"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# Sums done on a keypad the pad walks and a finger taps. The arithmetic is
+# `sum`, which has no screen in it; the card draws it.
+
+[lib]
+name = "console_calculator"
+path = "src/lib.rs"
+
+[[bin]]
+name = "calculator"
+path = "src/bin/calculator.rs"
+
+[dependencies]
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+console-core-words.workspace = true
+console-panel.workspace = true
+
+[lints]
+workspace = true

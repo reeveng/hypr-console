@@ -16,7 +16,7 @@
 //! ranked: `raw` is the driver's own control and is what a compositor and
 //! `brightnessctl` reach for, `platform` and `firmware` are the ACPI ones that
 //! are there when nothing better is, and a backlight that will not say which it
-//! is comes last. `console_default_applications::battery` already reads the
+//! is comes last. `console_battery` already reads the
 //! batteries this way, for the same reason.
 //!
 //! The three numbers are proportions of the panel's own maximum rather than
@@ -24,12 +24,12 @@
 //! about 98 hundredths of it, 5 and 9 -- and a panel whose maximum is 255, as
 //! most laptops' are, would have been pinned at full, unable to dim, and
 //! stepping by twenty-three times its whole range. On this device they come out
-//! within a few units of where they always were, which is nothing anybody can
+//! within a few units of where they always were, which is nothing anyone can
 //! see on a scale of 65535.
 //!
 //! The ceiling is the one that is a decision rather than arithmetic, and it
 //! stays on a panel that does not need it: losing the top two hundredths of a
-//! backlight costs nobody anything, and one panel here goes dark at full.
+//! backlight costs no one anything, and one panel here goes dark at full.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -85,7 +85,7 @@ impl Way {
         match word {
             "up" => Ok(Some(Way::Up)),
             "down" => Ok(Some(Way::Down)),
-            _not_a_way_anybody_said => Ok(None),
+            _not_a_way_anyone_said => Ok(None),
         }
     }
 }
@@ -141,6 +141,10 @@ impl Panel {
         };
 
         Ok(next.clamp(floor, ceiling))
+    }
+
+    pub fn as_parts(&self, now: i64) -> Result<i64, Never> {
+        Ok(now.saturating_mul(PARTS).saturating_div(self.top.max(1)))
     }
 
     pub fn as_points(&self, now: i64) -> Result<i64, Never> {
@@ -263,9 +267,9 @@ pub fn said(points: i64) -> Result<String, Never> {
 }
 
 pub fn remembered() -> Result<Option<PathBuf>, Never> {
-    let run = console_core_places::runtime()?;
+    let run = console_core_places::runtime_ours()?;
 
-    Ok(run.map(|run| run.join("console-dim")))
+    Ok(run.map(|run| run.join("dim")))
 }
 
 #[cfg(test)]
@@ -273,7 +277,7 @@ mod tests {
     use super::*;
 
     fn panel(top: i64) -> Panel {
-        let Ok(panel) = Panel::of(PathBuf::from("/sys/class/backlight/somebodys"), Top(top));
+        let Ok(panel) = Panel::of(PathBuf::from("/sys/class/backlight/someones"), Top(top));
 
         panel
     }
@@ -333,7 +337,7 @@ mod tests {
     }
 
     #[test]
-    fn it_never_goes_down_to_a_screen_nobody_can_read() {
+    fn it_never_goes_down_to_a_screen_no_one_can_read() {
         let panel = this_device();
         let bottom = floor(&panel);
 
@@ -368,7 +372,7 @@ mod tests {
     }
 
     #[test]
-    fn a_screen_somebody_moved_while_it_was_dim_is_left_where_they_put_it() {
+    fn a_screen_someone_moved_while_it_was_dim_is_left_where_they_put_it() {
         let panel = this_device();
         let Ok(dimmed) = panel.dimmed();
 
@@ -385,7 +389,7 @@ mod tests {
     }
 
     #[test]
-    fn the_notice_says_the_level_it_has_reached() {
+    fn the_notification_says_the_level_it_has_reached() {
         let panel = this_device();
         let Ok(full) = panel.as_points(ceiling(&panel));
         let Ok(none) = panel.as_points(floor(&panel));

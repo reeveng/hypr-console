@@ -16,9 +16,10 @@
 pub mod binds;
 pub mod buttons;
 pub mod clock;
-pub mod doing;
+pub mod closing;
+pub mod effect;
 pub use console_input_gamepad::finding;
-pub mod means;
+pub mod actions;
 pub mod mode;
 pub mod profile;
 pub mod reading;

@@ -7,13 +7,13 @@
 //! already writes, so a folder this has been over is a folder one program can
 //! play the whole of. Independently: a film in the music folder is still made a
 //! film, because what a file is is a question about the file rather than about
-//! which folder somebody left it in.
+//! which folder someone left it in.
 //!
 //! What is replaced goes to the wastebasket. `gio trash` rather than unlinking,
 //! the same as the Files panel deletes with, so an afternoon's conversion
-//! somebody regrets is an afternoon's walk back rather than a loss.
+//! someone regrets is an afternoon's walk back rather than a loss.
 //!
-//! One folder, not the tree under it. A folder is what somebody is standing in
+//! One folder, not the tree under it. A folder is what someone is standing in
 //! and what they asked about; a tree is a thing that runs for an hour over
 //! places they were not thinking of.
 
@@ -25,8 +25,7 @@ use console_downloads::same::{self, Wants};
 use console_downloads::store::Kind;
 use console_core_external_programs::Program;
 use console_core_never::Never;
-use console_panel::running::{Said, say};
-use gtk4::glib;
+use console_panel::running::{Notification, say};
 
 const THERE: &str = "there";
 
@@ -36,7 +35,7 @@ const KIND: &str = "downloads-format";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Made {
     It,
-    Nothing,
+    None,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,8 +56,8 @@ fn main() {
             })
             .collect(),
     };
-    let mut made: usize = 0;
-    let mut left: usize = 0;
+    let mut made: u32 = 0;
+    let mut left: u32 = 0;
 
     for folder in &where_ {
         let Ok(wanting) = wanting(folder);
@@ -68,7 +67,7 @@ fn main() {
 
             match made_one {
                 Made::It => made = made.saturating_add(1),
-                Made::Nothing => left = left.saturating_add(1),
+                Made::None => left = left.saturating_add(1),
             }
         }
     }
@@ -89,7 +88,7 @@ fn wanting(folder: &Path) -> Result<Vec<PathBuf>, Never> {
         .filter(|path| {
             let Ok(named) = named(path);
 
-            !matches!(named, Wants::Nothing | Wants::Leave)
+            !matches!(named, Wants::None | Wants::Leave)
         })
         .collect();
     found.sort();
@@ -117,20 +116,20 @@ fn what(path: &Path) -> Result<Option<Kind>, Never> {
 
             Some(inside)
         },
-        Wants::Nothing | Wants::Leave => None,
+        Wants::None | Wants::Leave => None,
     })
 }
 
 fn made_one(path: &Path) -> Result<Made, Never> {
     let kind = match what(path) {
         Ok(Some(kind)) => kind,
-        Ok(None) | Err(_) => return Ok(Made::Nothing),
+        Ok(None) | Err(_) => return Ok(Made::None),
     };
 
     let Ok(to) = same::beside(path, kind);
 
     match to.exists() {
-        true => return Ok(Made::Nothing),
+        true => return Ok(Made::None),
         false => {},
     }
 
@@ -148,12 +147,13 @@ fn made_one(path: &Path) -> Result<Made, Never> {
 
             ran(&sound)
         },
+        Kind::Book => return Ok(Made::None),
     };
 
     match done == Ran::Badly || !part.exists() {
         true => {
             let _ = std::fs::remove_file(&part);
-            return Ok(Made::Nothing);
+            return Ok(Made::None);
         }
         false => {},
     }
@@ -163,7 +163,7 @@ fn made_one(path: &Path) -> Result<Made, Never> {
         Err(fault) => {
             eprintln!("putting the converted file where the old one is: {fault}");
             let _ = std::fs::remove_file(&part);
-            return Ok(Made::Nothing);
+            return Ok(Made::None);
         }
     }
 
@@ -177,7 +177,7 @@ fn made_one(path: &Path) -> Result<Made, Never> {
     match console_put_away {
         Ran::Badly => {
             let _ = std::fs::remove_file(&to);
-            return Ok(Made::Nothing);
+            return Ok(Made::None);
         }
         Ran::Fine => {},
     }
@@ -189,11 +189,17 @@ fn ending(kind: Kind) -> Result<&'static str, Never> {
     Ok(match kind {
         Kind::Sound => getting::SOUND,
         Kind::Film => getting::FILM,
+        Kind::Book => getting::BOOK,
     })
 }
 
 fn cover(path: &Path) -> Result<Option<String>, Never> {
-    let jpg = glib::user_cache_dir().join("console/download/cover.jpg");
+    let Ok(ours) = console_core_places::Base::Cache.ours();
+
+    let jpg = match ours {
+        Some(ours) => ours.join("download/cover.jpg"),
+        None => return Ok(None),
+    };
 
     match jpg.parent() {
         Some(holding) => {
@@ -204,8 +210,8 @@ fn cover(path: &Path) -> Result<Option<String>, Never> {
 
     let _ = std::fs::remove_file(&jpg);
 
-    let Ok(argv) = same::cover(path, &jpg);
-    let Ok(ran) = ran(&argv);
+    let Ok(arguments) = same::cover(path, &jpg);
+    let Ok(ran) = ran(&arguments);
 
     match ran {
         Ran::Badly => return Ok(None),
@@ -231,8 +237,8 @@ fn cover(path: &Path) -> Result<Option<String>, Never> {
     })
 }
 
-fn ran(argv: &[String]) -> Result<Ran, Never> {
-    let (program, rest) = match argv.split_first() {
+fn ran(arguments: &[String]) -> Result<Ran, Never> {
+    let (program, rest) = match arguments.split_first() {
         Some((program, rest)) => (program, rest),
         None => return Ok(Ran::Badly),
     };
@@ -246,24 +252,17 @@ fn ran(argv: &[String]) -> Result<Ran, Never> {
     })
 }
 
-fn said(argv: &[String]) -> Result<String, Never> {
-    let (program, rest) = match argv.split_first() {
-        Some((program, rest)) => (program, rest),
-        None => return Ok(String::new()),
-    };
-
-    let done = match Command::new(program).args(rest).output() {
-        Ok(done) => done,
-        Err(_fault) => return Ok(String::new()),
-    };
-
-    Ok(String::from_utf8_lossy(&done.stdout).to_string())
+fn said(arguments: &[String]) -> Result<String, Never> {
+    Ok(match console_core_external_programs::printed(arguments) {
+        Ok(said) => said,
+        Err(_unprinted) => String::new(),
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Converted {
-    made: usize,
-    left: usize,
+    made: u32,
+    left: u32,
 }
 
 fn told(converted: Converted, where_: &[PathBuf]) -> Result<(), Never> {
@@ -276,10 +275,10 @@ fn told(converted: Converted, where_: &[PathBuf]) -> Result<(), Never> {
         })
         .collect();
     let said = match (made, left) {
-        (0, 0) => "was already one format".to_string(),
-        (0, left) => format!("has {left} nothing here could convert"),
-        (made, 0) => format!("is one format now: {made} converted"),
-        (made, left) => format!("is one format now: {made} converted, {left} left alone"),
+        (0, 0) => "Already converted".to_string(),
+        (0, left) => format!("Couldn't convert {left} files"),
+        (made, 0) => format!("Converted {made} files"),
+        (made, left) => format!("Converted {made} files, skipped {left}"),
     };
     let Ok(mut notifysend) = Program::NotifySend.command();
 
@@ -292,15 +291,15 @@ fn told(converted: Converted, where_: &[PathBuf]) -> Result<(), Never> {
     match started {
         Ok(_) => {},
         Err(fault) => {
-            eprintln!("telling somebody the folder is one format: {fault}");
+            eprintln!("telling someone the folder is one format: {fault}");
             println!("{} {said}", folders.join(" and "));
         }
     }
 
     match left > 0 && made == 0 {
         true => {
-            let Ok(()) = say(KIND, Said {
-                summary: &format!("{} is not one format", folders.join(" and ")),
+            let Ok(()) = say(KIND, Notification {
+                summary: &format!("Couldn't convert {}", folders.join(" and ")),
                 body: &said,
             });
         }

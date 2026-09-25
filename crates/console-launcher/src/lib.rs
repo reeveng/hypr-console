@@ -18,7 +18,7 @@
 //!
 //! ## And it is where the home screen is filled from
 //!
-//! The home screen is the handful of applications somebody put where they want
+//! The home screen is the handful of applications someone put where they want
 //! them, and this is every application there is, in the order they are used,
 //! found by typing. They are the same list read two ways, which is why they
 //! read it out of the same place -- and it is why what goes on the home screen
@@ -36,7 +36,7 @@
 //!
 //! `--place` is the home screen opening this on one of its empty squares, and
 //! then the whole card is that one question: A puts what it is standing on
-//! there, on the square that asked, and there is no Y and no browser. Which
+//! there, on the square that asked, and there is no Y and no browser. Subject
 //! square it was travels as `console_home_screen::Spot::said` and comes back through
 //! `Spot::read`, so only the home screen's own model says how a square is
 //! spelled.
@@ -53,13 +53,13 @@ use std::sync::{Arc, OnceLock};
 use console_applications::{counts, entry, found, narrow};
 use console_default_applications::engines;
 use console_core_external_programs::Program;
-use console_home_screen::{Home, Spot};
+use console_home_screen::{HomeScreen, Spot};
 use console_home_screen::shape::Shape;
 use console_core_never::Never;
-use console_panel::actor::{self, Addr, Answer};
+use console_panel::actor::{self, Address, Answer};
 use console_panel::card::{Card, Door};
-use console_panel::chooser::Again;
-use console_panel::page::{Aside, Does, Page, Picture, Row, Rows};
+use console_panel::picker::Again;
+use console_panel::page::{Aside, Handler, Page, Picture, Row, Rows};
 
 
 
@@ -80,16 +80,16 @@ const DOOR: &str = "menu";
 
 const KEEP: &str = "--keep";
 
-type Kept = Arc<Held>;
+type Shared = Arc<Cache>;
 
 #[derive(Default)]
-struct Held {
+struct Cache {
     all: OnceLock<Everything>,
     before: OnceLock<Everything>,
 }
 
-pub fn door(argv: &[String]) -> Result<Door, Never> {
-    let again = match argv.iter().any(|word| word == KEEP) {
+pub fn door(arguments: &[String]) -> Result<Door, Never> {
+    let again = match arguments.iter().any(|word| word == KEEP) {
         true => Again::Keeps,
         false => Again::Closes,
     };
@@ -97,11 +97,11 @@ pub fn door(argv: &[String]) -> Result<Door, Never> {
     Door::new(DOOR, again)
 }
 
-pub fn card(argv: &[String]) -> Result<Card, Never> {
+pub fn card(arguments: &[String]) -> Result<Card, Never> {
     let Ok(word) = actor::supervise(|| Word { said: String::new() });
     let typed = word.addr.clone();
-    let Ok(going) = asked_for(argv);
-    let kept: Kept = Arc::default();
+    let Ok(going) = asked_for(arguments);
+    let kept: Shared = Arc::default();
 
     let Ok(card) = Card::new(Arc::new(move || {
         let Ok(pages) = pages(&typed, &kept, going);
@@ -125,27 +125,27 @@ struct Word {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Narrowed {
     Same,
-    Changed,
+    Different,
 }
 
-enum Msg {
-    Said(Answer<String>),
+enum Message {
+    Reply(Answer<String>),
     Type { word: String, answer: Answer<Narrowed> },
 }
 
 impl actor::Machine for Word {
-    type Msg = Msg;
+    type Message = Message;
 
-    fn step(self, message: Msg) -> Self {
+    fn step(self, message: Message) -> Self {
         match message {
-            Msg::Said(answer) => {
+            Message::Reply(answer) => {
                 let _ = answer.say(self.said.clone());
                 self
             },
-            Msg::Type { word, answer } => {
+            Message::Type { word, answer } => {
                 let narrowed = match self.said == word {
                     true => Narrowed::Same,
-                    false => Narrowed::Changed,
+                    false => Narrowed::Different,
                 };
                 let _ = answer.say(narrowed);
                 Word { said: word }
@@ -154,7 +154,7 @@ impl actor::Machine for Word {
     }
 }
 
-type Typed = Addr<Msg>;
+type Typed = Address<Message>;
 
 const ABOUT: &str = "Type to narrow the list";
 
@@ -193,28 +193,28 @@ fn shape() -> Result<Shape, Never> {
     }
 }
 
-fn home() -> Result<Home, Never> {
+fn home() -> Result<HomeScreen, Never> {
     let Ok(kept) = file();
 
     let at = match kept {
         Some(at) => at,
-        None => return Ok(Home::default()),
+        None => return Ok(HomeScreen::default()),
     };
 
     let Ok(held) = console_core_atomic_writes::read(&at);
 
     match held {
-        console_core_atomic_writes::Held::Said(said) => Home::read(&said),
-        console_core_atomic_writes::Held::Nothing => Ok(Home::default()),
-        console_core_atomic_writes::Held::Unreadable(fault) => {
+        console_core_atomic_writes::Stored::Text(said) => HomeScreen::read(&said),
+        console_core_atomic_writes::Stored::Absent => Ok(HomeScreen::default()),
+        console_core_atomic_writes::Stored::Failed(fault) => {
             eprintln!("launcher: {}: {fault}", at.display());
 
-            Ok(Home::default())
+            Ok(HomeScreen::default())
         },
     }
 }
 
-fn keep(home: &Home) -> Result<(), Never> {
+fn keep(home: &HomeScreen) -> Result<(), Never> {
     let Ok(kept) = file();
 
     let at = match kept {
@@ -252,7 +252,7 @@ fn turned(name: &str) -> Result<(), Never> {
     Ok(())
 }
 
-fn turning(mut home: Home, shape: Shape, name: &str) -> Result<Home, Never> {
+fn turning(mut home: HomeScreen, shape: Shape, name: &str) -> Result<HomeScreen, Never> {
     let placed = home.where_(name)?;
 
     match placed {
@@ -275,7 +275,7 @@ fn placed(spot: Spot, name: &str) -> Result<(), Never> {
     Ok(())
 }
 
-fn placing(mut home: Home, spot: Spot, name: &str) -> Result<Home, Never> {
+fn placing(mut home: HomeScreen, spot: Spot, name: &str) -> Result<HomeScreen, Never> {
     home.forget(name)?;
 
     home.place(spot, name)?;
@@ -306,7 +306,7 @@ fn counting(found: found::Found) -> Result<Everything, Never> {
 }
 
 
-fn all(kept: &Kept) -> Result<&Everything, Never> {
+fn all(kept: &Shared) -> Result<&Everything, Never> {
     Ok(kept.all.get_or_init(|| {
         let Ok(everything) = everything();
 
@@ -314,14 +314,14 @@ fn all(kept: &Kept) -> Result<&Everything, Never> {
     }))
 }
 
-fn app_row(all: &Everything, name: &str, going: For, on: &Home) -> Result<Row, Never> {
+fn app_row(all: &Everything, name: &str, going: For, on: &HomeScreen) -> Result<Row, Never> {
     let picture =
         all.icon.get(name).map_or(Picture::Space, |at| Picture::At(PathBuf::from(at)));
     let named = name.to_string();
 
     match going {
         For::Placing(spot) => {
-            let Ok(places) = Does::call(move |_| {
+            let Ok(places) = Handler::call(move |_| {
                 let Ok(()) = placed(spot, &named);
                 true
             });
@@ -339,7 +339,7 @@ fn app_row(all: &Everything, name: &str, going: For, on: &Home) -> Result<Row, N
             };
             let switching = name.to_string();
 
-            let Ok(starts) = Does::call(move |_| {
+            let Ok(starts) = Handler::call(move |_| {
                 let Ok(()) = start(app.as_ref(), &named);
                 true
             });
@@ -358,7 +358,7 @@ fn app_row(all: &Everything, name: &str, going: For, on: &Home) -> Result<Row, N
 
 fn looking_up_row(said: &str) -> Result<Row, Never> {
     let word = said.to_string();
-    let Ok(looks) = Does::call(move |_| {
+    let Ok(looks) = Handler::call(move |_| {
         let Ok(()) = looked_up(&word);
         true
     });
@@ -370,7 +370,7 @@ fn looking_up_row(said: &str) -> Result<Row, Never> {
 fn rows(typed: &Typed, all: &Everything, going: For) -> Result<Vec<Row>, Never> {
     let mut word = String::new();
 
-    match typed.ask(Msg::Said) {
+    match typed.ask(Message::Reply) {
         Ok(said) => word = said,
         Err(_) => {},
     }
@@ -399,13 +399,13 @@ fn rows(typed: &Typed, all: &Everything, going: For) -> Result<Vec<Row>, Never> 
     Ok(rows)
 }
 
-fn before(typed: &Typed, kept: &Kept, going: For) -> Result<Vec<Row>, Never> {
+fn before(typed: &Typed, kept: &Shared, going: For) -> Result<Vec<Row>, Never> {
     let Ok(listed) = kept_list(kept);
 
     rows(typed, listed, going)
 }
 
-fn kept_list(kept: &Kept) -> Result<&Everything, Never> {
+fn kept_list(kept: &Shared) -> Result<&Everything, Never> {
     Ok(kept.before.get_or_init(|| {
         let Ok(everything) = everything_before();
 
@@ -420,7 +420,7 @@ fn heading(going: For) -> Result<&'static str, Never> {
     })
 }
 
-fn pages(typed: &Typed, kept: &Kept, going: For) -> Result<Vec<Page>, Never> {
+fn pages(typed: &Typed, kept: &Shared, going: For) -> Result<Vec<Page>, Never> {
     let listing = typed.clone();
     let waiting = typed.clone();
     let typing = typed.clone();
@@ -442,9 +442,9 @@ fn pages(typed: &Typed, kept: &Kept, going: For) -> Result<Vec<Page>, Never> {
         before
     });
     let Ok(page) = page.searching(ABOUT, move |showing, word| {
-        let narrowed = typing.ask(|answer| Msg::Type { word: word.to_string(), answer });
+        let narrowed = typing.ask(|answer| Message::Type { word: word.to_string(), answer });
 
-        match matches!(narrowed, Ok(Narrowed::Changed)) {
+        match matches!(narrowed, Ok(Narrowed::Different)) {
             true => showing.replace(0),
             false => {},
         }
@@ -455,12 +455,7 @@ fn pages(typed: &Typed, kept: &Kept, going: For) -> Result<Vec<Page>, Never> {
 
 
 fn asked_for(asked: &[String]) -> Result<For, Never> {
-    let at = match asked.iter().position(|word| word == "--place") {
-        Some(at) => at,
-        None => return Ok(For::Opening),
-    };
-
-    let said = match asked.get(at.saturating_add(1)) {
+    let said = match asked.iter().skip_while(|word| *word != "--place").nth(1) {
         Some(said) => said.as_str(),
         None => return Ok(For::Opening),
     };
@@ -479,7 +474,16 @@ fn asked_for(asked: &[String]) -> Result<For, Never> {
 
 fn start(app: Option<&entry::Application>, chosen: &str) -> Result<(), Never> {
     match app {
-        Some(app) => found::run(app)?,
+        Some(app) => {
+            let command = found::command(app)?;
+
+            match command {
+                Some(arguments) => {
+                    let Ok(()) = console_panel::running::left_running(&arguments);
+                }
+                None => {}
+            }
+        }
         None => {
             let Ok(()) = looked_up(chosen);
         },
@@ -512,7 +516,7 @@ fn looked_up(said: &str) -> Result<(), Never> {
 }
 
 fn opening(address: &str) -> Result<Vec<String>, Never> {
-    Program::XdgOpen.argv(&[address])
+    Program::XdgOpen.arguments(&[address])
 }
 
 
@@ -528,8 +532,8 @@ mod tests {
 
     const GRID: Shape = Shape::USUAL;
 
-    fn taken() -> Home {
-        let mut home = Home::default();
+    fn taken() -> HomeScreen {
+        let mut home = HomeScreen::default();
         ok(home.place(Spot { pane: 0, row: 0, column: 0 }, "Files"));
         ok(home.place(Spot { pane: 0, row: 0, column: 1 }, "Music"));
         home

@@ -6,21 +6,23 @@
 //! coverage. That half belongs to `console-test-checks`, against a screen.
 //!
 //! What is answerable here is everything the program does to a directory: which
-//! sessions it can see, what it does with a name nobody has saved, and that
+//! sessions it can see, what it does with a name no one has saved, and that
 //! throwing one away leaves the others alone. Those are the paths a person
 //! reaches by typing, and each of them once ran through an `unwrap` on a
 //! directory that might not be there.
 
 use std::fs::create_dir_all;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use console_resume::session::{Duplicates, PutBack, Really, Restoring, Sessions};
-use tempfile::TempDir;
+use console_resume::session::{Duplicates, Restore, Really, Restoring, Sessions};
+fn scratch(test: &str) -> PathBuf {
+    console_core_temporary_directories::fresh(&format!("resume-{test}")).expect("somewhere to keep them")
+}
 
-fn sessions(at: &TempDir) -> Sessions {
+fn sessions(at: &Path) -> Sessions {
     Sessions {
-        at: at.path().to_path_buf(),
+        at: at.to_path_buf(),
         adjusting_for: Duration::from_secs(1),
         really: Really::Simulated,
         restoring: Restoring::StartingItAgain,
@@ -37,8 +39,8 @@ fn named(sessions: &Sessions) -> Vec<String> {
 }
 
 #[test]
-fn a_directory_nobody_has_saved_into_holds_no_sessions() {
-    let at = TempDir::new().expect("somewhere to keep them");
+fn a_directory_no_one_has_saved_into_holds_no_sessions() {
+    let at = scratch("a_directory_no_one_has_saved_into_holds_no_sessions");
 
     assert_eq!(named(&sessions(&at)), Vec::<String>::new());
 }
@@ -46,7 +48,7 @@ fn a_directory_nobody_has_saved_into_holds_no_sessions() {
 #[test]
 fn a_place_that_does_not_exist_at_all_is_no_sessions_rather_than_a_fault() {
     let gone = Sessions {
-        at: PathBuf::from("/nowhere/nobody/has/been"),
+        at: PathBuf::from("/nowhere/no one/has/been"),
         adjusting_for: Duration::from_secs(1),
         really: Really::Simulated,
         restoring: Restoring::StartingItAgain,
@@ -58,10 +60,10 @@ fn a_place_that_does_not_exist_at_all_is_no_sessions_rather_than_a_fault() {
 
 #[test]
 fn every_session_saved_is_one_that_can_be_named_back() {
-    let at = TempDir::new().expect("somewhere to keep them");
+    let at = scratch("every_session_saved_is_one_that_can_be_named_back");
 
     for name in ["monday", "nightly", "yesterday"] {
-        create_dir_all(at.path().join(name)).expect("a session");
+        create_dir_all(at.join(name)).expect("a session");
     }
 
     assert_eq!(named(&sessions(&at)), ["monday", "nightly", "yesterday"]);
@@ -69,20 +71,20 @@ fn every_session_saved_is_one_that_can_be_named_back() {
 
 #[test]
 fn a_file_lying_among_the_sessions_is_not_one_of_them() {
-    let at = TempDir::new().expect("somewhere to keep them");
+    let at = scratch("a_file_lying_among_the_sessions_is_not_one_of_them");
 
-    create_dir_all(at.path().join("monday")).expect("a session");
-    std::fs::write(at.path().join("notes.txt"), "not a session").expect("a file");
+    create_dir_all(at.join("monday")).expect("a session");
+    std::fs::write(at.join("notes.txt"), "not a session").expect("a file");
 
     assert_eq!(named(&sessions(&at)), ["monday"]);
 }
 
 #[test]
 fn throwing_one_away_leaves_the_others_where_they_were() {
-    let at = TempDir::new().expect("somewhere to keep them");
+    let at = scratch("throwing_one_away_leaves_the_others_where_they_were");
 
     for name in ["monday", "yesterday"] {
-        create_dir_all(at.path().join(name)).expect("a session");
+        create_dir_all(at.join(name)).expect("a session");
     }
 
     let sessions = sessions(&at);
@@ -93,24 +95,24 @@ fn throwing_one_away_leaves_the_others_where_they_were() {
 
 #[test]
 fn a_session_with_nothing_in_it_leaves_the_screen_alone() {
-    let at = TempDir::new().expect("somewhere to keep them");
+    let at = scratch("a_session_with_nothing_in_it_leaves_the_screen_alone");
 
     let said = sessions(&at).load("never-saved");
 
     assert_eq!(
         said.expect("nothing to put back"),
-        PutBack::NothingSaved(at.path().join("never-saved")),
-        "putting back a session nobody saved is closing every window and starting nothing"
+        Restore::NothingSaved(at.join("never-saved")),
+        "putting back a session no one saved is closing every window and starting nothing"
     );
 }
 
 #[test]
-fn throwing_away_one_nobody_saved_says_so_rather_than_saying_nothing() {
-    let at = TempDir::new().expect("somewhere to keep them");
+fn throwing_away_one_no_one_saved_says_so_rather_than_saying_nothing() {
+    let at = scratch("throwing_away_one_no_one_saved_says_so_rather_than_saying_nothing");
 
     let said = sessions(&at).delete("never-existed");
 
-    let why = said.expect_err("a name nobody saved is a thing worth being told about");
+    let why = said.expect_err("a name no one saved is a thing worth being told about");
 
     assert!(
         why.to_string().contains("never-existed"),

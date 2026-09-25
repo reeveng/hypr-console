@@ -1,6 +1,6 @@
 //! The d-pad on its own moves between things and does nothing else.
 
-use console_test_stages::checking::{Body, Check, Done, empty, same};
+use console_test_stages::checking::{Body, Check, CheckResult, empty, same};
 use console_test_stages::device::{A_MOMENT, Device};
 use console_test_stages::here::{Here, TURNS};
 
@@ -14,7 +14,7 @@ pub const DPAD: Check = Check {
     bodies: &[Body::Here(here), Body::Device(there)],
 };
 
-fn here(stage: &mut Here) -> Done {
+fn here(stage: &mut Here) -> CheckResult {
     for way in WAYS {
         stage.press(way)?;
     }
@@ -25,7 +25,7 @@ fn here(stage: &mut Here) -> Done {
     empty(&ran, || format!("the d-pad ran {ran:?}"))
 }
 
-fn there(stage: &mut Device) -> Done {
+fn there(stage: &mut Device) -> CheckResult {
     let Ok(where_) = stage.workspace();
     let Ok(windows) = stage.windows();
 

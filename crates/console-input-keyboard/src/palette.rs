@@ -1,15 +1,15 @@
-//! The on-screen keyboard, and the colours it is started with.
+//! The on-screen keyboard, and the colors it is started with.
 //!
-//! The keyboard takes its colours as arguments and has no configuration file, so
+//! The keyboard takes its colors as arguments and has no configuration file, so
 //! something has to turn the palette into a command line. This is that, and it
-//! holds no colour of its own: every one of them is a name looked up in the
+//! holds no color of its own: every one of them is a name looked up in the
 //! palette every other surface on this machine is themed from.
 //!
 //! It was a shell script, and the test that guarded it read the script with
-//! regular expressions to find out which colour went to which option. That
+//! regular expressions to find out which color went to which option. That
 //! test is the reason this file is worth having: the fault it exists for has
 //! happened three times, always the same way -- two things on the keyboard
-//! given the same colour, so one of them has nothing under it and the whole
+//! given the same color, so one of them has nothing under it and the whole
 //! keyboard reads as something you can see through. Asking the command line
 //! about that is now asking a function rather than a regex.
 
@@ -23,7 +23,7 @@ pub const VIRTUAL_KEYBOARD: &str = "/usr/local/bin/console-keyboard";
 pub const HEIGHT: u32 = 260;
 pub const FONT: &str = "Noto Sans 16";
 
-pub const COLOURS: [(&str, &str); 17] = [
+pub const COLORS: [(&str, &str); 17] = [
     ("bg", "night"),
     ("fg", "panel"),
     ("fg-sp", "ground"),
@@ -58,19 +58,19 @@ pub const INK: [(&str, Option<&str>); 9] = [
 pub const BACKGROUNDS: [&str; 5] = ["bg", "fg", "fg-sp", "press", "sel"];
 
 pub fn role(option: &str) -> Result<Option<&'static str>, Never> {
-    Ok(COLOURS.iter().find(|(named, _)| *named == option).map(|(_, role)| *role))
+    Ok(COLORS.iter().find(|(named, _)| *named == option).map(|(_, role)| *role))
 }
 
 pub fn missing(palette: &BTreeMap<String, String>) -> Result<Vec<&'static str>, Never> {
     let mut wanted: Vec<&'static str> =
-        COLOURS.iter().map(|(_, role)| *role).filter(|role| !palette.contains_key(*role)).collect();
+        COLORS.iter().map(|(_, role)| *role).filter(|role| !palette.contains_key(*role)).collect();
     wanted.sort_unstable();
     wanted.dedup();
     Ok(wanted)
 }
 
-pub fn argv(palette: &BTreeMap<String, String>, rest: &[String]) -> Result<Vec<String>, Never> {
-    let mut argv = vec![
+pub fn arguments(palette: &BTreeMap<String, String>, rest: &[String]) -> Result<Vec<String>, Never> {
+    let mut arguments = vec![
         VIRTUAL_KEYBOARD.to_string(),
         "--hidden".to_string(),
         "--no-popup".to_string(),
@@ -82,18 +82,18 @@ pub fn argv(palette: &BTreeMap<String, String>, rest: &[String]) -> Result<Vec<S
         FONT.to_string(),
     ];
 
-    for (option, role) in COLOURS {
-        let colour = match palette.get(role) {
-            Some(colour) => colour,
+    for (option, role) in COLORS {
+        let color = match palette.get(role) {
+            Some(color) => color,
             None => continue,
         };
 
-        argv.push(format!("--{option}"));
-        argv.push(colour.clone());
+        arguments.push(format!("--{option}"));
+        arguments.push(color.clone());
     }
 
-    argv.extend(rest.iter().cloned());
-    Ok(argv)
+    arguments.extend(rest.iter().cloned());
+    Ok(arguments)
 }
 
 #[cfg(test)]
@@ -101,24 +101,15 @@ mod tests {
     use super::*;
 
     fn palette() -> BTreeMap<String, String> {
-        [
-            ("night", "110b12"),
-            ("panel", "241a24"),
-            ("ground", "382a38"),
-            ("text", "ebdce7"),
-            ("soft", "b79fb2"),
-            ("pink", "ffb5e2"),
-            ("mauve", "dbc2ff"),
-        ]
-        .iter()
-        .map(|(name, colour)| ((*name).to_string(), (*colour).to_string()))
-        .collect()
+        let Ok(palette) = console_core_color::palette::read("night=110b12\npanel=241a24\nground=382a38\ntext=ebdce7\nsoft=b79fb2\npink=ffb5e2\nmauve=dbc2ff");
+
+        palette
     }
 
-    fn argv(palette: &BTreeMap<String, String>, rest: &[String]) -> Vec<String> {
-        let Ok(argv) = super::argv(palette, rest);
+    fn arguments(palette: &BTreeMap<String, String>, rest: &[String]) -> Vec<String> {
+        let Ok(arguments) = super::arguments(palette, rest);
 
-        argv
+        arguments
     }
 
     fn role(option: &str) -> Option<&'static str> {
@@ -139,38 +130,37 @@ mod tests {
     }
 
     #[test]
-    fn every_option_is_handed_the_colour_it_is_for() {
-        let argv = argv(&palette(), &[]);
-        let at = argv.iter().position(|word| word == "--bg").expect("--bg");
-        assert_eq!(argv.get(at + 1).map(String::as_str), Some("110b12"));
+    fn every_option_is_handed_the_color_it_is_for() {
+        let arguments = arguments(&palette(), &[]);
+        let given = arguments.iter().skip_while(|word| *word != "--bg").nth(1);
+        assert_eq!(given.map(String::as_str), Some("110b12"));
     }
 
     #[test]
-    fn every_colour_is_six_digits_and_nothing_else() {
-        let argv = argv(&palette(), &[]);
-        for (option, _) in COLOURS {
-            let at = argv.iter().position(|word| *word == format!("--{option}")).expect(option);
-            let given = argv.get(at + 1).map(String::as_str).unwrap_or_default();
+    fn every_color_is_six_digits_and_nothing_else() {
+        let arguments = arguments(&palette(), &[]);
+        for (option, _) in COLORS {
+            let given = arguments.iter().skip_while(|word| **word != format!("--{option}")).nth(1).map(String::as_str).unwrap_or_default();
             assert_eq!(given.len(), 6, "--{option} is given {given}");
             assert!(given.chars().all(|l| l.is_ascii_hexdigit()), "--{option} is given {given}");
         }
     }
 
     #[test]
-    fn no_two_backgrounds_are_the_same_colour() {
+    fn no_two_backgrounds_are_the_same_color() {
         let palette = palette();
         let mut seen: BTreeMap<&str, &str> = BTreeMap::new();
         for option in BACKGROUNDS {
-            let colour = palette.get(role(option).expect(option)).expect("a colour");
-            if let Some(other) = seen.get(colour.as_str()) {
-                panic!("--{option} and --{other} are both #{colour}, so one is invisible on the other");
+            let color = palette.get(role(option).expect(option)).expect("a color");
+            if let Some(other) = seen.get(color.as_str()) {
+                panic!("--{option} and --{other} are both #{color}, so one is invisible on the other");
             }
-            seen.insert(colour, option);
+            seen.insert(color, option);
         }
     }
 
     #[test]
-    fn nothing_is_written_in_the_colour_it_is_written_on() {
+    fn nothing_is_written_in_the_color_it_is_written_on() {
         let palette = palette();
         for (background, ink) in INK {
             let ink = match ink {
@@ -181,7 +171,7 @@ mod tests {
             assert_ne!(
                 palette.get(under),
                 palette.get(over),
-                "--{background} and --{ink} are the same colour, so the writing is invisible"
+                "--{background} and --{ink} are the same color, so the writing is invisible"
             );
         }
     }
@@ -189,12 +179,12 @@ mod tests {
     #[test]
     fn every_background_is_named_at_all() {
         for option in BACKGROUNDS {
-            assert!(role(option).is_some(), "the keyboard is never told what colour --{option} is");
+            assert!(role(option).is_some(), "the keyboard is never told what color --{option} is");
         }
     }
 
     #[test]
-    fn a_colour_the_palette_does_not_have_is_named() {
+    fn a_color_the_palette_does_not_have_is_named() {
         let mut palette = palette();
         palette.remove("mauve");
         assert_eq!(missing(&palette), ["mauve"]);
@@ -202,8 +192,8 @@ mod tests {
     }
 
     #[test]
-    fn what_it_was_given_is_handed_on_after_the_colours() {
-        let argv = argv(&palette(), &["-l".to_string(), "simple".to_string()]);
-        assert_eq!(&argv[argv.len() - 2..], ["-l", "simple"]);
+    fn what_it_was_given_is_handed_on_after_the_colors() {
+        let arguments = arguments(&palette(), &["-l".to_string(), "simple".to_string()]);
+        assert_eq!(&arguments[arguments.len() - 2..], ["-l", "simple"]);
     }
 }

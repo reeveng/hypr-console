@@ -1,4 +1,4 @@
-//! Which profile the pad is wearing, and the one switch left that really is
+//! ProfileState profile the pad is wearing, and the one switch left that really is
 //! one.
 //!
 //! ```text
@@ -9,8 +9,8 @@
 //!
 //! `desktop` and `tabs` are the same file as `router` now and are kept as
 //! words for it. There used to be one profile for the desktop and another for
-//! while a chooser was up, and swapping them destroyed the pad and built a new
-//! one on every menu open and close. What a button means with a chooser up is
+//! while a picker was up, and swapping them destroyed the pad and built a new
+//! one on every menu open and close. What a button means with a picker up is
 //! this daemon's to say -- `console_input_controller::means` -- so there is one
 //! profile and nothing to swap.
 //!
@@ -45,7 +45,7 @@
 
 use std::time::Duration;
 
-use console_core_external_programs::Program as Theirs;
+use console_core_external_programs::Program as ExternalProgram;
 use console_core_words::Words;
 use console_input_gamepad::devices::Has;
 use console_input_gamepad::router::{self, PROFILES};
@@ -54,7 +54,7 @@ use console_core_never::Never;
 const THE_PROFILE: &str = "the profile";
 
 use console_program_contract::{
-    Argv, Doing, Ending, Given, Opening, Program, Round, Runs, Turn, Wants, Went, Word,
+    Arguments, Effect, Exit, Flag, Initial, Program, Timer, Command, Update, Subscription, ExitStatus, Event,
 };
 
 const BUS: &str = "org.shadowblip.InputPlumber";
@@ -63,7 +63,7 @@ const OBJECT: &str = "/org/shadowblip/InputPlumber/CompositeDevice0";
 
 const FACE: &str = "org.shadowblip.Input.CompositeDevice";
 
-const AGAIN: Round = Round { called: "the bus", every: Duration::from_secs(1) };
+const AGAIN: Timer = Timer { name: "the bus", interval: Duration::from_secs(1) };
 
 const MOST: u32 = 60;
 
@@ -74,39 +74,39 @@ pub const PAD: &str = "--pad";
 const NO_PAD: &str = "this machine has no pad, so there is nothing to put a profile on";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Which {
+pub enum ProfileState {
     Router,
     Game,
-    Asking,
-    Wrong(String),
+    Attempt,
+    Error(String),
 }
 
-impl Which {
-    pub fn of(argv: &Argv) -> Result<Self, Never> {
-        let Ok(words) = argv.words();
+impl ProfileState {
+    pub fn of(arguments: &Arguments) -> Result<Self, Never> {
+        let Ok(words) = arguments.words();
         let first = words.iter().map(String::as_str).find(|word| *word != PAD);
 
         Ok(match first {
-            None => Which::Asking,
-            Some("router" | "desktop" | "tabs") => Which::Router,
-            Some("game") => Which::Game,
-            Some(word) => Which::Wrong(word.to_string()),
+            None => ProfileState::Attempt,
+            Some("router" | "desktop" | "tabs") => ProfileState::Router,
+            Some("game") => ProfileState::Game,
+            Some(word) => ProfileState::Error(word.to_string()),
         })
     }
 
     pub fn file(&self) -> Result<Option<String>, Never> {
         Ok(match self {
-            Which::Router => Some(format!("{PROFILES}{}", router::FILE)),
-            Which::Game => Some(format!("{PROFILES}{GAME}")),
-            Which::Asking | Which::Wrong(_) => None,
+            ProfileState::Router => Some(format!("{PROFILES}{}", router::FILE)),
+            ProfileState::Game => Some(format!("{PROFILES}{GAME}")),
+            ProfileState::Attempt | ProfileState::Error(_) => None,
         })
     }
 
     pub fn buzz(&self) -> Result<Option<Buzz>, Never> {
         Ok(match self {
-            Which::Router => Some(Buzz::Off),
-            Which::Game => Some(Buzz::On),
-            Which::Asking | Which::Wrong(_) => None,
+            ProfileState::Router => Some(Buzz::Off),
+            ProfileState::Game => Some(Buzz::On),
+            ProfileState::Attempt | ProfileState::Error(_) => None,
         })
     }
 }
@@ -120,21 +120,21 @@ pub enum Buzz {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Its {
+pub enum ProfileEffect {
     Buzzing(Buzz),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Step {
-    Opening,
+    Initial,
     Waiting,
     Loading,
-    Telling,
+    Sender,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Asking {
-    pub wants: Which,
+pub struct Attempt {
+    pub subscriptions: ProfileState,
     pub pad: Has,
     pub step: Step,
     pub tried: u32,
@@ -143,64 +143,64 @@ pub struct Asking {
 pub struct Profile;
 
 impl Program for Profile {
-    type State = Asking;
-    type Hears = console_core_never::Never;
-    type Does = Its;
+    type State = Attempt;
+    type Event = console_core_never::Never;
+    type Effect = ProfileEffect;
 
-    fn opening(argv: &Argv) -> Opening<Asking> {
-        let Ok(wants) = Which::of(argv);
-        let Ok(given) = argv.given(PAD);
+    fn init(arguments: &Arguments) -> Initial<Attempt> {
+        let Ok(subscriptions) = ProfileState::of(arguments);
+        let Ok(given) = arguments.given(PAD);
         let Ok(pad) = has(given);
-        let holding = Asking { wants, pad, step: Step::Opening, tried: 0 };
-        let Ok(file) = holding.wants.file();
+        let holding = Attempt { subscriptions, pad, step: Step::Initial, tried: 0 };
+        let Ok(file) = holding.subscriptions.file();
 
         let Ok(opening) = match (file, pad) {
-            (Some(_), Has::Yes) => Opening::listening(holding, vec![Wants::Round(AGAIN)]),
-            (Some(_), Has::No) | (None, _) => Opening::holding(holding),
+            (Some(_), Has::Yes) => Initial::subscribed(holding, vec![Subscription::Timer(AGAIN)]),
+            (Some(_), Has::No) | (None, _) => Initial::new(holding),
         };
 
         opening
     }
 
-    fn heard(state: &Asking, word: &Word<console_core_never::Never>) -> Turn<Asking, Its> {
-        let Ok(turn) = match (state.pad, &state.wants, word) {
-            (_, Which::Wrong(word), Word::Opened) => Turn::doing(
+    fn update(state: &Attempt, event: &Event<console_core_never::Never>) -> Update<Attempt, ProfileEffect> {
+        let Ok(turn) = match (state.pad, &state.subscriptions, event) {
+            (_, ProfileState::Error(word), Event::Opened) => Update::new(
                 state.clone(),
-                vec![Doing::Stop(Ending::Badly(format!(
+                vec![Effect::Stop(Exit::Failure(format!(
                     "{word}: usage: controller-profile [router|game]"
                 )))],
             ),
 
-            (Has::No, Which::Asking | Which::Router | Which::Game, Word::Opened) => Turn::doing(
+            (Has::No, ProfileState::Attempt | ProfileState::Router | ProfileState::Game, Event::Opened) => Update::new(
                 state.clone(),
-                vec![Doing::Print(NO_PAD.to_string()), Doing::Stop(Ending::Done)],
+                vec![Effect::Print(NO_PAD.to_string()), Effect::Stop(Exit::Success)],
             ),
 
-            (Has::Yes, Which::Asking, Word::Opened) => {
+            (Has::Yes, ProfileState::Attempt, Event::Opened) => {
                 let Ok(reading) = reading();
 
-                Turn::doing(
-                    Asking { step: Step::Telling, ..state.clone() },
-                    vec![Doing::Ask(reading)],
+                Update::new(
+                    Attempt { step: Step::Sender, ..state.clone() },
+                    vec![Effect::Run(reading)],
                 )
             }
 
-            (Has::Yes, Which::Router | Which::Game, Word::Opened) => {
+            (Has::Yes, ProfileState::Router | ProfileState::Game, Event::Opened) => {
                 let Ok(reading) = reading();
-                let Ok(buzzing) = buzzing(&state.wants);
+                let Ok(buzzing) = buzzing(&state.subscriptions);
 
-                Turn::doing(
-                    Asking { step: Step::Waiting, ..state.clone() },
-                    buzzing.into_iter().chain([Doing::Ask(reading)]).collect(),
+                Update::new(
+                    Attempt { step: Step::Waiting, ..state.clone() },
+                    buzzing.into_iter().chain([Effect::Run(reading)]).collect(),
                 )
             }
 
-            (_, _, Word::Answered(answer)) => answered(state, &answer.went, &answer.said),
+            (_, _, Event::Replied(answer)) => answered(state, &answer.status, &answer.output),
 
-            (_, _, Word::CameRound(_, _)) => tried(state),
+            (_, _, Event::Tick(_, _)) => tried(state),
 
-            (_, _, Word::Changed(_) | Word::Chose(_) | Word::Stopping | Word::Its(_)) => {
-                Turn::nothing(state.clone())
+            (_, _, Event::Changed(_) | Event::Chosen(_) | Event::Stopping | Event::Custom(_)) => {
+                Update::none(state.clone())
             }
         };
 
@@ -208,110 +208,110 @@ impl Program for Profile {
     }
 }
 
-fn answered(state: &Asking, went: &Went, said: &str) -> Result<Turn<Asking, Its>, Never> {
+fn answered(state: &Attempt, went: &ExitStatus, said: &str) -> Result<Update<Attempt, ProfileEffect>, Never> {
     match (state.step, went) {
-        (Step::Waiting, Went::Badly(_)) => Turn::nothing(state.clone()),
+        (Step::Waiting, ExitStatus::Failure(_)) => Update::none(state.clone()),
 
-        (Step::Waiting, Went::Well) => {
-            let Ok(file) = state.wants.file();
+        (Step::Waiting, ExitStatus::Success) => {
+            let Ok(file) = state.subscriptions.file();
 
             match file {
             Some(file) => {
                 let Ok(loading) = loading(&file);
 
-                Turn::doing(
-                    Asking { step: Step::Loading, ..state.clone() },
-                    vec![Doing::Ask(loading)],
+                Update::new(
+                    Attempt { step: Step::Loading, ..state.clone() },
+                    vec![Effect::Run(loading)],
                 )
             }
-            None => Turn::doing(state.clone(), vec![Doing::Stop(Ending::Done)]),
+            None => Update::new(state.clone(), vec![Effect::Stop(Exit::Success)]),
             }
         },
 
-        (Step::Loading, Went::Well) => {
-            Turn::doing(state.clone(), vec![Doing::Stop(Ending::Done)])
+        (Step::Loading, ExitStatus::Success) => {
+            Update::new(state.clone(), vec![Effect::Stop(Exit::Success)])
         }
 
-        (Step::Loading, Went::Badly(_)) => {
-            let Ok(file) = state.wants.file();
+        (Step::Loading, ExitStatus::Failure(_)) => {
+            let Ok(file) = state.subscriptions.file();
             let named = match file {
                 Some(named) => named,
                 None => THE_PROFILE.to_string(),
             };
 
-            Turn::doing(
+            Update::new(
                 state.clone(),
-                vec![Doing::Stop(Ending::Badly(format!("{named} would not load")))],
+                vec![Effect::Stop(Exit::Failure(format!("{named} would not load")))],
             )
         },
 
-        (Step::Telling, Went::Well) => {
+        (Step::Sender, ExitStatus::Success) => {
             let Ok(named) = named(said);
 
-            Turn::doing(
+            Update::new(
                 state.clone(),
                 vec![
-                    Doing::Print(match named {
+                    Effect::Print(match named {
                         Some(named) => named,
                         None => String::new(),
                     }),
-                    Doing::Stop(Ending::Done),
+                    Effect::Stop(Exit::Success),
                 ],
             )
         }
 
-        (Step::Telling, Went::Badly(_)) => Turn::doing(
+        (Step::Sender, ExitStatus::Failure(_)) => Update::new(
             state.clone(),
-            vec![Doing::Stop(Ending::Badly(
+            vec![Effect::Stop(Exit::Failure(
                 "InputPlumber is not on the bus, so nothing can say which profile is on".to_string(),
             ))],
         ),
 
-        (Step::Opening, _) => Turn::nothing(state.clone()),
+        (Step::Initial, _) => Update::none(state.clone()),
     }
 }
 
-fn tried(state: &Asking) -> Result<Turn<Asking, Its>, Never> {
+fn tried(state: &Attempt) -> Result<Update<Attempt, ProfileEffect>, Never> {
     let tried = state.tried.saturating_add(1);
 
     match tried < MOST {
         true => {
             let Ok(reading) = reading();
 
-            Turn::doing(Asking { tried, ..state.clone() }, vec![Doing::Ask(reading)])
+            Update::new(Attempt { tried, ..state.clone() }, vec![Effect::Run(reading)])
         }
-        false => Turn::doing(
-            Asking { tried, ..state.clone() },
-            vec![Doing::Stop(Ending::Badly(
+        false => Update::new(
+            Attempt { tried, ..state.clone() },
+            vec![Effect::Stop(Exit::Failure(
                 "InputPlumber never appeared on the bus".to_string(),
             ))],
         ),
     }
 }
 
-fn has(given: Given) -> Result<Has, Never> {
+fn has(given: Flag) -> Result<Has, Never> {
     Ok(match given {
-        Given::Yes => Has::Yes,
-        Given::No => Has::No,
+        Flag::Present => Has::Yes,
+        Flag::Absent => Has::No,
     })
 }
 
-fn buzzing(wants: &Which) -> Result<Vec<Doing<Its>>, Never> {
-    let Ok(buzz) = wants.buzz();
+fn buzzing(subscriptions: &ProfileState) -> Result<Vec<Effect<ProfileEffect>>, Never> {
+    let Ok(buzz) = subscriptions.buzz();
 
-    Ok(buzz.map(|buzz| Doing::Its(Its::Buzzing(buzz))).into_iter().collect())
+    Ok(buzz.map(|buzz| Effect::Custom(ProfileEffect::Buzzing(buzz))).into_iter().collect())
 }
 
-fn reading() -> Result<Runs, Never> {
-    Runs::theirs(
-        Theirs::Busctl,
+fn reading() -> Result<Command, Never> {
+    Command::external(
+        ExternalProgram::Busctl,
         &["--system", "get-property", BUS, OBJECT, FACE, "ProfileName"],
     )
 }
 
-fn loading(file: &str) -> Result<Runs, Never> {
-    Runs::theirs(
-        Theirs::Busctl,
+fn loading(file: &str) -> Result<Command, Never> {
+    Command::external(
+        ExternalProgram::Busctl,
         &["--system", "call", BUS, OBJECT, FACE, "LoadProfilePath", "s", file],
     )
 }
@@ -332,76 +332,76 @@ pub fn named(said: &str) -> Result<Option<String>, Never> {
 
 #[cfg(test)]
 mod tests {
-    use console_program_contract::{Answer, told};
+    use console_program_contract::{Answer, run};
 
     use super::*;
 
-    fn answered_with(went: Went, said: &str) -> Word<Never> {
+    fn answered_with(went: ExitStatus, said: &str) -> Event<Never> {
         let Ok(reading) = reading();
 
-        Word::Answered(Answer { ran: reading, said: said.to_string(), went })
+        Event::Replied(Answer { command: reading, output: said.to_string(), status: went })
     }
 
     #[test]
     fn the_desktops_word_and_the_router_are_the_same_file() {
-        let Ok(desktop) = Argv::of(&["desktop", PAD]);
-        let Ok(tabs) = Argv::of(&["tabs", PAD]);
-        let Ok(router) = Argv::of(&["router", PAD]);
+        let Ok(desktop) = Arguments::of(&["desktop", PAD]);
+        let Ok(tabs) = Arguments::of(&["tabs", PAD]);
+        let Ok(router) = Arguments::of(&["router", PAD]);
 
-        assert_eq!(Which::of(&desktop), Ok(Which::Router));
-        assert_eq!(Which::of(&tabs), Ok(Which::Router));
-        assert_eq!(Which::of(&router), Ok(Which::Router));
+        assert_eq!(ProfileState::of(&desktop), Ok(ProfileState::Router));
+        assert_eq!(ProfileState::of(&tabs), Ok(ProfileState::Router));
+        assert_eq!(ProfileState::of(&router), Ok(ProfileState::Router));
     }
 
     #[test]
     fn the_buzz_is_off_for_the_desktop_and_on_for_a_game() {
-        let Ok(router) = Argv::of(&["router", PAD]);
-        let Ok(playing) = Argv::of(&["game", PAD]);
-        let Ok(said) = told::<Profile>(&router, &[Word::Opened]);
-        let Ok(game) = told::<Profile>(&playing, &[Word::Opened]);
+        let Ok(router) = Arguments::of(&["router", PAD]);
+        let Ok(playing) = Arguments::of(&["game", PAD]);
+        let Ok(said) = run::<Profile>(&router, &[Event::Opened]);
+        let Ok(game) = run::<Profile>(&playing, &[Event::Opened]);
         let Ok(first) = said.on(0);
         let Ok(began) = game.on(0);
 
-        assert_eq!(first.and_then(|doings| doings.first()), Some(&Doing::Its(Its::Buzzing(Buzz::Off))));
-        assert_eq!(began.and_then(|doings| doings.first()), Some(&Doing::Its(Its::Buzzing(Buzz::On))));
+        assert_eq!(first.and_then(|effects| effects.first()), Some(&Effect::Custom(ProfileEffect::Buzzing(Buzz::Off))));
+        assert_eq!(began.and_then(|effects| effects.first()), Some(&Effect::Custom(ProfileEffect::Buzzing(Buzz::On))));
     }
 
     #[test]
     fn the_wait_for_the_bus_ends_the_moment_it_answers() {
-        let mut words = vec![Word::Opened, answered_with(Went::Badly(Some(1)), "")];
+        let mut words = vec![Event::Opened, answered_with(ExitStatus::Failure(Some(1)), "")];
 
         for _ in 0..40 {
-            words.push(Word::CameRound(AGAIN, Duration::ZERO));
-            words.push(answered_with(Went::Badly(Some(1)), ""));
+            words.push(Event::Tick(AGAIN, Duration::ZERO));
+            words.push(answered_with(ExitStatus::Failure(Some(1)), ""));
         }
 
-        words.push(Word::CameRound(AGAIN, Duration::ZERO));
-        words.push(answered_with(Went::Well, "s \"router\""));
+        words.push(Event::Tick(AGAIN, Duration::ZERO));
+        words.push(answered_with(ExitStatus::Success, "s \"router\""));
 
-        let Ok(router) = Argv::of(&["router", PAD]);
-        let Ok(said) = told::<Profile>(&router, &words);
-        let Ok(doings) = said.doings();
+        let Ok(router) = Arguments::of(&["router", PAD]);
+        let Ok(said) = run::<Profile>(&router, &words);
+        let Ok(effects) = said.effects();
         let Ok(loading) = loading("/etc/inputplumber/profiles/router.yaml");
 
-        assert_eq!(doings.last(), Some(&Doing::Ask(loading)));
+        assert_eq!(effects.last(), Some(&Effect::Run(loading)));
     }
 
     #[test]
     fn a_bus_that_never_appears_is_said_out_loud_rather_than_waited_on_for_ever() {
-        let mut words = vec![Word::Opened, answered_with(Went::Badly(Some(1)), "")];
+        let mut words = vec![Event::Opened, answered_with(ExitStatus::Failure(Some(1)), "")];
 
         for _ in 0..MOST {
-            words.push(Word::CameRound(AGAIN, Duration::ZERO));
-            words.push(answered_with(Went::Badly(Some(1)), ""));
+            words.push(Event::Tick(AGAIN, Duration::ZERO));
+            words.push(answered_with(ExitStatus::Failure(Some(1)), ""));
         }
 
-        let Ok(router) = Argv::of(&["router", PAD]);
-        let Ok(said) = told::<Profile>(&router, &words);
-        let Ok(doings) = said.doings();
+        let Ok(router) = Arguments::of(&["router", PAD]);
+        let Ok(said) = run::<Profile>(&router, &words);
+        let Ok(effects) = said.effects();
 
         assert_eq!(
-            doings.last(),
-            Some(&Doing::Stop(Ending::Badly(
+            effects.last(),
+            Some(&Effect::Stop(Exit::Failure(
                 "InputPlumber never appeared on the bus".to_string()
             )))
         );
@@ -409,60 +409,60 @@ mod tests {
 
     #[test]
     fn asking_which_profile_is_on_prints_the_name_out_of_what_the_bus_said() {
-        let Ok(pad) = Argv::of(&[PAD]);
-        let Ok(said) = told::<Profile>(
+        let Ok(pad) = Arguments::of(&[PAD]);
+        let Ok(said) = run::<Profile>(
             &pad,
-            &[Word::Opened, answered_with(Went::Well, "s \"router\"\n")],
+            &[Event::Opened, answered_with(ExitStatus::Success, "s \"router\"\n")],
         );
 
         assert_eq!(
             said.on(1),
-            Ok(Some([Doing::Print("router".to_string()), Doing::Stop(Ending::Done)].as_slice()))
+            Ok(Some([Effect::Print("router".to_string()), Effect::Stop(Exit::Success)].as_slice()))
         );
     }
 
     #[test]
     fn the_machines_own_word_is_not_the_word_the_person_typed() {
-        let Ok(nothing) = Argv::of(&[PAD]);
-        let Ok(router) = Argv::of(&["router", PAD]);
+        let Ok(nothing) = Arguments::of(&[PAD]);
+        let Ok(router) = Arguments::of(&["router", PAD]);
 
-        assert_eq!(Which::of(&nothing), Ok(Which::Asking));
-        assert_eq!(Which::of(&router), Ok(Which::Router));
+        assert_eq!(ProfileState::of(&nothing), Ok(ProfileState::Attempt));
+        assert_eq!(ProfileState::of(&router), Ok(ProfileState::Router));
     }
 
     #[test]
     fn a_machine_with_no_pad_says_so_rather_than_waiting_out_the_whole_minute() {
-        let Ok(router) = Argv::of(&["router"]);
-        let Ok(said) = told::<Profile>(&router, &[Word::Opened]);
+        let Ok(router) = Arguments::of(&["router"]);
+        let Ok(said) = run::<Profile>(&router, &[Event::Opened]);
 
         assert_eq!(
             said.on(0),
             Ok(Some(
-                [Doing::Print(NO_PAD.to_string()), Doing::Stop(Ending::Done)].as_slice()
+                [Effect::Print(NO_PAD.to_string()), Effect::Stop(Exit::Success)].as_slice()
             ))
         );
     }
 
     #[test]
     fn a_machine_with_no_pad_asks_the_bus_nothing_and_waits_for_no_round() {
-        let Ok(router) = Argv::of(&["router"]);
-        let opening = Profile::opening(&router);
-        let Ok(said) = told::<Profile>(&router, &[Word::Opened]);
-        let Ok(doings) = said.doings();
+        let Ok(router) = Arguments::of(&["router"]);
+        let init = Profile::init(&router);
+        let Ok(said) = run::<Profile>(&router, &[Event::Opened]);
+        let Ok(effects) = said.effects();
 
-        assert_eq!(opening.wants, Vec::new());
-        assert!(!doings.iter().any(|doing| matches!(doing, Doing::Ask(_))), "{doings:?}");
+        assert_eq!(init.subscriptions, Vec::new());
+        assert!(!effects.iter().any(|effect| matches!(effect, Effect::Run(_))), "{effects:?}");
     }
 
     #[test]
     fn a_word_this_program_does_not_know_is_refused_with_the_usage() {
-        let Ok(keyboard) = Argv::of(&["keyboard", PAD]);
-        let Ok(said) = told::<Profile>(&keyboard, &[Word::Opened]);
+        let Ok(keyboard) = Arguments::of(&["keyboard", PAD]);
+        let Ok(said) = run::<Profile>(&keyboard, &[Event::Opened]);
 
         assert_eq!(
             said.on(0),
             Ok(Some(
-                [Doing::Stop(Ending::Badly(
+                [Effect::Stop(Exit::Failure(
                     "keyboard: usage: controller-profile [router|game]".to_string()
                 ))]
                 .as_slice()
@@ -472,13 +472,13 @@ mod tests {
 
     #[test]
     fn nothing_waits_for_a_bus_it_is_only_asking_about() {
-        let Ok(pad) = Argv::of(&[PAD]);
-        let Ok(game) = Argv::of(&["game", PAD]);
+        let Ok(pad) = Arguments::of(&[PAD]);
+        let Ok(game) = Arguments::of(&["game", PAD]);
 
-        let asking = Profile::opening(&pad);
-        let loading = Profile::opening(&game);
+        let asking = Profile::init(&pad);
+        let loading = Profile::init(&game);
 
-        assert_eq!(asking.wants, Vec::new());
-        assert_eq!(loading.wants, vec![Wants::Round(AGAIN)]);
+        assert_eq!(asking.subscriptions, Vec::new());
+        assert_eq!(loading.subscriptions, vec![Subscription::Timer(AGAIN)]);
     }
 }

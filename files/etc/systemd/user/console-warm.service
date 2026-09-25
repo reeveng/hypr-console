@@ -1,5 +1,5 @@
 [Unit]
-Description=Night colours
+Description=Night colors
 PartOf=console.target
 
 [Service]
@@ -16,20 +16,20 @@ Environment=XDG_CONFIG_HOME=%h/.config/console
 # every step of the curve, so a temperature sent to it is undone within minutes
 # during dusk and not until morning at midnight -- one switch behaving two ways
 # depending on when it was pressed. A daemon that is not running is the same
-# answer at every hour, and it survives a reboot without anybody re-asserting
+# answer at every hour, and it survives a reboot without anyone re-asserting
 # it.
 #
 # A condition that says no leaves the unit inactive and not failed, so nothing
-# is restarted and `console-fell` says nothing.
-ExecCondition=/usr/local/bin/console-warm wanted
+# is restarted and `console-report-crash` says nothing.
+ExecCondition=/usr/local/bin/console-warm switched-on
 # The whole curve is in ~/.config/console/hypr/hyprsunset.conf, read once at
 # startup.
 # Nothing has to tell it anything afterwards, which is why there is no
-# ExecStartPost here any more: what somebody decided last night is in the file
+# ExecStartPost here any more: what someone decided last night is in the file
 # this asks about, and where in the curve the clock is is the daemon's own
 # business.
 ExecStart=/usr/bin/hyprsunset
-ExecStopPost=-/usr/local/bin/console-fell %n
+ExecStopPost=-/usr/local/bin/console-report-crash %n
 Restart=always
 RestartSec=5
 
@@ -37,7 +37,7 @@ RestartSec=5
 #
 # hyprsunset reads its curve out of the home directory once and then talks to
 # the compositor. Nothing is written and no device is opened: the screen's
-# colour is the compositor's to set, not this program's.
+# color is the compositor's to set, not this program's.
 PrivateDevices=yes
 ProtectHome=read-only
 RestrictAddressFamilies=AF_UNIX AF_NETLINK

@@ -4,7 +4,7 @@
 //! thing you are standing on, and under it the things that can be done to it.
 //! The home screen has two -- move this one somewhere else, and take it off --
 //! and until this card existed neither was on a button. Moving was a hold on
-//! A, which is a press somebody has to be told about before they can make it,
+//! A, which is a press someone has to be told about before they can make it,
 //! and taking off was not on the home screen at all: it was a row on a card
 //! listing every application on the machine, reached from the same Y.
 //!
@@ -28,26 +28,26 @@
 use std::sync::{Arc, OnceLock};
 
 use console_core_never::Never;
-use console_onscreen::Said;
-use console_panel::page::{Aside, Does, Page, Row, Rows};
-use console_panel::{chooser, panel};
+use console_onscreen::PadInput;
+use console_panel::page::{Aside, Handler, Page, Row, Rows};
+use console_panel::{picker, surface};
 
 const MOVE: &str = "Move";
-const OFF: &str = "Remove from the home screen";
+const OFF: &str = "Remove from Home Screen";
 
-const THEN: &str = "then A puts it down";
+const THEN: &str = "press A to drop";
 
-fn rows(chosen: &Arc<OnceLock<Said>>) -> Result<Vec<Row>, Never> {
+fn rows(chosen: &Arc<OnceLock<PadInput>>) -> Result<Vec<Row>, Never> {
     let moving = Arc::clone(chosen);
     let taking = Arc::clone(chosen);
 
-    let Ok(carries) = Does::call(move |_| {
-        let _ = moving.set(Said::Carry);
+    let Ok(carries) = Handler::call(move |_| {
+        let _ = moving.set(PadInput::Payload);
 
         true
     });
-    let Ok(takes) = Does::call(move |_| {
-        let _ = taking.set(Said::Off);
+    let Ok(takes) = Handler::call(move |_| {
+        let _ = taking.set(PadInput::Off);
 
         true
     });
@@ -67,17 +67,17 @@ fn main() {
         }
     };
 
-    let Ok(alone) = chooser::alone("home-square", chooser::Again::Closes);
+    let Ok(alone) = picker::alone("home-square", picker::Again::Closes);
 
     match alone {
-        chooser::Alone::No => return,
-        chooser::Alone::Yes => {},
+        picker::Alone::No => return,
+        picker::Alone::Yes => {},
     }
 
-    let chosen: Arc<OnceLock<Said>> = Arc::new(OnceLock::new());
+    let chosen: Arc<OnceLock<PadInput>> = Arc::new(OnceLock::new());
     let building = Arc::clone(&chosen);
 
-    let Ok(()) = panel::show(
+    let Ok(()) = surface::show(
         Arc::new(move || {
             let Ok(rows) = rows(&building);
             let Ok(page) = Page::new(&name, Rows::Fixed(rows));

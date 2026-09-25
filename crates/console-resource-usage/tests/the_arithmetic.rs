@@ -4,9 +4,12 @@
 //! there. What is asked here is the half that decides anything: a rate out of
 //! two counters, with the three things a counter does that a subtraction is
 //! wrong about -- a program restarting, the machine rebooting, and a night
-//! spent asleep counting as time the desktop was awake for.
+//! spent asleep counting as time the desktop was awake for. The last of those
+//! is two questions: the night is not awake time, and the battery it fell by
+//! is not the desktop's rate either, so the window it fell across is no part of
+//! the watts.
 
-use console_resource_usage::{Moment, between, of, written};
+use console_resource_usage::{Moment, between, of, watts, written};
 
 fn moment(at: u64, up: f64, slept: f64, energy: f64, busy: &[(&str, f64)]) -> Moment {
     Moment {
@@ -45,6 +48,25 @@ fn a_night_asleep_is_not_time_the_desktop_was_awake() {
 
     assert_eq!(used.asleep, 32_400.0);
     assert_eq!(used.awake, 3_600.0);
+    assert_eq!(used.watthours, 0.0);
+    assert_eq!(used.flat, 0.0);
+}
+
+#[test]
+fn the_watts_are_the_readings_that_held_no_sleep() {
+    let moments = [
+        moment(1_000, 1_000.0, 0.0, 40.0, &[]),
+        moment(4_600, 4_600.0, 0.0, 34.0, &[]),
+        moment(40_600, 40_600.0, 32_400.0, 33.0, &[]),
+        moment(44_200, 44_200.0, 32_400.0, 27.0, &[]),
+    ];
+    let used = between(&moments).unwrap().expect("four readings are three measurements");
+
+    assert_eq!(used.awake, 10_800.0);
+    assert_eq!(used.asleep, 32_400.0);
+    assert_eq!(used.watthours, 12.0);
+    assert_eq!(used.flat, 2.0);
+    assert_eq!(watts(&used).unwrap(), Some(6.0));
 }
 
 #[test]

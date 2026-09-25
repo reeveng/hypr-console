@@ -30,19 +30,19 @@
 //!
 //! # Why where it went is named and not just how much is gone
 //!
-//! A number alone leaves somebody looking for the room with a torch. Naming the
+//! A number alone leaves someone looking for the room with a torch. Naming the
 //! places is what makes the sentence actionable, and it is why the places are
 //! handed in here rather than assumed: what is big on this device is the games,
 //! and on the next one it will be something else.
 //!
 //! Measuring them is a walk over every file in the person's home, which is a
-//! minute on a machine with a lot in it, so nobody walks it to answer a
+//! minute on a machine with a lot in it, so no one walks it to answer a
 //! question that came back fine. How much room is left is a single cheap
 //! reading and it is taken every time; where it went is measured only once that
-//! reading is below what an apply wants, which is the moment somebody has to be
+//! reading is below what an apply wants, which is the moment someone has to be
 //! told where to look. Between the two lines the card says the size and names
 //! nothing, because an hourly walk on a machine that is merely getting full is
-//! a cost paid for a sentence nobody has to act on yet.
+//! a cost paid for a sentence no one has to act on yet.
 
 use console_core_never::Never;
 
@@ -54,7 +54,7 @@ pub const AN_EVENING: u64 = 10 * GIGABYTE;
 
 pub const STANDING: u64 = A_BUILD + AN_EVENING;
 
-const NAMED: usize = 3;
+const NAMED: u32 = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Place {
@@ -64,7 +64,7 @@ pub struct Place {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Left {
-    Said(u64),
+    Reported(u64),
     Unknown(String),
 }
 
@@ -90,9 +90,11 @@ fn where_it_went(went: &[Place]) -> Result<String, Never> {
     let mut biggest: Vec<&Place> = went.iter().filter(|place| place.bytes >= GIGABYTE).collect();
     biggest.sort_by_key(|place| std::cmp::Reverse(place.bytes));
 
+    let Ok(most) = console_core_number_conversion::index(NAMED);
+
     let named: Vec<String> = biggest
         .into_iter()
-        .take(NAMED)
+        .take(most)
         .map(|place| {
             let Ok(size) = words(place.bytes);
 
@@ -115,7 +117,7 @@ pub fn free_in(said: &str) -> Result<Left, Never> {
     };
 
     Ok(match bytes.parse::<u64>() {
-        Ok(bytes) => Left::Said(bytes),
+        Ok(bytes) => Left::Reported(bytes),
         Err(fault) => Left::Unknown(format!("{bytes:?} is not a number of bytes ({fault})")),
     })
 }
@@ -147,37 +149,44 @@ pub fn places_in(said: &str, roots: &[String]) -> Result<Vec<Place>, Never> {
         .collect())
 }
 
-pub fn before_an_apply(free: u64, went: &[Place]) -> Result<Room, Never> {
-    match free >= A_BUILD {
+struct Short {
+    left: String,
+    wanted: String,
+    where_to: String,
+}
+
+struct Enough(u64);
+
+fn short_of(free: u64, Enough(enough): Enough, went: &[Place], said: impl FnOnce(Short) -> String) -> Result<Room, Never> {
+    match free >= enough {
         true => return Ok(Room::Enough),
         false => {},
     }
 
     let Ok(left) = words(free);
     let Ok(wanted) = words(A_BUILD);
-    let Ok(gone) = where_it_went(went);
+    let Ok(where_to) = where_it_went(went);
 
-    Ok(Room::No(format!(
-        "there is {left} left on this disk and an apply wants {wanted} to be sure of finishing: it \
-         builds the whole desktop before it installs any of it, and a build that runs out of room \
-         stops somewhere nobody chose.{gone} Make some room and run it again."
-    )))
+    Ok(Room::No(said(Short { left, wanted, where_to })))
+}
+
+pub fn before_an_apply(free: u64, went: &[Place]) -> Result<Room, Never> {
+    short_of(free, Enough(A_BUILD), went, |Short { left, wanted, where_to }| {
+        format!(
+            "there is {left} left on this disk and an apply wants {wanted} to be sure of finishing: it \
+             builds the whole desktop before it installs any of it, and a build that runs out of room \
+             stops somewhere no one chose.{where_to} Make some room and run it again."
+        )
+    })
 }
 
 pub fn on_a_machine_standing(free: u64, went: &[Place]) -> Result<Room, Never> {
-    match free >= STANDING {
-        true => return Ok(Room::Enough),
-        false => {},
-    }
-
-    let Ok(left) = words(free);
-    let Ok(wanted) = words(A_BUILD);
-    let Ok(gone) = where_it_went(went);
-
-    Ok(Room::No(format!(
-        "There is {left} left. The next update wants {wanted} of that to itself, and what is over \
-         is what there is for anything you save or download.{gone}"
-    )))
+    short_of(free, Enough(STANDING), went, |Short { left, wanted, where_to }| {
+        format!(
+            "There is {left} left. The next update wants {wanted} of that to itself, and what is over \
+             is what there is for anything you save or download.{where_to}"
+        )
+    })
 }
 
 #[cfg(test)]
@@ -268,7 +277,7 @@ mod tests {
 
     #[test]
     fn what_the_disk_says_is_the_number_under_the_heading() {
-        assert_eq!(free_in("     Avail\n1795046354944\n"), Ok(Left::Said(1795046354944)));
+        assert_eq!(free_in("     Avail\n1795046354944\n"), Ok(Left::Reported(1795046354944)));
     }
 
     #[test]
@@ -282,12 +291,12 @@ mod tests {
 
     #[test]
     fn the_places_are_what_is_under_the_ones_asked_about_and_not_the_ones_asked_about() {
-        let roots = vec!["/home/somebody".to_string(), "/home/somebody/.local/share".to_string()];
+        let roots = vec!["/home/someone".to_string(), "/home/someone/.local/share".to_string()];
         let said = "\
-8000000000\t/home/somebody/Videos
-131000000000\t/home/somebody
-122000000000\t/home/somebody/.local/share/Steam
-123000000000\t/home/somebody/.local/share
+8000000000\t/home/someone/Videos
+131000000000\t/home/someone
+122000000000\t/home/someone/.local/share/Steam
+123000000000\t/home/someone/.local/share
 ";
         let Ok(places) = places_in(said, &roots);
 
@@ -302,15 +311,15 @@ mod tests {
 
     #[test]
     fn a_folder_the_person_never_made_is_not_one_they_can_be_asked_to_clear() {
-        let roots = vec!["/home/somebody".to_string()];
-        let said = "123000000000\t/home/somebody/.local\n2000000000\t/home/somebody/Music\n";
+        let roots = vec!["/home/someone".to_string()];
+        let said = "123000000000\t/home/someone/.local\n2000000000\t/home/someone/Music\n";
         let Ok(places) = places_in(said, &roots);
 
         assert_eq!(places, vec![place("Music", 2000000000)]);
     }
 
     #[test]
-    fn a_size_under_a_gigabyte_is_said_in_words_rather_than_as_a_nought() {
+    fn a_size_under_a_gigabyte_is_said_in_words_rather_than_as_a_zero() {
         assert_eq!(words(0), Ok("less than a gigabyte".to_string()));
         assert_eq!(words(GIGABYTE - 1), Ok("less than a gigabyte".to_string()));
         assert_eq!(words(GIGABYTE), Ok("1 GB".to_string()));

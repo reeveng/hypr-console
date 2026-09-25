@@ -1,0 +1,29 @@
+[Unit]
+Description=Login window
+# The first rung. It is written at display-manager.service itself rather than
+# enabled under its own name, because enabling is an alias: the name
+# graphical.target wants is a symlink to whichever display manager was enabled
+# last, and a file at that path is this one whatever was enabled before it. An
+# apply replaces the symlink rather than writing through it, so plasmalogin's
+# own unit is left as its package shipped it and is simply never asked for.
+After=systemd-user-sessions.service systemd-logind.service plymouth-quit-wait.service getty@tty1.service
+Conflicts=getty@tty1.service
+# Three falls in a minute is a login window that will not stand up, and what is
+# under it is the recovery menu: drawn as text, answering the same pad, with
+# no toolkit and no DRM for it to fall over on.
+OnFailure=console-recovery.service
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+# The greeter's account, made before anything asks for it. systemd-sysusers.service
+# only runs at a boot after /etc changed, so an account written by an apply
+# would otherwise wait for the next update to exist. Making it twice is nothing.
+ExecStartPre=/usr/bin/systemd-sysusers /etc/sysusers.d/console-greeter.conf
+ExecStart=/usr/local/bin/login-window @user@ --autologin
+Restart=on-failure
+RestartSec=1
+IgnoreSIGPIPE=no
+SendSIGHUP=yes
+TimeoutStopSec=30s
+KeyringMode=shared

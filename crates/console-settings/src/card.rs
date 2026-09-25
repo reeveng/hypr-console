@@ -8,69 +8,59 @@
 //! so the panel keeps answering the buttons while it happens.
 
 
+use console_books::appearance::Appearance;
 use console_core_external_programs::Program;
 use console_core_never::Never;
+use console_core_internal_programs::InternalProgram;
 use console_core_number_conversion::fitted;
 use std::sync::Arc;
 
 pub const WHO: &str = "settings-panel";
 
-pub fn door(argv: &[String]) -> Result<Door, Never> {
-    let tab = match argv.first() {
-        Some(tab) => tab.as_str(),
-        None => NO_TAB_NAMED,
-    };
-
-    Door::closing(&format!("settings {tab}"))
+pub fn door(arguments: &[String]) -> Result<Door, Never> {
+    Door::closing_at("settings", arguments.first().map(String::as_str))
 }
 
-pub fn card(argv: &[String]) -> Result<Card, Never> {
-    let tab = argv.first().cloned();
-    let opening = Settings::opening(&Argv::default());
-    let Ok(looking) = actor::supervise(move || Looking(opening.state.clone()));
-    let held = looking.addr.clone();
+pub fn card(arguments: &[String]) -> Result<Card, Never> {
+    let init = Settings::init(&Arguments::default());
+    let Ok(card) = Card::supervised(move || Looking(init.state.clone()), pages);
 
-    let Ok(card) = Card::new(Arc::new(move || {
-        let Ok(pages) = pages(&held);
-
-        pages
-    }));
-    let Ok(card) = card.opening_at(tab.as_deref());
-
-    card.shutting(Box::new(move || looking.shutdown()))
+    card.opening_at(arguments.first().map(String::as_str))
 }
 
-use console_default_applications::battery;
-use console_panel::actor::{self, Addr, Answer};
-use console_panel::page::{Aside, Does, Level, Page, Rows, Showing};
-use console_panel::running::{Said, said, say};
+use console_battery as battery;
+use console_panel::actor::{self, Address, Answer};
+use console_panel::page::{Aside, Handler, Level, Page, Rows, Showing};
+use console_panel::running::{Notification, said, say};
 use console_panel::before;
 use console_panel::card::{Card, Door};
 use crate::defaults::{self, Application};
 use crate::level::{Step, stepped};
-use crate::rows::{Chosen, Languages, Opens, alphabet_rows, battery_rows, bluetooth_rows, called_row, clock_rows, dictation_rows, dictation_says, engine_says, language_rows, meeting_rows, notifications_rows, place_rows, region_rows, screen_rows, search_rows, sound_rows, system_rows, tabs, tongue_rows, wifi_rows, zone_rows};
-use crate::tongues::{self, Names, Tongue};
+use console_sound_effects::SoundEffects;
+use crate::rows::{Chosen, Languages, Opens, alphabet_rows, battery_rows, bluetooth_rows, called_row, clock_rows, dictation_rows, dictation_says, engine_says, language_rows, meeting_rows, notifications_rows, place_rows, region_rows, screen_rows, search_rows, sound_rows, tabs, language_picker_rows, login_rows, sound_effects, wifi_rows, zone_rows};
+use crate::languages::{self, Names, Language};
 use crate::{hours, named};
 use console_core_atomic_writes as writes;
 use console_input_alphabets as alphabets;
 use std::path::Path;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
+use crate::network_code::{self, Sharing};
 use crate::wallpaper::{Found, Offered, wallpaper_rows};
-use crate::warm::{self, Warmth};
+use crate::learned::{self, Following};
+use crate::light;
+use crate::warm::{self, NightShift};
 use crate::{bluetooth, screen, size, sound, turning, wifi};
 use console_home_screen::shape::{self, Shape};
-use console_program_contract::{Argv, Doing, Program as _, Turn, Word};
-use crate::choosing::{Closes, Deeper, Heard, Its, Meeting, Onto, Settings, Under, closes, under};
+use console_program_contract::{Arguments, Effect, Program as _, Update, Event};
+use crate::choosing::{Closes, Deeper, SettingsEvent, SettingsEffect, Meeting, Destination, Settings, Under, closes, under};
 use console_wallpaper::choose::{Set, Wanted};
 use console_wallpaper::place;
 
-const NO_TAB_NAMED: &str = "";
-
-const NONE_AT_ALL: usize = 0;
+const NONE_AT_ALL: u32 = 0;
 
 
-fn pactl(argv: &[&str]) -> Result<String, Never> {
-    said(Program::Pactl, argv)
+fn pactl(arguments: &[&str]) -> Result<String, Never> {
+    said(Program::Pactl, arguments)
 }
 
 fn of_kind(kind: &str) -> Result<Vec<sound::Thing>, Never> {
@@ -79,12 +69,12 @@ fn of_kind(kind: &str) -> Result<Vec<sound::Thing>, Never> {
     sound::read(&said)
 }
 
-fn words(argv: &[&str]) -> Result<Vec<String>, Never> {
-    Ok(argv.iter().map(|word| (*word).to_string()).collect())
+fn words(arguments: &[&str]) -> Result<Vec<String>, Never> {
+    Ok(arguments.iter().map(|word| (*word).to_string()).collect())
 }
 
-fn hush(index: i64, kind: &'static str) -> Result<Does, Never> {
-    Does::and_stay(move |_| {
+fn hush(index: i64, kind: &'static str) -> Result<Handler, Never> {
+    Handler::and_stay(move |_| {
         let Ok(_) = pactl(&[&format!("set-{kind}-mute"), &index.to_string(), "toggle"]);
     })
 }
@@ -114,16 +104,16 @@ fn turn_to(index: i64, kind: &'static str) -> Result<Level, Never> {
 const SINKS: &str = "sinks";
 const SPEAKERS: &str = "default sink";
 
-fn asked(note: &str, program: Program, argv: &[&str]) -> Result<String, Never> {
-    before::said(note, program, argv)
+fn asked(note: &str, program: Program, arguments: &[&str]) -> Result<String, Never> {
+    before::said(note, program, arguments)
 }
 
 fn kept(note: &str) -> Result<String, Never> {
     before::last(note)
 }
 
-fn pactl_kept(note: &str, argv: &[&str]) -> Result<String, Never> {
-    asked(note, Program::Pactl, argv)
+fn pactl_kept(note: &str, arguments: &[&str]) -> Result<String, Never> {
+    asked(note, Program::Pactl, arguments)
 }
 
 fn sound_tab() -> Result<Vec<console_panel::page::Row>, Never> {
@@ -132,8 +122,13 @@ fn sound_tab() -> Result<Vec<console_panel::page::Row>, Never> {
     let Ok(speakers) = pactl_kept(SPEAKERS, &["get-default-sink"]);
 
     let Ok(sinks) = sound::read(&sinks);
+    let Ok(mut rows) = sound_rows(&sinks, &playing, &speakers, hush, turn_to);
+    let Ok(effects) = SoundEffects::chosen();
+    let Ok(switch) = sound_effects(effects);
 
-    sound_rows(&sinks, &playing, &speakers, hush, turn_to)
+    rows.push(switch);
+
+    Ok(rows)
 }
 
 fn sound_meanwhile() -> Result<Vec<console_panel::page::Row>, Never> {
@@ -141,8 +136,13 @@ fn sound_meanwhile() -> Result<Vec<console_panel::page::Row>, Never> {
     let Ok(speakers) = kept(SPEAKERS);
 
     let Ok(sinks) = sound::read(&sinks);
+    let Ok(mut rows) = sound_rows(&sinks, &[], &speakers, hush, turn_to);
+    let Ok(effects) = SoundEffects::chosen();
+    let Ok(switch) = sound_effects(effects);
 
-    sound_rows(&sinks, &[], &speakers, hush, turn_to)
+    rows.push(switch);
+
+    Ok(rows)
 }
 
 fn brightness() -> Result<i32, Never> {
@@ -209,29 +209,29 @@ fn battery_tab() -> Result<Vec<console_panel::page::Row>, Never> {
     battery_rows(Some(&profile), levels, guard)
 }
 
-fn warmth() -> Result<Warmth, Never> {
+fn warmth() -> Result<NightShift, Never> {
     let Ok(said) = console_core_places::home();
 
     let home = match said {
         Some(home) => home,
-        None => return Ok(Warmth::Following),
+        None => return Ok(NightShift::Scheduled),
     };
 
     let Ok(standing) = warm::standing(&home);
 
     match standing {
-        warm::Standing::Saying(warmth) => Ok(warmth),
-        warm::Standing::Unreadable(fault) => {
+        warm::Standing::Loaded(warmth) => Ok(warmth),
+        warm::Standing::Invalid(fault) => {
             let Ok(at) = warm::at(&home);
 
             eprintln!(
                 "settings-panel: {} says whether the screen follows the clock, and it will not \
                  be read: {fault}. The row is drawn as though it were following, which is what a \
-                 machine nobody has told does.",
+                 machine no one has told does.",
                 at.display()
             );
 
-            Ok(Warmth::Following)
+            Ok(NightShift::Scheduled)
         }
     }
 }
@@ -247,18 +247,30 @@ fn battery_meanwhile() -> Result<Vec<console_panel::page::Row>, Never> {
 const SCREENS: &str = "screens";
 
 fn standing_at(said: &str) -> Result<Option<size::Size>, Never> {
-    let monitors = match console_compositor::read(said) {
-        Ok(monitors) => monitors,
-        Err(_the_compositor_said_nothing) => return Ok(None),
+    let Ok(monitors) = monitors_in(said);
+
+    let monitors = match monitors {
+        Some(monitors) => monitors,
+        None => return Ok(None),
     };
 
     size::standing(&monitors)
 }
 
+fn monitors_in(said: &str) -> Result<Option<Vec<console_compositor::Monitor>>, Never> {
+    Ok(match console_compositor::read(console_compositor::Query::Monitors, said) {
+        Ok(console_compositor::Answer::Monitors(monitors)) => Some(monitors),
+        Ok(_not_what_was_asked) => None,
+        Err(_the_compositor_said_nothing) => None,
+    })
+}
+
 fn turned_at(said: &str) -> Result<Option<turning::Turn>, Never> {
-    let monitors = match console_compositor::read(said) {
-        Ok(monitors) => monitors,
-        Err(_the_compositor_said_nothing) => return Ok(None),
+    let Ok(monitors) = monitors_in(said);
+
+    let monitors = match monitors {
+        Some(monitors) => monitors,
+        None => return Ok(None),
     };
     let Ok(shown) = console_screen::shown(&monitors);
 
@@ -268,10 +280,30 @@ fn turned_at(said: &str) -> Result<Option<turning::Turn>, Never> {
     }
 }
 
-fn size_tab(held: &Held) -> Result<Vec<console_panel::page::Row>, Never> {
+fn room() -> Result<Option<Following>, Never> {
+    let Ok(found) = light::here();
+
+    match found {
+        Some(_a_machine_with_eyes) => {},
+        None => return Ok(None),
+    }
+
+    let Ok(home) = console_core_places::home();
+
+    let home = match home {
+        Some(home) => home,
+        None => return Ok(None),
+    };
+
+    let Ok(following) = learned::following(&home);
+
+    Ok(Some(following))
+}
+
+fn size_tab(held: &ActorAddress) -> Result<Vec<console_panel::page::Row>, Never> {
     let Ok(brightness) = brightness();
     let Ok(warmth) = warmth();
-    let Ok(words) = console_compositor::Asked::Monitors.words();
+    let Ok(words) = console_compositor::Query::Monitors.words();
     let Ok(screens) = asked(SCREENS, Program::Hyprctl, words);
     let Ok(home) = home_rows(held);
     let Ok(standing) = standing_at(&screens);
@@ -279,7 +311,9 @@ fn size_tab(held: &Held) -> Result<Vec<console_panel::page::Row>, Never> {
 
     let Ok(dim) = dim();
 
-    screen_rows(Some(brightness), dim, warmth, standing, turned, home)
+    let Ok(room) = room();
+
+    screen_rows(Some(brightness), dim, room, warmth, standing, turned, home)
 }
 
 fn home_at() -> Result<Option<std::path::PathBuf>, Never> {
@@ -306,13 +340,13 @@ fn home_shape() -> Result<Shape, Never> {
     let Ok(held) = console_core_atomic_writes::read(&at);
 
     Ok(match held {
-        console_core_atomic_writes::Held::Said(said) => {
+        console_core_atomic_writes::Stored::Text(said) => {
             let Ok(shape) = Shape::read(&said);
 
             shape
         }
-        console_core_atomic_writes::Held::Nothing => Shape::USUAL,
-        console_core_atomic_writes::Held::Unreadable(fault) => {
+        console_core_atomic_writes::Stored::Absent => Shape::USUAL,
+        console_core_atomic_writes::Stored::Failed(fault) => {
             eprintln!("settings-panel: {}: {fault}", at.display());
 
             Shape::USUAL
@@ -352,7 +386,7 @@ fn home_set(shape: Shape) -> Result<(), Never> {
         }
     }
 
-    match console_panel::door::telling(console_panel::door::Said::Again) {
+    match console_panel::door::telling(console_panel::door::PadInput::Again) {
         Ok(()) => {},
         Err(fault) => eprintln!("settings-panel: the home screen was not told: {fault}"),
     }
@@ -360,7 +394,7 @@ fn home_set(shape: Shape) -> Result<(), Never> {
     Ok(())
 }
 
-fn home_rows(held: &Held) -> Result<Vec<console_panel::page::Row>, Never> {
+fn home_rows(held: &ActorAddress) -> Result<Vec<console_panel::page::Row>, Never> {
     let across = held.clone();
     let down = held.clone();
     let sized = held.clone();
@@ -370,31 +404,31 @@ fn home_rows(held: &Held) -> Result<Vec<console_panel::page::Row>, Never> {
         shape,
         Arc::new(move |step| {
             let Ok(shape) = home_shape();
-            let Ok(()) = grid(&across, Heard::Across { shape, step });
+            let Ok(()) = grid(&across, SettingsEvent::Across { shape, step });
         }),
         Arc::new(move |step| {
             let Ok(shape) = home_shape();
-            let Ok(()) = grid(&down, Heard::Down { shape, step });
+            let Ok(()) = grid(&down, SettingsEvent::Down { shape, step });
         }),
         Arc::new(move |step| {
             let Ok(shape) = home_shape();
-            let Ok(()) = grid(&sized, Heard::Sized { shape, step });
+            let Ok(()) = grid(&sized, SettingsEvent::Sized { shape, step });
         }),
     )
 }
 
-fn grid(held: &Held, heard: Heard) -> Result<(), Never> {
-    let doings = match held.ask(|answer| Msg::Heard(heard, answer)) {
-        Ok(doings) => doings,
+fn grid(held: &ActorAddress, heard: SettingsEvent) -> Result<(), Never> {
+    let effects = match held.ask(|answer| Message::Event(heard, answer)) {
+        Ok(effects) => effects,
         Err(_) => {
-            eprintln!("settings-panel: the panel's own state has gone, so the grid did not move");
+            eprintln!("settings-panel: the panel's own state is missing, so the grid did not move");
 
             Vec::new()
         }
     };
 
-    for shape in doings.iter().filter_map(|doing| {
-        let Ok(shape) = shaped(doing);
+    for shape in effects.iter().filter_map(|effect| {
+        let Ok(shape) = shaped(effect);
 
         shape
     }) {
@@ -404,25 +438,25 @@ fn grid(held: &Held, heard: Heard) -> Result<(), Never> {
     Ok(())
 }
 
-fn shaped(doing: &Doing<Its>) -> Result<Option<&shape::Shape>, Never> {
-    Ok(match doing {
-        Doing::Its(Its::Home(shape)) => Some(shape),
+fn shaped(effect: &Effect<SettingsEffect>) -> Result<Option<&shape::Shape>, Never> {
+    Ok(match effect {
+        Effect::Custom(SettingsEffect::HomeScreen(shape)) => Some(shape),
 
-        Doing::Its(Its::Replace(_))
-        | Doing::Ask(_)
-        | Doing::Watch(_)
-        | Doing::AskWhoever(_)
-        | Doing::Start(_)
-        | Doing::Listen(_)
-        | Doing::Deafen(_)
-        | Doing::Write(_)
-        | Doing::Say(_)
-        | Doing::Print(_)
-        | Doing::Stop(_) => None,
+        Effect::Custom(SettingsEffect::Replace(_))
+        | Effect::Run(_)
+        | Effect::Stream(_)
+        | Effect::Prompt(_)
+        | Effect::Spawn(_)
+        | Effect::Subscribe(_)
+        | Effect::Unsubscribe(_)
+        | Effect::Write(_)
+        | Effect::Notify(_)
+        | Effect::Print(_)
+        | Effect::Stop(_) => None,
     })
 }
 
-fn size_meanwhile(held: &Held) -> Result<Vec<console_panel::page::Row>, Never> {
+fn size_meanwhile(held: &ActorAddress) -> Result<Vec<console_panel::page::Row>, Never> {
     let Ok(brightness) = brightness();
     let Ok(warmth) = warmth();
     let Ok(screens) = kept(SCREENS);
@@ -432,11 +466,13 @@ fn size_meanwhile(held: &Held) -> Result<Vec<console_panel::page::Row>, Never> {
 
     let Ok(dim) = dim();
 
-    screen_rows(Some(brightness), dim, warmth, standing, turned, home)
+    let Ok(room) = room();
+
+    screen_rows(Some(brightness), dim, room, warmth, standing, turned, home)
 }
 
-fn join(network: wifi::Network, known: wifi::Known) -> Result<Does, Never> {
-    Does::and_stay(move |showing| {
+fn join(network: wifi::Network, known: wifi::Known) -> Result<Handler, Never> {
+    Handler::and_stay(move |showing| {
         let name = network.name.clone();
 
         match known {
@@ -465,7 +501,7 @@ fn join(network: wifi::Network, known: wifi::Known) -> Result<Does, Never> {
 
         let asking = name.clone();
         showing.ask(
-            &format!("The password for {name}"),
+            &format!("Password for {name}"),
             Arc::new(move |showing, word| {
                 let Ok(words) = words(&[
                     "nmcli", "device", "wifi", "connect", &asking, "password", word,
@@ -480,7 +516,7 @@ fn join(network: wifi::Network, known: wifi::Known) -> Result<Does, Never> {
 fn notifications_tab() -> Result<Vec<console_panel::page::Row>, Never> {
     let Ok(held) = console_notifications::serving::held();
 
-    notifications_rows(held.quiet)
+    notifications_rows(held.do_not_disturb)
 }
 
 const WIFI_RADIO: &str = "wifi radio";
@@ -494,33 +530,46 @@ struct Wifi<'a> {
     in_range: &'a str,
 }
 
-fn wifi_at(said: Wifi<'_>) -> Result<Vec<console_panel::page::Row>, Never> {
+fn wifi_at(said: Wifi<'_>, sharing: &Sharing) -> Result<Vec<console_panel::page::Row>, Never> {
     let on = wifi::on(said.radio)?;
     let networks = wifi::networks(said.in_range)?;
     let saved = wifi::saved(said.known)?;
 
-    wifi_rows(on, networks, &saved, join)
+    wifi_rows(on, networks, &saved, join, |network| network_code::offered(sharing, network))
 }
 
-fn wifi_tab() -> Result<Vec<console_panel::page::Row>, Never> {
+fn wifi_tab(sharing: &Sharing) -> Result<Vec<console_panel::page::Row>, Never> {
+    let Ok(shown) = network_code::shared(sharing);
+
+    match shown {
+        Some(network) => return network_code::rows(&network),
+        None => {},
+    }
+
     let Ok(radio) = asked(WIFI_RADIO, Program::Nmcli, &["radio", "wifi"]);
-    let Ok(known) =
-        asked(KNOWN, Program::Nmcli, &["-t", "-f", "NAME,TYPE", "connection", "show"]);
+    let Ok(known) = asked(KNOWN, Program::Nmcli, &wifi::KNOWN);
     let Ok(in_range) = asked(
         IN_RANGE,
         Program::Nmcli,
-        &["-t", "-f", "ACTIVE,SSID,SIGNAL,SECURITY", "device", "wifi", "list"],
+        &["-t", "-f", wifi::FIELDS, "device", "wifi", "list"],
     );
 
-    wifi_at(Wifi { radio: &radio, known: &known, in_range: &in_range })
+    wifi_at(Wifi { radio: &radio, known: &known, in_range: &in_range }, sharing)
 }
 
-fn wifi_meanwhile() -> Result<Vec<console_panel::page::Row>, Never> {
+fn wifi_meanwhile(sharing: &Sharing) -> Result<Vec<console_panel::page::Row>, Never> {
+    let Ok(shown) = network_code::shared(sharing);
+
+    match shown {
+        Some(_) => return Ok(Vec::new()),
+        None => {},
+    }
+
     let Ok(radio) = kept(WIFI_RADIO);
     let Ok(known) = kept(KNOWN);
     let Ok(in_range) = kept(IN_RANGE);
 
-    wifi_at(Wifi { radio: &radio, known: &known, in_range: &in_range })
+    wifi_at(Wifi { radio: &radio, known: &known, in_range: &in_range }, sharing)
 }
 
 fn look_again(showing: &dyn Showing) -> Result<(), Never> {
@@ -539,12 +588,12 @@ fn about(address: &str) -> Result<String, Never> {
     Ok(format!("bluetooth {address}"))
 }
 
-fn meeting(looking: &Held) -> Result<Opens, Never> {
+fn meeting(looking: &ActorAddress) -> Result<Opens, Never> {
     let held = looking.clone();
 
-    Ok(Arc::new(move |met: &bluetooth::Met, at: usize, showing: &dyn Showing| {
+    Ok(Arc::new(move |met: &bluetooth::Met, at: u32, showing: &dyn Showing| {
         let meeting = Meeting { address: met.device.address.clone(), at };
-        let Ok(()) = press(&held, Heard::Opened(Onto::Meeting(meeting)), showing);
+        let Ok(()) = press(&held, SettingsEvent::Opened(Destination::Meeting(meeting)), showing);
     }))
 }
 
@@ -555,7 +604,7 @@ struct Bluetooth<'a> {
 }
 
 fn bluetooth_at(
-    looking: &Held,
+    looking: &ActorAddress,
     said: Bluetooth<'_>,
     ask: impl Fn(&str) -> String,
 ) -> Result<Vec<console_panel::page::Row>, Never> {
@@ -577,19 +626,19 @@ fn bluetooth_at(
     let Ok(onto) = looking_at(looking);
 
     let standing = match onto {
-        Onto::Meeting(meeting) => {
+        Destination::Meeting(meeting) => {
             met.iter().find(|met| met.device.address == meeting.address).cloned()
         }
-        Onto::Settings
-        | Onto::Search
-        | Onto::Dictation
-        | Onto::Kind(_)
-        | Onto::Tongues
-        | Onto::Tongue(_)
-        | Onto::Alphabets
-        | Onto::Zones
-        | Onto::Zone(_)
-        | Onto::Clock => None,
+        Destination::Settings
+        | Destination::Search
+        | Destination::Dictation
+        | Destination::Kind(_)
+        | Destination::Languages
+        | Destination::Language(_)
+        | Destination::Alphabets
+        | Destination::Zones
+        | Destination::Zone(_)
+        | Destination::Clock => None,
     };
 
     match standing {
@@ -606,7 +655,7 @@ fn bluetooth_at(
     }
 }
 
-fn bluetooth_tab(looking: &Held) -> Result<Vec<console_panel::page::Row>, Never> {
+fn bluetooth_tab(looking: &ActorAddress) -> Result<Vec<console_panel::page::Row>, Never> {
     let Ok(radio) = asked(BLUETOOTH_RADIO, Program::Bluetoothctl, &["show"]);
     let Ok(introduced) = asked(INTRODUCED, Program::Bluetoothctl, &["devices"]);
 
@@ -618,7 +667,7 @@ fn bluetooth_tab(looking: &Held) -> Result<Vec<console_panel::page::Row>, Never>
     })
 }
 
-fn bluetooth_meanwhile(looking: &Held) -> Result<Vec<console_panel::page::Row>, Never> {
+fn bluetooth_meanwhile(looking: &ActorAddress) -> Result<Vec<console_panel::page::Row>, Never> {
     let Ok(radio) = kept(BLUETOOTH_RADIO);
     let Ok(introduced) = kept(INTRODUCED);
 
@@ -646,7 +695,7 @@ fn was_on_the_screen() -> Result<String, Never> {
 
 #[derive(Debug)]
 enum Unchosen {
-    Nobodys,
+    NoOnes,
     Holding(std::path::PathBuf, std::io::Error),
     Writing(console_core_atomic_writes::Unwritten),
 }
@@ -654,7 +703,7 @@ enum Unchosen {
 impl std::fmt::Display for Unchosen {
     fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Unchosen::Nobodys => {
+            Unchosen::NoOnes => {
                 write!(to, "This machine will not say whose home to write it in.")
             }
             Unchosen::Holding(at, fault) => {
@@ -670,7 +719,7 @@ impl std::error::Error for Unchosen {}
 fn write_down(wanted: &Wanted) -> Result<(), Unchosen> {
     let Ok(asked) = place::asked();
 
-    let at = asked.ok_or(Unchosen::Nobodys)?;
+    let at = asked.ok_or(Unchosen::NoOnes)?;
 
     match at.parent() {
         Some(holding) => std::fs::create_dir_all(holding)
@@ -692,7 +741,7 @@ fn ask_for(showing: &dyn Showing, wanted: &Wanted, going_on: &str) -> Result<(),
             showing.later(words);
         }
         Err(why) => {
-            let Ok(()) = say("wallpaper-choice", Said {
+            let Ok(()) = say("wallpaper-choice", Notification {
                 summary: "Couldn't change the wallpaper",
                 body: &why.to_string(),
             });
@@ -742,20 +791,19 @@ fn offered() -> Result<Vec<Offered>, Never> {
         .collect())
 }
 
-fn dropped() -> Result<usize, Never> {
+fn dropped() -> Result<u32, Never> {
     let Ok(dropped) = place::dropped();
 
-    let many = dropped
+    match dropped
         .and_then(|at| match std::fs::read_dir(at) {
             Ok(found) => Some(found),
             Err(_fault) => None,
         })
-        .map(|found| found.flatten().filter(|entry| entry.path().is_file()).count());
-
-    Ok(match many {
-        Some(many) => many,
-        None => NONE_AT_ALL,
-    })
+        .map(|found| found.flatten().filter(|entry| entry.path().is_file()).count())
+    {
+        Some(many) => fitted(many),
+        None => Ok(NONE_AT_ALL),
+    }
 }
 
 fn wallpaper_tab() -> Result<Vec<console_panel::page::Row>, Never> {
@@ -795,16 +843,16 @@ fn wallpaper_at(up: &str) -> Result<Vec<console_panel::page::Row>, Never> {
         up: &up,
         dropped: waiting,
     };
-    let Ok(taking) = Does::and_stay(move |showing| {
-        let Ok(words) = words(&["wallpaper-press", "--dropped"]);
+    let Ok(taking) = Handler::and_stay(move |showing| {
+        let Ok(words) = words(&["wallpaper-render", "--dropped"]);
 
         showing.note(&match waiting {
-            1 => "The picture is being added, which takes about a minute".to_string(),
-            many => format!("The {many} pictures are being added, about a minute each"),
+            1 => "Adding the picture, about a minute".to_string(),
+            many => format!("Adding {many} pictures, a minute each"),
         });
         showing.later(words);
     });
-    let Ok(finding) = Does::run(&["files-panel", "Pictures"]);
+    let Ok(finding) = Handler::run(&["files", "Pictures"]);
 
     wallpaper_rows(
         &found,
@@ -812,11 +860,11 @@ fn wallpaper_at(up: &str) -> Result<Vec<console_panel::page::Row>, Never> {
             let picture = up.clone();
             let Ok(said) = named(&pictures, &up);
             let going_on = match (following, up.is_empty()) {
-                (true, _) => "The wallpaper is following the weather again".to_string(),
-                (false, true) => "The wallpaper is staying where it is".to_string(),
-                (false, false) => format!("The wallpaper is staying on {said}"),
+                (true, _) => "Wallpaper follows the weather".to_string(),
+                (false, true) => "Wallpaper stays as it is".to_string(),
+                (false, false) => format!("Wallpaper stays on {said}"),
             };
-            let Ok(does) = Does::and_stay(move |showing| {
+            let Ok(does) = Handler::and_stay(move |showing| {
                 let Ok(()) = ask_for(
                     showing,
                     &Wanted {
@@ -835,7 +883,7 @@ fn wallpaper_at(up: &str) -> Result<Vec<console_panel::page::Row>, Never> {
             let picture = name.to_string();
             let Ok(said) = named(&pictures, name);
             let going_on = format!("{said} is going up");
-            let Ok(does) = Does::and_stay(move |showing| {
+            let Ok(does) = Handler::and_stay(move |showing| {
                 let Ok(()) = ask_for(
                     showing,
                     &Wanted {
@@ -883,7 +931,7 @@ fn application_at(path: &std::path::Path) -> Result<Option<Application>, Never> 
         Err(_) => return Ok(None),
     };
 
-    defaults::application(id, defaults::Held(&held))
+    defaults::application(id, defaults::DesktopFilePath(&held))
 }
 
 fn opening(mime: &str) -> Result<String, Never> {
@@ -891,10 +939,10 @@ fn opening(mime: &str) -> Result<String, Never> {
 }
 
 fn use_it(
-    looking: &Held,
+    looking: &ActorAddress,
     kind: &defaults::Kind,
     application: &Application,
-) -> Result<Does, Never> {
+) -> Result<Handler, Never> {
     let Ok(every) = kind.every();
 
     let every: Vec<String> = every.map(str::to_string).collect();
@@ -902,7 +950,7 @@ fn use_it(
     let id = application.id.clone();
     let looking = looking.clone();
 
-    Does::and_stay(move |showing| {
+    Handler::and_stay(move |showing| {
         for mime in &every {
             let Ok(_) = said(Program::XdgMime, &["default", &id, mime]);
         }
@@ -918,25 +966,25 @@ fn use_it(
     })
 }
 
-enum Msg {
-    Heard(Heard, Answer<Vec<Doing<Its>>>),
-    At(Answer<Onto>),
+enum Message {
+    Event(SettingsEvent, Answer<Vec<Effect<SettingsEffect>>>),
+    At(Answer<Destination>),
 }
 
-struct Looking(Onto);
+struct Looking(Destination);
 
 impl actor::Machine for Looking {
-    type Msg = Msg;
+    type Message = Message;
 
-    fn step(self, message: Msg) -> Self {
+    fn step(self, message: Message) -> Self {
         match message {
-            Msg::Heard(heard, answer) => {
-                let Turn { now, doings } = Settings::heard(&self.0, &Word::Its(heard));
-                let _ = answer.say(doings);
+            Message::Event(heard, answer) => {
+                let Update { state, effects } = Settings::update(&self.0, &Event::Custom(heard));
+                let _ = answer.say(effects);
 
-                Looking(now)
+                Looking(state)
             }
-            Msg::At(answer) => {
+            Message::At(answer) => {
                 let _ = answer.say(self.0.clone());
 
                 self
@@ -945,53 +993,57 @@ impl actor::Machine for Looking {
     }
 }
 
-type Held = Addr<Msg>;
+type ActorAddress = Address<Message>;
 
-fn looking_at(held: &Held) -> Result<Onto, Never> {
-    Ok(match held.ask(Msg::At) {
+fn looking_at(held: &ActorAddress) -> Result<Destination, Never> {
+    Ok(match held.ask(Message::At) {
         Ok(onto) => onto,
-        Err(_) => Onto::Settings,
+        Err(_) => Destination::Settings,
     })
 }
 
-fn press(held: &Held, heard: Heard, showing: &dyn Showing) -> Result<(), Never> {
-    let doings = match held.ask(|answer| Msg::Heard(heard, answer)) {
-        Ok(doings) => doings,
+fn press(held: &ActorAddress, heard: SettingsEvent, showing: &dyn Showing) -> Result<(), Never> {
+    let effects = match held.ask(|answer| Message::Event(heard, answer)) {
+        Ok(effects) => effects,
         Err(_) => {
-            eprintln!("settings-panel: the panel's own state has gone, so the press did nothing");
+            eprintln!("settings-panel: the panel's own state is missing, so the press did nothing");
 
             Vec::new()
         }
     };
 
-    for doing in doings {
-        match doing {
-            Doing::Its(Its::Replace(row)) => showing.replace(row),
-            Doing::Its(Its::Home(shape)) => {
+    for effect in effects {
+        match effect {
+            Effect::Custom(SettingsEffect::Replace(row)) => {
+                let Ok(row) = console_core_number_conversion::fitted(row);
+
+                showing.replace(row)
+            }
+            Effect::Custom(SettingsEffect::HomeScreen(shape)) => {
                 let Ok(()) = home_set(shape);
             }
 
-            Doing::Ask(_)
-            | Doing::Watch(_)
-            | Doing::AskWhoever(_)
-            | Doing::Start(_)
-            | Doing::Listen(_)
-            | Doing::Deafen(_)
-            | Doing::Write(_)
-            | Doing::Say(_)
-            | Doing::Print(_)
-            | Doing::Stop(_) => {},
+            Effect::Run(_)
+            | Effect::Stream(_)
+            | Effect::Prompt(_)
+            | Effect::Spawn(_)
+            | Effect::Subscribe(_)
+            | Effect::Unsubscribe(_)
+            | Effect::Write(_)
+            | Effect::Notify(_)
+            | Effect::Print(_)
+            | Effect::Stop(_) => {},
         }
     }
 
     Ok(())
 }
 
-fn went_up(held: &Held, showing: &dyn Showing) -> Result<(), Never> {
-    press(held, Heard::Back, showing)
+fn went_up(held: &ActorAddress, showing: &dyn Showing) -> Result<(), Never> {
+    press(held, SettingsEvent::Back, showing)
 }
 
-fn back_up(held: &Held) -> Result<Chosen, Never> {
+fn back_up(held: &ActorAddress) -> Result<Chosen, Never> {
     let held = held.clone();
 
     Ok(Arc::new(move |showing: &dyn Showing| {
@@ -999,15 +1051,15 @@ fn back_up(held: &Held) -> Result<Chosen, Never> {
     }))
 }
 
-fn open(held: &Held, onto: Onto) -> Result<Does, Never> {
+fn open(held: &ActorAddress, onto: Destination) -> Result<Handler, Never> {
     let held = held.clone();
 
-    Does::and_stay(move |showing| {
-        let Ok(()) = press(&held, Heard::Opened(onto.clone()), showing);
+    Handler::and_stay(move |showing| {
+        let Ok(()) = press(&held, SettingsEvent::Opened(onto.clone()), showing);
     })
 }
 
-fn defaults_tab(looking: &Held) -> Result<Vec<console_panel::page::Row>, Never> {
+fn defaults_tab(looking: &ActorAddress) -> Result<Vec<console_panel::page::Row>, Never> {
     let Ok(onto) = looking_at(looking);
     let Ok(under) = under(&onto);
 
@@ -1017,25 +1069,25 @@ fn defaults_tab(looking: &Held) -> Result<Vec<console_panel::page::Row>, Never> 
     }
 
     match onto {
-        Onto::Settings => setting_rows(looking),
-        Onto::Search => {
+        Destination::Settings => setting_rows(looking),
+        Destination::Search => {
             let Ok(back) = back_up(looking);
 
             let Ok(chosen) = console_default_applications::engines::chosen();
 
             search_rows(&chosen, back)
         }
-        Onto::Zones => {
+        Destination::Zones => {
             let Ok(back) = back_up(looking);
             let Ok(zones) = zones();
             let Ok(regions) = hours::regions(&zones);
             let Ok(here) = here();
 
             region_rows(&regions, here.as_deref(), back, |at, region| {
-                open(looking, Onto::Zone(Deeper { name: region.to_string(), at }))
+                open(looking, Destination::Zone(Deeper { name: region.to_string(), at }))
             })
         }
-        Onto::Zone(deeper) => {
+        Destination::Zone(deeper) => {
             let Ok(back) = back_up(looking);
             let Ok(zones) = zones();
             let Ok(places) = hours::places(&zones, &deeper.name);
@@ -1043,21 +1095,23 @@ fn defaults_tab(looking: &Held) -> Result<Vec<console_panel::page::Row>, Never> 
 
             zone_rows(&deeper.name, &places, here.as_deref(), back)
         }
-        Onto::Clock => {
+        Destination::Clock => {
             let Ok(back) = back_up(looking);
             let Ok(now) = console_default_applications::clock::clock();
 
             clock_rows(now, back)
         }
-        Onto::Meeting(_)
-        | Onto::Dictation
-        | Onto::Tongues
-        | Onto::Tongue(_)
-        | Onto::Alphabets => setting_rows(looking),
+        Destination::Meeting(_)
+        | Destination::Dictation
+        | Destination::Languages
+        | Destination::Language(_)
+        | Destination::Alphabets => setting_rows(looking),
 
-        Onto::Kind(at) => {
+        Destination::Kind(at) => {
             let leaving = looking.clone();
             let chosen = looking.clone();
+
+            let Ok(at) = console_core_number_conversion::index(at);
 
             let kind = match defaults::KINDS.get(at) {
                 Some(kind) => kind,
@@ -1079,48 +1133,48 @@ fn defaults_tab(looking: &Held) -> Result<Vec<console_panel::page::Row>, Never> 
     }
 }
 
-fn defaults_meanwhile(looking: &Held) -> Result<Vec<console_panel::page::Row>, Never> {
+fn defaults_meanwhile(looking: &ActorAddress) -> Result<Vec<console_panel::page::Row>, Never> {
     let Ok(onto) = looking_at(looking);
 
     match onto {
-        Onto::Settings => {
+        Destination::Settings => {
             let Ok(search) = search_row(looking);
             let Ok(where_) = where_row(looking);
             let Ok(clock) = clock_row(looking);
             let Ok(called) = named_row();
             let Ok(naming) = console_panel::page::Row::naming("On this device", Aside(""));
             let Ok(buttons) = buttons_row();
-            let Ok(kinds) = defaults::meanwhile_rows(|at| open(looking, Onto::Kind(at)));
+            let Ok(kinds) = defaults::meanwhile_rows(|at| open(looking, Destination::Kind(at)));
             let mut rows = vec![search, where_, clock, called, naming, buttons];
 
             rows.extend(kinds);
 
             Ok(rows)
         }
-        Onto::Search
-        | Onto::Dictation
-        | Onto::Kind(_)
-        | Onto::Meeting(_)
-        | Onto::Tongues
-        | Onto::Tongue(_)
-        | Onto::Alphabets
-        | Onto::Zones
-        | Onto::Zone(_)
-        | Onto::Clock => Ok(Vec::new()),
+        Destination::Search
+        | Destination::Dictation
+        | Destination::Kind(_)
+        | Destination::Meeting(_)
+        | Destination::Languages
+        | Destination::Language(_)
+        | Destination::Alphabets
+        | Destination::Zones
+        | Destination::Zone(_)
+        | Destination::Clock => Ok(Vec::new()),
     }
 }
 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct What<'a>(&'a str);
+struct Description<'a>(&'a str);
 
-fn told(at: &str, what: What<'_>) -> Result<String, Never> {
+fn run(at: &str, what: Description<'_>) -> Result<String, Never> {
     let Ok(held) = writes::read(Path::new(at));
 
     Ok(match held {
-        writes::Held::Said(said) => said,
-        writes::Held::Nothing => String::new(),
-        writes::Held::Unreadable(fault) => {
+        writes::Stored::Text(said) => said,
+        writes::Stored::Absent => String::new(),
+        writes::Stored::Failed(fault) => {
             eprintln!(
                 "settings-panel: {at} is {}, and it will not be read: {fault}. The list is \
                  drawn empty, which is a machine that says it can do nothing rather than one \
@@ -1138,7 +1192,7 @@ fn names() -> Result<&'static Names, Never> {
         dylint_lib = "explicit044_no_ambient_value",
         allow(
             explicit044_no_ambient_value,
-            reason = "the names glibc gives the languages it ships, which are part of the installed system and do not change while a panel is up; the panel is an actor whose state is the row somebody is looking at, and a table of language names is not that"
+            reason = "the names glibc gives the languages it ships, which are part of the installed system and do not change while a panel is up; the panel is an actor whose state is the row someone is looking at, and a table of language names is not that"
         )
     )]
     static ASKED: OnceLock<Names> = OnceLock::new();
@@ -1150,7 +1204,7 @@ fn names() -> Result<&'static Names, Never> {
     }))
 }
 
-fn spoken() -> Result<&'static Vec<Tongue>, Never> {
+fn spoken() -> Result<&'static Vec<Language>, Never> {
     #[cfg_attr(
         dylint_lib = "explicit044_no_ambient_value",
         allow(
@@ -1158,13 +1212,13 @@ fn spoken() -> Result<&'static Vec<Tongue>, Never> {
             reason = "what glibc can be asked to make, read off the installed system and unchanged while a panel is up; which of them has been made is the half that changes, and `generated` reads that again at every draw"
         )
     )]
-    static ASKED: OnceLock<Vec<Tongue>> = OnceLock::new();
+    static ASKED: OnceLock<Vec<Language>> = OnceLock::new();
 
     Ok(ASKED.get_or_init(|| {
-        let Ok(said) = told(tongues::SUPPORTED, What("every language glibc can make"));
-        let Ok(supported) = tongues::supported(&said);
+        let Ok(said) = run(languages::SUPPORTED, Description("every language glibc can make"));
+        let Ok(supported) = languages::supported(&said);
         let Ok(names) = names();
-        let Ok(spoken) = tongues::tongues(&supported, names);
+        let Ok(spoken) = languages::languages(&supported, names);
 
         spoken
     }))
@@ -1173,13 +1227,13 @@ fn spoken() -> Result<&'static Vec<Tongue>, Never> {
 fn generated() -> Result<Vec<String>, Never> {
     let Ok(said) = said(Program::Locale, &["-a"]);
 
-    tongues::generated(&said)
+    languages::generated(&said)
 }
 
 fn lang() -> Result<Option<String>, Never> {
     let Ok(said) = said(Program::Localectl, &["status"]);
 
-    tongues::chosen(&said)
+    languages::chosen(&said)
 }
 
 const ZONES: &str = "zones";
@@ -1202,11 +1256,11 @@ fn called() -> Result<String, Never> {
     named::read(&said)
 }
 
-fn language_top(looking: &Held) -> Result<Vec<console_panel::page::Row>, Never> {
+fn language_top(looking: &ActorAddress) -> Result<Vec<console_panel::page::Row>, Never> {
     let Ok(lang) = lang();
     let Ok(spoken) = spoken();
     let Ok(names) = names();
-    let Ok(standing) = tongues::standing(spoken, lang.as_deref());
+    let Ok(standing) = languages::standing(spoken, lang.as_deref());
 
     let says = match &standing {
         Some(locale) => {
@@ -1226,9 +1280,9 @@ fn language_top(looking: &Held) -> Result<Vec<console_panel::page::Row>, Never> 
     let Ok(heard) = console_input_dictation::languages::chosen();
     let Ok(listens) = dictation_says(&heard);
 
-    let Ok(words) = open(looking, Onto::Tongues);
-    let Ok(keyboard) = open(looking, Onto::Alphabets);
-    let Ok(dictation) = open(looking, Onto::Dictation);
+    let Ok(words) = open(looking, Destination::Languages);
+    let Ok(keyboard) = open(looking, Destination::Alphabets);
+    let Ok(dictation) = open(looking, Destination::Dictation);
 
     language_rows(
         Languages { says: &says, types: &types, listens: &listens },
@@ -1236,7 +1290,7 @@ fn language_top(looking: &Held) -> Result<Vec<console_panel::page::Row>, Never> 
     )
 }
 
-fn language_tab(looking: &Held) -> Result<Vec<console_panel::page::Row>, Never> {
+fn language_tab(looking: &ActorAddress) -> Result<Vec<console_panel::page::Row>, Never> {
     let Ok(onto) = looking_at(looking);
     let Ok(under) = under(&onto);
 
@@ -1246,54 +1300,54 @@ fn language_tab(looking: &Held) -> Result<Vec<console_panel::page::Row>, Never> 
     }
 
     match onto {
-        Onto::Tongues => {
+        Destination::Languages => {
             let Ok(back) = back_up(looking);
             let Ok(spoken) = spoken();
             let Ok(lang) = lang();
-            let Ok(standing) = tongues::standing(spoken, lang.as_deref());
+            let Ok(standing) = languages::standing(spoken, lang.as_deref());
 
-            tongue_rows(spoken, standing.as_ref(), back, |at, language| {
-                open(looking, Onto::Tongue(Deeper { name: language.to_string(), at }))
+            language_picker_rows(spoken, standing.as_ref(), back, |at, language| {
+                open(looking, Destination::Language(Deeper { name: language.to_string(), at }))
             })
         }
-        Onto::Tongue(deeper) => {
+        Destination::Language(deeper) => {
             let Ok(back) = back_up(looking);
             let Ok(spoken) = spoken();
             let Ok(names) = names();
             let Ok(lang) = lang();
-            let Ok(standing) = tongues::standing(spoken, lang.as_deref());
+            let Ok(standing) = languages::standing(spoken, lang.as_deref());
             let Ok(generated) = generated();
 
-            let tongue = match spoken.iter().find(|tongue| tongue.language == deeper.name) {
-                Some(tongue) => tongue,
+            let language = match spoken.iter().find(|language| language.language == deeper.name) {
+                Some(language) => language,
                 None => return language_top(looking),
             };
 
-            place_rows(tongue, names, &generated, standing.as_ref(), back)
+            place_rows(language, names, &generated, standing.as_ref(), back)
         }
-        Onto::Alphabets => {
+        Destination::Alphabets => {
             let Ok(back) = back_up(looking);
             let Ok(chosen) = alphabets::chosen();
 
             alphabet_rows(&chosen, back)
         }
-        Onto::Dictation => {
+        Destination::Dictation => {
             let Ok(back) = back_up(looking);
             let Ok(chosen) = console_input_dictation::languages::chosen();
 
             dictation_rows(&chosen, back)
         }
-        Onto::Settings
-        | Onto::Search
-        | Onto::Kind(_)
-        | Onto::Meeting(_)
-        | Onto::Zones
-        | Onto::Zone(_)
-        | Onto::Clock => language_top(looking),
+        Destination::Settings
+        | Destination::Search
+        | Destination::Kind(_)
+        | Destination::Meeting(_)
+        | Destination::Zones
+        | Destination::Zone(_)
+        | Destination::Clock => language_top(looking),
     }
 }
 
-fn where_row(looking: &Held) -> Result<console_panel::page::Row, Never> {
+fn where_row(looking: &ActorAddress) -> Result<console_panel::page::Row, Never> {
     let Ok(here) = here();
     let Ok(says) = crate::rows::where_you_are();
 
@@ -1302,17 +1356,17 @@ fn where_row(looking: &Held) -> Result<console_panel::page::Row, Never> {
         None => String::new(),
     };
 
-    let Ok(opens) = open(looking, Onto::Zones);
+    let Ok(opens) = open(looking, Destination::Zones);
     let Ok(row) = console_panel::page::Row::new(&says, Aside(&zone), opens);
 
     row.opening()
 }
 
-fn clock_row(looking: &Held) -> Result<console_panel::page::Row, Never> {
+fn clock_row(looking: &ActorAddress) -> Result<console_panel::page::Row, Never> {
     let Ok(now) = console_default_applications::clock::clock();
     let Ok(reads) = now.says();
     let Ok(says) = crate::rows::the_clock();
-    let Ok(opens) = open(looking, Onto::Clock);
+    let Ok(opens) = open(looking, Destination::Clock);
     let Ok(row) = console_panel::page::Row::new(&says, Aside(reads), opens);
 
     row.opening()
@@ -1324,34 +1378,36 @@ fn named_row() -> Result<console_panel::page::Row, Never> {
     called_row(&name)
 }
 
-fn search_row(looking: &Held) -> Result<console_panel::page::Row, Never> {
+fn search_row(looking: &ActorAddress) -> Result<console_panel::page::Row, Never> {
     let Ok(engine) = console_default_applications::engines::chosen();
     let Ok(says) = engine_says(&engine);
-    let Ok(opens) = open(looking, Onto::Search);
-    let Ok(row) = console_panel::page::Row::new("Search", Aside(&says), opens);
+    let Ok(opens) = open(looking, Destination::Search);
+    let Ok(row) = console_panel::page::Row::new("Search Engine", Aside(&says), opens);
 
     row.opening()
 }
 
 fn buttons_row() -> Result<console_panel::page::Row, Never> {
-    let Ok(runs) = Does::run(&["/usr/local/bin/mapping-panel"]);
+    let Ok(mapping) = InternalProgram::MappingPanel.path();
+    let Ok(runs) = Handler::run(&[mapping]);
     let Ok(row) = console_panel::page::Row::new("Buttons", Aside(""), runs);
 
     row.opening()
 }
 
-fn setting_rows(looking: &Held) -> Result<Vec<console_panel::page::Row>, Never> {
+fn setting_rows(looking: &ActorAddress) -> Result<Vec<console_panel::page::Row>, Never> {
     let Ok(search) = search_row(looking);
     let Ok(where_) = where_row(looking);
     let Ok(clock) = clock_row(looking);
     let Ok(called) = named_row();
     let Ok(naming) = console_panel::page::Row::naming("On this device", Aside(""));
     let Ok(buttons) = buttons_row();
+    let Ok(game) = crate::rows::game_row();
     let Ok(applications) = applications();
     let Ok(kinds) = defaults::defaults_rows(&applications, &opening, |at| {
-        open(looking, Onto::Kind(at))
+        open(looking, Destination::Kind(at))
     });
-    let mut rows = vec![search, where_, clock, called, naming, buttons];
+    let mut rows = vec![search, where_, clock, called, naming, buttons, game];
 
     rows.extend(kinds);
 
@@ -1368,13 +1424,7 @@ fn tab(
     })
 }
 
-fn pages(looking: &Held) -> Result<Vec<Page>, Never> {
-    let drawing = looking.clone();
-    let backing = looking.clone();
-    let waiting = looking.clone();
-    let sizing = looking.clone();
-    let drawing_size = looking.clone();
-
+fn pages(looking: &ActorAddress) -> Result<Vec<Page>, Never> {
     let Ok(
         [
             sound,
@@ -1386,134 +1436,33 @@ fn pages(looking: &Held) -> Result<Vec<Page>, Never> {
             wallpaper,
             language,
             configuration,
-            system,
+            books,
+            security,
         ],
     ) = tabs();
 
-    let Ok(asked) = tab(sound_tab);
-    let Ok(page) = Page::new(&sound, asked);
-    let Ok(page) = page.meanwhile(move || {
-        let Ok(rows) = sound_meanwhile();
-
-        rows
-    });
-    let Ok(stdbuf) = Program::Stdbuf.name();
-    let Ok(pactl) = Program::Pactl.name();
-    let Ok(watch) = console_panel::page::Watch::on(&[stdbuf, "-oL", pactl, "subscribe"], "on sink");
-    let Ok(sound) = page.watching(watch);
-
-    let drawing_bluetooth = looking.clone();
-    let waiting_bluetooth = looking.clone();
-    let backing_bluetooth = looking.clone();
-
-    let Ok(asked) = tab(move || bluetooth_tab(&drawing_bluetooth));
-    let Ok(page) = Page::new(&bluetooth, asked);
-    let Ok(page) = page.meanwhile(move || {
-        let Ok(rows) = bluetooth_meanwhile(&waiting_bluetooth);
-
-        rows
-    });
-    let Ok(words) = crate::rows::looking_words();
-    let Ok(watch) = console_panel::page::Watch::anything(&words);
-    let Ok(page) = page.watching(watch);
-    let Ok(bluetooth) = page.on_back(move |showing| {
-        let Ok(was) = looking_at(&backing_bluetooth);
-
-        match was {
-            Onto::Meeting(_) => {
-                let Ok(()) = press(&backing_bluetooth, Heard::Back, showing);
-
-                false
-            }
-            Onto::Settings
-            | Onto::Search
-            | Onto::Dictation
-            | Onto::Kind(_)
-            | Onto::Tongues
-            | Onto::Tongue(_)
-            | Onto::Alphabets
-            | Onto::Zones
-            | Onto::Zone(_)
-            | Onto::Clock => true,
-        }
-    });
-
-    let Ok(asked) = tab(wifi_tab);
-    let Ok(page) = Page::new(&wifi, asked);
-    let Ok(page) = page.meanwhile(move || {
-        let Ok(rows) = wifi_meanwhile();
-
-        rows
-    });
-    let Ok(wifi) = page.on_arriving(|showing| {
-        let Ok(()) = look_again(showing);
-    });
-
-    let Ok(asked) = tab(battery_tab);
-    let Ok(page) = Page::new(&battery, asked);
-    let Ok(battery) = page.meanwhile(move || {
-        let Ok(rows) = battery_meanwhile();
-
-        rows
-    });
+    let Ok(sound) = sound_page(&sound);
+    let Ok(bluetooth) = bluetooth_page(&bluetooth, looking);
+    let Ok(wifi) = wifi_page(&wifi);
+    let Ok(battery) = battery_page(&battery);
 
     let Ok(asked) = tab(notifications_tab);
     let Ok(notifications) = Page::new(&notifications, asked);
 
-    let Ok(asked) = tab(move || size_tab(&drawing_size));
-    let Ok(page) = Page::new(&size, asked);
-    let Ok(size) = page.meanwhile(move || {
-        let Ok(rows) = size_meanwhile(&sizing);
+    let Ok(size) = size_page(&size, looking);
+    let Ok(wallpaper) = wallpaper_page(&wallpaper);
+    let Ok(language) = language_page(&language, looking);
+    let Ok(configuration) = configuration_page(&configuration, looking);
 
-        rows
+    let Ok(asked) = tab(|| {
+        let Ok(now) = Appearance::chosen();
+
+        crate::rows::books_rows(now)
     });
+    let Ok(books) = Page::new(&books, asked);
 
-    let Ok(asked) = tab(wallpaper_tab);
-    let Ok(page) = Page::new(&wallpaper, asked);
-    let Ok(wallpaper) = page.meanwhile(move || {
-        let Ok(rows) = wallpaper_meanwhile();
-
-        rows
-    });
-
-    let drawing_language = looking.clone();
-    let backing_language = looking.clone();
-
-    let Ok(asked) = tab(move || language_tab(&drawing_language));
-    let Ok(page) = Page::new(&language, asked);
-    let Ok(language) = page.on_back(move |showing| {
-        let Ok(was) = looking_at(&backing_language);
-        let Ok(()) = press(&backing_language, Heard::Back, showing);
-
-        let Ok(closes) = closes(&was);
-
-        match closes {
-            Closes::Yes => true,
-            Closes::No => false,
-        }
-    });
-
-    let Ok(asked) = tab(move || defaults_tab(&drawing));
-    let Ok(page) = Page::new(&configuration, asked);
-    let Ok(page) = page.meanwhile(move || {
-        let Ok(rows) = defaults_meanwhile(&waiting);
-
-        rows
-    });
-    let Ok(configuration) = page.on_back(move |showing| {
-        let Ok(was) = looking_at(&backing);
-        let Ok(()) = press(&backing, Heard::Back, showing);
-
-        let Ok(closes) = closes(&was);
-
-        match closes {
-            Closes::Yes => true,
-            Closes::No => false,
-        }
-    });
-
-    let Ok(asked) = tab(system_rows);
-    let Ok(system) = Page::new(&system, asked);
+    let Ok(asked) = tab(login_rows);
+    let Ok(security) = Page::new(&security, asked);
 
     Ok(vec![
         sound,
@@ -1525,7 +1474,164 @@ fn pages(looking: &Held) -> Result<Vec<Page>, Never> {
         wallpaper,
         language,
         configuration,
-        system,
+        books,
+        security,
     ])
+}
+
+fn sound_page(title: &str) -> Result<Page, Never> {
+    let Ok(asked) = tab(sound_tab);
+    let Ok(page) = Page::new(title, asked);
+    let Ok(page) = page.meanwhile(move || {
+        let Ok(rows) = sound_meanwhile();
+
+        rows
+    });
+
+    page.listening(console_program_contract::Topic::Sound, console_events::again::sound)
+}
+
+fn bluetooth_page(title: &str, looking: &ActorAddress) -> Result<Page, Never> {
+    let drawing_bluetooth = looking.clone();
+    let waiting_bluetooth = looking.clone();
+    let backing_bluetooth = looking.clone();
+
+    let Ok(asked) = tab(move || bluetooth_tab(&drawing_bluetooth));
+    let Ok(page) = Page::new(title, asked);
+    let Ok(page) = page.meanwhile(move || {
+        let Ok(rows) = bluetooth_meanwhile(&waiting_bluetooth);
+
+        rows
+    });
+    let Ok(words) = crate::rows::looking_words();
+    let Ok(watch) = console_panel::page::Watch::anything(&words);
+    let Ok(page) = page.watching(watch);
+
+    page.on_back(move |showing| {
+        let Ok(was) = looking_at(&backing_bluetooth);
+
+        match was {
+            Destination::Meeting(_) => {
+                let Ok(()) = press(&backing_bluetooth, SettingsEvent::Back, showing);
+
+                false
+            }
+            Destination::Settings
+            | Destination::Search
+            | Destination::Dictation
+            | Destination::Kind(_)
+            | Destination::Languages
+            | Destination::Language(_)
+            | Destination::Alphabets
+            | Destination::Zones
+            | Destination::Zone(_)
+            | Destination::Clock => true,
+        }
+    })
+}
+
+fn wifi_page(title: &str) -> Result<Page, Never> {
+    let sharing: Sharing = Arc::new(Mutex::new(None));
+    let drawing = Arc::clone(&sharing);
+    let waiting = Arc::clone(&sharing);
+    let Ok(asked) = tab(move || wifi_tab(&drawing));
+    let Ok(page) = Page::new(title, asked);
+    let Ok(page) = page.meanwhile(move || {
+        let Ok(rows) = wifi_meanwhile(&waiting);
+
+        rows
+    });
+    let Ok(page) = page.on_back(move |showing| {
+        let Ok(was) = network_code::put_away(&sharing);
+
+        match was {
+            Some(_) => {
+                showing.refresh();
+
+                false
+            },
+            None => true,
+        }
+    });
+
+    page.on_arriving(|showing| {
+        let Ok(()) = look_again(showing);
+    })
+}
+
+fn battery_page(title: &str) -> Result<Page, Never> {
+    let Ok(asked) = tab(battery_tab);
+    let Ok(page) = Page::new(title, asked);
+
+    page.meanwhile(move || {
+        let Ok(rows) = battery_meanwhile();
+
+        rows
+    })
+}
+
+fn size_page(title: &str, looking: &ActorAddress) -> Result<Page, Never> {
+    let sizing = looking.clone();
+    let drawing_size = looking.clone();
+
+    let Ok(asked) = tab(move || size_tab(&drawing_size));
+    let Ok(page) = Page::new(title, asked);
+
+    page.meanwhile(move || {
+        let Ok(rows) = size_meanwhile(&sizing);
+
+        rows
+    })
+}
+
+fn wallpaper_page(title: &str) -> Result<Page, Never> {
+    let Ok(asked) = tab(wallpaper_tab);
+    let Ok(page) = Page::new(title, asked);
+
+    page.meanwhile(move || {
+        let Ok(rows) = wallpaper_meanwhile();
+
+        rows
+    })
+}
+
+fn backed(page: Page, looking: &ActorAddress) -> Result<Page, Never> {
+    let backing = looking.clone();
+
+    page.on_back(move |showing| {
+        let Ok(was) = looking_at(&backing);
+        let Ok(()) = press(&backing, SettingsEvent::Back, showing);
+
+        let Ok(closes) = closes(&was);
+
+        match closes {
+            Closes::Yes => true,
+            Closes::No => false,
+        }
+    })
+}
+
+fn language_page(title: &str, looking: &ActorAddress) -> Result<Page, Never> {
+    let drawing_language = looking.clone();
+
+    let Ok(asked) = tab(move || language_tab(&drawing_language));
+    let Ok(page) = Page::new(title, asked);
+
+    backed(page, looking)
+}
+
+fn configuration_page(title: &str, looking: &ActorAddress) -> Result<Page, Never> {
+    let drawing = looking.clone();
+    let waiting = looking.clone();
+
+    let Ok(asked) = tab(move || defaults_tab(&drawing));
+    let Ok(page) = Page::new(title, asked);
+    let Ok(page) = page.meanwhile(move || {
+        let Ok(rows) = defaults_meanwhile(&waiting);
+
+        rows
+    });
+
+    backed(page, looking)
 }
 

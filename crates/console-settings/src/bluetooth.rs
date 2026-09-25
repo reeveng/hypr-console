@@ -6,13 +6,13 @@
 //! connected is whether it is here now. The tab read only the last of those for
 //! a long time and offered `connect` on every row, which is a word bluez
 //! refuses for anything it has not been introduced to -- so the one device that
-//! most needs the tab, a keyboard nobody has paired yet, was the one device the
+//! most needs the tab, a keyboard no one has paired yet, was the one device the
 //! tab could not do anything with.
 //!
 //! A stranger is drawn by what it has said about itself, which for most of what
 //! is in the air is nothing at all. bluez names a device that has not told it a
 //! name after its own address, so a room full of watches and earbuds arrives as
-//! a column of hex, and the thing somebody is actually holding is one line in
+//! a column of hex, and the thing someone is actually holding is one line in
 //! it. Two answers to that, and both come off the same reading: what said a
 //! name goes above what did not, and what is loud goes above what is faint. A
 //! mouse in the hand is the loudest thing in the room.
@@ -64,7 +64,7 @@ pub enum Known {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Named {
-    Says,
+    Alias,
     Itself,
 }
 
@@ -113,7 +113,7 @@ pub fn looking(said: &str) -> Result<Looking, Never> {
 pub fn named(device: &Device) -> Result<Named, Never> {
     match device.name == device.address.replace(':', "-") {
         true => Ok(Named::Itself),
-        false => Ok(Named::Says),
+        false => Ok(Named::Alias),
     }
 }
 
@@ -155,7 +155,7 @@ pub fn share(heard: i32) -> Result<i32, Never> {
     Ok(share.clamp(0, 100))
 }
 
-fn place(met: &Met) -> Result<usize, Never> {
+fn place(met: &Met) -> Result<u32, Never> {
     let Ok(named) = named(&met.device);
 
     Ok(match met.joined {
@@ -163,7 +163,7 @@ fn place(met: &Met) -> Result<usize, Never> {
         Joined::No => match met.known {
             Known::Yes => 1,
             Known::No => match named {
-                Named::Says => 2,
+                Named::Alias => 2,
                 Named::Itself => 3,
             },
         },
@@ -253,7 +253,7 @@ mod tests {
         };
 
         assert_eq!(named(&quiet), Ok(Named::Itself));
-        assert_eq!(named(&says), Ok(Named::Says));
+        assert_eq!(named(&says), Ok(Named::Alias));
     }
 
     #[test]

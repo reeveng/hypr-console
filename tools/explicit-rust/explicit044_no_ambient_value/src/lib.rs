@@ -6,7 +6,7 @@
 //! -- the environment and the working directory -- that a process can change
 //! under its own feet.
 //!
-//! A `static OnceLock` filled the first time somebody asks is the shape most
+//! A `static OnceLock` filled the first time someone asks is the shape most
 //! of them take here, and it looks harmless because it is written once. What
 //! it costs is not a race, it is an answer: the value is frozen for the life
 //! of the process, so the second caller gets the first caller's answer to a
@@ -14,7 +14,7 @@
 //! anything else. A locale cached on the first draw is the locale for every
 //! draw afterwards, and the check that means to press the other one has
 //! nowhere to stand. An `AtomicBool` or a `static Mutex` is the louder
-//! version: it can be written at any moment by anybody, and what a function
+//! version: it can be written at any moment by anyone, and what a function
 //! reads out of it depends on what else the program happened to be doing.
 //!
 //! `set_var` and `remove_var` are the same fault crossing out of the process
@@ -39,7 +39,7 @@
 //! them: a `const`-like table, a palette, a list of names. What is asked about
 //! is a `static mut` and a `static` whose type has interior mutability, which
 //! is the compiler's own question -- `Freeze` -- rather than a list of type
-//! names that would go stale the first time somebody reached for a different
+//! names that would go stale the first time someone reached for a different
 //! cell.
 //!
 //! The answer at nearly every site is to hand the value in: the memo becomes a
@@ -50,7 +50,7 @@
 //! why nothing could hold it instead.
 //!
 //! It arrived `Warn` and is denied. What it found came out in two roughly equal
-//! halves. The memos went: the language somebody reads is asked again at every
+//! halves. The memos went: the language someone reads is asked again at every
 //! `say`, the never-resume list is read again at every save, the player's two
 //! `OnceLock`s became one value `main` holds and hands to the callback that
 //! could not find it, the empty profile became a field, and the wallpaper's
@@ -65,7 +65,7 @@
 //! was asked to stop have nowhere else to live. Beside them are a lock held for
 //! exactly as long as the process it speaks for, a queue one writing thread
 //! owns for the life of the process, an icon store whose slices are still being
-//! drawn from, and a counter handing out a directory nobody else is in. Each
+//! drawn from, and a counter handing out a directory no one else is in. Each
 //! says which.
 #![feature(rustc_private)]
 #![warn(unused_extern_crates)]
@@ -102,13 +102,13 @@ fn reaches_past_the_call(path: &str) -> Option<&'static str> {
             Some("every relative path in the process means something else after this line")
         }
         "std::env::current_dir" => {
-            Some("this is wherever the program was started from, which is not a place anybody chose")
+            Some("this is wherever the program was started from, which is not a place anyone chose")
         }
         _ => None,
     }
 }
 
-// A `static` nobody can write is a table and is not asked about. What is left
+// A `static` no one can write is a table and is not asked about. What is left
 // is a `static mut`, and a `static` whose type has interior mutability --
 // which is `Freeze`, the compiler's own question, rather than a list of cells
 // that would go stale.
@@ -122,7 +122,7 @@ fn can_be_written(cx: &LateContext<'_>, item: &Item<'_>, mutability: Mutability)
 
     match held.skip_normalization().is_freeze(cx.tcx, cx.typing_env()) {
         true => None,
-        false => Some("this holds a value that can be filled or changed after somebody has read it"),
+        false => Some("this holds a value that can be filled or changed after someone has read it"),
     }
 }
 
@@ -193,7 +193,7 @@ impl<'tcx> LateLintPass<'tcx> for Explicit044NoAmbientValue {
             None,
             "the environment is read in the crate that owns what a name means, which is EXPLICIT026, and \
              writing one from somewhere else arranges that crate's answer behind its back. A path is \
-             joined to a root somebody named -- `console_core_places` for a person's files, \
+             joined to a root someone named -- `console_core_places` for a person's files, \
              `console_repository` for this tree -- rather than resolved against wherever the program was \
              started. Where a child really has to be handed a different environment, hand it to the \
              child: `Command::env` changes that process and not this one",

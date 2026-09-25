@@ -19,6 +19,7 @@
 
 use console_test_stages::panels::{
     Panel, a_way_out_is_drawn, every_mark_reachable, every_offer_answered,
+    every_row_draws_what_it_carries,
 };
 
 fn held_to_the_contract(program: &str, args: &[&str]) {
@@ -41,12 +42,16 @@ fn held_to_the_contract(program: &str, args: &[&str]) {
         if let Err(why) = a_way_out_is_drawn(card) {
             panic!("{why}");
         }
+
+        if let Err(why) = every_row_draws_what_it_carries(card) {
+            panic!("{why}");
+        }
     }
 }
 
 #[test]
 fn the_files() {
-    held_to_the_contract("files-panel", &[]);
+    held_to_the_contract("files", &[]);
 }
 
 #[test]
@@ -65,13 +70,23 @@ fn the_music() {
 }
 
 #[test]
-fn the_notices() {
+fn the_music_library() {
+    held_to_the_contract("music", &[]);
+}
+
+#[test]
+fn the_notifications() {
     held_to_the_contract("notifications-panel", &[]);
 }
 
 #[test]
 fn the_downloads() {
-    held_to_the_contract("downloads-panel", &[]);
+    held_to_the_contract("downloads", &[]);
+}
+
+#[test]
+fn the_calculator() {
+    held_to_the_contract("calculator", &[]);
 }
 
 #[test]
@@ -81,5 +96,5 @@ fn the_calendar() {
 
 #[test]
 fn the_guide() {
-    held_to_the_contract("console-buttons", &["--menu"]);
+    held_to_the_contract("mapping-panel", &[]);
 }

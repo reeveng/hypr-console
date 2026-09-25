@@ -21,7 +21,7 @@
 //! the check hands it a directory of its own and takes it away at the end. The
 //! session inside it is called `default`, because `default` is what the unit
 //! saves and this check is about what the unit does -- the rule that a check may
-//! not touch somebody's `default` is about the person's sessions, and none of
+//! not touch someone's `default` is about the person's sessions, and none of
 //! these are.
 //!
 //! What it cannot point somewhere of its own is `XDG_RUNTIME_DIR`, which is
@@ -32,7 +32,7 @@
 //! by name afterwards: they are keyed to a compositor that has stopped, and a
 //! check may take away what it made.
 //!
-//! ## What a second start would take is a window nobody saved
+//! ## What a second start would take is a window no one saved
 //!
 //! Counting the windows after a second start says nothing, because a keeper
 //! that sweeps the screen puts the same session back on it and the count comes
@@ -49,7 +49,7 @@
 //!
 //! ## A word it does not know is pressed here, where there is no desktop to lose
 //!
-//! The other half of this feature is what the program does with a word nobody
+//! The other half of this feature is what the program does with a word no one
 //! wrote it for, and that half needs no compositor at all -- which is as well,
 //! because the way it fails is by sweeping the screen of whoever ran it. So it
 //! is pressed with no compositor within reach: the runtime directory it is
@@ -59,7 +59,7 @@
 //! through mode closes no windows, and the check has both.
 //!
 //! What it presses is the whole program rather than the reading of its words.
-//! That the words parse is a unit test in the crate; that a word nobody knows
+//! That the words parse is a unit test in the crate; that a word no one knows
 //! reaches a status and not a mode is only true if `main` wires it that way,
 //! and the day it did not was the day `cargo run -- --help` closed every window
 //! on this laptop.
@@ -81,11 +81,11 @@ use std::time::Duration;
 
 use console_compositor::Window;
 use console_core_never::Never;
-use console_program_lifetime::{Alongside, Still};
-use console_test_stages::checking::{Body, Check, Done, cannot, failed, same};
+use console_program_lifetime::{BoundToParent, Still};
+use console_test_stages::checking::{Body, Check, CheckResult, cannot, failed, same};
 use console_test_stages::desktop::{Desktop, Installed};
 use console_test_stages::here::Here;
-use console_waiting::{Patience, Seen, Waited};
+use console_waiting::{Schedule, Ready, Outcome};
 
 use crate::Unchecked;
 
@@ -101,9 +101,9 @@ const NOT_SAVING_AGAIN: &str = "--save-interval=3600";
 
 const ASKING_AGAIN: &str = "0.2";
 
-const TWO: usize = 2;
+const TWO: u32 = 2;
 
-const ONE: usize = 1;
+const ONE: u32 = 1;
 
 const KEEPER: &str = "console-resume";
 
@@ -138,13 +138,7 @@ pub const NOT_TWICE: Check = Check {
 };
 
 fn ours(name: &str) -> Result<PathBuf, Unchecked> {
-    let at = std::env::temp_dir().join(format!("console-resume-{name}-{}", std::process::id()));
-
-    let _ = std::fs::remove_dir_all(&at);
-
-    std::fs::create_dir_all(&at).map_err(|fault| Unchecked::Making(at.clone(), fault))?;
-
-    Ok(at)
+    console_core_temporary_directories::fresh(&format!("resume-{name}")).map_err(Unchecked::Temporary)
 }
 
 fn keeping(at: &Path, how_often: &str) -> Result<String, Never> {
@@ -196,7 +190,7 @@ fn unmark(before: &BTreeSet<PathBuf>) -> Result<(), Never> {
     Ok(())
 }
 
-fn refused(_stage: &mut Here) -> Done {
+fn refused(_stage: &mut Here) -> CheckResult {
     let Ok(keeper) = console_test_stages::beside(KEEPER);
     let at = ours("refused")?;
 
@@ -215,14 +209,14 @@ fn refused(_stage: &mut Here) -> Done {
         Err(fault) => return failed(format!("{}: {fault}", keeper.display())),
     };
 
-    let Ok(patience) = Patience::asking_every(REFUSING, ASKING);
+    let Ok(patience) = Schedule::asking_every(REFUSING, ASKING);
 
     let Ok(waited) = console_waiting::until_handed(patience, &mut running, |running| {
         let Ok(still) = running.still();
 
         Ok(match still {
-            Still::Ended => Seen::Yes,
-            Still::Running => Seen::NotYet,
+            Still::Ended => Ready::Yes,
+            Still::Running => Ready::NotYet,
         })
     });
 
@@ -233,14 +227,14 @@ fn refused(_stage: &mut Here) -> Done {
     done
 }
 
-fn ended(mut running: Alongside, waited: Waited) -> Done {
+fn ended(mut running: BoundToParent, waited: Outcome) -> CheckResult {
     match waited {
-        Waited::RanOut => failed(format!(
+        Outcome::RanOut => failed(format!(
             "{KEEPER} {UNKNOWN} was still running after {}s, so the word was read as no word at \
              all -- and no word at all is the mode that closes every window",
             REFUSING.as_secs()
         )),
-        Waited::Happened => {
+        Outcome::Happened => {
             let how = match running.waiting() {
                 Ok(how) => how,
                 Err(fault) => return failed(format!("what {KEEPER} ended as: {fault}")),
@@ -248,7 +242,7 @@ fn ended(mut running: Alongside, waited: Waited) -> Done {
 
             match how.success() {
                 true => failed(format!(
-                    "{KEEPER} {UNKNOWN} ended saying all was well, so a word nobody wrote it \
+                    "{KEEPER} {UNKNOWN} ended saying all was well, so a word no one wrote it \
                      for is a word it takes"
                 )),
                 false => Ok(()),
@@ -261,11 +255,11 @@ fn terminal(saying: &Path) -> Result<String, Never> {
     Ok(format!("{TERMINAL} -e sh -c 'echo up > {}; exec sh'", saying.display()))
 }
 
-fn terminals(open: &[Window]) -> Result<usize, Never> {
-    Ok(open.iter().filter(|window| window.first_class == CLASS).count())
+fn terminals(open: &[Window]) -> Result<u32, Never> {
+    console_core_number_conversion::fitted(open.iter().filter(|window| window.first_class == CLASS).count())
 }
 
-fn saving(stage: &mut Desktop, at: &Path) -> Done {
+fn saving(stage: &mut Desktop, at: &Path) -> CheckResult {
     let Ok(keeping) = keeping(at, SAVING);
 
     stage.open(TERMINAL)?;
@@ -283,7 +277,7 @@ fn saving(stage: &mut Desktop, at: &Path) -> Done {
     })
 }
 
-fn again(stage: &mut Desktop) -> Done {
+fn with_a_terminal(stage: &mut Desktop, named: &str, then: fn(&mut Desktop, &Path) -> CheckResult) -> CheckResult {
     let Ok(installed) = stage.installed(TERMINAL);
 
     match installed {
@@ -291,10 +285,10 @@ fn again(stage: &mut Desktop) -> Done {
         Installed::Yes => {},
     }
 
-    let at = ours("came-back")?;
+    let at = ours(named)?;
     let before = marks()?;
 
-    let done = saved_and_put_back(stage, &at);
+    let done = then(stage, &at);
 
     let Ok(()) = unmark(&before);
     let _ = std::fs::remove_dir_all(&at);
@@ -302,7 +296,11 @@ fn again(stage: &mut Desktop) -> Done {
     done
 }
 
-fn saved_and_put_back(stage: &mut Desktop, at: &Path) -> Done {
+fn again(stage: &mut Desktop) -> CheckResult {
+    with_a_terminal(stage, "came-back", saved_and_put_back)
+}
+
+fn saved_and_put_back(stage: &mut Desktop, at: &Path) -> CheckResult {
     saving(stage, at)?;
 
     let Ok(keeping) = keeping(at, NOT_SAVING_AGAIN);
@@ -321,26 +319,11 @@ fn saved_and_put_back(stage: &mut Desktop, at: &Path) -> Done {
     })
 }
 
-fn not_twice(stage: &mut Desktop) -> Done {
-    let Ok(installed) = stage.installed(TERMINAL);
-
-    match installed {
-        Installed::No => return cannot("alacritty is not installed on this machine"),
-        Installed::Yes => {},
-    }
-
-    let at = ours("not-twice")?;
-    let before = marks()?;
-
-    let done = put_back_and_started_again(stage, &at);
-
-    let Ok(()) = unmark(&before);
-    let _ = std::fs::remove_dir_all(&at);
-
-    done
+fn not_twice(stage: &mut Desktop) -> CheckResult {
+    with_a_terminal(stage, "not-twice", put_back_and_started_again)
 }
 
-fn put_back_and_started_again(stage: &mut Desktop, at: &Path) -> Done {
+fn put_back_and_started_again(stage: &mut Desktop, at: &Path) -> CheckResult {
     saving(stage, at)?;
 
     let put_back = at.join("put-back");
@@ -350,13 +333,13 @@ fn put_back_and_started_again(stage: &mut Desktop, at: &Path) -> Done {
     let Ok(first) = saying(at, NOT_SAVING_AGAIN, &put_back);
     let Ok(second) = saying(at, NOT_SAVING_AGAIN, &again);
     let Ok(terminal) = terminal(&opened);
-    let Ok(nobody_saved_it) = when(&put_back, &terminal);
+    let Ok(no_one_saved_it) = when(&put_back, &terminal);
     let Ok(started_again) = when(&opened, &second);
 
     let Ok(()) = stage.fresh();
 
     stage.open(&first)?;
-    stage.open(&nobody_saved_it)?;
+    stage.open(&no_one_saved_it)?;
     stage.open(&started_again)?;
     stage.not_before(&again)?;
 
@@ -389,7 +372,7 @@ mod tests {
             monitor: Some(0),
             floating: Floating::No,
             pinned: Pinned::No,
-            filling: Filling::Nothing,
+            filling: Filling::None,
             at: (0, 0),
             size: (800, 600),
             pid: 42,

@@ -24,11 +24,12 @@ use std::path::Path;
 
 use console_core_external_programs::Program;
 use console_core_never::Never;
+use console_core_number_conversion::index;
 use serde_json::Value;
 
 pub const BETWEEN: &str = " \u{00b7} ";
 
-pub const AS_MUCH: usize = 300;
+pub const AS_MUCH: u32 = 300;
 
 const NOT_THE_MUSIC: [&str; 8] = [
     "compatible_brands",
@@ -49,16 +50,16 @@ pub struct Tags {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Said {
-    Something,
-    Nothing,
+pub enum Tagged {
+    Some,
+    None,
 }
 
 impl Tags {
-    pub fn anything(&self) -> Result<Said, Never> {
+    pub fn anything(&self) -> Result<Tagged, Never> {
         Ok(match self.title.is_empty() && self.artist.is_empty() && self.rest.is_empty() {
-            true => Said::Nothing,
-            false => Said::Something,
+            true => Tagged::None,
+            false => Tagged::Some,
         })
     }
 }
@@ -91,10 +92,10 @@ pub fn playing(path: &Path) -> Result<Playing, Never> {
 }
 
 fn ffprobe(path: &Path) -> Result<String, Never> {
-    let Ok(argv) = asking(path);
+    let Ok(arguments) = asking(path);
     let Ok(mut asking) = Program::Ffprobe.command();
 
-    asking.args(&argv);
+    asking.args(&arguments);
 
     let Ok(()) = console_response_times::not_a_press(&mut asking);
 
@@ -271,7 +272,9 @@ fn rest(all: &[(String, String)], song: Song<'_>) -> Result<String, Never> {
     cut(&rest.join(BETWEEN), AS_MUCH)
 }
 
-fn cut(said: &str, to: usize) -> Result<String, Never> {
+fn cut(said: &str, to: u32) -> Result<String, Never> {
+    let Ok(to) = index(to);
+
     Ok(match said.char_indices().nth(to).and_then(|(at, _)| said.get(..at)) {
         Some(head) => head.trim_end().to_string(),
         None => said.to_string(),
@@ -347,7 +350,7 @@ mod tests {
         let Ok(tags) = read(&tagless.to_string());
 
         assert_eq!(tags, Tags::default());
-        assert_eq!(tags.anything(), Ok(Said::Nothing));
+        assert_eq!(tags.anything(), Ok(Tagged::None));
     }
 
     #[test]
@@ -378,13 +381,13 @@ mod tests {
     }
 
     #[test]
-    fn a_description_nobody_would_read_is_cut_where_it_stops_being_worth_it() {
+    fn a_description_no_one_would_read_is_cut_where_it_stops_being_worth_it() {
         let said = serde_json::json!({
             "format": { "tags": { "comment": "x".repeat(1000) } }
         });
         let Ok(tags) = read(&said.to_string());
 
-        assert_eq!(tags.rest.chars().count(), AS_MUCH);
+        assert_eq!(u32::try_from(tags.rest.chars().count()), Ok(AS_MUCH));
     }
 
     #[test]
@@ -395,9 +398,9 @@ mod tests {
 
     #[test]
     fn a_name_ffprobe_would_read_as_a_flag_is_handed_to_it_as_a_file() {
-        let Ok(argv) = asking(Path::new("/home/x/-Rain.opus"));
+        let Ok(arguments) = asking(Path::new("/home/x/-Rain.opus"));
 
-        assert_eq!(argv.last().unwrap(), "/home/x/-Rain.opus");
-        assert_eq!(argv[argv.len() - 2], "-i");
+        assert_eq!(arguments.last().unwrap(), "/home/x/-Rain.opus");
+        assert_eq!(arguments[arguments.len() - 2], "-i");
     }
 }

@@ -19,13 +19,14 @@
 
 
 use console_core_never::Never;
-use console_core_number_conversion::fitted;
+use console_core_number_conversion::{fitted, index};
 use std::ffi::CString;
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 
-pub fn keymap_file(text: &str) -> io::Result<(OwnedFd, usize)> {
-    let long = text.len().saturating_add(1);
+pub fn keymap_file(text: &str) -> io::Result<(OwnedFd, u64)> {
+    let Ok(written) = fitted::<_, u64>(text.len());
+    let long = written.saturating_add(1);
     let held = made("console-keyboard-keymap", long)?;
 
     {
@@ -68,7 +69,7 @@ pub fn keymap_file(text: &str) -> io::Result<(OwnedFd, usize)> {
     Ok((held, long))
 }
 
-pub fn drawing_buffer(len: usize) -> io::Result<OwnedFd> {
+pub fn drawing_buffer(len: u64) -> io::Result<OwnedFd> {
     let held = made("console-keyboard-pixels", len)?;
     const F_ADD_SEALS: i32 = 1033;
     const SHRINK_AND_GROW: i32 = 0x0002 | 0x0004;
@@ -81,34 +82,23 @@ pub fn drawing_buffer(len: usize) -> io::Result<OwnedFd> {
 
 pub struct Mapped {
     at: *mut libc::c_void,
-    long: usize,
+    long: u64,
 }
 
 impl Mapped {
-    pub fn of(fd: &OwnedFd, len: usize) -> io::Result<Mapped> {
-        // SAFETY: the fd is a memfd of at least `len` bytes, made above.
-        let at = unsafe {
-            libc::mmap(
-                std::ptr::null_mut(),
-                len,
-                libc::PROT_READ | libc::PROT_WRITE,
-                libc::MAP_SHARED,
-                fd.as_raw_fd(),
-                0,
-            )
-        };
-
-        match at == libc::MAP_FAILED {
-            true => Err(io::Error::last_os_error()),
-            false => Ok(Mapped { at, long: len }),
-        }
+    pub fn of(fd: &OwnedFd, len: u64) -> io::Result<Mapped> {
+        Mapped::with(fd, len, libc::PROT_READ | libc::PROT_WRITE)
     }
 
-    pub fn reading(fd: &OwnedFd, len: usize) -> io::Result<Mapped> {
-        // SAFETY: as above, and read-only.
-        let at = unsafe {
-            libc::mmap(std::ptr::null_mut(), len, libc::PROT_READ, libc::MAP_SHARED, fd.as_raw_fd(), 0)
-        };
+    pub fn reading(fd: &OwnedFd, len: u64) -> io::Result<Mapped> {
+        Mapped::with(fd, len, libc::PROT_READ)
+    }
+
+    fn with(fd: &OwnedFd, len: u64, protection: libc::c_int) -> io::Result<Mapped> {
+        let Ok(mapping) = index(len);
+
+        // SAFETY: the fd is a memfd of at least `len` bytes, and `protection` is what the caller may do with it.
+        let at = unsafe { libc::mmap(std::ptr::null_mut(), mapping, protection, libc::MAP_SHARED, fd.as_raw_fd(), 0) };
 
         match at == libc::MAP_FAILED {
             true => Err(io::Error::last_os_error()),
@@ -117,15 +107,19 @@ impl Mapped {
     }
 
     pub fn bytes(&self) -> Result<&[u8], Never> {
+        let Ok(long) = index(self.long);
+
         // SAFETY: `at` is a live mapping of `long` bytes.
-        let seen = unsafe { std::slice::from_raw_parts(self.at.cast::<u8>(), self.long) };
+        let seen = unsafe { std::slice::from_raw_parts(self.at.cast::<u8>(), long) };
 
         Ok(seen)
     }
 
     pub fn pixels(&mut self) -> Result<&mut [u8], Never> {
+        let Ok(long) = index(self.long);
+
         // SAFETY: `at` is a live mapping of `long` bytes, and this borrows it
-        let seen = unsafe { std::slice::from_raw_parts_mut(self.at.cast::<u8>(), self.long) };
+        let seen = unsafe { std::slice::from_raw_parts_mut(self.at.cast::<u8>(), long) };
 
         Ok(seen)
     }
@@ -133,12 +127,14 @@ impl Mapped {
 
 impl Drop for Mapped {
     fn drop(&mut self) {
+        let Ok(long) = index(self.long);
+
         // SAFETY: unmapping exactly what was mapped, once.
-        unsafe { libc::munmap(self.at, self.long) };
+        unsafe { libc::munmap(self.at, long) };
     }
 }
 
-fn made(called: &str, len: usize) -> io::Result<OwnedFd> {
+fn made(called: &str, len: u64) -> io::Result<OwnedFd> {
     let name = CString::new(called)
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "a name with a nul byte in it"))?;
     // SAFETY: a name that lives across the call, and a flag word.
@@ -152,7 +148,7 @@ fn made(called: &str, len: usize) -> io::Result<OwnedFd> {
     // SAFETY: `raw` is a fresh descriptor this owns.
     let owned = unsafe { OwnedFd::from_raw_fd(raw) };
 
-    let Ok(long) = fitted::<usize, i64>(len);
+    let Ok(long) = fitted::<_, i64>(len);
 
     // SAFETY: sizing the file this just made.
     match unsafe { libc::ftruncate(owned.as_raw_fd(), long) } < 0 {
@@ -171,7 +167,7 @@ mod tests {
     fn a_keymap_is_written_and_reads_back_with_its_terminator() {
         let text = "xkb_keymap { }";
         let (held, long) = keymap_file(text).expect("a keymap file");
-        assert_eq!(long, text.len() + 1);
+        assert_eq!(long, text.len() as u64 + 1);
         let mapped = Mapped::reading(&held, long).expect("map it back");
         let Ok(got) = mapped.bytes();
         assert_eq!(&got[..text.len()], text.as_bytes());

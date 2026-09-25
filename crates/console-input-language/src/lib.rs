@@ -1,4 +1,4 @@
-//! What a keyboard somebody plugged in is set to type.
+//! What a keyboard someone plugged in is set to type.
 //!
 //! The keyboard drawn on the screen wears an arrangement and switches it
 //! itself, because the keys are its own. A keyboard on a desk wears an xkb
@@ -12,7 +12,7 @@
 //! list it sits. Nothing in this file has seen a machine. `language-switch` is
 //! the program that asks.
 //!
-//! Both ways round, because a walk of three is a walk somebody overshoots. The
+//! Both ways round, because a walk of three is a walk someone overshoots. The
 //! keyboard on the screen has had two shoulders for it since it had a walk at
 //! all -- L1 back, R1 on -- and a keyboard on a desk that could only go
 //! forward made the way back a matter of how many alphabets this machine is
@@ -24,11 +24,12 @@
 //! `kb_layout` in the compositor's own file is one word, and it was `us`. A
 //! list written there would be one more place saying what this machine types,
 //! against the setting that already says it -- and it would be wrong for
-//! everybody who changed the setting, which is the whole reason the setting
+//! everyone who changed the setting, which is the whole reason the setting
 //! exists. So the list is set from the alphabets every time, and the file
 //! keeps the one layout that is right before anything of ours has run.
 
 use console_core_never::Never;
+use console_core_number_conversion::index;
 use console_input_alphabets::Alphabet;
 use console_core_walking::{Ring, Step};
 
@@ -51,16 +52,14 @@ pub fn layouts(walk: &[&'static Alphabet]) -> Result<String, Never> {
     }
 }
 
-pub fn at(walk: &[&'static Alphabet], alphabet: &Alphabet) -> Result<usize, Never> {
-    let found = walk.iter().position(|kept| kept.key == alphabet.key);
-
-    Ok(match found {
-        Some(at) => at,
+pub fn at(walk: &[&'static Alphabet], alphabet: &Alphabet) -> Result<u32, Never> {
+    Ok(match (0..).zip(walk).find(|(_, kept)| kept.key == alphabet.key) {
+        Some((at, _)) => at,
         None => THE_FIRST_ONE,
     })
 }
 
-const THE_FIRST_ONE: usize = 0;
+const THE_FIRST_ONE: u32 = 0;
 
 pub fn along(
     walk: &[&'static Alphabet],
@@ -76,6 +75,7 @@ pub fn along(
 
     let Ok(now) = at(walk, alphabet);
     let Ok(next) = ring.stepped(now, step);
+    let Ok(next) = index(next);
 
     match walk.get(next) {
         Some(alphabet) => Ok(alphabet),

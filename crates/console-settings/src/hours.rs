@@ -1,8 +1,8 @@
 //! Where this machine keeps the hour, and how it writes it down.
 //!
-//! Six hundred zones, which is a list nobody walks. They are not six hundred
+//! Six hundred zones, which is a list no one walks. They are not six hundred
 //! flat things, though: every one of them is a place inside a part of the
-//! world, and that is how somebody looks for their own -- Europe first, then
+//! world, and that is how someone looks for their own -- Europe first, then
 //! the city. So the list is the part of the world, and the cities are the page
 //! under it, which turns one walk of six hundred into one of eleven and one of
 //! forty.

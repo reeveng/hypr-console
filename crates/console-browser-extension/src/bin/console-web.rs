@@ -20,7 +20,7 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use console_browser_extension::{PALETTE, source, stamp};
-use console_core_atomic_writes::{Held, Unwritten};
+use console_core_atomic_writes::Stored;
 use console_core_never::Never;
 
 fn main() -> ExitCode {
@@ -31,7 +31,7 @@ fn main() -> ExitCode {
     let home = match said {
         Some(home) => home,
         None => {
-            eprintln!("no HOME, so there is nobody whose add-on this would be");
+            eprintln!("no HOME, so there is no one whose add-on this would be");
 
             return ExitCode::from(1);
         }
@@ -84,7 +84,7 @@ fn main() -> ExitCode {
     let Ok(files) = source::every(&version, source::Palette(&palette));
     let Ok(made) = console_browser_extension::pack::zip(&files);
 
-    match wrote(&xpi, &made) {
+    match console_core_atomic_writes::whole_with_folders(&xpi, &made) {
         Ok(()) => {}
         Err(why) => {
             eprintln!("{}: {why}", xpi.display());
@@ -94,7 +94,7 @@ fn main() -> ExitCode {
 
     let Ok(note) = stamp::written(&stamp::Stamp { hash, version: version.clone() });
 
-    match wrote(&stamped, note.as_bytes()) {
+    match console_core_atomic_writes::whole_with_folders(&stamped, note.as_bytes()) {
         Ok(()) => {}
         Err(why) => {
             eprintln!("{}: {why}", stamped.display());
@@ -110,14 +110,14 @@ fn note_beside(at: &Path) -> Result<Option<stamp::Stamp>, Never> {
     let Ok(said) = console_core_atomic_writes::read(at);
 
     Ok(match said {
-        Held::Said(said) => {
+        Stored::Text(said) => {
             let Ok(held) = stamp::read(&said);
 
             held
         },
-        Held::Nothing => None,
+        Stored::Absent => None,
 
-        Held::Unreadable(fault) => {
+        Stored::Failed(fault) => {
             eprintln!("{}: reading the note beside the add-on: {fault}", at.display());
             None
         }
@@ -131,22 +131,13 @@ fn packed_version(at: &Path) -> Result<Option<String>, Never> {
 
             said
         },
-        Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => None,
-
-        Err(fault) => {
-            eprintln!("{}: reading the packed add-on for its version: {fault}", at.display());
-            None
-        }
+        Err(fault) => match fault.kind() == std::io::ErrorKind::NotFound {
+            true => None,
+            false => {
+                eprintln!("{}: reading the packed add-on for its version: {fault}", at.display());
+                None
+            }
+        },
     })
 }
 
-fn wrote(at: &Path, bytes: &[u8]) -> Result<(), Unwritten> {
-    match at.parent() {
-        Some(parent) => {
-            std::fs::create_dir_all(parent).map_err(|fault| Unwritten::Making(parent.to_path_buf(), fault))?
-        }
-        None => {}
-    }
-
-    console_core_atomic_writes::whole(at, bytes)
-}

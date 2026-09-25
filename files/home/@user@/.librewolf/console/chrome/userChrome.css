@@ -1,9 +1,9 @@
 /* The browser's own frame, in the palette the rest of the desktop wears.
    Without this the browser is the one window that looks like it came from
-   somewhere else: its dark theme is a cold grey and everything around it is
+   somewhere else: its dark theme is a cold gray and everything around it is
    warm.
 
-   There is no colour in this file. Every name below comes from the palette,
+   There is no color in this file. Every name below comes from the palette,
    which is written from theme/palette.toml and imported beside it. */
 
 @import url("palette.css");
@@ -31,7 +31,7 @@
 
 /* The bookmarks toolbar is not among these. It is switched off in user.js --
    this device has no use for a row of small targets it cannot add to -- and a
-   rule dressing something nobody can see is a rule that outlives the reason
+   rule dressing something no one can see is a rule that outlives the reason
    for it. */
 #TabsToolbar,
 #nav-bar {

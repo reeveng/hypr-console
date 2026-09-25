@@ -1,40 +1,31 @@
-//! Not a check. A number, for as long as somebody is looking at one.
+//! Not a check. A number, for as long as someone is looking at one.
 
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Sender, channel};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use console_events::listening::{Heard, listen_at};
+use console_events::subscription::{Received, connect_at};
 use console_events::serving;
-use console_events::sources::Held;
-use console_program_contract::{Changed, Topic};
+use console_events::sources::Subscribed;
+use console_program_contract::{Change, Topic};
 
-fn how_many(named: &str, usual: usize) -> usize {
+fn how_many(named: &str, usual: u64) -> u64 {
     match std::env::var(named) {
         Ok(said) => said.parse().unwrap_or(usual),
         Err(_) => usual,
     }
 }
 
-static SAYING: OnceLock<Sender<Sender<Changed>>> = OnceLock::new();
+static SAYING: OnceLock<Sender<Sender<Change>>> = OnceLock::new();
 
-static TAKEN: AtomicUsize = AtomicUsize::new(0);
+static TAKEN: AtomicU64 = AtomicU64::new(0);
 
-static AGAIN: AtomicUsize = AtomicUsize::new(0);
+static AGAIN: AtomicU64 = AtomicU64::new(0);
 
-fn source(topic: &Topic, say: Sender<Changed>) -> Result<Held, console_core_never::Never> {
-    Ok(match topic {
-        Topic::Sound => match SAYING.get() {
-            Some(handing) => match handing.send(say) {
-                Ok(()) => Held::Yes,
-                Err(_) => Held::Nothing,
-            },
-            None => Held::Nothing,
-        },
-        _other => Held::Nothing,
-    })
+fn source(topic: &Topic, say: Sender<Change>) -> Result<Subscribed, console_core_never::Never> {
+    console_events::sources::handed_to(SAYING.get(), &Topic::Sound, topic, say)
 }
 
 fn up(at: &Path) {
@@ -71,15 +62,15 @@ fn how_many_words_a_second() {
         let _ = std::thread::spawn(move || {
             match raw {
                 0 => {
-                    let listening = listen_at(&mine, &[Topic::Sound]).expect("listening");
-                    let heard = listening.heard().expect("words");
+                    let subscriber = connect_at(&mine, &[Topic::Sound]).expect("listening");
+                    let heard = subscriber.received().expect("words");
 
                     for word in heard {
                         match word {
-                            Heard::Said(_) => {
+                            Received::Event(_) => {
                                 let _ = TAKEN.fetch_add(1, Ordering::Relaxed);
                             }
-                            Heard::GotIn => {
+                            Received::Connected => {
                                 let _ = AGAIN.fetch_add(1, Ordering::Relaxed);
                             },
                         }
@@ -88,7 +79,7 @@ fn how_many_words_a_second() {
                 _bytes_only => {
                     let mut stream =
                         std::os::unix::net::UnixStream::connect(&mine).expect("connecting");
-                    let asked = console_events::wire::spelt(&console_events::wire::Says::Listen(
+                    let asked = console_events::wire::encoded(&console_events::wire::Message::Subscribe(
                         Topic::Sound,
                     ))
                     .expect("the wire");
@@ -105,8 +96,10 @@ fn how_many_words_a_second() {
                         match std::io::Read::read(&mut stream, &mut buffer) {
                             Ok(0) => return,
                             Ok(read) => {
-                                let lines =
-                                    buffer.get(..read).unwrap_or_default().iter().filter(|byte| **byte == b'\n').count();
+                                let lines = u64::try_from(
+                                    buffer.get(..read).unwrap_or_default().iter().filter(|byte| **byte == b'\n').count(),
+                                )
+                                .unwrap();
 
                                 let _ = TAKEN.fetch_add(lines, Ordering::Relaxed);
                             }
@@ -128,7 +121,7 @@ fn how_many_words_a_second() {
     for word in 0..words {
         let said = format!("Event 'change' on sink #{word} at 0x7f3a2b4c5d6e volume 0.42");
 
-        saying.send(Changed { about: Topic::Sound, said }).expect("the pool");
+        saying.send(Change { topic: Topic::Sound, text: said }).expect("the pool");
     }
 
     let sent = began.elapsed();

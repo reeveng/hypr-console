@@ -12,7 +12,7 @@
 //!
 //! The fork this came from ran `which` once per candidate per window, which is a
 //! process spawned to read a variable this program already has. `PATH` is a list
-//! of directories and the question is whether one of them holds a file somebody
+//! of directories and the question is whether one of them holds a file someone
 //! can run, so that is what is asked. It also keeps a name out of
 //! [`console_core_external_programs::Program`] that would not have belonged
 //! there: that list is the programs *this desktop* runs and did not write, and
@@ -29,57 +29,18 @@
 //! words it used to be.
 
 use std::collections::HashMap;
-use std::os::unix::fs::PermissionsExt;
-use std::path::Path;
 
 use console_compositor::Window;
 
 use crate::Unresumed;
+use console_core_external_programs::{Installed, installed};
 use console_core_never::Never;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OnPath {
-    Yes,
-    No,
-}
-
-const RUNNABLE: u32 = 0o111;
-
-fn runnable(at: &Path) -> Result<OnPath, Never> {
-    let mode = match std::fs::metadata(at) {
-        Ok(about) => about.permissions().mode(),
-        Err(_nothing_there) => return Ok(OnPath::No),
-    };
-
-    Ok(match mode & RUNNABLE {
-        0 => OnPath::No,
-        _somebody_can_run_it => OnPath::Yes,
-    })
-}
-
-pub fn on_path(command: &str) -> Result<OnPath, Never> {
-    let binary = match command.split_whitespace().next() {
-        Some(binary) => binary.trim_matches('\''),
-        None => return Ok(OnPath::No),
-    };
-
-    let Ok(path) = console_core_external_programs::path();
-
-    let said = match path {
-        Some(said) => said,
-        None => return Ok(OnPath::No),
-    };
-
-    let found = said.split(':').filter(|at| !at.is_empty()).any(|at| {
-        let Ok(runnable) = runnable(&Path::new(at).join(binary));
-
-        runnable == OnPath::Yes
-    });
-
-    Ok(match found {
-        true => OnPath::Yes,
-        false => OnPath::No,
-    })
+pub fn on_path(command: &str) -> Result<Installed, Never> {
+    match command.split_whitespace().next() {
+        Some(binary) => installed(binary.trim_matches('\'')),
+        None => Ok(Installed::No),
+    }
 }
 
 pub fn quote_word(word: &str) -> Result<String, Never> {
@@ -91,17 +52,18 @@ pub fn quote_word(word: &str) -> Result<String, Never> {
     })
 }
 
-fn separate_words(argv: &[String]) -> Result<Vec<String>, Never> {
-    Ok(match argv {
-        [only] if only.split_whitespace().nth(1).is_some() => {
-            only.split_whitespace().map(str::to_string).collect()
+fn separate_words(arguments: &[String]) -> Result<Vec<String>, Never> {
+    Ok(match arguments {
+        [only] => match only.split_whitespace().nth(1).is_some() {
+            true => only.split_whitespace().map(str::to_string).collect(),
+            false => arguments.to_vec(),
         },
         every => every.to_vec(),
     })
 }
 
-fn command_from_argv(argv: &[String]) -> Result<String, Never> {
-    let Ok(words) = separate_words(argv);
+fn command_from_argv(arguments: &[String]) -> Result<String, Never> {
+    let Ok(words) = separate_words(arguments);
 
     let (first, rest) = match words.split_first() {
         Some(split) => split,
@@ -130,23 +92,23 @@ fn from_its_command_line(window: &Window) -> Result<String, Unresumed> {
     let said = std::fs::read_to_string(&at)
         .map_err(|fault| Unresumed::Unsaid(at.clone(), fault))?;
 
-    let argv: Vec<String> =
+    let arguments: Vec<String> =
         said.split('\0').filter(|argument| !argument.is_empty()).map(str::to_string).collect();
 
-    match argv.first() {
+    match arguments.first() {
         Some(_it_said_something) => {},
         None => return Err(Unresumed::SaidNothing(at)),
     }
 
     let Ok(pid) = console_core_number_conversion::fitted::<i64, i32>(window.pid);
-    let Ok(restored) = crate::terminal::restored(&argv, pid);
+    let Ok(restored) = crate::terminal::restored(&arguments, pid);
 
-    let argv = match restored {
+    let arguments = match restored {
         Some(restored) => restored,
-        None => argv,
+        None => arguments,
     };
 
-    let Ok(command) = command_from_argv(&argv);
+    let Ok(command) = command_from_argv(&arguments);
 
     Ok(command)
 }
@@ -159,7 +121,7 @@ fn from_its_executable(window: &Window) -> Result<String, Unresumed> {
 
     match target.file_name() {
         Some(named) => Ok(named.to_string_lossy().to_string()),
-        None => Err(Unresumed::Nameless(at)),
+        None => Err(Unresumed::Untitled(at)),
     }
 }
 
@@ -171,9 +133,9 @@ fn from_what_it_titled_itself(window: &Window) -> Result<String, Unresumed> {
     Ok(window.first_title.to_lowercase())
 }
 
-type Asking = fn(&Window) -> Result<String, Unresumed>;
+type Describe = fn(&Window) -> Result<String, Unresumed>;
 
-const ASKING: [Asking; 4] = [
+const ASKING: [Describe; 4] = [
     from_its_command_line,
     from_its_executable,
     from_what_it_called_itself,
@@ -199,8 +161,8 @@ pub fn what_starts_it(
         let Ok(on_path) = on_path(&command);
 
         match on_path {
-            OnPath::Yes => return Ok(command),
-            OnPath::No => {},
+            Installed::Yes => return Ok(command),
+            Installed::No => {},
         }
 
         match known.get(&command) {
@@ -216,12 +178,12 @@ pub fn what_starts_it(
 mod tests {
     use super::*;
 
-    fn argv(words: &[&str]) -> Vec<String> {
+    fn arguments(words: &[&str]) -> Vec<String> {
         words.iter().map(|word| (*word).to_string()).collect()
     }
 
     fn command(words: &[&str]) -> String {
-        let Ok(command) = command_from_argv(&argv(words));
+        let Ok(command) = command_from_argv(&arguments(words));
 
         command
     }
@@ -265,13 +227,13 @@ mod tests {
 
     #[test]
     fn a_program_this_machine_has_is_told_apart_from_one_it_does_not() {
-        assert_eq!(on_path("sh"), Ok(OnPath::Yes));
-        assert_eq!(on_path("definitely_not_a_real_command_123456"), Ok(OnPath::No));
-        assert_eq!(on_path(""), Ok(OnPath::No));
+        assert_eq!(on_path("sh"), Ok(Installed::Yes));
+        assert_eq!(on_path("definitely_not_a_real_command_123456"), Ok(Installed::No));
+        assert_eq!(on_path(""), Ok(Installed::No));
     }
 
     #[test]
     fn the_first_word_is_what_is_looked_for_rather_than_the_whole_line() {
-        assert_eq!(on_path("sh -c 'echo hello'"), Ok(OnPath::Yes));
+        assert_eq!(on_path("sh -c 'echo hello'"), Ok(Installed::Yes));
     }
 }

@@ -1,0 +1,25 @@
+[package]
+name = "console-sound-effects"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_sound_effects"
+path = "src/lib.rs"
+
+[[bin]]
+name = "console-sound-effect"
+path = "src/bin/console-sound-effect.rs"
+
+[dependencies]
+console-core-external-programs.workspace = true
+console-defaults.workspace = true
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+console-core-words.workspace = true
+console-program-lifetime.workspace = true
+
+[lints]
+workspace = true

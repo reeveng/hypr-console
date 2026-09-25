@@ -33,7 +33,7 @@ running() {
 #
 # Asked only when it is there: handed -shutdown with none running, the wrapper
 # starts Steam rather than stopping it. The wait is bounded because a Steam
-# that will not go is not a reason to keep somebody on a screen they have
+# that will not go is not a reason to keep someone on a screen they have
 # already pressed the button to leave.
 settle() {
     running || return 0

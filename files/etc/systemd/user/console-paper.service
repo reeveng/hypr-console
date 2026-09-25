@@ -3,7 +3,7 @@ Description=Wallpaper
 PartOf=console.target
 
 [Service]
-# The daemon tells systemd when it is ready, so the colour is only asked for
+# The daemon tells systemd when it is ready, so the color is only asked for
 # once there is something listening to be asked. Setting it from the unit
 # rather than from a login script means the background is on the machine's
 # inventory like everything else, and comes back with the service.
@@ -18,7 +18,7 @@ Type=notify
 # covering the screen. What made it look worth paying is that the name of a
 # cache entry says nothing about what is inside the picture, so a picture
 # pressed again at the same path is served out of the old one's frames;
-# `console_wallpaper::place::freshen` throws away exactly those, by their date.
+# `console_wallpaper::place::refresh` throws away exactly those, by their date.
 #
 # --no-cache is about the other half of the cache, which is the picture the
 # daemon would put up by itself: it remembers what was last on each screen, and
@@ -27,7 +27,7 @@ ExecStart=/usr/bin/awww-daemon --no-cache
 
 # What is on the screen for the moment before `console-wallpaper` has chosen a
 # picture, and what stays there on a machine where it will not start. It is a
-# colour rather than a picture: this unit brings the daemon up and
+# color rather than a picture: this unit brings the daemon up and
 # `console-wallpaper` decides what goes on it, and a unit that painted a
 # picture of its own would be a second opinion about the wallpaper.
 #
@@ -38,19 +38,19 @@ ExecStart=/usr/bin/awww-daemon --no-cache
 # awww wants six hex digits and no hash, and a hash would start a
 # comment here anyway.
 #
-# The dash is what makes this a colour and not a condition of the
+# The dash is what makes this a color and not a condition of the
 # background coming up. The daemon says it is ready when it is
 # listening, which is not when it has been told about a screen; asked
 # in that gap it answers "none of the requested outputs are valid"
 # and exits, and an ExecStartPost that exits fails the unit. On the
 # device that took the whole background down and dependency-failed
-# the unit that says which wallpaper is up -- over a colour that
+# the unit that says which wallpaper is up -- over a color that
 # console-wallpaper covers a second later. Seen during an apply, where the
 # desktop is stopped and started faster than a daemon can find a
 # screen.
 ExecStartPost=-/usr/bin/awww clear 110b12
 # console-palette:end
-ExecStopPost=-/usr/local/bin/console-fell %n
+ExecStopPost=-/usr/local/bin/console-report-crash %n
 Restart=always
 RestartSec=2
 

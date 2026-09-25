@@ -1,0 +1,19 @@
+[package]
+name = "console-battery"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_battery"
+path = "src/lib.rs"
+
+[dependencies]
+console-core-atomic-writes.workspace = true
+console-core-never.workspace = true
+console-core-words.workspace = true
+console-defaults.workspace = true
+
+[lints]
+workspace = true

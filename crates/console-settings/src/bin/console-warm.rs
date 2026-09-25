@@ -2,17 +2,17 @@
 //!
 //!     console-warm            follow the clock, or stop following it
 //!     console-warm get        which way the switch is standing
-//!     console-warm wanted     nothing said; the exit code is the answer
+//!     console-warm switched-on   nothing said; the exit code is the answer
 //!     console-warm curve      print the config the daemon reads
 //!
-//! The colour itself is `hyprsunset`'s, out of a config written from
+//! The color itself is `hyprsunset`'s, out of a config written from
 //! `console_settings::warm`. Nothing here sends it a temperature: the whole
 //! curve is in the file it reads at startup, and a temperature sent afterwards
 //! is undone by the next profile. So the switch is the daemon running or not
 //! running, which `console-warm.service` asks about in `ExecCondition=` and
 //! this restarts when the answer changes.
 //!
-//! `wanted` is that question and nothing else, so it is the exit code rather
+//! `switched-on` is that question and nothing else, so it is the exit code rather
 //! than a word: systemd reads the code, and a program run before every start of
 //! a unit should print nothing into the journal for the ordinary case.
 //!
@@ -23,7 +23,7 @@
 use std::process::ExitCode;
 
 use console_core_external_programs::Program;
-use console_settings::warm::{self, Standing, Wanted, Warmth, at, config};
+use console_settings::warm::{self, Standing, Switched, NightShift, at, config};
 
 const UNIT: &str = "console-warm.service";
 
@@ -48,7 +48,7 @@ fn main() -> ExitCode {
     let home = match said {
         Some(home) => home,
         None => {
-            eprintln!("console-warm: no HOME, so there is nobody to remember for");
+            eprintln!("console-warm: no HOME, so there is no one to remember for");
 
             return ExitCode::FAILURE;
         }
@@ -58,12 +58,12 @@ fn main() -> ExitCode {
     let Ok(held) = warm::standing(&home);
 
     let standing = match held {
-        Standing::Saying(warmth) => warmth,
+        Standing::Loaded(warmth) => warmth,
 
-        Standing::Unreadable(fault) => {
+        Standing::Invalid(fault) => {
             eprintln!("console-warm: {}: {fault}", at.display());
 
-            Warmth::Following
+            NightShift::Scheduled
         }
     };
 
@@ -74,12 +74,12 @@ fn main() -> ExitCode {
             println!("{}", written.trim());
             return ExitCode::SUCCESS;
         }
-        "wanted" => {
-            let Ok(wanted) = standing.wanted();
+        "switched-on" => {
+            let Ok(switched) = standing.switched();
 
-            return match wanted {
-                Wanted::Running => ExitCode::SUCCESS,
-                Wanted::Off => ExitCode::FAILURE,
+            return match switched {
+                Switched::On => ExitCode::SUCCESS,
+                Switched::Off => ExitCode::FAILURE,
             };
         }
         "" => {
@@ -88,7 +88,7 @@ fn main() -> ExitCode {
             other
         }
         _ => {
-            eprintln!("usage: console-warm [get|wanted|curve]");
+            eprintln!("usage: console-warm [get|switched-on|curve]");
             return ExitCode::from(2);
         }
     };

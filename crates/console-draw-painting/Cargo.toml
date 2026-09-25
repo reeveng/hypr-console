@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
-# Shapes, put into a buffer somebody else owns.
+# Shapes, put into a buffer someone else owns.
 #
 # The one crate on this side of the toolkit that needs a machine, because
 # measuring a wrapped line is the only thing placement cannot do for itself.
@@ -17,7 +17,7 @@ name = "console_draw_painting"
 path = "src/lib.rs"
 
 [dependencies]
-console-core-colour.workspace = true
+console-core-color.workspace = true
 console-core-geometry.workspace = true
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true

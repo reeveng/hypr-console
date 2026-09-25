@@ -1,4 +1,4 @@
-//! The pages somebody keeps, as things this desktop opens.
+//! The pages someone keeps, as things this desktop opens.
 //!
 //! A bookmark and an application are one gesture under two names: a thing on
 //! the machine, opened from where the thumb already is. Opening one cost the
@@ -22,7 +22,7 @@
 //! raises the keyboard, and this is what the saying means.
 //!
 //! Every file written is named for the browser's own id for the bookmark,
-//! under one mark. That is what makes a bookmark somebody deleted disappear:
+//! under one mark. That is what makes a bookmark someone deleted disappear:
 //! a file under the mark that the browser did not name this time is one that
 //! has gone, and nothing else in `applications/` is touched.
 
@@ -171,7 +171,7 @@ fn free(said: &str, host: Host<'_>, taken: &BTreeSet<String>) -> Result<String, 
         true => {},
     }
 
-    let mut again: usize = 2;
+    let mut again: u32 = 2;
 
     loop {
         let more = format!("{said} ({host} {again})");
@@ -286,15 +286,15 @@ pub fn keep(where_: Where<'_>, bookmarks: &[Bookmark]) -> Result<(), Unkept> {
 }
 
 fn swept(among: &Path, kept: &BTreeSet<&str>) -> Result<(), Unkept> {
-    let gone = named(among, kept, Under::TheMark)?;
+    let deleting = named(among, kept, Under::TheMark)?;
 
-    away(&gone)
+    away(&deleting)
 }
 
 fn unpictured(icons: &Path, kept: &BTreeSet<&str>) -> Result<(), Unkept> {
-    let gone = named(icons, kept, Under::OurOwn)?;
+    let deleting = named(icons, kept, Under::OurOwn)?;
 
-    away(&gone)
+    away(&deleting)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -307,7 +307,7 @@ fn named(at: &Path, kept: &BTreeSet<&str>, under: Under) -> Result<Vec<PathBuf>,
     let reading =
         std::fs::read_dir(at).map_err(|fault| Unkept::Reading(at.to_path_buf(), fault))?;
 
-    let mut gone = Vec::new();
+    let mut deleting = Vec::new();
 
     for child in reading.filter_map(Result::ok) {
         let path = child.path();
@@ -327,15 +327,15 @@ fn named(at: &Path, kept: &BTreeSet<&str>, under: Under) -> Result<Vec<PathBuf>,
 
         match kept.contains(id.as_str()) {
             true => continue,
-            false => gone.push(path),
+            false => deleting.push(path),
         }
     }
 
-    Ok(gone)
+    Ok(deleting)
 }
 
-fn away(gone: &[PathBuf]) -> Result<(), Unkept> {
-    for at in gone {
+fn away(deleting: &[PathBuf]) -> Result<(), Unkept> {
+    for at in deleting {
         std::fs::remove_file(at).map_err(|fault| Unkept::Removing(at.clone(), fault))?;
     }
 
@@ -353,12 +353,7 @@ mod tests {
     }
 
     fn somewhere(named: &str) -> PathBuf {
-        let at = std::env::temp_dir()
-            .join(format!("console-bookmarks-{named}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&at);
-        std::fs::create_dir_all(&at).expect("somewhere to write");
-
-        at
+        console_core_temporary_directories::fresh(&format!("bookmarks-{named}")).expect("somewhere to write")
     }
 
     fn one(id: &str, url: &str, name: &str) -> Bookmark {
@@ -515,14 +510,14 @@ d\thttps://example.com/\tA page
 
     #[test]
     fn where_a_bookmark_is_kept_is_where_the_menu_reads_from() {
-        let home = Path::new("/home/somebody");
+        let home = Path::new("/home/someone");
         let Ok(share) = console_core_places::Base::Share.under(home);
         let Ok(ours) = console_core_places::Base::Share.ours_under(home);
 
-        assert_eq!(share.join("applications"), PathBuf::from("/home/somebody/.local/share/applications"));
+        assert_eq!(share.join("applications"), PathBuf::from("/home/someone/.local/share/applications"));
         assert_eq!(
             ours.join(ICONS),
-            PathBuf::from("/home/somebody/.local/share/console/bookmark-icons")
+            PathBuf::from("/home/someone/.local/share/console/bookmark-icons")
         );
     }
 }

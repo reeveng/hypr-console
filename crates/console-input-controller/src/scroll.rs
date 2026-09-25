@@ -10,9 +10,9 @@
 
 use console_core_geometry::Point;
 use console_core_never::Never;
-use evdev::RelativeAxisCode;
+use console_input_event_devices::RelativeAxisCode;
 
-use crate::doing::Out;
+use crate::effect::Output;
 
 pub const DEADZONE: f64 = 0.20;
 
@@ -44,36 +44,36 @@ pub fn pushed(stick: Stick) -> Result<f64, Never> {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Wheel {
-    pub across: f64,
-    pub down: f64,
+    pub x: f64,
+    pub y: f64,
 }
 
 impl Wheel {
-    pub fn turned(&mut self, by: Point<f64>, seconds: f64) -> Result<Vec<Out>, Never> {
-        self.down += -by.down * MAX_HZ * seconds;
-        self.across += by.across * MAX_HZ * seconds;
+    pub fn turned(&mut self, by: Point<f64>, seconds: f64) -> Result<Vec<Output>, Never> {
+        self.y += -by.y * MAX_HZ * seconds;
+        self.x += by.x * MAX_HZ * seconds;
         let mut notches = Vec::new();
 
-        while self.down.abs() >= 1.0 {
-            let step = match self.down > 0.0 {
+        while self.y.abs() >= 1.0 {
+            let step = match self.y > 0.0 {
                 true => 1,
                 false => -1,
             };
-            let Ok(out) = Out::rel(RelativeAxisCode::REL_WHEEL.0, step);
+            let Ok(out) = Output::rel(RelativeAxisCode::REL_WHEEL.0, step);
 
             notches.push(out);
-            self.down -= f64::from(step);
+            self.y -= f64::from(step);
         }
 
-        while self.across.abs() >= 1.0 {
-            let step = match self.across > 0.0 {
+        while self.x.abs() >= 1.0 {
+            let step = match self.x > 0.0 {
                 true => 1,
                 false => -1,
             };
-            let Ok(out) = Out::rel(RelativeAxisCode::REL_HWHEEL.0, step);
+            let Ok(out) = Output::rel(RelativeAxisCode::REL_HWHEEL.0, step);
 
             notches.push(out);
-            self.across -= f64::from(step);
+            self.x -= f64::from(step);
         }
 
         Ok(notches)
@@ -108,24 +108,24 @@ mod tests {
     #[test]
     fn a_stick_held_for_a_second_turns_the_wheel_as_far_as_the_arithmetic_says() {
         let mut wheel = Wheel::default();
-        let notches: Vec<Out> = (0..50)
+        let notches: Vec<Output> = (0..50)
             .flat_map(|_| {
-                let Ok(turned) = wheel.turned(Point { across: 0.0, down: -1.0 }, 0.02);
+                let Ok(turned) = wheel.turned(Point { x: 0.0, y: -1.0 }, 0.02);
 
                 turned
             })
             .collect();
-        assert_eq!(notches.len() + usize::from(wheel.down >= 0.5), MAX_HZ as usize);
-        assert!(wheel.down < 1.0, "nothing whole is left unturned");
+        assert_eq!(u32::try_from(notches.len()).unwrap() + u32::from(wheel.y >= 0.5), MAX_HZ as u32);
+        assert!(wheel.y < 1.0, "nothing whole is left unturned");
         assert!(notches.iter().all(|out| out.value == 1 && out.code == RelativeAxisCode::REL_WHEEL.0));
     }
 
     #[test]
     fn pushing_up_scrolls_up_and_pushing_down_scrolls_down() {
         let mut wheel = Wheel::default();
-        let Ok(up) = wheel.turned(Point { across: 0.0, down: -1.0 }, 1.0);
+        let Ok(up) = wheel.turned(Point { x: 0.0, y: -1.0 }, 1.0);
         let mut other = Wheel::default();
-        let Ok(down) = other.turned(Point { across: 0.0, down: 1.0 }, 1.0);
+        let Ok(down) = other.turned(Point { x: 0.0, y: 1.0 }, 1.0);
 
         assert_eq!(up.first().map(|out| out.value), Some(1));
         assert_eq!(down.first().map(|out| out.value), Some(-1));
@@ -134,17 +134,17 @@ mod tests {
     #[test]
     fn what_is_owed_is_kept_until_it_is_a_whole_notch() {
         let mut wheel = Wheel::default();
-        let Ok(first) = wheel.turned(Point { across: 0.0, down: -0.1 }, 0.02);
+        let Ok(first) = wheel.turned(Point { x: 0.0, y: -0.1 }, 0.02);
 
         assert!(first.is_empty());
 
-        let over = (0..100)
+        let over: Vec<Output> = (0..100)
             .flat_map(|_| {
-                let Ok(turned) = wheel.turned(Point { across: 0.0, down: -0.1 }, 0.02);
+                let Ok(turned) = wheel.turned(Point { x: 0.0, y: -0.1 }, 0.02);
 
                 turned
             })
-            .count();
-        assert!(over > 0, "a slow push still scrolls, eventually");
+            .collect();
+        assert!(!over.is_empty(), "a slow push still scrolls, eventually");
     }
 }

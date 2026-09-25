@@ -6,7 +6,7 @@
 //! folder holding the files, so unpacked as they arrive they leave a folder
 //! inside a folder. That is untidy anywhere else and it is the whole thing
 //! here: The Sims reads a script mod from its Mods folder or one folder under
-//! it and nowhere deeper, so a wrapper nobody asked for is the difference
+//! it and nowhere deeper, so a wrapper no one asked for is the difference
 //! between a mod that runs and a mod that is silently not there.
 //!
 //! So one folder is made, named for the archive, and a lone folder inside it is
@@ -37,7 +37,7 @@ pub const KINDS: &[&str] = &[
     "application/x-rar-compressed",
 ];
 
-pub const TRIES: usize = 64;
+pub const TRIES: u32 = 64;
 
 pub fn packed(kind: &str) -> Result<Packed, Never> {
     Ok(match KINDS.contains(&kind) {
@@ -80,7 +80,7 @@ pub fn beside(name: &str, taken: impl Fn(&str) -> bool) -> Result<Option<String>
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Lift {
     TheFolderInside(String),
-    Nothing,
+    None,
 }
 
 pub fn lifting(inside: &[(String, Is)]) -> Result<Lift, Never> {
@@ -88,12 +88,12 @@ pub fn lifting(inside: &[(String, Is)]) -> Result<Lift, Never> {
 
     let (name, is) = match inside.first() {
         Some((name, is)) => (name, is),
-        None => return Ok(Lift::Nothing),
+        None => return Ok(Lift::None),
     };
 
     Ok(match (alone, is) {
         (true, Is::AFolder) => Lift::TheFolderInside(name.clone()),
-        (true, Is::AFile) | (false, Is::AFolder) | (false, Is::AFile) => Lift::Nothing,
+        (true, Is::AFile) | (false, Is::AFolder) | (false, Is::AFile) => Lift::None,
     })
 }
 
@@ -191,13 +191,13 @@ mod tests {
 
     #[test]
     fn anything_else_inside_is_what_the_archive_meant_to_hold() {
-        assert_eq!(inside(&[("mod.package", Is::AFile)]), Lift::Nothing);
+        assert_eq!(inside(&[("mod.package", Is::AFile)]), Lift::None);
         assert_eq!(
             inside(&[("mod.package", Is::AFile), ("mod.ts4script", Is::AFile)]),
-            Lift::Nothing
+            Lift::None
         );
-        assert_eq!(inside(&[("hair", Is::AFolder), ("eyes", Is::AFolder)]), Lift::Nothing);
-        assert_eq!(inside(&[]), Lift::Nothing);
+        assert_eq!(inside(&[("hair", Is::AFolder), ("eyes", Is::AFolder)]), Lift::None);
+        assert_eq!(inside(&[]), Lift::None);
     }
 
     #[test]

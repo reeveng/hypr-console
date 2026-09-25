@@ -3,7 +3,7 @@
 //! A browser installs an add-on from a file once and then looks at the version
 //! in it. So the version has to go up when the files change, and has to stay
 //! where it is when they do not: raised every apply, the browser would take an
-//! add-on nobody had touched every time the machine was told to catch up; left
+//! add-on no one had touched every time the machine was told to catch up; left
 //! alone, it would go on running the copy it installed in March.
 //!
 //! Neither of those is a thing to remember by hand. What was packed is written
@@ -56,38 +56,21 @@ pub fn next(was: Option<&str>) -> Result<String, Never> {
 }
 
 pub fn packed(bytes: &[u8]) -> Result<Option<String>, Never> {
-    let mark = b"\"version\": \"";
+    let text = String::from_utf8_lossy(bytes);
 
-    let found = match bytes.windows(mark.len()).position(|window| window == mark) {
-        Some(found) => found,
+    let rest = match text.split_once("\"version\": \"") {
+        Some((_, rest)) => rest,
         None => return Ok(None),
     };
 
-    let at = found.saturating_add(mark.len());
-
-    let rest = match bytes.get(at..) {
-        Some(rest) => rest,
+    let said = match rest.split_once('"') {
+        Some((said, _)) => said,
         None => return Ok(None),
     };
 
-    let end = match rest.iter().position(|byte| *byte == b'"') {
-        Some(end) => end,
-        None => return Ok(None),
-    };
-
-    let inside = match rest.get(..end) {
-        Some(inside) => inside,
-        None => return Ok(None),
-    };
-
-    let said = match String::from_utf8(inside.to_vec()) {
-        Ok(said) => said,
-        Err(_fault) => return Ok(None),
-    };
-
-    Ok(match said.is_empty() {
+    Ok(match said.is_empty() || said.contains(char::REPLACEMENT_CHARACTER) {
         true => None,
-        false => Some(said),
+        false => Some(said.to_string()),
     })
 }
 

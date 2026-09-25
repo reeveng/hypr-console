@@ -24,7 +24,7 @@
 
 
 use console_core_never::Never;
-use console_core_number_conversion::fitted;
+use console_core_number_conversion::{fitted, index};
 use std::os::fd::AsFd;
 use std::time::Instant;
 
@@ -35,12 +35,12 @@ use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{
 };
 
 use crate::keymap::{Keymap, Layer};
-use crate::layout::{Drops, Kind, Layout, Which, mods, of};
+use crate::layout::{Drops, Kind, Layout, LayoutKind, mods, of};
 use crate::shared_memory::keymap_file;
 use crate::surface::Board;
-use console_core_walking::{Ring, Step};
+use console_core_walking::{Ring, Step, where_it_is};
 
-const THE_FIRST_ONE: usize = 0;
+const THE_FIRST_ONE: u32 = 0;
 
 
 const SPARE: u32 = 127;
@@ -57,8 +57,8 @@ pub enum Way {
     Back,
 }
 
-pub fn after(walk: &[Which], alphabet: Which) -> Result<Option<Which>, Never> {
-    let languages: Vec<Which> = walk
+pub fn after(walk: &[LayoutKind], alphabet: LayoutKind) -> Result<Option<LayoutKind>, Never> {
+    let languages: Vec<LayoutKind> = walk
         .iter()
         .copied()
         .filter(|which| {
@@ -80,17 +80,20 @@ pub fn after(walk: &[Which], alphabet: Which) -> Result<Option<Which>, Never> {
         None => return Ok(None),
     };
 
-    let here = match languages.iter().position(|w| *w == alphabet) {
+    let Ok(found) = where_it_is(&languages, &alphabet);
+
+    let here = match found {
         Some(here) => here,
         None => THE_FIRST_ONE,
     };
 
     let Ok(next) = ring.stepped(here, Step::Forward);
+    let Ok(next) = index(next);
 
     Ok(languages.get(next).copied())
 }
 
-pub fn symbols(walk: &[Which]) -> Result<Option<Which>, Never> {
+pub fn symbols(walk: &[LayoutKind]) -> Result<Option<LayoutKind>, Never> {
     Ok(walk.iter().copied().find(|which| {
         let Ok(of) = of(*which);
 
@@ -112,10 +115,10 @@ pub struct Typist {
     since: Instant,
     pub held: u8,
     pub composing: bool,
-    pub showing: Which,
-    pub walk: Vec<Which>,
-    pub step: usize,
-    pub last_alphabet: Which,
+    pub showing: LayoutKind,
+    pub walk: Vec<LayoutKind>,
+    pub step: u32,
+    pub last_alphabet: LayoutKind,
 }
 
 impl Typist {
@@ -124,17 +127,19 @@ impl Typist {
         seat: &wl_seat::WlSeat,
         hand: &QueueHandle<Board>,
         alphabets: Vec<Keymap>,
-        walk: Vec<Which>,
-        opening: Option<Which>,
+        walk: Vec<LayoutKind>,
+        opening: Option<LayoutKind>,
         since: Instant,
     ) -> Result<Typist, Never> {
         let keys = manager.create_virtual_keyboard(seat, hand, ());
         let showing = match opening.filter(|which| walk.contains(which)).or_else(|| walk.first().copied()) {
             Some(showing) => showing,
-            None => Which::Full,
+            None => LayoutKind::Full,
         };
 
-        let step = match walk.iter().position(|which| *which == showing) {
+        let Ok(found) = where_it_is(&walk, &showing);
+
+        let step = match found {
             Some(step) => step,
             None => THE_FIRST_ONE,
         };
@@ -236,7 +241,7 @@ impl Typist {
         of(self.showing)
     }
 
-    pub fn go(&mut self, which: Which) -> Result<(), Never> {
+    pub fn go(&mut self, which: LayoutKind) -> Result<(), Never> {
         self.showing = which;
 
         let Ok(of) = of(which);
@@ -245,7 +250,9 @@ impl Typist {
             true => {
                 self.last_alphabet = which;
 
-                match self.walk.iter().position(|w| *w == which) {
+                let Ok(found) = where_it_is(&self.walk, &which);
+
+                match found {
                     Some(step) => self.step = step,
                     None => {},
                 }
@@ -275,7 +282,11 @@ impl Typist {
             }
             (false, true) => {
                 self.step = match self.step {
-                    0 => self.walk.len().saturating_sub(1),
+                    0 => {
+                        let Ok(many) = fitted::<_, u32>(self.walk.len());
+
+                        many.saturating_sub(1)
+                    }
                     step => step.saturating_sub(1),
                 };
             }
@@ -293,7 +304,9 @@ impl Typist {
             }
         }
 
-        let going = match self.walk.get(self.step).copied() {
+        let Ok(step) = index(self.step);
+
+        let going = match self.walk.get(step).copied() {
             Some(going) => going,
             None => return Ok(()),
         };
@@ -335,7 +348,7 @@ impl Typist {
                 let Ok(()) = self.holding(held);
                 let Ok(()) = self.tap(code);
 
-                match reset == Drops::Held || self.held != mods::NONE {
+                match reset == Drops::Modifiers || self.held != mods::NONE {
                     true => {
                         self.held &= mods::CAPS;
                         let Ok(()) = self.holding(self.held);
@@ -407,7 +420,7 @@ impl Typist {
         })
     }
 
-    pub fn next_language(&self) -> Result<Option<Which>, Never> {
+    pub fn next_language(&self) -> Result<Option<LayoutKind>, Never> {
         after(&self.walk, self.last_alphabet)
     }
 
@@ -434,15 +447,15 @@ impl Typist {
 
 #[cfg(test)]
 mod tests {
-    use crate::layout::{Kind, Layout, Which, mods};
+    use crate::layout::{Kind, Layout, LayoutKind, mods};
 
-    fn named(name: &str) -> Option<Which> {
+    fn named(name: &str) -> Option<LayoutKind> {
         let Ok(named) = crate::layout::named(name);
 
         named
     }
 
-    fn of(which: Which) -> &'static Layout {
+    fn of(which: LayoutKind) -> &'static Layout {
         let Ok(of) = crate::layout::of(which);
 
         of
@@ -521,7 +534,7 @@ mod tests {
             .find(|key| key.label == "a")
             .expect("the a key");
         assert!(
-            matches!(a.kind, Kind::Code { held: Some(Which::ComposeA), .. }),
+            matches!(a.kind, Kind::Code { held: Some(LayoutKind::ComposeA), .. }),
             "a long press on a does not reach the accents"
         );
         let space = full

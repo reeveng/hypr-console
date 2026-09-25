@@ -22,7 +22,7 @@
 //! The Media page is read the same way. What a row there offers behind Y is
 //! the files panel standing on that file, which is where renaming a photograph
 //! and throwing it away already live, and an offer nothing draws a mark for is
-//! an offer nobody finds.
+//! an offer no one finds.
 //!
 //! It is also the one page here every row of which offers something, which
 //! makes it where right off a row is pressed: the offer is a button beside the
@@ -30,8 +30,8 @@
 //! highlight is a press nothing else here could see.
 //!
 //! The last two needed no picture at all. A folder with no picture and no film
-//! in it -- a pictures folder on a device nobody has taken a photograph on --
-//! used not to open: the panel exited nought and said why on a stderr nobody
+//! in it -- a pictures folder on a device no one has taken a photograph on --
+//! used not to open: the panel exited zero and said why on a stderr no one
 //! can see, so pressing Viewer on the home screen did nothing whatever, which
 //! is what a program that fell over does too. Nothing in the crate could catch
 //! that, because every test here handed it a picture first.
@@ -42,7 +42,7 @@
 //! second of them puts the film one folder further in than the one the panel is
 //! handed, and asks for it by name.
 
-use console_panel::telling::{Heading, Offers, Standing};
+use console_panel::description::{Heading, Offers, Standing};
 use console_test_stages::panels::{
     Panel, a_way_out_is_drawn, every_mark_reachable, every_offer_answered, one_mark_for_one_subject,
 };
@@ -69,8 +69,8 @@ fn a_picture() -> std::path::PathBuf {
     at
 }
 
-fn drawn(args: &[&str]) -> Vec<console_panel::telling::Told> {
-    let Ok(mut panel) = Panel::opening("viewer-panel", args);
+fn drawn(args: &[&str]) -> Vec<console_panel::description::Description> {
+    let Ok(mut panel) = Panel::opening("viewer", args);
 
     match panel.drawn() {
         Ok(drawn) => drawn,
@@ -79,8 +79,8 @@ fn drawn(args: &[&str]) -> Vec<console_panel::telling::Told> {
 }
 
 fn holds(
-    every: &[console_panel::telling::Told],
-    rule: fn(&console_panel::telling::Told) -> Result<(), console_test_stages::Awry>,
+    every: &[console_panel::description::Description],
+    rule: fn(&console_panel::description::Description) -> Result<(), console_test_stages::Error>,
 ) {
     for card in every {
         if let Err(why) = rule(card) {
@@ -90,8 +90,8 @@ fn holds(
 }
 
 fn holds_somewhere(
-    every: &[console_panel::telling::Told],
-    rule: fn(&console_panel::telling::Told) -> Result<(), console_test_stages::Awry>,
+    every: &[console_panel::description::Description],
+    rule: fn(&console_panel::description::Description) -> Result<(), console_test_stages::Error>,
 ) {
     let mut why = None;
 
@@ -122,7 +122,7 @@ fn the_card_a_hand_is_given() {
 #[test]
 fn a_picture_opened_over_the_whole_screen_can_still_be_left() {
     let at = a_picture();
-    let Ok(mut panel) = Panel::opening("viewer-panel", &[&at.to_string_lossy()]);
+    let Ok(mut panel) = Panel::opening("viewer", &[&at.to_string_lossy()]);
 
     if let Err(why) = panel.key("space") {
         panic!("{why}");
@@ -133,9 +133,9 @@ fn a_picture_opened_over_the_whole_screen_can_still_be_left() {
         Err(why) => panic!("the viewer could not be asked what it drew: {why}"),
     };
 
-    let out: Vec<&console_panel::telling::Told> = every
+    let out: Vec<&console_panel::description::Description> = every
         .iter()
-        .filter(|card| card.out == console_panel::telling::Out::Yes)
+        .filter(|card| card.out == console_panel::description::Output::Yes)
         .collect();
 
     assert!(!out.is_empty(), "A on the picture never opened it out; the card drew {} times", every.len());
@@ -162,7 +162,7 @@ fn every_row_of_the_media_page_offers_what_else_there_is_to_do_with_it() {
         Some(folder) => folder,
         None => panic!("the picture was made in no folder"),
     };
-    let Ok(mut panel) = Panel::opening("viewer-panel", &[&folder.to_string_lossy()]);
+    let Ok(mut panel) = Panel::opening("viewer", &[&folder.to_string_lossy()]);
 
     if let Err(why) = panel.key("Page_Down") {
         panic!("{why}");
@@ -173,7 +173,7 @@ fn every_row_of_the_media_page_offers_what_else_there_is_to_do_with_it() {
         Err(why) => panic!("the viewer could not be asked what it drew: {why}"),
     };
 
-    let media: Vec<&console_panel::telling::Told> =
+    let media: Vec<&console_panel::description::Description> =
         every.iter().filter(|card| card.tab == "Media").collect();
 
     assert!(
@@ -212,7 +212,7 @@ fn right_off_a_row_stands_on_what_else_it_offers() {
         Some(folder) => folder,
         None => panic!("the picture was made in no folder"),
     };
-    let Ok(mut panel) = Panel::opening("viewer-panel", &[&folder.to_string_lossy()]);
+    let Ok(mut panel) = Panel::opening("viewer", &[&folder.to_string_lossy()]);
 
     for key in ["Page_Down", "Down", "Right"] {
         if let Err(why) = panel.key(key) {
@@ -255,7 +255,7 @@ fn a_folder_with_nothing_to_show_opens_and_says_so() {
 
     let said = every
         .iter()
-        .any(|card| card.lines.iter().any(|line| line.says.contains("no picture and no film")));
+        .any(|card| card.lines.iter().any(|line| line.says.contains("No Pictures or Videos")));
 
     assert!(
         said,
@@ -285,7 +285,7 @@ fn a_folder_holding_nothing_itself_opens_on_what_the_shelf_found() {
 
     let gave_up = every
         .iter()
-        .any(|card| card.lines.iter().any(|line| line.says.contains("no picture and no film")));
+        .any(|card| card.lines.iter().any(|line| line.says.contains("No Pictures or Videos")));
 
     assert!(
         !gave_up,

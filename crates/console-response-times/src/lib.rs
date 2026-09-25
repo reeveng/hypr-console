@@ -1,13 +1,13 @@
-//! How long the machine kept somebody waiting, written down where it adds up.
+//! How long the machine kept someone waiting, written down where it adds up.
 //! `console_manifest_engine::went` measures an apply, which is one program, on
 //! demand, with the answer on stderr for whoever typed the variable. This is
-//! the other half of the question and it is asked by nobody: what a person
-//! waits for on this device is a menu that takes a moment to appear, and nobody
+//! the other half of the question and it is asked by no one: what a person
+//! waits for on this device is a menu that takes a moment to appear, and no one
 //! is standing at a terminal with a stopwatch when it does. So it is written
 //! down as it happens, on the machine it happens on, and read afterwards.  One
 //! line per thing waited for. Not one line per stamp with an id tying them
 //! together: the id would exist only to put back what the writing took apart,
-//! and every question anybody has -- how long does the menu take, is it worse
+//! and every question anyone has -- how long does the menu take, is it worse
 //! than last week, which stretch is the slow one -- would need the pieces
 //! joined before it could be asked. A line is one opening, its stretches are
 //! its fields, and they add up to what the line says was waited for.
@@ -36,7 +36,7 @@
 //!
 //! A stamp that is not there leaves the field out rather than writing a zero.
 //! Zero is a measurement -- it says the machine answered instantly -- and a
-//! field that says that on nine lines in ten is a field nobody can believe on
+//! field that says that on nine lines in ten is a field no one can believe on
 //! the tenth. Absence says the honest thing, and `from` says why: an opening
 //! from the bar has no `press` because waybar forks on the touch, so the fork
 //! *is* the press and `exec` already holds the whole of that wait. An opening
@@ -53,7 +53,7 @@
 //!
 //! `~/.local/state/console/waited.jsonl`, beside the tab a panel was left on
 //! and not under `~/.cache`. A cache is the machine's own answer to a question
-//! anybody can ask it again; this is the only record that the menu took four
+//! anyone can ask it again; this is the only record that the menu took four
 //! hundred milliseconds at half past nine, and clearing it does not cost one
 //! opening, it costs the week.
 //!
@@ -73,13 +73,14 @@
 //!
 //! ## Always on
 //!
-//! Behind no variable. Timings that have to be asked for are timings nobody has
+//! Behind no variable. Timings that have to be asked for are timings no one has
 //! when they want them: the openings worth reading about are the ones that
-//! happened while somebody was using the device, and by the time it is slow
+//! happened while someone was using the device, and by the time it is slow
 //! enough to complain about, the run that was slow is over. It costs a handful
 //! of `Instant`s and a line handed to a queue at the end of something that
 //! already drew a window.
 
+pub mod frames;
 pub mod line;
 pub mod summary;
 pub mod writing;
@@ -90,6 +91,8 @@ use std::process::Command;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use console_core_never::Never;
+use rustix::param::clock_ticks_per_second;
+use rustix::time::{clock_gettime, clock_gettime_dynamic, ClockId, DynamicClockId};
 
 const NOT_SAID: f64 = 0.0;
 
@@ -149,7 +152,7 @@ pub struct Waiting {
     started: Instant,
     last: Instant,
     marks: Vec<(String, Duration)>,
-    notes: Vec<(String, line::Said)>,
+    notes: Vec<(String, line::Value)>,
     before: Duration,
 }
 
@@ -189,7 +192,7 @@ impl Waiting {
         let Ok(came) = came_from();
 
         match came {
-            Some(from) => notes.push(("from".to_string(), line::Said::Word(from))),
+            Some(from) => notes.push(("from".to_string(), line::Value::Word(from))),
             None => {}
         }
 
@@ -238,7 +241,7 @@ impl Waiting {
 
         match from.is_empty() {
             true => {}
-            false => notes.push(("from".to_string(), line::Said::Word(from.to_string()))),
+            false => notes.push(("from".to_string(), line::Value::Word(from.to_string()))),
         }
 
         Ok(Waiting {
@@ -282,24 +285,22 @@ impl Waiting {
             None => self.before += took,
         }
 
-        let after = self
-            .marks
-            .iter()
-            .position(|(name, _)| name == "exec")
-            .map_or(0, |at| at.saturating_add(1));
-        self.marks.insert(after, (doing.to_string(), took));
+        self.marks.insert(
+            self.marks.iter().position(|(name, _)| name == "exec").map_or(0, |at| at.saturating_add(1)),
+            (doing.to_string(), took),
+        );
 
         Ok(())
     }
 
     pub fn counted(&mut self, name: &str, many: u64) -> Result<(), Never> {
-        self.notes.push((name.to_string(), line::Said::Count(many)));
+        self.notes.push((name.to_string(), line::Value::Count(many)));
 
         Ok(())
     }
 
     pub fn named(&mut self, note: Note<'_>) -> Result<(), Never> {
-        self.notes.push((note.name.to_string(), line::Said::Word(note.said.to_string())));
+        self.notes.push((note.name.to_string(), line::Value::Word(note.said.to_string())));
 
         Ok(())
     }
@@ -324,36 +325,48 @@ impl Waiting {
     pub fn done(self) -> Result<(), Never> {
         let waited = self.before + self.started.elapsed();
 
-        let load = match load() {
-            Ok(load) => load,
-            Err(fault) => {
-                eprintln!("console-response-times: {fault}");
-                0.0
-            }
-        };
-
-        let Ok(at) = unix_now();
-        let Ok(up) = uptime();
-
-        let entry = line::Entry {
-            at,
-            up: match up {
-                Some(up) => up.as_secs_f64(),
-                None => NOT_SAID,
-            },
-            load,
-            who: self.who,
-            what: self.what,
-            waited,
-            marks: self.marks,
-            notes: self.notes,
-        };
-
-        let Ok(said) = line::written(&entry);
-        let Ok(()) = writing::line(&said);
-
-        Ok(())
+        written_down(Record { who: self.who, what: self.what, waited, marks: self.marks, notes: self.notes })
     }
+}
+
+pub(crate) struct Record {
+    pub who: String,
+    pub what: String,
+    pub waited: Duration,
+    pub marks: Vec<(String, Duration)>,
+    pub notes: Vec<(String, line::Value)>,
+}
+
+pub(crate) fn written_down(kept: Record) -> Result<(), Never> {
+    let load = match load() {
+        Ok(load) => load,
+        Err(fault) => {
+            eprintln!("console-response-times: {fault}");
+            0.0
+        }
+    };
+
+    let Ok(at) = unix_now();
+    let Ok(up) = uptime();
+
+    let entry = line::Entry {
+        at,
+        up: match up {
+            Some(up) => up.as_secs_f64(),
+            None => NOT_SAID,
+        },
+        load,
+        who: kept.who,
+        what: kept.what,
+        waited: kept.waited,
+        marks: kept.marks,
+        notes: kept.notes,
+    };
+
+    let Ok(said) = line::written(&entry);
+    let Ok(()) = writing::line(&said);
+
+    Ok(())
 }
 
 #[cfg_attr(
@@ -388,7 +401,7 @@ pub fn uptime() -> Result<Option<Duration>, Never> {
 
 #[derive(Debug)]
 pub enum Unloaded {
-    Unreadable(std::io::Error),
+    Read(std::io::Error),
     Empty,
     NotANumber(String, std::num::ParseFloatError),
 }
@@ -396,7 +409,7 @@ pub enum Unloaded {
 impl fmt::Display for Unloaded {
     fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Unloaded::Unreadable(fault) => write!(to, "{LOADAVG}: {fault}"),
+            Unloaded::Read(fault) => write!(to, "{LOADAVG}: {fault}"),
             Unloaded::Empty => write!(to, "{LOADAVG}: it said nothing at all"),
             Unloaded::NotANumber(first, fault) => write!(to, "{LOADAVG}: {first:?}: {fault}"),
         }
@@ -406,7 +419,7 @@ impl fmt::Display for Unloaded {
 impl std::error::Error for Unloaded {}
 
 pub fn load() -> Result<f64, Unloaded> {
-    let said = std::fs::read_to_string(LOADAVG).map_err(Unloaded::Unreadable)?;
+    let said = std::fs::read_to_string(LOADAVG).map_err(Unloaded::Read)?;
 
     let first = match said.split_whitespace().next() {
         Some(first) => first,
@@ -431,10 +444,9 @@ pub fn since_exec() -> Result<Option<Duration>, Never> {
         None => return Ok(None),
     };
 
-    // SAFETY: one call into libc that reads a constant and touches nothing.
-    let ticks = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+    let ticks = clock_ticks_per_second();
 
-    match ticks <= 0 {
+    match ticks == 0 {
         true => return Ok(None),
         false => {}
     }
@@ -461,25 +473,21 @@ pub fn since_exec() -> Result<Option<Duration>, Never> {
 }
 
 fn since_boot() -> Result<Option<Duration>, Never> {
-    let mut when = libc::timespec { tv_sec: 0, tv_nsec: 0 };
-    // SAFETY: the struct is ours, initialised, and lives across the call.
-    let asked = unsafe { libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut when) };
-
-    match asked == 0 {
-        true => {}
-        false => return Ok(None),
+    match clock_gettime_dynamic(DynamicClockId::Boottime) {
+        Ok(when) => lasted(when, "boot"),
+        Err(_) => Ok(None),
     }
+}
 
-    let (seconds, nanoseconds) = match (u64::try_from(when.tv_sec), u32::try_from(when.tv_nsec)) {
-        (Ok(seconds), Ok(nanoseconds)) => (seconds, nanoseconds),
+fn lasted(when: rustix::time::Timespec, clock: &str) -> Result<Option<Duration>, Never> {
+    Ok(match (u64::try_from(when.tv_sec), u32::try_from(when.tv_nsec)) {
+        (Ok(seconds), Ok(nanoseconds)) => Some(Duration::new(seconds, nanoseconds)),
         (Err(_), _) | (_, Err(_)) => {
-            eprintln!("console-response-times: the boot clock said {}s {}ns", when.tv_sec, when.tv_nsec);
+            eprintln!("console-response-times: the {clock} clock said {}s {}ns", when.tv_sec, when.tv_nsec);
 
-            return Ok(None);
+            None
         }
-    };
-
-    Ok(Some(Duration::new(seconds, nanoseconds)))
+    })
 }
 
 pub fn started_at(stat: &str) -> Result<Option<f64>, Never> {
@@ -564,25 +572,7 @@ fn came_from() -> Result<Option<String>, Never> {
 }
 
 pub fn monotonic_now() -> Result<Option<Duration>, Never> {
-    let mut when = libc::timespec { tv_sec: 0, tv_nsec: 0 };
-    // SAFETY: the struct is ours, initialised, and lives across the call.
-    let asked = unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut when) };
-
-    match asked == 0 {
-        true => {}
-        false => return Ok(None),
-    }
-
-    let (seconds, nanoseconds) = match (u64::try_from(when.tv_sec), u32::try_from(when.tv_nsec)) {
-        (Ok(seconds), Ok(nanoseconds)) => (seconds, nanoseconds),
-        (Err(_), _) | (_, Err(_)) => {
-            eprintln!("console-response-times: the monotonic clock said {}s {}ns", when.tv_sec, when.tv_nsec);
-
-            return Ok(None);
-        }
-    };
-
-    Ok(Some(Duration::new(seconds, nanoseconds)))
+    lasted(clock_gettime(ClockId::Monotonic), "monotonic")
 }
 
 pub fn press_stamp() -> Result<Option<(&'static str, String)>, Never> {
@@ -702,7 +692,7 @@ mod tests {
 
                 let named: Vec<&str> =
                     waiting.marks.iter().map(|(name, _)| name.as_str()).collect();
-                assert!(!named.contains(&"press"), "a press nobody made was written down as zero");
+                assert!(!named.contains(&"press"), "a press no one made was written down as zero");
                 assert!(named.contains(&"exec"), "how long the process took to exist is knowable");
             }
         }
@@ -746,7 +736,7 @@ mod tests {
             assert_eq!(
                 said.map(|(_, said)| said.clone()),
                 Some(None),
-                "{name} was carried on to something nobody pressed"
+                "{name} was carried on to something no one pressed"
             );
         }
     }

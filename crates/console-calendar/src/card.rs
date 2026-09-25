@@ -30,7 +30,7 @@ use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_panel::card::{Card, Door};
 use console_panel::marks;
-use console_panel::page::{Aside, Cell, Ends, InEffect, Page, Row, Rows};
+use console_panel::page::{Aside, Cell, Ends, Active, Page, Row, Rows};
 
 use crate::month::{self, Day, Grid, Holds, Month};
 
@@ -44,16 +44,16 @@ const WHERE_IT_OPENED: i32 = 0;
 
 const TODAY: &str = "+%Y %m %d";
 
-const NO_DAY: &str = "This machine will not say what day it is";
+const NO_DAY: &str = "Date Unavailable";
 
-type Held = Arc<AtomicI32>;
+type Shared = Arc<AtomicI32>;
 
 pub fn door(_argv: &[String]) -> Result<Door, Never> {
     Door::closing(DOOR)
 }
 
 pub fn card(_argv: &[String]) -> Result<Card, Never> {
-    let held: Held = Arc::new(AtomicI32::new(WHERE_IT_OPENED));
+    let held: Shared = Arc::new(AtomicI32::new(WHERE_IT_OPENED));
 
     Card::new(Arc::new(move || {
         let Ok(pages) = pages(&held);
@@ -62,7 +62,7 @@ pub fn card(_argv: &[String]) -> Result<Card, Never> {
     }))
 }
 
-fn pages(held: &Held) -> Result<Vec<Page>, Never> {
+fn pages(held: &Shared) -> Result<Vec<Page>, Never> {
     let reading = Arc::clone(held);
     let Ok(rows) = Rows::asked(move || {
         let Ok(rows) = rows(&reading);
@@ -74,7 +74,7 @@ fn pages(held: &Held) -> Result<Vec<Page>, Never> {
     Ok(vec![page])
 }
 
-fn rows(held: &Held) -> Result<Vec<Row>, Never> {
+fn rows(held: &Shared) -> Result<Vec<Row>, Never> {
     let Ok(today) = today();
 
     let today = match today {
@@ -104,10 +104,10 @@ fn rows(held: &Held) -> Result<Vec<Row>, Never> {
     Ok(rows)
 }
 
-fn month_row(held: &Held, grid: &Grid) -> Result<Row, Never> {
+fn month_row(held: &Shared, grid: &Grid) -> Result<Row, Never> {
     let stepping = Arc::clone(held);
     let Ok(row) = Row::said(&grid.said, Aside(""));
-    let Ok(row) = row.levelled(Arc::new(move |by| {
+    let Ok(row) = row.leveled(Arc::new(move |by| {
         stepping.fetch_add(by, Ordering::Relaxed);
     }));
 
@@ -118,7 +118,7 @@ fn named(grid: &Grid) -> Result<Row, Never> {
     let mut cells = Vec::new();
 
     for weekday in &grid.weekdays {
-        let Ok(cell) = Cell::new(weekday, InEffect::No);
+        let Ok(cell) = Cell::new(weekday, Active::No);
 
         cells.push(cell);
     }
@@ -139,17 +139,17 @@ fn week_row(week: &[String], at: Month, today: Day) -> Result<Row, Never> {
     Row::celled(cells)
 }
 
-fn standing(day: &str, at: Month, today: Day) -> Result<InEffect, Never> {
+fn standing(day: &str, at: Month, today: Day) -> Result<Active, Never> {
     let Ok(holds) = at.holds(today);
 
     match holds {
-        Holds::No => return Ok(InEffect::No),
+        Holds::No => return Ok(Active::No),
         Holds::Yes => {},
     }
 
     Ok(match day.parse::<i32>() == Ok(today.day) {
-        true => InEffect::Yes,
-        false => InEffect::No,
+        true => Active::Yes,
+        false => Active::No,
     })
 }
 
@@ -247,9 +247,9 @@ mod tests {
         let Ok(another) = standing("8", at, today);
         let Ok(blank) = standing("", at, today);
 
-        assert_eq!(lit, InEffect::Yes);
-        assert_eq!(elsewhere, InEffect::No);
-        assert_eq!(another, InEffect::No);
-        assert_eq!(blank, InEffect::No);
+        assert_eq!(lit, Active::Yes);
+        assert_eq!(elsewhere, Active::No);
+        assert_eq!(another, Active::No);
+        assert_eq!(blank, Active::No);
     }
 }

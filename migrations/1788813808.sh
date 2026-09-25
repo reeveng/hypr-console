@@ -1,4 +1,4 @@
-# The player, under the name it was somebody else's program by.
+# The player, under the name it was someone else's program by.
 #
 # `/usr/local/bin/kew` was a fork carried as a binary, for the same reason the
 # session keeper was: what it is built from is upstream's, and this tree does
@@ -22,7 +22,7 @@
 # What kew was told is carried across before it is swept. ~/.config/kew/kewrc
 # held `path=`, which is where the music is, and it was the only place this
 # desktop ever wrote that down: `console_music::library` read it back out.
-# There is nobody to tell now, because the player is handed the folder on its
+# There is no one to tell now, because the player is handed the folder on its
 # command line, so the answer moves to a file of this desktop's own holding one
 # path and nothing else. A person who had told kew where their music was does
 # not have to say it again, which is the whole reason this is fourteen lines
@@ -31,7 +31,7 @@
 # Stopping the old player first is not ceremony. A kew still running holds the
 # MPRIS name, and the name is what the panel asks for; the apply that follows
 # this one starts nothing, because the player is started by the first song
-# somebody presses. So the old one is ended here and the new one is started by
+# someone presses. So the old one is ended here and the new one is started by
 # a thumb, which is also the first honest test that any of this worked.
 #
 # sweeps: /usr/local/bin/kew

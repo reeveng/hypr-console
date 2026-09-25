@@ -2,17 +2,21 @@
 //!
 //! One list, read twice: printed as headings in a terminal, and drawn as tabs
 //! on the device. A section that exists in one and not the other is how a guide
-//! starts lying.
+//! starts lying. On the device the tabs are the Buttons panel's, after its own
+//! two: what a button does is a row there that can be changed, so the sections
+//! that say it are the terminal's alone, and [`reference`] is what both read --
+//! what a menu, the Home Screen or the keyboard does with a button, which no
+//! one moves.
 //!
 //! What a button does is read off the one table that decides it, grouped by
 //! what is held with it: a section for a press on its own, and one for each
 //! set of things held. Nothing here is written by hand about a button, which is
-//! the whole point -- a job somebody has moved is a job this guide names on the
-//! button they moved it to, and a chord nobody has put anything on is a heading
+//! the whole point -- a job someone has moved is a job this guide names on the
+//! button they moved it to, and a chord no one has put anything on is a heading
 //! that never appears.
 //!
 //! The keyboard is a section of the same table rather than a reading of
-//! somebody else's file. It used to be `binds`, which found `hl.bind` lines in
+//! someone else's file. It used to be `binds`, which found `hl.bind` lines in
 //! `hyprland.lua` and guessed at what each one meant from the dispatcher it
 //! called -- a parser for a language this desktop does not own, kept honest by
 //! nothing. Those binds are rows in the table now, so the section is built the
@@ -21,21 +25,37 @@
 //! Every section is here whichever hand is on the machine, and which one is
 //! open first is the whole of what the input decides -- [`opens_on`], read
 //! against the last press. Filtering was the other way to do it and is wrong:
-//! somebody at a keyboard asking what the pad does is the commonest reason to
+//! someone at a keyboard asking what the pad does is the most common reason to
 //! open this at all, and a guide that had hidden the answer would be a guide
 //! that knew it and would not say.
+//!
+//! The hand is half the question and it used to be the whole of it. A guide
+//! raised over a menu opened on Anywhere, where A is a click and R1 is a
+//! workspace, and both of those are false of the screen it was raised over:
+//! the true answers were one tab along, under Menus, and a person who has to
+//! find the right tab before the first line is true has been handed a manual.
+//! So what is in front is asked as well, and it is asked of the compositor,
+//! the way the daemon asks it -- a [`Mode`], which is the same word for what
+//! is on the screen that every press is already decided against. The hand
+//! answers only where the front has nothing to say, which is the desktop
+//! itself.
+
 
 use std::collections::BTreeSet;
 
-use console_input_controller::doing::Doing;
-use console_input_controller::means::{Job, Press, Table, What, When};
-use console_files::doing::{self, Deed};
+use console_input_controller::actions::{Task, Table, Context};
+use console_input_controller::mode::Mode;
+use console_files::doing::{self, FileAction};
 use console_input_bindings::bound::{Binding, Input, Played};
 use console_core_never::Never;
 
-pub const DOABLE: &str = "Anywhere";
+pub const DOABLE: &str = "General";
 
 pub const MENUS: &str = "Menus";
+
+pub const KEYBOARD: &str = "On-Screen Keyboard";
+
+pub const HOME_SCREEN: &str = "Home Screen";
 
 pub const TYPED: &str = "Keyboard shortcuts";
 
@@ -43,7 +63,6 @@ pub const TYPED: &str = "Keyboard shortcuts";
 pub struct Line {
     pub button: String,
     pub does: String,
-    pub runs: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -75,7 +94,7 @@ fn lines(
     table: &Table,
     on: Input,
     held: &[String],
-    wanted: impl Fn(&Job) -> bool,
+    wanted: impl Fn(&Task) -> bool,
 ) -> Result<Vec<Line>, Never> {
     let Ok(every) = table.every();
 
@@ -89,7 +108,7 @@ fn lines(
         .collect())
 }
 
-fn line(job: &Job, bound: &[Binding], on: Input, held: &[String]) -> Result<Option<Line>, Never> {
+fn line(job: &Task, bound: &[Binding], on: Input, held: &[String]) -> Result<Option<Line>, Never> {
     let pressed: Vec<String> = bound
         .iter()
         .filter(|one| {
@@ -104,12 +123,11 @@ fn line(job: &Job, bound: &[Binding], on: Input, held: &[String]) -> Result<Opti
         })
         .collect();
 
-    let Ok(runs) = runs_for(job.what);
-    let Ok(says) = job.what.says();
+    let Ok(says) = job.action.says();
 
     Ok(match pressed.is_empty() {
         true => None,
-        false => Some(Line { button: pressed.join(" / "), does: says.to_string(), runs }),
+        false => Some(Line { button: pressed.join(" / "), does: says.to_string() }),
     })
 }
 
@@ -178,25 +196,11 @@ fn typed(table: &Table) -> Result<Vec<Line>, Never> {
     Ok(every)
 }
 
-pub fn runs_for(what: What) -> Result<Option<Vec<String>>, Never> {
-    let Ok(does) = what.does(Press::Down);
-
-    let doing = match does {
-        Some(doing) => doing,
-        None => return Ok(None),
-    };
-
-    Ok(match doing {
-        Doing::Run(argv) => Some(argv),
-        Doing::Frame(_) | Doing::Tell(_) | Doing::Using(_) => None,
-    })
-}
-
 fn what_can_be_done() -> Result<String, Never> {
     let mut said: Vec<&str> = Vec::new();
 
     for deed in doing::EVERY {
-        let says = Deed::says(deed)?;
+        let says = FileAction::says(deed)?;
 
         said.push(says);
     }
@@ -204,114 +208,116 @@ fn what_can_be_done() -> Result<String, Never> {
     Ok(said.join(", "))
 }
 
-pub fn opens_on(on: Input) -> Result<&'static str, Never> {
-    Ok(match on {
-        Input::Pad => DOABLE,
-        Input::Keyboard => TYPED,
+pub fn opens_on(on: Input, front: Mode) -> Result<&'static str, Never> {
+    let Ok(in_front) = in_front(front);
+
+    Ok(match (in_front, on) {
+        (Some(title), _) => title,
+        (None, Input::Pad) => DOABLE,
+        (None, Input::Keyboard) => TYPED,
     })
 }
 
-pub fn sections(table: &Table) -> Result<Vec<Section>, Never> {
-    let Ok(mut around) = lines(table, Input::Pad, &[], |job| {
-        !matches!(
-            job.when,
-            When::WithAChooserUp | When::OnTheHomeScreen | When::StandingOnASquare
-        )
-    });
-    let Ok(rest) = written(&[
-        ("Volume rocker", "louder, quieter, unmute"),
-        ("Touchpad", "move the pointer"),
-        ("Tap the touchpad", "click"),
-        ("Press the touchpad in", "click and hold to drag"),
-        ("The screen", "tap to click, drag to scroll"),
-        ("The bar", "tap its icons"),
-    ]);
+pub fn in_front(front: Mode) -> Result<Option<&'static str>, Never> {
+    Ok(match front {
+        Mode::Tabs => Some(MENUS),
+        Mode::Keyboard => Some(KEYBOARD),
+        Mode::HomeScreen | Mode::Standing => Some(HOME_SCREEN),
+        Mode::Desktop | Mode::Prompt => None,
+    })
+}
 
-    around.extend(rest);
+fn on_the_pad(
+    table: &Table,
+    wanted: impl Fn(&Task) -> bool,
+    rest: &[(&str, &str)],
+) -> Result<Vec<Line>, Never> {
+    let Ok(mut bound) = lines(table, Input::Pad, &[], wanted);
+    let Ok(rest) = written(rest);
 
-    let Ok(mut menus) = lines(table, Input::Pad, &[], |job| job.when == When::WithAChooserUp);
-    let Ok(rest) = written(&[
-        ("D-pad", "move the highlight"),
-        ("Y, in the menu", "put an app on the home screen, or take it off"),
-        ("B", "back out"),
-        ("X", "show or hide the keyboard"),
-        ("Typing", "the top row of a menu that has one"),
-        ("D-pad left / right", "move a level"),
-        ("Right paddle, top", "close the menu"),
-        ("Legion right", "the settings"),
-        ("Menu", "this guide"),
-        ("Tap a row", "the same as A"),
-        ("\u{2039} and \u{203a}", "the tab before or after"),
-        ("\u{2212} and +", "move a level with a finger"),
-        ("\u{d7}", "close, the same as B"),
-        ("Its bar icon", "tap it again to close"),
-    ]);
+    bound.extend(rest);
 
-    menus.extend(rest);
+    Ok(bound)
+}
 
-    let Ok(mut home) = lines(table, Input::Pad, &[], |job| {
-        matches!(job.when, When::OnTheHomeScreen | When::StandingOnASquare)
-    });
-    let Ok(rest) = written(&[
-        ("D-pad, first press", "show where you are standing"),
-        ("D-pad off the side", "the pane before or after"),
-        ("Move", "under Y; the d-pad carries it, A puts it down"),
-        ("Remove from the home screen", "under Y, on the square it is on"),
-        ("An empty square", "the menu, to put one there"),
-        ("Tap an app", "the same as A"),
-        ("Hold a finger on one", "pick it up"),
-        ("Swipe sideways", "the pane before or after"),
-        ("Swipe up", "the menu"),
-    ]);
+fn around(table: &Table) -> Result<Vec<Line>, Never> {
+    on_the_pad(
+        table,
+        |job| {
+            !matches!(
+                job.context,
+                Context::WithAPickerUp | Context::OnTheHomeScreen | Context::StandingOnASquare
+            )
+        },
+        &[
+            ("Volume rocker", "volume up, volume down, mute"),
+            ("Touchpad", "move the pointer"),
+            ("Tap the touchpad", "click"),
+            ("Press the touchpad in", "hold to drag"),
+            ("The screen", "tap to select, swipe to scroll"),
+            ("The bar", "tap its icons"),
+        ],
+    )
+}
 
-    home.extend(rest);
+fn menus(table: &Table) -> Result<Vec<Line>, Never> {
+    on_the_pad(
+        table,
+        |job| job.context == Context::WithAPickerUp,
+        &[
+            ("D-pad", "move the selection"),
+            ("Y, in the menu", "add to or remove from the Home Screen"),
+            ("B", "go back"),
+            ("X", "show or hide the keyboard"),
+            ("Typing", "search, where a menu has it"),
+            ("D-pad left / right", "change the value"),
+            ("Right paddle, top", "close the menu"),
+            ("Legion right", "open Settings"),
+            ("Menu", "show the button guide"),
+            ("Tap a row", "select"),
+            ("\u{2039} and \u{203a}", "previous or next tab"),
+            ("\u{2212} and +", "change the value"),
+            ("\u{d7}", "close"),
+            ("Its bar icon", "tap again to close"),
+        ],
+    )
+}
 
+fn home(table: &Table) -> Result<Vec<Line>, Never> {
+    on_the_pad(
+        table,
+        |job| matches!(job.context, Context::OnTheHomeScreen | Context::StandingOnASquare),
+        &[
+            ("D-pad, first press", "show the selection"),
+            ("D-pad off the side", "previous or next page"),
+            ("Move", "under Y; move with the D-pad, A to drop"),
+            ("Remove from Home Screen", "under Y, on the app"),
+            ("An empty spot", "open the menu to add an app"),
+            ("Tap an app", "open it"),
+            ("Touch and hold an app", "move it"),
+            ("Swipe sideways", "previous or next page"),
+            ("Swipe up", "open the menu"),
+        ],
+    )
+}
+
+fn files() -> Result<Vec<Line>, Never> {
     let Ok(what_can_be_done) = what_can_be_done();
-    let Ok(keyboard) = written(&[
-        ("X", "put the keyboard away"),
-        ("A", "press the key you are on"),
-        ("B", "backspace"),
-        ("Y", "shift"),
-        ("D-pad", "move between keys"),
-        ("L1 / R1", "previous / next set of keys"),
-        ("Menu", "enter"),
-        ("Stick press", "press the key you are on"),
-    ]);
-    let Ok(files) = written(&[
-        ("L1 / R1", "Home, and whatever is plugged in"),
-        ("A", "open a folder or a file"),
-        ("B", "the folder above"),
-        ("Y", &what_can_be_done),
-        ("New folder", "under Y, in whichever folder you are in"),
-        ("Copy or Move", "pick it up; a row puts it down"),
-        ("Delete", "asks first; goes to the wastebasket"),
-        ("Row nought", "the folder above, with a finger"),
-    ]);
-    let Ok(music) = written(&[
-        ("A", "play a song, or a folder of them"),
-        ("Y", "show it in the files, where it is renamed or thrown away"),
-        ("Typing", "a song, whose it is, or anything it says"),
-        ("D-pad left / right", "the song before it, the song after it"),
-        ("Play them in any order", "on Playing, under what is on"),
-        ("Play this one over", "on Playing, under what is on"),
-    ]);
-    let Ok(browser) = written(&[
-        ("Y", "label everything on the page that can be pressed"),
-        ("D-pad", "walk between those things, one at a time"),
-        ("A", "take the one you are standing on"),
-        ("B", "put the labels away, and then go back a page"),
-        ("Y again", "the same labels, opening in a new tab"),
-        ("Along the bottom", "look for something, the tabs, a new tab, close this one"),
-        ("A new tab", "opens on the line to type a question into"),
-        ("X", "the keyboard, for the line being typed into"),
-    ]);
-    let Ok(steam) = written(&[
-        ("Legion left", "Steam's own menu, which is Steam's to draw"),
-        ("Legion left, held", "back to this desktop"),
-        ("Everything else", "the pad, untouched, the way a game expects it"),
-    ]);
-    let Ok(shortcuts) = typed(table);
 
+    written(&[
+        ("L1 / R1", "Home or an external drive"),
+        ("A", "open"),
+        ("B", "enclosing folder"),
+        ("Y", &what_can_be_done),
+        ("New Folder", "under Y, in this folder"),
+        ("Copy or Move", "choose it, then paste"),
+        ("Delete", "asks first; moves to the Trash"),
+        ("Top row", "tap to go to the enclosing folder"),
+    ])
+}
+
+pub fn sections(table: &Table) -> Result<Vec<Section>, Never> {
+    let Ok(around) = around(table);
     let Ok(anywhere) = Section::of(DOABLE, around);
     let mut every = vec![anywhere];
 
@@ -325,15 +331,64 @@ pub fn sections(table: &Table) -> Result<Vec<Section>, Never> {
         every.push(section);
     }
 
+    let Ok(reference) = reference(table);
+    let Ok(shortcuts) = typed(table);
+    let Ok(typed) = Section::of(TYPED, shortcuts);
+
+    every.extend(reference);
+    every.push(typed);
+
+    Ok(every)
+}
+
+pub fn reference(table: &Table) -> Result<Vec<Section>, Never> {
+    let Ok(menus) = menus(table);
+    let Ok(home) = home(table);
+    let Ok(keyboard) = written(&[
+        ("X", "hide the keyboard"),
+        ("A", "press the selected key"),
+        ("B", "backspace"),
+        ("Y", "shift"),
+        ("D-pad", "move between keys"),
+        ("L1 / R1", "previous / next keyboard page"),
+        ("Menu", "enter"),
+        ("Stick press", "press the selected key"),
+    ]);
+    let Ok(files) = files();
+    let Ok(music) = written(&[
+        ("A", "play a song or folder"),
+        ("Y", "show in Files to rename or delete"),
+        ("Typing", "search songs, artists or albums"),
+        ("D-pad left / right", "previous or next song"),
+        ("Shuffle", "under the song playing"),
+        ("Repeat One", "under the song playing"),
+    ]);
+    let Ok(browser) = written(&[
+        ("Y", "show link hints"),
+        ("D-pad", "move between links"),
+        ("A", "open the selected link"),
+        ("B", "hide link hints, then go back"),
+        ("Y again", "link hints that open in a new tab"),
+        ("Along the bottom", "search, tabs, new tab, close tab"),
+        ("A new tab", "opens with the address bar selected"),
+        ("X", "show the keyboard"),
+    ]);
+    let Ok(steam) = written(&[
+        ("Legion left", "open the Steam menu"),
+        ("Legion left, held", "return to the desktop"),
+        ("Everything else", "passed straight to the game"),
+    ]);
+
+    let mut every = Vec::new();
+
     for (title, lines) in [
-        ("Keyboard", keyboard),
+        (KEYBOARD, keyboard),
         (MENUS, menus),
-        ("Home screen", home),
+        (HOME_SCREEN, home),
         ("Files", files),
         ("Music", music),
         ("Browser", browser),
         ("Steam", steam),
-        (TYPED, shortcuts),
     ] {
         let Ok(section) = Section::of(title, lines);
 
@@ -349,7 +404,6 @@ fn written(said: &[(&str, &str)]) -> Result<Vec<Line>, Never> {
         .map(|(button, does)| Line {
             button: button.to_string(),
             does: does.to_string(),
-            runs: None,
         })
         .collect())
 }
@@ -357,7 +411,7 @@ fn written(said: &[(&str, &str)]) -> Result<Vec<Line>, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use console_input_bindings::moved::Jobs;
+    use console_input_bindings::moved::Tasks;
 
     fn ours() -> Table {
         let Ok(table) = Table::ours();
@@ -365,7 +419,7 @@ mod tests {
         table
     }
 
-    fn moved(said: &Jobs) -> Table {
+    fn moved(said: &Tasks) -> Table {
         let Ok(table) = Table::of(said);
 
         table
@@ -389,16 +443,16 @@ mod tests {
     fn what_a_trigger_held_makes_of_a_button_comes_from_the_table() {
         let every = sections(&ours());
         let held = section(&every, "L2");
-        assert_eq!(line(held, "D-pad up").does, "louder");
-        assert_eq!(line(held, "Right paddle bottom").does, "a screenshot");
+        assert_eq!(line(held, "D-pad up").does, "volume up");
+        assert_eq!(line(held, "Right paddle bottom").does, "take a screenshot");
     }
 
     #[test]
     fn the_guide_opens_on_the_hand_that_was_last_used_and_hides_neither() {
         let every = sections(&ours());
 
-        assert_eq!(opens_on(Input::Pad), Ok(DOABLE));
-        assert_eq!(opens_on(Input::Keyboard), Ok(TYPED));
+        assert_eq!(opens_on(Input::Pad, Mode::Desktop), Ok(DOABLE));
+        assert_eq!(opens_on(Input::Keyboard, Mode::Desktop), Ok(TYPED));
 
         for title in [DOABLE, TYPED] {
             assert!(
@@ -409,7 +463,33 @@ mod tests {
     }
 
     #[test]
-    fn a_chord_nobody_has_put_anything_on_is_not_a_heading() {
+    fn what_is_in_front_answers_before_the_hand_does() {
+        for on in [Input::Pad, Input::Keyboard] {
+            assert_eq!(
+                opens_on(on, Mode::Tabs),
+                Ok(MENUS),
+                "a guide raised over a menu opened on a tab where A is a click"
+            );
+            assert_eq!(opens_on(on, Mode::Keyboard), Ok(KEYBOARD));
+            assert_eq!(opens_on(on, Mode::HomeScreen), Ok(HOME_SCREEN));
+            assert_eq!(opens_on(on, Mode::Standing), Ok(HOME_SCREEN));
+        }
+    }
+
+    #[test]
+    fn every_tab_the_front_can_open_on_is_a_page_with_something_on_it() {
+        let every = sections(&ours());
+
+        for title in [MENUS, KEYBOARD, HOME_SCREEN] {
+            assert!(
+                every.iter().any(|section| section.title == title && !section.lines.is_empty()),
+                "{title} is where the guide can open, and an empty page is not drawn at all"
+            );
+        }
+    }
+
+    #[test]
+    fn a_chord_no_one_has_put_anything_on_is_not_a_heading() {
         let every = sections(&ours());
 
         assert!(!every.iter().any(|section| section.title == "R2"));
@@ -417,44 +497,37 @@ mod tests {
     }
 
     #[test]
-    fn a_job_somebody_moved_is_named_where_they_moved_it() {
-        let said = Jobs::read("[jobs]\nscreenshot = \"r2 + a\"\n").expect("a table");
+    fn a_job_someone_moved_is_named_where_they_moved_it() {
+        let said = Tasks::read("[jobs]\nscreenshot = \"r2 + a\"\n").expect("a table");
         let every = sections(&moved(&said));
 
-        assert_eq!(line(section(&every, "R2"), "A").does, "a screenshot");
+        assert_eq!(line(section(&every, "R2"), "A").does, "take a screenshot");
         assert!(
-            !section(&every, "L2").lines.iter().any(|line| line.does == "a screenshot"),
+            !section(&every, "L2").lines.iter().any(|line| line.does == "take a screenshot"),
             "the screenshot is still where it was"
         );
     }
 
     #[test]
     fn a_chord_of_two_buttons_is_a_heading_of_its_own() {
-        let said = Jobs::read("[jobs]\nmenu = \"left-paddle-bottom + right-paddle-top\"\n")
+        let said = Tasks::read("[jobs]\nmenu = \"left-paddle-bottom + right-paddle-top\"\n")
             .expect("a table");
         let every = sections(&moved(&said));
 
-        assert_eq!(line(section(&every, "Left paddle bottom"), "Right paddle top").does, "the menu");
+        assert_eq!(line(section(&every, "Left paddle bottom"), "Right paddle top").does, "open the menu");
     }
 
     #[test]
     fn a_job_with_no_button_is_not_something_to_press() {
-        let said = Jobs::read("[jobs]\nmenu = \"\"\n").expect("a table");
+        let said = Tasks::read("[jobs]\nmenu = \"\"\n").expect("a table");
         let every = sections(&moved(&said));
-        assert!(!section(&every, DOABLE).lines.iter().any(|line| line.does == "the menu"));
+        assert!(!section(&every, DOABLE).lines.iter().any(|line| line.does == "open the menu"));
     }
 
     #[test]
     fn two_buttons_that_do_one_thing_are_one_line() {
         let every = sections(&ours());
         assert_eq!(line(section(&every, DOABLE), "X / Keyboard").does, "show or hide the keyboard");
-    }
-
-    #[test]
-    fn what_a_button_runs_comes_from_the_table_that_runs_it() {
-        assert_eq!(runs_for(What::PutAway), Ok(Some(vec!["console-put-away".to_string()])));
-        assert_eq!(runs_for(What::GameMode), Ok(Some(vec!["session-game".to_string()])));
-        assert_eq!(runs_for(What::Back), Ok(None));
     }
 
     #[test]
@@ -481,13 +554,9 @@ mod tests {
         let every = sections(&ours());
         let typed = section(&every, TYPED);
 
-        assert_eq!(line(typed, "Super + I").does, "the settings");
-        assert_eq!(line(typed, "Super + Shift + F").does, "fill the screen with this window");
-        assert_eq!(line(typed, "Print").does, "a screenshot");
-        assert!(
-            typed.lines.iter().all(|line| line.runs.is_some()),
-            "a key nobody can press and nothing can ask for"
-        );
+        assert_eq!(line(typed, "Super + I").does, "open Settings");
+        assert_eq!(line(typed, "Super + Shift + F").does, "full screen on or off");
+        assert_eq!(line(typed, "Print").does, "take a screenshot");
     }
 
     #[test]
@@ -507,7 +576,7 @@ mod tests {
         let files = section(&sections, "Files");
         let said = &line(files, "Y").does;
         for deed in doing::EVERY {
-            let Ok(says) = Deed::says(deed);
+            let Ok(says) = FileAction::says(deed);
 
             assert!(said.contains(says), "the guide does not name {says}");
         }

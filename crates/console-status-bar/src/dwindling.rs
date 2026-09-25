@@ -1,4 +1,4 @@
-//! Watching the battery, which is the one reading that moves while nobody is
+//! Watching the battery, which is the one reading that moves while no one is
 //! pressing anything.  udev says when a supply changed and `watch::tick` sits
 //! under that as the net; the reading either of them wakes is taken here, for
 //! the icon this bar draws, and it is the only reading on the machine.
@@ -6,17 +6,17 @@
 //! program on a second clock, and two clocks reading one battery is two
 //! machines' worth of opinions about when it crossed something.  So the
 //! crossing is noticed here, where the reading already happens. What a crossing
-//! is is `console_default_applications::battery`, which can be asked without a
+//! is is `console_battery`, which can be asked without a
 //! machine; what is done about one is `console-battery`, which is a program of
 //! its own because the last of the three stops the machine and a bar module is
 //! not a thing that should be holding still for that.
 
 use std::process::{Command, Stdio};
 
-use console_program_lifetime::{LetGo, Still, let_go};
-use console_default_applications::battery::{Charge, Levels, Step, asked};
+use console_program_lifetime::{Detached, Still, let_go};
+use console_battery::{Charge, Levels, Step, asked};
 use console_core_never::Never;
-use console_notifications::saying::Kept;
+use console_notifications::saying::StatePath;
 
 pub const SAID: &str = "battery-said";
 
@@ -24,7 +24,7 @@ pub const DOES: &str = "console-battery";
 
 #[derive(Debug, Default)]
 pub struct Watching {
-    doing: Option<LetGo>,
+    doing: Option<Detached>,
 }
 
 impl Watching {
@@ -37,7 +37,7 @@ impl Watching {
             None => return Ok(()),
         };
 
-        let Ok(kept) = Kept::named(SAID);
+        let Ok(kept) = StatePath::named(SAID);
         let Ok(read) = kept.read();
 
         let told = match read {
@@ -54,14 +54,16 @@ impl Watching {
         };
 
         match said.act {
-            Some(_) if self.doing.is_some() => (),
-            Some(step) => {
-                let Ok(started) = run(step);
+            Some(step) => match self.doing.is_some() {
+                true => (),
+                false => {
+                    let Ok(started) = run(step);
 
-                self.doing = started;
+                    self.doing = started;
 
-                let Ok(()) = kept.write(number);
-            }
+                    let Ok(()) = kept.write(number);
+                }
+            },
             None => {
                 let Ok(()) = kept.write(number);
             }
@@ -87,7 +89,7 @@ impl Watching {
     }
 }
 
-fn run(step: Step) -> Result<Option<LetGo>, Never> {
+fn run(step: Step) -> Result<Option<Detached>, Never> {
     let word = step.word()?;
     let mut starting = Command::new(DOES);
 
@@ -115,7 +117,7 @@ mod tests {
 
     #[test]
     fn every_step_is_asked_for_by_its_own_word() {
-        for step in console_default_applications::battery::EVERY {
+        for step in console_battery::EVERY {
             let Ok(word) = step.word();
 
             assert!(!word.is_empty());

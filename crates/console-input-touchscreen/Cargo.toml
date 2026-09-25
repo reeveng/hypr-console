@@ -18,7 +18,7 @@ console-screen.workspace = true
 # `console-input-controller` publishes its wheel with it, so it is already on the
 # handheld; this used to write the same ioctls by hand beside them. `tap.rs`
 # says why that stopped.
-evdev = "0.13"
+console-input-event-devices.workspace = true
 
 [lints]
 workspace = true

@@ -15,21 +15,26 @@ dylint_linting::declare_late_lint! {
     /// how a new variant becomes a build error at every site that has an
     /// opinion about it.
     ///
-    /// A foreign `#[non_exhaustive]` enum is exempt, because there the
-    /// compiler demands the wildcard and the choice this rule is about does
-    /// not exist -- the same reasoning that lets EXPLICIT007 and 008 skip a
-    /// method implementing somebody else's trait.
+    /// A foreign `#[non_exhaustive]` enum was exempt here once, because the
+    /// compiler demands a catch-all over one and a rule cannot ask for what
+    /// will not compile. It asks for something else instead: do not match on
+    /// that enum. The question a catch-all over `io::ErrorKind` is really
+    /// asking is whether the kind is one particular kind, and that is an
+    /// answer with two named outcomes -- `match fault.kind() == NotFound
+    /// { true => …, false => … }`. What is left unwritable is a wide reading
+    /// of somebody else's open enum, which is the thing that quietly votes on
+    /// a variant added next year.
     ///
-    /// A guarded arm is left alone: `Variant if cond =>` does not cover
-    /// anything by omission, and the unguarded arm it falls through to is the
-    /// one that answers for the rest.
+    /// A guarded arm was left alone here once, on the argument that the
+    /// unguarded arm it falls through to answers for the rest. EXPLICIT019 now
+    /// denies the guard itself, so there is nothing left to exempt.
     pub EXPLICIT016_NO_WILDCARD_ARM,
     Deny,
     "a wildcard arm on an enum decides future variants by omission; name every variant"
 }
 
 // Tests are exempt. A test that panics is a test that fails, which is what a
-// test is for, and `as` in a fixture is arithmetic nobody ships. `opts.test`
+// test is for, and `as` in a fixture is arithmetic no one ships. `opts.test`
 // is true only for the harness build of a target -- the ordinary build of the
 // same library is linted as production, so nothing real is lost by skipping
 // this one.
@@ -72,16 +77,7 @@ impl<'tcx> LateLintPass<'tcx> for Explicit016NoWildcardArm {
             return;
         }
 
-        // A foreign non_exhaustive enum forces the wildcard; no choice, no rule.
-        if adt.is_variant_list_non_exhaustive() && !adt.did().is_local() {
-            return;
-        }
-
         for arm in arms {
-            if arm.guard.is_some() {
-                continue;
-            }
-
             if swallows_every_variant(arm.pat) {
                 span_lint_and_help(
                     cx,
@@ -89,7 +85,7 @@ impl<'tcx> LateLintPass<'tcx> for Explicit016NoWildcardArm {
                     arm.pat.span,
                     "this arm matches every variant of the enum without naming one",
                     None,
-                    "name every variant, so a variant added later is a compile error here rather than a silent vote",
+                    "name every variant, so a variant added later is a compile error here rather than a silent vote -- and over somebody else's open enum, ask the question instead: `match value == Wanted { true => …, false => … }`",
                 );
             }
         }

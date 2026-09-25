@@ -27,5 +27,13 @@ LL | |     }
    |
    = help: write the decision as a `match` -- `match cond { true => …, false => … }`, or `match value { … }` for what an `if let` asks
 
-error: aborting due to 3 previous errors
+error: a guard is an `if` on an arm: its false answer falls through to the next arm without a name
+  --> $DIR/main.rs:34:20
+   |
+LL |         Some(n) if n > 2 => n,
+   |                    ^^^^^
+   |
+   = help: put the question in the pattern, or match on its answer -- `match a == b { true => …, false => … }`
+
+error: aborting due to 4 previous errors
 

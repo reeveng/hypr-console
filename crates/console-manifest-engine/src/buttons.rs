@@ -3,18 +3,18 @@
 //! the manifest and `console apply` walks it back. This is not that. A device
 //! without a right paddle is not going to grow one, so what is found here is
 //! never counted as drift and never fails an apply -- it is said, once, in the
-//! report and in a notice, and the setup screen is what settles it.  The
+//! report and in a notification, and the setup screen is what settles it.  The
 //! deciding is all in `console_input_gamepad`, which can be asked without a
 //! machine. What is here is the machine: the bus, the kernel's list of devices,
-//! and the table in somebody's home.
+//! and the table in someone's home.
 
 use std::path::Path;
 
-use console_input_controller::means::Table;
+use console_input_controller::actions::Table;
 use console_input_gamepad::front::{DEVICES, Front, Read, asking, loading, one_said, wearing};
 use console_input_gamepad::devices::Has;
 use console_input_bindings::bound::{Binding, Input, Played};
-use console_input_bindings::moved::{Jobs, path_in};
+use console_input_bindings::moved::{Tasks, path_in};
 use console_input_gamepad::router::{FILE, PROFILES, Router};
 use console_input_gamepad::vocabulary::button_name;
 use console_core_never::Never;
@@ -34,7 +34,7 @@ pub struct Standing {
     pub asked: bool,
     pub touchscreen: Option<bool>,
     pub told: bool,
-    pub moved: usize,
+    pub moved: u32,
 }
 
 impl Standing {
@@ -111,17 +111,19 @@ pub fn standing(_root: &Path, home: &str) -> Result<Standing, Never> {
             })
             .collect::<Vec<String>>()
             .join(" or ");
-        let Ok(says) = job.what.says();
+        let Ok(says) = job.action.says();
 
         missing.push(format!("{says}, on {where_}"));
     }
+
+    let Ok(moved) = console_core_number_conversion::fitted::<_, u32>(said.moved.len());
 
     Ok(Standing {
         missing,
         asked: front.capabilities.is_some(),
         touchscreen: front.touchscreen,
         told,
-        moved: said.moved.len(),
+        moved,
     })
 }
 
@@ -198,8 +200,11 @@ pub fn wrote_router() -> Result<Option<String>, Never> {
 
 pub fn again(worn: Option<String>, still_here: impl Fn(&str) -> bool) -> Result<String, Never> {
     Ok(match worn {
-        Some(path) if still_here(&path) => path,
-        Some(_) | None => format!("{PROFILES}{FILE}"),
+        Some(path) => match still_here(&path) {
+            true => path,
+            false => format!("{PROFILES}{FILE}"),
+        },
+        None => format!("{PROFILES}{FILE}"),
     })
 }
 
@@ -209,29 +214,29 @@ pub fn wear_again() -> Result<(), Never> {
     let Ok(one) = one_said(&worn.out);
     let Ok(path) = again(one, |path| std::path::Path::new(path).is_file());
     let Ok(asking) = loading(&path);
-    let argv: Vec<&str> = asking.iter().map(String::as_str).collect();
+    let arguments: Vec<&str> = asking.iter().map(String::as_str).collect();
 
     println!("the pad is reading {path} again");
 
-    let Ok(_) = machine::run(&argv);
+    let Ok(_) = machine::run(&arguments);
 
     Ok(())
 }
 
-pub fn read(home: &str) -> Result<Jobs, Never> {
+pub fn read(home: &str) -> Result<Tasks, Never> {
     let Ok(at) = path_in(Path::new(home));
 
     let said = match std::fs::read_to_string(&at) {
         Ok(said) => said,
-        Err(_fault) => return Jobs::none(),
+        Err(_fault) => return Tasks::none(),
     };
 
-    match Jobs::read(&said) {
+    match Tasks::read(&said) {
         Ok(jobs) => Ok(jobs),
         Err(fault) => {
             eprintln!("{}: {fault}", at.display());
 
-            Jobs::none()
+            Tasks::none()
         }
     }
 }

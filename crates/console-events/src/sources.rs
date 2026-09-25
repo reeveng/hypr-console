@@ -1,11 +1,11 @@
 //! Where the words come from, one subscription each.
 //!
-//! Five of them now, and the two that are left out are left out for a reason
-//! rather than for want of an afternoon. A source is held on the first `listen`
-//! for its topic and never before, so a topic nobody is listening to costs
+//! The one that is left out is left out for a reason rather than for want of
+//! an afternoon. A source is held on the first `listen`
+//! for its topic and never before, so a topic no one is listening to costs
 //! nothing at all: what decides whether one belongs here is whether the thing
 //! that says a change has happened already exists as a program, not whether
-//! anybody is asking yet. What a topic with no source does is say so on the
+//! anyone is asking yet. What a topic with no source does is say so on the
 //! journal and hand out nothing, which is a topic that is quiet rather than a
 //! pool that is broken.
 //!
@@ -17,25 +17,62 @@
 //! than a topic that says it is quiet. What it wants is a connection that
 //! subscribes and stays, and that is a program rather than a line in this file.
 //!
-//! **`Path` has no source because it is not one subscription.** Every other
-//! topic here is one watcher for the whole machine; a path is a different
-//! watcher per path, held for as long as somebody wants that path and dropped
-//! when they stop, and nothing here can tell them apart -- `held` is a list of
-//! topics that have been started once. It also wants inotify, which is a
-//! package this desktop does not have or a crate it does not carry. Both of
-//! those are decisions, and neither is this one.
+//! **`Path` is a folder, and the kernel is its source.** Every other topic
+//! here is one watcher for the whole machine; a path is a watcher per path, and
+//! that fits the same shape because a `Topic::Path` names its folder: two
+//! folders are two topics, held once each like any other. `watching` is the
+//! watcher. A path that is not absolute is not a folder anyone can mean, and
+//! is refused rather than read against wherever the pool was started.
+//!
+//! Nothing a program says is passed on. There was one topic a program could
+//! publish on, a download finishing, and it was a program speaking for the
+//! machine about one kind of change; the folder the download landed in says the
+//! same thing now, for every kind of change and every program, and a pool that
+//! took words from programs was a pool that had to decide which of them to
+//! believe.
 //!
 //! **What the bus watches is narrowed where it is asked rather than where it is
 //! read.** `busctl monitor` given a name is not filtered to that name -- traffic
 //! to the music player turns up in a monitor of the notification service -- so
 //! without a match the pool would relay every message on the session bus to
-//! whoever asked about notices. The match is the pool spelling what it *asks*,
+//! whoever asked about notifications. The match is the pool spelling what it *asks*,
 //! which is its own business the way `pactl subscribe` and `nmcli monitor`
 //! already are; what an answer means is still the subscriber's, and the names
 //! are exported so that the one filter that reads them does not spell them a
 //! second time.
 //!
-//! **A source that is somebody else's program is started `alongside`.** The
+//! **Bluetooth is heard through `gdbus monitor`, because `busctl` may not
+//! watch the system bus.** `busctl --system monitor` asks the bus to make it a
+//! monitor, and the system bus answers that for root alone -- `Access denied`,
+//! tried rather than read. `gdbus monitor --dest` asks for nothing so large:
+//! it adds an ordinary match for the signals one name sends, which any
+//! connection may, and prints each on a line of its own. Signals are all it
+//! hears, so the bar asking bluetoothd what it is -- a method call and its
+//! reply -- is not something it can mistake for bluetoothd saying something
+//! changed; `bluetoothctl show` was run beside it to see, and it printed
+//! nothing. It goes through `stdbuf` for the reason `busctl` does: what it
+//! writes into a pipe waits for a full buffer otherwise.
+//!
+//! **The Wi-Fi is NetworkManager on the system bus, for the same reason.**
+//! `nmcli monitor` is `Network`, and it says a device connected and never how
+//! strong anything is. What the bus says that it does not is every access
+//! point's strength and the moment a scan finished, which is when a list of
+//! what is in range is new rather than remembered. It is a topic of its own
+//! because the bar wakes on every line of `Network`, and a street full of
+//! access points being seen again is not a line it should wake for.
+//!
+//! **The battery is the kernel's `power_supply` uevents, which is a netlink
+//! socket.** `udevadm monitor` on the subsystem rather than on a name, because
+//! what changes when this device is plugged in is a USB-C supply one day and
+//! the adapter another. It is the one source here that is not a socket in the
+//! runtime directory or a bus, and so the one that asked the unit for
+//! `AF_NETLINK`, which is a socket to the kernel and still no way off this
+//! machine. UPower would have said the same thing on the bus, and it is not in
+//! `[packages]`: a daemon installed so that one line could be read from it is a
+//! daemon polling the battery so that nothing here has to, which is what the
+//! bar's tick already is.
+//!
+//! **A source that is someone else's program is started `alongside`.** The
 //! pool is the only thing holding it, so it dies when the pool does -- by a
 //! death signal and by a drop, because a pool that was killed outright must not
 //! leave a `pactl subscribe` behind it. Leaving one behind is the exact fault
@@ -64,74 +101,126 @@ use std::sync::mpsc::Sender;
 use console_program_lifetime::alongside;
 use console_core_external_programs::Program;
 use console_core_never::Never;
-use console_program_contract::{Changed, Topic};
+use console_program_contract::{Change, Topic};
 use console_core_reconnect::{Round, keep};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Held {
+pub enum Subscribed {
     Yes,
-    Nothing,
+    No,
 }
 
-pub const NOTICES: &str = "org.freedesktop.Notifications";
+pub const NOTIFICATIONS: &str = "org.freedesktop.Notifications";
 
-pub const OURS: &str = "console.Notices";
+pub const OURS: &str = "console.Notifications";
 
 pub const PLAYERS: &str = "/org/mpris/MediaPlayer2";
 
-pub fn hold(topic: &Topic, say: Sender<Changed>) -> Result<Held, Never> {
+pub const NETWORK_MANAGER: &str = "org.freedesktop.NetworkManager";
+
+pub const SCANNED: &str = "'LastScan'";
+
+pub const BLUEZ: &str = "org.bluez";
+
+pub const ADAPTER: &str = "org.bluez.Adapter1";
+
+pub const DEVICE: &str = "org.bluez.Device1";
+
+pub fn handed_to(
+    waiting: Option<&Sender<Sender<Change>>>,
+    wanted: &Topic,
+    topic: &Topic,
+    say: Sender<Change>,
+) -> Result<Subscribed, Never> {
+    Ok(match (topic == wanted, waiting) {
+        (true, Some(waiting)) => match waiting.send(say) {
+            Ok(()) => Subscribed::Yes,
+            Err(_nobody_waiting_any_more) => Subscribed::No,
+        },
+        (true, None) | (false, _) => Subscribed::No,
+    })
+}
+
+pub fn hold(topic: &Topic, say: Sender<Change>) -> Result<Subscribed, Never> {
     Ok(match topic {
         Topic::Compositor => {
             let Ok(()) = compositor(say);
 
-            Held::Yes
+            Subscribed::Yes
         }
         Topic::Sound => {
-            let Ok(argv) = worded(&["subscribe"]);
-            let Ok(()) = theirs(Topic::Sound, Program::Pactl, argv, say);
+            let Ok(arguments) = worded(&["subscribe"]);
+            let Ok(()) = theirs(Topic::Sound, Program::Pactl, arguments, say);
 
-            Held::Yes
+            Subscribed::Yes
         }
         Topic::Network => {
-            let Ok(argv) = worded(&["monitor"]);
-            let Ok(()) = theirs(Topic::Network, Program::Nmcli, argv, say);
+            let Ok(arguments) = worded(&["monitor"]);
+            let Ok(()) = theirs(Topic::Network, Program::Nmcli, arguments, say);
 
-            Held::Yes
+            Subscribed::Yes
         }
-        Topic::Notices => {
-            let Ok(argv) = monitoring(&[
-                format!("--match=interface={NOTICES}"),
+        Topic::Wifi => {
+            let Ok(gdbus) = Program::Gdbus.name();
+            let Ok(arguments) = worded(&["-oL", gdbus, "monitor", "--system", "--dest", NETWORK_MANAGER]);
+            let Ok(()) = theirs(Topic::Wifi, Program::Stdbuf, arguments, say);
+
+            Subscribed::Yes
+        }
+        Topic::Bluetooth => {
+            let Ok(gdbus) = Program::Gdbus.name();
+            let Ok(arguments) = worded(&["-oL", gdbus, "monitor", "--system", "--dest", BLUEZ]);
+            let Ok(()) = theirs(Topic::Bluetooth, Program::Stdbuf, arguments, say);
+
+            Subscribed::Yes
+        }
+        Topic::Battery => {
+            let Ok(arguments) = worded(&["monitor", "--udev", "--subsystem-match=power_supply"]);
+            let Ok(()) = theirs(Topic::Battery, Program::Udevadm, arguments, say);
+
+            Subscribed::Yes
+        }
+        Topic::Notifications => {
+            let Ok(arguments) = monitoring(&[
+                format!("--match=interface={NOTIFICATIONS}"),
                 format!("--match=interface={OURS}"),
             ]);
-            let Ok(()) = theirs(Topic::Notices, Program::Stdbuf, argv, say);
+            let Ok(()) = theirs(Topic::Notifications, Program::Stdbuf, arguments, say);
 
-            Held::Yes
+            Subscribed::Yes
         }
         Topic::Player => {
-            let Ok(argv) = monitoring(&[format!("--match=path={PLAYERS}")]);
-            let Ok(()) = theirs(Topic::Player, Program::Stdbuf, argv, say);
+            let Ok(arguments) = monitoring(&[format!("--match=path={PLAYERS}")]);
+            let Ok(()) = theirs(Topic::Player, Program::Stdbuf, arguments, say);
 
-            Held::Yes
+            Subscribed::Yes
         }
-        Topic::Units => Held::Nothing,
-        Topic::Path(_) => Held::Nothing,
+        Topic::Units => Subscribed::No,
+        Topic::Path(folder) => match folder.is_absolute() {
+            true => {
+                let Ok(()) = crate::watching::watch(folder.clone(), say);
+
+                Subscribed::Yes
+            }
+            false => Subscribed::No,
+        },
     })
 }
 
-fn worded(argv: &[&str]) -> Result<Vec<String>, Never> {
-    Ok(argv.iter().map(|word| (*word).to_string()).collect())
+fn worded(arguments: &[&str]) -> Result<Vec<String>, Never> {
+    Ok(arguments.iter().map(|word| (*word).to_string()).collect())
 }
 
 fn monitoring(matches: &[String]) -> Result<Vec<String>, Never> {
     let Ok(busctl) = Program::Busctl.name();
-    let Ok(mut argv) = worded(&["-oL", busctl, "--user", "monitor"]);
+    let Ok(mut arguments) = worded(&["-oL", busctl, "--user", "monitor"]);
 
-    argv.extend(matches.iter().cloned());
+    arguments.extend(matches.iter().cloned());
 
-    Ok(argv)
+    Ok(arguments)
 }
 
-fn compositor(say: Sender<Changed>) -> Result<(), Never> {
+fn compositor(say: Sender<Change>) -> Result<(), Never> {
     let mut said = false;
 
     let Ok(()) = keep(move || {
@@ -172,11 +261,11 @@ fn compositor(say: Sender<Changed>) -> Result<(), Never> {
         said = false;
 
         for line in BufReader::new(stream).lines().map_while(Result::ok) {
-            let told = say.send(Changed { about: Topic::Compositor, said: line });
+            let sent = say.send(Change { topic: Topic::Compositor, text: line });
 
-            match told {
+            match sent {
                 Ok(()) => {},
-                Err(_) => return Round::Done,
+                Err(_) => return Round::Finished,
             }
         }
 
@@ -189,13 +278,13 @@ fn compositor(say: Sender<Changed>) -> Result<(), Never> {
 fn theirs(
     about: Topic,
     program: Program,
-    argv: Vec<String>,
-    say: Sender<Changed>,
+    arguments: Vec<String>,
+    say: Sender<Change>,
 ) -> Result<(), Never> {
     let Ok(()) = keep(move || {
         let Ok(mut asking) = program.command();
 
-        asking.args(&argv).stdout(Stdio::piped()).stderr(Stdio::null());
+        asking.args(&arguments).stdout(Stdio::piped()).stderr(Stdio::null());
 
         let mut running = match alongside(&mut asking) {
             Ok(running) => running,
@@ -208,11 +297,11 @@ fn theirs(
         };
 
         for line in BufReader::new(reading).lines().map_while(Result::ok) {
-            let told = say.send(Changed { about: about.clone(), said: line });
+            let sent = say.send(Change { topic: about.clone(), text: line });
 
-            match told {
+            match sent {
                 Ok(()) => {},
-                Err(_) => return Round::Done,
+                Err(_) => return Round::Finished,
             }
         }
 

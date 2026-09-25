@@ -1,6 +1,6 @@
 //! What Legion right opens: the settings, each kind in its own place.
 //!
-//! Screen is how bright it is, what colour it goes in the evening and how big
+//! Screen is how bright it is, what color it goes in the evening and how big
 //! everything on it is, Battery is how hard the machine is allowed to work and
 //! what it says on the way down, Wi-Fi and Bluetooth are what it talks to,
 //! Sound is what comes out of it, System is how it stops. Nothing that turns
@@ -16,7 +16,10 @@ pub mod card;
 pub mod choosing;
 pub mod defaults;
 pub mod introducing;
+pub mod learned;
 pub mod level;
+pub mod light;
+pub mod login;
 pub mod rocker;
 pub mod rows;
 pub mod screen;
@@ -25,8 +28,9 @@ pub mod size;
 pub mod sound;
 pub mod hours;
 pub mod named;
+pub mod network_code;
 pub mod stopping;
-pub mod tongues;
+pub mod languages;
 pub mod turning;
 pub mod wallpaper;
 pub mod warm;

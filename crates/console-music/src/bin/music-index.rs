@@ -7,34 +7,43 @@
 //! would stop answering the buttons for all of them. So the panel starts this,
 //! goes on drawing, and reads what it leaves behind.
 //!
-//! It reads what nobody has read yet and nothing else, so the minutes are spent
+//! It reads what no one has read yet and nothing else, so the minutes are spent
 //! once. Run again after a song has been fetched, it is one file and it is over
 //! before the panel has finished drawing.
 
 use std::path::Path;
 
-use console_core_atomic_writes::Held;
+use console_core_atomic_writes::Stored;
 use console_core_never::Never;
-use gtk4::glib;
 use console_music::library::{self, folder};
 use console_music::looking::{self, Song};
 use console_music::tags;
 
-const NOW_AND_THEN: usize = 50;
+const NOW_AND_THEN: u32 = 50;
 
 fn main() {
-    let cache = glib::user_cache_dir();
+    let Ok(cache) = console_core_places::Base::Cache.hers();
+
+    let cache = match cache {
+        Some(cache) => cache,
+
+        None => {
+            eprintln!("music-index: no HOME, so there is nowhere to keep what is known about the songs");
+
+            return;
+        }
+    };
 
     let Ok(at) = looking::at(&cache);
 
     let Ok(held) = console_core_atomic_writes::read(&at);
 
     let said = match held {
-        Held::Said(said) => said,
+        Stored::Text(said) => said,
 
-        Held::Nothing => String::new(),
+        Stored::Absent => String::new(),
 
-        Held::Unreadable(fault) => {
+        Stored::Failed(fault) => {
             eprintln!("music-index: {}: reading what is known about the songs: {fault}", at.display());
             String::new()
         }
@@ -46,7 +55,7 @@ fn main() {
 
     let Ok(mut songs) = looking::songs(&music, &library::things, &known);
 
-    let mut read: usize = 0;
+    let mut read: u32 = 0;
 
     #[cfg_attr(
         dylint_lib = "explicit031_no_walking_by_count",

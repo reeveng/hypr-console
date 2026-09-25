@@ -21,12 +21,12 @@ dylint_linting::declare_late_lint! {
     /// The rule is not that a duration may never be waited out. It is that
     /// waiting one out is a decision, and a decision is written down: where
     /// the elapsing *is* the thing -- a frame held on the screen, a button held
-    /// down long enough for somebody else to see it, a backoff between two
+    /// down long enough for someone else to see it, a backoff between two
     /// attempts at something that is not ready -- the site carries the allow
     /// and its reason says which.
     ///
     /// A bounded wait on a real event is not caught, and is the shape this
-    /// rule is pushing towards: `recv_timeout` sleeps until a message arrives
+    /// rule is pushing toward: `recv_timeout` sleeps until a message arrives
     /// or the patience runs out, and it is the message it returns. So is
     /// `console_waiting::until`, which asks and asks again and answers with
     /// whether the thing arrived -- where a sleep answers with nothing at all

@@ -24,7 +24,7 @@ manipulating authority, and the cost of accounting for resources in flight.
 ## Non-goals
 
 Stating these first, because most objections to a design like this are
-objections to a workload nobody chose.
+objections to a workload no one chose.
 
 - **Not competing at line-rate packet forwarding.** The performance arguments
   against layered network services assume a datacenter forwarding workload. If
@@ -63,7 +63,7 @@ attenuation. Two contexts that were never explicitly joined share nothing.
 
 **I4 — Every in-flight message has exactly one accountable owner at every
 instant.** Ownership transfers at a defined point, and there is no interval in
-which a message is charged to nobody or to both parties.
+which a message is charged to no one or to both parties.
 
 **I5 — Exposure to any single peer is bounded.** No peer can pin more than a
 declared window of another context's resources. Sender-pays accounting without

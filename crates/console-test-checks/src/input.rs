@@ -5,7 +5,7 @@
 //! sees every button pressed and every letter typed, and a keylogger here is a
 //! file open rather than an exploit. That is a fact about the machine and not
 //! about this repository, which is why it is asked rather than argued: the
-//! kernel says who has a device open, and the answer is a list somebody can
+//! kernel says who has a device open, and the answer is a list someone can
 //! read.
 //!
 //! What makes this a check and not a document is that the list is short and
@@ -15,7 +15,7 @@
 //! Legion Go into a pad this desktop knows the shape of. And one program of
 //! ours reads what it publishes. Anything else holding a button open is either
 //! a claim that was taken and never handed back -- `console_input_focus` is
-//! that contract -- or a program nobody meant to be listening.
+//! that contract -- or a program no one meant to be listening.
 //!
 //! Every name here is put through `comm` before it is compared, because that
 //! is the field being read and it is fifteen bytes. `controller-desktop` is
@@ -29,7 +29,7 @@
 //! drawn, and all three are right to. `fresh` is what makes the answer mean
 //! "at rest".
 
-use console_test_stages::checking::{Body, Check, Done, empty, failed};
+use console_test_stages::checking::{Body, Check, CheckResult, empty, failed};
 use console_test_stages::device::{Device, comm};
 
 pub const OWNED: Check = Check {
@@ -53,7 +53,7 @@ const ASKING: &str = "for fd in /proc/[0-9]*/fd/*; do \
      esac; \
    done | sort -u";
 
-fn owned(stage: &mut Device) -> Done {
+fn owned(stage: &mut Device) -> CheckResult {
     let Ok(()) = stage.fresh();
     let Ok(said) = stage.ssh(ASKING);
 
@@ -91,6 +91,6 @@ fn owned(stage: &mut Device) -> Done {
         .collect();
 
     empty(&strangers, || {
-        format!("something nobody declared is reading the buttons: {strangers:?}")
+        format!("something no one declared is reading the buttons: {strangers:?}")
     })
 }

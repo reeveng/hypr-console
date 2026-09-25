@@ -22,8 +22,12 @@ console-core-external-programs.workspace = true
 console-core-places.workspace = true
 console-core-atomic-writes.workspace = true
 console-core-never.workspace = true
+console-defaults.workspace = true
 console-core-words.workspace = true
 serde_json = "1"
+
+[dev-dependencies]
+console-core-temporary-directories.workspace = true
 
 [lints]
 workspace = true

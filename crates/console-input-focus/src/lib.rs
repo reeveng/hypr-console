@@ -1,7 +1,7 @@
 //! Input, claimed by whatever is in front of you.
 //!
 //! One sentence is the whole of it: **while this surface is up, nothing else
-//! acts on what somebody is pressing**. Three programs here want that and,
+//! acts on what someone is pressing**. Three programs here want that and,
 //! before this crate, all three took it a different way.
 //!
 //! The on-screen keyboard opened the pad and leaned on an InputPlumber profile
@@ -30,7 +30,7 @@
 //!
 //! [`said`] is the layer above it: one event, in one vocabulary, whatever it
 //! arrived on. A press is `South` whether it came off the pad, off the keyboard
-//! InputPlumber publishes beside it, or off some input method nobody has
+//! InputPlumber publishes beside it, or off some input method no one has
 //! written yet -- because what a program wants to know is which button a person
 //! pressed and never which device file said so.
 //!
@@ -48,5 +48,5 @@
 pub mod devices;
 pub mod said;
 
-pub use devices::{CONTROLLER, Claim, Heard, Refused, Spans, Which};
-pub use said::{Said, Went, said};
+pub use devices::{CONTROLLER, Claim, Received, ClaimError, Spans, DeviceKind};
+pub use said::{InputEvent, Direction, said};

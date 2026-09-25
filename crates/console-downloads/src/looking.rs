@@ -10,7 +10,10 @@
 //! in `getting` by a rule that never changes.
 
 
+use std::time::Duration;
+
 use console_core_external_programs::Program;
+use console_core_localization::positional;
 use console_core_never::Never;
 use console_core_number_conversion::{Float, toward_zero_u64, whole_u64};
 use serde_json::{Value, json};
@@ -18,13 +21,13 @@ use serde_json::{Value, json};
 use crate::getting::Have;
 use crate::store::Kind;
 
-pub const MANY: usize = 10;
+pub const MANY: u32 = 10;
 
 pub const WIDE: u64 = 200;
 
 pub const BETWEEN: &str = " \u{00b7} ";
 
-pub const HAVE_IT: &str = "have it";
+pub const HAVE_IT: &str = "downloaded";
 
 pub const LIVE: &str = "live";
 
@@ -245,41 +248,23 @@ pub fn kept(said: &str) -> Result<Looked, Never> {
     Ok(Looked { asked: word("asked"), fault: word("fault"), found })
 }
 
-pub fn clock(seconds: u64) -> Result<String, Never> {
-    match seconds {
-        0 => return Ok(String::new()),
-        _ => {},
-    }
-
-    let (hours, minutes, seconds) = (
-        seconds.saturating_div(3600),
-        seconds.wrapping_rem(3600).saturating_div(60),
-        seconds.wrapping_rem(60),
-    );
-
-    Ok(match hours {
-        0 => format!("{minutes}:{seconds:02}"),
-        _ => format!("{hours}:{minutes:02}:{seconds:02}"),
-    })
-}
-
 pub fn counted(views: u64) -> Result<String, Never> {
     let said = |many: f64, what: &str| {
         let Ok(whole) = whole_u64(many);
 
         match many < 10.0 {
-            true => format!("{many:.1} {what} times"),
-            false => format!("{whole} {what} times"),
+            true => format!("{many:.1}{what} views"),
+            false => format!("{whole}{what} views"),
         }
     };
     let Ok(many) = views.float();
 
     Ok(match views {
         0 => String::new(),
-        views if views >= 1_000_000_000 => said(many / 1e9, "billion"),
-        views if views >= 1_000_000 => said(many / 1e6, "million"),
-        views if views >= 1_000 => format!("{} thousand times", views.saturating_div(1_000)),
-        views => format!("{views} times"),
+        1..1_000 => format!("{views} views"),
+        1_000..1_000_000 => format!("{}K views", views.saturating_div(1_000)),
+        1_000_000..1_000_000_000 => said(many / 1e6, "M"),
+        1_000_000_000.. => said(many / 1e9, "B"),
     })
 }
 
@@ -294,23 +279,35 @@ pub fn complaint(said: &str) -> Result<String, Never> {
 
     let said = complained.trim_start_matches("ERROR:").trim();
 
-    Ok(match said.char_indices().nth(SHORT).and_then(|(at, _)| said.get(..at)) {
+    let Ok(short) = console_core_number_conversion::index(SHORT);
+
+    Ok(match said.char_indices().nth(short).and_then(|(at, _)| said.get(..at)) {
         Some(head) => format!("{head}\u{2026}"),
         None => said.to_string(),
     })
 }
 
-pub const WENT_WRONG: &str = "The search would not run";
+pub const WENT_WRONG: &str = "Search failed";
 
-pub const NO_YT_DLP: &str = "There is no yt-dlp on this machine to look with";
+pub const NO_YT_DLP: &str = "yt-dlp isn't installed";
 
-pub const SHORT: usize = 90;
+pub const NO_CURL: &str = "curl isn't installed";
+
+pub fn missing(kind: Kind) -> Result<&'static str, Never> {
+    Ok(match kind {
+        Kind::Sound | Kind::Film => NO_YT_DLP,
+        Kind::Book => NO_CURL,
+    })
+}
+
+pub const SHORT: u32 = 90;
 
 pub fn aside(kind: Kind, found: &Found, have: Have) -> Result<String, Never> {
-    let when = match found.live {
-        true => LIVE.to_string(),
-        false => {
-            let Ok(clock) = clock(found.seconds);
+    let when = match (found.live, found.seconds) {
+        (true, _) => LIVE.to_string(),
+        (false, 0) => String::new(),
+        (false, seconds) => {
+            let Ok(clock) = positional(Duration::from_secs(seconds));
 
             clock
         },
@@ -322,6 +319,7 @@ pub fn aside(kind: Kind, found: &Found, have: Have) -> Result<String, Never> {
 
             joined(&[&when, &counted])
         },
+        Kind::Book => joined(&[&found.by]),
     };
 
     match have {
@@ -361,12 +359,6 @@ mod tests {
         let Ok(kept) = super::kept(said);
 
         kept
-    }
-
-    fn clock(seconds: u64) -> String {
-        let Ok(clock) = super::clock(seconds);
-
-        clock
     }
 
     fn counted(views: u64) -> String {
@@ -463,18 +455,17 @@ mod tests {
     }
 
     #[test]
-    fn a_length_is_said_the_way_a_clock_says_it() {
-        assert_eq!(clock(272), "4:32");
-        assert_eq!(clock(59), "0:59");
-        assert_eq!(clock(3725), "1:02:05");
-        assert_eq!(clock(0), "");
+    fn a_length_nobody_said_is_left_out_rather_than_said_as_nothing() {
+        let unsaid = Found { seconds: 0, ..africa() };
+        assert_eq!(aside(Kind::Sound, &unsaid, Have::Not), "TOTO");
+        assert_eq!(aside(Kind::Film, &unsaid, Have::Not), "1.3B views");
     }
 
     #[test]
     fn how_many_have_watched_it_is_said_in_words() {
-        assert_eq!(counted(1_288_575_953), "1.3 billion times");
-        assert_eq!(counted(21_150_346), "21 million times");
-        assert_eq!(counted(4_100), "4 thousand times");
+        assert_eq!(counted(1_288_575_953), "1.3B views");
+        assert_eq!(counted(21_150_346), "21M views");
+        assert_eq!(counted(4_100), "4K views");
         assert_eq!(counted(0), "");
     }
 
@@ -482,7 +473,7 @@ mod tests {
     fn each_tab_says_the_thing_its_own_list_is_chosen_by() {
         let found = africa();
         assert_eq!(aside(Kind::Sound, &found, Have::Not), "TOTO \u{00b7} 4:32");
-        assert_eq!(aside(Kind::Film, &found, Have::Not), "4:32 \u{00b7} 1.3 billion times");
+        assert_eq!(aside(Kind::Film, &found, Have::Not), "4:32 \u{00b7} 1.3B views");
     }
 
     #[test]
@@ -501,6 +492,6 @@ mod tests {
         let said = "[youtube] tried\nERROR: Unable to download webpage: timed out\n";
         assert_eq!(complaint(said), "Unable to download webpage: timed out");
         assert_eq!(complaint("   "), WENT_WRONG);
-        assert!(complaint(&"x".repeat(400)).chars().count() <= SHORT + 1);
+        assert!(u32::try_from(complaint(&"x".repeat(400)).chars().count()).unwrap() <= SHORT + 1);
     }
 }

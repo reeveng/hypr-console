@@ -1,12 +1,12 @@
-//! The sixteen colours a program may ask for by number.
+//! The sixteen colors a program may ask for by number.
 
 use indexmap::IndexMap;
-use console_core_colour as col;
+use console_core_color as col;
 use console_core_never::Never;
 use console_core_words::Words;
 
 use crate::palette::Palette;
-use crate::spec::Spec;
+use crate::configuration::Configuration;
 
 pub const SLOTS: [&str; 8] = [
     "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
@@ -31,15 +31,15 @@ pub enum Shade {
 }
 
 impl Terminal {
-    pub fn of(spec: &Spec, palette: &Palette) -> Result<Self, col::Short> {
-        let setting = &spec.terminal;
+    pub fn of(configuration: &Configuration, palette: &Palette) -> Result<Self, col::Short> {
+        let setting = &configuration.terminal;
         let normal: IndexMap<String, String> = setting
             .normal
             .iter()
             .map(|(slot, name)| {
-                let colour = palette.must(name)?;
+                let color = palette.must(name)?;
 
-                Ok((slot.clone(), colour.to_owned()))
+                Ok((slot.clone(), color.to_owned()))
             })
             .collect::<Result<_, col::Short>>()?;
         let bright: IndexMap<String, String> = normal
@@ -98,16 +98,16 @@ impl Terminal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::spec::Spec;
-    use console_core_colour::{Ground, Ink};
+    use crate::configuration::Configuration;
+    use console_core_color::{Ground, HexColor};
 
     const PALETTE: &str = include_str!("../../../theme/palette.toml");
 
-    fn spent() -> (Spec, Palette, Terminal) {
-        let spec: Spec = toml::from_str(PALETTE).expect("the palette parses");
-        let palette = crate::palette::resolve(&spec.colour).expect("it resolves");
-        let terminal = Terminal::of(&spec, &palette).expect("the terminal table is declared");
-        (spec, palette, terminal)
+    fn spent() -> (Configuration, Palette, Terminal) {
+        let configuration: Configuration = toml::from_str(PALETTE).expect("the palette parses");
+        let palette = crate::palette::resolve(&configuration.color).expect("it resolves");
+        let terminal = Terminal::of(&configuration, &palette).expect("the terminal table is declared");
+        (configuration, palette, terminal)
     }
 
     #[test]
@@ -115,7 +115,7 @@ mod tests {
         let (_, palette, terminal) = spent();
         assert_eq!(
             terminal.slot(Shade::Bright, "white"),
-            Ok(palette.must("text").expect("a declared colour"))
+            Ok(palette.must("text").expect("a declared color"))
         );
     }
 
@@ -144,7 +144,7 @@ mod tests {
             for slot in SLOTS {
                 let Ok(code) = terminal.slot(shade, slot);
 
-                let Ok(got) = col::contrast(Ink(code), Ground(&terminal.background));
+                let Ok(got) = col::contrast(HexColor(code), Ground(&terminal.background));
 
                 let least = match slot {
                     "black" => 4.5,

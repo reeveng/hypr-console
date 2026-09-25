@@ -23,9 +23,9 @@
 //!
 //! What a panel is mounted like is not one of the three. It is derived:
 //! [`Mounted`] says a panel whose native mode is taller than it is wide is one
-//! somebody screwed in sideways, which is what the Legion Go's 1600x2560 eDP is
+//! someone screwed in sideways, which is what the Legion Go's 1600x2560 eDP is
 //! and what no laptop's is. A desktop that has to be told that in a file per
-//! machine is a desktop nobody can install on a machine nobody here owns.
+//! machine is a desktop no one can install on a machine no one here owns.
 //!
 //! A test environment that is not the shape, the size or the density of the
 //! thing it stands in for is a test environment that agrees with you. The
@@ -117,7 +117,7 @@ impl Screen {
         let turn = found.ok_or(Undeclared::NoTransform)?;
         let transform = number(&turn)?;
 
-        Ok(Screen { mode: Size { wide, tall }, refresh, scale, transform })
+        Ok(Screen { mode: Size { width: wide, height: tall }, refresh, scale, transform })
     }
 
     pub fn turned(&self) -> Result<Turned, Never> {
@@ -131,7 +131,7 @@ impl Screen {
         let Ok(turned) = self.turned();
 
         Ok(match turned {
-            Turned::Sideways => Size { wide: self.mode.tall, tall: self.mode.wide },
+            Turned::Sideways => Size { width: self.mode.height, height: self.mode.width },
             Turned::Upright => self.mode,
         })
     }
@@ -139,8 +139,8 @@ impl Screen {
     pub fn on_the_panel(&self, at: Point<u32>) -> Result<Point<u32>, Never> {
         let Ok(room) = self.logical();
         let (across, down) = (
-            f64::from(at.across) / f64::from(room.wide.max(1)),
-            f64::from(at.down) / f64::from(room.tall.max(1)),
+            f64::from(at.x) / f64::from(room.width.max(1)),
+            f64::from(at.y) / f64::from(room.height.max(1)),
         );
 
         let (x, y) = match self.transform & 3 {
@@ -150,10 +150,10 @@ impl Screen {
             _ => (1.0 - down, across),
         };
 
-        let Ok(across) = whole_u32(x * f64::from(self.mode.wide));
-        let Ok(down) = whole_u32(y * f64::from(self.mode.tall));
+        let Ok(across) = whole_u32(x * f64::from(self.mode.width));
+        let Ok(down) = whole_u32(y * f64::from(self.mode.height));
 
-        Ok(Point { across, down })
+        Ok(Point { x: across, y: down })
     }
 
     pub fn logical(&self) -> Result<Size<u32>, Never> {
@@ -163,17 +163,17 @@ impl Screen {
     pub fn logical_at(&self, scale: f64) -> Result<Size<u32>, Never> {
         let Ok(pixels) = self.pixels();
 
-        let Ok(wide) = whole_u32(f64::from(pixels.wide) / scale);
-        let Ok(tall) = whole_u32(f64::from(pixels.tall) / scale);
+        let Ok(wide) = whole_u32(f64::from(pixels.width) / scale);
+        let Ok(tall) = whole_u32(f64::from(pixels.height) / scale);
 
-        Ok(Size { wide, tall })
+        Ok(Size { width: wide, height: tall })
     }
 
     pub fn cut_to(&self, room: Size<u32>) -> Result<f64, Never> {
         let Ok(pixels) = self.pixels();
 
-        let fits = (f64::from(room.wide) / f64::from(pixels.wide))
-            .min(f64::from(room.tall) / f64::from(pixels.tall))
+        let fits = (f64::from(room.width) / f64::from(pixels.width))
+            .min(f64::from(room.height) / f64::from(pixels.height))
             .min(1.0);
 
         Ok(self.scale * fits)
@@ -199,7 +199,7 @@ impl Screen {
     pub fn shape(&self) -> Result<Shape, Never> {
         let Ok(pixels) = self.pixels();
 
-        Ok(match pixels.tall > pixels.wide {
+        Ok(match pixels.height > pixels.width {
             true => Shape::Taller,
             false => Shape::Wider,
         })
@@ -221,13 +221,13 @@ impl Canvas {
     pub fn scale_on(self, screen: &Screen) -> Result<f64, Never> {
         let Ok(pixels) = screen.pixels();
 
-        Ok(f64::from(pixels.wide) / f64::from(self.0.max(1)))
+        Ok(f64::from(pixels.width) / f64::from(self.0.max(1)))
     }
 
     pub fn fits(self, screen: &Screen) -> Result<Fits, Never> {
         let Ok(pixels) = screen.pixels();
 
-        Ok(match self.0 > pixels.wide {
+        Ok(match self.0 > pixels.width {
             true => Fits::WiderThanThePanel,
             false => Fits::OnThePanel,
         })
@@ -248,7 +248,7 @@ pub const INTERNAL: &str = "eDP";
 
 impl Mounted {
     pub fn of(mode: Size<u32>) -> Result<Self, Never> {
-        Ok(match mode.tall > mode.wide {
+        Ok(match mode.height > mode.width {
             true => Mounted::Sideways,
             false => Mounted::Upright,
         })
@@ -301,12 +301,11 @@ pub fn driving(monitor: &Monitor) -> Result<Option<Screen>, Never> {
     let Ok(refresh) = whole_u32(refresh);
     let Ok(transform) = fitted::<i64, u32>(turn);
 
-    Ok(Some(Screen { mode: Size { wide: across, tall: down }, refresh, scale, transform }))
+    Ok(Some(Screen { mode: Size { width: across, height: down }, refresh, scale, transform }))
 }
 
-pub fn shown(said: &serde_json::Value) -> Result<Option<Screen>, Never> {
-    let Ok(monitors) = console_compositor::monitors(said);
-    let Ok(panel) = panel(&monitors);
+pub fn shown(monitors: &[console_compositor::Monitor]) -> Result<Option<Screen>, Never> {
+    let Ok(panel) = panel(monitors);
 
     match panel {
         Some(panel) => driving(panel),
@@ -314,15 +313,24 @@ pub fn shown(said: &serde_json::Value) -> Result<Option<Screen>, Never> {
     }
 }
 
-pub fn here() -> Result<Option<Screen>, console_compositor::Unanswered> {
+pub fn here() -> Result<Option<Screen>, console_compositor::HyprctlError> {
     let found = driving_here()?;
 
     Ok(found.map(|(_what_it_is_called, screen)| screen))
 }
 
-pub fn driving_here() -> Result<Option<(String, Screen)>, console_compositor::Unanswered> {
-    let said = console_compositor::asked(console_compositor::Asked::Monitors)?;
-    let Ok(monitors) = console_compositor::monitors(&said);
+pub fn driving_here() -> Result<Option<(String, Screen)>, console_compositor::HyprctlError> {
+    let answer = console_compositor::query(console_compositor::Query::Monitors)?;
+    let monitors = match answer {
+        console_compositor::Answer::Monitors(monitors) => monitors,
+        console_compositor::Answer::EveryMonitor(monitors) => monitors,
+        console_compositor::Answer::Layers(_)
+        | console_compositor::Answer::ActiveWorkspace(_)
+        | console_compositor::Answer::Workspaces(_)
+        | console_compositor::Answer::Clients(_)
+        | console_compositor::Answer::Devices(_)
+        | console_compositor::Answer::Binds(_) => Vec::new(),
+    };
     let Ok(found) = panel(&monitors);
 
     let found = match found {
@@ -347,52 +355,18 @@ fn between(text: &str, name: Named<'_>, wrapped: Wrapped) -> Result<Option<Strin
     let Wrapped { open, close } = wrapped;
     let name = name.0;
 
-    let found = match text.find(name) {
-        Some(found) => found,
-        None => return Ok(None),
-    };
-
-    let at = found.saturating_add(name.len());
-
-    let after_name = match text.get(at..) {
-        Some(after_name) => after_name,
-        None => return Ok(None),
-    };
-
-    let opened = match after_name.find(open) {
-        Some(opened) => opened,
-        None => return Ok(None),
-    };
-
-    let start = at.saturating_add(opened).saturating_add(open.len_utf8());
-
-    let inside = match text.get(start..) {
-        Some(inside) => inside,
-        None => return Ok(None),
-    };
-
-    let closed = match inside.find(close) {
-        Some(closed) => closed,
-        None => return Ok(None),
-    };
-
-    let end = start.saturating_add(closed);
-
-    Ok(text.get(start..end).map(str::to_string))
+    Ok(text
+        .split_once(name)
+        .and_then(|(_, after_name)| after_name.split_once(open))
+        .and_then(|(_, inside)| inside.split_once(close))
+        .map(|(between, _)| between.to_string()))
 }
 
 fn after(block: &str, name: Named<'_>) -> Result<Option<String>, Never> {
     let name = name.0;
 
-    let found = match block.find(name) {
-        Some(found) => found,
-        None => return Ok(None),
-    };
-
-    let at = found.saturating_add(name.len());
-
-    let after_name = match block.get(at..) {
-        Some(after_name) => after_name,
+    let after_name = match block.split_once(name) {
+        Some((_, after_name)) => after_name,
         None => return Ok(None),
     };
 
@@ -438,11 +412,8 @@ mod tests {
         "refreshRate":60.0,"scale":1.5,"transform":0},{"name":"eDP-1","width":1920,"height":1200,
         "refreshRate":60.003,"scale":1.0,"transform":0}]"#;
 
-    fn monitors(said: &str) -> serde_json::Value {
-        match serde_json::from_str(said) {
-            Ok(read) => read,
-            Err(fault) => panic!("the fixture is not json: {fault}"),
-        }
+    fn monitors(said: &str) -> Vec<console_compositor::Monitor> {
+        console_compositor::read_monitors(said).expect("the fixture is the compositor's answer")
     }
 
     fn asked(said: &str) -> Screen {
@@ -455,11 +426,11 @@ mod tests {
     }
 
     fn size(wide: u32, tall: u32) -> Size<u32> {
-        Size { wide, tall }
+        Size { width: wide, height: tall }
     }
 
     fn point(across: u32, down: u32) -> Point<u32> {
-        Point { across, down }
+        Point { x: across, y: down }
     }
 
 
@@ -478,30 +449,26 @@ mod tests {
     fn the_seed_reads_a_finger_through_the_quarter_it_draws_the_seed_screen_at() {
         let screen = declared().expect("the compositor declares a screen");
         let said = format!("transform = {}", screen.transform);
-        let touch = DECLARED.find("touchdevice").expect("the seed says how a touch is read");
-        let quarter = match DECLARED.get(touch..) {
-            Some(after) => after.find(&said),
-            None => None,
-        };
+        let (_, from_touch) = DECLARED.split_once("touchdevice").expect("the seed says how a touch is read");
 
         assert!(
-            quarter.is_some(),
+            from_touch.contains(&said),
             "the seed draws at {} and reads a finger at something else",
             screen.transform
         );
 
-        let dofile =
-            DECLARED.find("pcall(dofile").expect("the seed reads the machine's own block");
+        let (before_dofile, _) =
+            DECLARED.split_once("pcall(dofile").expect("the seed reads the machine's own block");
 
         assert!(
-            touch < dofile,
+            before_dofile.contains("touchdevice"),
             "the machine's own block is read first, so the seed's quarter outlives it"
         );
     }
 
     #[test]
     fn a_finger_lands_where_the_picture_says_it_should() {
-        let screen = Screen { mode: Size { wide: 1600, tall: 2560 }, refresh: 144, scale: 2.5, transform: 1 };
+        let screen = Screen { mode: Size { width: 1600, height: 2560 }, refresh: 144, scale: 2.5, transform: 1 };
         assert_eq!(screen.on_the_panel(point(204, 151)), Ok(point(378, 2050)));
 
         assert_eq!(screen.on_the_panel(point(0, 0)), Ok(point(0, 2560)), "the top left of the picture");
@@ -510,12 +477,12 @@ mod tests {
 
     #[test]
     fn a_screen_that_is_not_turned_leaves_a_finger_where_it_was() {
-        let upright = Screen { mode: Size { wide: 1600, tall: 2560 }, refresh: 144, scale: 2.5, transform: 0 };
+        let upright = Screen { mode: Size { width: 1600, height: 2560 }, refresh: 144, scale: 2.5, transform: 0 };
         let Ok(room) = upright.logical();
 
         assert_eq!(upright.on_the_panel(point(0, 0)), Ok(point(0, 0)));
         assert_eq!(
-            upright.on_the_panel(point(room.wide, room.tall)),
+            upright.on_the_panel(point(room.width, room.height)),
             Ok(point(1600, 2560))
         );
     }
@@ -525,7 +492,7 @@ mod tests {
         let corners: Vec<Point<u32>> = (0..4)
             .map(|transform| {
                 let screen =
-                    Screen { mode: Size { wide: 1600, tall: 2560 }, refresh: 144, scale: 2.5, transform };
+                    Screen { mode: Size { width: 1600, height: 2560 }, refresh: 144, scale: 2.5, transform };
 
                 let Ok(corner) = screen.on_the_panel(point(0, 0));
 
@@ -543,7 +510,7 @@ mod tests {
     #[test]
     fn the_shape_a_screen_stands_in_is_the_picture_and_not_the_mounting() {
         let portrait =
-            Screen { mode: Size { wide: 1600, tall: 2560 }, refresh: 144, scale: 2.5, transform: 1 };
+            Screen { mode: Size { width: 1600, height: 2560 }, refresh: 144, scale: 2.5, transform: 1 };
         let laptop = Screen { mode: size(1920, 1200), refresh: 60, scale: 1.0, transform: SQUARE };
 
         assert_eq!(portrait.shape(), Ok(Shape::Wider), "a sideways panel at its quarter is wide");
@@ -556,7 +523,7 @@ mod tests {
 
     #[test]
     fn a_picture_of_a_turned_screen_is_the_mode_the_other_way_round() {
-        let portrait = Screen { mode: Size { wide: 1600, tall: 2560 }, refresh: 144, scale: 2.5, transform: 1 };
+        let portrait = Screen { mode: Size { width: 1600, height: 2560 }, refresh: 144, scale: 2.5, transform: 1 };
         assert_eq!(portrait.pixels(), Ok(size(2560, 1600)));
 
         let upright = Screen { transform: 0, ..portrait };
@@ -566,19 +533,19 @@ mod tests {
 
     #[test]
     fn the_desktop_is_laid_out_at_the_density_it_was_told() {
-        let screen = Screen { mode: Size { wide: 1600, tall: 2560 }, refresh: 144, scale: 2.5, transform: 1 };
+        let screen = Screen { mode: Size { width: 1600, height: 2560 }, refresh: 144, scale: 2.5, transform: 1 };
         assert_eq!(screen.logical(), Ok(size(1024, 640)));
     }
 
     #[test]
     fn cutting_to_a_screen_it_already_fits_on_gives_up_nothing() {
-        let screen = Screen { mode: Size { wide: 1600, tall: 2560 }, refresh: 144, scale: 2.5, transform: 1 };
+        let screen = Screen { mode: Size { width: 1600, height: 2560 }, refresh: 144, scale: 2.5, transform: 1 };
         assert_eq!(screen.cut_to(size(3840, 2160)), Ok(2.5));
     }
 
     #[test]
     fn cutting_to_a_smaller_screen_gives_up_only_the_density() {
-        let screen = Screen { mode: Size { wide: 1600, tall: 2560 }, refresh: 144, scale: 2.5, transform: 1 };
+        let screen = Screen { mode: Size { width: 1600, height: 2560 }, refresh: 144, scale: 2.5, transform: 1 };
         assert_eq!(screen.cut_to(size(1280, 1600)), Ok(1.25));
     }
 
@@ -635,7 +602,7 @@ mod tests {
         assert_eq!(
             transform, declared.transform,
             "the turn in the compositor's file is the one the panel's own mode asks for, so a \
-             machine nobody here owns needs no file to say it"
+             machine no one here owns needs no file to say it"
         );
     }
 

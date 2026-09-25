@@ -4,10 +4,14 @@
 //! rather than beside the code. Everything that can be decided from a string
 //! alone is tested next to the function that decides it.
 
+mod reading;
+
+use reading::section;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use console_manifest_engine::modes;
 use console_core_external_programs::Program;
 
 fn root() -> PathBuf {
@@ -71,7 +75,7 @@ fn the_paper_service_sets_a_ground_and_paints_no_picture_of_its_own() {
         .collect::<Vec<_>>();
     assert!(
         sets.iter().any(|line| line.contains("awww clear ")),
-        "the paper service sets no ground colour, so the screen is black until \
+        "the paper service sets no ground color, so the screen is black until \
          console-wallpaper paints: {sets:?}"
     );
     assert!(
@@ -100,9 +104,9 @@ fn the_keyboard_follows_nothing_because_it_takes_the_devices_itself() {
 fn the_way_to_game_mode_shuts_steam_down_before_the_compositor() {
     let at = root().join("files/usr/local/bin/steamos-session-select");
     let held = std::fs::read_to_string(&at).expect("the session switcher");
-    let asked = held.find("\n    settle\n").expect("nothing asks Steam to go");
-    let left = held.find("hyprctl dispatch").expect("nothing leaves the compositor");
-    assert!(asked < left, "Steam is asked to go once the desktop it was on has gone");
+    let (before_leaving, _) = held.split_once("hyprctl dispatch").expect("nothing leaves the compositor");
+    assert!(held.contains("\n    settle\n"), "nothing asks Steam to go");
+    assert!(before_leaving.contains("\n    settle\n"), "Steam is asked to go once the desktop it was on has gone");
 }
 
 #[test]
@@ -127,7 +131,7 @@ fn files_in_the_users_home_are_installed_as_the_user() {
     assert!(!files.is_empty(), "the manifest names no files");
     for path in files {
         let expected = match path.starts_with("/home/@user@/") {
-            true => SOMEBODY,
+            true => SOMEONE,
             false => "root",
         };
         assert_eq!(owner_of(&path), expected, "{path} would be installed as the wrong user");
@@ -149,13 +153,13 @@ fn every_program_the_device_builds_is_one_this_repository_holds() {
 
 #[test]
 fn the_font_the_bar_draws_its_icons_in_is_one_the_manifest_installs() {
-    let asked = console_status_bar::showing::ICONS;
+    let asked = console_core_fonts::ICONS;
 
     assert!(
         asked.contains("Nerd Font Mono"),
-        "the bar asks for {asked:?}. Only the Mono cut draws these glyphs centred in \
+        "the bar asks for {asked:?}. Only the Mono cut draws these glyphs centered in \
          their cell; in the others the ink overflows the advance and hangs off the right, \
-         which puts every icon a different distance off centre"
+         which puts every icon a different distance off center"
     );
 
     let packages: BTreeSet<String> = section(&manifest(), "packages").into_iter().collect();
@@ -186,20 +190,16 @@ fn programs() -> Vec<String> {
 }
 
 fn mode_of(live: &str, head: &[u8]) -> u32 {
-    match live {
-        path if path.contains("/bin/") || path.contains("/sbin/") => 0o755,
-        _ => match head {
-            [b'#', b'!', ..] | [0x7f, b'E', b'L', b'F', ..] => 0o755,
-            _ => 0o644,
-        },
-    }
+    let Ok(mode) = modes::of(live, head);
+
+    mode
 }
 
-const SOMEBODY: &str = "ada";
+const SOMEONE: &str = "ada";
 
 fn owner_of(live: &str) -> &'static str {
     match live.starts_with("/home/@user@/") {
-        true => SOMEBODY,
+        true => SOMEONE,
         false => "root",
     }
 }
@@ -215,24 +215,6 @@ fn named_by(unit: &str) -> Vec<String> {
         .collect()
 }
 
-fn section(held: &str, wanted: &str) -> Vec<String> {
-    held.lines()
-        .map(|line| line.split('#').next().unwrap_or("").trim())
-        .filter(|line| !line.is_empty())
-        .fold((Vec::new(), None), |(mut out, at), line| {
-            match line.strip_prefix('[').and_then(|rest| rest.strip_suffix(']')) {
-                Some(name) => (out, Some(name.to_string())),
-                None => {
-                    if at.as_deref() == Some(wanted) {
-                        out.push(line.split_whitespace().next().unwrap_or("").to_string());
-                    }
-                    (out, at)
-                }
-            }
-        })
-        .0
-}
-
 fn carried_or_declared(held: &str) -> BTreeSet<String> {
     section(held, "files")
         .into_iter()
@@ -245,20 +227,9 @@ fn manifest() -> String {
     let held = std::fs::read_to_string(root().join("desktop.conf")).expect("desktop.conf");
     let machines = std::fs::read_to_string(root().join("machines.conf")).expect("machines.conf");
 
-    format!("{held}\n{}", every_machines(&machines))
-}
+    let Ok(every) = console_manifest_engine::machines::of_every(&machines);
 
-fn every_machines(held: &str) -> String {
-    held.lines()
-        .map(|line| match line.strip_prefix('[').and_then(|rest| rest.strip_suffix(']')) {
-            Some(named) => match named.split_once('.') {
-                Some((_whichever_machine, section)) => format!("[{section}]"),
-                None => "[whichever-machine]".to_string(),
-            },
-            None => line.to_string(),
-        })
-        .collect::<Vec<String>>()
-        .join("\n")
+    format!("{held}\n{every}")
 }
 
 fn every(under: &str, ending: &str) -> Vec<PathBuf> {
@@ -349,13 +320,12 @@ fn every_program_a_carried_script_reaches_for_is_carried() {
 }
 
 fn reaches_for(said: &str) -> BTreeSet<String> {
-    said.match_indices("/usr/local/bin/")
-        .map(|(at, _)| {
-            let rest = &said[at + "/usr/local/bin/".len()..];
-            let end = rest
-                .find(|letter: char| !letter.is_alphanumeric() && letter != '-' && letter != '_')
-                .unwrap_or(rest.len());
-            format!("/usr/local/bin/{}", &rest[..end])
+    said.split("/usr/local/bin/")
+        .skip(1)
+        .map(|rest| {
+            let name: String =
+                rest.chars().take_while(|letter| letter.is_alphanumeric() || *letter == '-' || *letter == '_').collect();
+            format!("/usr/local/bin/{name}")
         })
         .filter(|at| at.len() > "/usr/local/bin/".len())
         .collect()
@@ -411,7 +381,7 @@ fn something_answers_when_a_password_is_asked_for() {
 
 #[test]
 fn nothing_matches_a_process_by_a_name_the_kernel_cannot_hold() {
-    const COMM: usize = 15;
+    const COMM: u32 = 15;
 
     let bin = root().join("files/usr/local/bin");
     let inside = std::fs::read_dir(&bin).expect("the installed scripts");
@@ -439,7 +409,7 @@ fn nothing_matches_a_process_by_a_name_the_kernel_cannot_hold() {
                 .nth(1)
                 .unwrap_or(&"");
             assert!(
-                pattern.len() <= COMM,
+                u32::try_from(pattern.len()).unwrap() <= COMM,
                 "{} matches a process by the name {pattern:?}, which is {} characters. The \
                  kernel keeps {COMM}, so this matches nothing and fails silently. Match the \
                  path with -f instead.",
@@ -455,7 +425,7 @@ fn nothing_matches_a_process_by_a_name_the_kernel_cannot_hold() {
 fn the_toggle_names_the_keyboard_the_manifest_installs() {
     let installed = format!("/usr/local/bin/{}", console_input_controller::mode::KEYBOARD);
     assert_eq!(
-        console_input_keyboard::asked::asking(std::path::Path::new(&installed)),
+        console_input_keyboard::remote::pattern_for(std::path::Path::new(&installed)),
         Ok(format!("^{installed}( |$)")),
         "the two ways of asking signal a path the manifest does not install, so X reaches nothing"
     );
@@ -467,7 +437,7 @@ fn the_toggle_names_the_keyboard_the_manifest_installs() {
     assert!(
         carried || built,
         "the manifest neither carries nor builds {installed}, so the toggle names a program \
-         nobody has"
+         no one has"
     );
 }
 
@@ -493,13 +463,96 @@ fn putting_the_screen_back_puts_the_panel_on_before_it_reads_the_note() {
     let body = said.split("fn undim(").nth(1).expect("undim");
     let body = body.split("\nfn ").next().expect("the end of it");
 
-    let on = body.find("panel_on()").expect("undim does not put the panel on");
-    let note = body.find("remembered()").expect("undim does not read the note");
+    let (before_the_note, _) = body.split_once("remembered()").expect("undim does not read the note");
 
-    assert!(on < note, "the panel is put on only after a note that can send undim home early");
+    assert!(body.contains("panel_on()"), "undim does not put the panel on");
+    assert!(before_the_note.contains("panel_on()"), "the panel is put on only after a note that can send undim home early");
+
+    let unit = std::fs::read_to_string(root().join("files/etc/systemd/user/console-idle.service"))
+        .expect("console-idle.service");
+    let answered = unit
+        .lines()
+        .find_map(|line| line.strip_prefix("ExecStartPre=-/usr/bin/hyprctl dispatch "))
+        .map(|dispatch| dispatch.trim_matches('\''))
+        .expect("the idle unit no longer puts the screen on as it starts");
+
     assert!(
-        said.contains(r#"hl.dsp.dpms({ action = "enable" })"#),
-        "the dpms is not the Lua form, which is the one this compositor answers"
+        said.contains(answered),
+        "undim puts the panel on with something other than {answered}, the form the idle unit \
+         sends and this compositor answers; a key it does not know is an `ok` and a screen that \
+         stays dark under somebody's thumb"
+    );
+}
+
+fn written_in(at: &Path, endings: &[&str], into: &mut Vec<PathBuf>) {
+    let Ok(listed) = std::fs::read_dir(at) else { return };
+
+    for entry in listed.flatten() {
+        let path = entry.path();
+
+        match path.is_dir() {
+            true => written_in(&path, endings, into),
+            false => match endings.iter().any(|ending| path.to_string_lossy().ends_with(ending)) {
+                true => into.push(path),
+                false => {}
+            },
+        }
+    }
+}
+
+#[test]
+fn every_key_a_dispatch_hands_the_compositor_is_one_it_reads() {
+    const READ: &[&str] =
+        &["action", "direction", "follow", "mode", "monitor", "relative", "window", "workspace", "x", "y"];
+
+    let mut written = Vec::new();
+
+    written_in(&root().join("crates"), &[".rs"], &mut written);
+    written_in(&root().join("files"), &[".lua", ".conf", ".service"], &mut written);
+
+    let mut unread = Vec::new();
+
+    for path in written {
+        let Ok(said) = std::fs::read_to_string(&path) else { continue };
+
+        for dispatch in said.split("hl.dsp.").skip(1) {
+            let Some((named, table)) = dispatch.split_once('(') else { continue };
+
+            match named.chars().all(|letter| letter.is_ascii_lowercase() || letter == '.' || letter == '_')
+                && table.starts_with('{')
+            {
+                true => {}
+                false => continue,
+            }
+
+            let asked = table.split(')').next().unwrap_or_default();
+
+            for before in asked.split('=').rev().skip(1) {
+                let key: String = before
+                    .trim_end()
+                    .chars()
+                    .rev()
+                    .take_while(|letter| letter.is_ascii_alphanumeric() || *letter == '_')
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect();
+
+                match READ.contains(&key.as_str()) {
+                    true => {}
+                    false => unread.push(format!("{}: {key} in hl.dsp.{named}({asked})", path.display())),
+                }
+            }
+        }
+    }
+
+    assert!(
+        unread.is_empty(),
+        "a dispatch names a key this compositor does not read, which it answers with `ok` and \
+         does nothing -- the renaming sweep turned `action` into `effect` inside these strings \
+         once, and the screen stopped coming back on. A key Hyprland does read goes in READ \
+         once it has been seen working:\n{}",
+        unread.join("\n")
     );
 }
 
@@ -652,7 +705,9 @@ fn still_seccomp(unit: &Path) -> BTreeSet<String> {
     for path in std::iter::once(unit.to_path_buf()).chain(read_for(unit)) {
         let held = std::fs::read_to_string(&path).unwrap_or_default();
 
-        for line in section(&held, "Service") {
+        let Ok(lines) = console_core_ini_files::lines(&held, console_core_ini_files::Under("Service"));
+
+        for line in lines {
             let (key, value) = match line.split_once('=') {
                 Some((key, value)) => (key, value),
                 None => continue,

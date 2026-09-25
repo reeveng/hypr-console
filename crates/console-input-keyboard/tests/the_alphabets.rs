@@ -11,9 +11,9 @@
 //! what a person would run to find that word out. Running it asks both at once.
 //!
 //! The walk used to be on the unit's command line and this asked the unit for
-//! it. Which alphabets this machine types is a setting now --
+//! it. LayoutKind alphabets this machine types is a setting now --
 //! `console_input_alphabets` is the list the panel writes and this reads -- so
-//! the question moved with it: every arrangement anybody can choose has to be
+//! the question moved with it: every arrangement anyone can choose has to be
 //! one the keyboard has, or a row in the settings would be a row that does
 //! nothing and says nothing about it.
 //!
@@ -67,7 +67,7 @@ fn the_latin_layers_are_still_there() {
 }
 
 #[test]
-fn every_alphabet_somebody_can_choose_is_one_the_keyboard_has() {
+fn every_alphabet_someone_can_choose_is_one_the_keyboard_has() {
     let layers = layers();
 
     for alphabet in &console_input_alphabets::EVERY {
@@ -75,7 +75,7 @@ fn every_alphabet_somebody_can_choose_is_one_the_keyboard_has() {
             assert!(
                 layers.iter().any(|layer| layer == wanted),
                 "the settings panel offers {}, which walks the {wanted} arrangement, and the \
-                 keyboard has {layers:?}. A layer nobody can find is dropped without a word, so \
+                 keyboard has {layers:?}. A layer no one can find is dropped without a word, so \
                  choosing that alphabet would do nothing and say nothing.",
                 alphabet.says
             );
@@ -88,7 +88,7 @@ fn the_shelf_of_symbols_is_reachable_from_either_way_up() {
     let layers = layers();
     let Ok(chosen) = console_input_alphabets::read(console_input_alphabets::UNLESS_TOLD);
 
-    for holding in [console_input_alphabets::Held::Upright, console_input_alphabets::Held::Across] {
+    for holding in [console_input_alphabets::Orientation::Upright, console_input_alphabets::Orientation::Across] {
         let Ok(walk) = console_input_alphabets::walk(&chosen, holding);
 
         for one in &walk {
@@ -101,7 +101,7 @@ fn the_shelf_of_symbols_is_reachable_from_either_way_up() {
 }
 
 #[test]
-fn every_alphabet_somebody_can_choose_can_put_the_caret_where_they_want_it() {
+fn every_alphabet_someone_can_choose_can_put_the_insertion_point_where_they_want_it() {
     let arrows = [
         (console_input_keyboard::layout::key::UP, "up"),
         (console_input_keyboard::layout::key::DOWN, "down"),
@@ -130,7 +130,7 @@ fn every_alphabet_somebody_can_choose_can_put_the_caret_where_they_want_it() {
                         | Kind::Symbols
                         | Kind::Compose => false,
                     }),
-                    "{} walks the {wanted} arrangement, which has no {arrow} key. The caret can \
+                    "{} walks the {wanted} arrangement, which has no {arrow} key. The insertion point can \
                      then only be where the last letter left it, and putting one right takes a \
                      trip through the shelf of symbols and back.",
                     alphabet.says

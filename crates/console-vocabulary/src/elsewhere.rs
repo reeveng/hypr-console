@@ -10,7 +10,7 @@
 //! The crate names are the same argument pointed inward. What a crate may be
 //! called is `console-repository`'s families test, and every `use` line in the
 //! tree spells one, so a vocabulary that asked for them again would be asking a
-//! question somebody else answers -- and answering it differently on the day a
+//! question someone else answers -- and answering it differently on the day a
 //! crate is renamed.
 //!
 //! So both are read where they live, and what is left for `words.conf` is what

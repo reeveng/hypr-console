@@ -19,8 +19,8 @@
 //!
 //! So one of these asks the compositor what it is holding, and one presses the
 //! key and watches for what the row promises. The third is what decides which
-//! hand the guide and the setup screen open for, which is a file nobody would
-//! notice going stale.
+//! hand the guide and the setup screen open for, which is a file no one would
+//! notification going stale.
 //!
 //! The one that presses took three goes and each fault hid the next, so all
 //! three are written down. It asked for a toplevel: `opening` runs a command
@@ -44,21 +44,21 @@
 //! somewhere further down.
 //!
 //! The third asks less than it looks like it does, and the reason is worth
-//! knowing before somebody makes it ask more. Which hand was last used only
+//! knowing before someone makes it ask more. Which hand was last used only
 //! moves when a press arrives from the other one, and the only thing that
-//! counts as the other one is a keyboard on somebody's desk. Every button on
+//! counts as the other one is a keyboard on someone's desk. Every button on
 //! the pad arrives as the pad however it is routed, and the keyboard this
 //! presses through is the daemon's own. So the flip is `reading.rs`'s own
 //! tests, and what is left for a device is the half a unit test cannot answer:
 //! that the daemon is writing the file at all.
 
 use console_core_never::Never;
-use console_test_stages::checking::{Body, Check, Done, failed, happened};
-use console_test_stages::device::{Device, Seen, Waited};
+use console_test_stages::checking::{Body, Check, CheckResult, failed, happened};
+use console_test_stages::device::{Device, Ready, Outcome};
 
 use console_input_bindings::bound::{Binding, Input};
-use console_input_controller::binds::{self, Bind, wanted};
-use console_input_controller::means::Table;
+use console_input_controller::binds::{self, KeyBinding, wanted};
+use console_input_controller::actions::Table;
 
 const PATIENCE: f64 = 4.0;
 
@@ -88,21 +88,20 @@ pub const LAST_PRESS: Check = Check {
     bodies: &[Body::Device(last_press)],
 };
 
-fn ours() -> Result<Vec<Bind>, Never> {
+fn ours() -> Result<Vec<KeyBinding>, Never> {
     let Ok(table) = Table::ours();
 
     wanted(&table)
 }
 
-fn handed(stage: &mut Device) -> Done {
+fn handed(stage: &mut Device) -> CheckResult {
     let Ok(said) = stage.hypr("binds -j");
 
-    let held = match console_compositor::read(&said) {
-        Ok(held) => held,
+    let holding = match console_compositor::read(console_compositor::Query::Binds, &said) {
+        Ok(console_compositor::Answer::Binds(holding)) => holding,
+        Ok(_not_what_was_asked) => return failed("hyprctl answered something other than binds".to_string()),
         Err(fault) => return failed(fault.to_string()),
     };
-
-    let Ok(holding) = console_compositor::binds(&held);
     let Ok(wanted) = ours();
     let Ok(standing) = binds::standing(&wanted, &binds::Holding::These(holding.clone()));
 
@@ -132,39 +131,39 @@ fn handed(stage: &mut Device) -> Done {
     }
 }
 
-fn spelt(row: &Binding) -> Result<String, Never> {
+fn spelled(row: &Binding) -> Result<String, Never> {
     Ok(row.held.iter().map(String::as_str).chain([row.pressed.as_str()]).collect::<Vec<_>>().join(" and "))
 }
 
-fn standing(seen: &mut Device) -> Result<Seen, Never> {
+fn standing(seen: &mut Device) -> Result<Ready, Never> {
     let Ok(where_) = seen.layer(console_settings::WHO);
 
     Ok(match where_ {
-        Some(_) => Seen::Yes,
-        None => Seen::NotYet,
+        Some(_) => Ready::Yes,
+        None => Ready::NotYet,
     })
 }
 
-fn away(seen: &mut Device) -> Result<Seen, Never> {
+fn away(seen: &mut Device) -> Result<Ready, Never> {
     let Ok(up) = standing(seen);
 
     up.flipped()
 }
 
-fn console_put_away(stage: &mut Device) -> Result<Waited, Never> {
+fn console_put_away(stage: &mut Device) -> Result<Outcome, Never> {
     let Ok(()) = stage.press("b");
 
     stage.until(away, PATIENCE)
 }
 
-fn a_key(stage: &mut Device) -> Done {
+fn a_key(stage: &mut Device) -> CheckResult {
     let Ok(already) = standing(stage);
 
     match already {
-        Seen::Yes => {
+        Ready::Yes => {
             let Ok(_) = console_put_away(stage);
         },
-        Seen::NotYet => {},
+        Ready::NotYet => {},
     }
 
     let Ok(table) = Table::ours();
@@ -186,9 +185,9 @@ fn a_key(stage: &mut Device) -> Done {
     let Ok(came) = stage.until(standing, PATIENCE);
 
     match came {
-        Waited::Happened => {},
-        Waited::RanOut => {
-            let Ok(said) = spelt(row);
+        Outcome::Happened => {},
+        Outcome::RanOut => {
+            let Ok(said) = spelled(row);
 
             return failed(format!(
                 "{said} opened nothing. The bind is the table's, so either it was never handed \
@@ -202,7 +201,7 @@ fn a_key(stage: &mut Device) -> Done {
     happened(gone, || "the settings would not close again".to_string())
 }
 
-fn last_press(stage: &mut Device) -> Done {
+fn last_press(stage: &mut Device) -> CheckResult {
     let Ok(home) = stage.home();
     let Ok(at) = console_input_bindings::active::path_in(std::path::Path::new(&home));
     let at = at.display().to_string();
@@ -216,12 +215,12 @@ fn last_press(stage: &mut Device) -> Done {
 
     let asking = reading.clone();
     let Ok(said) = stage.until(
-        move |stage: &mut Device| -> Result<Seen, Never> {
+        move |stage: &mut Device| -> Result<Ready, Never> {
             let Ok(now) = stage.user(&asking);
 
             Ok(match now.trim() == word {
-                true => Seen::Yes,
-                false => Seen::NotYet,
+                true => Ready::Yes,
+                false => Ready::NotYet,
             })
         },
         PATIENCE,

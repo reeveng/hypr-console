@@ -22,7 +22,9 @@
 //! ```
 //!
 //! which is `tag`, `name` and `written`, each a `const fn` over every variant,
-//! and each as public as the enum that carries the words -- a word is as
+//! and `from_tag`, `from_name` and `from_written`, the way back from a word to
+//! the variant that says it, or `None` for a word none of them says. Each is as
+//! public as the enum that carries the words -- a word is as
 //! reachable as the thing it is a word for. What a reader gains is that the
 //! three words for one variant are on one line instead of a page apart in three
 //! matches, which is where they used to drift: a variant added to the enum and
@@ -31,7 +33,7 @@
 //!
 //! **Why not a trait.** A trait names the accessor once for the whole tree, and
 //! these are not one accessor. `tag` is the layout xkb knows a keyboard by and
-//! `written` is what somebody reads on the key that changes it; `said` is what
+//! `written` is what someone reads on the key that changes it; `said` is what
 //! goes on a wire and `needs` is a device a profile wants. Each name is the
 //! crate's own sentence about what the word is for, and a trait would spend all
 //! of them on one `word()` and leave the distinction in a comment. A trait also
@@ -41,7 +43,7 @@
 //! a word. A variant with a field, because what it spells would depend on the
 //! value. A variant that says nothing, or that says a word no other variant
 //! says, or says one twice -- the accessor is total, so a word missing from one
-//! variant is an arm somebody would have to invent, and the derive will not
+//! variant is an arm someone would have to invent, and the derive will not
 //! invent it.
 //!
 //! **What it needs.** The signature it writes names `console_core_never::Never`,
@@ -52,7 +54,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as Written;
-use quote::{ToTokens, quote};
+use quote::{ToTokens, format_ident, quote};
 use syn::punctuated::Punctuated;
 use syn::{Data, DeriveInput, Error, Fields, Ident, LitStr, MetaNameValue, Token, Variant};
 
@@ -63,12 +65,12 @@ pub fn words(asked: TokenStream) -> TokenStream {
     let written = read.and_then(|enumeration| spelling(&enumeration));
 
     match written {
-        Ok(spelt) => proc_macro::TokenStream::from(spelt),
+        Ok(spelled) => proc_macro::TokenStream::from(spelled),
         Err(fault) => proc_macro::TokenStream::from(fault.to_compile_error()),
     }
 }
 
-struct Spelt {
+struct Spelled {
     variant: Ident,
     words: Vec<(Ident, LitStr)>,
 }
@@ -88,31 +90,37 @@ fn spelling(asked: &DeriveInput) -> Result<Written, Error> {
     };
 
     let variants = held?;
-    let mut spelt = Vec::new();
+    let mut spelled = Vec::new();
 
     for variant in variants {
         let said = said(variant)?;
 
-        spelt.push(said);
+        spelled.push(said);
     }
 
-    let every = gathered(&asked.ident, &spelt)?;
+    let every = gathered(&asked.ident, &spelled)?;
     let holding = &asked.ident;
     let visibility = &asked.vis;
     let (outside, inside, clause) = asked.generics.split_for_impl();
 
     let each = every.into_iter().map(|word| {
         let name = word.name;
-        let arms = word
-            .over
-            .into_iter()
-            .map(|(variant, said)| quote! { #holding::#variant => #said, });
+        let reverse = format_ident!("from_{}", name);
+        let arms = word.over.iter().map(|(variant, said)| quote! { #holding::#variant => #said, });
+        let pairs = word.over.iter().map(|(variant, said)| quote! { (#said, #holding::#variant) });
 
         quote! {
             #visibility const fn #name(self) -> ::core::result::Result<&'static str, ::console_core_never::Never> {
                 ::core::result::Result::Ok(match self {
                     #(#arms)*
                 })
+            }
+
+            #[allow(dead_code, reason = "the way back from a word is written for every word an enum says, and an enum only read aloud never takes it")]
+            #visibility fn #reverse(said: &str) -> ::core::result::Result<::core::option::Option<Self>, ::console_core_never::Never> {
+                ::core::result::Result::Ok(
+                    [#(#pairs),*].into_iter().find(|(word, _)| *word == said).map(|(_, variant)| variant),
+                )
             }
         }
     });
@@ -124,7 +132,7 @@ fn spelling(asked: &DeriveInput) -> Result<Written, Error> {
     })
 }
 
-fn said(variant: &Variant) -> Result<Spelt, Error> {
+fn said(variant: &Variant) -> Result<Spelled, Error> {
     let unit = match &variant.fields {
         Fields::Unit => Ok(()),
         Fields::Named(_) | Fields::Unnamed(_) => Err(Error::new_spanned(
@@ -167,9 +175,7 @@ fn said(variant: &Variant) -> Result<Spelt, Error> {
     }
 
     for (name, _) in &words {
-        let many = words.iter().filter(|(called, _)| called == name).count();
-
-        let once = match many {
+        let once = match words.iter().filter(|(called, _)| called == name).count() {
             1 => Ok(()),
             _ => Err(Error::new_spanned(name, format!("`{name}` is said twice by this variant"))),
         };
@@ -177,11 +183,11 @@ fn said(variant: &Variant) -> Result<Spelt, Error> {
         once?;
     }
 
-    Ok(Spelt { variant: variant.ident.clone(), words })
+    Ok(Spelled { variant: variant.ident.clone(), words })
 }
 
-fn gathered(holding: &Ident, spelt: &[Spelt]) -> Result<Vec<Word>, Error> {
-    let found = match spelt.first() {
+fn gathered(holding: &Ident, spelled: &[Spelled]) -> Result<Vec<Word>, Error> {
+    let found = match spelled.first() {
         Some(first) => Ok(first),
         None => Err(Error::new_spanned(holding, "an enum with no variants has nothing to spell")),
     };
@@ -198,14 +204,14 @@ fn gathered(holding: &Ident, spelt: &[Spelt]) -> Result<Vec<Word>, Error> {
 
     any?;
 
-    let spoken: Vec<BTreeMap<String, &LitStr>> = spelt
+    let spoken: Vec<BTreeMap<String, &LitStr>> = spelled
         .iter()
         .map(|one| one.words.iter().map(|(called, word)| (called.to_string(), word)).collect())
         .collect();
 
     let asked: BTreeSet<String> = first.words.iter().map(|(called, _)| called.to_string()).collect();
 
-    for one in spelt {
+    for one in spelled {
         for (name, _) in &one.words {
             let known = asked.contains(&name.to_string());
 
@@ -226,7 +232,7 @@ fn gathered(holding: &Ident, spelt: &[Spelt]) -> Result<Vec<Word>, Error> {
     for (name, _) in &first.words {
         let mut words = Vec::new();
 
-        for (one, said) in spelt.iter().zip(&spoken) {
+        for (one, said) in spelled.iter().zip(&spoken) {
             let found = said.get(&name.to_string());
 
             let word = match found {
@@ -252,7 +258,7 @@ fn gathered(holding: &Ident, spelt: &[Spelt]) -> Result<Vec<Word>, Error> {
 mod tests {
     use super::*;
 
-    fn spelt(from: &str) -> Result<String, Error> {
+    fn spelled(from: &str) -> Result<String, Error> {
         let read = syn::parse_str::<DeriveInput>(from)?;
         let written = spelling(&read)?;
 
@@ -261,7 +267,7 @@ mod tests {
 
     #[test]
     fn one_function_is_written_for_each_word_over_every_variant() {
-        let written = spelt(
+        let written = spelled(
             r#"
             pub enum Layer {
                 #[words(tag = "us", written = "ABC")]
@@ -278,11 +284,13 @@ mod tests {
         assert!(written.contains(r#"Layer :: Latin => "us""#), "{written}");
         assert!(written.contains(r#"Layer :: Thai => "th""#), "{written}");
         assert!(written.contains(r#"Layer :: Thai => "ไทย""#), "{written}");
+        assert!(written.contains("pub fn from_tag"), "{written}");
+        assert!(written.contains(r#"("th" , Layer :: Thai)"#), "{written}");
     }
 
     #[test]
     fn a_word_is_as_public_as_the_enum_that_says_it() {
-        let written = spelt(
+        let written = spelled(
             r#"
             enum Note {
                 #[words(word = "awake")]
@@ -298,7 +306,7 @@ mod tests {
 
     #[test]
     fn a_variant_that_says_nothing_the_others_say_is_refused() {
-        let fault = spelt(
+        let fault = spelled(
             r#"
             pub enum Layer {
                 #[words(tag = "us", written = "ABC")]
@@ -315,7 +323,7 @@ mod tests {
 
     #[test]
     fn a_word_nothing_else_says_is_refused() {
-        let fault = spelt(
+        let fault = spelled(
             r#"
             pub enum Layer {
                 #[words(tag = "us")]
@@ -332,7 +340,7 @@ mod tests {
 
     #[test]
     fn a_word_said_twice_by_one_variant_is_refused() {
-        let fault = spelt(
+        let fault = spelled(
             r#"
             pub enum Layer {
                 #[words(tag = "us", tag = "en")]
@@ -347,7 +355,7 @@ mod tests {
 
     #[test]
     fn a_variant_carrying_a_value_has_no_one_word() {
-        let fault = spelt(
+        let fault = spelled(
             r#"
             pub enum Expiry {
                 #[words(said = "0")]
@@ -364,7 +372,7 @@ mod tests {
 
     #[test]
     fn a_variant_that_says_nothing_at_all_is_refused() {
-        let fault = spelt(
+        let fault = spelled(
             r#"
             pub enum Layer {
                 Latin,
@@ -378,7 +386,7 @@ mod tests {
 
     #[test]
     fn only_an_enum_spells_words() {
-        let fault = spelt("pub struct Where { pub latitude: f64 }")
+        let fault = spelled("pub struct Where { pub latitude: f64 }")
             .expect_err("a struct has no variants to carry a word");
 
         assert!(fault.to_string().contains("only an enum"), "{fault}");
@@ -386,7 +394,7 @@ mod tests {
 
     #[test]
     fn a_variant_may_carry_another_attribute_as_well() {
-        let written = spelt(
+        let written = spelled(
             r#"
             pub enum Kind {
                 #[words(said = "key")]
@@ -395,7 +403,7 @@ mod tests {
             }
             "#,
         )
-        .expect("a word beside somebody else's attribute");
+        .expect("a word beside someone else's attribute");
 
         assert!(written.contains(r#"Kind :: Key => "key""#), "{written}");
     }

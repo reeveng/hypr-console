@@ -4,8 +4,8 @@
 
 [`docs/panels.md`](panels.md) says how a card is drawn. This is the layer under
 it: what a program on this device is, what reaches it, and what it is allowed to
-do about that. The point of it is one sentence — **the same words in, the same
-doings out, every time, forever** — and everything here is what that costs.
+do about that. The point of it is one sentence — **the same events in, the same
+effects out, every time, forever** — and everything here is what that costs.
 
 ## What is already right
 
@@ -15,7 +15,7 @@ mostly to make the rest of the machine look like them.
 `console-input-controller` is the whole idea, written down once already:
 *"Nothing in this library opens a device. What arrives is handed in and what to
 do about it is handed back, so every decision the daemon makes can be asked of
-it twice and answered the same way."* `Doing` is a decision said without being
+it twice and answered the same way."* `Effect` is a decision said without being
 carried out, and every test in that crate is a transcript. It is the most
 reliable thing here and that is not a coincidence.
 
@@ -25,8 +25,8 @@ same move made once more: four programs each walked up the tree looking for the
 top of it, and each had its own idea of what marks it.
 
 systemd is the supervision tree, and a good one: `Restart=always`, `PartOf=`,
-and `console-fell` so a daemon dying quietly is not a thing that can happen. The
-Elixir half nobody has to build is this half.
+and `console-report-crash` so a daemon dying quietly is not a thing that can
+happen. The Elixir half no one has to build is this half.
 
 ## What is not, and where the weirdness lives
 
@@ -46,7 +46,7 @@ owner, and the comments around them are a record of what that has already cost:
 a hook that died between the stop and the start left the daemon stopped for good;
 a profile laid over a stale one left the pad answering to a panel that was not
 there. **This is the class of fault that works all day and is broken after a
-restart**, because a restart is the one moment when nobody knows who wrote last.
+restart**, because a restart is the one moment when no one knows who wrote last.
 
 **Every program subscribes to everything separately.** Each panel and each bar
 module opens its own `pactl subscribe`, its own `nmcli monitor`, its own socket
@@ -72,34 +72,34 @@ other program depends on: a name that has to be learned before it can be read.
 ```rust
 /// A program: what it holds, what reaches it, what it does about that.
 pub trait Program {
-    /// What it holds. Replaced only by `heard`, never reached into from
+    /// What it holds. Replaced only by `update`, never reached into from
     /// outside. `PartialEq` is how the loop knows anything changed.
     type State: Clone + Debug + PartialEq;
 
-    /// The words only this program can be told, and the effects only it can
+    /// The events only this program can be told, and the effects only it can
     /// ask for. `console_core_never::Never` where there are none, which is most.
-    type Hears: Clone + Debug + PartialEq;
-    type Does: Clone + Debug + PartialEq;
+    type Event: Clone + Debug + PartialEq;
+    type Effect: Clone + Debug + PartialEq;
 
     /// What it starts holding, and what it wants said to it.
-    fn opening(argv: &Argv) -> Opening<Self::State>;
+    fn opening(arguments: &Arguments) -> Opening<Self::State>;
 
-    /// One word in, and what it decided.
+    /// One event in, and what it decided.
     ///
     /// Pure. No clock, no filesystem, no process, no environment. Everything
-    /// it is allowed to know is in `state` or in `word`, which is what makes a
+    /// it is allowed to know is in `state` or in `event`, which is what makes a
     /// transcript a proof rather than an anecdote.
-    fn heard(state: &Self::State, word: &Word<Self::Hears>) -> Turn<Self::State, Self::Does>;
+    fn update(state: &Self::State, event: &Event<Self::Event>) -> Update<Self::State, Self::Effect>;
 }
 
 /// One turn: what it holds now, and what it wants done.
-pub struct Turn<S, D> { pub now: S, pub doings: Vec<Doing<D>> }
+pub struct Update<S, F> { pub state: S, pub effects: Vec<Effect<F>> }
 ```
 
 Four things in that are not what this document asked for, and each of them is a
 thing writing it settled.
 
-**`showing` is gone from the trait, and there is no `Doing::Show` either.** The
+**`showing` is gone from the trait, and there is no `Effect::Show` either.** The
 draft above listed "draw these pages" as an effect *and* gave the trait a
 `showing`, which is the same thing said twice; only one of them can be the truth
 about what is on the screen. It is `showing`: the loop redraws from the state
@@ -112,46 +112,46 @@ that draws implements a second trait, in the crate whose vocabulary a page is.
 on two programs asking; a registry in the trait before then is the piece most
 likely to be built bigger than anything needs.
 
-**`Hears` and `Does` are new, and the reason is controller-desktop.** `Word`
-and `Doing` are closed sets shared by every program, which is what makes them
+**`Event` and `Effect` are new, and the reason is controller-desktop.** `Event`
+and `Effect` are closed sets shared by every program, which is what makes them
 worth having and is also how this crate becomes the shelf `CLAUDE.md` forbids:
-a variant nobody else uses is one program's private business kept in a shared
+a variant no one else uses is one program's private business kept in a shared
 type. The sets were settled against three real programs --
 `controller-desktop`, `console-wallpaper` and `settings-panel` -- and one of
-them broke the shape. Everything the other two do is a kind of effect anybody
+them broke the shape. Everything the other two do is a kind of effect anyone
 might ask for. `controller-desktop` emits pointer motion on a virtual device it
 holds, and no other program here will ever want to, because the whole plan is
 that one program reads the input and the rest are told.
 
 So the shared sets stay about *kinds* of effect and a program names its own.
-What is not given up is the transcript: a private doing is still a value that
+What is not given up is the transcript: a private action is still a value that
 was decided rather than carried out, so it is still in the list a test asserts
 on. What is given up is that shared code can carry it out, which is the honest
 cost -- the program that asked for it is the one that knows what it means. The
 first one is `controller-profile`'s touchpad buzz, which is a glob over
 `/sys/bus/hid/devices/*/touchpad/vibration_enabled`: how many there are and what
-they are called is the driver's, so it is not a path anybody can write down.
+they are called is the driver's, so it is not a path anyone can write down.
 
 **The loop is a crate of its own, `console-program-runtime`, and it is not the
-only loop.** GTK draws on one thread and will not be driven from somebody
+only loop.** GTK draws on one thread and will not be driven from someone
 else's, so the panels keep theirs and drive the same contract from glib. What is
-here is the loop for the programs with no toolkit: it carries out the doings,
+here is the loop for the programs with no toolkit: it carries out the effects,
 runs a program's asks to completion and puts the answer on the queue for a later
-turn, hands the stretches of time back as words, and ends when a program has
+turn, hands the stretches of time back as events, and ends when a program has
 nothing left to wait for. What is shared between fourteen programs is the shape
 of a decision, not the shape of a loop.
 
-`Word` is everything that can arrive — the runtime is up, a subscription spoke,
-a timer the program asked for came round, another program asked it for
-something, something it set going has come back, it is being stopped. `Doing` is
+`Event` is everything that can arrive — the runtime is up, a subscription spoke,
+a timer the program asked for fell due, another program asked it for
+something, something it set going has come back, it is being stopped. `Effect` is
 every effect, said without being carried out — run this and tell me what it
 said, start this and forget it, ask that program for this, draw these pages,
 listen to this, stop listening, write this file, say this on the screen, stop.
 
-The runtime carries out the doings. `heard` never does. That is the whole
+The runtime carries out the effects. `update` never does. That is the whole
 mechanism, and everything the plan claims falls out of it:
 
-- **Repeatable.** Same transcript, same doings. A test is a list of words and a
+- **Repeatable.** Same transcript, same effects. A test is a list of events and a
   list of what should come back, and it runs on a laptop with no compositor, no
   controller and no network.
 - **Testable.** The two things that cannot be tested today — what a panel decides
@@ -160,8 +160,8 @@ mechanism, and everything the plan claims falls out of it:
   all of them, the way learning one panel is already learning all of them.
 - **Immutable.** State is replaced, never mutated. Nothing outside a program can
   reach into it. Nothing on disk is shared.
-- **Write once.** A program that is a pure function of its words does not rot when
-  something else on the machine changes; it either gets a word it knows or it
+- **Write once.** A program that is a pure function of its events does not rot when
+  something else on the machine changes; it either gets an event it knows or it
   does not.
 
 ## Every shared variable gets an owner
@@ -172,9 +172,9 @@ it is the part that is not a refactor.
 The controller profile is owned by the controller daemon. Nothing else sets it,
 and nothing else has to ask: what the pad should be wearing is a function of
 what the compositor says is in front of you, so the daemon reads it rather than
-being told it. A panel that wants the chooser's buttons does nothing at all --
-the buttons a chooser needs are a column in the daemon's own table and a
-chooser being up is a thing the daemon can see. The keyboard hook is gone the
+being told it. A panel that wants the picker's buttons does nothing at all --
+the buttons a picker needs are a column in the daemon's own table and a
+picker being up is a thing the daemon can see. The keyboard hook is gone the
 same way. No `SIGSTOP`, no `SIGCONT`, no
 `$XDG_RUNTIME_DIR/console-profile-before-keyboard`, and no `osk-hook` at all.
 
@@ -182,7 +182,7 @@ Which tab is in front is owned by the panel that has it. What the bar shows is
 owned by the bar. If two programs need to agree about something, one of them
 owns it and the other asks.
 
-The rule, said as a rule: **a program may hold only state it has a `Wants` for.**
+The rule, said as a rule: **a program may hold only state it has a `Subscription` for.**
 Anything with no subscription behind it must be asked for at the moment it is
 drawn, exactly as today. This is the one real hazard in the whole plan — held
 state that nothing refreshes is a reading that is confidently wrong — and this
@@ -191,9 +191,9 @@ rule is what keeps it out.
 ## One pool, `console-events`
 
 A daemon that holds one subscription per source and hands the words to everyone:
-the compositor's socket, `pactl subscribe`, `nmcli monitor`, the bus a
-notification is raised on, systemd's unit changes, the player, and a path being
-watched. It speaks
+the compositor's socket, `pactl subscribe`, `nmcli monitor`, bluetoothd on the
+system bus, the kernel's power supply uevents, the bus a notification is raised
+on, systemd's unit changes, the player, and a path being watched. It speaks
 over a socket in the runtime directory, and `console-core-reconnect` is what
 reconnects to it.
 
@@ -204,8 +204,10 @@ today. And it **drops a subscriber that has gone**, which is the orphan problem
 solved by construction rather than by everyone remembering to tidy up.
 
 It restarts like everything else here, and a program with no pool is a program
-that asks the machine directly and is merely slower — the same rule
-`console-bar`'s tick already keeps.
+whose readings are as old as the pool's absence and no older: getting in again
+is said as a reason to ask, so the status bar reads everything the moment it is
+back, and keeps a clock only for what no source says — a battery percent the
+firmware need not announce, and a Wi-Fi signal `nmcli monitor` never mentions.
 
 ### What is in
 
@@ -246,7 +248,7 @@ bar's `watch` each opened it to learn the same thing, and all four ask the pool
 now through `console_events::layers`.
 `console_onscreen::watching_layers` is gone rather than left standing beside
 them, which is the rule this crate only earns by being kept: a source with two
-observers is a source nobody has moved off.
+observers is a source no one has moved off.
 
 Which lines are worth asking after stayed in `console_onscreen`, on the near
 side of the socket, because the bar keeps different ones from the wallpaper and
@@ -258,7 +260,7 @@ and that icon — the one with no tick under it — is why it exists.
 
 **The orphan fix is a write that would not go through.** Nothing has to be
 tidied up by the program that left, and nothing has to notice that it left: a
-socket nobody is holding refuses a write, and that is the same moment.
+socket no one is holding refuses a write, and that is the same moment.
 
 What the pool costs is a second thing that has to be up, and that is the honest
 half of this. A program that held its own subscription now depends on a daemon
@@ -275,32 +277,32 @@ could not be asked at all.
 
 ### What the runtime does with the ask
 
-`Wants::Words(Topic::Sound)` is *tell me when this changes*, and for as long as
+`Subscription::Topic(Topic::Sound)` is *tell me when this changes*, and for as long as
 the runtime answered it with a line on the journal both halves of this were
 green and the desktop still polled. The program said what it wanted, the pool
 could have told it, and nothing carried the question from one to the other.
 
-It does now. `console-program-runtime` holds one `Listening`, `Doing::Listen`
-adds a topic to it and `Doing::Deafen` takes one away, and a `Changed` from the
-pool reaches the program as `Word::Changed` the way a stretch of time reaches it
-as `Word::CameRound`. The decision that made this safe was already made above:
-the round stays as what a program falls back to when the pool is down, so a
+It does now. `console-program-runtime` holds one `Listening`, `Effect::Subscribe`
+adds a topic to it and `Effect::Unsubscribe` takes one away, and a `Changed` from the
+pool reaches the program as `Event::Changed` the way a timer falling due reaches
+it as `Event::Tick`. The decision that made this safe was already made above:
+the timer stays as what a program falls back to when the pool is down, so a
 program with no pool is slower and never wrong.
 
 **It is one wait now rather than a sleep.** The loop blocks on the pool's
-channel until the next round falls due, which is the same wait for both reasons
+channel until the next timer falls due, which is the same wait for both reasons
 a program can be woken, and it is why nothing in that crate declares a sleep any
 more — `due()` was the one wait in the runtime EXPLICIT021 made say so, and it
 is gone. A program that wants no topic at all still waits there: the channel is
-open and quiet, and a `recv_timeout` that times out is the round coming round.
+open and quiet, and a `recv_timeout` that times out is the timer falling due.
 
-**Deafening works, and a panel coming back is the reason it had to.** `listening`
-holds what is wanted rather than taking it once, so `also` and `not` write a
-`listen` or a `deafen` down the connection that is already open, and a
-reconnection asks for whatever is wanted at the moment it gets in. What makes
+**Unsubscribing works, and a panel coming back is the reason it had to.** A
+`Subscriber` holds what is wanted rather than taking it once, so `subscribe`
+and `unsubscribe` write a line of each name down the connection that is already
+open, and a reconnection asks for whatever is wanted at the moment it gets in. What makes
 that worth having is the replay: a program that asks again is told the last word
 on the topic straight away rather than waiting for the next change, so hanging up
-costs a panel nothing when it comes back. That is `the_deafening`, pressed
+costs a panel nothing when it comes back. That is `the_stopped_listening`, pressed
 through a real socket, because it is the half `pool`'s arithmetic cannot answer.
 
 The seam itself is pressed too. `console-program-runtime`'s `the_words` runs a
@@ -311,7 +313,7 @@ green separately.
 
 ### What is not in, and it is the half that matters
 
-**Every panel card still matches `Doing::Listen(_) | Doing::Deafen(_) => {}`.**
+**Every panel card still matches `Effect::Subscribe(_) | Effect::Unsubscribe(_) => {}`.**
 A panel drives this contract from glib, so what the runtime now learns a panel
 does not. That is the cost of the two loops this document argues for elsewhere,
 arriving where it was always going to arrive: a thing worth doing has to be done
@@ -320,7 +322,7 @@ half is not written.
 
 It is worth saying what those arms are and are not, because from a distance it
 reads as a panel doing its own polling instead. It is not: no card has ever
-emitted a `Doing::Listen`, so there is nothing being translated into anything.
+emitted an `Effect::Subscribe`, so there is nothing being translated into anything.
 The arms are a match staying exhaustive over a shared set. What is owed is a
 `Listening` held by the panel with its words pumped onto the main context — and
 it waits on a card that would ask, which waits on a source.
@@ -328,7 +330,7 @@ it waits on a card that would ask, which waits on a source.
 **A topic with no source is what everything else waits behind.** One source at a
 time is the rule and it is the right rule. `Sound` is there now; `Player` is not,
 so the music bar and the music card — the two with the most to gain — still have
-nothing to ask for. Each new source is a program of somebody else's watched
+nothing to ask for. Each new source is a program of someone else's watched
 until it is known what it does when it is restarted underneath, which is the
 work, and it is why the number of sources goes up slowly and on purpose.
 
@@ -337,9 +339,9 @@ presses `pactl` and reads the level back in the same run; it holds no state
 between two presses and has nothing to subscribe to. What wanted `Sound` was the
 status bar's reading of it, and that is what moved.
 
-**Nothing has yet chosen to deafen.** The machinery is there and pressed; what
+**Nothing has yet chosen to stop listening.** The machinery is there and pressed; what
 is missing is a program that hangs up when it stops being looked at. A panel
-that is not on the screen wants nothing; a bar module behind a chooser wants
+that is not on the screen wants nothing; a bar module behind a picker wants
 nothing until it is uncovered. Today both would be woken for every word, which
 is the pool doing to a handheld's battery a gentler version of what the orphaned
 subscriptions did. Whether a listener should be connected is a question about
@@ -349,10 +351,10 @@ from. The subscription should follow it.
 
 What makes hanging up safe is already built: `listens` replays the last word on
 a topic to whoever has just subscribed. Without that, a panel coming back would
-be a panel drawn from whatever it remembered before it left, and deafening would
+be a panel drawn from whatever it remembered before it left, and stopped listening would
 be trading a warm battery for a wrong screen. With it, a panel that comes back
 asks and is told what is true now — so the expensive thing to be is *visible*,
-which is the only sensible answer for a machine somebody is holding.
+which is the only sensible answer for a machine someone is holding.
 
 ## Threads, honestly
 
@@ -368,14 +370,14 @@ run one after another. Those get a small pool. The runtime gets one thread for
 the pool socket and one per `Run` in flight, so a slow command never makes a
 panel deaf — which is what `later` is for today, one panel at a time.
 
-Programs never share memory. `heard` owns the state; everything that leaves is a
+Programs never share memory. `update` owns the state; everything that leaves is a
 message.
 
 ## Spawning and extending
 
 Two mechanisms, both small, and the second one waits until something wants it.
 
-**Spawning.** `Doing::Start` runs a program in a scope of its own rather than in
+**Spawning.** `Effect::Spawn` runs a program in a scope of its own rather than in
 the caller's control group. This is also the settling of an open item: everything
 opened from the menu is currently in the controller's control group, so
 restarting the controller takes every application with it.
@@ -430,7 +432,7 @@ race this document opened with.
 
 **A button's meaning becomes one table, tested on a laptop.** X shows or hides
 the keyboard because a line says so, and the guide, the button contract and the
-behaviour are read off the same line. Today the guide can only promise what the
+behavior are read off the same line. Today the guide can only promise what the
 YAML says, and the YAML says `North`.
 
 **The signals go.** The keyboard and the daemon do not have to be stopped and
@@ -538,13 +540,13 @@ has a `#!` we wrote.
 This document said it existed only because `osk-start` was a shell script and
 needed the palette as shell variables, and that was wrong: it has two other
 readers. The nested desktop sources it to set its ground before anything else
-is up, where a shell is all there is, and the checks read it to know what colour
+is up, where a shell is all there is, and the checks read it to know what color
 a thing on the screen should have been.
 
 So it stays, and what changed instead is that there is one reader of it.
-`console_core_colour::spent::read` is that reader; `osk-start` and the checks
+`console_core_color::spent::read` is that reader; `osk-start` and the checks
 each had a copy of the same six-line parser, which is the fault this desktop
-keeps having with colours, in miniature.
+keeps having with colors, in miniature.
 
 What stays in another language stays for a reason, and it is worth being clear
 about each, because all but one of them are fine and that one was not.
@@ -559,7 +561,7 @@ that stops meaning what the guide says it means fails on a laptop.
 
 **`steamos-session-select`** is SteamOS's script, carried unchanged. Rewriting
 someone else's ninety lines to be ours is how a carried file quietly becomes a
-fork nobody remembers maintaining.
+fork no one remembers maintaining.
 
 **The migration sweeps** in `migrations/` are shell because a sweep is a handful
 of `mv`s against paths a manifest stopped naming, and
@@ -589,8 +591,8 @@ to listen, which is bringing the fork into the tree with more work attached.
 
 Write our own keyboard, in Rust. Everything except the typing is already here
 and used by five other surfaces -- gtk4, gtk4-layer-shell and cairo for the
-drawing, `console-core-colour` for the palette `console-input-keyboard`
-currently launders into wvkbd's argv. **This is the one that was taken.**
+drawing, `console-core-color` for the palette `console-input-keyboard`
+currently launders into wvkbd's arguments. **This is the one that was taken.**
 
 Bring the source in and take `gamepad.c` out of it, leaving a small socket to
 be told on. This was the one preferred here, and the rest of this section is
@@ -604,7 +606,8 @@ Thai letter and the shift level carries a second one rather than a capital, so
 it is a layer of its own.
 
 A keyboard of ours would have to produce those letters, and the obvious way --
-a uinput device, using the `evdev` three crates already carry -- cannot. A
+a uinput device, made through `console-input-event-devices` like every other
+device this desktop makes -- cannot. A
 uinput device emits key codes and the compositor applies its own keymap, and
 `hyprland.lua` says `kb_layout = "us"` and nothing else. So a uinput keyboard
 here can produce exactly what a US layout produces. wvkbd does not have this
@@ -612,7 +615,7 @@ problem because `zwp_virtual_keyboard_v1` lets a client upload its own keymap,
 which is why `keymap.mobintl.h` is twelve thousand lines and carries eight
 layouts. Reaching Thai without it means either a second layout group on the
 physical keyboard, which couples the keyboard on the screen to the state of the
-keyboard nobody is holding, or writing raw Wayland protocol -- and
+keyboard no one is holding, or writing raw Wayland protocol -- and
 `gtk4-layer-shell` is not a precedent for that, being a C library called
 through bindings rather than protocol written here.
 
@@ -666,17 +669,17 @@ clone of upstream with seven commits on top and a clean tree:
     bd1525d  Measure to a key's edge, wrap at the edges, and read either stick
     9af75ce  Type the selected key on a stick press too
     b38097e  X is the keyboard, and nothing else
-    3752fb2  The selected key has a colour of its own, and it is solid
+    3752fb2  The selected key has a color of its own, and it is solid
     b3d1627  Thai, so she can type in her own language
     142042f  The keymap follows the keys back to the first layer
 
-So the whole difference between this keyboard and a keyboard anybody can
+So the whole difference between this keyboard and a keyboard anyone can
 download is seven patches, and the work is exactly readable rather than
 estimated. The first four are the gamepad reading and are what the socket
 replaces. The last three stay, and one of them is Thai.
 
 What is actually wrong is not that the fork is unversioned. It is versioned and
-it is clean. Its `origin` is upstream, which is a remote nobody here can push
+it is clean. Its `origin` is upstream, which is a remote no one here can push
 to, and the branch the seven commits are on -- `codincod-controller` -- tracks
 nothing. So the fault is not a missing remote, which `git remote add` would
 answer in a line. It is that there is nowhere of ours to push to, so seven
@@ -684,7 +687,7 @@ commits exist on one laptop and nothing in this repository can reach them. That
 is a smaller problem than the one written down here before, and it still needs
 somewhere to go.
 
-**The licence decides the shape.** wvkbd is GPL-3.0 and this workspace was MIT
+**The license decides the shape.** wvkbd is GPL-3.0 and this workspace was MIT
 when that was written; it is AGPL-3.0-or-later now, and the port is why -- a
 derivative of copyleft work carries the copyleft, so the field was never a
 choice. `crates/console-input-keyboard` says GPL-3.0-or-later on its own,
@@ -708,7 +711,7 @@ Then the exclusion itself went, and the note written into it is why it could.
 That note said, plainly, that it was enforcing a decision and not a law: GPL-3.0
 does not forbid publishing this source, it forbids relicensing it, and GPL source
 beside a repository under other terms is fine as long as that subtree keeps its
-own licence and says so. What was being enforced was a choice somebody made. Put
+own license and says so. What was being enforced was a choice someone made. Put
 the other way round -- as though the machinery were a compliance gate -- the next
 person to read it would have been afraid to touch it, and would not have changed
 it when the choice changed.
@@ -719,8 +722,8 @@ a manifest line to put back; holding a *crate* back leaves `members =
 is a public copy that will not resolve, let alone build -- and nothing would have
 said so, because nothing published between the session keeper's source landing
 and this. So `crates/console-resume` is carried like any other crate. What stayed
-is `VENDORED`, which asks the question that is actually somebody else's to ask:
-whether the licence it came with travels with it.
+is `VENDORED`, which asks the question that is actually someone else's to ask:
+whether the license it came with travels with it.
 
 **`console apply` would have to build C.** It runs cargo today and that is all
 it runs. Settled by not needing to: the keyboard is a crate, the C it was ported
@@ -751,7 +754,7 @@ daemon reads it off the compositor, which is what `Mode::seen` is.
 
 Some of these programs run, decide, and exit: `console-buttons`,
 `console-put-away`, `downloads-format`, `downloads-find`, `downloads-get`,
-`files-thumbs`, `music-index`, `wallpaper-press`, `console-dictate`,
+`files-thumbs`, `music-index`, `wallpaper-render`, `console-dictate`,
 `music-cover`, `console-palette`, `console`, `console-engine`,
 `console-battery`. They are already pure functions with a `main` around them. A
 state machine holding one state is ceremony, and ceremony is the thing this
@@ -759,7 +762,7 @@ document is against.
 
 Five more are laptop-only — `capture-devices`, `console-check`,
 `console-desktop`, `console-emulate`, `console-manifest-publish` — and a tool
-that fails on a laptop fails in front of somebody. They are converted for
+that fails on a laptop fails in front of someone. They are converted for
 tidiness, not for reliability, and they go last.
 
 That leaves **seven daemons and seven panels**, which is the whole of the rework.
@@ -783,7 +786,7 @@ until the last one is off it.
 
 **Stage 3 is finished, and it finished by being stage 1's first implementors.**
 The three that raise a notification, the four knobs, the two ways to a session
-and the one that starts it, and the keyboard's colours went one at a time.
+and the one that starts it, and the keyboard's colors went one at a time.
 `osk-hook` was not converted, it was deleted, which was the right end for it;
 `osk` went the same way, into the keyboard that now answers the signal it sent.
 The two that were really a program taking the front of the machine came out with
@@ -794,7 +797,7 @@ holding something up rather than beside it.
 
 The two keyboard ones are a line each and were not converted for the line. What
 they buy is that the difference between them is a test now:
-`asking_on_somebodys_behalf_only_ever_shows` is what stops the browser's search
+`asking_on_someones_behalf_only_ever_shows` is what stops the browser's search
 card putting the keyboard away by asking for one while it was up, and nothing
 could have said so while both were `exec pkill`.
 
@@ -805,7 +808,7 @@ observed by waiting for it. It asks for a stretch now and is told when one has
 gone by, so the cold login is pressed in no time at all and so is the minute
 that ends in nothing. Two things fell out of writing it down: the profile paths
 are built from `console_input_gamepad::router`'s own constants rather than
-spelled a second time, and somebody who asked which profile was on while the bus
+spelled a second time, and someone who asked which profile was on while the bus
 was down used to get a blank line and a success, which now says what happened.
 
 Three things the conversion turned up that no test could have asked for while
@@ -873,7 +876,7 @@ check that runs once can see.
 *Settled, and not by the ordering.* The ordering went on the machine, held for a
 year, and came out again. The keyboard opens nothing at start now: it takes the
 pad and the keyboard beside it when its surface goes up and hands them back when
-it comes down, so it finds whatever is there at the moment somebody wants to
+it comes down, so it finds whatever is there at the moment someone wants to
 type, and a pad rebuilt under it is a claim taken again on the next turn. There
 is no order left to declare, which is why the `After=` is gone rather than kept
 as a belt. `console-input-focus` is where that lives, and the twenty-restart
@@ -893,5 +896,5 @@ not optional here.
 **Stage 3 is the best line-for-line.** Those four hundred and forty lines hold
 the mode switching, they have no tests, and they are where a restart goes wrong.
 It can be done before stages 1 and 2 if the device is asking for it, because a
-script rewritten as a program that answers `heard` is useful before there is a
+script rewritten as a program that answers `update` is useful before there is a
 runtime to run it in.

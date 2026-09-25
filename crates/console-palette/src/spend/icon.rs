@@ -1,6 +1,6 @@
 //! The box that stands where an application ships no icon.
 
-use console_core_colour::Short;
+use console_core_color::Short;
 use crate::palette::Palette;
 
 pub fn spend(palette: &Palette) -> Result<String, Short> {
@@ -25,14 +25,14 @@ mod tests {
     use crate::spend::tests::blossom;
 
     #[test]
-    fn it_is_drawn_in_the_one_colour_a_border_is_drawn_in() {
-        let svg = spend(&blossom()).expect("every colour it spends is declared");
-        assert_eq!(svg.matches(&format!("#{}", blossom().must("edge").expect("a declared colour"))).count(), 2);
+    fn it_is_drawn_in_the_one_color_a_border_is_drawn_in() {
+        let svg = spend(&blossom()).expect("every color it spends is declared");
+        assert_eq!(svg.matches(&format!("#{}", blossom().must("edge").expect("a declared color"))).count(), 2);
     }
 
     #[test]
     fn it_sits_inside_its_own_box() {
-        let svg = spend(&blossom()).expect("every colour it spends is declared");
+        let svg = spend(&blossom()).expect("every color it spends is declared");
         assert!(svg.contains(r#"viewBox="0 0 64 64""#));
         assert!(svg.contains(r#"x="8.5""#) && svg.contains(r#"stroke-width="3""#));
     }

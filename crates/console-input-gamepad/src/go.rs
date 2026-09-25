@@ -26,9 +26,9 @@ use std::time::Duration;
 
 use console_core_geometry::Point;
 use console_core_never::Never;
-use evdev::{EventType, KeyCode};
+use console_input_event_devices::{EventType, KeyCode};
 
-use crate::Unpressed;
+use crate::GamepadError;
 use crate::devices::{Devices, Has, Report, Sink};
 use crate::profile::{Kind, Profile, Target};
 use crate::vocabulary::{self, Names};
@@ -59,7 +59,7 @@ impl Clock for Passing {
             dylint_lib = "explicit021_no_sleeping",
             allow(
                 explicit021_no_sleeping,
-                reason = "the emulator is playing back a capture, and how long the person held the button is part of what is being played; `Held` is the same trait without a clock, which is what the tests press"
+                reason = "the emulator is playing back a capture, and how long the person held the button is part of what is being played; `RecordingClock` is the same trait without a clock, which is what the tests press"
             )
         )]
         std::thread::sleep(Duration::from_secs_f64(seconds.max(0.0)));
@@ -67,11 +67,11 @@ impl Clock for Passing {
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
-pub struct Held {
+pub struct RecordingClock {
     pub waited: Vec<f64>,
 }
 
-impl Clock for Held {
+impl Clock for RecordingClock {
     fn wait(&mut self, seconds: f64) {
         self.waited.push(seconds);
     }
@@ -92,7 +92,7 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
         devices: Devices<S>,
         clock: C,
         profile: &str,
-    ) -> Result<Self, Unpressed> {
+    ) -> Result<Self, GamepadError> {
         let mut go = LegionGo {
             profiles,
             devices,
@@ -105,13 +105,13 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
         Ok(go)
     }
 
-    pub fn load_profile(&mut self, name: &str) -> Result<(), Unpressed> {
+    pub fn load_profile(&mut self, name: &str) -> Result<(), GamepadError> {
         match self.profiles.contains_key(name) {
             true => {},
             false => {
                 let every: Vec<String> = self.profiles.keys().cloned().collect();
 
-                return Err(Unpressed::NoSuchProfile(name.to_string(), every));
+                return Err(GamepadError::NoSuchProfile(name.to_string(), every));
             }
         }
 
@@ -134,31 +134,31 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
         Ok(self.held.iter().map(String::as_str).collect())
     }
 
-    pub fn down(&mut self, spoken: &str) -> Result<(), Unpressed> {
+    pub fn button_down(&mut self, spoken: &str) -> Result<(), GamepadError> {
         self.held.insert(spoken.to_string());
         self.button(spoken, 1)
     }
 
-    pub fn up(&mut self, spoken: &str) -> Result<(), Unpressed> {
+    pub fn up(&mut self, spoken: &str) -> Result<(), GamepadError> {
         self.held.remove(spoken);
         self.button(spoken, 0)
     }
 
-    pub fn press(&mut self, spoken: &str) -> Result<(), Unpressed> {
-        self.down(spoken)?;
+    pub fn press(&mut self, spoken: &str) -> Result<(), GamepadError> {
+        self.button_down(spoken)?;
         self.clock.wait(PRESS_SECONDS);
         self.up(spoken)
     }
 
-    pub fn hold(&mut self, spoken: &str) -> Result<(), Unpressed> {
-        self.down(spoken)
+    pub fn hold(&mut self, spoken: &str) -> Result<(), GamepadError> {
+        self.button_down(spoken)
     }
 
-    pub fn release(&mut self, spoken: &str) -> Result<(), Unpressed> {
+    pub fn release(&mut self, spoken: &str) -> Result<(), GamepadError> {
         self.up(spoken)
     }
 
-    pub fn release_all(&mut self) -> Result<(), Unpressed> {
+    pub fn release_all(&mut self) -> Result<(), GamepadError> {
         #[cfg_attr(
             dylint_lib = "explicit027_no_needless_collection",
             allow(
@@ -175,7 +175,7 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
         Ok(())
     }
 
-    fn button(&mut self, spoken: &str, value: i32) -> Result<(), Unpressed> {
+    fn button(&mut self, spoken: &str, value: i32) -> Result<(), GamepadError> {
         let Ok(names) = vocabulary::is_trigger(spoken);
 
         match names {
@@ -209,7 +209,7 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
         }
     }
 
-    fn passthrough(&mut self, name: &str, value: i32) -> Result<(), Unpressed> {
+    fn passthrough(&mut self, name: &str, value: i32) -> Result<(), GamepadError> {
         let Ok(profile) = self.profile();
 
         let Ok(publishes) = profile.publishes("xbox-elite");
@@ -220,7 +220,7 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
         }
     }
 
-    fn send(&mut self, target: &Target, value: i32) -> Result<(), Unpressed> {
+    fn send(&mut self, target: &Target, value: i32) -> Result<(), GamepadError> {
         let Ok(needs) = target.kind.needs();
 
         let Ok(named) = role_of(needs);
@@ -253,7 +253,7 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
         }
     }
 
-    fn on_the_pad(&mut self, name: &str, value: i32) -> Result<(), Unpressed> {
+    fn on_the_pad(&mut self, name: &str, value: i32) -> Result<(), GamepadError> {
         let Ok(hat) = vocabulary::hat_code(name);
 
         match hat {
@@ -278,18 +278,18 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
         }
     }
 
-    fn emit_key(&mut self, role: &str, code: KeyCode, value: i32) -> Result<(), Unpressed> {
+    fn emit_key(&mut self, role: &str, code: KeyCode, value: i32) -> Result<(), GamepadError> {
         let Ok(()) = self.devices.emit(role, EventType::KEY, code.0, value, Report::Now);
 
         Ok(())
     }
 
-    pub fn stick(&mut self, which: &str, to: Point<f64>) -> Result<(), Unpressed> {
+    pub fn stick(&mut self, which: &str, to: Point<f64>) -> Result<(), GamepadError> {
         let Ok(name) = vocabulary::axis_named(which);
 
         let Ok(found) = vocabulary::axis_codes(name);
 
-        let codes = found.ok_or_else(|| Unpressed::NoStick(which.to_string()))?;
+        let codes = found.ok_or_else(|| GamepadError::NoStick(which.to_string()))?;
 
         let Ok(profile) = self.profile();
 
@@ -300,7 +300,7 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
             Has::Yes => {},
         }
 
-        for (code, amount) in [(codes.0, to.across), (codes.1, to.down)] {
+        for (code, amount) in [(codes.0, to.x), (codes.1, to.y)] {
             let at = self.devices.absolute("pad", code.0, amount)?;
 
             let Ok(()) = self.devices.emit("pad", EventType::ABSOLUTE, code.0, at, Report::Later);
@@ -311,16 +311,16 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
         Ok(())
     }
 
-    pub fn centre(&mut self, which: &str) -> Result<(), Unpressed> {
-        self.stick(which, Point { across: 0.0, down: 0.0 })
+    pub fn center(&mut self, which: &str) -> Result<(), GamepadError> {
+        self.stick(which, Point { x: 0.0, y: 0.0 })
     }
 
-    pub fn trigger(&mut self, which: &str, amount: f64) -> Result<(), Unpressed> {
+    pub fn trigger(&mut self, which: &str, amount: f64) -> Result<(), GamepadError> {
         let Ok(name) = vocabulary::trigger_named(which);
 
         let Ok(found) = vocabulary::trigger_code(name);
 
-        let code = found.ok_or_else(|| Unpressed::NoTrigger(which.to_string()))?;
+        let code = found.ok_or_else(|| GamepadError::NoTrigger(which.to_string()))?;
 
         let Ok(profile) = self.profile();
 
@@ -384,8 +384,8 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
 
         for step in 1..=steps {
             self.touch_move(Point {
-                across: part(from.across, to.across, step),
-                down: part(from.down, to.down, step),
+                x: part(from.x, to.x, step),
+                y: part(from.y, to.y, step),
             })?;
 
             match seconds > 0.0 {
@@ -398,9 +398,9 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
     }
 
     fn touch_at(&mut self, at: Point<i32>) -> Result<(), Never> {
-        self.devices.emit("touchpad", EventType::ABSOLUTE, 0, at.across, Report::Later)?;
+        self.devices.emit("touchpad", EventType::ABSOLUTE, 0, at.x, Report::Later)?;
 
-        self.devices.emit("touchpad", EventType::ABSOLUTE, 1, at.down, Report::Later)?;
+        self.devices.emit("touchpad", EventType::ABSOLUTE, 1, at.y, Report::Later)?;
 
         self.devices.syn("touchpad")
     }

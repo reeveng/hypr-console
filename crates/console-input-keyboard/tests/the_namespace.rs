@@ -108,13 +108,13 @@ fn the_toggle_aims_at_the_path_the_unit_starts() {
     let path = console_input_keyboard::palette::VIRTUAL_KEYBOARD;
     let toggle = std::path::Path::new("/usr/local/bin/keyboard-toggle");
     assert_eq!(
-        console_input_keyboard::asked::beside(toggle),
+        console_input_keyboard::remote::beside(toggle),
         Ok(std::path::PathBuf::from(path)),
         "a toggle where the manifest installs it does not find {path}, which is what the unit \
          starts"
     );
     assert_eq!(
-        console_input_keyboard::asked::asking(std::path::Path::new(path)),
+        console_input_keyboard::remote::pattern_for(std::path::Path::new(path)),
         Ok(format!("^{path}( |$)")),
         "the two ways of asking do not match {path}, which is what the unit starts"
     );
@@ -161,9 +161,9 @@ fn the_unit_names_the_keyboard_and_not_something_that_starts_it() {
 }
 
 #[test]
-fn the_keyboard_is_furniture() {
+fn the_keyboard_is_a_system_surface() {
     assert!(
-        console_input_controller::mode::FURNITURE.contains(&console_input_controller::mode::KEYBOARD),
-        "the keyboard is not in FURNITURE, so a keyboard over the desktop is read as a window"
+        console_input_controller::mode::SYSTEM_SURFACES.contains(&console_input_controller::mode::KEYBOARD),
+        "the keyboard is not in SYSTEM_SURFACES, so a keyboard over the desktop is read as a window"
     );
 }

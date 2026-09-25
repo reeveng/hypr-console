@@ -2,7 +2,7 @@
 #
 # A picture is chosen by two things: what part of the day it is, worked out
 # from the sun, and what the weather is, asked of a service that wants no
-# account. `console-wallpaper` does the choosing and `wallpaper-press` writes the pictures.
+# account. `console-wallpaper` does the choosing and `wallpaper-render` writes the pictures.
 #
 # The rule for choosing is that the most particular picture wins. A picture
 # that names a part of the day and a weather beats one that names only a part
@@ -18,7 +18,7 @@
 # Every picture in this file is by Abi Toads, who gives them away
 # (abitoads.com/pages/animated-wallpapers, through Wallpaper Engine on Steam).
 # They are fetched rather than kept here: this repository is source, the
-# pictures are somebody else's work, and `console apply` presses them on the
+# pictures are someone else's work, and `console apply` renders them on the
 # device the way it compiles the programs.
 #
 # The addresses are mirrors rather than hers. She publishes through Wallpaper
@@ -36,10 +36,10 @@
 # that does not, and what paid for stopping is now had another way, by not
 # moving at all while a window or a menu is over the picture.
 #
-# `rest_seconds` above zero brings the old behaviour back for one picture: a
+# `rest_seconds` above zero brings the old behavior back for one picture: a
 # still that holds for that long, then a few seconds of movement, then a snap
 # back to the still. It is here because a picture whose every pixel moves costs
-# the same whether anybody is looking at it or not, and this is the setting
+# the same whether anyone is looking at it or not, and this is the setting
 # that buys that back. `seconds` is how long that movement lasts and is ignored
 # by a picture that loops.
 #
@@ -56,13 +56,13 @@ quality = 82
 # --------------------------------------------------------------- the pictures
 #
 # `grade` is how far a picture is brought into this palette. `keep` is how much
-# of the artist's own colour survives, `pull` is how much of the theme's colour
+# of the artist's own color survives, `pull` is how much of the theme's color
 # is laid over it, and `ceiling` is where the picture's brightest point lands,
 # which is what leaves the bar something to be read against. `docs/sky.md` has
 # the argument; the numbers here were chosen by looking at a proof sheet.
 #
 # A green daylight picture takes the pull worst, because a bright green scene in
-# a dark plum theme is a contradiction and pulling it hard turns it grey. Those
+# a dark plum theme is a contradiction and pulling it hard turns it gray. Those
 # keep more of themselves and give up more of their brightness instead.
 
 [[picture]]
@@ -89,7 +89,7 @@ grade = { keep = 0.40, pull = 0.60, floor = 0.0, ceiling = 0.74 }
 #
 # It is also the dearest picture here by some way. A candle flickering across a
 # painted interior moves nearly the whole frame, so the rectangles that make the
-# other pictures cheap buy nothing at all, and it presses larger than anything
+# other pictures cheap buy nothing at all, and it renders larger than anything
 # else in this file. docs/sky.md says what that costs while it is on the screen.
 # If the device ever wants the memory back, this is the line to take out.
 

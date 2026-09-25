@@ -14,7 +14,7 @@
 //! these instead of casting. There is no `as` here either: a float is taken
 //! apart with `f64::to_bits`, which is safe and total, and what follows is
 //! integer arithmetic. So the questions above are answered in one place where
-//! somebody can disagree with the answer, and the answer is checked rather
+//! someone can disagree with the answer, and the answer is checked rather
 //! than asserted -- the tests hold every family against `as` itself, which a
 //! test may write because the lints exempt them.
 //!
@@ -25,7 +25,7 @@
 //!
 //! That is not a softening of the rule, it is what was already happening.
 //! Rust's own `as` from a float to an integer has saturated since 1.45 and
-//! maps NaN to zero, so both families below get that behaviour from the same
+//! maps NaN to zero, so both families below get that behavior from the same
 //! place the call sites got it. The difference is that it now has a name and
 //! this paragraph.
 //!
@@ -48,12 +48,21 @@
 //!
 //! It is also the right answer for what the callers are doing. Nearly all of
 //! them turn a measured proportion into a size -- a percentage of a bar, a
-//! fraction of a screen, a channel of a colour. A number outside the range is
+//! fraction of a screen, a channel of a color. A number outside the range is
 //! a fault further up, and the nearest size that can be drawn is a better
 //! answer to it than refusing to draw at all.
 //!
 //! Where a caller does need to know, it should ask before it converts. The
 //! range is not a secret.
+//!
+//! # Where a `usize` is met
+//!
+//! EXPLICIT051 holds every quantity at a width the source says, and the
+//! standard library measures a list in `usize` whatever the quantity is. This
+//! crate is where the two meet, so it is the one crate that names the width:
+//! `index` hands a held position to a `get`, and `fitted::<_, u32>` takes a
+//! `len()` back to the width it is held at.
+#![cfg_attr(dylint_lib = "explicit051_no_machine_width", allow(explicit051_no_machine_width, reason = "this crate is the one place a quantity meets the width the standard library measures a list in"))]
 
 const SIGN: u64 = 1 << 63;
 const EXPONENT: u64 = 0x7FF;
@@ -63,13 +72,13 @@ const BIAS: u64 = 1023;
 
 use console_core_never::Never;
 
-enum Apart {
+enum Split {
     NotANumber,
     Beyond { negative: bool },
     Whole { magnitude: u64, negative: bool },
 }
 
-fn apart(value: f64) -> Result<Apart, Never> {
+fn apart(value: f64) -> Result<Split, Never> {
     let bits = value.to_bits();
     let negative = bits & SIGN != 0;
     let raw = bits.wrapping_shr(52) & EXPONENT;
@@ -77,49 +86,50 @@ fn apart(value: f64) -> Result<Apart, Never> {
 
     Ok(match raw {
         EXPONENT => match mantissa {
-            0 => Apart::Beyond { negative },
-            _ => Apart::NotANumber,
+            0 => Split::Beyond { negative },
+            _ => Split::NotANumber,
         },
 
-        _ if raw < BIAS => Apart::Whole { magnitude: 0, negative },
+        _ => match raw < BIAS {
+            true => Split::Whole { magnitude: 0, negative },
+            false => {
+                let Ok(shift) = fitted::<u64, u32>(raw.saturating_sub(BIAS));
 
-        _ => {
-            let Ok(shift) = fitted::<u64, u32>(raw.saturating_sub(BIAS));
+                match shift >= 64 {
+                    true => Split::Beyond { negative },
+                    false => {
+                        let significand = IMPLIED | mantissa;
 
-            match shift >= 64 {
-                true => Apart::Beyond { negative },
-                false => {
-                    let significand = IMPLIED | mantissa;
+                        let magnitude = match shift >= 52 {
+                            true => significand.wrapping_shl(shift.saturating_sub(52)),
+                            false => significand.wrapping_shr(52u32.saturating_sub(shift)),
+                        };
 
-                    let magnitude = match shift >= 52 {
-                        true => significand.wrapping_shl(shift.saturating_sub(52)),
-                        false => significand.wrapping_shr(52u32.saturating_sub(shift)),
-                    };
-
-                    Apart::Whole { magnitude, negative }
+                        Split::Whole { magnitude, negative }
+                    }
                 }
             }
-        }
+        },
     })
 }
 
-fn without_sign<T: TryFrom<u64> + Ends>(taken: Apart) -> Result<T, Never> {
+fn without_sign<T: TryFrom<u64> + Ends>(taken: Split) -> Result<T, Never> {
     match taken {
-        Apart::NotANumber => Ok(T::ZERO),
-        Apart::Beyond { negative: true } => Ok(T::LOW),
-        Apart::Beyond { negative: false } => Ok(T::HIGH),
-        Apart::Whole { negative: true, .. } => Ok(T::LOW),
-        Apart::Whole { magnitude, negative: false } => fitted::<u64, T>(magnitude),
+        Split::NotANumber => Ok(T::ZERO),
+        Split::Beyond { negative: true } => Ok(T::LOW),
+        Split::Beyond { negative: false } => Ok(T::HIGH),
+        Split::Whole { negative: true, .. } => Ok(T::LOW),
+        Split::Whole { magnitude, negative: false } => fitted::<u64, T>(magnitude),
     }
 }
 
-fn with_sign<T: TryFrom<i128> + Ends>(taken: Apart) -> Result<T, Never> {
+fn with_sign<T: TryFrom<i128> + Ends>(taken: Split) -> Result<T, Never> {
     match taken {
-        Apart::NotANumber => Ok(T::ZERO),
-        Apart::Beyond { negative: true } => Ok(T::LOW),
-        Apart::Beyond { negative: false } => Ok(T::HIGH),
+        Split::NotANumber => Ok(T::ZERO),
+        Split::Beyond { negative: true } => Ok(T::LOW),
+        Split::Beyond { negative: false } => Ok(T::HIGH),
 
-        Apart::Whole { magnitude, negative } => {
+        Split::Whole { magnitude, negative } => {
             let held = i128::from(magnitude);
 
             fitted::<i128, T>(match negative {
@@ -187,6 +197,14 @@ where
             false => T::LOW,
         },
     })
+}
+
+pub fn index<F>(value: F) -> Result<usize, Never>
+where
+    usize: TryFrom<F>,
+    F: Ends + PartialOrd + Copy,
+{
+    fitted::<F, usize>(value)
 }
 
 pub trait Float {

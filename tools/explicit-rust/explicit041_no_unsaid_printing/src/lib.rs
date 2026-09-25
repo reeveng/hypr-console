@@ -3,9 +3,9 @@
 //! `console-program-contract` is a state, a word in, a new state and a list of
 //! what the program wants done, and that list is already an inventory of every
 //! way a program here touches anything outside itself: `Ask`, `Start`,
-//! `Listen`, `Deafen`, `Write`, `Say`, `Stop` -- and `Print`. Nothing in it
+//! `Listen`, `StopListening`, `Write`, `Say`, `Stop` -- and `Print`. Nothing in it
 //! touches a machine, which is the whole point: `transcript` presses a program
-//! with words and reads back the doings, so what a program does is a value a
+//! with words and reads back the effects, so what a program does is a value a
 //! test can look at rather than an effect a test has to go and observe.
 //!
 //! A `println!` in the middle of that is output the contract never hears
@@ -37,8 +37,8 @@
 //! so on the first reading: five of the seven sites were `Topic`, which is the
 //! event vocabulary rather than the contract, in a waybar module whose whole
 //! output is one line of JSON down a pipe and in the session watcher. Neither
-//! hands a `Doing` to anybody and neither has a transcript to be blind to. So
-//! what is asked for now is the doings themselves, or the trait whose turn
+//! hands a `Effect` to anyone and neither has a transcript to be blind to. So
+//! what is asked for now is the effects themselves, or the trait whose turn
 //! returns them: a crate that names either had somewhere to put the line and
 //! printed beside it instead. This is the same narrowing the rule made about
 //! the stream, one step further in, and it is what leaves the rule with nothing
@@ -58,11 +58,11 @@
 //! What is left is the half that is: stdout is the program's output, the
 //! transcript is what reads a program's output, and a `println!` is the one
 //! spelling of it the transcript cannot see. The runtime is where the allow
-//! belongs -- `console-program-runtime` is what carries `Doing::Print` out, and
+//! belongs -- `console-program-runtime` is what carries `Effect::Print` out, and
 //! something at the bottom has to be the thing that prints.
 //!
 //! What was left after both narrowings is the two lines at the bottom that
-//! carry a `Doing::Print` out, which is the allow the head has always
+//! carry a `Effect::Print` out, which is the allow the head has always
 //! prescribed, so this is denied. Every site it has left to find is a program
 //! handing a person a line that its own test cannot read back.
 #![feature(rustc_private)]
@@ -82,7 +82,7 @@ use rustc_span::Span;
 
 dylint_linting::impl_late_lint! {
     /// EXPLICIT041: a program written to `console_program_contract` hands back
-    /// a list of what it wants done, and `Doing::Print` is on that list. A
+    /// a list of what it wants done, and `Effect::Print` is on that list. A
     /// `println!` beside it is output the transcript cannot see, in a program
     /// whose only test is the transcript.
     pub EXPLICIT041_NO_UNSAID_PRINTING,
@@ -114,8 +114,8 @@ fn is_test_build(cx: &LateContext<'_>) -> bool {
 
 // Naming the crate is not speaking it. `Topic` is the event vocabulary and is
 // named by a bar module and by the session watcher, neither of which hands a
-// `Doing` to anybody; what makes a crate one of these programs is that it names
-// the doings, or the trait whose turn returns them.
+// `Effect` to anyone; what makes a crate one of these programs is that it names
+// the effects, or the trait whose turn returns them.
 fn speaks_the_contract(cx: &LateContext<'_>, named: DefId) -> bool {
     match cx.tcx.crate_name(named.krate).as_str() == "console_program_contract" {
         false => false,
@@ -123,7 +123,7 @@ fn speaks_the_contract(cx: &LateContext<'_>, named: DefId) -> bool {
             .tcx
             .def_path_str(named)
             .split("::")
-            .any(|segment| matches!(segment, "Doing" | "Program")),
+            .any(|segment| matches!(segment, "Effect" | "Program")),
     }
 }
 
@@ -187,11 +187,11 @@ impl<'tcx> LateLintPass<'tcx> for Explicit041NoUnsaidPrinting {
                 ),
                 |said| {
                     said.help(
-                        "hand it back instead: `Doing::Print` is on the list the program returns, the \
+                        "hand it back instead: `Effect::Print` is on the list the program returns, the \
                          runtime carries it out, and `transcript` can then assert what the program said. \
                          A fault or a usage line is a different question and is not this one -- that goes \
                          to stderr, which is the journal, and EXPLICIT038 has already asked it to be a \
-                         type with a sentence. Where this is the thing that carries a `Doing::Print` out, \
+                         type with a sentence. Where this is the thing that carries an `Effect::Print` out, \
                          allow this rule at the site and let the reason say so",
                     );
                 },

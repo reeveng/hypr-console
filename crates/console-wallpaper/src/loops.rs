@@ -18,7 +18,7 @@
 //! the still without the jump being seen, so the slice taken is the one whose
 //! last frame is nearest its first: `stir` measures every candidate and takes
 //! the closest. A loop of frogs bobbing on water has such a stretch in it about
-//! once a cycle, and finding it is cheaper than asking somebody to.
+//! once a cycle, and finding it is cheaper than asking someone to.
 //!
 //! The second is size. Every frame at the size of this screen is four megabytes
 //! before it is compressed, and a picture made of fifty of them is not a
@@ -32,26 +32,26 @@
 
 use console_core_geometry::Size;
 use console_core_never::Never;
-use console_core_number_conversion::{Float, fitted};
+use console_core_number_conversion::{Float, fitted, index};
 
-const THE_FIRST_FRAME: usize = 0;
+const THE_FIRST_FRAME: u32 = 0;
 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Patch {
     pub x: u32,
     pub y: u32,
-    pub wide: u32,
-    pub tall: u32,
+    pub width: u32,
+    pub height: u32,
 }
 
 impl Patch {
     pub fn whole(size: Size<u32>) -> Result<Self, Never> {
-        Ok(Patch { x: 0, y: 0, wide: size.wide, tall: size.tall })
+        Ok(Patch { x: 0, y: 0, width: size.width, height: size.height })
     }
 
     pub fn area(&self) -> Result<u64, Never> {
-        Ok(u64::from(self.wide).saturating_mul(u64::from(self.tall)))
+        Ok(u64::from(self.width).saturating_mul(u64::from(self.height)))
     }
 }
 
@@ -73,23 +73,30 @@ pub fn apart(one: &[u8], other: &[u8]) -> Result<f64, Never> {
     })
 }
 
-pub fn stir(frames: &[Vec<u8>], want: usize) -> Result<(usize, usize), Never> {
-    match frames.len() <= want || want == 0 {
-        true => return Ok((0, frames.len().saturating_sub(1))),
+pub fn stir(frames: &[Vec<u8>], want: u32) -> Result<(u32, u32), Never> {
+    let Ok(many) = fitted::<_, u32>(frames.len());
+
+    match many <= want || want == 0 {
+        true => return Ok((0, many.saturating_sub(1))),
         false => {},
     }
 
-    let gap = |one: &usize| match (frames.get(*one), frames.get(one.saturating_add(want))) {
-        (Some(here), Some(there)) => {
-            let Ok(apart) = apart(here, there);
+    let gap = |one: &u32| {
+        let Ok(here) = index(*one);
+        let Ok(there) = index(one.saturating_add(want));
 
-            apart
+        match (frames.get(here), frames.get(there)) {
+            (Some(here), Some(there)) => {
+                let Ok(apart) = apart(here, there);
+
+                apart
+            }
+            (Some(_), None) | (None, _) => f64::INFINITY,
         }
-        (Some(_), None) | (None, _) => f64::INFINITY,
     };
 
     let closest =
-        (0..frames.len().saturating_sub(want)).min_by(|one, other| gap(one).total_cmp(&gap(other)));
+        (0..many.saturating_sub(want)).min_by(|one, other| gap(one).total_cmp(&gap(other)));
 
     let best = match closest {
         Some(best) => best,
@@ -100,7 +107,7 @@ pub fn stir(frames: &[Vec<u8>], want: usize) -> Result<(usize, usize), Never> {
 }
 
 pub fn changed(before: &[u8], after: &[u8], wide: u32, tolerance: u8) -> Result<Option<Patch>, Never> {
-    let Ok(rows) = fitted::<usize, u32>(before.len().saturating_div(3));
+    let Ok(rows) = fitted::<_, u32>(before.len().saturating_div(3));
 
     let tall = rows.saturating_div(wide.max(1));
     let (mut left, mut right) = (wide, 0u32);
@@ -109,7 +116,7 @@ pub fn changed(before: &[u8], after: &[u8], wide: u32, tolerance: u8) -> Result<
     for row in 0..tall {
         for column in 0..wide {
             let Ok(at) =
-                fitted::<u32, usize>(row.saturating_mul(wide).saturating_add(column).saturating_mul(3));
+                index(row.saturating_mul(wide).saturating_add(column).saturating_mul(3));
             let moved =
                 match (before.get(at..at.saturating_add(3)), after.get(at..at.saturating_add(3))) {
                 (Some(before), Some(after)) => before
@@ -142,24 +149,23 @@ pub fn changed(before: &[u8], after: &[u8], wide: u32, tolerance: u8) -> Result<
     Ok(Some(Patch {
         x,
         y,
-        wide: right.saturating_sub(x).saturating_add(1),
-        tall: bottom.saturating_sub(y).saturating_add(1),
+        width: right.saturating_sub(x).saturating_add(1),
+        height: bottom.saturating_sub(y).saturating_add(1),
     }))
 }
 
 pub fn cut(frame: &[u8], wide: u32, patch: &Patch) -> Result<Vec<u8>, Never> {
     let area = patch.area()?;
 
-    let Ok(room) = fitted(area.saturating_mul(3));
+    let Ok(room) = index(area.saturating_mul(3));
 
     let mut out = Vec::with_capacity(room);
 
-    for row in patch.y..patch.y.saturating_add(patch.tall) {
+    for row in patch.y..patch.y.saturating_add(patch.height) {
         let Ok(from) =
-            fitted::<u32, usize>(row.saturating_mul(wide).saturating_add(patch.x).saturating_mul(3));
-        let Ok(across) = fitted::<u32, usize>(patch.wide.saturating_mul(3));
-
-        let wanted = from.saturating_add(across);
+            index(row.saturating_mul(wide).saturating_add(patch.x).saturating_mul(3));
+        let Ok(wanted) =
+            index(row.saturating_mul(wide).saturating_add(patch.x).saturating_add(patch.width).saturating_mul(3));
 
         match frame.get(from..wanted) {
             Some(row) => out.extend_from_slice(row),
@@ -175,13 +181,14 @@ mod tests {
     use super::*;
 
     fn flat(wide: u32, tall: u32, shade: u8) -> Vec<u8> {
-        vec![shade; (wide * tall * 3) as usize]
+        vec![shade; (wide * tall * 3).try_into().unwrap()]
     }
 
     fn dotted(wide: u32, tall: u32, shade: u8, at: (u32, u32), dot: u8) -> Vec<u8> {
         let mut picture = flat(wide, tall, shade);
-        let index = ((at.1 * wide + at.0) * 3) as usize;
-        picture[index..index + 3].fill(dot);
+        for byte in picture.iter_mut().skip(((at.1 * wide + at.0) * 3).try_into().unwrap()).take(3) {
+            *byte = dot;
+        }
         picture
     }
 
@@ -230,13 +237,13 @@ mod tests {
     fn the_rectangle_is_the_bounds_of_what_moved_on_an_even_corner() {
         let moved = changed(&flat(8, 8, 30), &dotted(8, 8, 30, (5, 3), 200), 8, 0);
 
-        assert_eq!(moved, Ok(Some(Patch { x: 4, y: 2, wide: 2, tall: 2 })));
+        assert_eq!(moved, Ok(Some(Patch { x: 4, y: 2, width: 2, height: 2 })));
     }
 
     #[test]
     fn a_rectangle_cut_out_holds_that_rectangle_and_no_more() {
         let picture = dotted(8, 8, 30, (5, 3), 200);
-        let patch = Patch { x: 4, y: 2, wide: 2, tall: 2 };
+        let patch = Patch { x: 4, y: 2, width: 2, height: 2 };
         let Ok(taken) = cut(&picture, 8, &patch);
 
         assert_eq!(taken.len(), 2 * 2 * 3);

@@ -10,7 +10,7 @@ in.
 **Simple.** One subject per surface. A tab if there are several, a handful of
 rows in each.
 
-**Visual.** A colour, an icon, a bar, a picture. A word where none of those can
+**Visual.** A color, an icon, a bar, a picture. A word where none of those can
 say it, and a sentence only when the word cannot.
 
 **Controller-first.** The d-pad reaches everything on the surface. A takes it, B

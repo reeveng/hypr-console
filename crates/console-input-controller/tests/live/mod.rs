@@ -22,10 +22,10 @@ use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use evdev::{Device, EventType, InputEvent};
+use console_input_event_devices::{Device, EventType, InputEvent};
 use console_input_gamepad::capture::captured;
 use console_input_gamepad::devices::Devices;
-use console_input_gamepad::go::{Held, LegionGo};
+use console_input_gamepad::go::{RecordingClock, LegionGo};
 use console_input_gamepad::router::every_profile;
 use console_input_gamepad::uinput::Uinput;
 
@@ -43,6 +43,8 @@ const INSTEAD: [&str; 8] = [
     "console-screenshot",
     "settings-panel",
 ];
+
+const INSTANCE: &str = "console-live";
 
 const RECORDER: &str = "#!/bin/sh\n\
     {\n\
@@ -63,16 +65,18 @@ pub fn uinput_is_open() -> bool {
 }
 
 fn every_device() -> BTreeSet<PathBuf> {
-    evdev::enumerate().map(|(path, _)| path).collect()
+    Device::every().expect("the devices").into_iter().map(|device| device.path).collect()
 }
 
 fn wait_for(name: &str, since: &BTreeSet<PathBuf>) -> Option<Device> {
     let by = Instant::now() + Duration::from_secs(5);
     while Instant::now() < by {
-        let found = evdev::enumerate()
-            .filter(|(path, _)| !since.contains(path))
-            .find(|(_, device)| device.name() == Some(name));
-        if let Some((_, device)) = found {
+        let found = Device::every()
+            .expect("the devices")
+            .into_iter()
+            .filter(|device| !since.contains(&device.path))
+            .find(|device| device.name.as_deref() == Some(name));
+        if let Some(device) = found {
             return Some(device);
         }
         std::thread::sleep(Duration::from_millis(20));
@@ -93,8 +97,34 @@ fn instead_of_the_desktop(here: &Path) -> PathBuf {
     bin
 }
 
+fn a_compositor_that_writes_down(here: &Path, ran_at: &Path) -> std::io::Result<()> {
+    use std::io::{BufRead, Write};
+    use std::os::unix::net::UnixListener;
+
+    let instance = here.join("hypr").join(INSTANCE);
+    std::fs::create_dir_all(&instance)?;
+    let listener = UnixListener::bind(instance.join(".socket.sock"))?;
+    let ran_at = ran_at.to_path_buf();
+    std::thread::spawn(move || {
+        for asking in listener.incoming() {
+            let Ok(mut asking) = asking else { return };
+            let line = {
+                let mut reading = std::io::BufReader::new(&asking);
+
+                String::from_utf8_lossy(reading.fill_buf().unwrap_or_default()).to_string()
+            };
+            let told = line.strip_prefix('/').unwrap_or(&line).replacen(' ', "\t", 1);
+            if let Ok(mut ran) = std::fs::OpenOptions::new().append(true).open(&ran_at) {
+                let _ = writeln!(ran, "hyprctl\t{told}");
+            }
+            let _ = asking.write_all(b"ok");
+        }
+    });
+    Ok(())
+}
+
 pub struct Running {
-    pub go: LegionGo<Uinput, Held>,
+    pub go: LegionGo<Uinput, RecordingClock>,
     pub out: Option<Device>,
     said: Arc<Mutex<String>>,
     process: Child,
@@ -118,14 +148,18 @@ impl Running {
 
         let Ok(paths) = devices.paths();
         let profiles = every_profile(&root).map_err(|fault| fault.to_string())?;
-        let go = LegionGo::new(profiles, devices, Held::default(), console_input_gamepad::router::NAME)
+        let go = LegionGo::new(profiles, devices, RecordingClock::default(), console_input_gamepad::router::NAME)
             .map_err(|fault| fault.to_string())?;
+
+        a_compositor_that_writes_down(&here, &ran_at).map_err(|fault| fault.to_string())?;
 
         let was = every_device();
         let path = std::env::var("PATH").unwrap_or_default();
         let mut process = Command::new(env!("CARGO_BIN_EXE_controller-desktop"))
             .env("PATH", format!("{}:{path}", instead_of_the_desktop(&here).display()))
             .env("CONSOLE_RAN", &ran_at)
+            .env("XDG_RUNTIME_DIR", &here)
+            .env("HYPRLAND_INSTANCE_SIGNATURE", INSTANCE)
             .env("CONSOLE_PAD", paths.get("pad").cloned().unwrap_or_default())
             .env("CONSOLE_KEYS", paths.get("keyboard").cloned().unwrap_or_default())
             .env("CONSOLE_TOUCHPAD", paths.get("touchpad").cloned().unwrap_or_default())
@@ -173,10 +207,10 @@ impl Running {
         };
         let by = Instant::now() + Duration::from_secs_f64(seconds);
         let mut every = Vec::new();
-        let _ = out.set_nonblocking(true);
+        let _ = out.nonblocking();
         while Instant::now() < by {
-            if let Ok(arrived) = out.fetch_events() {
-                every.extend(arrived.filter(|event| event.event_type() != EventType::SYNCHRONIZATION));
+            if let Ok(arrived) = out.read_events() {
+                every.extend(arrived.into_iter().filter(|event| event.kind != EventType::SYNCHRONIZATION));
             }
             std::thread::sleep(Duration::from_millis(10));
         }
@@ -186,8 +220,8 @@ impl Running {
     pub fn total(&mut self, kind: EventType, code: u16, seconds: f64) -> i32 {
         self.events(seconds)
             .iter()
-            .filter(|event| event.event_type() == kind && event.code() == code)
-            .map(|event| event.value())
+            .filter(|event| event.kind == kind && event.code == code)
+            .map(|event| event.value)
             .sum()
     }
 
@@ -201,7 +235,7 @@ impl Running {
     }
 
     pub fn names(&self) -> Vec<String> {
-        self.commands().into_iter().filter_map(|argv| argv.into_iter().next()).collect()
+        self.commands().into_iter().filter_map(|arguments| arguments.into_iter().next()).collect()
     }
 
     pub fn said(&self) -> String {

@@ -1,0 +1,18 @@
+[package]
+name = "architecture_facts"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+clippy_utils = { workspace = true }
+dylint_linting = { workspace = true }
+
+
+[package.metadata.rust-analyzer]
+rustc_private = true

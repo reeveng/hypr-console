@@ -9,7 +9,7 @@
 # What that leaves behind is the old half of it, and the half that still runs.
 # `bar-clock`, `bar-door`, `bar-notice`, `bar-say` and `bar-updating` are in
 # /usr/local/bin on every machine that ever applied, and a program nothing
-# starts is only harmless until somebody starts it: each of them holds a
+# starts is only harmless until someone starts it: each of them holds a
 # subscription open and prints until it is killed. The two waybar files are
 # worse in the other direction -- they are a whole working bar, and a person who
 # runs `waybar` at a prompt gets a second bar reserving a second zone across the

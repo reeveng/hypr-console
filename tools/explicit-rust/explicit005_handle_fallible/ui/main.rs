@@ -1,5 +1,5 @@
 // UI test for EXPLICIT005 — a `Result` used as a statement is a failure
-// nobody handled.
+// no one handled.
 
 fn fallible() -> Result<i32, ()> {
     Ok(0)

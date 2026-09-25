@@ -1,6 +1,6 @@
-/* Everything this add-on draws over somebody else's page.
+/* Everything this add-on draws over someone else's page.
 
-   There is no colour in it. The names come from palette.css, which is the
+   There is no color in it. The names come from palette.css, which is the
    browser's own palette file copied in whole as this was packed, so a page
    labelled by the pad is labelled in the same pink as the highlight on every
    panel of this desktop.
@@ -49,7 +49,7 @@
 }
 
 /* The ones drawn over the page are smaller than the ones in the bar. The bar
-   has room and is read once; these are drawn thirty at a time over somebody
+   has room and is read once; these are drawn thirty at a time over someone
    else's writing, and a label wider than the link it belongs to is a label
    that has to be worked out rather than read. Small enough to sit on a word,
    large enough to be read at arm's length, and ringed in the dark so it is
@@ -65,8 +65,8 @@
 }
 
 /* The second press of Y, which is the same page offering a different answer.
-   Every label changes colour, so what changed is where the eyes already are
-   rather than in a line along the bottom. Sky is the colour this desktop uses
+   Every label changes color, so what changed is where the eyes already are
+   rather than in a line along the bottom. Sky is the color this desktop uses
    for a link everywhere else. */
 .hint.new { background-color: var(--sky); }
 

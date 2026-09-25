@@ -1,20 +1,20 @@
 //! What the clock says, and the three things that change what it says.
 //!
 //! waybar has a clock of its own and it drew this one until the hour became a
-//! thing somebody chooses. Its format is a line in a file the manifest owns and
+//! thing someone chooses. Its format is a line in a file the manifest owns and
 //! rewrites on every apply, so a panel that wrote a person's choice into it
 //! would be writing into something that puts it back. That is the same argument
 //! the readings along the right are ours for, and the same answer.
 //!
 //! What it waits for is the minute changing, which can be asked without asking
-//! anybody: the wall clock is a number the program already has. `date` is run
+//! anyone: the wall clock is a number the program already has. `date` is run
 //! only when the answer is going to be different, which is once a minute rather
 //! than once a second, because a handheld that spends a process a second on a
 //! clock is a handheld with a shorter afternoon.
 //!
 //! Two other things change the words without changing the minute:
 //! `/etc/localtime`, which is where the zone is, and the file the chosen shape
-//! is kept in. Both are a stat, and both mean somebody has just pressed a row
+//! is kept in. Both are a stat, and both mean someone has just pressed a row
 //! and is looking at the bar to see whether it worked. So what is watched is
 //! all three together, and [`Standing`] is the three of them as one answer.
 
@@ -71,7 +71,7 @@ fn changed(at: &Path) -> Result<Duration, Never> {
 }
 
 fn kept() -> Result<Duration, Never> {
-    let Ok(at) = console_default_applications::where_();
+    let Ok(at) = console_defaults::where_();
 
     match at {
         Some(at) => changed(&at),
@@ -137,7 +137,7 @@ mod tests {
     }
 
     #[test]
-    fn the_clock_is_the_minute_the_zone_and_the_shape_somebody_chose() {
+    fn the_clock_is_the_minute_the_zone_and_the_shape_someone_chose() {
         let Ok(one) = standing();
         let Ok(again) = standing();
 

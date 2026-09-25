@@ -3,7 +3,7 @@
 //! Everything in `messages` is arithmetic and is tested against itself, which
 //! proves the reader and the writer are the same opinion and proves nothing
 //! about whether the opinion is right. A wire format is an agreement with
-//! somebody else, so this takes a name on the session bus that is actually
+//! someone else, so this takes a name on the session bus that is actually
 //! running, has `busctl` call it, and answers -- which puts a second
 //! implementation on the other end of every byte in both directions.
 //!
@@ -15,8 +15,8 @@ use std::process::Command;
 use std::sync::mpsc::{RecvTimeoutError, channel};
 use std::time::Duration;
 
-use console_bus::messages::{Kind, Said};
-use console_bus::talking::{Bus, Got};
+use console_bus::messages::{Kind, Value};
+use console_bus::connection::{Bus, NameRequestResult};
 use console_core_external_programs::Program;
 
 const PATH: &str = "/console/Bus";
@@ -42,7 +42,7 @@ fn a_name_taken_here_is_a_name_the_bus_says_we_have() {
     let named = bus.named().unwrap().to_string();
 
     assert!(named.starts_with(':'), "the bus named this connection {named:?}");
-    assert_eq!(bus.taking("console.Bus.Asked"), Ok(Got::Ours));
+    assert_eq!(bus.taking("console.Bus.Asked"), Ok(NameRequestResult::PrimaryOwner));
 
     let listed = Command::new(Program::Busctl.name().unwrap()).args(["--user", "list"]).output().unwrap();
     let listed = String::from_utf8_lossy(&listed.stdout).to_string();
@@ -51,13 +51,13 @@ fn a_name_taken_here_is_a_name_the_bus_says_we_have() {
 }
 
 #[test]
-fn a_call_from_somebody_else_is_read_and_the_answer_is_read_back() {
+fn a_call_from_someone_else_is_read_and_the_answer_is_read_back() {
     let mut bus = match bus() {
         Some(bus) => bus,
         None => return,
     };
 
-    assert_eq!(bus.taking("console.Bus.Answering"), Ok(Got::Ours));
+    assert_eq!(bus.taking("console.Bus.Answering"), Ok(NameRequestResult::PrimaryOwner));
 
     let (say, heard) = channel();
 
@@ -74,10 +74,10 @@ fn a_call_from_somebody_else_is_read_and_the_answer_is_read_back() {
 
             match (message.kind, message.member.as_deref()) {
                 (Kind::Call, Some("Asked")) => {
-                    let said = message.said.first().and_then(|said| said.saying().unwrap());
+                    let value = message.values.first().and_then(|value| value.text().unwrap());
                     let answer = message.answering().unwrap();
                     let answer = answer
-                        .carrying("s", vec![Said::Word(format!("heard: {}", said.unwrap_or("")))])
+                        .carrying("s", vec![Value::Word(format!("heard: {}", value.unwrap_or("")))])
                         .unwrap();
 
                     let _ = say.send(bus.say(&answer).map(|_| ()).map_err(|why| why.to_string()));
@@ -106,7 +106,7 @@ fn a_call_from_somebody_else_is_read_and_the_answer_is_read_back() {
     let printed = String::from_utf8_lossy(&called.stdout).to_string();
     let complained = String::from_utf8_lossy(&called.stderr).to_string();
 
-    assert!(called.status.success(), "busctl said: {complained}");
+    assert!(called.status.success(), "busctl value: {complained}");
     assert!(printed.contains(HEARD), "busctl read back {printed:?}");
 
     match heard.recv_timeout(Duration::from_secs(10)) {
@@ -124,7 +124,7 @@ fn a_call_with_a_dictionary_in_it_arrives_whole() {
         None => return,
     };
 
-    assert_eq!(bus.taking("console.Bus.Hinted"), Ok(Got::Ours));
+    assert_eq!(bus.taking("console.Bus.Hinted"), Ok(NameRequestResult::PrimaryOwner));
 
     let (say, heard) = channel();
 
@@ -139,7 +139,7 @@ fn a_call_with_a_dictionary_in_it_arrives_whole() {
                 (Kind::Call, Some("Hinted")) => {
                     let answer = message.answering().unwrap();
                     let _ = bus.say(&answer.carrying("", Vec::new()).unwrap());
-                    let _ = say.send(message.said.clone());
+                    let _ = say.send(message.values.clone());
 
                     return;
                 }
@@ -170,18 +170,18 @@ fn a_call_with_a_dictionary_in_it_arrives_whole() {
         .output()
         .unwrap();
 
-    assert!(called.status.success(), "busctl said: {}", String::from_utf8_lossy(&called.stderr));
+    assert!(called.status.success(), "busctl value: {}", String::from_utf8_lossy(&called.stderr));
 
-    let said = match heard.recv_timeout(Duration::from_secs(10)) {
-        Ok(said) => said,
+    let value = match heard.recv_timeout(Duration::from_secs(10)) {
+        Ok(value) => value,
         Err(why) => panic!("the call was never heard: {why}"),
     };
 
-    assert_eq!(said.first().unwrap().saying().unwrap(), Some("Console"));
-    assert_eq!(said.get(2).unwrap(), &Said::Signed32(7));
+    assert_eq!(value.first().unwrap().text().unwrap(), Some("Console"));
+    assert_eq!(value.get(2).unwrap(), &Value::Signed32(7));
 
-    let hints = match said.get(1).unwrap() {
-        Said::List(hints) => hints.clone(),
+    let hints = match value.get(1).unwrap() {
+        Value::List(hints) => hints.clone(),
         other => panic!("the hints came back as {other:?}"),
     };
 
@@ -190,8 +190,8 @@ fn a_call_with_a_dictionary_in_it_arrives_whole() {
     let urgency = hints
         .iter()
         .filter_map(|hint| match hint {
-            Said::Group(pair) => match (pair.first(), pair.get(1)) {
-                (Some(name), Some(value)) => match name.saying().unwrap() {
+            Value::Group(pair) => match (pair.first(), pair.get(1)) {
+                (Some(name), Some(value)) => match name.text().unwrap() {
                     Some("urgency") => value.counted().unwrap(),
                     _ => None,
                 },

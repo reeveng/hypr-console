@@ -46,7 +46,7 @@
 //! said. Of what it found, some were the flat enum it is named for and are
 //! enums now -- a player that is playing, paused or stopped; a button that is
 //! loose, held, shared or already gone; a key drawn pressed, under or plain --
-//! and every one of those lost a combination nobody meant. The rest were
+//! and every one of those lost a combination no one meant. The rest were
 //! fields that really are independent, and each carries the allow with a
 //! sentence saying which different question each field answers. That split is
 //! the rule working either way, and it is why the message says how many fields

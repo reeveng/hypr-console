@@ -1,8 +1,8 @@
 //! L2 and the d-pad move the screen's brightness.
 
-use console_test_stages::checking::{Body, Check, Done, failed, less_than, more_than, same};
-use console_test_stages::device::{Device, PATIENCE};
-use console_test_stages::here::{Here, TURNS};
+use console_test_stages::checking::{Body, Check, CheckResult};
+use console_test_stages::device::{Device, Way};
+use console_test_stages::here::Here;
 
 const UNSAID: &str = "the machine would not say how bright the screen is";
 
@@ -22,67 +22,39 @@ pub const DIMMER: Check = Check {
     bodies: &[Body::Here(dimmer_here), Body::Device(dimmer_there)],
 };
 
-fn brighter_here(stage: &mut Here) -> Done {
+fn brighter_here(stage: &mut Here) -> CheckResult {
     stage.trigger("l2", 1.0)?;
     stage.press("dpad-right")?;
-    let Ok(()) = stage.settle(TURNS);
-    let Ok(commands) = stage.commands();
-    let ran = commands.to_vec();
-
-    same(&ran, &[["/usr/local/bin/console-brightness", "up"]], || format!("it ran {ran:?}"))
+    stage.ran(&[&["/usr/local/bin/console-brightness", "up"]])
 }
 
-fn brighter_there(stage: &mut Device) -> Done {
+fn brighter_there(stage: &mut Device) -> CheckResult {
     stage.trigger("l2", 1.0)?;
 
-    let Ok(started) = stage.brightness();
-    let Ok(()) = stage.press("dpad-left");
-    let Ok(_) = stage.changed(Device::brightness, &started, PATIENCE);
-    let Ok(was) = stage.brightness();
-    let Ok(()) = stage.press("dpad-right");
-    let Ok(_) = stage.changed(Device::brightness, &was, PATIENCE);
+    let Ok(_) = stage.stepped("dpad-left", Device::brightness);
+    let Ok(was) = stage.stepped("dpad-right", Device::brightness);
 
     stage.trigger("l2", 0.0)?;
 
     let Ok(now) = stage.brightness();
 
-    let (was, now) = match (was.told(), now.told()) {
-        (Ok(Some(was)), Ok(Some(now))) => (was, now),
-        (Ok(None) | Err(_), _) | (_, Ok(None) | Err(_)) => return failed(UNSAID.to_string()),
-    };
-
-    more_than(now, was, || format!("it was {was} and is {now}"))
+    now.went(Way::Up, was, UNSAID)
 }
 
-fn dimmer_here(stage: &mut Here) -> Done {
+fn dimmer_here(stage: &mut Here) -> CheckResult {
     stage.trigger("l2", 1.0)?;
     stage.press("dpad-left")?;
-    let Ok(()) = stage.settle(TURNS);
-    let Ok(commands) = stage.commands();
-    let ran = commands.to_vec();
-
-    same(&ran, &[["/usr/local/bin/console-brightness", "down"]], || format!("it ran {ran:?}"))
+    stage.ran(&[&["/usr/local/bin/console-brightness", "down"]])
 }
 
-fn dimmer_there(stage: &mut Device) -> Done {
+fn dimmer_there(stage: &mut Device) -> CheckResult {
     stage.trigger("l2", 1.0)?;
 
-    let Ok(started) = stage.brightness();
-    let Ok(()) = stage.press("dpad-right");
-    let Ok(_) = stage.changed(Device::brightness, &started, PATIENCE);
-    let Ok(was) = stage.brightness();
-    let Ok(()) = stage.press("dpad-left");
-    let Ok(_) = stage.changed(Device::brightness, &was, PATIENCE);
-    let Ok(now) = stage.brightness();
-    let Ok(()) = stage.press("dpad-right");
-    let Ok(_) = stage.changed(Device::brightness, &now, PATIENCE);
+    let Ok(_) = stage.stepped("dpad-right", Device::brightness);
+    let Ok(was) = stage.stepped("dpad-left", Device::brightness);
+    let Ok(now) = stage.stepped("dpad-right", Device::brightness);
 
     stage.trigger("l2", 0.0)?;
 
-    let (was, now) = match (was.told(), now.told()) {
-        (Ok(Some(was)), Ok(Some(now))) => (was, now),
-        (Ok(None) | Err(_), _) | (_, Ok(None) | Err(_)) => return failed(UNSAID.to_string()),
-    };
-
-    less_than(now, was, || format!("it was {was} and is {now}"))
+    now.went(Way::Down, was, UNSAID)
 }

@@ -16,5 +16,8 @@ console-core-external-programs.workspace = true
 console-core-never.workspace = true
 console-core-places.workspace = true
 
+[dev-dependencies]
+console-core-temporary-directories.workspace = true
+
 [lints]
 workspace = true

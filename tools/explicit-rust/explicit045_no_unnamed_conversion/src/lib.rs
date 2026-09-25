@@ -6,14 +6,14 @@
 //! conversion naming neither the type it came from nor the type it becomes
 //! says nothing at the call site, and the reader has to ask the compiler what
 //! happened -- which is the same complaint EXPLICIT011 makes about `as` and
-//! EXPLICIT033 makes about a default nobody wrote down.
+//! EXPLICIT033 makes about a default no one wrote down.
 //!
 //! `Target::from(x)` is the same conversion with the destination on the line,
 //! and it is the one that stops compiling when the target type changes under
 //! it rather than quietly converting to something else.
 //!
 //! Kast took it further than this rule can: there is no implicit coercion at
-//! all, and a cast is a value somebody wrote -- `impl (123 :: Int32) as String`
+//! all, and a cast is a value someone wrote -- `impl (123 :: Int32) as String`
 //! -- so the pair is declared, both halves are named, and `as` retrieves that
 //! declaration instead of inventing one.
 //!

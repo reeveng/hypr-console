@@ -1,7 +1,7 @@
 # The wallpapers
 
 The picture on the screen changes with the hour, the weather and the time of
-year. `crates/console-wallpaper` is all of it: the press that makes a picture,
+year. `crates/console-wallpaper` is all of it: the render that makes a picture,
 and the daemon that decides which one is up.
 
 `theme/sky.toml` is the whole of what a person edits.
@@ -10,10 +10,10 @@ and the daemon that decides which one is up.
 
     console-wallpaper              keep the right picture up
     console-wallpaper --now        put the right one up and stop
-    wallpaper-press               press what the table names and is not here yet
-    wallpaper-press --again       press all of them
-    wallpaper-press --dropped     press what is in Pictures/Wallpapers
-    wallpaper-press --take PATH   press this, wherever it came from
+    wallpaper-render               render what the table names and is not here yet
+    wallpaper-render --again       render all of them
+    wallpaper-render --dropped     render what is in Pictures/Wallpapers
+    wallpaper-render --take PATH   render this, wherever it came from
 
 Settings has a **Wallpaper** tab. It turns following the weather off, picks one
 picture and leaves it, and takes up whatever is in `~/Pictures/Wallpapers`.
@@ -68,7 +68,7 @@ dawn is half past eight in December and five in the morning in June without a
 table of times anywhere. The place is not written down anywhere: `here.rs` takes
 it from the timezone the clock is already keeping, which the timezone database
 already describes the position of. So a machine set up in one country and
-carried to another follows its new sun without anybody editing anything, and no
+carried to another follows its new sun without anyone editing anything, and no
 address is stored to be carried anywhere else. The zone's own city can be a few hundred
 kilometres from the person holding the machine, which moves the bounds of the
 day by minutes and never moves the season at all. The seasons come from the same arithmetic rather than
@@ -106,8 +106,8 @@ water, falling snow and a candle-lit room are a new painting every frame, the
 rectangle is the whole screen, and the daemon can be carrying the better part of
 a gigabyte.
 
-`wallpaper-press` says which is which as it presses, picture by picture, so
-what any one of them costs is a press away rather than a number written down
+`wallpaper-render` says which is which as it renders, picture by picture, so
+what any one of them costs is a render away rather than a number written down
 here to go stale.
 
 Two things make the dear ones affordable. It is given back in full the moment
@@ -120,20 +120,20 @@ one: dropping a share of the frames takes that share off and no more.
 `rest_seconds` is the other lever and a much larger one, and `theme/sky.toml`
 says what it does. Neither is used by anything the machine ships with.
 
-The device presses at 2560x1600, which is the panel through the quarter turn the
+The device renders at 2560x1600, which is the panel through the quarter turn the
 compositor gives it, so nothing is ever resampled. `console-screen` reads that
-out of `hyprland.lua` rather than anybody writing it down twice.
+out of `hyprland.lua` rather than anyone writing it down twice.
 
-Pressing the whole set takes minutes and one core, and grows with the set,
+Rendering the whole set takes minutes and one core, and grows with the set,
 which is why it happens at `console apply` and never on the machine while it is
-in use. A picture already pressed is left alone, so an apply that changes
-nothing about the wallpapers costs nothing; `wallpaper-press --again` is what
-presses them all over.
+in use. A picture already rendered is left alone, so an apply that changes
+nothing about the wallpapers costs nothing; `wallpaper-render --again` is what
+renders them all over.
 
-## Not moving where nobody can see it
+## Not moving where no one can see it
 
 This is the half that pays for the other half. A moving picture behind a window
-costs exactly what one nobody is behind costs, so the movement is put away
+costs exactly what one no one is behind costs, so the movement is put away
 whenever anything is over it: the daemon is handed the still instead, which is
 one frame that lasts for ever, and a daemon holding one frame is a process
 asleep in `poll()` rather than one drawing.
@@ -164,12 +164,12 @@ what is allowed to be **behind** rather than what is allowed in front, and that
 list is two entries long: the wallpaper daemon's own surface, which is the
 wallpaper, and the bar, which is up for as long as the machine is on and would
 otherwise mean the picture never moved at all. A panel written next year is
-counted the day it is written, without anybody remembering to add it.
+counted the day it is written, without anyone remembering to add it.
 
 `journalctl --user -u console-wallpaper -f` and open the settings: it should
 say so.
 
-## Pressing a picture on the Wallpaper tab
+## Choosing a picture on the Wallpaper tab
 
 The tab writes `~/.config/console/sky.toml` and nothing else, which is a file
 being written and is instant. Then it asks `console-wallpaper --now` for one
@@ -183,18 +183,18 @@ Three things stand between the two now.
 
 The pass goes to `Showing::later`, so it runs off the drawing and the tab is
 drawn again when it is over. The corner says what was set going, because a panel
-that looks exactly as it did is a row somebody presses a second time. And
+that looks exactly as it did is a row someone presses a second time. And
 `--now` asks the weather only where the answer could turn on it: a picture
-somebody pinned is that picture in any weather, which `choose::pinned` answers
+someone pinned is that picture in any weather, which `choose::pinned` answers
 without a network, and that takes curl's eight second timeout out of the
-commonest press this tab has.
+most common press this tab has.
 
 What is left is the picture itself. The still goes up first and is one frame, so
 the screen holds the right picture in the moment; the loop over it is decoded
 whole before any of it is drawn, and on a picture the daemon has not seen since
-it was pressed that is the part that can take half a minute.
+it was rendered that is the part that can take half a minute.
 
-Taking up what is in `~/Pictures/Wallpapers` is the other slow press, and it is
+Taking up what is in `~/Pictures/Wallpapers` is the other slow render, and it is
 slow in the same way for a different reason: each picture is decoded, graded,
 cut to this screen and written out again, which is tens of seconds apiece. It
 has always run off the drawing. What is new is that the corner says so and says
@@ -204,29 +204,29 @@ that did nothing.
 ## Bringing a picture into the palette
 
 The artist never heard of this machine, so the pictures arrive in their own
-colours: a river in bright greens, a campfire in olive and brown. The bar sits
-over them in pink on plum, and a picture sharing no colour with the thing
+colors: a river in bright greens, a campfire in olive and brown. The bar sits
+over them in pink on plum, and a picture sharing no color with the thing
 standing on it reads as two pictures.
 
 What is done about it is not a filter chosen by eye. The palette already holds a
 ramp from its darkest ground to its lightest ink, and that ramp has a hue,
 because this whole theme is plum. So a pixel is asked how light it is, the ramp
-is asked what colour the theme is at that lightness, and the two are mixed.
+is asked what color the theme is at that lightness, and the two are mixed.
 
-    keep      how much of the artist's own colour survives
-    pull      how much of the theme's colour is laid over it
+    keep      how much of the artist's own color survives
+    pull      how much of the theme's color is laid over it
     floor     where the picture's black lands. Zero is a real black
     ceiling   where its white lands, as a share of the lightest ink
 
 `ceiling` is the one that matters most and the one worth being brave with. The
 two daylight snow scenes came out as pale fields that the bar could not be read
-against, and it took a ceiling of about a half to make them pictures somebody
+against, and it took a ceiling of about a half to make them pictures someone
 could put a panel on top of.
 
 The mixing happens in Oklab's a and b rather than in hue and chroma. Hue is an
 angle, and the average of two angles is a question with two answers; the average
 of two points on a plane is one point. A green pulled halfway to plum through
-the plane passes through grey, which is what fading a colour out looks like.
+the plane passes through gray, which is what fading a color out looks like.
 Pulled through the angle it would pass through orange, which is what a different
 picture looks like.
 
@@ -237,24 +237,24 @@ repository's rules at ffmpeg's speed.
 
 Try one before writing it down:
 
-    wallpaper-press --try SOURCE 0.35,0.70,0.0,0.68 /tmp/look-at-this.webp
+    wallpaper-render --try SOURCE 0.35,0.70,0.0,0.68 /tmp/look-at-this.webp
 
 A green daylight picture takes the pull worst, because a bright green scene in a
-dark plum theme is a contradiction and pulling it hard turns it grey. Those keep
+dark plum theme is a contradiction and pulling it hard turns it gray. Those keep
 more of themselves and give up more of their brightness instead.
 
 ## Where the pictures come from
 
-Not from this repository. They are somebody else's work, they are twenty
+Not from this repository. They are someone else's work, they are twenty
 megabytes each, and this repository is source: `theme/sky.toml` holds an address
-and the checksum the source had when it was written down, and the device presses
+and the checksum the source had when it was written down, and the device renders
 them the way it compiles the programs.
 
 The checksum is not there to catch a bad download, which curl already refuses.
-It is there because these are fetched from a site that mirrors somebody else's
+It is there because these are fetched from a site that mirrors someone else's
 work, and a picture quietly becoming a different picture is worse than one
 failing to arrive. A mismatch stops that one picture, says both sums, and every
-other picture is pressed as usual.
+other picture is rendered as usual.
 
 Every picture the machine ships with is by **Abi Toads**, who gives them away:
 <https://abitoads.com/pages/animated-wallpapers>, through Wallpaper Engine on
@@ -267,21 +267,21 @@ replace, and are looked in before the set the machine came with.
 
 Not the garden. `console-paper.service` brings the wallpaper daemon up and
 fills the screen with `night`, the deepest ground, and `console-wallpaper`
-paints a picture over that once it has chosen one. So the ground is a colour:
-it is what a machine with no pressed pictures shows, what stays up if
+paints a picture over that once it has chosen one. So the ground is a color:
+it is what a machine with no rendered pictures shows, what stays up if
 `console-wallpaper` will not start at all, and what is on the screen for the
 fraction of a second before the first picture arrives.
 
-The colour is written into the unit by `just theme`, because a systemd unit is
+The color is written into the unit by `just theme`, because a systemd unit is
 a list of literals and can import nothing. It is the fourth file to be written
 into that way and `docs/theme.md` names the other three.
 
 The cherry blossom garden used to be that ground, and being the ground was the
-whole of what it did once the pictures arrived: a hand-drawn scene nobody
-chose, in front of everybody, for a moment at every boot. It stopped being
+whole of what it did once the pictures arrived: a hand-drawn scene no one
+chose, in front of everyone, for a moment at every boot. It stopped being
 that, and then it was a program drawing a picture nothing put up. The program
 is gone -- `git log -- crates/console-garden` -- and what is left of it is the
-two things something else was using: the WebP muxer that presses every picture
+two things something else was using: the WebP muxer that renders every picture
 here is `console_wallpaper::webp` now, and the solved palette is read by
 `console_wallpaper::palette`. The picture itself still ships at
 `/usr/share/backgrounds/console.webp` and `awww img` still paints it, as a
@@ -291,8 +291,8 @@ fixed file that no longer follows the palette.
 
 `docs/theme.md` has the three rungs for a wallpaper that looks wrong, and the
 first one is still the answer most of the time: awww names a cache entry after
-a picture's path and after nothing inside the file, so a picture pressed again
-at the same path is served out of the old one's frames. `wallpaper-press`
+a picture's path and after nothing inside the file, so a picture rendered again
+at the same path is served out of the old one's frames. `wallpaper-render`
 throws that cache away after it writes anything, which is the moment before it
 would matter.
 

@@ -68,6 +68,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
+name = "architecture_facts"
+version = "0.1.0"
+dependencies = [
+ "clippy_utils",
+ "dylint_linting",
+]
+
+[[package]]
 name = "arrayvec"
 version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -776,6 +784,33 @@ dependencies = [
 
 [[package]]
 name = "explicit048_no_unreal_state"
+version = "0.1.0"
+dependencies = [
+ "clippy_utils",
+ "dylint_linting",
+ "dylint_testing",
+]
+
+[[package]]
+name = "explicit049_no_recursion"
+version = "0.1.0"
+dependencies = [
+ "clippy_utils",
+ "dylint_linting",
+ "dylint_testing",
+]
+
+[[package]]
+name = "explicit050_no_long_function"
+version = "0.1.0"
+dependencies = [
+ "clippy_utils",
+ "dylint_linting",
+ "dylint_testing",
+]
+
+[[package]]
+name = "explicit051_no_machine_width"
 version = "0.1.0"
 dependencies = [
  "clippy_utils",

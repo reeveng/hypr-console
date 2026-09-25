@@ -1,0 +1,13 @@
+[Unit]
+Description=Control Center, pulled down from the top edge
+PartOf=console.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/console-control-center
+ExecStopPost=-/usr/local/bin/console-report-crash %n
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=console.target

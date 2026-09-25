@@ -48,7 +48,7 @@ impl<'tcx> LateLintPass<'tcx> for Explicit006OptionNotError {
             return;
         }
         // Only when the receiver really is a `Result`. `.ok()` on anything
-        // else is somebody's own method and none of this rule's business.
+        // else is someone's own method and none of this rule's business.
         let recv_ty = cx.typeck_results().expr_ty_adjusted(receiver);
         if !is_result(cx, recv_ty) {
             return;

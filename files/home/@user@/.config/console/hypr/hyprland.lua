@@ -64,16 +64,15 @@ hl.env("MOZ_ENABLE_WAYLAND", "1")
 -- A browser of the Firefox family makes itself a fresh profile per installation
 -- and records it in profiles.ini under an [Install<hash>] heading, which then
 -- outranks the Default=1 this desktop ships. So the profile named `console` --
--- the one holding the colours, the preferences and this desktop's own add-on --
+-- the one holding the colors, the preferences and this desktop's own add-on --
 -- was written, installed into, and never once opened: the browser had quietly
 -- made itself another one and was running that. This is the switch that turns
--- the behaviour off, and it is the documented one.
+-- the behavior off, and it is the documented one.
 hl.env("MOZ_LEGACY_PROFILES", "1")
 
 -- Qt has no Plasma session here to ask, so without this it chooses a platform
 -- theme of its own and never reads ~/.config/kdeglobals, where this palette is
 -- written for it. "kde" names plasma-integration, the plugin that does read it.
--- kweather is what notices.
 hl.env("QT_QPA_PLATFORMTHEME", "kde")
 
 ------------------------------------------------------------------ look
@@ -109,7 +108,7 @@ hl.config({
         -- whole reason it lasted: nothing in this file mentioned it, so
         -- nothing in this file argued for it. It is the same bargain as an
         -- animation, and the paragraph below refuses that one in as many
-        -- words -- work done every frame for something nobody asked to see.
+        -- words -- work done every frame for something no one asked to see.
         --
         -- It buys nothing on this desktop. Blur shows through what is on top
         -- of it, and nothing here is transparent: every surface in the palette
@@ -118,7 +117,7 @@ hl.config({
         -- anything to see through.
         --
         -- It is also the suspect for the workspace switch, which is what sent
-        -- somebody looking. Switching workspaces showed both of them for a few
+        -- someone looking. Switching workspaces showed both of them for a few
         -- milliseconds, on a desktop with animations off where that should be
         -- one frame to the next. The screen is 144Hz, so "a few milliseconds"
         -- is one frame; blur samples the framebuffer behind a surface, and the
@@ -134,7 +133,7 @@ hl.config({
         -- dark edge drawn to lift a window off what is behind it, and it is
         -- read by seeing it darker than its surroundings. This desktop is dark
         -- first: `night` is #110b12 and the ground behind every window is that
-        -- colour, so a shadow is a dark edge on an almost black field. There
+        -- color, so a shadow is a dark edge on an almost black field. There
         -- is next to nothing to see, and what little there is, is not worth
         -- drawing every frame.
         --
@@ -156,9 +155,9 @@ hl.config({
         force_default_wallpaper = 0,
         disable_hyprland_logo   = true,
         -- What the screen is where no window and no wallpaper covers it.
-        -- Hyprland's own default is a neutral grey, close enough to a
-        -- background that the wallpaper daemon stopped working and nobody
-        -- went looking. Told the palette, the desktop is the right colour
+        -- Hyprland's own default is a neutral gray, close enough to a
+        -- background that the wallpaper daemon stopped working and no one
+        -- went looking. Told the palette, the desktop is the right color
         -- even with nothing painting on it.
         background_color        = blossom.behind,
     },
@@ -169,7 +168,7 @@ hl.config({
     -- process, nothing in the compositor's list of layers, nothing in its list
     -- of windows. The pixels were simply still there, minutes after the thing
     -- that drew them had gone, and the bar above them went on ticking over the
-    -- top. Somebody holding the device pressed every button on it and the
+    -- top. Someone holding the device pressed every button on it and the
     -- picture never changed, which is a machine that looks broken; the buttons
     -- were working the whole time, and the panels they opened and closed were
     -- opening and closing under a photograph of one of them.
@@ -270,13 +269,13 @@ end)
 -- decision rather than filled by the next person to want a shortcut.
 --
 -- What a button does is decided in one table in the controller daemon --
--- crates/console-input-controller/src/means.rs -- and a keyboard is in that
+-- crates/console-input-controller/src/actions.rs -- and a keyboard is in that
 -- table now beside the pad. A job carries a list of what it is bound to and
 -- each of those says which input it is on, so Super and I and the settings
 -- button are two lines of one job rather than a line here and a row over there
 -- that have to be remembered to agree. This file used to carry thirty binds
--- under a comment saying they were the doings the pad already names, reached by
--- somebody whose hands are on keys, which was that table's own argument written
+-- under a comment saying they were the actions the pad already names, reached by
+-- someone whose hands are on keys, which was that table's own argument written
 -- where the table could not see it.
 --
 -- The pad is the daemon's to act on and the keys are not. InputPlumber emits a
@@ -291,7 +290,7 @@ end)
 -- on the setup screen a key moved before the thumb is off the row.
 --
 -- Which of the two carries a press out is worked out from the input the binding
--- is on, and nobody writes it down anywhere. That is the whole of why this file
+-- is on, and no one writes it down anywhere. That is the whole of why this file
 -- has no binds: one written here would be a second place saying what a key
 -- means, and the two would agree right up until the day they did not.
 --
@@ -304,7 +303,7 @@ end)
 -- This file being lua is what a bind has to be written for, and it took a
 -- while to find out. hyprctl keyword is refused by a lua config, in a sentence
 -- that exits zero and does not say error, so the binds were rendered right and
--- taken by nobody for as long as this file has existed. They go through
+-- taken by no one for as long as this file has existed. They go through
 -- hyprctl eval and hl.bind now, and the check asks the compositor what it
 -- holds rather than trusting what was sent.
 --

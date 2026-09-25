@@ -15,14 +15,14 @@ dylint_linting::declare_late_lint! {
     /// promises.
     ///
     /// A lint cannot read "fallible" off a signature, so this reads it off the
-    /// body instead: a function that swallows somebody else's error -- with
+    /// body instead: a function that swallows someone else's error -- with
     /// `unwrap_or`, `unwrap_or_else`, `unwrap_or_default`, `ok`, `is_ok`,
     /// `is_err` -- is a function that has met a failure and decided not to
     /// mention it, and the caller cannot know there was one.
     ///
     /// This used to let a function that returns `Result` swallow anyway, on the
     /// grounds that it had already said it could fail. What that permitted was
-    /// the shape nobody reads twice: a `strip_prefix` that quietly hands back
+    /// the shape no one reads twice: a `strip_prefix` that quietly hands back
     /// the whole path, a clock reading that quietly becomes zero, a file that
     /// could not be read quietly becoming an empty one. Saying somewhere that
     /// you can fail is not the same as saying that you did. Name the other way

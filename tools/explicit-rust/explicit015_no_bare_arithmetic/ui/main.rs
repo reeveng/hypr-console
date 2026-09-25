@@ -29,7 +29,7 @@ fn scales(x: f64) -> f64 {
 }
 
 // GOOD — a negative literal is a number written down and not a subtraction
-// anybody performs; the compiler evaluates it, and a literal past the end of
+// anyone performs; the compiler evaluates it, and a literal past the end of
 // its own type fails the build.
 fn below_zero() -> i32 {
     -1

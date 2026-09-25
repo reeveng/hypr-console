@@ -13,7 +13,7 @@
 //! follows from that: `Err` is unconstructible, so a `match` on the result of
 //! an infallible function has one arm and needs no other, and the error a
 //! caller does not write is a case the compiler agrees cannot arrive rather
-//! than one nobody got round to. `absurd` is the way out where a value has to
+//! than one no one got round to. `absurd` is the way out where a value has to
 //! be produced from an error that was never made.
 //!
 //! **What this crate does not cost.** `Result<T, Never>` is laid out as `T` --
@@ -24,13 +24,15 @@
 //!
 //! **Why it is not `!`.** EXPLICIT003 forbids `Result<T, !>`, and the two
 //! rules are not in disagreement: what 003 is about is a `Result` written with
-//! the primitive never type, which on stable Rust is not a type anybody may
+//! the primitive never type, which on stable Rust is not a type anyone may
 //! write in that position anyway, and which says nothing to a reader about
 //! whether the absence was meant. A name says it. `Never` in a signature reads
 //! as *this cannot fail*, which is a promise; `!` reads as an argument with
 //! the compiler.
 
-use std::fmt;
+#![no_std]
+
+use core::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Never {}
@@ -47,12 +49,15 @@ impl fmt::Display for Never {
     }
 }
 
-impl std::error::Error for Never {}
+impl core::error::Error for Never {}
 
 #[cfg(test)]
 mod tests {
+    extern crate std;
+
     use super::*;
     use std::mem::size_of;
+    use std::string::String;
 
     #[test]
     fn a_result_that_cannot_fail_is_the_size_of_the_value() {
@@ -63,7 +68,7 @@ mod tests {
     }
 
     #[test]
-    fn the_error_arm_is_one_nobody_has_to_write() {
+    fn the_error_arm_is_one_no_one_has_to_write() {
         let answered: Result<u8, Never> = Ok(7);
 
         let Ok(value) = answered;

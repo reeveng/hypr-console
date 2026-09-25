@@ -3,10 +3,10 @@
 //! `pw-record`, libnotify for `notify-send`, libpulse for `pactl` -- and every
 //! one of them worked anyway, because something else on the machine had dragged
 //! it in. A dependency that is only true by accident is true until the day
-//! somebody removes the thing it came with, and then a button does nothing and
+//! someone removes the thing it came with, and then a button does nothing and
 //! there is no terminal in front of the person holding it.  What used to hold
 //! that shut was a table here and a scan of the source under it, and the scan
-//! was a net: it looked for a string literal at the front of an argv and asked
+//! was a net: it looked for a string literal at the front of an arguments and asked
 //! the machine whether a program by that name was installed. It caught what it
 //! could see and missed what it could not, and it once reported `info` -- an
 //! argument to `bluetoothctl` -- as a program the desktop runs. The list is
@@ -14,26 +14,30 @@
 //! nothing here has to guess: the first test below is the whole of what the
 //! table was for, and it reads the enum rather than a copy of it.  The other
 //! two are the ratchet. A program named by a string is a program the enum does
-//! not know about, and a variant nothing reaches for is a package nobody can
+//! not know about, and a variant nothing reaches for is a package no one can
 //! justify. A crate that also has a `console_program_contract::Program` in
-//! scope imports this one as `Theirs`, which is why the scan reads both
+//! scope imports this one as `ExternalProgram`, which is why the scan reads both
 //! spellings.
 //!
 //! The scan used to allow one kind of literal: a program of this tree's own,
 //! on the grounds that `[build]` names it. That was the same unchecked claim
 //! the foreign ones had stopped being, made about a different list, and
-//! `console-core-our-programs` is the list it should have been read off.
+//! `console-core-internal-programs` is the list it should have been read off.
 //! So there are two crossings here now, one per list, and the scan allows
 //! nothing. What it is still worth running for is the targets EXPLICIT036
 //! cannot see: every rule in that suite exempts a test build, and a test that
 //! starts a program by writing its name is a test that passes on the machine
 //! it was written on.
 
+mod reading;
+
+use reading::section;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use console_core_external_programs::{EVERY, Origin};
-use console_core_our_programs::EVERY as EVERY_OF_OURS;
+use console_repository::sources::{Spelled, Word, of_every_crate, spells};
+use console_core_internal_programs::EVERY as EVERY_INTERNAL;
 
 fn root() -> PathBuf {
     let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -44,58 +48,11 @@ fn manifest() -> String {
     std::fs::read_to_string(root().join("desktop.conf")).expect("desktop.conf")
 }
 
-fn section(held: &str, wanted: &str) -> Vec<String> {
-    held.lines()
-        .map(|line| line.split('#').next().unwrap_or("").trim())
-        .filter(|line| !line.is_empty())
-        .fold((Vec::new(), None), |(mut out, at), line| {
-            match line.strip_prefix('[').and_then(|rest| rest.strip_suffix(']')) {
-                Some(name) => (out, Some(name.to_string())),
-                None => {
-                    if at.as_deref() == Some(wanted) {
-                        out.push(line.split_whitespace().next().unwrap_or("").to_string());
-                    }
-                    (out, at)
-                }
-            }
-        })
-        .0
-}
-
 fn sources() -> Vec<PathBuf> {
-    fn walk(at: &Path, into: &mut Vec<PathBuf>) {
-        let entries = match std::fs::read_dir(at) {
-            Ok(entries) => entries,
-            Err(_fault) => return,
-        };
-        for path in entries.flatten().map(|entry| entry.path()) {
-            match path {
-                path if path.is_dir() => walk(&path, into),
-                path if path.extension().is_some_and(|end| end == "rs") => into.push(path),
-                _ => {}
-            }
-        }
-    }
-    let ourself = root().join(file!());
-    let declaring = root().join("crates/console-core-external-programs");
-    let mut found = Vec::new();
-    let crates = match std::fs::read_dir(root().join("crates")) {
-        Ok(crates) => crates,
-        Err(_fault) => return found,
-    };
-    for crate_ in crates.flatten().map(|entry| entry.path()) {
-        match crate_ == declaring {
-            true => continue,
-            false => {},
-        }
+    let (ourself, declaring) = (root().join(file!()), root().join("crates/console-core-external-programs"));
+    let Ok(every) = of_every_crate(&root(), &[&ourself, &declaring]);
 
-        for held in ["src", "tests", "examples"] {
-            walk(&crate_.join(held), &mut found);
-        }
-    }
-    found.retain(|at| at != &ourself);
-    found.sort();
-    found
+    every
 }
 
 fn read() -> Vec<(PathBuf, String)> {
@@ -128,7 +85,7 @@ fn every_package_a_program_comes_from_is_in_the_manifest() {
 #[test]
 fn every_program_of_ours_that_is_run_is_in_the_manifest() {
     let built: BTreeSet<String> = section(&manifest(), "build").into_iter().collect();
-    let missing: Vec<&str> = EVERY_OF_OURS
+    let missing: Vec<&str> = EVERY_INTERNAL
         .iter()
         .map(|ours| {
             let Ok(name) = ours.name();
@@ -147,9 +104,8 @@ fn nothing_starts_a_program_by_writing_its_name() {
     let mut strange: Vec<String> = Vec::new();
 
     for (at, said) in read() {
-        for (found, _) in said.match_indices(&door) {
-            let from = found.saturating_add(door.len());
-            let name = match said.get(from..).and_then(|rest| rest.split('"').next()) {
+        for after in said.split(&door).skip(1) {
+            let name = match after.split('"').next() {
                 Some(name) => name,
                 None => continue,
             };
@@ -161,27 +117,19 @@ fn nothing_starts_a_program_by_writing_its_name() {
     assert!(
         strange.is_empty(),
         "these name a program instead of asking for one: a program this desktop did not write is a \
-         console_core_external_programs::Program and one it did write is a console_core_our_programs::Ours \
+         console_core_external_programs::Program and one it did write is a console_core_internal_programs::InternalProgram \
          -- {strange:?}"
     );
 }
 
-fn said_exactly(said: &str, what: &str) -> bool {
-    said.match_indices(what).any(|(at, _)| {
-        said.get(at.saturating_add(what.len())..)
-            .and_then(|rest| rest.chars().next())
-            .is_none_or(|letter| !letter.is_alphanumeric() && letter != '_')
-    })
-}
-
-const SPELT: [&str; 2] = ["Program", "Theirs"];
+const SPELLED: [&str; 2] = ["Program", "ExternalProgram"];
 
 #[test]
 fn nothing_of_ours_named_here_has_stopped_being_run() {
     let said: String = read().into_iter().map(|(_, said)| said).collect::<Vec<_>>().join("\n");
-    let gone: Vec<&str> = EVERY_OF_OURS
+    let gone: Vec<&str> = EVERY_INTERNAL
         .iter()
-        .filter(|ours| !said_exactly(&said, &format!("{}::{ours:?}", "Ours")))
+        .filter(|ours| spells(&said, Word(&format!("{}::{ours:?}", "InternalProgram"))) == Ok(Spelled::No))
         .map(|ours| {
             let Ok(name) = ours.name();
 
@@ -198,7 +146,7 @@ fn nothing_named_here_has_stopped_being_run() {
     let gone: Vec<&str> = EVERY
         .iter()
         .filter(|program| {
-            !SPELT.iter().any(|spelt| said_exactly(&said, &format!("{spelt}::{program:?}")))
+            !SPELLED.iter().any(|spelled| spells(&said, Word(&format!("{spelled}::{program:?}"))) == Ok(Spelled::Yes))
         })
         .map(|program| {
             let Ok(name) = program.name();

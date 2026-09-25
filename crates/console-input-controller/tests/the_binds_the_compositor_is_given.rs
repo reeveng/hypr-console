@@ -8,14 +8,14 @@
 //! These used to be lines in `hyprland.lua` and this used to be a test that
 //! read that file, counting where a bind sat in it. The file binds nothing now,
 //! so what was worth keeping out of that test is here instead: not where a line
-//! is written, but whether the doing it carries is the one the job promises.
+//! is written, but whether the effect it carries is the one the job promises.
 //! `docs/button-contract.md` is the argument for the move and what it costs.
 
 use console_input_bindings::bound::Input;
 use console_input_bindings::keys;
-use console_input_bindings::moved::Jobs;
-use console_input_controller::binds::{Bind, wanted};
-use console_input_controller::means::{JOBS, Locked, Repeats, Table};
+use console_input_bindings::moved::Tasks;
+use console_input_controller::binds::{KeyBinding, wanted};
+use console_input_controller::actions::{JOBS, LockBehavior, RepeatMode, Table};
 
 fn ok<T>(answer: Result<T, console_core_never::Never>) -> T {
     let Ok(value) = answer;
@@ -23,8 +23,8 @@ fn ok<T>(answer: Result<T, console_core_never::Never>) -> T {
     value
 }
 
-fn every() -> Vec<Bind> {
-    ok(wanted(&ok(Table::of(&ok(Jobs::none())))))
+fn every() -> Vec<KeyBinding> {
+    ok(wanted(&ok(Table::of(&ok(Tasks::none())))))
 }
 
 fn keyed(held: &[&str], pressed: &str) -> String {
@@ -33,7 +33,7 @@ fn keyed(held: &[&str], pressed: &str) -> String {
     ok(keys::bind(&held, pressed)).unwrap_or_else(|| panic!("no key called {pressed}"))
 }
 
-fn on<'a>(every: &'a [Bind], held: &[&str], pressed: &str) -> &'a Bind {
+fn on<'a>(every: &'a [KeyBinding], held: &[&str], pressed: &str) -> &'a KeyBinding {
     let keys = keyed(held, pressed);
 
     every
@@ -54,13 +54,13 @@ fn the_power_key_puts_the_panel_back_and_answers_with_the_screen_locked() {
     );
     assert_eq!(
         power.locked,
-        Locked::EvenThen,
+        LockBehavior::EvenThen,
         "the power key would do nothing with the screen off, which is the whole state it \
          exists for"
     );
     assert_eq!(
         power.repeats,
-        Repeats::Once,
+        RepeatMode::Once,
         "holding the power key would run the undim over and over"
     );
 }
@@ -85,8 +85,8 @@ fn what_a_keyboard_labels_for_itself_is_bound_to_what_the_label_says() {
         );
         assert_eq!(
             bind.locked,
-            Locked::EvenThen,
-            "{pressed} is not answered in the dark, and a level somebody reaches for is \
+            LockBehavior::EvenThen,
+            "{pressed} is not answered in the dark, and a level someone reaches for is \
              reached for in the dark"
         );
     }
@@ -96,11 +96,11 @@ fn what_a_keyboard_labels_for_itself_is_bound_to_what_the_label_says() {
 fn a_level_walks_while_it_is_held_and_a_door_opens_once() {
     let every = every();
 
-    assert_eq!(on(&every, &[], "volume-up").repeats, Repeats::WhileHeld);
-    assert_eq!(on(&every, &[], "brightness-down").repeats, Repeats::WhileHeld);
+    assert_eq!(on(&every, &[], "volume-up").repeats, RepeatMode::WhileHeld);
+    assert_eq!(on(&every, &[], "brightness-down").repeats, RepeatMode::WhileHeld);
     assert_eq!(
         on(&every, &["super"], "b").repeats,
-        Repeats::Once,
+        RepeatMode::Once,
         "holding Super and B would open a browser for as long as the finger is down"
     );
 }
@@ -109,10 +109,9 @@ fn a_level_walks_while_it_is_held_and_a_door_opens_once() {
 fn no_two_jobs_are_handed_the_same_keys() {
     let every = every();
 
-    for (which, bind) in every.iter().enumerate() {
-        let twice = every
-            .iter()
-            .enumerate()
+    for (which, bind) in (0_u32..).zip(&every) {
+        let twice = (0_u32..)
+            .zip(&every)
             .find(|(other, one)| *other != which && one.keys == bind.keys && one.runs != bind.runs);
 
         assert!(

@@ -87,7 +87,7 @@
   /* ------------------------------------------------------------------ paint */
 
   /* Ours is drawn in a shadow root, which is the only way to put something on
-     somebody else's page and be sure their stylesheet cannot reach it and ours
+     someone else's page and be sure their stylesheet cannot reach it and ours
      cannot reach theirs. The two sheets are adopted rather than linked: a page
      with a strict policy about where a stylesheet may come from is entitled to
      that policy, and a constructed sheet is not a fetch it can refuse. */
@@ -253,7 +253,7 @@
      somewhere the pad cannot otherwise reach: the tab strip, the address bar
      and the browser's own menus are all chrome, and chrome is a pointer and a
      small target. They are laid out along the bottom with the labels, so what
-     can be done is on the screen rather than in somebody's memory. */
+     can be done is on the screen rather than in someone's memory. */
   function deeds() {
     return [
       { says: 'Look for something', does: () => raise(searching()) },
@@ -284,9 +284,9 @@
     /* The second press is about links and nothing else. Opening in a new tab
        is the one thing only a link can do, so a label on a button in this mode
        would be a label that lies: taking it would be the ordinary press. That
-       it is fewer things, in another colour, is also how a thumb can see that
+       it is fewer things, in another color, is also how a thumb can see that
        the second press did anything at all -- a mode said in one line at the
-       bottom of the screen is a mode nobody reads while their eyes are on the
+       bottom of the screen is a mode no one reads while their eyes are on the
        labels. */
     const every = mode === 'new' ? pressable().filter(({ el }) => el.closest('a[href]')) : pressable();
     const marks = [];
@@ -339,7 +339,7 @@
   /* Where the labels go, once they are all up and can be measured.
      A label used to be dropped on the top-left corner of its thing and left
      there, which on a nav bar or a paragraph of links put two of them in the
-     same place: unreadable, and belonging to nothing anybody could point at.
+     same place: unreadable, and belonging to nothing anyone could point at.
      So each one hangs above its corner where there is room -- above rather
      than on, so it does not cover the first word of what it is labelling --
      and any that lands on a label already placed is moved on to the next
@@ -375,8 +375,8 @@
   /* The corners a label may have, in the order it would like them.
      A thing with room for one carries it, on its own top-left corner, because
      a label floating in the gap above a row of buttons belongs to both rows as
-     far as anybody looking at it can tell, and the whole point of a label is
-     that nobody has to work out which.
+     far as anyone looking at it can tell, and the whole point of a label is
+     that no one has to work out which.
      A thing without room -- a word in the middle of a sentence -- has it hung
      just above instead, touching the top of the word. A label sitting on a
      word is a word that cannot be read, and above a line of prose there is
@@ -469,7 +469,7 @@
     if (state.standing && !seen(state.standing)) unstand();
     const every = pressable();
     const from = state.standing ? state.standing.getBoundingClientRect() : null;
-    const next = from ? towards(from, every, way) : nearest(every);
+    const next = from ? toward(from, every, way) : nearest(every);
     if (!next) return sail(way);
     state.standing = next;
     let box = root.querySelector('.standing');
@@ -491,7 +491,7 @@
   }
 
   /** The thing that way, which is the near one that is also the aligned one. */
-  function towards(from, every, way) {
+  function toward(from, every, way) {
     const axis = AXIS[way];
     let best = null;
     let cost = Infinity;
@@ -588,7 +588,7 @@
 
   /* The same card the rest of the desktop draws: a list of rows, the one you
      are standing on in pink, and a line at the top to type into. It is the
-     same shape on purpose. Somebody who has used the menu has used this. */
+     same shape on purpose. Someone who has used the menu has used this. */
   async function raise(asked) {
     const root = await surface();
     away();
@@ -609,7 +609,7 @@
       field.type = 'text';
       field.placeholder = asked.typing;
       node.appendChild(field);
-      /* A card with a line to type into is a card somebody came to type into,
+      /* A card with a line to type into is a card someone came to type into,
          so the keyboard comes up with it rather than waiting to be asked. The
          alternative was a surface that had made every decision except the one
          it was drawn for: opening it is already the decision, and the press of
@@ -691,7 +691,7 @@
      here. The engines listed are the engines the browser has, and the one at
      the top is the one this desktop chose on the settings panel's Web tab: an
      engine written down here would be the same choice made twice and wrong
-     the first day somebody changed it. */
+     the first day someone changed it. */
   function searching(standing) {
     return {
       title: 'Look for something',
@@ -759,7 +759,7 @@
   /* ------------------------------------------------------------------ find */
 
   /* The browser's own find, driven from the pad: what was found stays on the
-     screen and the d-pad steps through it, because a match nobody can walk to
+     screen and the d-pad steps through it, because a match no one can walk to
      is a count rather than an answer. */
   async function find(said) {
     const answer = await ask({ say: 'find', query: said });
@@ -818,7 +818,7 @@
 
   /* ------------------------------------------------------------------ going */
 
-  /* B, which is one button and a list, in the order somebody would undo what
+  /* B, which is one button and a list, in the order someone would undo what
      they just did. Having nothing of ours left to put away it goes back a
      page, which is what B says it does everywhere else on this device and
      what, in a browser, Escape has never done. */
@@ -851,7 +851,7 @@
       if (event.altKey || event.ctrlKey || event.metaKey) return;
       if (event.key === 'Escape') {
         /* Escape is the browser's own way out of a video that has the whole
-           screen, and taking that would be taking the way back from somebody
+           screen, and taking that would be taking the way back from someone
            who is already looking at a page with nothing else on it. */
         if (document.fullscreenElement) return;
         swallow(event);
@@ -871,7 +871,7 @@
         return;
       }
       if (state.card) {
-        /* Up and down are the rows; left and right stay the caret's, because
+        /* Up and down are the rows; left and right stay the insertion point's, because
            the line above them is being typed into. */
         if (way === 'u' || way === 'd') {
           swallow(event);
@@ -957,7 +957,7 @@
 
   /* What is drawn over the page is drawn where the page was. Moved, all of it
      is in the wrong place, and a label in the wrong place is worse than none:
-     it is an answer to a question nobody asked. */
+     it is an answer to a question no one asked. */
   let owed = false;
   function moved() {
     if (owed) return;

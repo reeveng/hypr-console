@@ -1,4 +1,4 @@
-//! One subscription per source, and everybody else is told.
+//! One subscription per source, and everyone else is told.
 //!
 //! Every panel and every bar module opens its own `pactl subscribe`, its own
 //! `nmcli monitor`, its own socket to the compositor. Twenty-five orphaned
@@ -20,12 +20,13 @@
 //!   so a panel opening knows the volume before anything changes it. That is
 //!   most of what `console_panel::before` is working around today.
 //! - It **drops a subscriber that has gone**, because a write to a socket
-//!   nobody is holding fails, and that is the moment the subscription ends.
+//!   no one is holding fails, and that is the moment the subscription ends.
 //!   Nothing has to remember anything.
 //!
-//! **A program with no pool is merely slower.** It asks the machine directly,
-//! which is the rule `console-bar`'s tick already keeps. This is a daemon that
-//! can be down, and nothing here may be written as though it cannot be.
+//! **A program with no pool is merely slower.** It asks the machine when it
+//! gets in again, because getting in is itself said as a reason to ask, and
+//! the bar keeps a clock only for what no source says at all. This is a daemon
+//! that can be down, and nothing here may be written as though it cannot be.
 //!
 //! **What is not in it.** It does not parse what a source says. A pool that
 //! understood every source it relays is a pool that has to be changed whenever
@@ -35,11 +36,12 @@
 
 pub mod again;
 pub mod bus;
-pub mod listening;
+pub mod subscription;
 pub mod place;
 pub mod pool;
 pub mod serving;
 pub mod sources;
+pub mod watching;
 pub mod wire;
 
 pub use pool::{Pool, Who};

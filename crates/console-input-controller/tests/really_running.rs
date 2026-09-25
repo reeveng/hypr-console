@@ -11,7 +11,7 @@ mod live;
 
 use console_core_geometry::Point;
 use console_core_external_programs::Program;
-use evdev::{AbsoluteAxisCode, EventType, KeyCode, RelativeAxisCode};
+use console_input_event_devices::{AbsoluteAxisCode, EventType, KeyCode, RelativeAxisCode};
 
 use live::{READS, or_skip};
 
@@ -33,9 +33,9 @@ fn the_right_stick_really_turns_a_wheel() {
         Some(running) => running,
         None => return,
     };
-    running.go.stick("right-stick", Point { across: 0.0, down: -1.0 }).expect("a stick");
+    running.go.stick("right-stick", Point { x: 0.0, y: -1.0 }).expect("a stick");
     let turned = running.total(EventType::RELATIVE, RelativeAxisCode::REL_WHEEL.0, 1.0);
-    running.go.centre("right-stick").expect("a stick");
+    running.go.center("right-stick").expect("a stick");
     assert!(turned > 0, "the wheel did not turn");
 }
 
@@ -45,12 +45,12 @@ fn a_finger_on_the_pad_really_moves_a_pointer() {
         Some(running) => running,
         None => return,
     };
-    running.go.drag(Point { across: 200, down: 300 }, Point { across: 500, down: 300 }, 6, 0.12);
+    running.go.drag(Point { x: 200, y: 300 }, Point { x: 500, y: 300 }, 6, 0.12);
     let moved: Vec<(u16, i32)> = running
         .events(0.4)
         .iter()
-        .filter(|event| event.event_type() == EventType::RELATIVE)
-        .map(|event| (event.code(), event.value()))
+        .filter(|event| event.kind == EventType::RELATIVE)
+        .map(|event| (event.code, event.value))
         .collect();
     let across: i32 =
         moved.iter().filter(|(code, _)| *code == RelativeAxisCode::REL_X.0).map(|(_, v)| v).sum();
@@ -69,12 +69,12 @@ fn a_tap_is_really_a_click() {
         Some(running) => running,
         None => return,
     };
-    running.go.tap(Point { across: 500, down: 500 });
+    running.go.tap(Point { x: 500, y: 500 });
     let clicked: Vec<(u16, i32)> = running
         .events(0.4)
         .iter()
-        .filter(|event| event.event_type() == EventType::KEY)
-        .map(|event| (event.code(), event.value()))
+        .filter(|event| event.kind == EventType::KEY)
+        .map(|event| (event.code, event.value))
         .collect();
     assert_eq!(clicked, [(KeyCode::BTN_LEFT.0, 1), (KeyCode::BTN_LEFT.0, 0)]);
 }
@@ -113,13 +113,14 @@ fn the_emulator_publishes_what_the_capture_says() {
         Some(running) => running,
         None => return,
     };
-    let pad = evdev::enumerate()
-        .map(|(_, device)| device)
-        .find(|device| device.name() == Some("Microsoft X-Box One Elite 2 pad"))
+    let pad = console_input_event_devices::Device::every()
+        .expect("the devices")
+        .into_iter()
+        .find(|device| device.name.as_deref() == Some("Microsoft X-Box One Elite 2 pad"))
         .expect("a pad");
-    let axis = pad.get_absinfo().expect("its axes").find(|(code, _)| *code == AbsoluteAxisCode::ABS_RX);
+    let axis = pad.absolute().expect("its axes").into_iter().find(|(code, _)| *code == AbsoluteAxisCode::ABS_RX);
     let (_, stick) = axis.expect("a right stick");
-    assert_eq!((stick.minimum(), stick.maximum()), (-32768, 32767));
-    assert_eq!(pad.physical_path(), None, "a pad with a physical location is a real one");
+    assert_eq!((stick.minimum, stick.maximum), (-32768, 32767));
+    assert_eq!(pad.physical_path, None, "a pad with a physical location is a real one");
     drop(running);
 }

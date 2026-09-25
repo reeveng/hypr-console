@@ -7,7 +7,7 @@
 //! machine's compositor.
 //!
 //! It is deliberately not written to `console_program_contract` yet. The
-//! contract's loop carries out doings on one thread and this is a program whose
+//! contract's loop carries out effects on one thread and this is a program whose
 //! whole job is holding sockets open, so it wants the thread-per-source shape
 //! the document describes and the contract's loop does not have yet. Writing it
 //! against a runtime that would have to grow for it is how a shared thing gets

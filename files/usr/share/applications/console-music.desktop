@@ -2,7 +2,7 @@
 Type=Application
 Name=Music
 Comment=What there is to play, and what is playing
-Exec=/usr/local/bin/music-panel
+Exec=/usr/local/bin/music
 Icon=multimedia-player
 Terminal=false
 Categories=AudioVideo;Audio;Player;

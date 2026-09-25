@@ -261,8 +261,10 @@ mod tests {
     #[test]
     fn every_add_on_named_here_goes_to_all_of_them() {
         let duckduckgo = engine("duckduckgo");
+
         for place in [&FIREFOX, &LIBREWOLF] {
             let said = policy(place, duckduckgo, "");
+
             for addon in ADDONS.iter() {
                 let held = &said["policies"]["ExtensionSettings"][addon.id];
                 assert_eq!(held["install_url"], addon.from, "{} in {}", addon.says, place.file);
@@ -288,6 +290,7 @@ mod tests {
         let duckduckgo = engine("duckduckgo");
         let dark = ADDONS.iter().find(|addon| addon.says == "Dark Reader").expect("Dark Reader");
         assert_eq!(dark.id, "addon@darkreader.org");
+
         for place in [&FIREFOX, &LIBREWOLF] {
             let said = policy(place, duckduckgo, "");
             assert_eq!(
@@ -327,6 +330,7 @@ mod tests {
     #[test]
     fn nothing_underneath_is_still_a_policy() {
         let duckduckgo = engine("duckduckgo");
+
         for beneath in ["", "not json at all", "[]"] {
             let said = policy(&FIREFOX, duckduckgo, beneath);
             assert_eq!(said["policies"]["SearchEngines"]["Default"], "DuckDuckGo");

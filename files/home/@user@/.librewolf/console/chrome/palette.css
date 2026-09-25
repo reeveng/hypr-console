@@ -1,6 +1,6 @@
 /* Written by console-palette from theme/palette.toml.
    userChrome.css and userContent.css both import this and neither
-   holds a colour of its own. */
+   holds a color of its own. */
 
 :host, :root {
   --night : #110b12;

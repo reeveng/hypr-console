@@ -6,19 +6,19 @@
 //! triggers and the person's own answers -- decides what it comes to.
 //!
 //! There were two of these once, written by hand: one for the desktop and one
-//! for while a chooser was up, three hundred lines each and nearly identical.
+//! for while a picker was up, three hundred lines each and nearly identical.
 //! A button meant one thing in one and another in the other, so opening a menu
 //! swapped them, and every swap destroyed the pad and built a new one --
 //! taking the on-screen keyboard's device and the daemon's with it. Half the
 //! comments in this crate are about that fault. There is one profile now, it
 //! is worn from login to shutdown, and the difference between the desktop and
-//! a chooser is a column in the daemon's own table.
+//! a picker is a column in the daemon's own table.
 //!
 //! Made rather than kept in the tree: what it holds is one device's buttons,
 //! and the tree is what every machine running this desktop has in common. A
 //! handheld with no paddles gets a profile with no paddles in it, and the jobs
 //! that were on them say so on the setup screen instead of being bound to
-//! something nobody can press.
+//! something no one can press.
 //!
 //! The left stick is the one thing here that goes two places, and the reason is
 //! the on-screen keyboard. It moves the pointer, which is the desktop's, and it
@@ -101,9 +101,9 @@ impl Router {
              #\n\
              # Nothing here says what a button means. Every button goes to something the\n\
              # controller daemon can tell from every other button, and what a press comes\n\
-             # to -- on the desktop, with a chooser up, with a trigger held -- is decided\n\
+             # to -- on the desktop, with a picker up, with a trigger held -- is decided\n\
              # in one table there and in one file of this machine owner's own. See\n\
-             # crates/console-input-controller/src/means.rs.\n\
+             # crates/console-input-controller/src/actions.rs.\n\
              #\n\
              # Not a file to edit: it is made again out of the machine on every apply.\n\
              version: 1\n\
@@ -164,7 +164,7 @@ pub fn legion_go() -> Result<BTreeSet<String>, Never> {
 
 #[cfg(feature = "read")]
 impl Router {
-    pub fn profile(&self) -> Result<crate::profile::Profile, crate::Unpressed> {
+    pub fn profile(&self) -> Result<crate::profile::Profile, crate::GamepadError> {
         let Ok(yaml) = self.yaml();
 
         crate::profile::Profile::read(std::path::Path::new(FILE), &yaml)
@@ -174,7 +174,7 @@ impl Router {
 #[cfg(feature = "read")]
 pub fn every_profile(
     root: &std::path::Path,
-) -> Result<std::collections::BTreeMap<String, crate::profile::Profile>, crate::Unpressed> {
+) -> Result<std::collections::BTreeMap<String, crate::profile::Profile>, crate::GamepadError> {
     let mut profiles = crate::profile::load_all(root)?;
 
     let Ok(every) = legion_go();

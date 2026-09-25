@@ -2,14 +2,14 @@
 //!
 //! Here rather than in the panel that offers it or the bar that draws it,
 //! because both of them need the same answer and neither has any business
-//! depending on the other. It is a thing somebody chose, and this is where the
-//! things somebody chose are kept.
+//! depending on the other. It is a thing someone chose, and this is where the
+//! things someone chose are kept.
 //!
 //! The shape is a strftime line rather than a name for a shape, because `date`
-//! is what turns it into words and that is the only vocabulary it has. Nobody
+//! is what turns it into words and that is the only vocabulary it has. NoOne
 //! composes one of these at a call site: there are two, they are both here,
 //! and `says` is what a person is offered instead -- the hour itself, written
-//! both ways, which is the only thing anybody actually wants to compare.
+//! both ways, which is the only thing anyone actually wants to compare.
 
 use console_core_never::Never;
 use console_core_words::Words;
@@ -47,7 +47,7 @@ pub fn read(said: &str) -> Result<Clock, Never> {
 }
 
 pub fn clock() -> Result<Clock, Never> {
-    let told = crate::setting(SETTING)?;
+    let told = console_defaults::setting(SETTING)?;
 
     let said = match told {
         Some(said) => said,
@@ -60,7 +60,7 @@ pub fn clock() -> Result<Clock, Never> {
 pub fn choose(clock: Clock) -> Result<(), Never> {
     let Ok(key) = clock.key();
 
-    crate::set(crate::Setting { key: SETTING, value: key })
+    console_defaults::set(console_defaults::Setting { key: SETTING, value: key })
 }
 
 
@@ -79,7 +79,7 @@ mod tests {
     }
 
     #[test]
-    fn a_machine_nobody_has_told_writes_the_hour_the_way_this_one_always_has() {
+    fn a_machine_no_one_has_told_writes_the_hour_the_way_this_one_always_has() {
         assert_eq!(read(""), Ok(Clock::TwentyFour));
         assert_eq!(read("nonsense"), Ok(Clock::TwentyFour));
         assert_eq!(read("12"), Ok(Clock::Twelve));

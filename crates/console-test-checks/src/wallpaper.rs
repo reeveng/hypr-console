@@ -6,20 +6,20 @@
 //! shows. `console-wallpaper` then paints a picture over it, which is what the
 //! device shows and what the nested desktop has nothing to show.
 //!
-//! A wrong colour here has two causes and they want opposite answers, so a
-//! wrong colour says which. Nothing may have painted at all, or awww may be
+//! A wrong color here has two causes and they want opposite answers, so a
+//! wrong color says which. Nothing may have painted at all, or awww may be
 //! playing an old picture's frames over this one's still, which it will do
 //! whenever a new picture arrives at an old picture's path. The second is the
 //! second rung of the ladder in docs/theme.md, and an afternoon once went at
-//! the encoder for want of somebody saying so.
+//! the encoder for want of someone saying so.
 
 use console_core_geometry::Point;
 use serde::Deserialize;
 use console_core_never::Never;
-use console_test_stages::Awry;
-use console_test_stages::checking::{Body, Check, Done, cannot, same, seen};
+use console_test_stages::Error;
+use console_test_stages::checking::{Body, Check, CheckResult, cannot, same, seen};
 use console_test_stages::desktop::{Desktop, Installed};
-use console_test_stages::device::{A_MOMENT, Device, Seen};
+use console_test_stages::device::{A_MOMENT, Device, Ready};
 
 use crate::Unchecked;
 
@@ -32,7 +32,7 @@ const NOTHING_SAID: &str = "";
 
 const WITHIN: i32 = 4;
 
-const LOOKING: usize = 6;
+const LOOKING: u32 = 6;
 
 pub const WALLPAPER: Check = Check {
     name: "150-the-wallpaper",
@@ -75,36 +75,36 @@ pub fn ground() -> Result<String, Unchecked> {
 
     after
         .and_then(|after| after.rsplit_once("awww clear "))
-        .map(|(_, colour)| colour.trim().to_string())
+        .map(|(_, color)| color.trim().to_string())
         .ok_or_else(|| Unchecked::NoGround(at.clone()))
 }
 
-pub trait Screenful {
-    fn background(&mut self) -> Result<String, Awry>;
+pub trait Viewport {
+    fn background(&mut self) -> Result<String, Error>;
 
-    fn patch(&mut self, at: Point<f64>) -> Result<String, Awry>;
+    fn patch(&mut self, at: Point<f64>) -> Result<String, Error>;
 
     fn frames(&mut self, _picture: &str) -> Result<(Option<i64>, Option<i64>), Never> {
         Ok((None, None))
     }
 }
 
-impl Screenful for Desktop {
-    fn background(&mut self) -> Result<String, Awry> {
+impl Viewport for Desktop {
+    fn background(&mut self) -> Result<String, Error> {
         Desktop::background(self)
     }
 
-    fn patch(&mut self, at: Point<f64>) -> Result<String, Awry> {
+    fn patch(&mut self, at: Point<f64>) -> Result<String, Error> {
         Desktop::patch(self, at)
     }
 }
 
-impl Screenful for Device {
-    fn background(&mut self) -> Result<String, Awry> {
+impl Viewport for Device {
+    fn background(&mut self) -> Result<String, Error> {
         Device::background(self)
     }
 
-    fn patch(&mut self, at: Point<f64>) -> Result<String, Awry> {
+    fn patch(&mut self, at: Point<f64>) -> Result<String, Error> {
         Device::patch(self, at)
     }
 
@@ -127,7 +127,8 @@ pub struct Shades<'a> {
 
 pub fn near(shades: Shades<'_>) -> Result<Shade, Never> {
     let Shades { one, other } = shades;
-    let band = |said: &str, at: usize| {
+    let band = |said: &str, at: u32| {
+        let Ok(at) = console_core_number_conversion::index(at);
         let two = match said.get(at..at.saturating_add(2)) {
             Some(two) => two,
             None => NO_DIGITS_THERE,
@@ -135,7 +136,7 @@ pub fn near(shades: Shades<'_>) -> Result<Shade, Never> {
 
         i32::from_str_radix(two, 16)
     };
-    let alike = (0..3usize).map(|band| band.saturating_mul(2)).all(|at| {
+    let alike = (0..3u32).map(|band| band.saturating_mul(2)).all(|at| {
         match (band(one, at), band(other, at)) {
             (Ok(one), Ok(other)) => one.saturating_sub(other).abs() <= WITHIN,
             _ => false,
@@ -171,7 +172,7 @@ pub fn how_long(seconds: i64) -> Result<String, Never> {
     Ok(format!("{many} {unit}{ending}"))
 }
 
-pub fn or_the_cache(screen: &mut impl Screenful, picture: &str) -> Result<String, Never> {
+pub fn or_the_cache(screen: &mut impl Viewport, picture: &str) -> Result<String, Never> {
     let (frames, drawn) = match screen.frames(picture) {
         Ok((Some(frames), Some(drawn))) => (frames, drawn),
         Ok((None, _)) | Ok((_, None)) | Err(_) => return Ok(String::new()),
@@ -200,7 +201,7 @@ pub fn or_the_cache(screen: &mut impl Screenful, picture: &str) -> Result<String
     })
 }
 
-pub fn grounded(screen: &mut impl Screenful) -> Done {
+pub fn grounded(screen: &mut impl Viewport) -> CheckResult {
     let ground = ground()?;
     let behind = screen.background()?;
     let Ok(near) = near(Shades { one: &behind, other: &ground });
@@ -242,7 +243,7 @@ pub fn showing_a_picture(said: &str, names: &[String]) -> Result<String, Uncheck
     }
 }
 
-fn desktop(stage: &mut Desktop) -> Done {
+fn desktop(stage: &mut Desktop) -> CheckResult {
     let Ok(installed) = stage.installed("awww-daemon");
 
     match installed {
@@ -251,19 +252,19 @@ fn desktop(stage: &mut Desktop) -> Done {
     }
 }
 
-fn device(stage: &mut Device) -> Done {
+fn device(stage: &mut Device) -> CheckResult {
     let names = named()?;
     let Ok(said) = stage.wallpaper();
 
     let picture = showing_a_picture(&said, &names)?;
-    let mut clear = Seen::NotYet;
+    let mut clear = Ready::NotYet;
 
     for _ in 0..LOOKING {
         let Ok(here) = stage.windows_here();
 
         match here == 0 {
             true => {
-                clear = Seen::Yes;
+                clear = Ready::Yes;
                 break;
             }
             false => {}
@@ -284,7 +285,7 @@ fn device(stage: &mut Device) -> Done {
     same(&near, &Shade::Other, || {
         format!(
             "the daemon says it is showing {picture}, but the screen is still #{behind}, which \
-             is the colour the unit fills it with before anything is chosen.{cached}"
+             is the color the unit fills it with before anything is chosen.{cached}"
         )
     })
 }
@@ -294,7 +295,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_colour_the_encoder_moved_is_still_the_colour() {
+    fn a_color_the_encoder_moved_is_still_the_color() {
         assert_eq!(near(Shades { one: "65647f", other: "656580" }), Ok(Shade::Same));
         assert_eq!(near(Shades { one: "65647f", other: "302937" }), Ok(Shade::Other));
     }
@@ -332,7 +333,7 @@ mod tests {
     }
 
     #[test]
-    fn the_ground_is_the_colour_the_unit_fills_the_screen_with() {
+    fn the_ground_is_the_color_the_unit_fills_the_screen_with() {
         let ground = ground().expect("the unit sets one");
         assert_eq!(ground.len(), 6, "{ground:?}");
         assert!(ground.chars().all(|c| c.is_ascii_hexdigit()), "{ground:?}");

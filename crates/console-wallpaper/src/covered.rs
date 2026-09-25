@@ -1,7 +1,7 @@
 //! Whether anything is in front of the wallpaper.
 //!
-//! A moving picture behind a window is a picture nobody is looking at, and it
-//! costs the same as one somebody is. So the movement is put away while there
+//! A moving picture behind a window is a picture no one is looking at, and it
+//! costs the same as one someone is. So the movement is put away while there
 //! is anything over it: the daemon is handed the still instead, which is one
 //! frame that lasts for ever, and that is a process asleep in `poll()` rather
 //! than one drawing.
@@ -29,7 +29,7 @@
 //! It was this crate's own, and it was three names long: the wallpaper daemon,
 //! the bar and the strip under it. The home screen is a layer surface too, it
 //! is transparent, and it is up whenever the workspace holds no window -- which
-//! is every moment somebody can see the wallpaper at all. So this said covered
+//! is every moment someone can see the wallpaper at all. So this said covered
 //! with nothing over it, the daemon was handed the still, and the moving
 //! picture never played. Not a picture that broke: one that was never asked
 //! for, by a list that had not been told the home screen exists.
@@ -40,26 +40,27 @@
 //! daemon's answer again.
 
 
-use console_compositor::Asked;
-use console_compositor::stirred::Stirred;
+use console_compositor::Query;
+use console_compositor::events::CompositorEvent;
 use console_core_never::Never;
 use console_onscreen::{Over, over_the_desktop};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Told {
+pub enum Notified {
     #[default]
     NotYet,
     Already,
 }
 
-pub use console_onscreen::FURNITURE as BEHIND;
+pub use console_onscreen::SYSTEM_SURFACES as BEHIND;
 
-pub fn holds_a_window(activeworkspace: &serde_json::Value) -> Result<Covered, Never> {
-    let Ok(held) = console_compositor::windows(activeworkspace);
-
-    Ok(match held {
-        Some(0) => Covered::No,
-        Some(_held) => Covered::Yes,
+pub fn holds_a_window(front: Option<&console_compositor::Workspace>) -> Result<Covered, Never> {
+    Ok(match front {
+        Some(front) => match front.windows {
+            Some(0) => Covered::No,
+            Some(_held) => Covered::Yes,
+            None => Covered::Yes,
+        },
         None => Covered::Yes,
     })
 }
@@ -70,26 +71,26 @@ pub enum Covered {
     No,
 }
 
-pub fn something_over_it(layers: &serde_json::Value) -> Result<Covered, Never> {
+pub fn something_over_it(layers: &[console_compositor::Layer]) -> Result<Covered, Never> {
     let over = over_the_desktop(layers)?;
 
     Ok(match over {
-        Over::Something => Covered::Yes,
-        Over::Nothing => Covered::No,
+        Over::Some => Covered::Yes,
+        Over::None => Covered::No,
     })
 }
 
-fn asking(question: Asked, told: &mut Told) -> Result<Option<serde_json::Value>, Never> {
-    Ok(match console_compositor::asked(question) {
+fn asking(question: Query, told: &mut Notified) -> Result<Option<console_compositor::Answer>, Never> {
+    Ok(match console_compositor::query(question) {
         Ok(said) => Some(said),
         Err(why) => {
             match *told {
-                Told::NotYet => {
-                    *told = Told::Already;
+                Notified::NotYet => {
+                    *told = Notified::Already;
 
                     eprintln!("{why} -- the picture stays still until it does");
                 }
-                Told::Already => {},
+                Notified::Already => {},
             }
 
             None
@@ -97,15 +98,18 @@ fn asking(question: Asked, told: &mut Told) -> Result<Option<serde_json::Value>,
     })
 }
 
-pub fn now(told: &mut Told) -> Result<Covered, Never> {
-    let Ok(front) = asking(Asked::ActiveWorkspace, told);
-    let Ok(screens) = asking(Asked::Layers, told);
+pub fn now(told: &mut Notified) -> Result<Covered, Never> {
+    let Ok(front) = asking(Query::ActiveWorkspace, told);
+    let Ok(screens) = asking(Query::Layers, told);
 
     match (front, screens) {
-        (Some(workspace), Some(layers)) => {
-            *told = Told::NotYet;
+        (
+            Some(console_compositor::Answer::ActiveWorkspace(workspace)),
+            Some(console_compositor::Answer::Layers(layers)),
+        ) => {
+            *told = Notified::NotYet;
 
-            let window = holds_a_window(&workspace)?;
+            let window = holds_a_window(workspace.as_ref())?;
 
             let over = something_over_it(&layers)?;
 
@@ -114,27 +118,27 @@ pub fn now(told: &mut Told) -> Result<Covered, Never> {
                 false => Covered::No,
             })
         }
-        _ => Ok(Covered::Yes),
+        (_nothing_to_read, _or_the_other_half) => Ok(Covered::Yes),
     }
 }
 
 pub fn worth_waking_for(line: &str) -> Result<Worth, Never> {
-    let stirred = console_compositor::stirred::read(line)?;
+    let stirred = console_compositor::events::read(line)?;
 
     Ok(match stirred {
-        Stirred::WindowOpened(_)
-        | Stirred::WindowClosed(_)
-        | Stirred::WindowMoved
-        | Stirred::WindowFilled
-        | Stirred::LayerOpened
-        | Stirred::LayerClosed
-        | Stirred::WorkspaceChanged => Worth::Waking,
-        Stirred::WindowRenamed(_)
-        | Stirred::WindowFloated
-        | Stirred::WindowPinned
-        | Stirred::ScreenFocused
-        | Stirred::ConfigReloaded
-        | Stirred::Nothing => Worth::Ignoring,
+        CompositorEvent::WindowOpened(_)
+        | CompositorEvent::WindowClosed(_)
+        | CompositorEvent::WindowMoved
+        | CompositorEvent::WindowFilled
+        | CompositorEvent::LayerOpened
+        | CompositorEvent::LayerClosed
+        | CompositorEvent::WorkspaceChanged => Worth::Waking,
+        CompositorEvent::WindowRenamed(_)
+        | CompositorEvent::WindowFloated
+        | CompositorEvent::WindowPinned
+        | CompositorEvent::ScreenFocused
+        | CompositorEvent::ConfigReloaded
+        | CompositorEvent::Ignored => Worth::Ignoring,
     })
 }
 
@@ -152,19 +156,31 @@ mod tests {
         "0":[{"address":"0x1","namespace":"awww-daemon"}],
         "2":[{"address":"0x2","namespace":"console-bar"}]}}}"#;
 
-    fn said(text: &str) -> serde_json::Value {
-        console_compositor::read(text).expect("what hyprctl said")
+    fn front(text: &str) -> Option<console_compositor::Workspace> {
+        match console_compositor::read(console_compositor::Query::ActiveWorkspace, text) {
+            Ok(console_compositor::Answer::ActiveWorkspace(front)) => front,
+            Ok(other) => panic!("the fixture read as {other:?}"),
+            Err(fault) => panic!("the fixture is not json: {fault}"),
+        }
+    }
+
+    fn said(text: &str) -> Vec<console_compositor::Layer> {
+        match console_compositor::read(console_compositor::Query::Layers, text) {
+            Ok(console_compositor::Answer::Layers(layers)) => layers,
+            Ok(other) => panic!("the fixture read as {other:?}"),
+            Err(fault) => panic!("the fixture is not json: {fault}"),
+        }
     }
 
     #[test]
     fn a_workspace_with_a_window_on_it_covers_the_wallpaper() {
-        assert_eq!(holds_a_window(&said(r#"{"id":3,"name":"3","windows":1}"#)), Ok(Covered::Yes));
-        assert_eq!(holds_a_window(&said(r#"{"id":3,"name":"3","windows":2}"#)), Ok(Covered::Yes));
+        assert_eq!(holds_a_window(front(r#"{"id":3,"name":"3","windows":1}"#).as_ref()), Ok(Covered::Yes));
+        assert_eq!(holds_a_window(front(r#"{"id":3,"name":"3","windows":2}"#).as_ref()), Ok(Covered::Yes));
     }
 
     #[test]
     fn an_empty_workspace_does_not() {
-        assert_eq!(holds_a_window(&said(r#"{"id":1,"name":"1","windows":0}"#)), Ok(Covered::No));
+        assert_eq!(holds_a_window(front(r#"{"id":1,"name":"1","windows":0}"#).as_ref()), Ok(Covered::No));
     }
 
     #[test]
@@ -218,7 +234,7 @@ mod tests {
 
     #[test]
     fn a_workspace_that_counts_nothing_is_taken_as_covered() {
-        assert_eq!(holds_a_window(&said(r#"{"id":1}"#)), Ok(Covered::Yes));
+        assert_eq!(holds_a_window(front(r#"{"id":1}"#).as_ref()), Ok(Covered::Yes));
     }
 
     #[test]

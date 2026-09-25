@@ -19,11 +19,11 @@
 //! because what is under `files/` is a path in this repository and these rules
 //! are about paths on a machine. `include_str!` is the case that forced it: the
 //! one crate that reads the compositor's file out of the tree has to spell the
-//! whole name, a macro cannot be handed a directory somebody asked for, and the
+//! whole name, a macro cannot be handed a directory someone asked for, and the
 //! alternative was excusing a crate from a rule it keeps everywhere else.
 //!
 //! `tests/` is deliberately not read. What these rules are about is a program
-//! that stays up for days on a handheld with nobody watching it; a test is
+//! that stays up for days on a handheld with no one watching it; a test is
 //! bounded by the `cargo test` run that started it, and stands a fixture up on
 //! purpose. A `mod tests` inside a `src` file is the same fixture in a
 //! different place, so it is taken out here for the same reason -- and taking
@@ -66,27 +66,15 @@ fn without_the_tree(said: &str) -> String {
 pub fn naming(word: &str, excused: &[&str]) -> Vec<String> {
     sources(excused)
         .into_iter()
-        .filter(|(_, said)| says_the_word(&without_comments(&without_tests(said)), word))
+        .filter(|(_, said)| {
+            console_repository::sources::spells(&without_comments(&without_tests(said)), console_repository::sources::Word(word))
+                == Ok(console_repository::sources::Spelled::Yes)
+        })
         .map(|(at, _)| at.display().to_string())
         .collect()
 }
 
 fn sources(excused: &[&str]) -> Vec<(PathBuf, String)> {
-    fn walk(at: &Path, into: &mut Vec<PathBuf>) {
-        let entries = match std::fs::read_dir(at) {
-            Ok(entries) => entries,
-            Err(_fault) => return,
-        };
-
-        for path in entries.flatten().map(|entry| entry.path()) {
-            match path {
-                path if path.is_dir() => walk(&path, into),
-                path if path.extension().is_some_and(|end| end == "rs") => into.push(path),
-                _ => {}
-            }
-        }
-    }
-
     let mut found = Vec::new();
     let crates = match std::fs::read_dir(root().join("crates")) {
         Ok(crates) => crates,
@@ -101,7 +89,9 @@ fn sources(excused: &[&str]) -> Vec<(PathBuf, String)> {
             false => {}
         }
 
-        walk(&crate_.join("src"), &mut found);
+        let Ok(inside) = console_repository::sources::under(&crate_.join("src"));
+
+        found.extend(inside);
     }
 
     found.sort();
@@ -111,6 +101,22 @@ fn sources(excused: &[&str]) -> Vec<(PathBuf, String)> {
         .collect()
 }
 
+pub fn section(held: &str, wanted: &str) -> Vec<String> {
+    use console_manifest_engine::manifest::{Manifest, Section};
+
+    let Ok(named) = Section::from_name(wanted);
+    let read = Manifest::read(held).expect("the manifest reads");
+
+    match named {
+        Some(section) => {
+            let Ok(entries) = read.of(section);
+
+            entries.to_vec()
+        }
+        None => panic!("{wanted} is not a section the manifest has"),
+    }
+}
+
 const FIXTURES: &str = "#[cfg(test)]\nmod tests {";
 
 fn without_tests(said: &str) -> String {
@@ -118,30 +124,26 @@ fn without_tests(said: &str) -> String {
     let mut rest = said;
 
     loop {
-        let at = match rest.find(FIXTURES) {
-            Some(at) => at,
+        match rest.find(FIXTURES).map(|at| rest.split_at(at)) {
+            Some((before, from)) => {
+                kept.push_str(before);
+
+                rest = past_the_body(from);
+            }
             None => {
                 kept.push_str(rest);
 
                 return kept;
             }
-        };
-
-        match (rest.get(..at), rest.get(at..)) {
-            (Some(before), Some(from)) => {
-                kept.push_str(before);
-
-                rest = past_the_body(from);
-            }
-            _ => return kept,
         }
     }
 }
 
 fn past_the_body(said: &str) -> &str {
-    let mut depth: usize = 0;
+    let mut depth: u32 = 0;
+    let mut letters = said.chars();
 
-    for (at, letter) in said.char_indices() {
+    while let Some(letter) = letters.next() {
         let now = match letter {
             '{' => depth.saturating_add(1),
             '}' => depth.saturating_sub(1),
@@ -149,7 +151,7 @@ fn past_the_body(said: &str) -> &str {
         };
 
         match (letter, now) {
-            ('}', 0) => return said.get(at.saturating_add(1)..).unwrap_or(""),
+            ('}', 0) => return letters.as_str(),
             _ => {}
         }
 
@@ -166,17 +168,3 @@ fn without_comments(said: &str) -> String {
         .join("\n")
 }
 
-fn says_the_word(said: &str, word: &str) -> bool {
-    said.match_indices(word).any(|(at, _)| {
-        let before = said
-            .get(..at)
-            .and_then(|earlier| earlier.chars().next_back())
-            .is_none_or(|letter| !letter.is_alphanumeric() && letter != '_');
-        let after = said
-            .get(at.saturating_add(word.len())..)
-            .and_then(|rest| rest.chars().next())
-            .is_none_or(|letter| !letter.is_alphanumeric() && letter != '_');
-
-        before && after
-    })
-}

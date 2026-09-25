@@ -1,0 +1,11 @@
+[package]
+name = "rename-words"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Renames the words vocabulary.conf retired, one definition at a time"
+
+[dependencies]
+serde_json = "1"
+
+[workspace]

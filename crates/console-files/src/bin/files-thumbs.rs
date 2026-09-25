@@ -11,19 +11,16 @@
 
 use std::path::{Path, PathBuf};
 
+use console_content_types::Table;
 use console_core_external_programs::Program;
+use console_core_never::Never;
+use console_core_places::Base;
 use console_files::listing::{Entry, Worth};
 use console_files::thumbs::{self, SIDE};
-use console_core_never::Never;
-use gtk4::gdk_pixbuf::Pixbuf;
-use gtk4::gio;
-use gtk4::glib;
-use gtk4::prelude::*;
-
-const NOTHING_SAYS_WHAT_IT_IS: &str = "";
-
 
 const INTO_IT: &str = "3";
+
+const THE_START: &str = "0";
 
 fn main() {
     let folder = match std::env::args().nth(1) {
@@ -34,7 +31,16 @@ fn main() {
         }
     };
 
-    let cache = glib::user_cache_dir();
+    let Ok(cache) = Base::Cache.hers();
+
+    let cache = match cache {
+        Some(cache) => cache,
+        None => {
+            eprintln!("files-thumbs: no home, so there is nowhere to keep a picture");
+
+            return;
+        }
+    };
 
     let Ok(store) = thumbs::store(&cache);
 
@@ -58,30 +64,32 @@ fn main() {
 }
 
 fn wanting(folder: &Path, store: &Path) -> Result<Vec<(PathBuf, String)>, Never> {
-    let asked = gio::File::for_path(folder).enumerate_children(
-        "standard::name,standard::type,standard::fast-content-type",
-        gio::FileQueryInfoFlags::NONE,
-        gio::Cancellable::NONE,
-    );
+    let kinds = match Table::here() {
+        Ok(kinds) => kinds,
+        Err(why) => {
+            eprintln!("files-thumbs: nothing says what a file is: {why}");
 
-    let children = match asked {
+            Table::default()
+        }
+    };
+
+    let children = match std::fs::read_dir(folder) {
         Ok(children) => children,
-        Err(_fault) => return Ok(Vec::new()),
+        Err(_nothing_to_walk) => return Ok(Vec::new()),
     };
 
     let mut wanting: Vec<(PathBuf, String)> = Vec::new();
 
     for about in children.flatten() {
+        let path = about.path();
+        let Ok(kind) = console_content_types::of(&kinds, &path);
+
         let entry = Entry {
-            folder: about.file_type() == gio::FileType::Directory,
-            kind: match about.attribute_string("standard::fast-content-type") {
-                Some(kind) => kind.to_string(),
-                None => NOTHING_SAYS_WHAT_IT_IS.to_string(),
-            },
+            folder: path.is_dir(),
+            kind,
             name: String::new(),
             size: 0,
         };
-        let path = folder.join(about.name());
         let worth = entry.worth_a_picture()?;
         let found = thumbs::found(store, &path)?;
 
@@ -111,42 +119,33 @@ fn made(thing: &Path, kind: &str, store: &Path) -> Result<(), Never> {
 
     let part = kept.with_extension("part.png");
 
-    let drawn = match kind.starts_with("video/") {
-        true => from_a_film(thing, &part)?,
-        false => from_a_photograph(thing, &part, &address)?,
+    let into_it: &[Option<&str>] = match kind.starts_with("video/") {
+        true => &[Some(INTO_IT), Some(THE_START)],
+        false => &[None],
     };
+
+    let drawn = drawn(thing, &part, into_it)?;
 
     match drawn {
         Made::APicture => {
-            let _ = std::fs::rename(&part, &kept);
+            let Ok(changed) = changed_at(thing);
+            let Ok(stamped) = stamped(&part, thumbs::Stamp { address: &address, changed: &changed });
+
+            match stamped {
+                Made::APicture => {
+                    let _ = std::fs::rename(&part, &kept);
+                }
+                Made::None => {
+                    let _ = std::fs::remove_file(&part);
+                }
+            }
         }
-        Made::Nothing => {
+        Made::None => {
             let _ = std::fs::remove_file(&part);
         }
     }
 
     Ok(())
-}
-
-fn from_a_photograph(thing: &Path, part: &Path, address: &str) -> Result<Made, Never> {
-    let picture = match Pixbuf::from_file_at_scale(thing, SIDE, SIDE, true) {
-        Ok(picture) => picture,
-        Err(_fault) => return Ok(Made::Nothing),
-    };
-
-    let changed = changed_at(thing)?;
-
-    Ok(match picture.savev(part, "png", &[
-        ("tEXt::Thumb::URI", address),
-        ("tEXt::Thumb::MTime", &changed),
-    ]) {
-        Ok(()) => Made::APicture,
-
-        Err(fault) => {
-            eprintln!("files-thumbs: {}: writing the picture: {fault}", part.display());
-            Made::Nothing
-        }
-    })
 }
 
 fn changed_at(thing: &Path) -> Result<String, Never> {
@@ -171,15 +170,31 @@ fn changed_at(thing: &Path) -> Result<String, Never> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Made {
     APicture,
-    Nothing,
+    None,
 }
 
-fn from_a_film(thing: &Path, part: &Path) -> Result<Made, Never> {
-    for at in [INTO_IT, "0"] {
+#[cfg_attr(
+    dylint_lib = "explicit029_no_asking_per_item",
+    allow(
+        explicit029_no_asking_per_item,
+        reason = "the list is where in a film to look, and each try runs only when the one before it drew nothing: ffmpeg cannot be asked for a second seek when the first lands past the end"
+    )
+)]
+fn drawn(thing: &Path, part: &Path, into_it: &[Option<&str>]) -> Result<Made, Never> {
+    for at in into_it {
         let Ok(mut asking) = Program::Ffmpeg.command();
 
+        asking.args(["-loglevel", "error", "-y"]);
+
+        match at {
+            Some(at) => {
+                asking.args(["-ss", at]);
+            }
+            None => {},
+        }
+
         let done = asking
-            .args(["-loglevel", "error", "-y", "-ss", at, "-i"])
+            .arg("-i")
             .arg(thing)
             .args(["-frames:v", "1", "-vf", &format!("scale={SIDE}:{SIDE}:force_original_aspect_ratio=decrease")])
             .arg(part)
@@ -191,5 +206,37 @@ fn from_a_film(thing: &Path, part: &Path) -> Result<Made, Never> {
         }
     }
 
-    Ok(Made::Nothing)
+    Ok(Made::None)
+}
+
+fn stamped(part: &Path, stamp: thumbs::Stamp<'_>) -> Result<Made, Never> {
+    let png = match std::fs::read(part) {
+        Ok(png) => png,
+        Err(fault) => {
+            eprintln!("files-thumbs: {}: {fault}", part.display());
+
+            return Ok(Made::None);
+        }
+    };
+
+    let said = thumbs::stamped(&png, stamp)?;
+
+    let said = match said {
+        Some(said) => said,
+        None => {
+            eprintln!("files-thumbs: {}: this is not the PNG ffmpeg was asked for", part.display());
+
+            return Ok(Made::None);
+        }
+    };
+
+    Ok(match console_core_atomic_writes::whole(part, &said) {
+        Ok(()) => Made::APicture,
+
+        Err(fault) => {
+            eprintln!("files-thumbs: {}: writing the picture: {fault}", part.display());
+
+            Made::None
+        }
+    })
 }

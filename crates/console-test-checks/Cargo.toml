@@ -14,6 +14,9 @@ name = "console-check"
 path = "src/bin/console-check.rs"
 
 [dependencies]
+console-core-temporary-directories.workspace = true
+console-architecture.workspace = true
+console-awake.workspace = true
 console-core-atomic-writes.workspace = true
 console-input-gamepad.workspace = true
 console-home-screen.workspace = true
@@ -30,8 +33,8 @@ console-compositor.workspace = true
 console-input-bindings.workspace = true
 console-input-controller.workspace = true
 # The bus name, the object and the interface are the player's own words. This
-# check spelled kew's for as long after the swap as it took somebody to run it,
-# and busctl answers a name nobody holds with "not activatable" rather than
+# check spelled kew's for as long after the swap as it took someone to run it,
+# and busctl answers a name no one holds with "not activatable" rather than
 # with the name it was asked for.
 console-music-player.workspace = true
 # The strip under the bar reads how far along the long thing is out of one
@@ -51,9 +54,18 @@ console-resume.workspace = true
 console-settings.workspace = true
 console-waiting.workspace = true
 console-onscreen.workspace = true
+console-events.workspace = true
+console-repository.workspace = true
 console-panel.workspace = true
 console-test-stages.workspace = true
-evdev = "0.13"
+console-response-times.workspace = true
+console-input-event-devices.workspace = true
+# Where the dots stand on a screen of a given size, and how the pattern they
+# spell is read back, so a stroke the check draws lands where the greeter
+# draws them and what it kept is read the way the login window reads it.
+console-login-greeter.workspace = true
+console-login-pattern.workspace = true
+console-login-window.workspace = true
 serde = { version = "1", features = ["derive"] }
 toml = { version = "0.9", default-features = false, features = ["parse", "serde"] }
 

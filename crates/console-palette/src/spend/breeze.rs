@@ -1,4 +1,4 @@
-//! The names Breeze GTK asks for, and which of our colours each one wants.
+//! The names Breeze GTK asks for, and which of our colors each one wants.
 //!
 //! Left alone this list is written by Plasma's settings, which this machine
 //! does not run, so it sat a whole flavour behind everything else on screen.
@@ -80,7 +80,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_name_breeze_reads_has_a_colour_decided_for_it() {
+    fn every_name_breeze_reads_has_a_color_decided_for_it() {
         let undecided: Vec<&str> = NAMES
             .iter()
             .copied()
@@ -90,7 +90,7 @@ mod tests {
                 role.is_none()
             })
             .collect();
-        assert!(undecided.is_empty(), "no colour decided for {undecided:?}");
+        assert!(undecided.is_empty(), "no color decided for {undecided:?}");
     }
 
     #[test]
@@ -100,19 +100,19 @@ mod tests {
     }
 
     #[test]
-    fn greyed_out_text_is_soft_and_stays_readable() {
+    fn grayed_out_text_is_soft_and_stays_readable() {
         assert_eq!(role("theme_button_foreground_insensitive"), Ok(Some("soft")));
         assert_eq!(role("theme_button_foreground_normal"), Ok(Some("text")));
     }
 
     #[test]
-    fn a_greyed_out_fill_is_still_the_fill() {
+    fn a_grayed_out_fill_is_still_the_fill() {
         assert_eq!(role("insensitive_bg_color"), Ok(Some("panel")));
         assert_eq!(role("insensitive_selected_bg_color"), Ok(Some("pink")));
     }
 
     #[test]
-    fn a_name_nobody_wrote_a_rule_for_answers_nothing() {
+    fn a_name_no_one_wrote_a_rule_for_answers_nothing() {
         assert_eq!(role("some_name_from_a_later_breeze"), Ok(None));
     }
 

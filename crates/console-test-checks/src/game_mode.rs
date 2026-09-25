@@ -18,10 +18,10 @@
 //! `pgrep -x` matches on `comm`, which is fifteen bytes, so the daemon is asked
 //! for under the name the kernel will have cut it to. A pattern longer than
 //! that matches nothing and says nothing about why -- which here would have
-//! read as a daemon that cannot become root rather than as a question nobody
+//! read as a daemon that cannot become root rather than as a question no one
 //! answered.
 
-use console_test_stages::checking::{Body, Check, Done, same};
+use console_test_stages::checking::{Body, Check, CheckResult, same};
 use console_test_stages::device::{Device, comm};
 use console_test_stages::here::{Here, TURNS};
 
@@ -38,7 +38,7 @@ pub const GAME_MODE: Check = Check {
 
 const DAEMON: &str = "controller-desktop";
 
-fn here(stage: &mut Here) -> Done {
+fn here(stage: &mut Here) -> CheckResult {
     stage.press("legion-left")?;
     let Ok(()) = stage.settle(TURNS);
     let Ok(ran) = stage.names();
@@ -46,7 +46,7 @@ fn here(stage: &mut Here) -> Done {
     same(&ran, &["session-game"], || format!("it ran {ran:?}"))
 }
 
-fn there(stage: &mut Device) -> Done {
+fn there(stage: &mut Device) -> CheckResult {
     let Ok(named) = comm(DAEMON);
     let Ok(said) =
         stage.user(&format!("grep NoNewPrivs /proc/$(pgrep -x {named})/status || true"));

@@ -8,5 +8,8 @@ license.workspace = true
 [dependencies]
 console-core-never.workspace = true
 
+[dev-dependencies]
+console-core-temporary-directories.workspace = true
+
 [lints]
 workspace = true

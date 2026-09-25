@@ -28,14 +28,14 @@
 use std::path::PathBuf;
 
 use console_core_never::Never;
-use console_program_contract::{Argv, Doing, Opening, Program, Runs, Turn, Word};
+use console_program_contract::{Arguments, Effect, Initial, Program, Command, Update, Event};
 
 use crate::kinds::Kind;
 use crate::playing::{self, Along, Captions, Running};
 use crate::reel::{Reel, Shot, Stood};
-use crate::waking::{self, Awake};
+use crate::waking::{self, Woken};
 
-pub const FILES: &str = "files-panel";
+pub const FILES: &str = "files";
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Watching {
@@ -43,9 +43,9 @@ pub struct Watching {
     pub along: Along,
     pub running: Running,
     pub sought: Option<u64>,
-    pub speed: usize,
+    pub speed: u32,
     pub captions: Captions,
-    pub tracks: usize,
+    pub tracks: u32,
     pub stirred: Since,
 }
 
@@ -84,30 +84,30 @@ impl Watching {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Heard {
-    Stepped { by: isize, at: Since },
+pub enum ViewerEvent {
+    Stepped { by: i32, at: Since },
     StoodOn { name: String, at: Since },
     Listed { listing: Vec<(String, String)>, at: Since },
     Scrubbed { by: i32, at: Since },
     SoughtTo { fraction: f64, at: Since },
     Running(Since),
-    Speed { which: usize, at: Since },
-    Words { which: usize, at: Since },
-    Tracks(usize),
+    Speed { which: u32, at: Since },
+    Text { which: u32, at: Since },
+    Tracks(u32),
     Where { at: u64, whole: u64 },
-    Stirred(Since),
+    WakeOutcome(Since),
     Shown(PathBuf),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Its {
+pub enum ViewerEffect {
     Refresh,
     TurnToTheCard,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Stirred {
-    Awake,
+pub enum WakeOutcome {
+    AlreadyAwake,
     Woke,
 }
 
@@ -115,64 +115,64 @@ pub struct Watch;
 
 impl Program for Watch {
     type State = Watching;
-    type Hears = Heard;
-    type Does = Its;
+    type Event = ViewerEvent;
+    type Effect = ViewerEffect;
 
-    fn opening(_argv: &Argv) -> Opening<Watching> {
+    fn init(_argv: &Arguments) -> Initial<Watching> {
         let Ok(watching) = Watching::of(Reel::default(), Since::ZERO);
-        let Ok(opening) = Opening::holding(watching);
+        let Ok(opening) = Initial::new(watching);
 
         opening
     }
 
-    fn heard(state: &Watching, word: &Word<Heard>) -> Turn<Watching, Its> {
-        let heard = match word {
-            Word::Its(heard) => heard,
-            Word::Opened
-            | Word::Changed(_)
-            | Word::CameRound(_, _)
-            | Word::Answered(_)
-            | Word::Chose(_)
-            | Word::Stopping => {
-                let Ok(nothing) = Turn::nothing(state.clone());
+    fn update(state: &Watching, event: &Event<ViewerEvent>) -> Update<Watching, ViewerEffect> {
+        let heard = match event {
+            Event::Custom(heard) => heard,
+            Event::Opened
+            | Event::Changed(_)
+            | Event::Tick(_, _)
+            | Event::Replied(_)
+            | Event::Chosen(_)
+            | Event::Stopping => {
+                let Ok(nothing) = Update::none(state.clone());
 
                 return nothing;
             }
         };
 
         let Ok(turn) = match heard {
-            Heard::Stepped { by, at } => {
+            ViewerEvent::Stepped { by, at } => {
                 let mut reel = state.reel.clone();
 
                 let Ok(()) = reel.step(*by);
                 let Ok(rewound) = state.rewound();
 
-                Turn::doing(
+                Update::new(
                     Watching { reel, stirred: *at, ..rewound },
-                    vec![Doing::Its(Its::Refresh)],
+                    vec![Effect::Custom(ViewerEffect::Refresh)],
                 )
             }
 
-            Heard::StoodOn { name, at } => {
+            ViewerEvent::StoodOn { name, at } => {
                 let mut reel = state.reel.clone();
 
                 let Ok(_) = reel.stand_on(name);
                 let Ok(rewound) = state.rewound();
 
-                Turn::doing(
+                Update::new(
                     Watching { reel, stirred: *at, ..rewound },
-                    vec![Doing::Its(Its::TurnToTheCard)],
+                    vec![Effect::Custom(ViewerEffect::TurnToTheCard)],
                 )
             }
 
-            Heard::Listed { listing, at } => relisted(state, listing, *at),
+            ViewerEvent::Listed { listing, at } => relisted(state, listing, *at),
 
-            Heard::Scrubbed { by, at } => {
+            ViewerEvent::Scrubbed { by, at } => {
                 let Ok(step) = console_core_number_conversion::fitted(playing::STEP);
                 let step = i64::from(*by).saturating_mul(step);
                 let Ok(along) = state.along.moved(step);
 
-                Turn::nothing(Watching {
+                Update::none(Watching {
                     along,
                     sought: Some(along.at),
                     stirred: *at,
@@ -180,50 +180,50 @@ impl Program for Watch {
                 })
             }
 
-            Heard::SoughtTo { fraction, at } => {
+            ViewerEvent::SoughtTo { fraction, at } => {
                 let Ok(along) = state.along.sought(*fraction);
 
-                Turn::doing(
+                Update::new(
                     Watching { along, sought: Some(along.at), stirred: *at, ..state.clone() },
-                    vec![Doing::Its(Its::Refresh)],
+                    vec![Effect::Custom(ViewerEffect::Refresh)],
                 )
             }
 
-            Heard::Running(at) => {
+            ViewerEvent::Running(at) => {
                 let Ok(other) = state.running.other();
 
-                Turn::doing(
+                Update::new(
                     Watching { running: other, stirred: *at, ..state.clone() },
-                    vec![Doing::Its(Its::Refresh)],
+                    vec![Effect::Custom(ViewerEffect::Refresh)],
                 )
             }
 
-            Heard::Speed { which, at } => {
-                Turn::nothing(Watching { speed: *which, stirred: *at, ..state.clone() })
+            ViewerEvent::Speed { which, at } => {
+                Update::none(Watching { speed: *which, stirred: *at, ..state.clone() })
             }
 
-            Heard::Words { which, at } => {
+            ViewerEvent::Text { which, at } => {
                 let Ok(chosen) = Captions::chosen(*which);
 
-                Turn::nothing(Watching { captions: chosen, stirred: *at, ..state.clone() })
+                Update::none(Watching { captions: chosen, stirred: *at, ..state.clone() })
             }
 
-            Heard::Tracks(tracks) => {
-                Turn::nothing(Watching { tracks: *tracks, ..state.clone() })
+            ViewerEvent::Tracks(tracks) => {
+                Update::none(Watching { tracks: *tracks, ..state.clone() })
             }
 
-            Heard::Where { at, whole } => {
+            ViewerEvent::Where { at, whole } => {
                 let along = Along { at: *at, whole: *whole };
 
-                Turn::nothing(Watching { along, ..state.clone() })
+                Update::none(Watching { along, ..state.clone() })
             }
 
-            Heard::Stirred(at) => Turn::nothing(Watching { stirred: *at, ..state.clone() }),
+            ViewerEvent::WakeOutcome(at) => Update::none(Watching { stirred: *at, ..state.clone() }),
 
-            Heard::Shown(at) => {
-                let Ok(files) = Runs::ours(FILES, &[&at.to_string_lossy()]);
+            ViewerEvent::Shown(at) => {
+                let Ok(files) = Command::internal(FILES, &[&at.to_string_lossy()]);
 
-                Turn::doing(state.clone(), vec![Doing::Start(files)])
+                Update::new(state.clone(), vec![Effect::Spawn(files)])
             }
         };
 
@@ -235,38 +235,38 @@ fn relisted(
     state: &Watching,
     listing: &[(String, String)],
     at: Since,
-) -> Result<Turn<Watching, Its>, Never> {
+) -> Result<Update<Watching, ViewerEffect>, Never> {
     let Ok(showing) = state.showing();
     let name = showing.name.clone();
     let Ok(found) = Reel::of(listing, &name);
 
     let mut reel = match found {
         Some(reel) => reel,
-        None => return Turn::nothing(state.clone()),
+        None => return Update::none(state.clone()),
     };
 
     let Ok(stood) = reel.stand_on(&name);
 
     match stood {
-        Stood::OnIt => Turn::nothing(Watching { reel, ..state.clone() }),
+        Stood::OnIt => Update::none(Watching { reel, ..state.clone() }),
         Stood::NotThere => {
             let Ok(rewound) = state.rewound();
 
-            Turn::nothing(Watching { reel, stirred: at, ..rewound })
+            Update::none(Watching { reel, stirred: at, ..rewound })
         },
     }
 }
 
-pub fn stirred(state: &Watching, now: Since) -> Result<Stirred, Never> {
+pub fn stirred(state: &Watching, now: Since) -> Result<WakeOutcome, Never> {
     let Ok(awake) = waking::awake(now.saturating_sub(state.stirred));
 
     Ok(match awake {
-        Awake::Yes => Stirred::Awake,
-        Awake::No => Stirred::Woke,
+        Woken::Yes => WakeOutcome::AlreadyAwake,
+        Woken::No => WakeOutcome::Woke,
     })
 }
 
-pub fn awake(state: &Watching, now: Since) -> Result<Awake, Never> {
+pub fn awake(state: &Watching, now: Since) -> Result<Woken, Never> {
     waking::awake(now.saturating_sub(state.stirred))
 }
 
@@ -293,7 +293,7 @@ pub fn plays(state: &Watching) -> Result<Kind, Never> {
 
 #[cfg(test)]
 mod tests {
-    use console_program_contract::{Said, walk};
+    use console_program_contract::{Trace, run_from};
 
     use super::*;
 
@@ -318,73 +318,73 @@ mod tests {
         shot
     }
 
-    fn said(from: &Watching, heard: &[Heard]) -> Said<Watching, Heard, Its> {
-        let words: Vec<Word<Heard>> = heard.iter().cloned().map(Word::Its).collect();
+    fn said(from: &Watching, heard: &[ViewerEvent]) -> Trace<Watching, ViewerEvent, ViewerEffect> {
+        let events: Vec<Event<ViewerEvent>> = heard.iter().cloned().map(Event::Custom).collect();
 
-        let Ok(said) = walk::<Watch>(from, &words);
+        let Ok(said) = run_from::<Watch>(from, &events);
 
         said
     }
 
     fn a_film_part_way_through() -> Watching {
         let after = said(&watching(), &[
-            Heard::Where { at: 100, whole: 600 },
-            Heard::Running(Since::ZERO),
-            Heard::Speed { which: 3, at: Since::ZERO },
-            Heard::Words { which: 1, at: Since::ZERO },
-            Heard::Tracks(2),
+            ViewerEvent::Where { at: 100, whole: 600 },
+            ViewerEvent::Running(Since::ZERO),
+            ViewerEvent::Speed { which: 3, at: Since::ZERO },
+            ViewerEvent::Text { which: 1, at: Since::ZERO },
+            ViewerEvent::Tracks(2),
         ]);
 
-        after.now
+        after.state
     }
 
     #[test]
     fn moving_inside_the_same_film_keeps_everything_about_it() {
         let was = a_film_part_way_through();
-        let after = said(&was, &[Heard::Scrubbed { by: 1, at: Since::from_secs(9) }]);
+        let after = said(&was, &[ViewerEvent::Scrubbed { by: 1, at: Since::from_secs(9) }]);
 
-        assert_eq!(after.now.speed, was.speed);
-        assert_eq!(after.now.captions, was.captions);
-        assert_eq!(after.now.running, was.running);
-        assert_eq!(after.now.tracks, was.tracks);
+        assert_eq!(after.state.speed, was.speed);
+        assert_eq!(after.state.captions, was.captions);
+        assert_eq!(after.state.running, was.running);
+        assert_eq!(after.state.tracks, was.tracks);
     }
 
     #[test]
     fn stepping_to_the_next_thing_forgets_what_belonged_to_the_last_one() {
         let was = a_film_part_way_through();
-        let after = said(&was, &[Heard::Stepped { by: 1, at: Since::from_secs(9) }]);
+        let after = said(&was, &[ViewerEvent::Stepped { by: 1, at: Since::from_secs(9) }]);
 
-        assert_eq!(showing(&after.now).name, "sunset.png");
-        assert_eq!(after.now.along, Along::default());
-        assert_eq!(after.now.running, Running::default());
-        assert_eq!(after.now.speed, was.speed, "the speed is the person's, not the film's");
-        assert_eq!(after.now.captions, Captions::default());
-        assert_eq!(after.now.sought, None);
-        assert_eq!(after.now.tracks, 0);
+        assert_eq!(showing(&after.state).name, "sunset.png");
+        assert_eq!(after.state.along, Along::default());
+        assert_eq!(after.state.running, Running::default());
+        assert_eq!(after.state.speed, was.speed, "the speed is the person's, not the film's");
+        assert_eq!(after.state.captions, Captions::default());
+        assert_eq!(after.state.sought, None);
+        assert_eq!(after.state.tracks, 0);
     }
 
     #[test]
     fn standing_on_one_from_the_folder_turns_back_to_the_card() {
-        let after = said(&watching(), &[Heard::StoodOn {
+        let after = said(&watching(), &[ViewerEvent::StoodOn {
             name: "beach.jpg".to_string(),
             at: Since::from_secs(2),
         }]);
 
-        assert_eq!(showing(&after.now).name, "beach.jpg");
-        assert_eq!(after.doings(), Ok(vec![Doing::Its(Its::TurnToTheCard)]));
+        assert_eq!(showing(&after.state).name, "beach.jpg");
+        assert_eq!(after.effects(), Ok(vec![Effect::Custom(ViewerEffect::TurnToTheCard)]));
     }
 
     #[test]
     fn a_folder_that_still_holds_it_leaves_the_card_alone() {
         let was = a_film_part_way_through();
-        let after = said(&was, &[Heard::Listed {
+        let after = said(&was, &[ViewerEvent::Listed {
             listing: folder(),
             at: Since::from_secs(9),
         }]);
 
-        assert_eq!(showing(&after.now).name, "holiday.mp4");
-        assert_eq!(after.now.along, was.along);
-        assert_eq!(after.now.captions, was.captions);
+        assert_eq!(showing(&after.state).name, "holiday.mp4");
+        assert_eq!(after.state.along, was.along);
+        assert_eq!(after.state.captions, was.captions);
     }
 
     #[test]
@@ -393,42 +393,42 @@ mod tests {
         let gone: Vec<(String, String)> =
             folder().into_iter().filter(|(name, _)| name != "holiday.mp4").collect();
 
-        let after = said(&was, &[Heard::Listed { listing: gone, at: Since::from_secs(9) }]);
+        let after = said(&was, &[ViewerEvent::Listed { listing: gone, at: Since::from_secs(9) }]);
 
-        assert_ne!(showing(&after.now).name, "holiday.mp4");
-        assert_eq!(after.now.along, Along::default());
-        assert_eq!(after.now.captions, Captions::default());
+        assert_ne!(showing(&after.state).name, "holiday.mp4");
+        assert_eq!(after.state.along, Along::default());
+        assert_eq!(after.state.captions, Captions::default());
     }
 
     #[test]
     fn the_card_goes_quiet_and_any_press_wakes_it() {
         let quiet = waking::QUIET.saturating_add(Since::from_secs(1));
 
-        assert_eq!(awake(&watching(), quiet), Ok(Awake::No));
-        assert_eq!(stirred(&watching(), quiet), Ok(Stirred::Woke));
-        assert_eq!(stirred(&watching(), Since::from_secs(1)), Ok(Stirred::Awake));
+        assert_eq!(awake(&watching(), quiet), Ok(Woken::No));
+        assert_eq!(stirred(&watching(), quiet), Ok(WakeOutcome::Woke));
+        assert_eq!(stirred(&watching(), Since::from_secs(1)), Ok(WakeOutcome::AlreadyAwake));
 
-        let after = said(&watching(), &[Heard::Stirred(quiet)]);
+        let after = said(&watching(), &[ViewerEvent::WakeOutcome(quiet)]);
 
-        assert_eq!(awake(&after.now, quiet), Ok(Awake::Yes));
+        assert_eq!(awake(&after.state, quiet), Ok(Woken::Yes));
     }
 
     #[test]
     fn one_from_the_media_page_is_handed_to_the_files_panel() {
-        let at = std::path::Path::new("/home/somebody/Pictures/beach.jpg");
-        let after = said(&watching(), &[Heard::Shown(at.to_path_buf())]);
+        let at = std::path::Path::new("/home/someone/Pictures/beach.jpg");
+        let after = said(&watching(), &[ViewerEvent::Shown(at.to_path_buf())]);
 
-        let Ok(files) = Runs::ours(FILES, &[&at.to_string_lossy()]);
+        let Ok(files) = Command::internal(FILES, &[&at.to_string_lossy()]);
 
-        assert_eq!(after.doings(), Ok(vec![Doing::Start(files)]));
-        assert_eq!(showing(&after.now).name, "holiday.mp4", "it stands where it stood");
+        assert_eq!(after.effects(), Ok(vec![Effect::Spawn(files)]));
+        assert_eq!(showing(&after.state).name, "holiday.mp4", "it stands where it stood");
     }
 
     #[test]
     fn where_the_film_is_does_not_wake_the_card() {
         let quiet = waking::QUIET.saturating_add(Since::from_secs(1));
-        let after = said(&watching(), &[Heard::Where { at: 100, whole: 600 }]);
+        let after = said(&watching(), &[ViewerEvent::Where { at: 100, whole: 600 }]);
 
-        assert_eq!(awake(&after.now, quiet), Ok(Awake::No));
+        assert_eq!(awake(&after.state, quiet), Ok(Woken::No));
     }
 }

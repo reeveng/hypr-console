@@ -16,11 +16,12 @@
 //! `draw_text`, and `fill` paints with SOURCE: it replaces the pixel rather
 //! than compositing onto it. There was a fourth, `over_rectangle`, which
 //! alpha-composited; the two things the C composited were the highlight and the
-//! swipe trail, the port draws neither, and it went with them. Every colour
+//! swipe trail, the port draws neither, and it went with them. Every color
 //! here is opaque and every key covers its own cell, which is what lets the
 //! whole strip be painted first and drawn over.
 
 
+use crate::configuration::Color;
 use console_core_geometry::{Point, Size};
 use console_core_never::Never;
 use console_core_number_conversion::toward_zero_i32;
@@ -28,16 +29,16 @@ use cairo::{Context, Format, ImageSurface};
 use pango::FontDescription;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Rect {
+pub struct Rectangle {
     pub x: f64,
     pub y: f64,
     pub w: f64,
     pub h: f64,
 }
 
-impl Rect {
+impl Rectangle {
     pub const fn new(at: Point<f64>, size: Size<f64>) -> Result<Self, Never> {
-        Ok(Self { x: at.across, y: at.down, w: size.wide, h: size.tall })
+        Ok(Self { x: at.x, y: at.y, w: size.width, h: size.height })
     }
 
     pub fn inset(self, border: f64) -> Result<Self, Never> {
@@ -57,42 +58,6 @@ pub struct Surface {
     pub cairo: Context,
     pub layout: pango::Layout,
     pub scale: f64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Color(pub [u8; 4]);
-
-impl Color {
-    pub const fn from_hex(six: &str) -> Result<Self, Never> {
-        let bytes = six.as_bytes();
-        let Ok(r) = band(Digits { high: bytes[0], low: bytes[1] });
-        let Ok(g) = band(Digits { high: bytes[2], low: bytes[3] });
-        let Ok(b) = band(Digits { high: bytes[4], low: bytes[5] });
-
-        Ok(Color([b, g, r, 0xff]))
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Digits {
-    high: u8,
-    low: u8,
-}
-
-const fn band(digits: Digits) -> Result<u8, Never> {
-    let Ok(high) = hex(digits.high);
-    let Ok(low) = hex(digits.low);
-
-    Ok(high * 16 + low)
-}
-
-const fn hex(byte: u8) -> Result<u8, Never> {
-    Ok(match byte {
-        b'0'..=b'9' => byte - b'0',
-        b'a'..=b'f' => byte - b'a' + 10,
-        b'A'..=b'F' => byte - b'A' + 10,
-        _ => 0,
-    })
 }
 
 impl Surface {
@@ -137,7 +102,7 @@ impl Surface {
         }))
     }
 
-    pub fn clear(&self, at: Rect) -> Result<(), Never> {
+    pub fn clear(&self, at: Rectangle) -> Result<(), Never> {
         let _ = self.cairo.save();
         self.cairo.set_operator(cairo::Operator::Clear);
         self.cairo.rectangle(at.x, at.y, at.w, at.h);
@@ -147,8 +112,8 @@ impl Surface {
         Ok(())
     }
 
-    fn trace(&self, at: Rect, rounding: i32) -> Result<(), Never> {
-        let Rect { x, y, w, h } = at;
+    fn trace(&self, at: Rectangle, rounding: i32) -> Result<(), Never> {
+        let Rectangle { x, y, w, h } = at;
 
         match rounding <= 0 {
             true => {
@@ -170,10 +135,10 @@ impl Surface {
         Ok(())
     }
 
-    pub fn fill_rectangle(&self, colour: Color, at: Rect, rounding: i32) -> Result<(), Never> {
+    pub fn fill_rectangle(&self, color: Color, at: Rectangle, rounding: i32) -> Result<(), Never> {
         let _ = self.cairo.save();
         self.cairo.set_operator(cairo::Operator::Source);
-        let Ok(()) = self.set_source(colour);
+        let Ok(()) = self.set_source(color);
         let Ok(()) = self.trace(at, rounding);
         let _ = self.cairo.fill();
         let _ = self.cairo.restore();
@@ -183,14 +148,14 @@ impl Surface {
 
     pub fn draw_text(
         &self,
-        colour: Color,
-        at: Rect,
+        color: Color,
+        at: Rectangle,
         border: f64,
         label: &str,
         font: &FontDescription,
     ) -> Result<(), Never> {
         let _ = self.cairo.save();
-        let Ok(()) = self.set_source(colour);
+        let Ok(()) = self.set_source(color);
         self.layout.set_font_description(Some(font));
         self.layout.set_text(label);
         let (text_w, text_h) = self.layout.pixel_size();
@@ -209,8 +174,8 @@ impl Surface {
         Ok(())
     }
 
-    fn set_source(&self, colour: Color) -> Result<(), Never> {
-        let [b, g, r, a] = colour.0;
+    fn set_source(&self, color: Color) -> Result<(), Never> {
+        let [b, g, r, a] = color.0;
         self.cairo.set_source_rgba(
             f64::from(r) / 255.0,
             f64::from(g) / 255.0,
@@ -228,7 +193,7 @@ mod tests {
     use std::cell::RefCell;
 
     fn buffer(w: i32, h: i32) -> RefCell<Vec<u8>> {
-        RefCell::new(vec![0; (w * 4 * h) as usize])
+        RefCell::new(vec![0; (w * 4 * h).try_into().unwrap()])
     }
 
     #[test]
@@ -241,14 +206,14 @@ mod tests {
                 Ok(None) | Err(_) => panic!("a surface over the test buffer"),
             };
             let Ok(red) = Color::from_hex("ff0000");
-            let Ok(at) = Rect::new(Point { across: 5.0, down: 5.0 }, Size { wide: 10.0, tall: 10.0 });
+            let Ok(at) = Rectangle::new(Point { x: 5.0, y: 5.0 }, Size { width: 10.0, height: 10.0 });
             let Ok(()) = surface.fill_rectangle(red, at, 0);
         }
         let bytes = buf.borrow();
-        assert_eq!(bytes[(10 * 20 * 4 + 10 * 4) as usize], 0x00);
-        assert_eq!(bytes[(10 * 20 * 4 + 10 * 4 + 1) as usize], 0x00);
-        assert_eq!(bytes[(10 * 20 * 4 + 10 * 4 + 2) as usize], 0xff);
-        assert_eq!(bytes[(10 * 20 * 4 + 10 * 4 + 3) as usize], 0xff);
+        assert_eq!(bytes[10 * 20 * 4 + 10 * 4], 0x00);
+        assert_eq!(bytes[10 * 20 * 4 + 10 * 4 + 1], 0x00);
+        assert_eq!(bytes[10 * 20 * 4 + 10 * 4 + 2], 0xff);
+        assert_eq!(bytes[10 * 20 * 4 + 10 * 4 + 3], 0xff);
     }
 
     #[test]
@@ -261,7 +226,7 @@ mod tests {
                 Ok(None) | Err(_) => panic!("a surface over the test buffer"),
             };
             let Ok(white) = Color::from_hex("ffffff");
-            let Ok(at) = Rect::new(Point { across: 0.0, down: 0.0 }, Size { wide: 10.0, tall: 10.0 });
+            let Ok(at) = Rectangle::new(Point { x: 0.0, y: 0.0 }, Size { width: 10.0, height: 10.0 });
             let Ok(()) = surface.fill_rectangle(white, at, 0);
             let Ok(()) = surface.clear(at);
         }
@@ -273,7 +238,7 @@ mod tests {
 
     #[test]
     fn insetting_past_the_middle_gives_nothing_rather_than_a_backwards_rectangle() {
-        let Ok(cell) = Rect::new(Point { across: 10.0, down: 10.0 }, Size { wide: 8.0, tall: 4.0 });
+        let Ok(cell) = Rectangle::new(Point { x: 10.0, y: 10.0 }, Size { width: 8.0, height: 4.0 });
         let Ok(inner) = cell.inset(6.0);
         assert_eq!(inner.w, 0.0, "the width went backwards: {inner:?}");
         assert_eq!(inner.h, 0.0, "the height went backwards: {inner:?}");
@@ -282,13 +247,13 @@ mod tests {
 
     #[test]
     fn an_inset_comes_off_both_sides() {
-        let Ok(rect) = Rect::new(Point { across: 0.0, down: 0.0 }, Size { wide: 10.0, tall: 6.0 });
+        let Ok(rect) = Rectangle::new(Point { x: 0.0, y: 0.0 }, Size { width: 10.0, height: 6.0 });
         let Ok(inner) = rect.inset(1.0);
-        assert_eq!(Ok(inner), Rect::new(Point { across: 1.0, down: 1.0 }, Size { wide: 8.0, tall: 4.0 }));
+        assert_eq!(Ok(inner), Rectangle::new(Point { x: 1.0, y: 1.0 }, Size { width: 8.0, height: 4.0 }));
     }
 
     #[test]
-    fn colour_from_hex_round_trips_through_a_red_pixel() {
+    fn color_from_hex_round_trips_through_a_red_pixel() {
         let Ok(c) = Color::from_hex("deadbe");
         assert_eq!(c.0[0], 0xbe);
         assert_eq!(c.0[1], 0xad);

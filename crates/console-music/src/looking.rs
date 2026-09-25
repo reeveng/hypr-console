@@ -1,7 +1,7 @@
 //! What a typed word finds in the music library.
 //!
 //! The Music tab is a folder read one folder at a time, which is the right way
-//! to walk a library somebody knows and the wrong way to find one song in nine
+//! to walk a library someone knows and the wrong way to find one song in nine
 //! hundred. So the line at the top of it is not a filter on what is in front of
 //! you: it looks at everything under the music folder, and at what each of
 //! those files says about itself as well as at what it is called.
@@ -9,7 +9,7 @@
 //! What it is called is free and what it says is not: reading one file takes an
 //! ffprobe, and reading the library takes minutes. So the two are separate. The
 //! walk happens here, on every letter, and it is fast; the reading happens once
-//! in `music-index` and is written down beside the cache, and a song nobody has
+//! in `music-index` and is written down beside the cache, and a song no one has
 //! read yet is still found by its name.
 //!
 //! The order is the whole point of the thing. A word is looked for in the
@@ -28,8 +28,8 @@ use serde_json::{Value, json};
 use crate::library::{self, Thing};
 use crate::tags::Tags;
 
-const ENOUGH: usize = 4000;
-const FAR: usize = 400;
+const ENOUGH: u32 = 4000;
+const FAR: u32 = 400;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Song {
@@ -74,8 +74,11 @@ impl Song {
         });
 
         Ok(match within {
-            Some(within) if !within.as_os_str().is_empty() => within.display().to_string(),
-            Some(_) | None => String::new(),
+            Some(within) => match within.as_os_str().is_empty() {
+                true => String::new(),
+                false => within.display().to_string(),
+            },
+            None => String::new(),
         })
     }
 }
@@ -86,10 +89,12 @@ pub fn under(
 ) -> Result<Vec<PathBuf>, Never> {
     let mut found: Vec<PathBuf> = Vec::new();
     let mut waiting = VecDeque::from([folder.to_path_buf()]);
-    let mut read_so_far: usize = 0;
+    let mut read_so_far: u32 = 0;
 
     while let Some(at) = waiting.pop_front() {
-        match found.len() >= ENOUGH || read_so_far >= FAR {
+        let Ok(many) = console_core_number_conversion::fitted::<_, u32>(found.len());
+
+        match many >= ENOUGH || read_so_far >= FAR {
             true => break,
             false => {},
         }
@@ -133,8 +138,8 @@ pub fn songs(
     Ok(songs)
 }
 
-pub fn unread(songs: &[Song]) -> Result<usize, Never> {
-    Ok(songs.iter().filter(|song| !song.read).count())
+pub fn unread(songs: &[Song]) -> Result<u32, Never> {
+    console_core_number_conversion::fitted(songs.iter().filter(|song| !song.read).count())
 }
 
 pub fn at(cache: &Path) -> Result<PathBuf, Never> {
@@ -213,7 +218,7 @@ fn one(held: &Value) -> Result<Option<Song>, Never> {
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub enum In {
+pub enum MatchedIn {
     Song,
     Artist,
     Else,
@@ -261,7 +266,7 @@ pub fn how(said: &str, wanted: Wanted<'_>) -> Result<Option<How>, Never> {
     })
 }
 
-pub fn rank(song: &Song, word: &str) -> Result<Option<(In, How)>, Never> {
+pub fn rank(song: &Song, word: &str) -> Result<Option<(MatchedIn, How)>, Never> {
     let says = song.says()?;
     let wanted = Wanted(word);
     let title = how(says, wanted)?;
@@ -270,14 +275,14 @@ pub fn rank(song: &Song, word: &str) -> Result<Option<(In, How)>, Never> {
     let artist = how(&song.tags.artist, wanted)?;
     let rest = how(&song.tags.rest, wanted)?;
 
-    Ok([(In::Song, itself), (In::Artist, artist), (In::Else, rest)]
+    Ok([(MatchedIn::Song, itself), (MatchedIn::Artist, artist), (MatchedIn::Else, rest)]
         .into_iter()
         .filter_map(|(what, how)| how.map(|how| (what, how)))
         .min())
 }
 
 pub fn ranked<'a>(songs: &'a [Song], word: &str) -> Result<Vec<&'a Song>, Never> {
-    let mut found: Vec<((In, How), &Song)> = Vec::new();
+    let mut found: Vec<((MatchedIn, How), &Song)> = Vec::new();
 
     for song in songs {
         let rank = rank(song, word)?;
@@ -295,7 +300,7 @@ pub fn ranked<'a>(songs: &'a [Song], word: &str) -> Result<Vec<&'a Song>, Never>
 
 #[cfg(test)]
 mod tests {
-    use crate::tags::Said;
+    use crate::tags::Tagged;
     use super::*;
 
     fn tree(at: &Path) -> Result<Vec<Thing>, Never> {
@@ -379,7 +384,7 @@ mod tests {
     }
 
     #[test]
-    fn a_song_nobody_has_read_is_still_a_song() {
+    fn a_song_no_one_has_read_is_still_a_song() {
         let known = vec![a_song("/music/505 [qU9mHegkTc4].opus", "505", "Arctic Monkeys", "")];
 
         let Ok(songs) = songs(Path::new("/music"), &tree, &known);
@@ -399,7 +404,7 @@ mod tests {
         let Ok(songs) = kept(&written);
 
         assert_eq!(unread(&songs), Ok(0));
-        assert_eq!(songs[0].tags.anything(), Ok(Said::Nothing));
+        assert_eq!(songs[0].tags.anything(), Ok(Tagged::None));
     }
 
     #[test]
@@ -439,9 +444,9 @@ mod tests {
         let found = found(&library, "nujabes");
 
         assert_eq!(said(&found), ["Nujabes Tribute", "Aruarian Dance", "Luv (sic) Part 3"]);
-        assert_eq!(rank(found[0], "nujabes"), Ok(Some((In::Song, How::Start))));
-        assert_eq!(rank(found[1], "nujabes"), Ok(Some((In::Artist, How::Whole))));
-        assert_eq!(rank(found[2], "nujabes"), Ok(Some((In::Else, How::Word))));
+        assert_eq!(rank(found[0], "nujabes"), Ok(Some((MatchedIn::Song, How::Start))));
+        assert_eq!(rank(found[1], "nujabes"), Ok(Some((MatchedIn::Artist, How::Whole))));
+        assert_eq!(rank(found[2], "nujabes"), Ok(Some((MatchedIn::Else, How::Word))));
     }
 
     #[test]

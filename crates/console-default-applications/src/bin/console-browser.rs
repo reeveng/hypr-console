@@ -26,17 +26,10 @@ pub fn found(desktop: &str, among: &[PathBuf]) -> Result<Option<PathBuf>, Never>
 fn chosen() -> Result<String, Never> {
     let asked = asking()?;
 
-    let (program, rest) = match asked.split_first() {
-        Some((program, rest)) => (program, rest),
-        None => return Ok(String::new()),
-    };
-
-    let said = match Command::new(program).args(rest).output() {
-        Ok(said) => said,
-        Err(_fault) => return Ok(String::new()),
-    };
-
-    Ok(String::from_utf8_lossy(&said.stdout).trim().to_string())
+    Ok(match console_core_external_programs::printed(&asked) {
+        Ok(said) => said.trim().to_string(),
+        Err(_unprinted) => String::new(),
+    })
 }
 
 fn main() {
@@ -44,12 +37,12 @@ fn main() {
     let Ok(among) = console_core_places::applications();
     let Ok(found) = found(&chosen, &among);
 
-    let Ok(argv) = match found {
-        Some(at) => Program::Gio.argv(&["launch", &at.display().to_string()]),
-        None => Program::XdgOpen.argv(&[ANYWHERE]),
+    let Ok(arguments) = match found {
+        Some(at) => Program::Gio.arguments(&["launch", &at.display().to_string()]),
+        None => Program::XdgOpen.arguments(&[ANYWHERE]),
     };
 
-    match argv.split_first() {
+    match arguments.split_first() {
         Some((program, rest)) => {
             let _ = Command::new(program).args(rest).status();
         }
@@ -62,10 +55,7 @@ mod tests {
     use super::*;
 
     fn somewhere(named: &str) -> PathBuf {
-        let here = std::env::temp_dir().join(format!("console-browser-{named}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&here);
-        std::fs::create_dir_all(&here).expect("somewhere to look");
-        here
+        console_core_temporary_directories::fresh(&format!("browser-{named}")).expect("somewhere to look")
     }
 
     #[test]

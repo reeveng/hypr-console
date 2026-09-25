@@ -15,20 +15,18 @@
 //! or without a user systemd to talk to. Both are common in a CI environment
 //! and neither is a reason to fail the rest of the suite.
 
-use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-use console_core_external_programs::Program;
-use console_program_lifetime::in_a_scope_of_its_own;
+use console_program_lifetime::{Scopes, in_a_scope_of_its_own, scopes};
 
 #[test]
 fn a_launched_program_is_in_a_scope_of_its_own() {
-    let argv = match wrap("sleep", &[HELD]) {
-        Some(argv) => argv,
+    let arguments = match wrap("sleep", &[HELD]) {
+        Some(arguments) => arguments,
         None => return,
     };
-    let mut child = match run(&argv) {
+    let mut child = match run(&arguments) {
         Some(child) => child,
         None => return,
     };
@@ -52,26 +50,22 @@ fn a_launched_program_is_in_a_scope_of_its_own() {
 }
 
 fn wrap(name: &str, args: &[&str]) -> Option<Vec<String>> {
-    if !has_systemd_run() {
-        eprintln!("skipped: no systemd-run on PATH; scopes cannot be made");
+    if !scopes_available() {
+        eprintln!("skipped: no systemd-run or no user systemd to talk to; scopes cannot be made");
         return None;
     }
-    if !has_user_systemd() {
-        eprintln!("skipped: no user systemd to talk to; scopes cannot be made");
-        return None;
-    }
-    let argv: Vec<String> = std::iter::once(name.to_string())
+    let arguments: Vec<String> = std::iter::once(name.to_string())
         .chain(args.iter().map(|word| (*word).to_string()))
         .collect();
-    let Ok((_, wrapped)) = in_a_scope_of_its_own(None, &argv);
+    let Ok((_, wrapped)) = in_a_scope_of_its_own(None, &arguments);
     Some(wrapped)
 }
 
 const HELD: &str = "5";
 
-fn run(argv: &[String]) -> Option<Child> {
-    Command::new(&argv[0])
-        .args(&argv[1..])
+fn run(arguments: &[String]) -> Option<Child> {
+    Command::new(&arguments[0])
+        .args(&arguments[1..])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
@@ -106,21 +100,6 @@ fn read_cgroup(pid: u32) -> Option<String> {
     Some(v2.trim_start_matches("0::").to_string())
 }
 
-fn has_systemd_run() -> bool {
-    let path = std::env::var("PATH").unwrap_or_default();
-    path.split(':')
-        .filter(|at| !at.is_empty())
-        .any(|at| Path::new(at).join("systemd-run").exists())
-}
-
-fn has_user_systemd() -> bool {
-    let Ok(mut asking) = Program::Systemctl.command();
-
-    asking
-        .args(["--user", "show", "-p", "Version"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|how| how.success())
-        .unwrap_or(false)
+fn scopes_available() -> bool {
+    scopes() == Ok(Scopes::Available)
 }

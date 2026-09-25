@@ -3,9 +3,9 @@
 //! Ctrl-C used to be the worst way to end a device run. The run died where it
 //! stood, on whatever workspace the last press had left it, with whatever it
 //! had opened still open, and the person holding the machine got back a
-//! desktop somebody else had been driving. That is also the state a run is
+//! desktop someone else had been driving. That is also the state a run is
 //! most likely to be interrupted from: it is stopped because it is doing
-//! something to somebody's device they would rather it did not.
+//! something to someone's device they would rather it did not.
 //!
 //! So the signal is caught rather than fatal, and what it sets is one flag
 //! that two places read. The loop over the checks reads it and stops asking
@@ -30,18 +30,25 @@ use console_core_never::Never;
     dylint_lib = "explicit044_no_ambient_value",
     allow(
         explicit044_no_ambient_value,
-        reason = "a signal handler is handed nothing and may allocate nothing, and what it has to say -- somebody asked this run to stop -- is read by every wait in the run"
+        reason = "a signal handler is handed nothing and may allocate nothing, and what it has to say -- someone asked this run to stop -- is read by every wait in the run"
     )
 )]
 static ASKED: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stop {
-    Asked,
+    Requested,
     No,
 }
 
 pub fn caught() -> Result<(), Never> {
+    #[cfg_attr(
+        dylint_lib = "explicit051_no_machine_width",
+        allow(
+            explicit051_no_machine_width,
+            reason = "`signal` takes a `sighandler_t`, which is the machine's width by the C ABI and not by choice here"
+        )
+    )]
     #[cfg_attr(
         dylint_lib = "explicit011_no_as_cast",
         allow(
@@ -74,7 +81,7 @@ extern "C" fn answered(number: libc::c_int) {
 
 pub fn asked() -> Result<Stop, Never> {
     Ok(match ASKED.load(Ordering::SeqCst) {
-        true => Stop::Asked,
+        true => Stop::Requested,
         false => Stop::No,
     })
 }

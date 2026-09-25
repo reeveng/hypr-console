@@ -2,26 +2,26 @@
 //!
 //! Two problems, one shape. The first is that the words were written in the
 //! same voice as the comments around them -- *Stop before the battery does*,
-//! *Nothing here answers to that* -- which is a good voice for somebody reading
-//! the source and the wrong one for somebody holding the machine. The second is
+//! *Nothing here answers to that* -- which is a good voice for someone reading
+//! the source and the wrong one for someone holding the machine. The second is
 //! that they were written in English, inline, in twenty-five crates, so there
-//! was nowhere to put a second language even if somebody wrote one.
+//! was nowhere to put a second language even if someone wrote one.
 //!
-//! ## How to say something
+//! ## How to put words on the screen
 //!
 //! A crate that has anything to say keeps a `words` module with one enum in it:
 //! every sentence that crate can put on the screen, named for what it means
-//! rather than for what it says. `say` turns one into words.
+//! rather than for what it says. `text` turns one into words.
 //!
 //! ```ignore
-//! use console_core_localization::{Said, say};
+//! use console_core_localization::{Localized, text};
 //!
-//! pub enum Word { NightColours, WarnWhenLow }
+//! pub enum Word { NightColors, WarnWhenLow }
 //!
-//! impl Said for Word {
+//! impl Localized for Word {
 //!     fn english(&self) -> String {
 //!         match self {
-//!             Word::NightColours => "Night colours".to_string(),
+//!             Word::NightColors => "Night colors".to_string(),
 //!             Word::WarnWhenLow => "Warn me when the battery gets low".to_string(),
 //!         }
 //!     }
@@ -29,32 +29,32 @@
 //! ```
 //!
 //! One enum per crate rather than one for the desktop, because a single list of
-//! every sentence on the machine is a file nobody can read and every crate has
+//! every sentence on the machine is a file no one can read and every crate has
 //! to depend on. The crate that draws a thing is the crate that owns its words.
 //!
 //! ## What makes a second language possible
 //!
-//! `Tongue` and the `match` in `say`. Adding a language adds a variant there,
-//! and then that `match` does not compile until `Said` has a method for it --
-//! and `Said` does not compile until every enum in every crate has answered.
+//! `Language` and the `match` in `text`. Adding a language adds a variant there,
+//! and then that `match` does not compile until `Localized` has a method for it --
+//! and `Localized` does not compile until every enum in every crate has answered.
 //! There is no way to add a language and quietly leave half the desktop in
 //! English, and no way to add a sentence and quietly leave it untranslated.
 //!
-//! That is the whole mechanism. No catalogue to keep in step, no key that can
+//! That is the whole mechanism. No catalog to keep in step, no key that can
 //! be misspelt into an empty string, no build step: the compiler is the thing
-//! that says what is missing, which is the only checker anybody here has to
+//! that says what is missing, which is the only checker anyone here has to
 //! remember to run.
 //!
 //! ## Asked again every time
 //!
-//! What language somebody reads was once read once and kept for the life of the
+//! What language someone reads was once read once and kept for the life of the
 //! process, which is what a memo is and is the reason it went: the first
 //! caller's answer becomes every later caller's, and a check meaning to press
 //! the other language has nowhere to stand. Three environment reads cost less
-//! than a row costs to draw, so the question is asked again at every `say`.
+//! than a row costs to draw, so the question is asked again at every `text`.
 //!
 //! ## The house style
-//! Written for somebody who has never read a manual and is not going to. It is
+//! Written for someone who has never read a manual and is not going to. It is
 //! a handheld console: the person holding it may be five, or eighty, or reading
 //! their third language.  **A row that does something says what it does.**
 //! *Clear all*, *Forget*, *Convert* -- the verb, and what it happens to if the
@@ -76,7 +76,7 @@
 //! *It has gone* and *Nothing here answers to that* are writing. *Deleted* and
 //! *Nothing matched that* are answers.  **Say what to do about it.** A message
 //! that reports a problem and stops is a dead end. *There is no yt-dlp on this
-//! machine* tells somebody a word they have never seen; *This needs a program
+//! machine* tells someone a word they have never seen; *This needs a program
 //! the machine does not have yet* tells them what happened.  **No jargon and no
 //! names of programs**, unless the person chose that program themselves.
 //! `hyprsunset`, `nmcli`, `powerprofilesctl` and `polkit` are this desktop's
@@ -85,26 +85,28 @@
 //! `a_switch_names_the_thing_and_its_two_states_are_told_apart`, and
 //! `the_word_for_going_ahead_is_short_and_stands_for_nothing`.
 
+use std::time::Duration;
+
 use console_core_never::Never;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Tongue {
+pub enum Language {
     English,
 }
 
-pub trait Said {
+pub trait Localized {
     fn english(&self) -> String;
 }
 
-pub fn say(what: &impl Said) -> Result<String, Never> {
-    let Ok(tongue) = tongue();
+pub fn text(what: &impl Localized) -> Result<String, Never> {
+    let Ok(language) = language();
 
-    Ok(match tongue {
-        Tongue::English => what.english(),
+    Ok(match language {
+        Language::English => what.english(),
     })
 }
 
-pub fn tongue() -> Result<Tongue, Never> {
+pub fn language() -> Result<Language, Never> {
     let Ok(asked) = asked();
 
     read(&asked)
@@ -114,7 +116,7 @@ pub fn tongue() -> Result<Tongue, Never> {
     dylint_lib = "explicit026_env_read_once",
     allow(
         explicit026_env_read_once,
-        reason = "the three names the standard gives for what language somebody reads, in the crate that is what reading them means"
+        reason = "the three names the standard gives for what language someone reads, in the crate that is what reading them means"
     )
 )]
 fn asked() -> Result<String, Never> {
@@ -133,8 +135,22 @@ fn asked() -> Result<String, Never> {
     Ok(String::new())
 }
 
-pub fn read(_locale: &str) -> Result<Tongue, Never> {
-    Ok(Tongue::English)
+pub fn read(_locale: &str) -> Result<Language, Never> {
+    Ok(Language::English)
+}
+
+pub fn positional(elapsed: Duration) -> Result<String, Never> {
+    let whole = elapsed.as_secs();
+    let (hours, minutes, seconds) = (
+        whole.saturating_div(3600),
+        whole.saturating_div(60).wrapping_rem(60),
+        whole.wrapping_rem(60),
+    );
+
+    Ok(match hours {
+        0 => format!("{minutes}:{seconds:02}"),
+        _ => format!("{hours}:{minutes:02}:{seconds:02}"),
+    })
 }
 
 #[cfg(test)]
@@ -145,22 +161,34 @@ mod tests {
         Hello,
     }
 
-    impl Said for Word {
+    impl Localized for Word {
         fn english(&self) -> String {
             "Hello".to_string()
         }
     }
 
     #[test]
-    fn something_said_comes_out_in_the_language_of_the_machine() {
-        assert_eq!(say(&Word::Hello), Ok("Hello".to_string()));
+    fn words_come_out_in_the_language_of_the_machine() {
+        assert_eq!(text(&Word::Hello), Ok("Hello".to_string()));
     }
 
     #[test]
-    fn a_language_nobody_has_written_reads_as_english() {
+    fn a_language_no_one_has_written_reads_as_english() {
         for locale in ["", "C", "C.UTF-8", "nl_BE.UTF-8", "ja_JP", "rubbish"] {
-            assert_eq!(read(locale), Ok(Tongue::English), "{locale}");
+            assert_eq!(read(locale), Ok(Language::English), "{locale}");
         }
+    }
+
+    #[test]
+    fn a_length_is_said_with_hours_only_where_there_are_hours() {
+        for (seconds, said) in [(0, "0:00"), (9, "0:09"), (249, "4:09"), (3600, "1:00:00"), (3849, "1:04:09")] {
+            assert_eq!(positional(Duration::from_secs(seconds)), Ok(said.to_string()), "{seconds}");
+        }
+    }
+
+    #[test]
+    fn a_part_of_a_second_is_not_a_second() {
+        assert_eq!(positional(Duration::from_millis(59_999)), Ok("0:59".to_string()));
     }
 
     #[test]

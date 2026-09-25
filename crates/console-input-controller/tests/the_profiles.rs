@@ -11,9 +11,9 @@
 
 use std::path::{Path, PathBuf};
 
-use console_input_controller::profile::Which;
+use console_input_controller::profile::ProfileState;
 use console_input_gamepad::router::{self, PROFILES};
-use console_program_contract::Argv;
+use console_program_contract::Arguments;
 
 fn root() -> PathBuf {
     let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -25,8 +25,8 @@ fn every_word() -> Vec<(&'static str, Option<String>)> {
     ["router", "desktop", "tabs", "game"]
         .into_iter()
         .map(|word| {
-            let Ok(argv) = Argv::of(&[word]);
-            let Ok(which) = Which::of(&argv);
+            let Ok(arguments) = Arguments::of(&[word]);
+            let Ok(which) = ProfileState::of(&arguments);
             let Ok(file) = which.file();
 
             (word, file)
@@ -64,10 +64,10 @@ fn the_switcher_knows_the_profile_that_is_made_rather_than_kept() {
 }
 
 #[test]
-fn a_word_nobody_defined_loads_nothing() {
-    let Ok(keyboard) = Argv::of(&["keyboard"]);
-    let Ok(unknown) = Which::of(&keyboard);
-    let Ok(nothing) = Which::of(&Argv::default());
+fn a_word_no_one_defined_loads_nothing() {
+    let Ok(keyboard) = Arguments::of(&["keyboard"]);
+    let Ok(unknown) = ProfileState::of(&keyboard);
+    let Ok(nothing) = ProfileState::of(&Arguments::default());
 
     assert_eq!(unknown.file(), Ok(None));
     assert_eq!(nothing.file(), Ok(None));

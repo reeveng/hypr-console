@@ -19,7 +19,7 @@ dylint_linting::declare_late_lint! {
 // and implements `LintPass` on it. We just add the `LateLintPass` impl.
 
 // Tests are exempt. A test that panics is a test that fails, which is what a
-// test is for, and `as` in a fixture is arithmetic nobody ships. `opts.test`
+// test is for, and `as` in a fixture is arithmetic no one ships. `opts.test`
 // is true only for the harness build of a target -- the ordinary build of the
 // same library is linted as production, so nothing real is lost by skipping
 // this one.
@@ -37,7 +37,7 @@ impl<'tcx> LateLintPass<'tcx> for Explicit012SafetyDoc {
         }
         // An `unsafe` block written by a macro is the macro author's to
         // justify, and the comment would have to live in their crate. Only
-        // what somebody wrote here is asked for a reason.
+        // what someone wrote here is asked for a reason.
         if block.span.from_expansion() {
             return;
         }

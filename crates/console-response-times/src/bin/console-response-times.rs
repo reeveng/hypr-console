@@ -6,7 +6,7 @@
 //!     console-response-times --raw        the lines themselves, for something else to read
 //!
 //! The store is a line per thing waited for and it is meant to be read by
-//! anything -- `jq`, a spreadsheet, a script somebody writes once. This is the
+//! anything -- `jq`, a spreadsheet, a script someone writes once. This is the
 //! reading that should not have to be written twice: which surface is slow,
 //! which stretch of it is the slow one, and whether the worst of them is worth
 //! chasing or is one opening from a boot.
@@ -23,11 +23,12 @@ use std::io::{BufRead, BufReader};
 use std::process::ExitCode;
 
 use console_core_never::Never;
+use console_core_number_conversion::{fitted, index};
 use console_response_times::{line, summary, where_};
 
 const USAGE: &str = "usage: console-response-times [--last N] [--all] [--raw] [--file PATH]";
 
-const WINDOW: usize = 20_000;
+const WINDOW: u32 = 20_000;
 
 fn main() -> ExitCode {
     // SAFETY: one call that sets a disposition and touches nothing else.
@@ -42,7 +43,7 @@ fn main() -> ExitCode {
 
     while let Some(word) = words.next() {
         match word.as_str() {
-            "--last" => match words.next().map(|many| many.parse::<usize>()) {
+            "--last" => match words.next().map(|many| many.parse::<u32>()) {
                 Some(Ok(many)) => window = Some(many),
                 Some(Err(fault)) => {
                     eprintln!("console-response-times: --last: {fault}");
@@ -117,7 +118,9 @@ fn main() -> ExitCode {
         1.. => {}
     }
 
-    match whole > kept.len() {
+    let Ok(shown) = fitted::<_, u64>(kept.len());
+
+    match whole > shown {
         true => println!("the last {} waits of {whole}. --all reads the rest\n", kept.len()),
         false => {}
     }
@@ -133,9 +136,9 @@ fn main() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn held(store: File, window: Option<usize>) -> Result<(VecDeque<String>, usize), Never> {
+fn held(store: File, window: Option<u32>) -> Result<(VecDeque<String>, u64), Never> {
     let mut kept: VecDeque<String> = VecDeque::new();
-    let mut whole: usize = 0;
+    let mut whole: u64 = 0;
 
     for said in BufReader::new(store).lines() {
         let said = match said {
@@ -147,12 +150,16 @@ fn held(store: File, window: Option<usize>) -> Result<(VecDeque<String>, usize),
         kept.push_back(said);
 
         match window {
-            Some(many) => match kept.len() > many {
-                true => {
-                    let _ = kept.pop_front();
+            Some(many) => {
+                let Ok(many) = index(many);
+
+                match kept.len() > many {
+                    true => {
+                        let _ = kept.pop_front();
+                    }
+                    false => {}
                 }
-                false => {}
-            },
+            }
             None => {}
         }
     }

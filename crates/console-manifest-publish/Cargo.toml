@@ -15,10 +15,13 @@ path = "src/main.rs"
 
 [dependencies]
 console-core-atomic-writes.workspace = true
-console-device.workspace = true
+console-device-name.workspace = true
 console-core-external-programs.workspace = true
 console-core-never.workspace = true
 console-repository.workspace = true
+
+[dev-dependencies]
+console-core-temporary-directories.workspace = true
 
 [lints]
 workspace = true

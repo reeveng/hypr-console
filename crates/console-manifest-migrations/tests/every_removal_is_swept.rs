@@ -7,7 +7,7 @@
 //! from the history of the one file that is the inventory.  It is a test rather
 //! than a stage of `console-check` on purpose. It needs no device, no
 //! compositor and no network -- only a checkout -- so it belongs where it runs
-//! on every `just test`, which is the moment somebody deletes a line from
+//! on every `just test`, which is the moment someone deletes a line from
 //! `desktop.conf` and has not yet thought about the machine that still has what
 //! the line named.
 //! # When this goes red
@@ -20,7 +20,7 @@
 //! with `# sweeps: <the name you removed>` at the top and the sweep below it.
 //! If the name needs nothing -- it was never ours, or it was already dealt with
 //! by hand -- put it in `migrations/left-on-purpose` with the reason beside it.
-//! Both of those are somebody saying so out loud, which is the whole difference
+//! Both of those are someone saying so out loud, which is the whole difference
 //! between this and what the manifest did before.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -29,7 +29,7 @@ use std::process::Command;
 
 use console_core_external_programs::Program;
 use console_manifest_migrations::sweeping::{self, ON_PURPOSE};
-use console_repository::renaming::UNSAID;
+use console_rename::UNSAID;
 use console_manifest_migrations::{Outlives, Section, holds, outlives, unswept};
 
 const MANIFEST: &str = "desktop.conf";
@@ -40,26 +40,13 @@ const FILES: [&str; 2] = [MANIFEST, MACHINES];
 
 fn read_as(file: &str, said: &str) -> String {
     match file == MACHINES {
-        true => as_sections(said),
+        true => {
+            let Ok(every) = console_manifest_engine::machines::of_every(said);
+
+            every
+        }
         false => said.to_string(),
     }
-}
-
-fn as_sections(said: &str) -> String {
-    said.lines()
-        .map(|line| {
-            let trimmed = line.trim();
-
-            match trimmed.strip_prefix('[').and_then(|rest| rest.strip_suffix(']')) {
-                Some(named) => match named.split_once('.') {
-                    Some((_whichever_machine, section)) => format!("[{section}]"),
-                    None => "[whichever-machine]".to_string(),
-                },
-                None => line.to_string(),
-            }
-        })
-        .collect::<Vec<String>>()
-        .join("\n")
 }
 
 fn carried(said: &str) -> BTreeMap<String, String> {
@@ -94,7 +81,7 @@ fn carried(said: &str) -> BTreeMap<String, String> {
                     None => {},
                 }
             }
-            (true, Outlives::Nothing) | (false, _) => {},
+            (true, Outlives::None) | (false, _) => {},
         }
     }
 
@@ -276,7 +263,7 @@ fn no_migration_still_says_its_reason_is_unwritten() {
 
     assert!(
         unsaid.is_empty(),
-        "console-rename wrote these and nobody said why they matter: {unsaid:?}\n\
+        "console-rename wrote these and no one said why they matter: {unsaid:?}\n\
          a migration argues for itself -- what reads the old name, what a person \
          sees with two of them, what a machine that misses this is left holding",
     );

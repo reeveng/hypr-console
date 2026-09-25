@@ -18,7 +18,7 @@
 //!
 //! The second is bound: a `let` whose value is a collection, used exactly once
 //! afterwards, and used as something to walk. That is the same waste with a
-//! name on it, and it is what a chain looks like after somebody has broken it
+//! name on it, and it is what a chain looks like after someone has broken it
 //! over two lines to read better. It is asked narrowly, because the same shape
 //! is sometimes the whole point -- a list collected so it can be walked twice,
 //! or walked inside a loop, is a list that is saving the work rather than
@@ -42,7 +42,7 @@
 //! backwards where it came from, a side effect that has to be finished by a
 //! certain point -- the site carries the allow and EXPLICIT018 asks its reason
 //! to say which of those it is. That sentence is the difference between a list
-//! somebody meant and a list somebody typed.
+//! someone meant and a list someone typed.
 
 //!
 //! It arrived `Warn`, with a short distance in front of it: the chained shape is
@@ -94,7 +94,7 @@ fn cancels_a_collection(named: &str) -> Option<&'static str> {
 }
 
 // The narrower list for a collection with a name: only walking counts. A list
-// that is asked its length or searched may well be a list somebody wanted.
+// that is asked its length or searched may well be a list someone wanted.
 fn only_walks_it(named: &str) -> bool {
     matches!(named, "iter" | "into_iter" | "iter_mut")
 }
@@ -195,7 +195,7 @@ fn still_points_at_it<'tcx>(cx: &LateContext<'tcx>, comes_to: &'tcx Expr<'tcx>) 
 
 // Said against the node rather than only against the span, so that an `#[allow]`
 // on the statement is the level this is read at. A block is what the second half
-// of this rule walks, and a block is not where anybody would write the allow.
+// of this rule walks, and a block is not where anyone would write the allow.
 fn say(cx: &LateContext<'_>, of: HirId, at: Span, what: &str, instead: &str) {
     span_lint_hir_and_then(
         cx,

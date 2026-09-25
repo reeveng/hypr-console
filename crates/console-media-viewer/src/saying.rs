@@ -2,7 +2,7 @@
 //!
 //! Y on a picture or a film is *what is this*, the way Y everywhere else on
 //! this desktop is what else can be done with the thing in front of you. What
-//! it answers is the handful of facts somebody actually wants: how big it is,
+//! it answers is the handful of facts someone actually wants: how big it is,
 //! how much room it takes on the disk, and where it came from.
 //!
 //! Written here rather than at the drawing so the awkward cases are testable:
@@ -82,7 +82,7 @@ pub fn under(kind: Kind, of: Size<u32>, bytes: u64, along: Along) -> Result<Stri
 }
 
 pub fn wont_open(name: &str) -> Result<String, Never> {
-    Ok(format!("{name} will not open. It may be damaged, or of a kind this cannot show."))
+    Ok(format!("{name} can't be opened. It may be damaged or unsupported."))
 }
 
 #[cfg(test)]
@@ -90,7 +90,7 @@ mod tests {
     use super::*;
 
     fn sized(wide: u32, tall: u32) -> Size<u32> {
-        Size { wide, tall }
+        Size { width: wide, height: tall }
     }
 
     fn along(at: u64, whole: u64) -> Along {

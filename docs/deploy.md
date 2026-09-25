@@ -10,10 +10,10 @@ Everything clever happens on the handheld, out of the manifest it was just
 handed. Nothing compiled travels, and no file is copied into place from here.
 
 That is why the tree has to be committed before anything is sent. What reaches
-the device is the history, so what is deployed is what somebody can look at
+the device is the history, so what is deployed is what someone can look at
 afterwards and read. `console-deploy` refuses a dirty tree for that
 reason, and its escape hatch is a clone: when other work is uncommitted in this
-checkout, send the history alone out of a copy nobody is working in.
+checkout, send the history alone out of a copy no one is working in.
 
     clone=$(mktemp -d)/console && git clone . "$clone" && cd "$clone"
     just deploy
@@ -21,7 +21,7 @@ checkout, send the history alone out of a copy nobody is working in.
 ## Who is asked
 
 A deploy stops twice to ask, and neither question is this laptop's to answer.
-The machine that is about to change is in somebody's hands, and the second
+The machine that is about to change is in someone's hands, and the second
 question -- whether to test the update now -- takes their screen for several
 minutes. So the question goes to the device: `console-confirm` raises a card in
 their session, they answer it with the pad, and its status comes back as the
@@ -39,20 +39,20 @@ flag reached a handheld as part of the sentence. A word in the environment is a
 word an older copy has never heard of and does not draw.
 
 A card that cannot read how it was called exits `CONFIRM_UNASKED` rather than
-one. One is no, so a card that never reached anybody used to tell the deploy
-that somebody had declined -- which is the worst shape a fault can take, because
+one. One is no, so a card that never reached anyone used to tell the deploy
+that someone had declined -- which is the worst shape a fault can take, because
 the answer it invents cannot be told from a real one. The arm below is what it
 reaches instead.
 
 `--yes` skips both, and means a person has already said so. A device with no
 card to raise -- the first deploy that carries one, or a machine whose desktop
 is not up -- says so with a status of its own, and the question falls back to
-this terminal rather than being decided for anybody.
+this terminal rather than being decided for anyone.
 
 ## The address
 
 Every tool here reads the device from `CONSOLE_HOST` and none of them has a
-default, because an address is somebody's machine and this tree does not carry
+default, because an address is someone's machine and this tree does not carry
 one. Set it in the environment; a `.envrc` at the root of the checkout is the
 quiet way, and `.gitignore` holds that file and `.direnv/` out of the history so
 the address cannot reach a copy of this repository by being forgotten about.
@@ -64,7 +64,7 @@ failing: see the last section.
 ## What must hold before anything is sent
 
 `just ready` is the whole list and the deploy runs it itself, so what reaches
-the device has passed it whether or not anybody thought to. The tests, clippy
+the device has passed it whether or not anyone thought to. The tests, clippy
 denied rather than printed, `--locked` because the device builds with the same
 lockfile and a lockfile that is behind would fail there instead -- halfway
 through an apply, on a handheld -- the emulated checks, and the EXPLICIT rules
@@ -73,7 +73,7 @@ the workspace already keeps.
 Before those minutes are spent, the device is asked one thing: whether it has
 room. The apply at the far end builds the whole desktop on the device's own
 disk, beside the games and the videos and whatever the download panel last
-fetched, and a disk that fills partway through a build stops somewhere nobody
+fetched, and a disk that fills partway through a build stops somewhere no one
 chose and reads as something else entirely. So `console room` is asked over ssh
 first, and a device with nowhere to put what this would build says so while
 there is still nothing to undo. The arithmetic is the engine's rather than this
@@ -105,7 +105,7 @@ they are written, because each needs the one before it.
 
 **`[packages]`** first, because compiling needs the toolchain the packages
 bring. The manifest names what this desktop asks for; anything the machine has
-on somebody else's account is reported as borrowed rather than owned, which is
+on someone else's account is reported as borrowed rather than owned, which is
 how a dependency that arrived with the base install and was never declared gets
 found before a rebuilt device goes without it.
 
@@ -120,10 +120,10 @@ is running.
 are worked out from the path and the content, so nothing is kept in step by
 hand. `@user@` is not a name: it is the mark that stands for whoever the desktop
 belongs to, filled in at the moment a file is written, which is why this source
-names nobody and still installs itself correctly.
+names no one and still installs itself correctly.
 
-A path in `[files]` may carry the word `theirs` after it, and that says who owns
-what is inside the file rather than where it goes. The manifest ships what the
+A path in `[files]` may carry the word `once` after it, and that says the file
+is written once rather than kept the same. The manifest ships what the
 file starts as; something on this machine writes it afterwards and is supposed
 to. Such a file is installed when it is not there, is never compared, and
 `console save` with nothing named does not sweep it back into the tree -- only
@@ -138,8 +138,8 @@ Before that word existed both were reported as changed on every boot of a
 machine where nothing had changed, and what it cost was a morning: an
 inputplumber upgrade laid its own `50-legion_go.yaml` back over ours, the
 touchpad went to `blocked: true` again, and the card said so in the same
-sentence and the same colour as the two that always mean nothing. A card nobody
-reads is worse than no card. So the two that are not news say `theirs` in the
+sentence and the same color as the two that always mean nothing. A card no one
+reads is worse than no card. So the two that are not news say `once` in the
 manifest and are green in `console check`, and `50-legion_go.yaml` is not
 marked, because a package taking a file back is exactly the thing to be told
 about -- what to do about that one is its own entry in the backlog, and it
@@ -157,12 +157,12 @@ blocked.
 
 An apply is minutes, and most of them used to be silent. Pacman said nothing
 this end could read, `cargo build --release` says nothing at all until it is
-finished, and what somebody watching over ssh got was a cursor. The two
+finished, and what someone watching over ssh got was a cursor. The two
 questions they actually have are whether it is still going and whether it is
 about to break something, and neither had an answer.
 
 It is drawn the way pacman draws now, and the reason is not the hashes. Pacman
-is the long thing everybody on an Arch machine has already watched a hundred
+is the long thing everyone on an Arch machine has already watched a hundred
 times without once wondering whether it had hung, and what earns that is not how
 it looks: it is that pacman never says anything it does not know. Its counters
 come out of a transaction that was settled before the first byte moved, so
@@ -184,7 +184,7 @@ staged, the service being restarted -- scrolls past above it.
 The line moves inside a stretch, not only between them. Cargo names each crate
 as it starts one, pacman names each package as it fetches and writes it, and the
 files and the services are lists whose length is known before the loop begins.
-The build is the one with no honest total to count towards -- how many crates a
+The build is the one with no honest total to count toward -- how many crates a
 build compiles depends on what changed, and asking cargo in advance means
 running the resolver twice -- so that one moves a share of what is left per
 crate, which always moves forward and never arrives on its own. The stretch
@@ -197,16 +197,16 @@ is that end of it.
 ## The programs that are carried rather than built
 
 The rule is that what we write is built on the machine that runs it, and what
-somebody else wrote and we only forked is carried here as a built binary. One is
+someone else wrote and we only forked is carried here as a built binary. One is
 left: a GPL program kept under its own name, an ordinary `[files]` entry that
 `apply` lays down like any other file, with the bin directory in the path making
 it executable.
 
 There were two. `/usr/local/bin/hyprsession` was what `console-session` started,
 and it is now `crates/console-resume`, built by `[build]` like everything else.
-A program that closes other people's windows is one somebody has to be able to
+A program that closes other people's windows is one someone has to be able to
 read before they trust it, and carried as a binary it was the only thing on the
-device that nobody here could. It is still not published --
+device that no one here could. It is still not published --
 `console-manifest-publish` holds the crate back the way it held back the binary,
 and `docs/programs.md` argues for that -- but the machine it runs on now builds
 it from source that is here.
@@ -253,8 +253,8 @@ where the copy lands, and it has to: two of the tests read the history of
 is not a checkout they can only say that they could not look.
 
 The forks are left out of it, both the built binaries and any source kept here
-for one. The binary because a binary published without its source is a licence
-somebody else wrote being broken on their behalf; the source, when there is one,
+for one. The binary because a binary published without its source is a license
+someone else wrote being broken on their behalf; the source, when there is one,
 because an adaptation made for one device would carry an obligation to keep it
 level with upstream and answer for it. In their place the copy carries a page
 saying what the missing programs are and how to build them.
@@ -288,11 +288,11 @@ The device is `CONSOLE_HOST`, required, with no default underneath it. The
 controller's serial is not captured at all -- `capture` writes an empty `uniq`.
 And the place the wallpaper works its sun and its weather out from is
 `console_wallpaper::here`, read off `/etc/localtime` and the `zone1970.tab`
-beside it, rather than a coordinate anybody wrote down.
+beside it, rather than a coordinate anyone wrote down.
 
 What would undo that is small and looks harmless while it is being typed: a path
 spelled `/home/<a name>/` instead of `/home/@user@/`, a re-run of `capture`
 whose `uniq` is committed, or a coordinate, a hostname or an address put back as
 a constant just for now. The tests standing exactly there are
-`the_captured_devices_name_nobodys_controller` and the mark's round trip in
+`the_captured_devices_name_no_ones_controller` and the mark's round trip in
 `install`, and publishing is the last gate before any of it is pushed.

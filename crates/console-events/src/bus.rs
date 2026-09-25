@@ -7,7 +7,7 @@
 //!
 //! The pool relays a line and never reads one, and that is still true. This is
 //! the reading offered to whoever asked, kept in the crate that runs the
-//! program, because the alternative is the shape of somebody else's output
+//! program, because the alternative is the shape of someone else's output
 //! spelled once per subscriber and drifting the day one of them is wrong about
 //! it. What the fields *mean* is still the subscriber's: a member that matters
 //! to the bell means nothing to the player.

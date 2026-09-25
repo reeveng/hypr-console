@@ -55,18 +55,7 @@ impl Engine {
 pub const UNLESS_TOLD: &str = "duckduckgo";
 
 pub fn chosen() -> Result<String, Never> {
-    let told = crate::setting("search")?;
-
-    let said = match told {
-        Some(said) => said,
-        None => String::new(),
-    };
-    let known = one(&said)?;
-
-    Ok(match known.is_some() {
-        true => said,
-        false => UNLESS_TOLD.to_string(),
-    })
+    console_defaults::chosen(console_defaults::Choice { setting: "search", unless_told: UNLESS_TOLD, known: one })
 }
 
 pub fn one(key: &str) -> Result<Option<&'static Engine>, Never> {
@@ -74,7 +63,7 @@ pub fn one(key: &str) -> Result<Option<&'static Engine>, Never> {
 }
 
 pub fn choose(key: &str) -> Result<(), Never> {
-    crate::set(crate::Setting { key: "search", value: key })
+    console_defaults::set(console_defaults::Setting { key: "search", value: key })
 }
 
 pub fn address(said: &str, engine: &Engine) -> Result<Option<String>, Never> {

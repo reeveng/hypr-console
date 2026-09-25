@@ -1,0 +1,11 @@
+error: `long_walk` is 74 lines outside its `match` arms, and a screen holds 70
+  --> $DIR/main.rs:5:1
+   |
+LL | fn long_walk(v0: u32) -> u32 {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: name its stages. A body whose two ends cannot both be seen is read by holding the top of it in mind while scrolling to the bottom, and a long one is nearly always a sequence rather than a decision: each step as a function of its own, called in order from here, is a list a reader can take in at once
+   = note: `#[deny(explicit050_no_long_function)]` on by default
+
+error: aborting due to 1 previous error
+

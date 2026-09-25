@@ -69,8 +69,10 @@ pub fn pending(
 pub fn already(at: &Path) -> Result<Applied, Undone> {
     let entries = match std::fs::read_dir(at) {
         Ok(entries) => entries,
-        Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => return Ok(Applied::Never),
-        Err(fault) => return Err(Undone::Listing(at.to_path_buf(), fault)),
+        Err(fault) => match fault.kind() == std::io::ErrorKind::NotFound {
+            true => return Ok(Applied::Never),
+            false => return Err(Undone::Listing(at.to_path_buf(), fault)),
+        },
     };
 
     Ok(Applied::Before(

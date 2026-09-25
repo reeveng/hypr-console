@@ -10,10 +10,10 @@
 //! the one thing worth pressing here is that the month a person is looking at
 //! is the month the d-pad left them on, and that walking back comes back.
 
-use console_panel::telling::Told;
+use console_panel::description::Description;
 use console_test_stages::panels::Panel;
 
-fn drawn(keys: &[&str]) -> Vec<Told> {
+fn drawn(keys: &[&str]) -> Vec<Description> {
     let Ok(mut panel) = Panel::opening("calendar-panel", &[]);
 
     for key in keys {
@@ -29,7 +29,7 @@ fn drawn(keys: &[&str]) -> Vec<Told> {
     }
 }
 
-fn month(card: &Told) -> String {
+fn month(card: &Description) -> String {
     let said = card.lines.iter().find(|line| !line.says.is_empty());
 
     match said {
@@ -38,14 +38,14 @@ fn month(card: &Told) -> String {
     }
 }
 
-fn first(every: &[Told]) -> Told {
+fn first(every: &[Description]) -> Description {
     match every.first() {
         Some(card) => card.clone(),
         None => panic!("the calendar drew nothing at all"),
     }
 }
 
-fn last(every: &[Told]) -> Told {
+fn last(every: &[Description]) -> Description {
     match every.last() {
         Some(card) => card.clone(),
         None => panic!("the calendar drew nothing at all"),

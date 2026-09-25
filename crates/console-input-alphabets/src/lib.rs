@@ -4,7 +4,7 @@
 //! composes the keymap out of the system's own xkb symbols, so what a person
 //! can type has never been the keyboard's limit. What decided it was a word on
 //! the command line in a unit file: `--landscape-layers landscape,thai,...`,
-//! written by whoever built the device, in a tree that names nobody. Somebody
+//! written by whoever built the device, in a tree that names no one. Someone
 //! who reads Greek had no way to say so and no reason to know there was
 //! anything to say.
 //!
@@ -35,7 +35,7 @@
 //! An alphabet carries an xkb name as well as an arrangement, because there
 //! are two keyboards on this machine and switching language has to mean the
 //! same thing on both. The one drawn on the screen wears an arrangement; a
-//! keyboard somebody plugged in wears a layout the compositor sets. They are
+//! keyboard someone plugged in wears a layout the compositor sets. They are
 //! the same choice said twice, so they are one row here rather than two lists
 //! that would have to be kept in step, and the walk a person steps through is
 //! the same walk whichever board is under their hands.
@@ -87,7 +87,7 @@ const SHELF_UPRIGHT: &str = "special";
 const SHELF_ACROSS: &str = "landscapespecial";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Held {
+pub enum Orientation {
     Upright,
     Across,
 }
@@ -119,7 +119,7 @@ pub fn read(said: &str) -> Result<Vec<&'static Alphabet>, Never> {
 }
 
 pub fn chosen() -> Result<Vec<&'static Alphabet>, Never> {
-    let told = console_default_applications::setting(SETTING)?;
+    let told = console_defaults::setting(SETTING)?;
 
     let said = match told {
         Some(said) => said,
@@ -134,7 +134,7 @@ pub fn choose(keys: &[&str]) -> Result<(), Never> {
 
     let said: Vec<&str> = kept.iter().map(|alphabet| alphabet.key).collect();
 
-    console_default_applications::set(console_default_applications::Setting {
+    console_defaults::set(console_defaults::Setting {
         key: SETTING,
         value: &said.join(","),
     })
@@ -159,20 +159,20 @@ pub fn turned(now: &[&'static Alphabet], key: &str) -> Result<Vec<&'static str>,
     Ok(kept.iter().map(|alphabet| alphabet.key).collect())
 }
 
-pub fn walk(alphabets: &[&'static Alphabet], held: Held) -> Result<Vec<String>, Never> {
+pub fn walk(alphabets: &[&'static Alphabet], held: Orientation) -> Result<Vec<String>, Never> {
     let mut walk: Vec<String> = alphabets
         .iter()
         .map(|alphabet| {
             match held {
-                Held::Upright => alphabet.upright.to_string(),
-                Held::Across => alphabet.across.to_string(),
+                Orientation::Upright => alphabet.upright.to_string(),
+                Orientation::Across => alphabet.across.to_string(),
             }
         })
         .collect();
 
     walk.push(match held {
-        Held::Upright => SHELF_UPRIGHT.to_string(),
-        Held::Across => SHELF_ACROSS.to_string(),
+        Orientation::Upright => SHELF_UPRIGHT.to_string(),
+        Orientation::Across => SHELF_ACROSS.to_string(),
     });
 
     Ok(walk)
@@ -205,7 +205,7 @@ mod tests {
         let Ok(first) = latin();
 
         assert_eq!(first.key, LATIN);
-        assert_eq!(first.xkb, US, "and it is what a keyboard nobody has met wears");
+        assert_eq!(first.xkb, US, "and it is what a keyboard no one has met wears");
     }
 
     #[test]
@@ -225,7 +225,7 @@ mod tests {
     fn latin_is_there_whatever_it_was_handed() {
         assert_eq!(read("thai"), vec![LATIN, "thai"]);
         assert_eq!(read(""), vec![LATIN]);
-        assert_eq!(read("nothing anybody has written"), vec![LATIN]);
+        assert_eq!(read("nothing anyone has written"), vec![LATIN]);
     }
 
     #[test]
@@ -257,8 +257,8 @@ mod tests {
     #[test]
     fn the_shelf_of_symbols_is_the_last_thing_the_language_key_reaches() {
         let Ok(now) = super::read(UNLESS_TOLD);
-        let Ok(across) = walk(&now, Held::Across);
-        let Ok(upright) = walk(&now, Held::Upright);
+        let Ok(across) = walk(&now, Orientation::Across);
+        let Ok(upright) = walk(&now, Orientation::Upright);
 
         assert_eq!(across, vec!["landscape", "thai", "landscapespecial"]);
         assert_eq!(upright, vec!["full", "thai", "special"]);

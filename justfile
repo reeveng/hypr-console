@@ -2,9 +2,9 @@
 #
 # Nothing has to be remembered before a deploy. `just ready` is the whole list
 # and `console-deploy` runs it itself, so what reaches the device has
-# passed it whether or not anybody thought to.
+# passed it whether or not anyone thought to.
 
-# The device, which only somebody with one can name. The tools read it too, and
+# The device, which only someone with one can name. The tools read it too, and
 # say so if it is not set.
 HOST := env_var_or_default("CONSOLE_HOST", "")
 
@@ -17,7 +17,7 @@ default:
 # A nested desktop is a compositor, and that compositor starts a session, a bar,
 # a keyboard and everything those reach for. Killing the compositor reaches none
 # of them: they are reparented to the user manager and stay in the control group
-# of whoever is logged in, where nothing can tell them from the desktop somebody
+# of whoever is logged in, where nothing can tell them from the desktop someone
 # is using -- which is why they are found weeks later by `ps` and never by a
 # program. Thirty-six gigabytes of stages and an hour-old compositor on a hidden
 # workspace is what that looks like in the end.
@@ -69,13 +69,65 @@ alone +command:
     systemctl --user stop --no-block "$unit.scope" >/dev/null 2>&1
     exit $status
 
+# How the running desktop is connected, drawn again.
+#
+# Two halves, and only one of them is text. Which units the manifest enables,
+# what each starts and what it is ordered against are in `desktop.conf` and
+# `files/`, and `console-architecture` reads them. What a program does once it
+# is running -- what it runs, which pool topic it subscribes to, whether it
+# asks the compositor or opens a socket or keeps a clock -- is in its code, and
+# that is asked of the compiler: `tools/explicit-rust/architecture_facts` is a
+# dylint pass that warns about nothing and writes a file per crate instead.
+#
+# A crate cargo has cached is never handed to a lint, so a second run over an
+# unchanged tree would write nothing and the map would say half the desktop
+# does nothing. The run has a target directory of its own so the gate's cache
+# is not the one thrown away, and the workspace's own crates are cleaned out of
+# it first -- the dependencies stay, which is most of the time. Then
+# `console-architecture` asks `cargo metadata` for every library and program
+# and refuses to draw if one of them left no file.
+#
+# What it writes is in `docs/architecture/`: the facts, the Graphviz source,
+# and a picture of it when `dot` is on the machine. The docs rather than the
+# crate, because the picture is the one thing in the tree meant to be looked
+# at rather than read, and because the facts are what the rules in
+# `console-architecture/tests` are asked over -- the crate is the reading of
+# them, not where they live. `the_map` holds the source against what the tree
+# would draw now; `ready` runs this and fails if a line changed, which is the
+# half no test on stable can collect.
+
+# draw how the running desktop is connected
+map:
+    #!/usr/bin/env sh
+    set -eu
+    PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
+    export PATH
+    command -v rustup >/dev/null 2>&1 || {
+        echo "map: rustup is not on PATH; the lint suite cannot name its toolchain" >&2
+        exit 1
+    }
+    facts="$PWD/target/architecture/facts"
+    rm -rf "$facts"
+    for checked in target/architecture/dylint/target/*/; do
+        [ -d "$checked" ] && cargo clean --quiet --workspace --target-dir "$checked"
+    done
+    CARGO_TARGET_DIR=target/architecture CONSOLE_ARCHITECTURE_FACTS="$facts" \
+        cargo dylint --quiet --path tools/explicit-rust --pattern architecture_facts -- \
+        --quiet --locked --workspace --lib --bins --all-features
+    cargo run --quiet --locked --bin console-architecture -- "$facts"
+    if command -v dot >/dev/null 2>&1; then
+        dot -Tsvg docs/architecture/map.dot -o docs/architecture/map.svg
+    else
+        echo "map: no graphviz here, so docs/architecture/map.svg is as it was" >&2
+    fi
+
 # write the palette into every file that spends it
 theme:
     cargo run --quiet --release --bin console-palette
 
 # press the wallpapers the table names
 sky:
-    cargo run --quiet --release --bin wallpaper-press
+    cargo run --quiet --release --bin wallpaper-render
 
 # `--all-features` because the keyboard's Rust port is behind one. It is off by
 # default so the device does not compile cairo and pango for a program it does
@@ -103,7 +155,7 @@ test:
 # heading in `words.conf` or the run is red. This is the same measurement with
 # the table left on the screen, which is the half worth reading when nothing is
 # failing -- the words at the top are what this desktop sounds like, in order,
-# and a word nobody meant to lean on is visible there long before it is a habit.
+# and a word no one meant to lean on is visible there long before it is a habit.
 
 # the words this tree writes furthest out of English's proportion
 words:
@@ -117,7 +169,7 @@ words:
 # moved. The lint is allowed there and asked for here, and a crate leaves this
 # list when every literal in it says its own width.
 
-# the number literals whose type nobody wrote
+# the number literals whose type no one wrote
 literals:
     cargo clippy --quiet --workspace --all-targets --all-features \
         --message-format=short -- -W clippy::default_numeric_fallback 2>&1 \
@@ -133,8 +185,8 @@ literals:
 #                   this the tier stops and says to run the build by hand,
 #                   which would make this list no longer the whole list.
 #   the tests       what the desktop promises about itself
-#   clippy          denied rather than printed, because a warning nobody is
-#                   made to read is a warning nobody reads
+#   clippy          denied rather than printed, because a warning no one is
+#                   made to read is a warning no one reads
 #   --locked        the device builds with it. A Cargo.lock that is behind
 #                   would fail there instead, halfway through an apply, on a
 #                   handheld: the same answer, found in the worse place.
@@ -151,23 +203,64 @@ literals:
 #                   thing in this list that is not already on the machine, and
 #                   it says so rather than passing quietly if it is missing.
 #
+#   the map         collected again and held against the one committed, because
+#                   what a program does is in its code and only the lint suite's
+#                   nightly can ask the compiler for it. The picture is left out
+#                   of the comparison: Graphviz lays it out differently from one
+#                   version to the next, and the source is the thing drawn.
+#
 # `just emulate` is deliberately not here. That one runs the features against a
 # nested desktop of its own, which is minutes and a compositor, and a gate
-# somebody starts dreading is a gate somebody starts going around. The device
-# tier is not here either, for a better reason: it is somebody's machine, and
+# someone starts dreading is a gate someone starts going around. The device
+# tier is not here either, for a better reason: it is someone's machine, and
 # it belongs at the end of a deploy rather than before one.
 #
 # Because the checks above have already run, the device tier asks the machine
 # only what nothing here can answer and says of the rest where it was answered.
 # `--all` is the whole tier when the question is about the hardware.
+#
+# A pass is written down against the tree it passed on, and the same tree is
+# not asked again: a second `just deploy` with nothing changed goes straight to
+# the device instead of spending the minutes a second time. The tree is git's
+# own hash of every tracked file, so one changed byte is a tree nothing has
+# passed on, and a checkout with anything uncommitted or untracked in it is
+# never written down and never skipped, because that is not a tree at all.
+# The mark lives beside the deploy lock in the git directory, so writing it
+# does not dirty what it describes.
 
 # everything that must hold before a deploy
 ready:
-    @just alone cargo build --quiet --locked --workspace --all-features
-    @just alone cargo test --quiet --locked --workspace --all-features
-    @just alone cargo clippy --quiet --locked --workspace --all-targets --all-features -- -D warnings
-    @just alone cargo run --quiet --bin console-check
+    #!/usr/bin/env bash
+    set -euo pipefail
+    passed="$(git rev-parse --git-common-dir)/console-ready"
+    tree="$(git rev-parse 'HEAD^{tree}')"
+    loose="$(git status --porcelain)"
+    case "$loose:$(cat "$passed" 2>/dev/null || true)" in
+        ":$tree") echo "ready already passed on this tree ($tree), nothing to ask again"; exit 0 ;;
+        *) ;;
+    esac
+    just alone cargo build --quiet --locked --workspace --all-features
+    just alone cargo test --quiet --locked --workspace --all-features
+    just alone cargo clippy --quiet --locked --workspace --all-targets --all-features -- -D warnings
+    just alone cargo run --quiet --bin console-check
     just explicit-gate
+    just map
+    git diff --exit-code --stat -- docs/architecture/facts.jsonl docs/architecture/map.dot
+    just rename check
+    case "$loose:$(git status --porcelain):$(git rev-parse 'HEAD^{tree}')" in
+        "::$tree") echo "$tree" > "$passed" ;;
+        *) echo "ready passed, but the tree was not committed and still, so the pass is not written down" ;;
+    esac
+
+# The words `vocabulary.conf` retired, renamed one definition at a time.
+#
+# `plan` writes `renames.plan` -- every place a retired word is still defined,
+# with the table's options beside it -- and keeps every choice already written
+# there. `apply` hands each settled line to rust-analyzer, which renames that
+# definition and exactly the uses that refer to it. `check` fails while a
+# retired word is defined anywhere the plan did not keep it.
+rename *arguments:
+    @cargo run --quiet --release --manifest-path tools/rename-words/Cargo.toml -- {{arguments}}
 
 # The EXPLICIT_* rules, counted rather than enforced.
 #
@@ -175,14 +268,14 @@ ready:
 # production code is held to the denied rules by `just explicit-gate`, and this
 # is where a rule the code has not caught up with says how far there is left to
 # go. Nothing stands there today -- 047 and 048 were the last two and came out
-# together -- so what this prints is a clean run until somebody writes the next
+# together -- so what this prints is a clean run until someone writes the next
 # rule ahead of the code. It is the whole tree rather than production alone, which is the
 # other half of why it is worth running even when the tier is empty.
 # tools/explicit-rust/README.md says what each rule is for.
 #
 # Capped to warnings so the run reaches every crate. Left uncapped it stops at
 # the first one that fails, which is the first one alphabetically and tells
-# nobody anything.
+# no one anything.
 #
 # `cargo dylint` needs `rustup` on PATH: it asks the toolchain what it is
 # before it builds anything. cargo finds the `cargo-dylint` subcommand in
@@ -221,7 +314,7 @@ explicit:
 # call site that broke it is fixed, and it never moves back.
 #
 # That is the whole ratchet. There is no count here on purpose -- a number in a
-# recipe is a number that goes stale the first time somebody writes a line of
+# recipe is a number that goes stale the first time someone writes a line of
 # code. `just explicit` says where the workspace actually stands, today, and it
 # is the only thing that should be believed about the distance.
 #
@@ -244,7 +337,7 @@ explicit:
 # named for and are enums, and the rest were fields that really are independent
 # and carry the allow with a sentence saying so.
 #
-# The five written before them were read off a rule taxonomy somebody keeps for C++,
+# The five written before them were read off a rule taxonomy someone keeps for C++,
 # which is worth saying because of what it cost: most of that list was already
 # answered here or is a fault Rust will not compile, and five questions came
 # back that this tree could be asked. Two had call sites -- 035, a thread let
@@ -275,13 +368,18 @@ explicit:
 # waited longest because it had nowhere to point until `console-core-never` was
 # written; before that, 020 came out the way a rule should not have to: the
 # comments it forbids had been swept out of the tree once already, by hand, and
-# were back in most of the crates by the time anybody looked. A rule kept by
+# were back in most of the crates by the time anyone looked. A rule kept by
 # memory is a rule with a half-life.
 #
 # 013 is the one rule here that can be applied rather than only reported:
 # `cargo dylint --fix --lib explicit013_breathing_room` puts the missing blank
 # lines in. Every other rule in the suite is asking for a decision, which is
 # not a thing to hand to a machine.
+#
+# The kernel is linted a second time for the firmware, because the half of it
+# that talks to the firmware only exists when it is built for it; that run
+# wants `rustup target add --toolchain` of the suite's nightly for
+# `x86_64-unknown-uefi`.
 explicit-gate:
     #!/usr/bin/env sh
     set -eu
@@ -292,6 +390,28 @@ explicit-gate:
         exit 1
     }
     cargo dylint --all -- --locked --all-targets --all-features
+    cargo dylint --all -- --locked -p console-kernel --target x86_64-unknown-uefi
+
+# The kernel is a member of the workspace like any other crate, built here for
+# the firmware rather than for this machine. It runs in QEMU on OVMF with the
+# exit port wired, and QEMU reports the kernel's answer shifted left and ored
+# with one: one is every step held, anything else is not.
+
+# the kernel, booted in a virtual machine
+kernel:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cargo build --quiet --release -p console-kernel --target x86_64-unknown-uefi
+    mkdir -p target/kernel/esp/EFI/BOOT
+    cp target/x86_64-unknown-uefi/release/console-kernel.efi target/kernel/esp/EFI/BOOT/BOOTX64.EFI
+    set +e
+    timeout 60 qemu-system-x86_64 -machine q35 -m 256M -bios /usr/share/edk2/x64/OVMF.4m.fd \
+        -drive format=raw,file=fat:rw:target/kernel/esp -display none -serial stdio \
+        -device isa-debug-exit,iobase=0xf4,iosize=0x04 -no-reboot \
+        | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' | tr -d '\r' | grep -a --line-buffered '^console-kernel'
+    answered=${PIPESTATUS[0]}
+    set -e
+    [ "$answered" -eq 1 ] || { echo "kernel: QEMU answered $answered" >&2; exit 1; }
 
 # the tier that makes real input devices, if it can
 live:
@@ -313,7 +433,7 @@ checks:
 # Minutes rather than a fraction of a second, because each of these is a whole
 # compositor of its own. The build is first, and it is the whole workspace on
 # purpose: the nested session stages whatever is in target/debug and rebuilds
-# only itself, so a program nobody built is a picture in which nothing was
+# only itself, so a program no one built is a picture in which nothing was
 # pressed, taken by a check that then says the feature is broken.
 
 # the checks written for a screen, pressed against a nested desktop

@@ -15,7 +15,11 @@
 //! same stopwatch started for a panel that was not exec'd. The stand-in was, so
 //! it hands over what its own start cost and what the press behind it was
 //! stamped with, and the marks read the way they always did -- minus the one
-//! for the toolkit coming up, whose absence is the point.
+//! for the toolkit coming up, whose absence is the point. A host starts it on
+//! the thread that took the request and draws on another, so the stopwatch is
+//! handed across with `handing` and `handed`: a thread-local nobody hands on is
+//! an opening that is never written down, which is what every hosted panel was
+//! from the day the toolkit went until the first frame was timed again.
 
 use std::cell::RefCell;
 use std::time::Duration;
@@ -25,6 +29,21 @@ use console_response_times::{Wait, Note, Waiting};
 
 thread_local! {
     static OPENING: RefCell<Option<Waiting>> = const { RefCell::new(None) };
+}
+
+pub struct Provided(Option<Waiting>);
+
+pub fn handing() -> Result<Provided, Never> {
+    Ok(Provided(OPENING.with(|held| held.borrow_mut().take())))
+}
+
+pub fn handed(handed: Provided) -> Result<(), Never> {
+    match handed.0 {
+        Some(waiting) => OPENING.with(|held| *held.borrow_mut() = Some(waiting)),
+        None => {},
+    }
+
+    Ok(())
 }
 
 pub fn started(who: &str) -> Result<(), Never> {
@@ -121,7 +140,7 @@ mod tests {
 
     #[test]
     fn stamping_an_opening_that_was_never_started_does_nothing() {
-        let Ok(()) = mark("gtk");
+        let Ok(()) = mark("surface");
         let Ok(()) = counted("rows", 4);
         let Ok(()) = named(Note { name: "door", said: "menu" });
         let Ok(()) = taking("screen", Duration::from_millis(20));

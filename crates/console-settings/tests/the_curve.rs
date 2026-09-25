@@ -2,12 +2,12 @@
 //!
 //! `hyprsunset` reads a file and this repository holds a table, and the two
 //! could disagree without anything failing: the daemon would happily wear a
-//! curve nobody here has written down, and the only way to notice would be to
+//! curve no one here has written down, and the only way to notice would be to
 //! be looking at the screen at the right minute on the right evening.
 //!
 //! So the file is not written by hand. `console-warm curve` prints it and this
 //! says the tree holds exactly that, which makes an edit to the file a test
-//! failure rather than a colour nobody can account for.
+//! failure rather than a color no one can account for.
 
 use std::path::{Path, PathBuf};
 

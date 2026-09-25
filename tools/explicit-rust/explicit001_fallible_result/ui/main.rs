@@ -4,7 +4,7 @@ fn fallible() -> Result<i32, ()> {
     Ok(0)
 }
 
-// BAD EXPLICIT001 — it met a failure and told nobody.
+// BAD EXPLICIT001 — it met a failure and told no one.
 fn swallows() -> i32 {
     //~v EXPLICIT001_FALLIBLE_RESULT
     fallible().unwrap_or(0)

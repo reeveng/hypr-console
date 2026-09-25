@@ -18,7 +18,7 @@ use std::collections::BTreeMap;
 use console_core_never::Never;
 use serde::{Deserialize, Serialize};
 
-use crate::Unpressed;
+use crate::GamepadError;
 
 pub const CAPTURED: &str = include_str!("../fixtures/devices.json");
 
@@ -78,9 +78,9 @@ impl Descriptor {
     }
 }
 
-pub fn descriptors(json: &str) -> Result<BTreeMap<String, Descriptor>, Unpressed> {
+pub fn descriptors(json: &str) -> Result<BTreeMap<String, Descriptor>, GamepadError> {
     let captured: Vec<Descriptor> =
-        serde_json::from_str(json).map_err(Unpressed::Uncaptured)?;
+        serde_json::from_str(json).map_err(GamepadError::Capture)?;
     let mut found = BTreeMap::new();
 
     for device in captured {
@@ -97,7 +97,7 @@ pub fn descriptors(json: &str) -> Result<BTreeMap<String, Descriptor>, Unpressed
     Ok(found)
 }
 
-pub fn captured() -> Result<BTreeMap<String, Descriptor>, Unpressed> {
+pub fn captured() -> Result<BTreeMap<String, Descriptor>, GamepadError> {
     descriptors(CAPTURED)
 }
 
@@ -143,7 +143,7 @@ mod tests {
     }
 
     #[test]
-    fn the_captured_devices_name_nobodys_controller() {
+    fn the_captured_devices_name_no_ones_controller() {
         for (part, device) in descriptors(CAPTURED).expect("the capture parses") {
             assert!(
                 device.uniq.is_empty(),

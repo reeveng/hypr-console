@@ -16,8 +16,8 @@ dylint_linting::declare_late_lint! {
     /// the point of calling it.
     ///
     /// EXPLICIT009 already asks that a discarded `#[must_use]` value be written
-    /// `let _ = ...`, so that throwing one away is a line somebody wrote rather
-    /// than a line somebody did not. It can only ask that where the attribute
+    /// `let _ = ...`, so that throwing one away is a line someone wrote rather
+    /// than a line someone did not. It can only ask that where the attribute
     /// is: a call whose answer nothing marked is a call that can be dropped
     /// in the middle of a block and read as a thing being done.
     ///
@@ -30,14 +30,14 @@ dylint_linting::declare_late_lint! {
     /// EXPLICIT002 already sent every function that could not say it succeeded
     /// through `Result<T, Never>`, and `Result` carries the attribute itself --
     /// so the answers this rule would have found were claimed by the rule
-    /// before it. What is left is the day somebody writes a getter that hands
+    /// before it. What is left is the day someone writes a getter that hands
     /// back a `String`, and the ratchet is the whole reason to have it written
     /// before that day rather than after.
     ///
     /// A function that takes anything by `&mut` is not asked. There the call is
     /// a doing as well as an answer -- a cursor stepped, a buffer filled -- and
     /// a caller that wanted only the doing is not throwing anything away.
-    /// Neither is a method implementing somebody else's trait, for the reason
+    /// Neither is a method implementing someone else's trait, for the reason
     /// EXPLICIT002, 007 and 008 all skip one: the signature was the trait's to
     /// choose, and a trait written here is linted where it is written.
     pub EXPLICIT034_NO_UNCLAIMED_ANSWER,
@@ -103,7 +103,7 @@ fn already_says_so(cx: &LateContext<'_>, def_id: rustc_hir::def_id::LocalDefId) 
 // through `Result`, and `Result` says it itself. Asked of the type rather than
 // through `clippy_utils::ty::is_must_use_ty`, which reads a `Result` as a
 // question about what is inside it -- `Result<(), Never>` would come back as an
-// answer nobody has to take, and every signature in the tree is one of those.
+// answer no one has to take, and every signature in the tree is one of those.
 fn the_answer_says_so<'tcx>(cx: &LateContext<'tcx>, answer: rustc_middle::ty::Ty<'tcx>) -> bool {
     matches!(
         answer.kind(),

@@ -11,14 +11,15 @@
 //! there is to know.
 
 
+use console_core_checksums::crc32;
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
 
 struct Entry {
     name: String,
     crc: u32,
-    size: usize,
-    at: usize,
+    size: u32,
+    at: u32,
 }
 
 const LOCAL: u32 = 0x0403_4b50;
@@ -30,20 +31,21 @@ pub fn zip(files: &[(String, Vec<u8>)]) -> Result<Vec<u8>, Never> {
     let mut entries = Vec::new();
 
     for (name, body) in files {
-        let Ok(crc) = crc32(body);
+        let Ok(crc) = crc32::of(body);
 
-        let entry = Entry { name: name.clone(), crc, size: body.len(), at: out.len() };
+        let Ok(size) = fitted(body.len());
+        let Ok(at) = fitted(out.len());
+        let entry = Entry { name: name.clone(), crc, size, at };
         let Ok(()) = four(&mut out, LOCAL);
         let Ok(()) = two(&mut out, 20);
         let Ok(()) = two(&mut out, 0);
         let Ok(()) = two(&mut out, 0);
         let Ok(()) = two(&mut out, 0);
         let Ok(()) = two(&mut out, 0);
-        let Ok(size) = fitted(entry.size);
         let Ok(named) = fitted(entry.name.len());
         let Ok(()) = four(&mut out, entry.crc);
-        let Ok(()) = four(&mut out, size);
-        let Ok(()) = four(&mut out, size);
+        let Ok(()) = four(&mut out, entry.size);
+        let Ok(()) = four(&mut out, entry.size);
         let Ok(()) = two(&mut out, named);
         let Ok(()) = two(&mut out, 0);
         out.extend_from_slice(entry.name.as_bytes());
@@ -51,7 +53,7 @@ pub fn zip(files: &[(String, Vec<u8>)]) -> Result<Vec<u8>, Never> {
         entries.push(entry);
     }
 
-    let directory = out.len();
+    let Ok(directory) = fitted::<_, u32>(out.len());
 
     for entry in &entries {
         let Ok(()) = four(&mut out, CENTRAL);
@@ -61,30 +63,27 @@ pub fn zip(files: &[(String, Vec<u8>)]) -> Result<Vec<u8>, Never> {
         let Ok(()) = two(&mut out, 0);
         let Ok(()) = two(&mut out, 0);
         let Ok(()) = two(&mut out, 0);
-        let Ok(size) = fitted(entry.size);
         let Ok(named) = fitted(entry.name.len());
-        let Ok(at) = fitted(entry.at);
         let Ok(()) = four(&mut out, entry.crc);
-        let Ok(()) = four(&mut out, size);
-        let Ok(()) = four(&mut out, size);
+        let Ok(()) = four(&mut out, entry.size);
+        let Ok(()) = four(&mut out, entry.size);
         let Ok(()) = two(&mut out, named);
         let Ok(()) = two(&mut out, 0);
         let Ok(()) = two(&mut out, 0);
         let Ok(()) = two(&mut out, 0);
         let Ok(()) = two(&mut out, 0);
         let Ok(()) = four(&mut out, 0);
-        let Ok(()) = four(&mut out, at);
+        let Ok(()) = four(&mut out, entry.at);
         out.extend_from_slice(entry.name.as_bytes());
     }
 
-    let listed = out.len().saturating_sub(directory);
+    let Ok(written) = fitted::<_, u32>(out.len());
+    let listed = written.saturating_sub(directory);
 
     let Ok(()) = four(&mut out, END);
     let Ok(()) = two(&mut out, 0);
     let Ok(()) = two(&mut out, 0);
     let Ok(many) = fitted(entries.len());
-    let Ok(listed) = fitted(listed);
-    let Ok(directory) = fitted(directory);
     let Ok(()) = two(&mut out, many);
     let Ok(()) = two(&mut out, many);
     let Ok(()) = four(&mut out, listed);
@@ -105,35 +104,10 @@ fn four(out: &mut Vec<u8>, said: u32) -> Result<(), Never> {
     Ok(())
 }
 
-pub fn crc32(bytes: &[u8]) -> Result<u32, Never> {
-    let mut crc = 0xFFFF_FFFFu32;
-
-    for byte in bytes {
-        crc ^= u32::from(*byte);
-
-        for _ in 0..8 {
-            let odd = crc & 1 == 1;
-            crc = crc.wrapping_shr(1);
-
-            crc = match odd {
-                true => crc ^ 0xEDB8_8320,
-                false => crc,
-            };
-        }
-    }
-
-    Ok(!crc)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn crc32(body: &[u8]) -> u32 {
-        let Ok(check) = super::crc32(body);
-
-        check
-    }
+    use console_core_number_conversion::index;
 
     fn zip(files: &[(String, Vec<u8>)]) -> Vec<u8> {
         let Ok(made) = super::zip(files);
@@ -149,12 +123,6 @@ mod tests {
     }
 
     #[test]
-    fn the_check_is_the_one_everybody_elses_is() {
-        assert_eq!(crc32(b"123456789"), 0xCBF4_3926);
-        assert_eq!(crc32(b""), 0);
-    }
-
-    #[test]
     fn an_archive_begins_as_an_archive_and_ends_as_one() {
         let made = zip(&named("{}"));
         assert_eq!(&made[..4], &LOCAL.to_le_bytes());
@@ -164,21 +132,24 @@ mod tests {
     #[test]
     fn every_file_is_named_in_it_twice() {
         let made = zip(&named("{}"));
+
         for name in ["manifest.json", "pad.js"] {
-            let times = made.windows(name.len()).filter(|window| *window == name.as_bytes()).count();
-            assert_eq!(times, 2, "{name}");
+            assert_eq!(made.windows(name.len()).filter(|window| *window == name.as_bytes()).count(), 2, "{name}");
         }
     }
 
     #[test]
     fn the_list_at_the_end_says_where_the_list_is() {
         let made = zip(&named("{}"));
-        let end = made.len() - 22;
-        let many = u16::from_le_bytes([made[end + 10], made[end + 11]]);
-        let listed = u32::from_le_bytes(made[end + 12..end + 16].try_into().expect("four")) as usize;
-        let at = u32::from_le_bytes(made[end + 16..end + 20].try_into().expect("four")) as usize;
+        let end = u32::try_from(made.len()).expect("small") - 22;
+        let Ok(from) = index(end);
+        let tail = &made[from..];
+        let many = u16::from_le_bytes([tail[10], tail[11]]);
+        let listed = u32::from_le_bytes(tail[12..16].try_into().expect("four"));
+        let at = u32::from_le_bytes(tail[16..20].try_into().expect("four"));
         assert_eq!(many, 2);
         assert_eq!(at + listed, end);
+        let Ok(at) = index(at);
         assert_eq!(&made[at..at + 4], &CENTRAL.to_le_bytes());
     }
 

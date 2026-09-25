@@ -9,19 +9,14 @@ license.workspace = true
 name = "console_repository"
 path = "src/lib.rs"
 
-
-# A dev-machine tool like console-deploy, and deliberately not in [build]:
-# renaming is something somebody does to this repository, never to the device.
-[[bin]]
-name = "console-rename"
-path = "src/bin/console-rename.rs"
-
 [dependencies]
-console-core-atomic-writes.workspace = true
-console-core-external-programs.workspace = true
 console-core-never.workspace = true
-console-program-contract.workspace = true
-console-program-runtime.workspace = true
+
+[dev-dependencies]
+console-core-number-conversion.workspace = true
+proc-macro2 = { version = "1", features = ["span-locations"] }
+quote = "1"
+syn = { version = "3", features = ["full", "visit"] }
 
 [lints]
 workspace = true

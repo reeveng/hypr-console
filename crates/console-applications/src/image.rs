@@ -4,6 +4,7 @@
 //! whether this file is square.
 
 use console_core_never::Never;
+use console_core_number_conversion::{fitted, index};
 
 pub fn size(head: &[u8]) -> Result<Option<(u32, u32)>, Never> {
     let drawn = png(head)?;
@@ -53,11 +54,12 @@ fn jpeg(head: &[u8]) -> Result<Option<(u32, u32)>, Never> {
         false => return Ok(None),
     }
 
-    let mut at: usize = 2;
+    let Ok(long) = fitted::<_, u32>(head.len());
+    let mut at: u32 = 2;
 
-    while at.saturating_add(9) < head.len() {
-        let here = head.get(at).copied();
-        let next = head.get(at.saturating_add(1)).copied();
+    while at.saturating_add(9) < long {
+        let Ok(here) = byte(head, at);
+        let Ok(next) = byte(head, at.saturating_add(1));
 
         let marker = match (here, next) {
             (Some(0xFF), Some(marker)) => marker,
@@ -94,12 +96,7 @@ fn jpeg(head: &[u8]) -> Result<Option<(u32, u32)>, Never> {
                     None => return Ok(None),
                 };
 
-                let length = match usize::try_from(said) {
-                    Ok(length) => length,
-                    Err(_fault) => return Ok(None),
-                };
-
-                at = at.saturating_add(length.saturating_add(2));
+                at = at.saturating_add(said.saturating_add(2));
             }
         }
     }
@@ -107,32 +104,29 @@ fn jpeg(head: &[u8]) -> Result<Option<(u32, u32)>, Never> {
     Ok(None)
 }
 
-fn two(head: &[u8], at: usize) -> Result<Option<u32>, Never> {
-    let bytes = match head.get(at..at.saturating_add(2)) {
-        Some(bytes) => bytes,
-        None => return Ok(None),
-    };
+fn byte(head: &[u8], at: u32) -> Result<Option<u8>, Never> {
+    let Ok(at) = index(at);
 
-    let pair = match bytes.try_into() {
-        Ok(pair) => pair,
-        Err(_fault) => return Ok(None),
-    };
-
-    Ok(Some(u32::from(u16::from_be_bytes(pair))))
+    Ok(head.get(at).copied())
 }
 
-fn four(head: &[u8], at: usize) -> Result<Option<u32>, Never> {
-    let bytes = match head.get(at..at.saturating_add(4)) {
-        Some(bytes) => bytes,
-        None => return Ok(None),
-    };
+struct Wide(u32);
 
-    let quad = match bytes.try_into() {
-        Ok(quad) => quad,
-        Err(_fault) => return Ok(None),
-    };
+fn big_endian(head: &[u8], at: u32, Wide(wide): Wide) -> Result<Option<u32>, Never> {
+    let Ok(at) = index(at);
+    let Ok(wide) = index(wide);
 
-    Ok(Some(u32::from_be_bytes(quad)))
+    Ok(head
+        .get(at..at.saturating_add(wide))
+        .map(|bytes| bytes.iter().fold(0u32, |read, byte| read.wrapping_shl(8) | u32::from(*byte))))
+}
+
+fn two(head: &[u8], at: u32) -> Result<Option<u32>, Never> {
+    big_endian(head, at, Wide(2))
+}
+
+fn four(head: &[u8], at: u32) -> Result<Option<u32>, Never> {
+    big_endian(head, at, Wide(4))
 }
 
 #[cfg(test)]

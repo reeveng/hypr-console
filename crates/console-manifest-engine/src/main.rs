@@ -8,42 +8,41 @@
 //!
 //! The manifest is the source of truth and this is only the engine that reads
 //! it. Anything installed or enabled outside it is invisible here, which is the
-//! point: a desktop assembled by hand is one nobody can put back together.
+//! point: a desktop assembled by hand is one no one can put back together.
 
 mod alone;
 mod build;
 mod building;
 mod buttons;
 mod enough;
+mod generations;
 mod going;
+mod health;
 mod install;
 mod installing;
 mod laying;
 mod machine;
-mod machines;
-mod manifest;
 mod migrating;
 mod packages;
-mod previous;
+mod snapshot;
 mod room;
 mod screen;
 mod settled;
-mod staying;
-mod unapplied;
 mod units;
-mod well;
-mod went;
+mod confirmation;
 
+use console_manifest_engine::{machines, manifest, modes, unapplied};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 
 use building::Names;
 use crate::install::User;
-use console_core_atomic_writes::Held;
-use console_how_far::Far;
+use console_core_atomic_writes::Stored;
+use console_how_far::Progress;
 use console_core_external_programs::Program;
 use console_core_never::Never;
+use console_core_number_conversion::fitted;
 use console_manifest_migrations::done::Outstanding;
 use laying::{Deploy, Put};
 use machine::Ran;
@@ -51,14 +50,16 @@ use manifest::{Manifest, Section};
 use settled::Settled;
 use unapplied::Unapplied;
 
-const ROOT: &str = "/etc/console";
+const ROOT: &str = console_repository::DEVICE_ROOT;
+
+const DECLINED: &str = "exec-condition";
 
 const GREEN: &str = "\x1b[32m";
 const RED: &str = "\x1b[31m";
 const YELLOW: &str = "\x1b[33m";
 const OFF: &str = "\x1b[0m";
 
-const COLUMN: usize = 18;
+const COLUMN: u32 = 18;
 
 fn main() -> ExitCode {
     let asked: Vec<String> = std::env::args().skip(1).collect();
@@ -68,9 +69,10 @@ fn main() -> ExitCode {
         .map_or(("check", nothing), |(one, rest)| (one.as_str(), rest));
 
     let (root, rest) = match (command, rest.split_first()) {
-        ("list" | "check" | "migrate" | "room", Some((flag, [at, more @ ..]))) if flag == "--root" => {
-            (PathBuf::from(at), more)
-        }
+        ("list" | "check" | "migrate" | "room", Some((flag, [at, more @ ..]))) => match flag.as_str() {
+            "--root" => (PathBuf::from(at), more),
+            _ => (PathBuf::from(ROOT), rest),
+        },
         _ => (PathBuf::from(ROOT), rest),
     };
 
@@ -106,8 +108,8 @@ fn main() -> ExitCode {
 
             return said;
         }
-        "well" => {
-            let Ok(said) = well(&root, &manifest);
+        "health" => {
+            let Ok(said) = health(&root, &manifest);
 
             return said;
         }
@@ -142,11 +144,11 @@ console migrate   run what this machine has not run; --pending only says what";
 fn read(root: &Path) -> Result<Manifest, Unapplied> {
     let at = root.join(manifest::MARK);
     let held = std::fs::read_to_string(&at)
-        .map_err(|fault| Unapplied::Unreadable(at.clone(), fault))?;
+        .map_err(|fault| Unapplied::Read(at.clone(), fault))?;
     let read = Manifest::read(&held)?;
     let mine = quirks(root)?;
 
-    read.and(manifest::Conf(machines::AT), &mine)
+    read.and(manifest::Configuration(machines::AT), &mine)
 }
 
 fn quirks(root: &Path) -> Result<String, Unapplied> {
@@ -154,9 +156,9 @@ fn quirks(root: &Path) -> Result<String, Unapplied> {
     let Ok(held) = console_core_atomic_writes::read(&at);
 
     match held {
-        Held::Said(said) => machines::here(&said, Path::new(machines::FIRMWARE)),
-        Held::Nothing => Ok(String::new()),
-        Held::Unreadable(fault) => Err(Unapplied::Unsaid(at.clone(), fault)),
+        Stored::Text(said) => machines::here(&said, Path::new(machines::FIRMWARE)),
+        Stored::Absent => Ok(String::new()),
+        Stored::Failed(fault) => Err(Unapplied::Unsaid(at.clone(), fault)),
     }
 }
 
@@ -171,15 +173,18 @@ fn report(done: Result<(), Unapplied>) -> Result<ExitCode, Never> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Said<'a> {
+struct StatusLine<'a> {
     state: &'a str,
     about: &'a str,
 }
 
-fn line(colour: &str, said: Said<'_>) -> Result<(), Never> {
-    let Said { state, about } = said;
-    let pad = " ".repeat(COLUMN.saturating_sub(state.chars().count()));
-    println!("  {colour}{state}{OFF}{pad}  {about}");
+fn line(color: &str, said: StatusLine<'_>) -> Result<(), Never> {
+    let StatusLine { state, about } = said;
+    let Ok(written) = fitted::<_, u32>(state.chars().count());
+    let Ok(short) = console_core_number_conversion::index(COLUMN.saturating_sub(written));
+    let pad = " ".repeat(short);
+
+    println!("  {color}{state}{OFF}{pad}  {about}");
 
     Ok(())
 }
@@ -200,11 +205,11 @@ fn list(manifest: &Manifest) -> Result<(), Never> {
         println!("{YELLOW}[{name}]{OFF}");
 
         for entry in entries {
-            let Ok(whose) = manifest.whose(entry);
+            let Ok(written) = manifest.written(entry);
 
-            match whose {
-                manifest::Whose::Theirs => println!("  {entry} {}", manifest::THEIRS),
-                manifest::Whose::Ours => println!("  {entry}"),
+            match written {
+                manifest::Written::Once => println!("  {entry} {}", manifest::ONCE),
+                manifest::Written::Always => println!("  {entry}"),
             }
         }
 
@@ -217,12 +222,12 @@ fn list(manifest: &Manifest) -> Result<(), Never> {
 fn check(root: &Path, manifest: &Manifest) -> Result<ExitCode, Never> {
     let source = root.join("files");
     let Ok(whoever) = machine::whoever();
-    let Ok(have) = went::to("reading packages", || {
+    let Ok(have) = confirmation::to("reading packages", || {
         let Ok(have) = machine::installed_packages();
 
         have
     });
-    let Ok(asked_for) = went::to("reading wanted", || {
+    let Ok(asked_for) = confirmation::to("reading wanted", || {
         let Ok(asked_for) = machine::wanted_packages();
 
         asked_for
@@ -234,7 +239,7 @@ fn check(root: &Path, manifest: &Manifest) -> Result<ExitCode, Never> {
     let Ok(masked) = manifest.of(Section::Masked);
 
     let drift = [
-        went::to("packages", || {
+        confirmation::to("packages", || {
             let Ok(drift) = under("packages", named, |package| {
                 let Ok(held) = packages::held(&have, &asked_for, package);
                 let Ok(settled) = held.settled();
@@ -245,7 +250,7 @@ fn check(root: &Path, manifest: &Manifest) -> Result<ExitCode, Never> {
 
             drift
         }),
-        went::to("built", || {
+        confirmation::to("built", || {
             let Ok(drift) = under("built", built, |name| {
                 let Ok(state) = build::state(root, name);
                 let Ok(settled) = state.settled();
@@ -257,10 +262,10 @@ fn check(root: &Path, manifest: &Manifest) -> Result<ExitCode, Never> {
 
             drift
         }),
-        went::to("files", || {
+        confirmation::to("files", || {
             let Ok(drift) = under("files", files, |path| {
-                let Ok(whose) = manifest.whose(path);
-                let Ok(state) = install::state(&source, path, User(whoever), whose);
+                let Ok(written) = manifest.written(path);
+                let Ok(state) = install::state(&source, path, User(whoever), written);
                 let Ok(settled) = state.settled();
                 let Ok(said) = state.name();
 
@@ -269,36 +274,8 @@ fn check(root: &Path, manifest: &Manifest) -> Result<ExitCode, Never> {
 
             drift
         }),
-        went::to("services", || {
-            let Ok(drift) = under("services", services, |unit| {
-                let Ok((enabled, active)) = machine::unit_state(unit);
-                let ok = match enabled == "enabled" && active == "active" {
-                    true => Settled::Yes,
-                    false => Settled::No,
-                };
-
-                (ok, format!("{enabled}, {active}"), unit.clone())
-            });
-
-            drift
-        }),
-        went::to("masked", || {
-            let Ok(drift) = under("masked", masked, |unit| {
-                let Ok((enabled, _)) = machine::unit_state(unit);
-                let ok = match enabled == "masked" {
-                    true => Settled::Yes,
-                    false => Settled::No,
-                };
-                let said = match enabled.is_empty() {
-                    true => "not masked".to_string(),
-                    false => enabled,
-                };
-
-                (ok, said, unit.clone())
-            });
-
-            drift
-        }),
+        units_drift(services),
+        masked_drift(masked),
     ]
     .into_iter()
     .map(|drift| {
@@ -306,7 +283,7 @@ fn check(root: &Path, manifest: &Manifest) -> Result<ExitCode, Never> {
 
         drift
     })
-    .sum::<usize>();
+    .fold(0_u32, u32::saturating_add);
 
     let Ok(home) = home();
     let Ok(standing) = buttons::standing(root, &home);
@@ -324,6 +301,42 @@ fn check(root: &Path, manifest: &Manifest) -> Result<ExitCode, Never> {
     })
 }
 
+fn units_drift(services: &[String]) -> Result<u32, Never> {
+    confirmation::to("services", || {
+        let Ok(drift) = under("services", services, |unit| {
+            let Ok((enabled, active)) = machine::unit_state(unit);
+            let ok = match enabled == "enabled" && active == "active" {
+                true => Settled::Yes,
+                false => Settled::No,
+            };
+
+            (ok, format!("{enabled}, {active}"), unit.clone())
+        });
+
+        drift
+    })
+}
+
+fn masked_drift(masked: &[String]) -> Result<u32, Never> {
+    confirmation::to("masked", || {
+        let Ok(drift) = under("masked", masked, |unit| {
+            let Ok((enabled, _)) = machine::unit_state(unit);
+            let ok = match enabled == "masked" {
+                true => Settled::Yes,
+                false => Settled::No,
+            };
+            let said = match enabled.is_empty() {
+                true => "not masked".to_string(),
+                false => enabled,
+            };
+
+            (ok, said, unit.clone())
+        });
+
+        drift
+    })
+}
+
 fn front(standing: &buttons::Standing) -> Result<(), Never> {
     println!("{YELLOW}buttons{OFF}");
 
@@ -332,20 +345,20 @@ fn front(standing: &buttons::Standing) -> Result<(), Never> {
     match (standing.asked, settled) {
         (false, _) => {
             let Ok(()) =
-                line(YELLOW, Said {
+                line(YELLOW, StatusLine {
                     state: "not asked",
                     about: "InputPlumber did not say what this device sends",
                 });
         }
         (true, Settled::Yes) => {
-            let Ok(()) = line(GREEN, Said {
+            let Ok(()) = line(GREEN, StatusLine {
                 state: "all here",
                 about: "every button this desktop binds",
             });
         }
         (true, Settled::No) => {
             for lost in &standing.missing {
-                let Ok(()) = line(RED, Said { state: "not here", about: lost });
+                let Ok(()) = line(RED, StatusLine { state: "not here", about: lost });
             }
         }
     }
@@ -354,7 +367,7 @@ fn front(standing: &buttons::Standing) -> Result<(), Never> {
         true => {
             let many = standing.moved;
             let Ok(()) =
-                line(GREEN, Said {
+                line(GREEN, StatusLine {
                     state: "moved",
                     about: &format!("{many} of them are elsewhere on this device"),
                 });
@@ -364,7 +377,7 @@ fn front(standing: &buttons::Standing) -> Result<(), Never> {
 
     match standing.touchscreen == Some(false) {
         true => {
-            let Ok(()) = line(YELLOW, Said {
+            let Ok(()) = line(YELLOW, StatusLine {
                 state: "no touchscreen",
                 about: "nothing here can be driven by a finger",
             });
@@ -381,19 +394,19 @@ fn under<T>(
     name: &str,
     entries: &[T],
     state: impl Fn(&T) -> (Settled, String, String),
-) -> Result<usize, Never> {
+) -> Result<u32, Never> {
     println!("{YELLOW}{name}{OFF}");
 
-    let drift = entries
+    let Ok(drift) = fitted::<_, u32>(entries
         .iter()
         .map(state)
         .filter(|(ok, said, about)| {
-            let Ok(colour) = settled(*ok);
-            let Ok(()) = line(colour, Said { state: said, about });
+            let Ok(color) = settled(*ok);
+            let Ok(()) = line(color, StatusLine { state: said, about });
 
             *ok == Settled::No
         })
-        .count();
+        .count());
 
     println!();
 
@@ -432,10 +445,10 @@ impl Drop for Updating {
 }
 
 
-fn the_battery() -> Result<console_default_applications::battery::Charge, Never> {
-    let said = console_default_applications::battery::charge()?;
+fn the_battery() -> Result<console_battery::Charge, Never> {
+    let said = console_battery::charge()?;
 
-    console_default_applications::battery::Charge::of(&said)
+    console_battery::Charge::of(&said)
 }
 
 fn the_room(at: &Path) -> Result<room::Left, Never> {
@@ -456,21 +469,21 @@ fn where_it_went() -> Result<Vec<room::Place>, Never> {
     room::places_in(&said.out, &roots)
 }
 
-fn the_levels() -> Result<console_default_applications::battery::Levels, Never> {
-    use console_default_applications::battery::Levels;
+fn the_levels() -> Result<console_battery::Levels, Never> {
+    use console_battery::Levels;
 
     let Ok(whoever) = machine::whoever();
-    let Ok(at) = console_default_applications::under(&Path::new("/home").join(whoever));
+    let Ok(at) = console_defaults::under(&Path::new("/home").join(whoever));
 
     let Ok(held) = console_core_atomic_writes::read(&at);
 
     match held {
-        console_core_atomic_writes::Held::Said(said) => Levels::read(&said),
-        console_core_atomic_writes::Held::Nothing => Ok(Levels::default()),
-        console_core_atomic_writes::Held::Unreadable(fault) => {
+        console_core_atomic_writes::Stored::Text(said) => Levels::read(&said),
+        console_core_atomic_writes::Stored::Absent => Ok(Levels::default()),
+        console_core_atomic_writes::Stored::Failed(fault) => {
             println!(
                 "{YELLOW}{} will not be read ({fault}), so the battery levels this apply is \
-                 judged against are the ones nobody chose{OFF}",
+                 judged against are the ones no one chose{OFF}",
                 at.display()
             );
 
@@ -479,20 +492,33 @@ fn the_levels() -> Result<console_default_applications::battery::Levels, Never> 
     }
 }
 
-fn standing(root: &Path, manifest: &Manifest) -> Result<well::Standing, Never> {
+fn standing(root: &Path, manifest: &Manifest) -> Result<health::Standing, Unapplied> {
     let source = root.join("files");
     let Ok(user) = machine::whoever();
-    let mut standing = well::Standing::default();
+    let mut standing = health::Standing::default();
+
+    let kept = generations::read(Path::new(generations::KEPT))?;
+
+    let Ok(unfinished) = generations::unfinished(&kept);
+
+    standing.unfinished = match unfinished {
+        Some(generation) => {
+            let Ok(named) = generation.named();
+
+            Some(named)
+        }
+        None => None,
+    };
 
     let Ok(plan) = console_core_atomic_writes::read(Path::new(machine::PLAN));
 
     match plan {
-        console_core_atomic_writes::Held::Nothing => {}
-        console_core_atomic_writes::Held::Said(said) => {
+        console_core_atomic_writes::Stored::Absent => {}
+        console_core_atomic_writes::Stored::Text(said) => {
             standing.midway =
                 said.lines().filter_map(|line| line.split_once(' ')).map(|(_, at)| at.to_string()).collect();
         }
-        console_core_atomic_writes::Held::Unreadable(fault) => {
+        console_core_atomic_writes::Stored::Failed(fault) => {
             standing.midway = vec![format!("{} ({fault})", machine::PLAN)];
         }
     }
@@ -525,8 +551,8 @@ fn standing(root: &Path, manifest: &Manifest) -> Result<well::Standing, Never> {
     }
 
     for live in files {
-        let Ok(whose) = manifest.whose(live);
-        let Ok(state) = install::state(&source, live, User(user), whose);
+        let Ok(written) = manifest.written(live);
+        let Ok(state) = install::state(&source, live, User(user), written);
         let Ok(settled) = state.settled();
 
         match state != install::State::Unreadable && settled == Settled::No {
@@ -553,15 +579,22 @@ fn standing(root: &Path, manifest: &Manifest) -> Result<well::Standing, Never> {
         let described = |unit: &str| {
             let Ok(said) = machine::mine(&["show", "-p", "Description", "--value", unit]);
 
-            well::Piece::new(unit, well::Called(&said.out))
+            health::Piece::new(unit, health::Called(&said.out))
         };
         let Ok(active) = machine::mine(&["is-active", unit]);
 
         match active.out != "active" {
             true => {
+                let Ok(result) = machine::mine(&["show", "-p", "Result", "--value", unit]);
+
+                match result.out.trim() == DECLINED {
+                    true => continue,
+                    false => {},
+                }
+
                 let Ok(piece) = described(unit);
 
-                standing.down.push(piece);
+                standing.failing.push(piece);
                 continue;
             }
             false => {},
@@ -581,14 +614,14 @@ fn standing(root: &Path, manifest: &Manifest) -> Result<well::Standing, Never> {
 
                 standing.restarted.push((piece, times));
             }
-            Err(_) => eprintln!("console well: {unit} would not say how often it has restarted"),
+            Err(_) => eprintln!("console health: {unit} would not say how often it has restarted"),
         }
     }
 
     let Ok(left) = the_room(root);
 
     match left {
-        room::Left::Said(free) => {
+        room::Left::Reported(free) => {
             let Ok(went) = match free < room::A_BUILD {
                 true => where_it_went(),
                 false => Ok(Vec::new()),
@@ -601,7 +634,7 @@ fn standing(root: &Path, manifest: &Manifest) -> Result<well::Standing, Never> {
             }
         }
         room::Left::Unknown(said) => {
-            eprintln!("console well: the disk would not say how much room is left ({said})");
+            eprintln!("console health: the disk would not say how much room is left ({said})");
         }
     }
 
@@ -612,7 +645,7 @@ fn room(root: &Path) -> Result<ExitCode, Never> {
     let Ok(left) = the_room(root);
 
     let free = match left {
-        room::Left::Said(free) => free,
+        room::Left::Reported(free) => free,
         room::Left::Unknown(said) => {
             eprintln!("{RED}the disk would not say how much room is left ({said}){OFF}");
 
@@ -652,11 +685,18 @@ fn room(root: &Path) -> Result<ExitCode, Never> {
     })
 }
 
-fn well(root: &Path, manifest: &Manifest) -> Result<ExitCode, Never> {
-    let Ok(standing) = standing(root, manifest);
-    let kind = "well";
+fn health(root: &Path, manifest: &Manifest) -> Result<ExitCode, Never> {
+    let standing = match standing(root, manifest) {
+        Ok(standing) => standing,
+        Err(fault) => {
+            eprintln!("{RED}{fault}{OFF}");
 
-    let Ok(card) = console_notifications::saying::Kept::named(kind);
+            return Ok(ExitCode::FAILURE);
+        }
+    };
+    let kind = "health";
+
+    let Ok(card) = console_notifications::saying::StatePath::named(kind);
 
     let Ok(said) = standing.said();
 
@@ -664,10 +704,10 @@ fn well(root: &Path, manifest: &Manifest) -> Result<ExitCode, Never> {
         Some((summary, body)) => (summary, body),
         None => {
             let Ok(()) = console_notifications::saying::withdraw(&card);
-            let Ok(counting) = console_notifications::saying::Kept::counting(kind);
+            let Ok(counting) = console_notifications::saying::StatePath::counting(kind);
             let Ok(()) = counting.forget();
 
-            println!("{GREEN}well{OFF} this machine is what the manifest says, and every piece of it is up");
+            println!("{GREEN}health{OFF} this machine is what the manifest says, and every piece of it is up");
 
             return Ok(ExitCode::SUCCESS);
         }
@@ -677,19 +717,19 @@ fn well(root: &Path, manifest: &Manifest) -> Result<ExitCode, Never> {
 
     let Ok(said) = console_notifications::saying::for_the_journal(
         kind,
-        console_notifications::saying::Said { summary: &summary, body: &body },
+        console_notifications::saying::Content { summary: &summary, body: &body },
     );
     let Ok(()) = console_notifications::saying::journal(&said);
-    let Ok(counting) = console_notifications::saying::Kept::counting(kind);
+    let Ok(counting) = console_notifications::saying::StatePath::counting(kind);
     let Ok(again) = counting.again();
     let Ok(once) = console_notifications::saying::once(
-        console_notifications::saying::Said { summary: &summary, body: &body },
+        console_notifications::saying::Content { summary: &summary, body: &body },
         again,
     );
 
     match once {
-        Some(notice) => {
-            let Ok(()) = console_notifications::saying::raise_kept(notice, &card);
+        Some(notification) => {
+            let Ok(()) = console_notifications::saying::raise_kept(notification, &card);
         }
         None => {},
     }
@@ -742,7 +782,7 @@ struct Laying {
 
 struct Fetching<'a, 'b> {
     moving: &'a mut going::Moving<'b>,
-    done: usize,
+    done: u32,
 }
 
 fn apply(root: &Path, manifest: &Manifest) -> Result<(), Unapplied> {
@@ -755,139 +795,36 @@ fn apply(root: &Path, manifest: &Manifest) -> Result<(), Unapplied> {
 
     let source = root.join("files");
     let _alone = alone::taking()?;
-    let Ok(charge) = the_battery();
-    let Ok(levels) = the_levels();
-    let Ok(enough) = enough::enough(charge, levels);
 
-    match enough {
-        enough::Enough::No(said) => return Err(Unapplied::NotEnough(said)),
-        enough::Enough::Yes => {},
-    }
+    enough_to_apply(root)?;
 
-    let Ok(left) = the_room(root);
-    let Ok(room) = match left {
-        room::Left::Said(free) => {
-            let Ok(went) = match free < room::A_BUILD {
-                true => where_it_went(),
-                false => Ok(Vec::new()),
-            };
-
-            room::before_an_apply(free, &went)
-        }
-        room::Left::Unknown(said) => {
-            println!(
-                "{YELLOW}the disk would not say how much room is left ({said}), so this apply is \
-                 going ahead without knowing whether what it writes will fit{OFF}"
-            );
-
-            Ok(room::Room::Enough)
-        }
-    };
-
-    match room {
-        room::Room::No(said) => return Err(Unapplied::NoRoom(said)),
-        room::Room::Enough => {},
-    }
-
-    let Ok(asked) = staying::taking("installing the desktop");
+    let Ok(asked) = console_awake::taking(console_awake::InhibitReason::FromStopping);
     let _staying = match asked {
-        staying::Asked::Held(held) => Some(held),
-        staying::Asked::NotHeld(said) => {
+        console_awake::InhibitResult::Acquired(held) => Some(held),
+        console_awake::InhibitResult::Failed(said) => {
             println!("{YELLOW}{said}{OFF}");
             None
         }
     };
     let Ok(what) = marked(root);
-    let Ok(was) = previous::before(&what);
+    let Ok(was) = snapshot::before(&what);
     let Ok(()) = told_what_there_is_to_come_back_to(&was);
+    let Ok(commit) = commit(root);
+    let kept = generations::read(Path::new(generations::KEPT))?;
+    let Ok(running) = generations::next(&kept, generations::Commit(&commit));
+
+    generations::remember(Path::new(generations::KEPT), &running)?;
+
+    let Ok(about) = running.named();
+    let Ok(()) = line(YELLOW, StatusLine { state: "generation", about: &about });
     let Ok(whoever) = machine::whoever();
 
     migrating::run(root, whoever)?;
 
     let Ok(saying) = Updating::started();
     let Ok(mut going) = going::Going::starting();
-    let Ok(named) = manifest.of(Section::Packages);
-    let Ok(have) = going.through(going::READING, || {
-        let Ok(have) = machine::installed_packages();
 
-        have
-    });
-    let Ok(asked_for) = going.through(going::WANTED, || {
-        let Ok(asked_for) = machine::wanted_packages();
-
-        asked_for
-    });
-    let Ok(missing) = packages::missing(named, &have);
-    let Ok(installed) = going.during(going::PACKAGES, |moving| {
-        match missing.is_empty() {
-            true => return Ran::Fine,
-            false => {},
-        }
-
-        let many = missing.len();
-        let Ok(()) = moving.say(&format!("{YELLOW}installing{OFF} {}", missing.join(" ")));
-
-        let Ok(pacman) = Program::Pacman.name();
-
-        let argv: Vec<&str> = [pacman, "-S", "--needed", "--noconfirm"]
-            .into_iter()
-            .chain(missing)
-            .collect();
-        let mut fetching = Fetching { moving, done: 0 };
-        let Ok(ran) = machine::run_watched(&argv, &mut fetching, |fetching, line| {
-            let Ok(said) = installing::said(line);
-            let Ok(()) = fetching.moving.say(line);
-
-            match said {
-                installing::Said::Fetching(name) => {
-                    fetching.done = fetching.done.saturating_add(1);
-
-                    let Ok(far) = installing::fetched(Far { done: fetching.done, many });
-                    let Ok(()) = fetching.moving.far(far, &format!("fetching {name}"));
-                }
-
-                installing::Said::Doing { done, many, name } => {
-                    let Ok(far) = installing::done(Far { done, many });
-                    let Ok(counted) = console_how_far::counted(Far { done, many });
-                    let Ok(()) = fetching.moving.far(far, &format!("{counted} {name}"));
-                }
-
-                installing::Said::Nothing => {}
-            }
-        });
-
-        ran
-    });
-
-    match installed == Ran::Badly {
-        true => return Err(Unapplied::PacmanRefused),
-        false => {},
-    }
-
-    let Ok(borrowed) = packages::borrowed(named, &have, &asked_for);
-    let Ok(kept) = going.through(going::KEEPING, || {
-        match borrowed.is_empty() {
-            true => return Ran::Fine,
-            false => {},
-        }
-
-        println!("{YELLOW}keeping{OFF} {}", borrowed.join(" "));
-
-        let Ok(pacman) = Program::Pacman.name();
-
-        let argv: Vec<&str> = [pacman, "-D", "--asexplicit", "--quiet"]
-            .into_iter()
-            .chain(borrowed)
-            .collect();
-        let Ok(ran) = machine::run_seen(&argv);
-
-        ran
-    });
-
-    match kept == Ran::Badly {
-        true => return Err(Unapplied::PacmanUntold),
-        false => {},
-    }
+    packages_held(&mut going, manifest)?;
 
     let Ok(()) = going.through(going::SWEEPING, || {
         let Ok(()) = swept(manifest);
@@ -926,6 +863,184 @@ fn apply(root: &Path, manifest: &Manifest) -> Result<(), Unapplied> {
 
     swapped?;
 
+    let Ok(()) = told_the_rest(&mut going);
+
+    match written.iter().any(|path| path.contains("/systemd/")) {
+        true => {
+            let Ok(_) = machine::user_systemctl(&["daemon-reload"]);
+        }
+        false => {},
+    }
+
+    let Ok(()) = buttons::wear_again();
+
+    let Ok(services) = manifest.of(Section::Services);
+    let started = Started { source: &source, written: &written };
+    let Ok(asked_to_run) = services_running(&mut going, services, started);
+    let Ok(fell) = fallen(&asked_to_run);
+
+    match !fell.is_empty() {
+        true => {
+            let Ok(()) = undone(&mut laying, &written, &asked_to_run, &fell);
+
+            return Err(Unapplied::Restore(fell.clone()));
+        }
+        false => {},
+    }
+
+
+    let Ok(()) = going.through_handed(going::RELEASE, &mut laying, |laying| {
+        let Ok(()) = laying.deploy.settle(&mut laying.onto);
+    });
+    let Ok(()) = masked_and_woken(manifest, &written, whoever);
+
+    let Ok(uncommitted) = machine::uncommitted(root);
+
+    for open in uncommitted {
+        println!("{YELLOW}not committed{OFF} {open}");
+    }
+
+    let Ok(after) = marked(root);
+    let _ = snapshot::after(&was, &after);
+    let Ok(done) = running.finished();
+
+    generations::remember(Path::new(generations::KEPT), &done)?;
+
+    let Ok(()) = going.done();
+    let Ok(()) = saying.done();
+    let Ok(()) = told_the_front(root);
+
+    println!("\n{GREEN}Done.{OFF}");
+
+    Ok(())
+}
+
+fn enough_to_apply(root: &Path) -> Result<(), Unapplied> {
+    let Ok(charge) = the_battery();
+    let Ok(levels) = the_levels();
+    let Ok(enough) = enough::enough(charge, levels);
+
+    match enough {
+        enough::Enough::No(said) => return Err(Unapplied::NotEnough(said)),
+        enough::Enough::Yes => {},
+    }
+
+    let Ok(left) = the_room(root);
+    let Ok(room) = match left {
+        room::Left::Reported(free) => {
+            let Ok(went) = match free < room::A_BUILD {
+                true => where_it_went(),
+                false => Ok(Vec::new()),
+            };
+
+            room::before_an_apply(free, &went)
+        }
+        room::Left::Unknown(said) => {
+            println!(
+                "{YELLOW}the disk would not say how much room is left ({said}), so this apply is \
+                 going ahead without knowing whether what it writes will fit{OFF}"
+            );
+
+            Ok(room::Room::Enough)
+        }
+    };
+
+    match room {
+        room::Room::No(said) => return Err(Unapplied::NoRoom(said)),
+        room::Room::Enough => {},
+    }
+
+    Ok(())
+}
+
+fn packages_held(going: &mut going::Going, manifest: &Manifest) -> Result<(), Unapplied> {
+    let Ok(named) = manifest.of(Section::Packages);
+    let Ok(have) = going.through(going::READING, || {
+        let Ok(have) = machine::installed_packages();
+
+        have
+    });
+    let Ok(asked_for) = going.through(going::WANTED, || {
+        let Ok(asked_for) = machine::wanted_packages();
+
+        asked_for
+    });
+    let Ok(missing) = packages::missing(named, &have);
+    let Ok(installed) = going.during(going::PACKAGES, |moving| {
+        match missing.is_empty() {
+            true => return Ran::Fine,
+            false => {},
+        }
+
+        let Ok(many) = fitted::<_, u32>(missing.len());
+        let Ok(()) = moving.say(&format!("{YELLOW}installing{OFF} {}", missing.join(" ")));
+
+        let Ok(pacman) = Program::Pacman.name();
+
+        let arguments: Vec<&str> = [pacman, "-S", "--needed", "--noconfirm"]
+            .into_iter()
+            .chain(missing)
+            .collect();
+        let mut fetching = Fetching { moving, done: 0 };
+        let Ok(ran) = machine::run_watched(&arguments, &mut fetching, |fetching, line| {
+            let Ok(said) = installing::said(line);
+            let Ok(()) = fetching.moving.say(line);
+
+            match said {
+                installing::PacmanOutput::Downloading(name) => {
+                    fetching.done = fetching.done.saturating_add(1);
+
+                    let Ok(far) = installing::fetched(Progress { done: fetching.done, many });
+                    let Ok(()) = fetching.moving.far(far, &format!("fetching {name}"));
+                }
+
+                installing::PacmanOutput::Installing { done, many, name } => {
+                    let Ok(far) = installing::done(Progress { done, many });
+                    let Ok(counted) = console_how_far::counted(Progress { done, many });
+                    let Ok(()) = fetching.moving.far(far, &format!("{counted} {name}"));
+                }
+
+                installing::PacmanOutput::Other => {}
+            }
+        });
+
+        ran
+    });
+
+    match installed == Ran::Badly {
+        true => return Err(Unapplied::PacmanRefused),
+        false => {},
+    }
+
+    let Ok(borrowed) = packages::borrowed(named, &have, &asked_for);
+    let Ok(kept) = going.through(going::KEEPING, || {
+        match borrowed.is_empty() {
+            true => return Ran::Fine,
+            false => {},
+        }
+
+        println!("{YELLOW}keeping{OFF} {}", borrowed.join(" "));
+
+        let Ok(pacman) = Program::Pacman.name();
+
+        let arguments: Vec<&str> = [pacman, "-D", "--asexplicit", "--quiet"]
+            .into_iter()
+            .chain(borrowed)
+            .collect();
+        let Ok(ran) = machine::run_seen(&arguments);
+
+        ran
+    });
+
+    match kept == Ran::Badly {
+        true => return Err(Unapplied::PacmanUntold),
+        false => {},
+    }
+
+    Ok(())
+}
+
+fn told_the_rest(going: &mut going::Going) -> Result<(), Never> {
     let Ok(()) = going.through(going::ADD_ON, || {
         let Ok(()) = packed_the_add_on();
     });
@@ -953,22 +1068,27 @@ fn apply(root: &Path, manifest: &Manifest) -> Result<(), Unapplied> {
         let Ok(()) = pressed_the_wallpapers();
     });
 
-    match written.iter().any(|path| path.contains("/systemd/")) {
-        true => {
-            let Ok(_) = machine::user_systemctl(&["daemon-reload"]);
-        }
-        false => {},
-    }
+    Ok(())
+}
 
-    let Ok(()) = buttons::wear_again();
+struct Started<'a> {
+    source: &'a Path,
+    written: &'a [String],
+}
 
+fn services_running<'a>(
+    going: &mut going::Going,
+    services: &'a [String],
+    started: Started<'_>,
+) -> Result<Vec<&'a String>, Never> {
+    let Started { source, written } = started;
     let mut asked_to_run: Vec<&String> = Vec::new();
-    let Ok(services) = manifest.of(Section::Services);
     let Ok(()) = going.during_handed(going::SERVICES, &mut asked_to_run, |asked_to_run, moving| {
-        let many = services.len();
+        let Ok(many) = fitted::<_, u32>(services.len());
 
         for (done, unit) in services.iter().enumerate() {
-            let Ok(()) = moving.at(Far { done, many }, unit);
+            let Ok(done) = fitted::<_, u32>(done);
+            let Ok(()) = moving.at(Progress { done, many }, unit);
             let Ok((enabled, active)) = machine::unit_state(unit);
 
             match enabled != "enabled" {
@@ -979,16 +1099,18 @@ fn apply(root: &Path, manifest: &Manifest) -> Result<(), Unapplied> {
                 false => {},
             }
 
-            let Ok(restart) = restarted_by(&source, unit, &written);
+            let Ok(restart) = restarted_by(source, unit, written);
 
             match active.as_str() {
-                "active" if restart == Restart::Wanted => {
-                    let Ok(()) = moving.say(&format!("{YELLOW}restarting{OFF} {unit}"));
-                    let Ok(_) = machine::user_systemctl(&["restart", unit]);
+                "active" => match restart == Restart::Wanted {
+                    true => {
+                        let Ok(()) = moving.say(&format!("{YELLOW}restarting{OFF} {unit}"));
+                        let Ok(_) = machine::user_systemctl(&["restart", unit]);
 
-                    asked_to_run.push(unit);
-                }
-                "active" => {}
+                        asked_to_run.push(unit);
+                    }
+                    false => {}
+                },
                 _ => {
                     let Ok(()) = moving.say(&format!("{YELLOW}starting{OFF} {unit}"));
                     let Ok(_) = machine::user_systemctl(&["start", unit]);
@@ -998,42 +1120,44 @@ fn apply(root: &Path, manifest: &Manifest) -> Result<(), Unapplied> {
             }
         }
     });
-    let Ok(fell) = fallen(&asked_to_run);
 
-    match !fell.is_empty() {
+    Ok(asked_to_run)
+}
+
+fn undone(
+    laying: &mut Laying,
+    written: &[String],
+    asked_to_run: &[&String],
+    fell: &[String],
+) -> Result<(), Never> {
+    println!("\n{RED}did not come up{OFF} {}", fell.join(" "));
+
+    let Ok(undone) = laying.deploy.undo(&mut laying.onto);
+
+    for one in undone {
+        match one.put {
+            Put::Back => println!("{YELLOW}put back{OFF} {}", one.at),
+            Put::NotBack(fault) => println!("{RED}{fault}{OFF}"),
+        }
+    }
+
+    match written.iter().any(|path| path.contains("/systemd/")) {
         true => {
-            println!("\n{RED}did not come up{OFF} {}", fell.join(" "));
-
-            let Ok(undone) = laying.deploy.undo(&mut laying.onto);
-
-            for one in undone {
-                match one.put {
-                    Put::Back => println!("{YELLOW}put back{OFF} {}", one.at),
-                    Put::NotBack(fault) => println!("{RED}{fault}{OFF}"),
-                }
-            }
-
-            match written.iter().any(|path| path.contains("/systemd/")) {
-                true => {
-                    let Ok(_) = machine::user_systemctl(&["daemon-reload"]);
-                }
-                false => {},
-            }
-
-            for unit in &asked_to_run {
-                println!("{YELLOW}restarting{OFF} {unit}");
-
-                let Ok(_) = machine::user_systemctl(&["restart", unit]);
-            }
-
-            return Err(Unapplied::PutBack(fell.clone()));
+            let Ok(_) = machine::user_systemctl(&["daemon-reload"]);
         }
         false => {},
     }
 
-    let Ok(()) = going.through_handed(going::RELEASE, &mut laying, |laying| {
-        let Ok(()) = laying.deploy.settle(&mut laying.onto);
-    });
+    for unit in asked_to_run {
+        println!("{YELLOW}restarting{OFF} {unit}");
+
+        let Ok(_) = machine::user_systemctl(&["restart", unit]);
+    }
+
+    Ok(())
+}
+
+fn masked_and_woken(manifest: &Manifest, written: &[String], whoever: &str) -> Result<(), Never> {
     let Ok(masked) = manifest.of(Section::Masked);
 
     for unit in masked {
@@ -1049,7 +1173,7 @@ fn apply(root: &Path, manifest: &Manifest) -> Result<(), Unapplied> {
         }
     }
 
-    let Ok(woken) = units::woken_by(&written);
+    let Ok(woken) = units::woken_by(written);
 
     for wake in woken {
         println!("{YELLOW}reloading{OFF} {}", wake.name);
@@ -1065,28 +1189,19 @@ fn apply(root: &Path, manifest: &Manifest) -> Result<(), Unapplied> {
         }
     }
 
-    let Ok(uncommitted) = machine::uncommitted(root);
-
-    for open in uncommitted {
-        println!("{YELLOW}not committed{OFF} {open}");
-    }
-
-    let Ok(after) = marked(root);
-    let _ = previous::after(&was, &after);
-    let Ok(()) = going.done();
-    let Ok(()) = saying.done();
-    let Ok(()) = told_the_front(root);
-
-    println!("\n{GREEN}Done.{OFF}");
-
     Ok(())
 }
 
-fn marked(root: &Path) -> Result<String, Never> {
+fn commit(root: &Path) -> Result<String, Never> {
     let Ok(git) = Program::Git.name();
     let Ok(asked) = machine::run(&[git, "-C", &root.display().to_string(),
         "rev-parse", "--short", "HEAD"]);
-    let said = asked.out;
+
+    Ok(asked.out)
+}
+
+fn marked(root: &Path) -> Result<String, Never> {
+    let Ok(said) = commit(root);
 
     Ok(match said.is_empty() {
         true => "console apply".to_string(),
@@ -1094,18 +1209,18 @@ fn marked(root: &Path) -> Result<String, Never> {
     })
 }
 
-fn told_what_there_is_to_come_back_to(was: &[previous::Held]) -> Result<(), Never> {
+fn told_what_there_is_to_come_back_to(was: &[snapshot::Snapshot]) -> Result<(), Never> {
     println!("{YELLOW}before{OFF}");
 
     for held in was {
         let Ok(said) = held.said();
 
         match held {
-            previous::Held::Made { .. } => {
-                let Ok(()) = line(GREEN, Said { state: "kept", about: &said });
+            snapshot::Snapshot::Made { .. } => {
+                let Ok(()) = line(GREEN, StatusLine { state: "kept", about: &said });
             }
-            previous::Held::Not { .. } => {
-                let Ok(()) = line(YELLOW, Said { state: "no snapshot", about: &said });
+            snapshot::Snapshot::Not { .. } => {
+                let Ok(()) = line(YELLOW, StatusLine { state: "no snapshot", about: &said });
             }
         }
     }
@@ -1136,7 +1251,7 @@ fn packed_the_add_on() -> Result<(), Never> {
 fn pressed_the_wallpapers() -> Result<(), Never> {
     println!("{YELLOW}pressing{OFF} the wallpapers the table names and this has not");
 
-    let Ok(_) = machine::run_seen(&["wallpaper-press"]);
+    let Ok(_) = machine::run_seen(&["wallpaper-render"]);
 
     Ok(())
 }
@@ -1182,8 +1297,8 @@ fn told_the_front(root: &Path) -> Result<(), Never> {
     Ok(())
 }
 
-fn said(argv: &[&str]) -> Result<String, Never> {
-    Ok(argv
+fn said(arguments: &[&str]) -> Result<String, Never> {
+    Ok(arguments
         .iter()
         .map(|word| format!("'{}'", word.replace('\'', "'\\''")))
         .collect::<Vec<String>>()
@@ -1279,11 +1394,11 @@ fn compile(
     let Ok(how) = build::how(names);
     let Ok(cargo_name) = Program::Cargo.name();
 
-    let argv: Vec<&str> = [cargo_name]
+    let arguments: Vec<&str> = [cargo_name]
         .into_iter()
         .chain(how.iter().map(String::as_str))
         .collect();
-    let built = cargo(root, &argv, moving)?;
+    let built = cargo(root, &arguments, moving)?;
 
     match !built.success() {
         true => return Err(Unapplied::CargoRefused),
@@ -1299,7 +1414,7 @@ fn compile(
             settled == Settled::No
         })
         .collect();
-    let many = staging.len();
+    let Ok(many) = fitted::<_, u32>(staging.len());
 
     let mut staged: Vec<String> = Vec::new();
 
@@ -1308,7 +1423,8 @@ fn compile(
         let Ok(made) = build::made(root, name);
 
         let Ok(()) = moving.say(&format!("{YELLOW}staging{OFF} {live}"));
-        let Ok(()) = moving.at(Far { done, many }, &live);
+        let Ok(done) = fitted::<_, u32>(done);
+        let Ok(()) = moving.at(Progress { done, many }, &live);
 
         deploy.stage(here, &made, &live)?;
 
@@ -1320,12 +1436,12 @@ fn compile(
 
 fn cargo(
     root: &Path,
-    argv: &[&str],
+    arguments: &[&str],
     moving: &mut going::Moving,
 ) -> Result<std::process::ExitStatus, Unapplied> {
     use std::io::{BufRead, BufReader, IsTerminal};
 
-    let (program, rest) = match argv.split_first() {
+    let (program, rest) = match arguments.split_first() {
         Some((program, rest)) => (program, rest),
         None => return Err(Unapplied::NoProgram),
     };
@@ -1401,16 +1517,17 @@ fn write(
     let mut staged = Vec::new();
     let Ok(whoever) = machine::whoever();
     let Ok(files) = manifest.of(Section::Files);
-    let many = files.len();
+    let Ok(many) = fitted::<_, u32>(files.len());
 
     for (done, path) in files.iter().enumerate() {
-        let Ok(()) = moving.at(Far { done, many }, path);
+        let Ok(done) = fitted::<_, u32>(done);
+        let Ok(()) = moving.at(Progress { done, many }, path);
 
-        let Ok(whose) = manifest.whose(path);
-        let Ok(state) = install::state(source, path, User(whoever), whose);
+        let Ok(written) = manifest.written(path);
+        let Ok(state) = install::state(source, path, User(whoever), written);
 
         match state {
-            install::State::Ok | install::State::Theirs => {}
+            install::State::Ok | install::State::WrittenOnce => {}
             install::State::Unsourced => {
                 let Ok(()) = moving.say(&format!("{RED}no source for{OFF} {path}"));
             }
@@ -1459,8 +1576,8 @@ fn save(root: &Path, manifest: &Manifest, asked: &[String]) -> Result<(), Unappl
         [] => files
             .iter()
             .filter(|path| {
-                let Ok(whose) = manifest.whose(path);
-                let Ok(state) = install::state(&source, path, User(whoever), whose);
+                let Ok(written) = manifest.written(path);
+                let Ok(state) = install::state(&source, path, User(whoever), written);
 
                 state == install::State::Differs
             })

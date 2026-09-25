@@ -115,7 +115,7 @@ mod tests {
     }
 
     #[test]
-    fn nothing_here_holds_a_colour_of_its_own() {
+    fn nothing_here_holds_a_color_of_its_own() {
         for (name, body) in FILES {
             for line in body.lines() {
                 let said = line.split("/*").next().unwrap_or("").trim();

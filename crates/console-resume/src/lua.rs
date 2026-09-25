@@ -18,14 +18,14 @@
 //! programs, and the first other caller that puts one into Lua is when escaping
 //! stops being ours and becomes the compositor crate's.
 
-use console_compositor::{Done, Told};
+use console_compositor::{DispatchResult, Request};
 use console_core_never::Never;
 
-pub fn eval(lua: &str) -> Result<Done, Never> {
-    console_compositor::told(Told::Eval, lua)
+pub fn eval(lua: &str) -> Result<DispatchResult, Never> {
+    console_compositor::request(Request::Eval, lua)
 }
 
-pub fn dispatch(dispatcher: &str) -> Result<Done, Never> {
+pub fn dispatch(dispatcher: &str) -> Result<DispatchResult, Never> {
     eval(&format!("hl.dispatch({dispatcher})"))
 }
 
@@ -35,7 +35,7 @@ pub struct Start<'a> {
     pub command: &'a str,
 }
 
-pub fn exec(start: &Start<'_>) -> Result<Done, Never> {
+pub fn exec(start: &Start<'_>) -> Result<DispatchResult, Never> {
     let Ok(quoted) = quote(start.command);
     let rules = &start.rules;
 
@@ -76,8 +76,8 @@ pub fn rules_table(prefix: &str) -> Result<String, Never> {
         .filter(|rule| !rule.is_empty())
         .map(|rule| {
             let named = |effect: &str| {
-                let Ok(spelt) = effect_name(effect);
-                let Ok(quoted) = quote(&spelt);
+                let Ok(spelled) = effect_name(effect);
+                let Ok(quoted) = quote(&spelled);
 
                 quoted
             };

@@ -5,7 +5,7 @@
 //! all, and what the bar sends the compositor is hyprctl's business rather
 //! than the arithmetic's. It went untapped for as long as the bar has drawn
 //! workspaces, and the fault was a dispatcher spelled in hyprctl's own words
-//! against a lua config, which answers with a lua syntax error nobody was
+//! against a lua config, which answers with a lua syntax error no one was
 //! reading.
 //!
 //! Where the slab is, is measured rather than counted in. The workspace you
@@ -20,12 +20,13 @@
 //!
 //! The pointer is stood in the middle of the screen before the picture is
 //! taken, because the compositor draws a cursor where the last motion left it
-//! and a colour read under it is the cursor's.
+//! and a color read under it is the cursor's.
 
 use console_compositor::Window;
 use console_core_external_programs::Program;
 use console_core_geometry::Point;
-use console_test_stages::checking::{Body, Check, Done, Why, cannot, not_same, same};
+use console_core_never::Never;
+use console_test_stages::checking::{Body, Check, CheckResult, Why, cannot, not_same, same};
 use console_test_stages::desktop::{Desktop, Installed};
 use console_test_stages::device::{Device, PATIENCE};
 use console_test_stages::here::{Here, TURNS};
@@ -63,13 +64,13 @@ pub const ANOTHER: Check = Check {
     bodies: &[Body::Desktop(another_here)],
 };
 
-const WINDOWS: usize = 2;
+const WINDOWS: u32 = 2;
 
 const ROW: u32 = 4;
 
 const ALONG: u32 = 400;
 
-fn right_here(stage: &mut Here) -> Done {
+fn right_here(stage: &mut Here) -> CheckResult {
     stage.press("r1")?;
 
     let Ok(()) = stage.settle(TURNS);
@@ -78,16 +79,27 @@ fn right_here(stage: &mut Here) -> Done {
     same(&asked, &[r#"hl.dsp.focus({workspace = "+1"})"#], || format!("R1 asked for {asked:?}"))
 }
 
-fn right_there(stage: &mut Device) -> Done {
+struct Moved {
+    was: String,
+    now: String,
+}
+
+fn moved_by(stage: &mut Device, button: &str) -> Result<Moved, Never> {
     let Ok(was) = stage.workspace();
-    let Ok(()) = stage.press("r1");
+    let Ok(()) = stage.press(button);
     let Ok(_) = stage.changed(Device::workspace, &was, PATIENCE);
     let Ok(now) = stage.workspace();
+
+    Ok(Moved { was, now })
+}
+
+fn right_there(stage: &mut Device) -> CheckResult {
+    let Ok(Moved { was, now }) = moved_by(stage, "r1");
 
     not_same(&now, &was, || format!("still on workspace {was}"))
 }
 
-fn left_here(stage: &mut Here) -> Done {
+fn left_here(stage: &mut Here) -> CheckResult {
     stage.press("l1")?;
 
     let Ok(()) = stage.settle(TURNS);
@@ -96,18 +108,14 @@ fn left_here(stage: &mut Here) -> Done {
     same(&asked, &[r#"hl.dsp.focus({workspace = "-1"})"#], || format!("L1 asked for {asked:?}"))
 }
 
-fn left_there(stage: &mut Device) -> Done {
-    let Ok(was) = stage.workspace();
-    let Ok(()) = stage.press("l1");
-    let Ok(_) = stage.changed(Device::workspace, &was, PATIENCE);
-    let Ok(there) = stage.workspace();
-    let Ok(()) = stage.press("r1");
-    let Ok(_) = stage.changed(Device::workspace, &there, PATIENCE);
+fn left_there(stage: &mut Device) -> CheckResult {
+    let Ok(Moved { was, now: there }) = moved_by(stage, "l1");
+    let Ok(_) = moved_by(stage, "r1");
 
     not_same(&there, &was, || format!("L1 left us on {was}"))
 }
 
-fn another_here(stage: &mut Desktop) -> Done {
+fn another_here(stage: &mut Desktop) -> CheckResult {
     let Ok(window) = Program::Alacritty.name();
     let Ok(installed) = stage.installed(window);
 
@@ -122,8 +130,8 @@ fn another_here(stage: &mut Desktop) -> Done {
 
     let windows = both_opened(stage)?;
     let front = stage.front()?;
-    let behind = windows.iter().filter(|window| window.workspace > front.id).count();
-    let Ok(past) = console_core_number_conversion::fitted::<usize, u32>(behind);
+    let Ok(past) =
+        console_core_number_conversion::fitted::<_, u32>(windows.iter().filter(|window| window.workspace > front.id).count());
 
     let (from, wide) = lit(stage, &wearing)?;
     let half = wide.saturating_div(2);
@@ -133,7 +141,7 @@ fn another_here(stage: &mut Desktop) -> Done {
     let room = stage.logical()?;
 
     stage.click_in(console_onscreen::BAR, (at, ROW))?;
-    stage.point((room.wide.saturating_div(2), room.tall.saturating_div(2)))?;
+    stage.point((room.width.saturating_div(2), room.height.saturating_div(2)))?;
 
     let now = stage.front()?;
     let opened = windows.iter().any(|window| window.workspace == now.id);
@@ -168,7 +176,9 @@ fn two_workspaces(stage: &mut Desktop) -> Result<(), Why> {
 fn both_opened(stage: &mut Desktop) -> Result<Vec<Window>, Why> {
     let windows = stage.windows()?;
 
-    match windows.len() {
+    let Ok(opened) = console_core_number_conversion::fitted::<_, u32>(windows.len());
+
+    match opened {
         WINDOWS => Ok(windows),
         _ => Err(Why::Cannot(format!(
             "{} windows opened rather than {WINDOWS}, so there was no second workspace to tap",
@@ -179,13 +189,13 @@ fn both_opened(stage: &mut Desktop) -> Result<Vec<Window>, Why> {
 
 fn lit(stage: &mut Desktop, wearing: &str) -> Result<(u32, u32), Why> {
     let room = stage.logical()?;
-    let along = ALONG.min(room.wide);
+    let along = ALONG.min(room.width);
     let mut widest: (u32, u32) = (0, 0);
     let mut from: u32 = 0;
     let mut wide: u32 = 0;
 
     for across in 0..along {
-        let read = stage.colour(Point { across: f64::from(across), down: f64::from(ROW) })?;
+        let read = stage.color(Point { x: f64::from(across), y: f64::from(ROW) })?;
 
         match read == wearing {
             true => {
@@ -213,7 +223,7 @@ fn lit(stage: &mut Desktop, wearing: &str) -> Result<(u32, u32), Why> {
     }
 }
 
-fn tapped_here(stage: &mut Desktop) -> Done {
+fn tapped_here(stage: &mut Desktop) -> CheckResult {
     let Ok(window) = Program::Alacritty.name();
     let Ok(installed) = stage.installed(window);
 
@@ -243,7 +253,7 @@ fn tapped_here(stage: &mut Desktop) -> Done {
         false => from.saturating_add(wide).saturating_add(half),
     };
 
-    let quiet = stage.colour(Point { across: f64::from(at), down: f64::from(ROW) })?;
+    let quiet = stage.color(Point { x: f64::from(at), y: f64::from(ROW) })?;
 
     not_same(&quiet, &wearing, || {
         format!("the workspace at {at} is lit as well as the one in front")
@@ -255,7 +265,7 @@ fn tapped_here(stage: &mut Desktop) -> Done {
 
     two_workspaces(stage)?;
     stage.click_in(console_onscreen::BAR, (at, ROW))?;
-    stage.point((room.wide.saturating_div(2), room.tall.saturating_div(2)))?;
+    stage.point((room.width.saturating_div(2), room.height.saturating_div(2)))?;
 
     let _both = both_opened(stage)?;
     let now = stage.front()?;
@@ -264,7 +274,7 @@ fn tapped_here(stage: &mut Desktop) -> Done {
         format!("a tap on workspace {beside} left workspace {} in front", now.id)
     })?;
 
-    let lit_now = stage.colour(Point { across: f64::from(at), down: f64::from(ROW) })?;
+    let lit_now = stage.color(Point { x: f64::from(at), y: f64::from(ROW) })?;
 
     same(&lit_now, &wearing, || {
         format!("workspace {beside} is in front and its slab is {lit_now} rather than {wearing}")

@@ -1,7 +1,7 @@
 //! Being the thing that answers `org.freedesktop.Notifications`.
 //!
 //! mako held this name for a year and drew the card, and it was the last
-//! surface on the machine drawn in somebody else's colours: a second
+//! surface on the machine drawn in someone else's colors: a second
 //! stylesheet, written out of the palette by `just theme` and read only when a
 //! daemon started, for a card nothing here could decide anything about. What
 //! the rest of this crate already was is the other three quarters of a
@@ -29,14 +29,14 @@
 //! names the id it replaces, which is what makes it one card rather than
 //! twenty. An id that names nothing waiting is not a fault and is not silently
 //! dropped either: it is raised as a new one, because a card that arrived while
-//! the last one was going out is still a card somebody asked for.
+//! the last one was going out is still a card someone asked for.
 //!
 //! **Five seconds, or until it is seen.** A caller that says nothing about how
 //! long is answered with five seconds, which is long enough to read a sentence
 //! at arm's length; a caller that asks for none at all gets none. Everything
 //! `console-say` raises is critical and critical stays, because the whole point
-//! of it is that a thing which broke while nobody was looking is still there
-//! when somebody looks.
+//! of it is that a thing which broke while no one was looking is still there
+//! when someone looks.
 //!
 //! **Quiet is not deaf.** The mode holds the card back and changes nothing
 //! else: what was sent is still held, the bell still counts it and still turns
@@ -44,28 +44,28 @@
 //! worked on, and the thing worth stopping is the interruption rather than the
 //! news.
 //!
-//! **Where the file goes can be said, for the reason the strip's can.** A check
+//! **Where the file goes can be value, for the reason the strip's can.** A check
 //! brings a desktop up in a session of its own, and a daemon inside it writing
 //! into this laptop's own runtime directory would take away the reading the
-//! machine it is running on already had. `CONSOLE_NOTICES_PATH` is how a stage
+//! machine it is running on already had. `CONSOLE_NOTIFICATIONS_PATH` is how a stage
 //! points it somewhere else; the device is never told, and the default is the
 //! one place the panel and the bell look.
 
-use console_bus::messages::{Complaint, Message, Said, Saying};
+use console_bus::messages::{ValidationError, Message, Value, Signal};
 use console_core_never::Never;
 
 use std::path::PathBuf;
 
-use crate::reading::{Notice, Quiet, Urgency, Whole};
+use crate::reading::{Notification, DoNotDisturb, Urgency, Inbox};
 use crate::saying::Expiry;
 
-pub use console_events::sources::{NOTICES, OURS};
+pub use console_events::sources::{NOTIFICATIONS, OURS};
 
 pub const AT: &str = "/org/freedesktop/Notifications";
 
-pub const KEPT: &str = "notices.json";
+pub const KEPT: &str = "notifications.json";
 
-pub const WHERE: &str = "CONSOLE_NOTICES_PATH";
+pub const WHERE: &str = "CONSOLE_NOTIFICATIONS_PATH";
 
 const PEER: &str = "org.freedesktop.DBus.Peer";
 
@@ -73,7 +73,7 @@ const LOOKING: &str = "org.freedesktop.DBus.Introspectable";
 
 const A_WHILE: u32 = 5000;
 
-pub const EARLIER: usize = 20;
+pub const EARLIER: u32 = 20;
 
 const URGENCY: &str = "urgency";
 
@@ -84,7 +84,7 @@ pub enum Why {
     RanOut,
     #[default]
     Dismissed,
-    Asked,
+    Request,
 }
 
 impl Why {
@@ -92,27 +92,27 @@ impl Why {
         Ok(match self {
             Why::RanOut => 1,
             Why::Dismissed => 2,
-            Why::Asked => 3,
+            Why::Request => 3,
         })
     }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum Changed {
+pub enum Modified {
     Yes,
     #[default]
     No,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum Gone {
+pub enum Closed {
     Yes,
     #[default]
     No,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Asked {
+pub struct Request {
     pub app: String,
     pub replacing: u32,
     pub summary: String,
@@ -123,8 +123,8 @@ pub struct Asked {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Held {
-    pub notice: Notice,
+pub struct ActiveNotification {
+    pub notification: Notification,
     pub expiry: Expiry,
     pub value: Option<i64>,
     pub raised: u64,
@@ -139,20 +139,18 @@ pub struct Armed {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Holding {
-    pub waiting: Vec<Held>,
-    pub earlier: Vec<Notice>,
-    pub quiet: Quiet,
+    pub waiting: Vec<ActiveNotification>,
+    pub earlier: Vec<Notification>,
+    pub do_not_disturb: DoNotDisturb,
     counted: u32,
     raises: u64,
 }
 
 impl Holding {
-    pub fn raised(&mut self, asked: &Asked) -> Result<Armed, Never> {
-        let standing = self.waiting.iter().position(|held| held.notice.id == asked.replacing);
-
-        let id = match standing {
-            Some(_) => asked.replacing,
-            None => {
+    pub fn raised(&mut self, asked: &Request) -> Result<Armed, Never> {
+        let id = match self.waiting.iter().any(|held| held.notification.id == asked.replacing) {
+            true => asked.replacing,
+            false => {
                 let counted = self.counted.saturating_add(1);
 
                 self.counted = counted;
@@ -165,8 +163,8 @@ impl Holding {
 
         self.raises = raises;
 
-        let held = Held {
-            notice: Notice {
+        let held = ActiveNotification {
+            notification: Notification {
                 id,
                 app: asked.app.clone(),
                 summary: asked.summary.clone(),
@@ -178,47 +176,43 @@ impl Holding {
             raised: raises,
         };
 
-        match standing {
-            Some(at) => match self.waiting.get_mut(at) {
-                Some(room) => *room = held,
-                None => self.waiting.push(held),
-            },
+        match self.waiting.iter_mut().find(|held| held.notification.id == asked.replacing) {
+            Some(room) => *room = held,
             None => self.waiting.push(held),
         }
 
         Ok(Armed { id, raised: raises, expiry: asked.expiry })
     }
 
-    pub fn ran_out(&mut self, armed: &Armed) -> Result<Gone, Never> {
+    pub fn ran_out(&mut self, armed: &Armed) -> Result<Closed, Never> {
         let standing = self
             .waiting
             .iter()
-            .any(|held| held.notice.id == armed.id && held.raised == armed.raised);
+            .any(|held| held.notification.id == armed.id && held.raised == armed.raised);
 
         match standing {
             true => self.closed(armed.id),
-            false => Ok(Gone::No),
+            false => Ok(Closed::No),
         }
     }
 
-    pub fn closed(&mut self, id: u32) -> Result<Gone, Never> {
-        let standing = self.waiting.iter().position(|held| held.notice.id == id);
-
-        let at = match standing {
-            Some(at) => at,
-            None => return Ok(Gone::No),
+    pub fn closed(&mut self, id: u32) -> Result<Closed, Never> {
+        let held = match self.waiting.iter().position(|held| held.notification.id == id) {
+            Some(at) => self.waiting.remove(at),
+            None => return Ok(Closed::No),
         };
 
-        let held = self.waiting.remove(at);
+        self.earlier.insert(0, held.notification);
 
-        self.earlier.insert(0, held.notice);
-        self.earlier.truncate(EARLIER);
+        let Ok(earlier) = console_core_number_conversion::index(EARLIER);
 
-        Ok(Gone::Yes)
+        self.earlier.truncate(earlier);
+
+        Ok(Closed::Yes)
     }
 
     pub fn cleared(&mut self) -> Result<Vec<u32>, Never> {
-        let every: Vec<u32> = self.waiting.iter().map(|held| held.notice.id).collect();
+        let every: Vec<u32> = self.waiting.iter().map(|held| held.notification.id).collect();
 
         for id in &every {
             let Ok(_gone) = self.closed(*id);
@@ -227,19 +221,19 @@ impl Holding {
         Ok(every)
     }
 
-    pub fn quietened(&mut self) -> Result<Quiet, Never> {
-        self.quiet = match self.quiet {
-            Quiet::Coming => Quiet::HeldBack,
-            Quiet::HeldBack => Quiet::Coming,
+    pub fn toggled_do_not_disturb(&mut self) -> Result<DoNotDisturb, Never> {
+        self.do_not_disturb = match self.do_not_disturb {
+            DoNotDisturb::Off => DoNotDisturb::On,
+            DoNotDisturb::On => DoNotDisturb::Off,
         };
 
-        Ok(self.quiet)
+        Ok(self.do_not_disturb)
     }
 
-    pub fn showing(&self) -> Result<Vec<&Held>, Never> {
-        Ok(match self.quiet {
-            Quiet::HeldBack => Vec::new(),
-            Quiet::Coming => self.waiting.iter().rev().collect(),
+    pub fn showing(&self) -> Result<Vec<&ActiveNotification>, Never> {
+        Ok(match self.do_not_disturb {
+            DoNotDisturb::On => Vec::new(),
+            DoNotDisturb::Off => self.waiting.iter().rev().collect(),
         })
     }
 }
@@ -247,14 +241,14 @@ impl Holding {
 #[derive(Debug, Default)]
 pub struct Turn {
     pub say: Option<Message>,
-    pub gone: Vec<Message>,
-    pub changed: Changed,
+    pub closed: Vec<Message>,
+    pub changed: Modified,
     pub arm: Option<Armed>,
 }
 
 pub fn heard(holding: &mut Holding, message: &Message) -> Result<Turn, Never> {
     let asking = match (message.interface.as_deref(), message.member.as_deref()) {
-        (Some(NOTICES), Some(member)) => member,
+        (Some(NOTIFICATIONS), Some(member)) => member,
         (Some(OURS), Some(member)) => member,
         (Some(PEER), Some("Ping")) => {
             let Ok(answer) = message.answering();
@@ -264,14 +258,14 @@ pub fn heard(holding: &mut Holding, message: &Message) -> Result<Turn, Never> {
         (Some(LOOKING), Some("Introspect")) | (None, Some("Introspect")) => {
             let Ok(answer) = message.answering();
             let Ok(looked) = looked_at();
-            let Ok(said) = Said::word(&looked);
-            let Ok(answer) = answer.carrying("s", vec![said]);
+            let Ok(value) = Value::word(&looked);
+            let Ok(answer) = answer.carrying("s", vec![value]);
 
             return Ok(Turn { say: Some(answer), ..Turn::default() });
         }
         (Some(_), Some(_)) | (Some(_), None) | (None, Some(_)) | (None, None) => {
             let Ok(complaint) = message
-                .complaining(Complaint::UnknownMethod, "this desktop answers notifications only");
+                .complaining(ValidationError::UnknownMethod, "this desktop answers notifications only");
 
             return Ok(Turn { say: Some(complaint), ..Turn::default() });
         }
@@ -282,45 +276,45 @@ pub fn heard(holding: &mut Holding, message: &Message) -> Result<Turn, Never> {
         "CloseNotification" => closing(holding, message),
         "GetCapabilities" => {
             let Ok(answer) = message.answering();
-            let Ok(body) = Said::word("body");
-            let Ok(persistence) = Said::word("persistence");
-            let Ok(answer) = answer.carrying("as", vec![Said::List(vec![body, persistence])]);
+            let Ok(body) = Value::word("body");
+            let Ok(persistence) = Value::word("persistence");
+            let Ok(answer) = answer.carrying("as", vec![Value::List(vec![body, persistence])]);
 
             Ok(Turn { say: Some(answer), ..Turn::default() })
         }
         "GetServerInformation" => {
             let Ok(answer) = message.answering();
-            let mut said: Vec<Said> = Vec::new();
+            let mut values: Vec<Value> = Vec::new();
 
             for word in ["console", "console", env!("CARGO_PKG_VERSION"), "1.2"] {
-                let Ok(word) = Said::word(word);
+                let Ok(word) = Value::word(word);
 
-                said.push(word);
+                values.push(word);
             }
 
-            let Ok(answer) = answer.carrying("ssss", said);
+            let Ok(answer) = answer.carrying("ssss", values);
 
             Ok(Turn { say: Some(answer), ..Turn::default() })
         }
         "ClearAll" => {
             let Ok(every) = holding.cleared();
             let Ok(answer) = message.answering();
-            let Ok(gone) = going(&every, Why::Dismissed);
+            let Ok(closed) = going(&every, Why::Dismissed);
 
-            Ok(Turn { say: Some(answer), gone, changed: Changed::Yes, arm: None })
+            Ok(Turn { say: Some(answer), closed, changed: Modified::Yes, arm: None })
         }
         "Quieten" => {
-            let Ok(quiet) = holding.quietened();
+            let Ok(quiet) = holding.toggled_do_not_disturb();
             let Ok(word) = quiet.said();
-            let Ok(said) = Said::word(word);
+            let Ok(value) = Value::word(word);
             let Ok(answer) = message.answering();
-            let Ok(answer) = answer.carrying("s", vec![said]);
+            let Ok(answer) = answer.carrying("s", vec![value]);
 
-            Ok(Turn { say: Some(answer), changed: Changed::Yes, ..Turn::default() })
+            Ok(Turn { say: Some(answer), changed: Modified::Yes, ..Turn::default() })
         }
         _other => {
             let Ok(complaint) =
-                message.complaining(Complaint::UnknownMethod, "nothing here answers to that");
+                message.complaining(ValidationError::UnknownMethod, "nothing here answers to that");
 
             Ok(Turn { say: Some(complaint), ..Turn::default() })
         }
@@ -328,13 +322,13 @@ pub fn heard(holding: &mut Holding, message: &Message) -> Result<Turn, Never> {
 }
 
 fn notifying(holding: &mut Holding, message: &Message) -> Result<Turn, Never> {
-    let Ok(reading) = asked(&message.said);
+    let Ok(reading) = asked(&message.values);
 
     let asked = match reading {
         Some(asked) => asked,
         None => {
             let Ok(complaint) = message
-                .complaining(Complaint::InvalidArgs, "a notification is susssasa{sv}i and this was not");
+                .complaining(ValidationError::InvalidArgs, "a notification is susssasa{sv}i and this was not");
 
             return Ok(Turn { say: Some(complaint), ..Turn::default() });
         }
@@ -342,15 +336,15 @@ fn notifying(holding: &mut Holding, message: &Message) -> Result<Turn, Never> {
 
     let Ok(armed) = holding.raised(&asked);
     let Ok(answer) = message.answering();
-    let Ok(answer) = answer.carrying("u", vec![Said::Unsigned32(armed.id)]);
+    let Ok(answer) = answer.carrying("u", vec![Value::Unsigned32(armed.id)]);
 
-    Ok(Turn { say: Some(answer), gone: Vec::new(), changed: Changed::Yes, arm: Some(armed) })
+    Ok(Turn { say: Some(answer), closed: Vec::new(), changed: Modified::Yes, arm: Some(armed) })
 }
 
 fn closing(holding: &mut Holding, message: &Message) -> Result<Turn, Never> {
-    let counted = match message.said.first() {
-        Some(said) => {
-            let Ok(counted) = said.counted();
+    let counted = match message.values.first() {
+        Some(value) => {
+            let Ok(counted) = value.counted();
 
             counted
         }
@@ -365,40 +359,40 @@ fn closing(holding: &mut Holding, message: &Message) -> Result<Turn, Never> {
         None => 0,
     };
 
-    let Ok(gone) = holding.closed(id);
+    let Ok(closed) = holding.closed(id);
     let Ok(answer) = message.answering();
 
-    Ok(match gone {
-        Gone::No => Turn { say: Some(answer), ..Turn::default() },
-        Gone::Yes => {
-            let Ok(gone) = going(&[id], Why::Asked);
+    Ok(match closed {
+        Closed::No => Turn { say: Some(answer), ..Turn::default() },
+        Closed::Yes => {
+            let Ok(messages) = going(&[id], Why::Request);
 
-            Turn { say: Some(answer), gone, changed: Changed::Yes, arm: None }
+            Turn { say: Some(answer), closed: messages, changed: Modified::Yes, arm: None }
         }
     })
 }
 
 pub fn going(every: &[u32], why: Why) -> Result<Vec<Message>, Never> {
-    let mut said: Vec<Message> = Vec::new();
+    let mut value: Vec<Message> = Vec::new();
 
     for id in every {
         let Ok(signal) =
-            Message::signal(&Saying { at: AT, on: NOTICES, saying: "NotificationClosed" });
+            Message::signal(&Signal { at: AT, on: NOTIFICATIONS, name: "NotificationClosed" });
         let Ok(code) = why.code();
-        let Ok(signal) = signal.carrying("uu", vec![Said::Unsigned32(*id), Said::Unsigned32(code)]);
+        let Ok(signal) = signal.carrying("uu", vec![Value::Unsigned32(*id), Value::Unsigned32(code)]);
 
-        said.push(signal);
+        value.push(signal);
     }
 
-    Ok(said)
+    Ok(value)
 }
 
-pub fn asked(said: &[Said]) -> Result<Option<Asked>, Never> {
-    let Ok(app) = worded(said.first());
-    let Ok(summary) = worded(said.get(3));
-    let Ok(body) = worded(said.get(4));
+pub fn asked(values: &[Value]) -> Result<Option<Request>, Never> {
+    let Ok(app) = worded(values.first());
+    let Ok(summary) = worded(values.get(3));
+    let Ok(body) = worded(values.get(4));
 
-    let enough = match (said.first(), said.get(3), said.get(4), said.get(7)) {
+    let enough = match (values.first(), values.get(3), values.get(4), values.get(7)) {
         (Some(_), Some(_), Some(_), Some(_)) => Enough::Yes,
         (_, _, _, _) => Enough::No,
     };
@@ -408,16 +402,16 @@ pub fn asked(said: &[Said]) -> Result<Option<Asked>, Never> {
         Enough::Yes => {}
     }
 
-    let hints = said.get(6);
+    let hints = values.get(6);
     let Ok(saying) = named(hints, URGENCY);
     let Ok(valued) = named(hints, VALUE);
     let Ok(urgency) = urgently(saying);
     let Ok(value) = numbered(valued);
-    let Ok(asking) = numbered(said.get(7));
+    let Ok(asking) = numbered(values.get(7));
     let Ok(expiry) = lasting(asking, urgency);
-    let Ok(replacing) = counted(said.get(1));
+    let Ok(replacing) = counted(values.get(1));
 
-    Ok(Some(Asked { app, replacing, summary, body, urgency, expiry, value }))
+    Ok(Some(Request { app, replacing, summary, body, urgency, expiry, value }))
 }
 
 enum Enough {
@@ -425,8 +419,8 @@ enum Enough {
     No,
 }
 
-fn urgently(said: Option<&Said>) -> Result<Urgency, Never> {
-    let Ok(counted) = numbered(said);
+fn urgently(value: Option<&Value>) -> Result<Urgency, Never> {
+    let Ok(counted) = numbered(value);
 
     Ok(match counted {
         Some(0) => Urgency::Low,
@@ -435,15 +429,15 @@ fn urgently(said: Option<&Said>) -> Result<Urgency, Never> {
     })
 }
 
-fn numbered(said: Option<&Said>) -> Result<Option<i64>, Never> {
-    match said {
-        Some(said) => said.counted(),
+fn numbered(value: Option<&Value>) -> Result<Option<i64>, Never> {
+    match value {
+        Some(value) => value.counted(),
         None => Ok(None),
     }
 }
 
-fn counted(said: Option<&Said>) -> Result<u32, Never> {
-    let Ok(counted) = numbered(said);
+fn counted(value: Option<&Value>) -> Result<u32, Never> {
+    let Ok(counted) = numbered(value);
 
     Ok(match counted {
         Some(counted) => match u32::try_from(counted) {
@@ -454,10 +448,10 @@ fn counted(said: Option<&Said>) -> Result<u32, Never> {
     })
 }
 
-fn worded(said: Option<&Said>) -> Result<String, Never> {
-    let saying = match said {
-        Some(said) => {
-            let Ok(saying) = said.saying();
+fn worded(value: Option<&Value>) -> Result<String, Never> {
+    let saying = match value {
+        Some(value) => {
+            let Ok(saying) = value.text();
 
             saying
         }
@@ -473,18 +467,21 @@ fn worded(said: Option<&Said>) -> Result<String, Never> {
 fn lasting(asking: Option<i64>, urgency: Urgency) -> Result<Expiry, Never> {
     Ok(match asking {
         Some(0) => Expiry::Stays,
-        Some(asking) if asking > 0 => match u32::try_from(asking) {
+        Some(asking) => match u32::try_from(asking) {
             Ok(asking) => Expiry::Milliseconds(asking),
-            Err(_fault) => Expiry::Stays,
+            Err(_it_is_not_a_length_of_time) => match urgency {
+                Urgency::Critical => Expiry::Stays,
+                Urgency::Low | Urgency::Normal => Expiry::Milliseconds(A_WHILE),
+            },
         },
-        Some(_) | None => match urgency {
+        None => match urgency {
             Urgency::Critical => Expiry::Stays,
             Urgency::Low | Urgency::Normal => Expiry::Milliseconds(A_WHILE),
         },
     })
 }
 
-fn named<'a>(hints: Option<&'a Said>, wanted: &str) -> Result<Option<&'a Said>, Never> {
+fn named<'a>(hints: Option<&'a Value>, wanted: &str) -> Result<Option<&'a Value>, Never> {
     let listed = match hints {
         Some(hints) => {
             let Ok(listed) = hints.listed();
@@ -507,7 +504,7 @@ fn named<'a>(hints: Option<&'a Said>, wanted: &str) -> Result<Option<&'a Said>, 
             None => continue,
         };
 
-        let Ok(name) = name.saying();
+        let Ok(name) = name.text();
 
         match name == Some(wanted) {
             true => return Ok(Some(value)),
@@ -523,7 +520,7 @@ fn looked_at() -> Result<String, Never> {
         "<!DOCTYPE node PUBLIC \"-//freedesktop//DTD D-BUS Object Introspection 1.0//EN\" \
 \"http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd\">
 <node>
-  <interface name=\"{NOTICES}\">
+  <interface name=\"{NOTIFICATIONS}\">
     <method name=\"Notify\">
       <arg type=\"s\" name=\"app_name\" direction=\"in\"/>
       <arg type=\"u\" name=\"replaces_id\" direction=\"in\"/>
@@ -564,8 +561,8 @@ fn looked_at() -> Result<String, Never> {
 }
 
 pub fn keeps(told: Option<&str>) -> Result<PathBuf, Never> {
-    match told.map(str::trim).filter(|said| !said.is_empty()) {
-        Some(said) => Ok(PathBuf::from(said)),
+    match told.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) => Ok(PathBuf::from(value)),
         None => {
             let Ok(under) = crate::saying::under();
 
@@ -578,12 +575,12 @@ pub fn keeps(told: Option<&str>) -> Result<PathBuf, Never> {
     dylint_lib = "explicit026_env_read_once",
     allow(
         explicit026_env_read_once,
-        reason = "CONSOLE_NOTICES_PATH belongs to this crate, and the const beside it is the only spelling of the name"
+        reason = "CONSOLE_NOTIFICATIONS_PATH belongs to this crate, and the const beside it is the only spelling of the name"
     )
 )]
 pub fn kept() -> Result<PathBuf, Never> {
     let told = match std::env::var(WHERE) {
-        Ok(said) => Some(said),
+        Ok(value) => Some(value),
         Err(std::env::VarError::NotPresent) => None,
         Err(fault) => {
             eprintln!("console-notify: {WHERE}: {fault}");
@@ -595,36 +592,36 @@ pub fn kept() -> Result<PathBuf, Never> {
     keeps(told.as_deref())
 }
 
-pub fn held() -> Result<Whole, Never> {
+pub fn held() -> Result<Inbox, Never> {
     let Ok(at) = kept();
     let Ok(read) = console_core_atomic_writes::read(&at);
 
-    let said = match read {
-        console_core_atomic_writes::Held::Said(said) => said,
-        console_core_atomic_writes::Held::Nothing => return Ok(Whole::default()),
-        console_core_atomic_writes::Held::Unreadable(why) => {
+    let value = match read {
+        console_core_atomic_writes::Stored::Text(text) => text,
+        console_core_atomic_writes::Stored::Absent => return Ok(Inbox::default()),
+        console_core_atomic_writes::Stored::Failed(why) => {
             eprintln!("{}: {why}", at.display());
 
-            return Ok(Whole::default());
+            return Ok(Inbox::default());
         }
     };
 
-    crate::reading::whole(&said)
+    crate::reading::whole(&value)
 }
 
-pub fn keeping(holding: &Holding) -> Result<Whole, Never> {
-    let waiting: Vec<Notice> = holding.waiting.iter().map(|held| held.notice.clone()).collect();
+pub fn keeping(holding: &Holding) -> Result<Inbox, Never> {
+    let waiting: Vec<Notification> = holding.waiting.iter().map(|held| held.notification.clone()).collect();
 
-    Ok(Whole { waiting, earlier: holding.earlier.clone(), quiet: holding.quiet })
+    Ok(Inbox { waiting, earlier: holding.earlier.clone(), do_not_disturb: holding.do_not_disturb })
 }
 
 pub fn closing_one(id: u32) -> Result<Vec<String>, Never> {
     Ok(vec![
         "--user".to_string(),
         "call".to_string(),
-        NOTICES.to_string(),
+        NOTIFICATIONS.to_string(),
         AT.to_string(),
-        NOTICES.to_string(),
+        NOTIFICATIONS.to_string(),
         "CloseNotification".to_string(),
         "u".to_string(),
         id.to_string(),
@@ -635,7 +632,7 @@ pub fn asking(member: &str) -> Result<Vec<String>, Never> {
     Ok(vec![
         "--user".to_string(),
         "call".to_string(),
-        NOTICES.to_string(),
+        NOTIFICATIONS.to_string(),
         AT.to_string(),
         OURS.to_string(),
         member.to_string(),
@@ -649,44 +646,44 @@ mod tests {
     use console_bus::messages::{Kind, Whom};
 
     fn calling(member: &str) -> Message {
-        Message::call(&Whom { to: NOTICES, at: AT, on: NOTICES, calling: member }).unwrap()
+        Message::call(&Whom { to: NOTIFICATIONS, at: AT, on: NOTIFICATIONS, calling: member }).unwrap()
     }
 
-    fn notify(summary: &str, replacing: u32, hints: Vec<Said>, lasting: i64) -> Message {
+    fn notify(summary: &str, replacing: u32, hints: Vec<Value>, lasting: i64) -> Message {
         calling("Notify")
             .carrying(
                 "susssasa{sv}i",
                 vec![
-                    Said::Word("Console".to_string()),
-                    Said::Unsigned32(replacing),
-                    Said::Word(String::new()),
-                    Said::Word(summary.to_string()),
-                    Said::Word("the body".to_string()),
-                    Said::List(Vec::new()),
-                    Said::List(hints),
-                    Said::Signed32(i32::try_from(lasting).unwrap()),
+                    Value::Word("Console".to_string()),
+                    Value::Unsigned32(replacing),
+                    Value::Word(String::new()),
+                    Value::Word(summary.to_string()),
+                    Value::Word("the body".to_string()),
+                    Value::List(Vec::new()),
+                    Value::List(hints),
+                    Value::Signed32(i32::try_from(lasting).unwrap()),
                 ],
             )
             .unwrap()
     }
 
-    fn hint(named: &str, shape: &str, said: Said) -> Said {
-        Said::Group(vec![
-            Said::Word(named.to_string()),
-            Said::Held { shape: shape.to_string(), said: Box::new(said) },
+    fn hint(named: &str, shape: &str, value: Value) -> Value {
+        Value::Group(vec![
+            Value::Word(named.to_string()),
+            Value::Variant { shape: shape.to_string(), value: Box::new(value) },
         ])
     }
 
-    fn urgently(urgency: u8) -> Vec<Said> {
-        vec![hint("urgency", "y", Said::Byte(urgency))]
+    fn urgently(urgency: u8) -> Vec<Value> {
+        vec![hint("urgency", "y", Value::Byte(urgency))]
     }
 
     fn raising(holding: &mut Holding, summary: &str) -> u32 {
         let turn = heard(holding, &notify(summary, 0, Vec::new(), -1)).unwrap();
-        let said = turn.say.unwrap();
+        let answer = turn.say.unwrap();
 
-        match said.said.first() {
-            Some(Said::Unsigned32(id)) => *id,
+        match answer.values.first() {
+            Some(Value::Unsigned32(id)) => *id,
             other => panic!("a notification was answered with {other:?}"),
         }
     }
@@ -706,9 +703,9 @@ mod tests {
         let _id = raising(&mut holding, "Notifications fell over");
         let held = holding.waiting.first().unwrap();
 
-        assert_eq!(held.notice.summary, "Notifications fell over");
-        assert_eq!(held.notice.body, "the body");
-        assert_eq!(held.notice.app, "Console");
+        assert_eq!(held.notification.summary, "Notifications fell over");
+        assert_eq!(held.notification.body, "the body");
+        assert_eq!(held.notification.app, "Console");
     }
 
     #[test]
@@ -717,9 +714,9 @@ mod tests {
         let first = raising(&mut holding, "40%");
         let turn = heard(&mut holding, &notify("45%", first, Vec::new(), -1)).unwrap();
 
-        assert_eq!(turn.say.unwrap().said, vec![Said::Unsigned32(first)]);
+        assert_eq!(turn.say.unwrap().values, vec![Value::Unsigned32(first)]);
         assert_eq!(holding.waiting.len(), 1);
-        assert_eq!(holding.waiting.first().unwrap().notice.summary, "45%");
+        assert_eq!(holding.waiting.first().unwrap().notification.summary, "45%");
     }
 
     #[test]
@@ -729,7 +726,7 @@ mod tests {
         let Ok(_gone) = holding.closed(first);
         let turn = heard(&mut holding, &notify("45%", first, Vec::new(), -1)).unwrap();
 
-        assert_eq!(turn.say.unwrap().said, vec![Said::Unsigned32(2)]);
+        assert_eq!(turn.say.unwrap().values, vec![Value::Unsigned32(2)]);
         assert_eq!(holding.waiting.len(), 1);
     }
 
@@ -742,13 +739,13 @@ mod tests {
     }
 
     #[test]
-    fn a_fault_stays_until_somebody_has_seen_it() {
+    fn a_fault_stays_until_someone_has_seen_it() {
         let mut holding = Holding::default();
         let _turn = heard(&mut holding, &notify("it broke", 0, urgently(2), -1)).unwrap();
         let held = holding.waiting.first().unwrap();
 
         assert_eq!(held.expiry, Expiry::Stays);
-        assert_eq!(held.notice.urgency, Urgency::Critical);
+        assert_eq!(held.notification.urgency, Urgency::Critical);
     }
 
     #[test]
@@ -770,7 +767,7 @@ mod tests {
     #[test]
     fn a_reading_carries_the_number_it_was_sent_with() {
         let mut holding = Holding::default();
-        let hints = vec![hint("value", "i", Said::Signed32(40))];
+        let hints = vec![hint("value", "i", Value::Signed32(40))];
         let _turn = heard(&mut holding, &notify("Volume", 0, hints, -1)).unwrap();
 
         assert_eq!(holding.waiting.first().unwrap().value, Some(40));
@@ -783,7 +780,7 @@ mod tests {
         let armed = turn.arm.unwrap();
 
         assert_eq!(armed.expiry, Expiry::Milliseconds(400));
-        assert_eq!(holding.ran_out(&armed), Ok(Gone::Yes));
+        assert_eq!(holding.ran_out(&armed), Ok(Closed::Yes));
         assert!(holding.waiting.is_empty());
     }
 
@@ -794,9 +791,9 @@ mod tests {
         let armed = first.arm.unwrap();
         let again = heard(&mut holding, &notify("45%", armed.id, Vec::new(), 400)).unwrap();
 
-        assert_eq!(holding.ran_out(&armed), Ok(Gone::No));
+        assert_eq!(holding.ran_out(&armed), Ok(Closed::No));
         assert_eq!(holding.waiting.len(), 1);
-        assert_eq!(holding.ran_out(&again.arm.unwrap()), Ok(Gone::Yes));
+        assert_eq!(holding.ran_out(&again.arm.unwrap()), Ok(Closed::Yes));
         assert!(holding.waiting.is_empty());
     }
 
@@ -812,29 +809,29 @@ mod tests {
     fn closing_one_moves_it_to_earlier_and_says_which_and_why() {
         let mut holding = Holding::default();
         let id = raising(&mut holding, "one");
-        let closing = calling("CloseNotification").carrying("u", vec![Said::Unsigned32(id)]).unwrap();
+        let closing = calling("CloseNotification").carrying("u", vec![Value::Unsigned32(id)]).unwrap();
         let turn = heard(&mut holding, &closing).unwrap();
 
-        assert_eq!(turn.changed, Changed::Yes);
+        assert_eq!(turn.changed, Modified::Yes);
         assert!(holding.waiting.is_empty());
         assert_eq!(holding.earlier.len(), 1);
-        assert_eq!(turn.gone.len(), 1);
+        assert_eq!(turn.closed.len(), 1);
 
-        let gone = turn.gone.first().unwrap();
+        let gone = turn.closed.first().unwrap();
 
         assert_eq!(gone.kind, Kind::Signal);
         assert_eq!(gone.member.as_deref(), Some("NotificationClosed"));
-        assert_eq!(gone.said, vec![Said::Unsigned32(id), Said::Unsigned32(3)]);
+        assert_eq!(gone.values, vec![Value::Unsigned32(id), Value::Unsigned32(3)]);
     }
 
     #[test]
     fn closing_one_that_is_not_there_says_nothing_and_is_not_a_fault() {
         let mut holding = Holding::default();
-        let closing = calling("CloseNotification").carrying("u", vec![Said::Unsigned32(9)]).unwrap();
+        let closing = calling("CloseNotification").carrying("u", vec![Value::Unsigned32(9)]).unwrap();
         let turn = heard(&mut holding, &closing).unwrap();
 
-        assert_eq!(turn.changed, Changed::No);
-        assert!(turn.gone.is_empty());
+        assert_eq!(turn.changed, Modified::No);
+        assert!(turn.closed.is_empty());
         assert_eq!(turn.say.unwrap().kind, Kind::Answer);
     }
 
@@ -843,17 +840,17 @@ mod tests {
         let mut holding = Holding::default();
         let one = raising(&mut holding, "one");
         let two = raising(&mut holding, "two");
-        let clearing = Message::call(&Whom { to: NOTICES, at: AT, on: OURS, calling: "ClearAll" }).unwrap();
+        let clearing = Message::call(&Whom { to: NOTIFICATIONS, at: AT, on: OURS, calling: "ClearAll" }).unwrap();
         let turn = heard(&mut holding, &clearing).unwrap();
 
         assert!(holding.waiting.is_empty());
         assert_eq!(holding.earlier.len(), 2);
-        assert_eq!(turn.gone.len(), 2);
+        assert_eq!(turn.closed.len(), 2);
 
-        let said: Vec<Vec<Said>> = turn.gone.iter().map(|gone| gone.said.clone()).collect();
+        let value: Vec<Vec<Value>> = turn.closed.iter().map(|gone| gone.values.clone()).collect();
 
-        assert_eq!(said[0], vec![Said::Unsigned32(one), Said::Unsigned32(2)]);
-        assert_eq!(said[1], vec![Said::Unsigned32(two), Said::Unsigned32(2)]);
+        assert_eq!(value[0], vec![Value::Unsigned32(one), Value::Unsigned32(2)]);
+        assert_eq!(value[1], vec![Value::Unsigned32(two), Value::Unsigned32(2)]);
     }
 
     #[test]
@@ -875,7 +872,7 @@ mod tests {
             let Ok(_gone) = holding.closed(id);
         }
 
-        assert_eq!(holding.earlier.len(), EARLIER);
+        assert_eq!(u32::try_from(holding.earlier.len()).unwrap(), EARLIER);
         assert_eq!(holding.earlier.first().unwrap().summary, format!("one of {}", EARLIER + 4));
     }
 
@@ -883,17 +880,17 @@ mod tests {
     fn quiet_holds_the_card_back_and_holds_nothing_else_back() {
         let mut holding = Holding::default();
         let _id = raising(&mut holding, "one");
-        let quietening = Message::call(&Whom { to: NOTICES, at: AT, on: OURS, calling: "Quieten" }).unwrap();
+        let quietening = Message::call(&Whom { to: NOTIFICATIONS, at: AT, on: OURS, calling: "Quieten" }).unwrap();
         let turn = heard(&mut holding, &quietening).unwrap();
 
-        assert_eq!(turn.say.unwrap().said, vec![Said::Word("held-back".to_string())]);
-        assert_eq!(holding.quiet, Quiet::HeldBack);
+        assert_eq!(turn.say.unwrap().values, vec![Value::Word("held-back".to_string())]);
+        assert_eq!(holding.do_not_disturb, DoNotDisturb::On);
         assert_eq!(holding.waiting.len(), 1);
         assert!(holding.showing().unwrap().is_empty());
 
         let _turn = heard(&mut holding, &quietening).unwrap();
 
-        assert_eq!(holding.quiet, Quiet::Coming);
+        assert_eq!(holding.do_not_disturb, DoNotDisturb::Off);
         assert_eq!(holding.showing().unwrap().len(), 1);
     }
 
@@ -904,18 +901,18 @@ mod tests {
         let _two = raising(&mut holding, "two");
         let showing = holding.showing().unwrap();
 
-        assert_eq!(showing.first().unwrap().notice.summary, "two");
+        assert_eq!(showing.first().unwrap().notification.summary, "two");
     }
 
     #[test]
     fn what_this_can_do_is_said_when_it_is_asked() {
         let mut holding = Holding::default();
         let turn = heard(&mut holding, &calling("GetCapabilities")).unwrap();
-        let said = turn.say.unwrap().said;
+        let value = turn.say.unwrap().values;
 
-        assert_eq!(said, vec![Said::List(vec![
-            Said::Word("body".to_string()),
-            Said::Word("persistence".to_string()),
+        assert_eq!(value, vec![Value::List(vec![
+            Value::Word("body".to_string()),
+            Value::Word("persistence".to_string()),
         ])]);
     }
 
@@ -923,29 +920,29 @@ mod tests {
     fn what_this_is_is_said_when_it_is_asked() {
         let mut holding = Holding::default();
         let turn = heard(&mut holding, &calling("GetServerInformation")).unwrap();
-        let said = turn.say.unwrap().said;
+        let value = turn.say.unwrap().values;
 
-        assert_eq!(said.first(), Some(&Said::Word("console".to_string())));
-        assert_eq!(said.len(), 4);
+        assert_eq!(value.first(), Some(&Value::Word("console".to_string())));
+        assert_eq!(value.len(), 4);
     }
 
     #[test]
     fn a_call_nothing_here_answers_is_complained_about_rather_than_ignored() {
         let mut holding = Holding::default();
         let turn = heard(&mut holding, &calling("Whatever")).unwrap();
-        let said = turn.say.unwrap();
+        let value = turn.say.unwrap();
 
-        assert_eq!(said.kind, Kind::Fault);
-        assert_eq!(said.fault.as_deref(), Some("org.freedesktop.DBus.Error.UnknownMethod"));
+        assert_eq!(value.kind, Kind::ErrorReply);
+        assert_eq!(value.fault.as_deref(), Some("org.freedesktop.DBus.Error.UnknownMethod"));
     }
 
     #[test]
     fn a_notification_that_is_not_a_notification_is_complained_about() {
         let mut holding = Holding::default();
-        let wrong = calling("Notify").carrying("s", vec![Said::Word("only this".to_string())]).unwrap();
+        let wrong = calling("Notify").carrying("s", vec![Value::Word("only this".to_string())]).unwrap();
         let turn = heard(&mut holding, &wrong).unwrap();
 
-        assert_eq!(turn.say.unwrap().kind, Kind::Fault);
+        assert_eq!(turn.say.unwrap().kind, Kind::ErrorReply);
         assert!(holding.waiting.is_empty());
     }
 
@@ -953,12 +950,12 @@ mod tests {
     fn a_hint_nothing_here_reads_is_walked_past_rather_than_stopping_the_card() {
         let mut holding = Holding::default();
         let hints = vec![
-            hint("image-path", "s", Said::Word("/a/picture.png".to_string())),
-            hint("urgency", "y", Said::Byte(2)),
+            hint("image-path", "s", Value::Word("/a/picture.png".to_string())),
+            hint("urgency", "y", Value::Byte(2)),
         ];
         let _turn = heard(&mut holding, &notify("it broke", 0, hints, -1)).unwrap();
 
-        assert_eq!(holding.waiting.first().unwrap().notice.urgency, Urgency::Critical);
+        assert_eq!(holding.waiting.first().unwrap().notification.urgency, Urgency::Critical);
     }
 
     #[test]
@@ -971,6 +968,6 @@ mod tests {
 
         assert_eq!(keeping.waiting.len(), 1);
         assert_eq!(keeping.earlier.len(), 1);
-        assert_eq!(keeping.quiet, Quiet::Coming);
+        assert_eq!(keeping.do_not_disturb, DoNotDisturb::Off);
     }
 }

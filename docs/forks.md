@@ -1,14 +1,14 @@
 # The programs that are not here
 
 This desktop is made of ordinary packages, a set of config files, and one
-program that is a fork of somebody else's work. It is not held back from this
+program that is a fork of someone else's work. It is not held back from this
 copy -- a workspace whose `Cargo.lock` names a crate the copy does not carry is
-a copy that will not resolve -- but the licence it arrived under travels with
+a copy that will not resolve -- but the license it arrived under travels with
 it, which is the thing that is actually owed.
 
-Nothing here is carried as somebody else's binary any more. Both of the ones
+Nothing here is carried as someone else's binary any more. Both of the ones
 that were are ports now, and each went the same way and for the same reason: a
-program on this device that nobody here can read is a program nobody here can
+program on this device that no one here can read is a program no one here can
 answer for.
 
 ## hyprsession, as crates/console-resume
@@ -20,7 +20,7 @@ commits past its `v0.2.1`, at `7fd57fc`.
 This paper named a different address until that address stopped resolving, and
 the wrong one had been sitting here long enough to be believed. Whoever rebuilds
 this is rebuilding from a tag and a count of commits, so both are written down:
-a fork whose source cannot be found again is a binary nobody can answer for.
+a fork whose source cannot be found again is a binary no one can answer for.
 
 What the fork changed, before the port: Hyprland 0.56 moved to a Lua
 configuration and the old dispatch path stopped working, so the fork talks to
@@ -28,8 +28,8 @@ the compositor the way it now expects, and a terminal comes back in the
 directory it reached running what it was running.
 
 It was a binary at `/usr/local/bin/hyprsession` until it became a crate. A
-program that closes other people's windows is a program somebody has to be able
-to read, and it was the one thing on this device installed from a build nobody
+program that closes other people's windows is a program someone has to be able
+to read, and it was the one thing on this device installed from a build no one
 here could check. Ported it also stopped being a second copy of things this tree
 keeps once -- where the compositor's socket is, what its event words mean -- and
 came under the EXPLICIT rules, which is what turned `no arguments` from the mode
@@ -46,7 +46,7 @@ the path. What the fork changed had grown past the two answers it started as:
 `OpenUri`, so a song chosen is the library it came from rather than a playlist
 of one; `xesam:url`, so the song playing could be opened where it lives; and
 then a use-after-free in the shuffle restore, which freed the playing song under
-the thread that answers the bus. Fixing memory safety in somebody else's C, for
+the thread that answers the bus. Fixing memory safety in someone else's C, for
 the panel this desktop uses most, is where carrying a binary stopped paying.
 
 What plays music now is `crates/console-music-player`, which is this

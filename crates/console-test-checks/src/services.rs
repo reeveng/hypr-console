@@ -1,6 +1,6 @@
 //! Every service the desktop is made of is running.
 
-use console_test_stages::checking::{Body, Check, Done, every};
+use console_test_stages::checking::{Body, Check, CheckResult, every};
 use console_test_stages::device::Device;
 
 pub const SERVICES: Check = Check {
@@ -11,7 +11,7 @@ pub const SERVICES: Check = Check {
     bodies: &[Body::Device(there)],
 };
 
-fn there(stage: &mut Device) -> Done {
+fn there(stage: &mut Device) -> CheckResult {
     let Ok(states) = stage.services();
 
     every(&states, "active", || format!("the desktop is missing a piece: {states:?}"))
@@ -25,7 +25,7 @@ pub const STEADY: Check = Check {
     bodies: &[Body::Device(steady)],
 };
 
-fn steady(stage: &mut Device) -> Done {
+fn steady(stage: &mut Device) -> CheckResult {
     let Ok(counts) = stage.restarts();
 
     every(&counts, "0", || {

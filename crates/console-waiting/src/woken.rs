@@ -23,7 +23,7 @@
 //! the two copies this replaced.** A loop polling a compositor's socket and
 //! this pipe together is woken by either, and then drains the pipe -- so on
 //! every wake that was the compositor's, the drain is a `read` on a pipe
-//! nobody has written to, which waits for a byte that is not coming. It is a
+//! no one has written to, which waits for a byte that is not coming. It is a
 //! desktop that stops answering the first time two things happen in the wrong
 //! order, and it looks like a compositor fault rather than a read. The far end
 //! is the same argument upside down: a pipe left full blocks the source thread
@@ -34,9 +34,11 @@
 //! kind of program that starts panels, and a descriptor a panel inherits is a
 //! pipe that never reports its writer gone.
 
+use rustix::io::read;
+use rustix::pipe::{pipe_with, PipeFlags};
 use std::fs::File;
 use std::io;
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::os::fd::OwnedFd;
 
 use console_core_never::Never;
 
@@ -47,37 +49,16 @@ pub struct Woken {
 }
 
 pub fn pipe() -> Result<Woken, io::Error> {
-    let mut ends = [0; 2];
-
-    // SAFETY: two descriptors written into an array this function owns.
-    let made = unsafe {
-        libc::pipe2(ends.as_mut_ptr(), libc::O_NONBLOCK | libc::O_CLOEXEC)
-    };
-
-    match made < 0 {
-        true => return Err(io::Error::last_os_error()),
-        false => {},
-    }
-
-    let (waiting, saying) = match ends {
-        [waiting, saying] => (waiting, saying),
-    };
-
-    // SAFETY: the reading end of a pipe this function just made and nothing else holds.
-    let waiting = unsafe { OwnedFd::from_raw_fd(waiting) };
-    // SAFETY: as above, and the writing end.
-    let saying = unsafe { File::from_raw_fd(saying) };
+    let (waiting, saying) = pipe_with(PipeFlags::CLOEXEC | PipeFlags::NONBLOCK)?;
+    let saying = File::from(saying);
 
     Ok(Woken { waiting, saying })
 }
 
 pub fn drained(waiting: &OwnedFd) -> Result<(), Never> {
-    let mut read = [0_u8; 64];
+    let mut heard = [0_u8; 64];
 
-    // SAFETY: a descriptor this process owns and a buffer this function owns.
-    let _ = unsafe {
-        libc::read(waiting.as_raw_fd(), read.as_mut_ptr().cast(), read.len())
-    };
+    let _ = read(waiting, &mut heard);
 
     Ok(())
 }
@@ -104,7 +85,7 @@ mod tests {
     }
 
     #[test]
-    fn draining_one_nobody_wrote_to_answers_rather_than_waiting_for_a_byte() {
+    fn draining_one_no_one_wrote_to_answers_rather_than_waiting_for_a_byte() {
         let woken = match pipe() {
             Ok(woken) => woken,
             Err(why) => panic!("a pipe should be made: {why}"),

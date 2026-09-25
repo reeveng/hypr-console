@@ -15,11 +15,13 @@ pub fn split(said: &str) -> Result<Option<Vec<String>>, Never> {
 
     while let Some(letter) = letters.next() {
         match (held, letter) {
-            (None, ' ' | '\t') if started => {
-                words.push(std::mem::take(&mut word));
-                started = false;
-            }
-            (None, ' ' | '\t') => (),
+            (None, ' ' | '\t') => match started {
+                true => {
+                    words.push(std::mem::take(&mut word));
+                    started = false;
+                }
+                false => (),
+            },
             (None, '\'' | '"') => {
                 held = Some(letter);
                 started = true;
@@ -41,8 +43,14 @@ pub fn split(said: &str) -> Result<Option<Vec<String>>, Never> {
 
                 word.push(escaped);
             }
-            (Some(quote), letter) if letter == quote => held = None,
-            (_, letter) => {
+            (Some(quote), letter) => match letter == quote {
+                true => held = None,
+                false => {
+                    word.push(letter);
+                    started = true;
+                }
+            },
+            (None, letter) => {
                 word.push(letter);
                 started = true;
             }
@@ -64,10 +72,10 @@ pub fn split(said: &str) -> Result<Option<Vec<String>>, Never> {
 
 const RESERVED: &str = " \t\"'\\<>~|&;$*?#()`%";
 
-pub fn joined(argv: &[String]) -> Result<String, Never> {
+pub fn joined(arguments: &[String]) -> Result<String, Never> {
     let mut said = String::new();
 
-    for word in argv {
+    for word in arguments {
         match said.is_empty() {
             true => {},
             false => said.push(' '),
@@ -198,25 +206,25 @@ mod tests {
 
     #[test]
     fn what_is_joined_is_what_is_split_back_out() {
-        let argv = vec![
+        let arguments = vec![
             "xdg-open".to_string(),
             "https://example.com/a b?q=1&r=2#top".to_string(),
             "a \"quoted\" $thing".to_string(),
         ];
-        let Ok(said) = joined(&argv);
+        let Ok(said) = joined(&arguments);
         let Ok(read) = without_field_codes(&said);
 
-        assert_eq!(ok(split(&read)), Some(argv));
+        assert_eq!(ok(split(&read)), Some(arguments));
     }
 
     #[test]
     fn a_percent_in_an_address_survives_the_reading() {
-        let argv = vec!["xdg-open".to_string(), "https://example.com/%D0%BF".to_string()];
-        let Ok(said) = joined(&argv);
+        let arguments = vec!["xdg-open".to_string(), "https://example.com/%D0%BF".to_string()];
+        let Ok(said) = joined(&arguments);
 
         assert!(said.contains("%%D0%%BF"), "{said}");
         let Ok(read) = without_field_codes(&said);
 
-        assert_eq!(ok(split(&read)), Some(argv));
+        assert_eq!(ok(split(&read)), Some(arguments));
     }
 }

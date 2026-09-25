@@ -23,14 +23,14 @@ dylint_linting::declare_late_lint! {
     /// a caller's shape does not change when the thing it calls learns how to
     /// fail; EXPLICIT005 makes sure the answer is met. Then what arrives is a
     /// `String`, and a caller that met it can do exactly one thing with it,
-    /// which is show it to somebody.
+    /// which is show it to someone.
     ///
     /// "the socket is not there" and "this desktop may not read it" reach the
     /// same `match` arm. Nothing downstream can retry one and give up on the
     /// other, nothing can carry a fault up through two crates without the
     /// second one guessing at the first one's wording, and a caller that wants
     /// to answer one case has to read prose for it -- which is a comparison
-    /// against a sentence somebody will rewrite.
+    /// against a sentence someone will rewrite.
     ///
     /// What the tree does instead, where it already does it: an enum that names
     /// the ways this call fails, `Display` on the enum so the words are written
@@ -40,9 +40,9 @@ dylint_linting::declare_late_lint! {
     /// has since walked onto its own.
     ///
     /// A `&str` fault is the same thing with a lifetime on it, and is asked for
-    /// the same way. What is not asked: a method implementing somebody else's
+    /// the same way. What is not asked: a method implementing someone else's
     /// trait, an `extern` function, and the entry point, which are the three
-    /// signatures nobody here chose -- and the entry point for a second reason,
+    /// signatures no one here chose -- and the entry point for a second reason,
     /// that a fault reaching `main` has no caller left to decide anything and
     /// is on its way to being read by a person.
     pub EXPLICIT038_NO_PROSE_FAULT,
@@ -54,7 +54,7 @@ fn is_test_build(cx: &LateContext<'_>) -> bool {
     cx.sess().opts.test
 }
 
-// An impl of somebody else's trait did not choose its signature, and a trait
+// An impl of someone else's trait did not choose its signature, and a trait
 // written here is asked once, at the trait, rather than at every impl of it --
 // so both are skipped in the pass over functions.
 fn belongs_to_a_trait(cx: &LateContext<'_>, def_id: rustc_hir::def_id::LocalDefId) -> bool {

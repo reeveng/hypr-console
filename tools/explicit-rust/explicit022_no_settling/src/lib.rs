@@ -19,7 +19,7 @@ dylint_linting::declare_late_lint! {
     /// it is already excused.
     ///
     /// That is the shape this rule is really about: an allow excuses a site,
-    /// and a `pub fn` around it turns one excused site into as many as anybody
+    /// and a `pub fn` around it turns one excused site into as many as anyone
     /// cares to write. So the rule is asked at the call, where the decision is
     /// actually made.
     ///
@@ -27,7 +27,7 @@ dylint_linting::declare_late_lint! {
     /// and `gone()` for a menu, and `until(what)` with the question spelled
     /// out for everything else. The last of them to cross were the home
     /// screen's, and what they were waiting on was a repaint: the check reads
-    /// that by colour, and `lit()` answers `Result<_, String>` where `until`
+    /// that by color, and `lit()` answers `Result<_, String>` where `until`
     /// carried a question that could not fail. So `until` carries the fault
     /// its question carries now, and a reading of the screen is a wait like
     /// any other.

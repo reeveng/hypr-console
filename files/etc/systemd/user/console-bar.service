@@ -5,7 +5,7 @@ PartOf=console.target
 [Service]
 Type=simple
 ExecStart=/usr/local/bin/console-bar
-ExecStopPost=-/usr/local/bin/console-fell %n
+ExecStopPost=-/usr/local/bin/console-report-crash %n
 Restart=always
 RestartSec=2
 

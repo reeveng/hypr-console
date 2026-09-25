@@ -5,22 +5,26 @@
 //! there is a change here.
 
 
+use console_core_geometry::Size;
 use console_core_never::Never;
-use console_core_number_conversion::{Float, fitted, toward_zero_u8, whole_usize};
+use console_core_number_conversion::{fitted, index, toward_zero_u8, whole_u32};
+use console_core_shapes::Pixels;
 use std::path::Path;
-
-use gtk4::gdk_pixbuf::{InterpType, Pixbuf};
 
 const DARKEST: char = ' ';
 
 
 pub const RAMP: &str = "$@&B%8WM#ZO0QoahkbdpqwmLCJUYXIjft/\\|()1{}[]l?zcvunxr!<>i;:*-+~_,\"^`'.";
 
-fn levels() -> Result<usize, Never> {
-    Ok(RAMP.chars().count().saturating_sub(1))
+fn levels() -> Result<u32, Never> {
+    let Ok(many) = fitted::<_, u32>(RAMP.chars().count());
+
+    Ok(many.saturating_sub(1))
 }
 
 pub const CELL_ASPECT: f64 = 20.0 / 8.0;
+
+const CHANNELS: u32 = 4;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Cell {
@@ -30,14 +34,13 @@ pub struct Cell {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Grid {
-    pub cols: usize,
-    pub rows: usize,
+    pub cols: u32,
+    pub rows: u32,
 }
 
 impl Grid {
-    pub fn of(rows: usize) -> Result<Self, Never> {
-        let Ok(down) = rows.float();
-        let Ok(cols) = whole_usize(down * CELL_ASPECT);
+    pub fn of(rows: u32) -> Result<Self, Never> {
+        let Ok(cols) = whole_u32(f64::from(rows) * CELL_ASPECT);
 
         Ok(Self { cols, rows })
     }
@@ -45,8 +48,8 @@ impl Grid {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Cover {
-    pub cols: usize,
-    pub rows: usize,
+    pub cols: u32,
+    pub rows: u32,
     pub cells: Vec<Cell>,
 }
 
@@ -54,16 +57,18 @@ impl Cover {
     pub fn markup(&self) -> Result<String, Never> {
         let mut out = String::new();
 
-        for line in self.cells.chunks(self.cols) {
-            let mut colour = None;
+        let Ok(cols) = index(self.cols);
+
+        for line in self.cells.chunks(cols) {
+            let mut color = None;
             let mut run = String::new();
 
             for cell in line {
-                match colour == Some(cell.rgb) {
+                match color == Some(cell.rgb) {
                     true => {},
                     false => {
-                        close(&mut out, &run, colour)?;
-                        (colour, run) = (Some(cell.rgb), String::new());
+                        close(&mut out, &run, color)?;
+                        (color, run) = (Some(cell.rgb), String::new());
                     }
                 }
 
@@ -72,7 +77,7 @@ impl Cover {
                 run.push_str(&letter);
             }
 
-            close(&mut out, &run, colour)?;
+            close(&mut out, &run, color)?;
             out.push('\n');
         }
 
@@ -80,17 +85,19 @@ impl Cover {
     }
 
     pub fn plain(&self) -> Result<String, Never> {
+        let Ok(cols) = index(self.cols);
+
         Ok(self
             .cells
-            .chunks(self.cols)
+            .chunks(cols)
             .map(|line| line.iter().map(|cell| cell.ch).collect::<String>())
             .collect::<Vec<_>>()
             .join("\n"))
     }
 }
 
-fn close(out: &mut String, run: &str, colour: Option<(u8, u8, u8)>) -> Result<(), Never> {
-    let (r, g, b) = match colour {
+fn close(out: &mut String, run: &str, color: Option<(u8, u8, u8)>) -> Result<(), Never> {
+    let (r, g, b) = match color {
         Some((r, g, b)) => (r, g, b),
         None => return Ok(()),
     };
@@ -119,10 +126,11 @@ fn escaped(ch: char) -> Result<String, Never> {
 pub fn character(rgb: (u8, u8, u8)) -> Result<char, Never> {
     let levels = levels()?;
     let luminance = luminance(rgb)?;
-    let lit = usize::from(luminance);
+    let lit = u32::from(luminance);
     let step = lit.saturating_mul(levels).saturating_div(256);
+    let Ok(at) = index(levels.saturating_sub(step));
 
-    Ok(match RAMP.chars().nth(levels.saturating_sub(step)) {
+    Ok(match RAMP.chars().nth(at) {
         Some(mark) => mark,
         None => DARKEST,
     })
@@ -132,24 +140,19 @@ pub fn luminance((r, g, b): (u8, u8, u8)) -> Result<u8, Never> {
     toward_zero_u8(0.2126 * f64::from(r) + 0.7152 * f64::from(g) + 0.0722 * f64::from(b))
 }
 
-pub fn read(path: &Path, rows: usize) -> Result<Option<Cover>, Never> {
+pub fn read(path: &Path, rows: u32) -> Result<Option<Cover>, Never> {
     let grid = Grid::of(rows)?;
 
-    let (wide, tall) = match (i32::try_from(grid.cols), i32::try_from(grid.rows)) {
-        (Ok(wide), Ok(tall)) => (wide, tall),
-        (Err(_), _) | (_, Err(_)) => return Ok(None),
-    };
+    let read = console_pictures::square(path, Size { width: grid.cols, height: grid.rows });
 
-    let whole = match Pixbuf::from_file(path) {
-        Ok(whole) => whole,
-        Err(_fault) => return Ok(None),
-    };
+    let picture = match read {
+        Ok(Some(picture)) => picture,
+        Ok(None) => return Ok(None),
+        Err(why) => {
+            eprintln!("console-music: {}: {why}", path.display());
 
-    let square = middle(&whole)?;
-
-    let picture = match square.scale_simple(wide, tall, InterpType::Bilinear) {
-        Some(picture) => picture,
-        None => return Ok(None),
+            return Ok(None);
+        }
     };
 
     let cover = laid_out(&picture, grid)?;
@@ -157,41 +160,29 @@ pub fn read(path: &Path, rows: usize) -> Result<Option<Cover>, Never> {
     Ok(Some(cover))
 }
 
-fn middle(whole: &Pixbuf) -> Result<Pixbuf, Never> {
-    let side = whole.width().min(whole.height());
-
-    Ok(whole.new_subpixbuf(
-        whole.width().saturating_sub(side).saturating_div(2),
-        whole.height().saturating_sub(side).saturating_div(2),
-        side,
-        side,
-    ))
-}
-
-pub fn room(rows: usize) -> Result<Cover, Never> {
+pub fn room(rows: u32) -> Result<Cover, Never> {
     let Grid { cols, rows } = Grid::of(rows)?;
 
     let blank = Cell { ch: '\u{a0}', rgb: (0, 0, 0) };
+    let Ok(many) = index(cols.saturating_mul(rows));
 
-    Ok(Cover { cols, rows, cells: vec![blank; cols.saturating_mul(rows)] })
+    Ok(Cover { cols, rows, cells: vec![blank; many] })
 }
 
-fn laid_out(picture: &Pixbuf, grid: Grid) -> Result<Cover, Never> {
+fn laid_out(picture: &Pixels, grid: Grid) -> Result<Cover, Never> {
     let Grid { cols, rows } = grid;
     let blank = Cell { ch: ' ', rgb: (0, 0, 0) };
-    let mut cells = vec![blank; cols.saturating_mul(rows)];
-    let Ok(stride) = fitted::<i32, usize>(picture.rowstride());
-    let Ok(channels) = fitted::<i32, usize>(picture.n_channels());
-    let Ok(wide) = fitted::<i32, usize>(picture.width());
-    let Ok(tall) = fitted::<i32, usize>(picture.height());
+    let Ok(many) = index(cols.saturating_mul(rows));
+    let mut cells = vec![blank; many];
+    let (stride, wide, tall) = (picture.stride, picture.width, picture.height);
 
-    let bytes = picture.read_pixel_bytes();
+    let bytes = &picture.bytes;
     let (left, top) =
         (cols.saturating_sub(wide).saturating_div(2), rows.saturating_sub(tall).saturating_div(2));
 
     for down in 0..tall.min(rows) {
         for across in 0..wide.min(cols) {
-            let at = down.saturating_mul(stride).saturating_add(across.saturating_mul(channels));
+            let Ok(at) = index(down.saturating_mul(stride).saturating_add(across.saturating_mul(CHANNELS)));
             let rgb = match bytes.get(at..at.saturating_add(3)) {
                 Some([r, g, b]) => (*r, *g, *b),
                 Some(_) | None => (0, 0, 0),
@@ -200,6 +191,7 @@ fn laid_out(picture: &Pixbuf, grid: Grid) -> Result<Cover, Never> {
                 .saturating_add(left)
                 .saturating_add(across);
             let ch = character(rgb)?;
+            let Ok(cell) = index(cell);
 
             match cells.get_mut(cell) {
                 Some(cell) => *cell = Cell { ch, rgb },
@@ -236,7 +228,7 @@ mod tests {
     }
 
     #[test]
-    fn a_run_of_one_colour_is_one_span() {
+    fn a_run_of_one_color_is_one_span() {
         let white = Cell { ch: '@', rgb: (255, 255, 255) };
         let cover = Cover { cols: 3, rows: 1, cells: vec![white; 3] };
 

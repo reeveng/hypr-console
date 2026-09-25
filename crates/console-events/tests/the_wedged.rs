@@ -1,9 +1,9 @@
-//! One program that stops reading must not deafen the others.
+//! One program that stops reading must not stop the others from hearing.
 //!
-//! The pool tells everybody from one loop, and a write into a socket whose
+//! The pool tells everyone from one loop, and a write into a socket whose
 //! reader has gone to sleep blocks once the kernel's buffer for it is full. On
 //! a desktop that is not a slow subscriber, it is every subscriber: the volume
-//! stops moving on the bar because a panel behind a chooser stopped reading.
+//! stops moving on the bar because a panel behind a picker stopped reading.
 //! Nothing in `pool` can be asked about it, because the fault is in the telling
 //! rather than in the arithmetic, so this is the serving loop, the real wire
 //! and two programs -- one that reads and one that never does.
@@ -21,38 +21,24 @@ use std::sync::OnceLock;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
-use console_events::listening::{Heard, listen_at};
+use console_events::subscription::{Received, connect_at};
 use console_events::serving;
-use console_events::sources::Held;
-use console_events::wire::{self, Says};
-use console_program_contract::{Changed, Topic};
+use console_events::sources::Subscribed;
+use console_events::wire::{self, Message};
+use console_program_contract::{Change, Topic};
 
 const BEFORE_LONG: Duration = Duration::from_secs(5);
 
-const WORDS: usize = 3_000;
+const WORDS: u32 = 3_000;
 
-const LONG: usize = 4096;
+const LONG: u32 = 4096;
 
 const LAST: &str = "the last word";
 
-static SAYING: OnceLock<Sender<Sender<Changed>>> = OnceLock::new();
+static SAYING: OnceLock<Sender<Sender<Change>>> = OnceLock::new();
 
-fn source(topic: &Topic, say: Sender<Changed>) -> Result<Held, console_core_never::Never> {
-    Ok(match topic {
-        Topic::Sound => match SAYING.get() {
-            Some(handing) => match handing.send(say) {
-                Ok(()) => Held::Yes,
-                Err(_) => Held::Nothing,
-            },
-            None => Held::Nothing,
-        },
-        Topic::Compositor
-        | Topic::Network
-        | Topic::Notices
-        | Topic::Units
-        | Topic::Player
-        | Topic::Path(_) => Held::Nothing,
-    })
+fn source(topic: &Topic, say: Sender<Change>) -> Result<Subscribed, console_core_never::Never> {
+    console_events::sources::handed_to(SAYING.get(), &Topic::Sound, topic, say)
 }
 
 fn socket() -> PathBuf {
@@ -70,18 +56,18 @@ fn up(at: &Path) {
     }
 }
 
-fn about(said: &str) -> Changed {
-    Changed { about: Topic::Sound, said: said.to_string() }
+fn change(text: &str) -> Change {
+    Change { topic: Topic::Sound, text: text.to_string() }
 }
 
-fn heard_the_last_word(heard: &Receiver<Heard>) -> bool {
+fn heard_the_last_word(heard: &Receiver<Received>) -> bool {
     loop {
         match heard.recv_timeout(BEFORE_LONG) {
-            Ok(Heard::Said(changed)) => match changed.said == LAST {
+            Ok(Received::Event(change)) => match change.text == LAST {
                 true => return true,
                 false => {},
             },
-            Ok(Heard::GotIn) => {},
+            Ok(Received::Connected) => {},
             Err(_nothing_more_is_coming) => return false,
         }
     }
@@ -89,7 +75,7 @@ fn heard_the_last_word(heard: &Receiver<Heard>) -> bool {
 
 fn deaf(at: &Path) -> UnixStream {
     let stream = UnixStream::connect(at).expect("the pool would not take a second program");
-    let asked = wire::spelt(&Says::Listen(Topic::Sound)).expect("the wire");
+    let asked = wire::encoded(&Message::Subscribe(Topic::Sound)).expect("the wire");
     let mut asking = stream.try_clone().expect("the connection");
 
     writeln!(asking, "{asked}").expect("asking to listen");
@@ -98,7 +84,7 @@ fn deaf(at: &Path) -> UnixStream {
 }
 
 #[test]
-fn a_program_that_stopped_reading_does_not_stop_the_words_reaching_anybody_else() {
+fn a_program_that_stopped_reading_does_not_stop_the_words_reaching_anyone_else() {
     let at = socket();
     let (handing, handed) = channel();
     let _ = SAYING.set(handing);
@@ -110,29 +96,29 @@ fn a_program_that_stopped_reading_does_not_stop_the_words_reaching_anybody_else(
 
     let mut wedged = deaf(&at);
 
-    let listening = listen_at(&at, &[Topic::Sound]).expect("listening");
-    let heard = listening.heard().expect("the words");
+    let subscriber = connect_at(&at, &[Topic::Sound]).expect("listening");
+    let heard = subscriber.received().expect("the words");
     let saying = handed.recv_timeout(BEFORE_LONG).expect("the source was never opened");
 
-    assert_eq!(heard.recv_timeout(BEFORE_LONG), Ok(Heard::GotIn));
+    assert_eq!(heard.recv_timeout(BEFORE_LONG), Ok(Received::Connected));
 
-    let long = "a".repeat(LONG);
+    let long = "a".repeat(LONG.try_into().unwrap());
 
     for word in 0..WORDS {
-        saying.send(about(&format!("{word} {long}"))).expect("the pool stopped listening");
+        saying.send(change(&format!("{word} {long}"))).expect("the pool stopped listening");
     }
 
-    saying.send(about(LAST)).expect("the pool stopped listening");
+    saying.send(change(LAST)).expect("the pool stopped listening");
 
     assert!(
         heard_the_last_word(heard),
-        "a program that had stopped reading held up every word to everybody else, so the bar \
-         goes quiet because a panel behind a chooser went to sleep"
+        "a program that had stopped reading held up every word to everyone else, so the bar \
+         goes quiet because a panel behind a picker went to sleep"
     );
 
     let _ = wedged.set_read_timeout(Some(BEFORE_LONG));
 
-    let mut taken = [0; LONG];
+    let mut taken = vec![0; LONG.try_into().unwrap()];
     let mut ended = false;
 
     for _turn in 0..WORDS {

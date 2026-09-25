@@ -17,13 +17,13 @@ dylint_linting::declare_late_lint! {
     /// desktop runs and did not write, and an `Origin` beside each saying where
     /// it comes from -- which is what makes the list worth holding rather than
     /// a tidier way to spell the same words. A test crosses that list with the
-    /// packages the manifest installs, so a program nobody arranged to be on
-    /// the device fails here rather than on somebody's handheld.
+    /// packages the manifest installs, so a program no one arranged to be on
+    /// the device fails here rather than on someone's handheld.
     ///
     /// `Command::new("hyprctl")` is outside all of that. It runs a program the
     /// list has never heard of, on a machine nothing checked, and the fault it
     /// makes is the quietest kind: the desktop comes up, the feature is dead,
-    /// and what is missing is a package nobody wrote down.
+    /// and what is missing is a package no one wrote down.
     ///
     /// A program of this tree's own is the same question asked the other way.
     /// It exists on the device only if the manifest names its binary, so a

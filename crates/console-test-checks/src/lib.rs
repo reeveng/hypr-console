@@ -1,6 +1,6 @@
 //! The checks: one per feature, in the order the desktop grew them.
 //!
-//! A check is one thing, and one feature. It says what somebody did and what
+//! A check is one thing, and one feature. It says what someone did and what
 //! should have happened, and it is edited in place when the feature changes
 //! rather than joined by a second one saying something different. Running them
 //! in order walks the whole desktop, oldest first, and says which of it still
@@ -14,25 +14,28 @@
 //! stage it is written for. A stage nothing is written for skips it and says so
 //! rather than passing quietly.
 
+pub mod architecture;
 pub mod bluetooth;
 pub mod brightness;
 pub mod carry;
-pub mod chooser;
+pub mod picker;
 pub mod close;
+pub mod control_center;
 pub mod dpad;
 pub mod download;
 pub mod files;
 pub mod game_mode;
 pub mod guide;
-pub mod held;
+pub mod handoff;
 pub mod home;
 pub mod icons;
 pub mod input;
+pub mod login_pattern;
 pub mod keyboard;
 pub mod language;
 pub mod launcher;
 pub mod music;
-pub mod notices;
+pub mod notifications;
 pub mod panel;
 pub mod pointer;
 pub mod resource_usage;
@@ -49,26 +52,25 @@ use std::fmt;
 use std::path::PathBuf;
 
 use console_core_never::Never;
-use console_test_stages::Awry;
+use console_test_stages::Error;
 use console_test_stages::checking::{Check, Named, Why};
 
 #[derive(Debug)]
 pub enum Unchecked {
-    Stage(Awry),
+    Stage(Error),
     Machine(std::io::Error),
-    Unreadable(PathBuf, std::io::Error),
-    Making(PathBuf, std::io::Error),
+    Read(PathBuf, std::io::Error),
+    Temporary(console_core_temporary_directories::Unmade),
     Unparsed(toml::de::Error),
-    Undeclared(console_screen::Undeclared),
     NoGround(PathBuf),
     ShowingInstead(String),
     NotInTheTable(String, Vec<String>),
     StillRepainting,
     NoPlate(String),
-    NoColour(String),
+    NoColor(String),
     NoRuntime,
     NoSuchCheck,
-    SomebodysMachine,
+    SomeonesMachine,
 }
 
 impl fmt::Display for Unchecked {
@@ -76,14 +78,11 @@ impl fmt::Display for Unchecked {
         match self {
             Unchecked::Stage(fault) => write!(to, "{fault}"),
             Unchecked::Machine(fault) => write!(to, "{fault}"),
-            Unchecked::Unreadable(at, fault) => write!(to, "{}: {fault}", at.display()),
-            Unchecked::Making(at, fault) => {
-                write!(to, "{}: making it: {fault}", at.display())
-            }
+            Unchecked::Read(at, fault) => write!(to, "{}: {fault}", at.display()),
+            Unchecked::Temporary(fault) => write!(to, "{fault}"),
             Unchecked::Unparsed(fault) => write!(to, "{fault}"),
-            Unchecked::Undeclared(fault) => write!(to, "{fault}"),
             Unchecked::NoGround(at) => {
-                write!(to, "{} sets no ground colour", at.display())
+                write!(to, "{} sets no ground color", at.display())
             }
             Unchecked::ShowingInstead(showing) => {
                 write!(to, "the wallpaper daemon is showing {showing}")
@@ -100,7 +99,7 @@ impl fmt::Display for Unchecked {
             Unchecked::NoPlate(spent) => {
                 write!(to, "the palette spends no {spent} for a square to be read by")
             }
-            Unchecked::NoColour(name) => {
+            Unchecked::NoColor(name) => {
                 write!(to, "the palette this machine spends has no {name}")
             }
             Unchecked::NoRuntime => write!(
@@ -108,9 +107,9 @@ impl fmt::Display for Unchecked {
                 "XDG_RUNTIME_DIR: nothing says where this session keeps its marks"
             ),
             Unchecked::NoSuchCheck => write!(to, "no checks by that name"),
-            Unchecked::SomebodysMachine => write!(
+            Unchecked::SomeonesMachine => write!(
                 to,
-                "that is somebody's machine. Add --dry to see what would happen, \
+                "that is someone's machine. Add --dry to see what would happen, \
                  or --yes to do it."
             ),
         }
@@ -119,8 +118,8 @@ impl fmt::Display for Unchecked {
 
 impl std::error::Error for Unchecked {}
 
-impl From<Awry> for Unchecked {
-    fn from(fault: Awry) -> Self {
+impl From<Error> for Unchecked {
+    fn from(fault: Error) -> Self {
         Unchecked::Stage(fault)
     }
 }
@@ -131,7 +130,7 @@ impl From<Unchecked> for Why {
     }
 }
 
-pub const CHECKS: [&Check; 56] = [
+pub const CHECKS: [&Check; 64] = [
     &workspaces::RIGHT,
     &workspaces::LEFT,
     &workspaces::TAPPED,
@@ -157,12 +156,13 @@ pub const CHECKS: [&Check; 56] = [
     &panel::DRAWS,
     &keyboard::DRAWS,
     &panel::WITH_THE_KEYBOARD,
+    &panel::PUT_AWAY_AT_ONCE,
     &game_mode::GAME_MODE,
     &files::DRAWS,
     &services::STEADY,
-    &notices::DRAWS,
-    &notices::CARD,
-    &notices::TOUCHED,
+    &notifications::DRAWS,
+    &notifications::CARD,
+    &notifications::TOUCHED,
     &download::DRAWS,
     &keyboard::EVERY_TIME,
     &keyboard::IN_A_PAGE,
@@ -171,23 +171,30 @@ pub const CHECKS: [&Check; 56] = [
     &music::LIBRARY,
     &music::QUIET,
     &music::AGAIN,
+    &music::AWAKE,
     &home::ARRANGING,
     &icons::ICONS,
     &home::POINTED,
     &input::OWNED,
-    &held::AGAIN,
-    &held::HOLDS_NOTHING,
+    &handoff::AGAIN,
+    &handoff::HOLDS_NOTHING,
+    &handoff::LEFT_NOTHING,
     &files::UNZIPS,
     &resume::REFUSED,
     &resume::AGAIN,
     &resume::NOT_TWICE,
     &language::HOUR,
+    &language::FIRST_ROW,
     &typing::HANDED,
     &typing::A_KEY,
     &typing::LAST_PRESS,
     &bluetooth::LOOKS,
     &updating::FILLS,
     &resource_usage::KEPT,
+    &login_pattern::STILL,
+    &login_pattern::BY_HAND,
+    &architecture::MAPPED,
+    &control_center::PULLED,
 ];
 
 pub fn chosen(words: &[String]) -> Result<Vec<&'static Check>, Never> {

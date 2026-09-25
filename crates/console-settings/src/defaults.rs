@@ -3,7 +3,7 @@
 //! A machine with two browsers on it opens links in whichever one the last
 //! thing to touch the setting preferred, and on this machine the way to change
 //! that was to know that `xdg-settings` exists. This is that setting, for the
-//! handful of kinds of thing anybody on this device actually opens.
+//! handful of kinds of thing anyone on this device actually opens.
 //!
 //! What can be chosen is read off the machine rather than written down here.
 //! Every application says for itself which kinds of file it opens, in the same
@@ -16,7 +16,7 @@
 
 use console_applications::entry::{DesktopEntry, Worth};
 use console_core_never::Never;
-use console_panel::page::{Aside, Does, NOW, Row, Showing, YET};
+use console_panel::page::{Aside, Handler, NOW, Row, Showing, YET};
 
 use crate::rows::configuration;
 
@@ -92,9 +92,9 @@ impl Application {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Held<'a>(pub &'a str);
+pub struct DesktopFilePath<'a>(pub &'a str);
 
-pub fn application(id: &str, held: Held<'_>) -> Result<Option<Application>, Never> {
+pub fn application(id: &str, held: DesktopFilePath<'_>) -> Result<Option<Application>, Never> {
     let entry = DesktopEntry::read(held.0)?;
 
     let worth = entry.worth()?;
@@ -119,7 +119,7 @@ pub fn application(id: &str, held: Held<'_>) -> Result<Option<Application>, Neve
 pub fn defaults_rows(
     applications: &[Application],
     now: &dyn Fn(&str) -> Result<String, Never>,
-    open: impl Fn(usize) -> Result<Does, Never>,
+    open: impl Fn(u32) -> Result<Handler, Never>,
 ) -> Result<Vec<Row>, Never> {
     Ok(KINDS
         .iter()
@@ -127,6 +127,7 @@ pub fn defaults_rows(
         .map(|(at, kind)| {
             let Ok(opening) = now(kind.mime);
             let Ok(said) = in_effect(applications, &opening);
+            let Ok(at) = console_core_number_conversion::fitted(at);
             let Ok(opens) = open(at);
             let Ok(row) = Row::new(kind.says, Aside(&said), opens);
             let Ok(opens) = row.opening();
@@ -136,11 +137,12 @@ pub fn defaults_rows(
         .collect())
 }
 
-pub fn meanwhile_rows(open: impl Fn(usize) -> Result<Does, Never>) -> Result<Vec<Row>, Never> {
+pub fn meanwhile_rows(open: impl Fn(u32) -> Result<Handler, Never>) -> Result<Vec<Row>, Never> {
     Ok(KINDS
         .iter()
         .enumerate()
         .map(|(at, kind)| {
+            let Ok(at) = console_core_number_conversion::fitted(at);
             let Ok(opens) = open(at);
             let Ok(row) = Row::new(kind.says, Aside(YET), opens);
             let Ok(opens) = row.opening();
@@ -165,7 +167,7 @@ pub fn choice_rows(
     applications: &[Application],
     now: &dyn Fn(&str) -> Result<String, Never>,
     back: impl Fn(&dyn Showing) + Send + Sync + 'static,
-    use_: impl Fn(&Kind, &Application) -> Result<Does, Never>,
+    use_: impl Fn(&Kind, &Application) -> Result<Handler, Never>,
 ) -> Result<Vec<Row>, Never> {
     let Ok(configuration) = configuration();
     let Ok(way_back) = Row::back(&configuration, back);
@@ -212,15 +214,15 @@ pub fn choice_rows(
 
 #[cfg(test)]
 mod tests {
-    use console_panel::page::{Heading, InEffect};
+    use console_panel::page::{Heading, Active};
     use super::*;
 
-    fn nothing(_: &Kind, _: &Application) -> Result<Does, Never> {
-        Does::and_stay(|_| ())
+    fn nothing(_: &Kind, _: &Application) -> Result<Handler, Never> {
+        Handler::and_stay(|_| ())
     }
 
-    fn opens(_: usize) -> Result<Does, Never> {
-        Does::and_stay(|_| ())
+    fn opens(_: u32) -> Result<Handler, Never> {
+        Handler::and_stay(|_| ())
     }
 
     fn choices(set: &str) -> Vec<Row> {
@@ -236,7 +238,7 @@ mod tests {
         rows
     }
 
-    fn now(row: &Row) -> InEffect {
+    fn now(row: &Row) -> Active {
         let Ok(now) = row.now();
 
         now
@@ -271,7 +273,7 @@ mod tests {
     fn a_desktop_file_gives_its_name_and_what_it_opens() {
         let read = application(
             "librewolf.desktop",
-            Held(
+            DesktopFilePath(
                 "[Desktop Entry]\nType=Application\nName=LibreWolf\n\
                  MimeType=text/html;image/png;\n",
             ),
@@ -287,8 +289,8 @@ mod tests {
     fn only_the_first_group_of_a_desktop_file_is_read() {
         let read = application(
             "librewolf.desktop",
-            Held("[Desktop Entry]\nType=Application\nName=LibreWolf\n\
-             [Desktop Action new-private-window]\nName=New Private Window\n"),
+            DesktopFilePath("[Desktop Entry]\nType=Application\nName=LibreWolf\n\
+             [Desktop Effect new-private-window]\nName=New Private Window\n"),
         )
         .expect("the reading")
         .expect("an application");
@@ -298,18 +300,18 @@ mod tests {
     #[test]
     fn a_file_that_asks_not_to_be_shown_is_not_offered() {
         let hidden = "[Desktop Entry]\nType=Application\nName=A helper\nNoDisplay=true\n";
-        assert_eq!(application("helper.desktop", Held(hidden)), Ok(None));
+        assert_eq!(application("helper.desktop", DesktopFilePath(hidden)), Ok(None));
     }
 
     #[test]
     fn a_file_that_is_not_a_program_is_not_offered() {
         assert_eq!(
-            application("a.desktop", Held("[Desktop Entry]\nType=Link\nName=A site\n")),
+            application("a.desktop", DesktopFilePath("[Desktop Entry]\nType=Link\nName=A site\n")),
             Ok(None)
         );
-        assert_eq!(application("b.desktop", Held("[Desktop Entry]\nName=Nameless\n")), Ok(None));
+        assert_eq!(application("b.desktop", DesktopFilePath("[Desktop Entry]\nName=Untitled\n")), Ok(None));
         assert_eq!(
-            application("c.desktop", Held("[Desktop Entry]\nType=Application\nName=\n")),
+            application("c.desktop", DesktopFilePath("[Desktop Entry]\nType=Application\nName=\n")),
             Ok(None)
         );
     }
@@ -319,8 +321,8 @@ mod tests {
         let rows = choices("chromium.desktop");
         let chromium = rows.iter().find(|row| row.says == "Chromium").expect("a row");
         let librewolf = rows.iter().find(|row| row.says == "LibreWolf").expect("a row");
-        assert_eq!(now(chromium), InEffect::Yes);
-        assert_eq!(now(librewolf), InEffect::No);
+        assert_eq!(now(chromium), Active::Yes);
+        assert_eq!(now(librewolf), Active::No);
     }
 
     #[test]

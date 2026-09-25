@@ -1,4 +1,4 @@
-//! Switch the Legion Go controller between desktop and gamepad behaviour.
+//! Switch the Legion Go controller between desktop and gamepad behavior.
 //!
 //! Everything it decides is in `console_input_controller::profile`, where sixty
 //! seconds of waiting for a bus can be pressed in no time at all. What is here
@@ -12,24 +12,24 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use console_input_controller::profile::{Buzz, Its, PAD, Profile};
+use console_input_controller::profile::{Buzz, ProfileEffect, PAD, Profile};
 use console_input_gamepad::devices::Has;
 use console_input_gamepad::front;
 use console_core_never::Never;
-use console_program_contract::{Argv, Word};
-use console_program_runtime::Carrying;
+use console_program_contract::{Arguments, Event};
+use console_program_runtime::Interpreter;
 
 const HID: &str = "/sys/bus/hid/devices";
 
 struct Buzzing;
 
-impl Carrying for Buzzing {
-    type Hears = Never;
-    type Does = Its;
+impl Interpreter for Buzzing {
+    type Event = Never;
+    type Effect = ProfileEffect;
 
-    fn its(&mut self, doing: &Its) -> Vec<Word<Never>> {
-        match doing {
-            Its::Buzzing(buzz) => {
+    fn interpret(&mut self, acts: &ProfileEffect) -> Vec<Event<Never>> {
+        match acts {
+            ProfileEffect::Buzzing(buzz) => {
                 let Ok(()) = buzzed(*buzz);
             },
         }
@@ -96,9 +96,9 @@ fn main() -> ExitCode {
     let Ok(words) = given();
     let said: Vec<&str> = words.iter().map(String::as_str).collect();
 
-    let Ok(argv) = Argv::of(&said);
+    let Ok(arguments) = Arguments::of(&said);
     let Ok(code) =
-        console_program_runtime::run::<Profile, Buzzing>("controller-profile", &argv, &mut Buzzing);
+        console_program_runtime::run::<Profile, Buzzing>("controller-profile", &arguments, &mut Buzzing);
 
     code
 }

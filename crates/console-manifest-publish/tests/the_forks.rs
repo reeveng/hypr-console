@@ -1,9 +1,9 @@
-//! The boundary between what is ours and what is somebody else's, asked of the
+//! The boundary between what is ours and what is someone else's, asked of the
 //! tree rather than of a fixture.  `tree.rs` proves that `is_fork` answers the
 //! way it is written to. That is not the fault this desktop has actually had.
 //! Twice now the list and the tree have simply stopped describing each other --
 //! a binary renamed while `FORKS` kept the old path, so the list protected a
-//! file nobody had and the new one was carried; a source directory brought in
+//! file no one had and the new one was carried; a source directory brought in
 //! with nothing naming it at all -- and in both cases every unit test went on
 //! passing, because the list was consistent with itself.  So these ask the two
 //! of them together. Every compiled program in `files/` has to be a fork the
@@ -75,7 +75,7 @@ fn every_compiled_program_in_the_tree_is_a_fork_the_list_names() {
         assert!(
             programs.is_empty(),
             "the published copy carries compiled programs: {programs:?}. Every one of them is \
-             somebody else's work published without its source."
+             someone else's work published without its source."
         );
         return;
     }
@@ -122,7 +122,7 @@ fn every_vendored_crate_the_list_names_is_a_directory_with_something_in_it() {
         assert!(at.is_dir(), "VENDORED names {source}, which is not a directory here");
         assert!(
             !everything_under(&at).is_empty(),
-            "{source} is named as somebody else's work and holds nothing"
+            "{source} is named as someone else's work and holds nothing"
         );
     }
 }
@@ -131,7 +131,7 @@ fn every_vendored_crate_the_list_names_is_a_directory_with_something_in_it() {
 fn a_vendored_fork_keeps_the_licence_it_came_with() {
     for source in VENDORED {
         let held = everything_under(&root().join(source));
-        let licences: Vec<&PathBuf> = held
+        let licenses: Vec<&PathBuf> = held
             .iter()
             .filter(|path| {
                 path.file_name()
@@ -140,12 +140,12 @@ fn a_vendored_fork_keeps_the_licence_it_came_with() {
             })
             .collect();
         assert!(
-            !licences.is_empty(),
-            "{source} is somebody else's source and carries no COPYING or LICENSE"
+            !licenses.is_empty(),
+            "{source} is someone else's source and carries no COPYING or LICENSE"
         );
-        for licence in licences {
-            let held = std::fs::read_to_string(licence).unwrap_or_default();
-            assert!(!held.trim().is_empty(), "{} is empty", licence.display());
+        for license in licenses {
+            let held = std::fs::read_to_string(license).unwrap_or_default();
+            assert!(!held.trim().is_empty(), "{} is empty", license.display());
         }
     }
 }

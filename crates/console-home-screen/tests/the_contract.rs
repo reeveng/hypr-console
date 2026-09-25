@@ -35,12 +35,12 @@ fn the_daemon_looks_for_the_name_this_surface_publishes() {
 }
 
 #[test]
-fn the_home_screen_is_furniture_and_not_something_you_are_in() {
+fn the_home_screen_is_a_system_surface_and_not_something_you_are_in() {
     let said = read("crates/console-onscreen/src/lib.rs");
-    let list = said.split("pub const FURNITURE").nth(1).expect("the furniture");
+    let list = said.split("pub const SYSTEM_SURFACES").nth(1).expect("the system surfaces");
     let list = list.split("];").next().expect("the end of it");
 
-    assert!(list.contains("HOME"), "the home screen is not in FURNITURE");
+    assert!(list.contains("HOME"), "the home screen is not in SYSTEM_SURFACES");
 }
 
 #[test]
@@ -48,7 +48,7 @@ fn the_wallpaper_asks_the_same_question_rather_than_keeping_its_own_list() {
     let said = read("crates/console-wallpaper/src/covered.rs");
 
     assert!(
-        said.contains("pub use console_onscreen::FURNITURE as BEHIND;"),
+        said.contains("pub use console_onscreen::SYSTEM_SURFACES as BEHIND;"),
         "the wallpaper keeps its own list of what is allowed to be behind again"
     );
     assert!(
@@ -73,18 +73,16 @@ fn the_desktops_own_applications_are_on_this_machine() {
 
 #[test]
 fn the_room_left_for_the_bar_is_what_the_bar_reserves() {
-    let screen = console_screen::declared().expect("the screen this desktop is laid out on");
-    let Ok(room) = screen.logical();
-    let Ok(fitting) = console_status_bar::showing::Fitting::of(room);
-    let Ok(reserved) = fitting.tall();
     let ours = read("crates/console-home-screen/src/bin/console-home.rs");
 
-    assert!(reserved > 0, "the bar reserves no rows at all now");
     assert!(
-        ours.contains(&format!("const CLEARED: i32 = {reserved};")),
-        "the bar reserves {reserved} rows of a {} row screen and the surface clears something \
-         else",
-        room.tall
+        ours.contains("console_status_bar::showing::Fitting::of_em()"),
+        "the surface clears a number of its own rather than the bar's own height"
+    );
+    assert!(
+        !ours.contains("surface.resize("),
+        "a surface held by all four edges was given a size, and the compositor centres a size \
+         rather than hanging it under the bar"
     );
 }
 

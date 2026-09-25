@@ -1,14 +1,14 @@
 # Explicit-Rust
 
-A dylint suite for the rule this workspace is written to: no behaviour that
+A dylint suite for the rule this workspace is written to: no behavior that
 matters should be implicit. It is the spirit of Elixir's `{:ok, value}` put to
 Rust -- a call either says what it returns or says how it failed, and nothing
-important happens because of a `bool`, an `as`, or a panic nobody declared.
+important happens because of a `bool`, an `as`, or a panic no one declared.
 
 The rules after 026 say the same thing about cost. A line that allocates a
 list, walks one twice over, runs a program per item or copies something in
-order to lend it is a line whose price is nowhere on it, and a price nobody
-wrote down is a decision nobody made -- which is the complaint the first
+order to lend it is a line whose price is nowhere on it, and a price no one
+wrote down is a decision no one made -- which is the complaint the first
 twenty-six make about types, arriving in the profiler instead of in the
 compiler.
 
@@ -37,10 +37,10 @@ which stable cannot do; `rust-toolchain.toml` pins the nightly and the
     EXPLICIT013  a block that decides something gets a blank line around it
     EXPLICIT014  no indexing or slicing; ask with `get` and meet the `None`
     EXPLICIT015  no bare integer arithmetic; the policy has a name
-    EXPLICIT016  no wildcard arm on a match over an enum
+    EXPLICIT016  no wildcard arm on a match over an enum, foreign ones included
     EXPLICIT017  `?` stands alone: the whole of a statement, never buried
     EXPLICIT018  an `allow` carries its reason, in the attribute
-    EXPLICIT019  no `if`; a decision is a `match` that names both outcomes
+    EXPLICIT019  no `if` and no match guard; a decision names both outcomes
     EXPLICIT020  no comments; a `//!` head and a `// SAFETY:` are the two that stay
     EXPLICIT021  no waiting on the clock; ask for the thing, and keep asking
     EXPLICIT022  no settling on a number of seconds on the handheld; ask it
@@ -54,7 +54,7 @@ which stable cannot do; `rust-toolchain.toml` pins the nightly and the
     EXPLICIT030  no copy allocated only so a borrow of it can be handed over
     EXPLICIT031  no list walked by counting to its length
     EXPLICIT032  no iterator walked to its end to answer a yes or a no
-    EXPLICIT033  no `None` answered by a value nobody wrote down
+    EXPLICIT033  no `None` answered by a value no one wrote down
     EXPLICIT034  an answer that is the point of a call says `#[must_use]`
     EXPLICIT035  a thread's lifetime is said where the thread is started
     EXPLICIT036  no program named by a string literal
@@ -64,14 +64,24 @@ which stable cannot do; `rust-toolchain.toml` pins the nightly and the
     EXPLICIT040  a file is written whole or not at all
     EXPLICIT041  a program written to the contract says what it prints
     EXPLICIT042  a program ends by returning from `main`
-    EXPLICIT043  a topic listened to is a topic deafened
+    EXPLICIT043  a topic listened to is a topic the program stops listening to
     EXPLICIT044  a function decides from what it was handed
     EXPLICIT045  a conversion names the type it becomes
     EXPLICIT046  a jump out of a nested loop says which loop it leaves
     EXPLICIT047  a closure takes what it writes, rather than holding it
     EXPLICIT048  a type spells no state it does not have
+    EXPLICIT049  a function does not reach itself; the depth is a loop's to count
+    EXPLICIT050  a function fits on a screen
+    EXPLICIT051  a number has a width the source says; no usize
 
 All of them are written. Each is one crate with a `ui/` case beside it.
+
+One crate here is not a rule. `architecture_facts` walks the same resolved
+paths the rules do and says nothing; it writes down what each crate runs,
+subscribes to, asks and opens, for `just map` to draw and for the rules in
+`crates/console-architecture/tests` to be asked over. It is named outside the
+`explicit*` pattern so the gate never loads it, and its own head says why a
+lint is the door it goes through.
 
 The level in the lint's own source says which tier a rule is in. A `Deny` rule
 fails the gate; a `Warn` rule is one written ahead of the code, printing its
@@ -85,7 +95,7 @@ together; what each of them cost is further down. They and 045
 are read out of Kast, which is stricter than either. 045 is EXPLICIT010's
 argument with the numbers taken out of it: a conversion that names neither end
 says nothing at the call site, and Kast has no implicit coercion at all -- a
-cast there is a value somebody wrote, so the pair is declared and both halves
+cast there is a value someone wrote, so the pair is declared and both halves
 are named. It came out in one sweep, because almost every site it found was a
 string literal becoming a `String` and a path spelled as one, where the
 destination was the only thing the line was not already saying; the two that
@@ -131,10 +141,10 @@ the thing this README used to say would be the only way to put anything back
 in that tier, and it was right. None of them was one sweep: some of what they
 found wanted moving, and some of it wanted a sentence at the site saying why
 it is where it is, and the rule was doing its work either way. Neither answer
-is available to somebody who cannot see the list, which is what the tier is
+is available to someone who cannot see the list, which is what the tier is
 for.
 
-The four came out together and each one came out the same shape: where somebody
+The four came out together and each one came out the same shape: where someone
 at the edge could hold the answer, it moved there and became a parameter, and
 where the process really is the only thing that can hold it, the site carries
 the allow and EXPLICIT018 makes the reason say why. 040 was the largest by a
@@ -163,12 +173,12 @@ already got this right is the same one -- hand it in. 041 narrowed twice on its
 readings of the tree, the way 029 narrowed to programs on its own: first to
 stdout, because what it found on stderr was almost all a fault or a usage line
 going to the journal, which is where EXPLICIT038 already sends one; then to the
-crates that name the doings rather than the crates that name the contract at
+crates that name the actions rather than the crates that name the contract at
 all, because what was left was mostly `Topic` in a bar module whose whole output
 is one line down a pipe. `console-cpu-boost`
 decides nothing from the clock because `asked(now)` takes the instant and the
 binary does the reading; `console-core-atomic-writes` is where a file is written
-whole; `Doing::Print` is on the list a program hands back. What the rules do is
+whole; `Action::Print` is on the list a program hands back. What the rules do is
 stop the other spelling.
 
 042 and 043 are the two ends of that. 042 is a program leaving without
@@ -201,7 +211,7 @@ before the rule existed to count it. 017 came out the long way, which is the way
 expects -- every buried `?` in the tree lifted into a `let` of its own, one
 crate at a time. 020 came out the way that should not be necessary: what it
 forbids had been swept out of the tree once already, by hand, and was back in
-most of the crates by the time anybody looked. 019 came out the longest
+most of the crates by the time anyone looked. 019 came out the longest
 way of all, because it was the rule the whole tree broke: every guard clause, every `if let`, every `else if`
 chain rewritten as a `match` that names what the other path was.
 
@@ -230,7 +240,7 @@ Three of the first twelve cannot read their own rule off a signature, so they
 read it off the code instead, and it is worth knowing which way:
 
   - **001** cannot see that a function is fallible. It watches for a function
-    that swallows somebody else's error -- `unwrap_or`, `unwrap_or_else`,
+    that swallows someone else's error -- `unwrap_or`, `unwrap_or_else`,
     `unwrap_or_default`, `ok`, `is_ok`, `is_err` on a `Result` -- while its own
     return type is not a `Result`. That is a function that met a failure and
     decided not to mention it.
@@ -271,7 +281,7 @@ says to a reader and nothing at all to the compiler.
 
 **002 was the last rule to reach `Deny`, and it took the longest.** The other
 nineteen described a workspace that already kept them by the time they were
-written. This one described one it was walking towards, and it waited longer
+written. This one described one it was walking toward, and it waited longer
 than any of them for a reason none of the others had: it had nowhere to point.
 `Result<T, Never>` needs a `Never`, and there was no such type here at all.
 `console-core-never` is that type -- an enum with no variants, so the `Err` a
@@ -290,7 +300,7 @@ The command this file used to give for counting it did not work. `cargo dylint
 --all -- --all-targets -- -W explicit002_infallible_result` passes `-W` past a
 second `--` to `cargo check`, which takes no trailing arguments and refuses the
 whole run -- so the one number that would have said what adopting the rule
-costs was never printed by anybody who tried. A lint level for a whole run goes
+costs was never printed by anyone who tried. A lint level for a whole run goes
 through `RUSTFLAGS` or through the tier in the lint's own source, and the tier
 is the honest place for it.
 
@@ -303,7 +313,7 @@ last crates to cross were the ones with the most arithmetic in them, because
 
 **002, 007 and 008 skip a method that implements a trait.** All three are about
 a choice: a signature that says `bool`, or says nothing at all, where it could
-have said what it meant. In an impl of somebody else's trait there is no choice to skip past --
+have said what it meant. In an impl of someone else's trait there is no choice to skip past --
 `PartialEq::eq` answers with a `bool` because the trait says it does, and a
 type that wants to be compared has no other way to say so. `Drop::drop` answers with nothing and
 `Default::default` answers with `Self` for the same reason. Denying any of it
@@ -318,7 +328,7 @@ signal and GTK, and `Result` does not cross that boundary. And `fn main` has no
 caller at all -- the rule's argument is that a caller should not change shape
 when the thing it calls learns how to fail, and the entry point has none to
 spare. It is asked by the entry point's own def id rather than by the name, so
-a helper somebody called `main` is still asked.
+a helper someone called `main` is still asked.
 
 What a function answers is read after the aliases are resolved. `Done` in
 `console-test-stages` is `Result<(), Why>`, and every check body in the tree is
@@ -346,7 +356,7 @@ question the compositor answers, so the nested desktop no longer spends 1.8
 seconds being sure and then coming up wrong on a busy machine anyway.
 
 What it does not catch is deliberate. `recv_timeout` is a wait on a real event
-with a bound on the patience, which is the shape the rule is pushing towards
+with a bound on the patience, which is the shape the rule is pushing toward
 rather than away from. And a `sleep` inside a shell script this tree writes into
 a string is out of reach on purpose: 020 reads the text of a file because a
 comment is not in the syntax tree, but a rule that read string literals looking
@@ -357,11 +367,11 @@ one in the other.
 The allows it left behind are the point of the rule rather than a hole in it. A
 click is a press and a release with a gap between them; a note is shown for a
 moment; a backoff is the waiting between two tries; the emulator is playing back
-how long somebody held a button. In each of those the elapsing *is* what is
+how long someone held a button. In each of those the elapsing *is* what is
 being asked for, and the reason at the site says so. The test the README already
 gives applies unchanged: the allow is right where the harm the rule names is
 absent, and "poll instead" is not a thing that can be said about a duration
-somebody wanted.
+someone wanted.
 
 One allow is worth naming here because it is the rule's own foundation.
 `console_waiting::between` is a `thread::sleep`, and it has to be: the gap
@@ -378,7 +388,7 @@ what 022 is for.
 
 **022 is 021 asked at the call instead of at the sleep.** An allow excuses a
 site, and a `pub fn` around an excused site turns one of them into as many as
-anybody cares to write. `console_waiting::between` is private, so it is still
+anyone cares to write. `console_waiting::between` is private, so it is still
 one site; `console_test_stages::device::Device::settle` is public, and every
 check that reached for it is another wait 021 cannot see, because each of them
 is a call to a function whose sleep already carries a reason -- a reason that
@@ -395,7 +405,7 @@ shouted about.
 
 It does not exempt tests, which every other rule in the suite does. The checks
 that break it are written in test targets, and a rule that skipped those would
-be counting a tree nobody runs.
+be counting a tree no one runs.
 
 `Device::until` carries the allow, and it is the same sentence as
 `console_waiting::between`'s: the gap between two questions is what a poll is
@@ -403,7 +413,7 @@ built out of. The checks have all crossed and the rule is denied, so what
 `settle` is now is a word said deliberately, wherever it is said, with the
 reason beside it. It stays `pub` because all but the gap are written in another
 crate, which is a smaller thing than it was: the rule stands between a number
-and anybody who would name one without saying why. `docs/checks.md` argues for
+and anyone who would name one without saying why. `docs/checks.md` argues for
 what a crossed check looks like.
 
 ## The six that came later
@@ -413,18 +423,18 @@ again about a place the first pass did not look. 020 came after them on its
 own, and is not about the code at all.
 
 **014** is 004 about syntax instead of calls: `xs[i]` and `&s[a..b]` are
-panics nobody declared, and `get` turns the absence into a value that 005 then
+panics no one declared, and `get` turns the absence into a value that 005 then
 makes sure is met. Const contexts are left alone, exactly as 015 leaves them:
 an index the compiler evaluates and finds out of range fails the build, which
 is a failure with a name, at the right time, on the machine that has a screen.
 
-**015** is about the one behaviour in the language that differs by build
+**015** is about the one behavior in the language that differs by build
 profile: bare `+`, `-`, `*` and the shifts panic in debug and wrap in release,
 and `/` and `%` panic on zero in both. `checked_*`, `saturating_*` and
 `wrapping_*` each name a policy at the site. Const contexts are left alone --
 arithmetic the compiler evaluates fails the build, which is a failure with a
 name, at the right time -- and a negated literal with them, because `-1` is how
-a negative number is written rather than a subtraction anybody performs.
+a negative number is written rather than a subtraction anyone performs.
 `console-core-number-conversion`'s hand-rolled float decoder is what this rule
 looks like adopted early.
 
@@ -436,16 +446,22 @@ other. Where it wanted something else, it wanted it for a reason that had to
 be written beside it: `wrapping_*` where the distance is provably under the
 width or the value is a seed, `checked_div` and `checked_rem` where the
 divisor came from outside and the `unwrap_or` says what a zero comes to. A
-policy nobody can say the reason for is the site to look at twice.
+policy no one can say the reason for is the site to look at twice.
 
 **016** is about time: `_ =>` on an enum decides variants that do not exist
 yet, silently, at every catch-all in the tree. Named variants make a new
 variant a compile error at every site that has an opinion about it. A foreign
-`#[non_exhaustive]` enum is exempt, because there the compiler demands the
-wildcard and the choice this rule is about does not exist -- the same reasoning
-that lets 007 and 008 skip a method implementing somebody else's trait. A
-guarded arm is left alone: it covers nothing by omission, and the unguarded
-arm it falls through to is the one that answers for the rest.
+`#[non_exhaustive]` enum was exempt once, because the compiler demands a
+catch-all over one and a rule cannot ask for what will not compile. It asks for
+something else instead: do not read somebody else's open enum wide. The
+question a catch-all over `io::ErrorKind` is really asking is whether the kind
+is one particular kind, and that is an answer with two names --
+`match fault.kind() == NotFound { true => …, false => … }`. Where the wide
+reading is the job, which on this desktop is a Wayland protocol event and
+nothing else, the site carries the allow and the reason says why nothing else
+could. A guarded arm was left alone here once, on the argument that the
+unguarded arm it falls through to answers for the rest; 019 denies the guard
+itself now, so there is nothing left to exempt.
 
 **017** is 013's kin: `frame(settle(x)?, y)` is an early return with no shape
 on the screen. `?` may be the whole of a statement, the right side of a `let`,
@@ -465,9 +481,14 @@ without an `else` decides the false path by omission; an `else if` chain is a
 `match` that lost its scrutinee; an `if let` names one case and waves at the
 rest. `match cond { true => …, false => … }` puts both outcomes on the screen
 with a name on each, and `match value { … }` says what an `if let` was
-asking -- where 016 then asks that the variants be named too. `let … else` is
+asking -- where 016 then asks that the variants be named too. A match guard is
+the same `if` written on an arm: `Variant if cond =>` asks a question whose
+false answer is spelled by falling through to whatever arm comes next, which is
+the outcome without a name again, so the question goes in the pattern or the
+answer goes in the scrutinee. A guard inside a macro's arm is the macro
+author's, and `matches!(x, P if c)` is left alone. `let … else` is
 not an `if` and is left alone: both of its outcomes are already written, and
-one of them is required to leave. A `while` desugars to an `if` nobody wrote
+one of them is required to leave. A `while` desugars to an `if` no one wrote
 and is not charged for it.
 
 **020 is not about Rust at all.** It is about the other language a source file
@@ -475,7 +496,7 @@ is written in, the one nothing compiles. Every `///` and every `//` in the
 workspace was deleted once, on the rule that a sentence beside a line of code is
 a second statement of the same thing that nothing keeps true; what was worth
 keeping went to `docs/`. Then they came back, a `///` at a time, because the
-rule was a paragraph somebody had read and not a thing the build could fail on.
+rule was a paragraph someone had read and not a thing the build could fail on.
 That is the whole argument for this rule existing: it is not a stronger claim
 than the paragraph made, it is the same claim with a gate under it.
 
@@ -501,12 +522,12 @@ person.
 
 A rule is allowed at a call site only when the harm it names is absent there,
 and the allow says which. That is a narrower test than "the rule is
-inconvenient here", and it is the only test: a rule nobody may ever allow is a
-rule people work around in silence, and a rule anybody may allow is not a rule.
+inconvenient here", and it is the only test: a rule no one may ever allow is a
+rule people work around in silence, and a rule anyone may allow is not a rule.
 
 Every allow in the tree is one of these, and each carries its reason:
 
-  - **`chooser::showing`.** EXPLICIT011. A function turned into the number
+  - **`picker::showing`.** EXPLICIT011. A function turned into the number
     `signal` takes it as. No trait does that, and the way out is a signalfd,
     which changes how a running process is asked to go away and wants deciding
     on its own rather than inside a lint sweep.
@@ -517,7 +538,7 @@ Every allow in the tree is one of these, and each carries its reason:
     already writes for itself, arrived at by a road none of its four kinds
     names. `#[proc_macro_derive]` decides the signature, so there is nothing to
     choose here, and a derive that cannot do what it was asked says so in a
-    `compile_error!` where somebody reading the build will see it rather than in
+    `compile_error!` where someone reading the build will see it rather than in
     an `Err` with no caller to meet it. It is the one function in the tree that
     is reached this way, which is why the exemption is written here rather than
     into the lint: a `proc_macro_derive` cannot be spelled in a `ui/` case,
@@ -586,7 +607,7 @@ way it is meant to.
 Three things were considered and rejected as ways around a rule, and they are
 written down because each looks reasonable until it is said out loud. Wrapping
 a `bool` parameter in a closure to satisfy EXPLICIT008 -- the rule is then one
-that anybody can pass by wrapping, which is no rule. Taking the `bool` as
+that anyone can pass by wrapping, which is no rule. Taking the `bool` as
 `self` in a trait impl so it resolves as `Self` -- that passes on an accident of
 how the lint reads types, silently, and turns a later improvement to the lint
 into a mystery failure. And a newtype whose only purpose is to carry a `bool`
@@ -596,7 +617,7 @@ past the check, which buys notation and still needs the allow.
 
 EXPLICIT001 and EXPLICIT006 both end the same way: a call that used to swallow
 a failure has to say what happened instead. The error is a type of the crate's own now, so what it says is a sentence
-somebody reads in a journal
+someone reads in a journal
 rather than a type a compiler checks -- which is what EXPLICIT038 walked the
 tree out of, and the last sub-section here is what that does to this one. Three things about that sentence are not the call site's own choice,
 and each is written here because it was got wrong first.
@@ -605,7 +626,7 @@ and each is written here because it was got wrong first.
 
 001 watches for `unwrap_or`, `unwrap_or_else`, `unwrap_or_default`, `ok`,
 `is_ok` and `is_err`. That is a list of calls, not a list of mistakes. Some of
-them are a failure somebody dropped. Others are a decision somebody made, and
+them are a failure someone dropped. Others are a decision someone made, and
 the decision is right:
 
     let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
@@ -626,7 +647,7 @@ So the rule does not ask for a `Result`. It asks that the failure be met, and a
     let home = match std::env::var("HOME") {
         Ok(home) => Some(home),
         Err(fault) => {
-            eprintln!("controller-desktop: HOME: {fault}; no button anybody moved will be read");
+            eprintln!("controller-desktop: HOME: {fault}; no button anyone moved will be read");
             None
         }
     };
@@ -651,13 +672,13 @@ empty one -- sitting inside functions whose `Result` was about something else
 entirely.
 
 Closing it cost five sites, which is what the exemption had been worth in the
-whole workspace by the time anybody counted. Each of them was already doing the
+whole workspace by the time anyone counted. Each of them was already doing the
 right thing; none of them said so. The rule now asks the same question
 everywhere, and the answer is the `match` above.
 
 ### The sentence names the purpose, not the mechanism
 
-An error here is read by somebody holding a journal and not the source.
+An error here is read by someone holding a journal and not the source.
 `hyprctl failed` names the program that broke and not what the desktop was
 trying to do, which is the half that says whether it matters.
 
@@ -684,9 +705,9 @@ anything about beyond saying so.
 
 It does not belong in a shared crate, and `console-input-controller` is the
 reason. That crate reads the same `VarError` and pulls the two cases apart,
-because there they are not the same thing at all -- a device nobody pointed at
+because there they are not the same thing at all -- a device no one pointed at
 is ordinary and is most of the time, while a name set to something that is not
-text is somebody trying to point at a device and missing, and it used to arrive
+text is someone trying to point at a device and missing, and it used to arrive
 as the same silence. Both crates are right about their own machine. A shared
 helper would have to pick one of them, and picking either makes the other one
 wrong.
@@ -707,7 +728,7 @@ act on it.
 
 The three sub-sections keep their jobs and gain a place to live. The purpose
 rather than the mechanism is what the `Display` arm spells. The helper that
-folds two faults into one answer becomes the `From` that turns somebody else's
+folds two faults into one answer becomes the `From` that turns someone else's
 fault into one of this crate's own cases, in the crate whose policy it is, for
 the same reason it could not be shared before. And the question in the first
 section -- what should this program do on a machine where this is missing --
@@ -746,11 +767,11 @@ put a `match`. Every crate inherits that table with `[lints] workspace = true`
 and says nothing else about lints, so the next crate is covered before it is
 written.
 
-## Tests are exempt, except from 020
+## Tests are exempt, except from 020 and 051
 
-Every lint but one returns early when `cx.sess().opts.test` is set. A test that panics
+Every lint but two returns early when `cx.sess().opts.test` is set. A test that panics
 is a test that fails, which is what a test is for, and an `as` in a fixture is
-arithmetic nobody ships.
+arithmetic no one ships.
 
 Nothing real is lost by it. `opts.test` is true only for the harness build of a
 target, and the ordinary build of the same library is linted as production, so
@@ -760,18 +781,23 @@ is not.
 020 is the exception, and it is the exception because the reason above does not
 reach it. Every other rule is exempt where the harm it names is absent, and a
 comment in a test is prose beside code read by the same person and going stale
-at the same rate -- a test is where somebody goes to find out what a thing is
+at the same rate -- a test is where someone goes to find out what a thing is
 supposed to do, so it is the last place that should be explaining itself twice.
-Exempting it would also cut the rule along a line nobody can see from the file:
+Exempting it would also cut the rule along a line no one can see from the file:
 `tests/the_tree.rs` is a test build and a `#[cfg(test)] mod` inside a library is
 not, so the same comment would be legal in one and not in the other.
+
+051 is the other, for the same reason from the other side. A width is not a
+harm a test is spared by failing: a test that counts in `usize` is asserting a
+quantity the code under it no longer holds, and the width it compares against
+is the one the rule took out of that code.
 
 ## The nine that came after, and the half of them that are about cost
 
 024, 025 and 026 are the suite finishing an argument the backlog had been
 keeping for it. Each is a thing a signature cannot say: 024 that two quantities
 are not the same quantity, 025 that a number is standing for a case the type
-does not have, 026 that a name read out of the air belongs to somebody. All
+does not have, 026 that a name read out of the air belongs to someone. All
 three are the same complaint the first twenty-three make -- something that
 matters is not written down -- reaching one step further out each time, from
 what a function returns, to what it takes, to where it got what it takes from.
@@ -779,16 +805,16 @@ what a function returns, to what it takes, to where it got what it takes from.
 **024** is the largest of the three and the largest arrival since 019. What it
 asks is narrow enough to decide off a signature: no two parameters the compiler
 would accept in either order, over bare representations only. What it cost was
-a type for every quantity this tree actually has, and nobody had counted that
+a type for every quantity this tree actually has, and no one had counted that
 before the rule existed to count it. Geometry was the worst of it, and
 `oklch_to_rgb(lightness, chroma, hue)` was the shape of the whole problem in one
-line -- three `f64` in an order that is right because somebody remembered it.
+line -- three `f64` in an order that is right because someone remembered it.
 `console-core-geometry` is what came out of the largest half: a place and a size
 had been written out in about fifteen crates, and one `Point { across, down }`
 and one `Size { wide, tall }` answer for all of them. The rest went a family at
 a time rather than a function at a time, because the same pair kept arriving --
 a summary and a body, an old name and a new one, a heading and a key -- and a
-type per function would have been a type nobody could name twice.
+type per function would have been a type no one could name twice.
 
 **025** arrived denied, which almost nothing does. The tree was already keeping
 it, and 015 is why: a rule that makes arithmetic name its policy sends every
@@ -805,7 +831,7 @@ allow off the first one.
 
 Then 027 through 032, which are about what a line costs rather than what it
 says. The suite's sentence still holds and only the noun changes: an allocation
-nobody wrote down, a walk nobody wrote down, a process nobody wrote down. The
+no one wrote down, a walk no one wrote down, a process no one wrote down. The
 harm has the shape 016's has -- it is invisible while the list is short, and
 the day the list is not short there is nothing to notice, because the code
 still reads exactly as it did.
@@ -822,7 +848,7 @@ those are common and right.
 another list. The first sweep of it wrote the sentence rather than the fix at
 most of its sites -- a handful of open menus, a handful of networks in range --
 and the sentence was wrong at every one of them, because a handful is what a
-list is on the day somebody writes the allow and not on the day it matters.
+list is on the day someone writes the allow and not on the day it matters.
 There are no allows on it now. What the sites turned into is the argument for
 the rule: a `BTreeSet` beside the list where the order of the list is the
 answer, an `entry` on a `BTreeMap` where the walk was really grouping and the
@@ -857,7 +883,7 @@ something and leaves alone. `iter()` says the walk with the item as its
 subject, and takes `enumerate` where the position is really wanted.
 
 **032** is a whole walk spent on one bit. `Iterator::count` consumes to the end
-by definition, and the definition is the part nobody reads: compared against
+by definition, and the definition is the part no one reads: compared against
 nothing or one it is a question about emptiness wearing a number, and `.any(…)`
 and `.next().is_some()` stop at the element that answers it. A `len` is a field
 rather than a walk and is not asked about here -- stock clippy's `len_zero` is
@@ -871,7 +897,7 @@ on is on, and this suite does not repeat it.
 **033** is 001 said about an `Option`, and it is the last of the family 004
 started. 004 took `unwrap` and `expect`, the two that announce themselves by
 crashing. 001 took `unwrap_or`, `unwrap_or_else` and `unwrap_or_default` over a
-`Result`, where what is swallowed is somebody else's error. What was left was
+`Result`, where what is swallowed is someone else's error. What was left was
 the same three methods over an `Option`, where there is no error to swallow and
 the fault is the quietest of the four: a `None` meant something, and the line
 answers it with a value that is either a sentinel -- 025's fault, reached by a
@@ -893,7 +919,7 @@ because they were not all one thing:
     and `laying::staged` hands back an `Option` so the caller has to;
   - three shapes were the same answer written out in several crates, and the
     rule is what made that visible. `Option::unwrap_or` cannot be deleted from
-    seven crates stepping round a list without somebody deciding what an empty
+    seven crates stepping round a list without someone deciding what an empty
     list means, so `console-core-walking` decides it once;
     `without_a_comment` joined `console-core-ini-files`, whose business a
     comment already was; and the evdev device description that
@@ -913,12 +939,12 @@ about an empty list is made out loud instead of at every division downstream of
 it. It is the one place in the suite where a policy is a type rather than a
 method, and it is there because a type can carry a proof a method call cannot.
 
-## The five that came out of somebody else's list
+## The five that came out of someone else's list
 
 034 through 038 were read off a taxonomy written for C++ -- clang-tidy's
 `performance-*`, `bugprone-*`, `concurrency-*`, `portability-*` families and a
 list of architectural rules under them. Most of it was already answered here or
-is a fault the borrow checker will not let anybody have, and what was left was
+is a fault the borrow checker will not let anyone have, and what was left was
 five questions this tree could be asked and had not been. Two of the five came
 back with call sites, one came back with a number, and two came back green,
 which is the ratchet working rather than five rules landing at once.
@@ -942,7 +968,7 @@ and drops it. The same drop, with a word on it.
 
 One site keeps the rule allowed and is the reason the allow test reads the way
 it does. `console_core_reconnect::keep` *is* the thread -- the crate is a
-subscription made again for as long as somebody wants one -- so the harm the
+subscription made again for as long as someone wants one -- so the harm the
 rule names, that nothing says how long this runs, is absent at the one site
 where the function's own name says it.
 
@@ -950,16 +976,16 @@ where the function's own name says it.
 this desktop runs and did not write has been a variant of
 `console_core_external_programs::Program` for a while, crossed against
 `[packages]` by a test; what held the rule was a scan of the source for a
-string literal at the front of an argv, which is a net, and the README of that
+string literal at the front of an arguments, which is a net, and the README of that
 crate already says what is wrong with nets. The lint asks the compiler instead:
 `Command::new` with a literal, wherever it is spelled and whatever the type is
 imported as.
 
-What the sweep found was the half nobody had looked at. Every literal left in
+What the sweep found was the half no one had looked at. Every literal left in
 the tree was one of *our own* programs -- `console-say`, `panel-pictures`,
 `console-dictate` -- which are on the device only because `desktop.conf`'s
 `[build]` names them, and were therefore exactly the same unchecked claim the
-foreign ones had stopped being. `console-core-our-programs` is the other list,
+foreign ones had stopped being. `console-core-internal-programs` is the other list,
 crossed against `[build]` by the test beside the one that crosses `[packages]`.
 It also resolves: a program of ours is looked for beside the binary that is
 running before it is looked for on `PATH`, because a nested desktop runs what
@@ -978,9 +1004,9 @@ the first byte of a D-Bus header and has never reached for the native one.
 
 Neither of those two is a rule the tree earned by breaking it, and both are
 worth the file anyway: what they cost is a paragraph, and what they buy is that
-the day somebody writes the spelling that looks like it means "no conversion",
+the day someone writes the spelling that looks like it means "no conversion",
 the gate is already there. That is a different thing from the warned tier,
-which is for a rule the tree is walking towards.
+which is for a rule the tree is walking toward.
 
 **038 is the suite arguing with itself, and it was the last rule with a
 distance.**
@@ -988,7 +1014,7 @@ distance.**
 a `Result` so a caller's shape does not change when the thing it calls learns
 how to fail. 005 makes sure the answer is met. Then what arrives is a `String`,
 and a caller that met it can do exactly one thing with it, which is show it to
-somebody: "the socket is not there" and "this desktop may not read it" reach
+someone: "the socket is not there" and "this desktop may not read it" reach
 the same arm, nothing can retry one and give up on the other, and a fault
 carried up through two crates is a sentence the second one is guessing the
 wording of.
@@ -1007,9 +1033,9 @@ caller can now ask which fault it is looking at.
 
 ## 048, which asks about the type rather than the code in it
 
-Every rule before it reads something somebody wrote in a function. 048 reads
+Every rule before it reads something someone wrote in a function. 048 reads
 the shape of a type and asks how many of the states it can be written into are
-states it really has. The struct that prompted it is the one everybody has
+states it really has. The struct that prompted it is the one everyone has
 written: a `bool` saying whether the thing worked, an `Option` holding what it
 produced and an `Option` holding what went wrong, which is three fields, eight
 spellings and four meanings -- and the other four are reachable by a caller who
@@ -1049,7 +1075,7 @@ them is right: EXPLICIT002 puts every function through a `Result`, so that shape
 is the ordinary way to say *the call happened and the thing is not there* --
 the outer answer is about the call, the inner one about the value, and they are
 two questions rather than one asked twice. A rule that condemns the house style
-is a rule nobody keeps, and finding that out cost one run of `just explicit`,
+is a rule no one keeps, and finding that out cost one run of `just explicit`,
 which is what the warned tier is for.
 
 What the run found when the distance was walked was a split, and the split is
@@ -1058,13 +1084,61 @@ now: a player that is playing, paused or stopped rather than two flags that can
 both be true; a button that is loose, held, shared or already gone rather than
 an instant and two more flags; a key drawn pressed, under or plain rather than
 a pair whose fourth spelling the drawing quietly ignored. Every one of those
-lost a combination nobody meant, and two of them were answered by an enum the
+lost a combination no one meant, and two of them were answered by an enum the
 same file already had. The rest were fields that really are independent -- a
-wayland surface's separate promises, the flags somebody typed on a command
+wayland surface's separate promises, the flags someone typed on a command
 line, what hyprctl says about one window -- and each carries the allow with a
 sentence saying which different question each field answers. Neither half was
-available to anybody who could not see the list, which is what the tier was
+available to anyone who could not see the list, which is what the tier was
 for.
+
+## The three TigerStyle asked for
+
+tigerstyle.dev is TigerBeetle's house style, and read against this suite most
+of it was already written: its dimensionality is 007, 008 and 024, its "do not
+copy in the data plane" is 030. What was left was a short list of limits this
+suite never asked about -- what a program may consume while it runs rather
+than what a call says it returns -- and these are the ones worth a lint. Two of
+its rules stay refused: assertions everywhere are panics with a reason
+attached, which 004 denies, and a fixed interval is 021 read backwards.
+
+**049 is the Power of Ten's no recursion.** The depth of a walk that calls
+itself is whatever it is handed, and the stack it spends is a limit nobody
+wrote down. It asks the crate rather than the function, because the case worth
+finding goes through a second one: every place one of the crate's functions is
+named, called or handed on, is an edge, and the site is reported when what it
+names finds its way back. A trait method is followed to the impl the types
+choose, so a `Display` that formats its children is the same walk. The answer
+is a stack of the walk's own, emptied in a loop, or a depth handed in and
+counted down.
+
+**050 is a function that fits on a screen**, 013's other half: a body whose two
+ends cannot both be seen has no shape to show. Blank lines are not counted,
+because 013 asked for them, and neither are the arms of a `match`, because a
+decision over a long enum is as long as the enum and says nothing about the
+function around it. What it finds is sequences rather than decisions, and what
+comes out is named stages.
+
+**051 is TigerStyle's fixed-width integers, all of them.** A `usize` is a range
+the machine decides and the source never declared. It was written narrow first,
+asking only about a field of a serialized type, on the argument that a position
+in a list in memory is honest at the width the list is measured in -- and that
+is the argument TigerStyle refuses, because the width is the standard library's
+decision and a tab, a row or a count of pages is a quantity this tree means.
+What is asked about is the type as written, in a signature, a field, a binding
+or a turbofish, and the type of every `let` that wrote none -- a binding the
+compiler typed holds the machine's width exactly as well as one somebody typed,
+and an editor draws `: usize` beside it all the same. A `usize` a `len()` hands
+to a comparison or a `get` and nobody keeps is not asked about, and the place
+the two meet is a named conversion.
+
+All three arrived warned, and what 049 and 050 found is where a reader would
+guess: the D-Bus signature walk and the directory walkers for 049, the apply,
+the panel's surface and the nested desktop's main for 050. Those two are
+denied now: the walks keep a stack of their own, and the long bodies are named
+stages called in order. 051 is denied with it, ahead of the tree: it is in
+every crate, and goes the way 002 did, a crate at a time, with the gate red
+until the last one is answered. `just explicit` prints the rest.
 
 ## What it is, and what it is not yet
 
@@ -1072,7 +1146,7 @@ for.
 breaks and warns the rest; which tier a rule is in is the level in its own
 crate and nowhere else. The warned tier is empty today, which is a thing that
 is true between sweeps rather than a thing that is finished: the next rule
-somebody writes ahead of the code will stand there until its last call site is
+someone writes ahead of the code will stand there until its last call site is
 answered. A rule moves up when the last call site that broke it
 is fixed, and it never moves back. That is the whole ratchet.
 
@@ -1081,8 +1155,8 @@ than enforced, so the distance is visible whether or not it is being enforced
 yet. There is no number written down here on purpose -- a count in a README is
 a count that is wrong by the next commit. Run it.
 
-Turning every rule on at once would mean a deploy nobody can make until every
-call site is answered, and a gate somebody starts going around is worse than no
+Turning every rule on at once would mean a deploy no one can make until every
+call site is answered, and a gate someone starts going around is worse than no
 gate. The grind is the point when it happens: each denial is a call site that
 deserves an honest look.
 

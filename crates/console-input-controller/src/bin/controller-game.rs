@@ -13,19 +13,19 @@
 use std::process::ExitCode;
 use std::time::Duration;
 
-use evdev::{Device, InputEvent};
-use console_input_controller::finding::{self, Says};
+use console_input_event_devices::{Device, InputEvent};
+use console_input_controller::finding::{self, DeviceInfo};
 use console_input_controller::reading::From;
-use console_input_controller::returning::{Heard, Return};
+use console_input_controller::returning::{ReturningEvent, Return};
 use console_input_controller::turning::HUNT_SECONDS;
 use console_core_never::Never;
-use console_program_contract::{Argv, Round, Since, Word};
-use console_program_runtime::Carrying;
+use console_program_contract::{Arguments, Timer, Elapsed, Event};
+use console_program_runtime::Interpreter;
 
 fn main() -> ExitCode {
     let Ok(code) = console_program_runtime::run::<Return, Pad>(
         "controller-game",
-        &Argv::default(),
+        &Arguments::default(),
         &mut Pad::default(),
     );
 
@@ -35,18 +35,18 @@ fn main() -> ExitCode {
 #[derive(Default)]
 struct Pad {
     held: Option<(String, Device)>,
-    hunted: Option<Since>,
+    hunted: Option<Elapsed>,
 }
 
-impl Carrying for Pad {
-    type Hears = Heard;
-    type Does = Never;
+impl Interpreter for Pad {
+    type Event = ReturningEvent;
+    type Effect = Never;
 
-    fn its(&mut self, doing: &Never) -> Vec<Word<Heard>> {
-        match *doing {}
+    fn interpret(&mut self, acts: &Never) -> Vec<Event<ReturningEvent>> {
+        match *acts {}
     }
 
-    fn came(&mut self, _round: &Round, since: Since) -> Result<Vec<Word<Heard>>, Never> {
+    fn tick(&mut self, _timer: &Timer, since: Elapsed) -> Result<Vec<Event<ReturningEvent>>, Never> {
         let Ok(()) = self.find(since);
 
         self.drained(since)
@@ -58,7 +58,7 @@ fn again() -> Result<Duration, Never> {
 }
 
 impl Pad {
-    fn find(&mut self, since: Since) -> Result<(), Never> {
+    fn find(&mut self, since: Elapsed) -> Result<(), Never> {
         let Ok(again) = again();
 
         let looking = match &self.held {
@@ -85,7 +85,7 @@ impl Pad {
         Ok(())
     }
 
-    fn drained(&mut self, since: Since) -> Result<Vec<Word<Heard>>, Never> {
+    fn drained(&mut self, since: Elapsed) -> Result<Vec<Event<ReturningEvent>>, Never> {
         let (path, device) = match self.held.as_mut() {
             Some((path, device)) => (path, device),
             None => return Ok(Vec::new()),
@@ -95,25 +95,25 @@ impl Pad {
             Ok(arrived) => arrived
                 .into_iter()
                 .map(|event| {
-                    Word::Its(Heard::Saw {
-                        kind: event.event_type(),
-                        code: event.code(),
-                        value: event.value(),
+                    Event::Custom(ReturningEvent::Saw {
+                        kind: event.kind,
+                        code: event.code,
+                        value: event.value,
                         at: since,
                     })
                 })
                 .collect(),
-            Err(Gone) => {
+            Err(Closed) => {
                 eprintln!("controller-game: the pad at {path} has gone");
                 self.held = None;
 
-                vec![Word::Its(Heard::Gone)]
+                vec![Event::Custom(ReturningEvent::Closed)]
             }
         })
     }
 }
 
-struct Gone;
+struct Closed;
 
 fn found() -> Result<Option<(String, Device)>, Never> {
     let Ok(told) = From::Pad.told();
@@ -121,11 +121,13 @@ fn found() -> Result<Option<(String, Device)>, Never> {
     let path = match told {
         Some(told) => told,
         None => {
-            let every: Vec<Says> = evdev::enumerate()
-                .map(|(path, device)| {
-                    let Ok(says) = says(&path.display().to_string(), &device);
+            let Ok(devices) = Device::every();
+            let every: Vec<DeviceInfo> = devices
+                .iter()
+                .map(|device| {
+                    let Ok(info) = describe(&device.path.display().to_string(), device);
 
-                    says
+                    info
                 })
                 .collect();
             let Ok(gamepad) = finding::gamepad(&every);
@@ -138,8 +140,8 @@ fn found() -> Result<Option<(String, Device)>, Never> {
             found.path.clone()
         }
     };
-    let opened = Device::open(&path).and_then(|device| {
-        device.set_nonblocking(true)?;
+    let opened = Device::open(std::path::Path::new(&path)).and_then(|device| {
+        device.nonblocking()?;
         Ok(device)
     });
 
@@ -152,15 +154,17 @@ fn found() -> Result<Option<(String, Device)>, Never> {
     })
 }
 
-fn says(path: &str, device: &Device) -> Result<Says, Never> {
-    console_input_gamepad::finding::says(path, device)
+fn describe(path: &str, device: &Device) -> Result<DeviceInfo, Never> {
+    console_input_gamepad::finding::describe(path, device)
 }
 
-fn drain(device: &mut Device) -> Result<Vec<InputEvent>, Gone> {
-    match device.fetch_events() {
-        Ok(arrived) => Ok(arrived.collect()),
-        Err(fault) if fault.kind() == std::io::ErrorKind::WouldBlock => Ok(Vec::new()),
-        Err(_) => Err(Gone),
+fn drain(device: &mut Device) -> Result<Vec<InputEvent>, Closed> {
+    match device.read_events() {
+        Ok(arrived) => Ok(arrived),
+        Err(fault) => match fault.kind() == std::io::ErrorKind::WouldBlock {
+            true => Ok(Vec::new()),
+            false => Err(Closed),
+        },
     }
 }
 
@@ -169,7 +173,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_hunt_is_the_daemons_own_stretch() {
+    fn the_hunt_is_the_daemons_own_timer() {
         let Ok(again) = again();
 
         assert_eq!(again, Duration::from_secs(1));

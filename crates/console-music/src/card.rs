@@ -1,6 +1,11 @@
 //! The music, drawn.
 //!
-//! Two tabs: what is playing, and what there is to play. The player itself is
+//! Two tabs: what is playing, and what there is to play -- and two ways in.
+//! The panel the bar's note opens is the first tab alone, because what a hand
+//! reaching for the bar wants is the song on now, and a glance at it. The app
+//! is both, the library first: somewhere a person stays and walks a shelf of
+//! nine hundred songs, which a panel that went away whenever the settings
+//! came up was the wrong shape for. The player itself is
 //! kew, running headless behind this, and every button here is one MPRIS call.
 //! Nothing about a song is worked out in this program: the title, the artist
 //! and the cover are what the player says they are.
@@ -51,57 +56,57 @@
 //!
 //! What is here is the machine: MPRIS, the folder, and the cover on the disk.
 //! Where the thumb is standing, what is typed, and whether the library has
-//! already been asked to read itself are `crate::pressing`, which is a
+//! already been asked to read itself are `crate::update`, which is a
 //! `console_program_contract::Program`.
 
 
-use console_core_external_programs::Program;
+use console_core_localization::positional;
 use console_core_never::Never;
 use console_core_number_conversion::{Float, fitted};
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 use console_panel::icons::Icon;
-use gtk4::glib;
 use crate::ascii;
 use crate::library::{self, Kind, Thing};
 use crate::looking::{self, Song};
 use crate::player::{self, Order, Over, Playing, Sound};
-use crate::pressing::{Closes, Heard, Its, Music, Standing, closes};
+use crate::update::{Closes, MusicEvent, MusicEffect, Music, Standing, closes};
 use crate::library::folder;
-use console_panel::actor::{self, Addr, Answer};
-use console_program_contract::{Argv, Doing, Named, Program as _, Turn, Word as Said};
-use console_panel::page::{Aside, Bar, Does, InEffect, Level, Page, Picture, Press, Row, Rows, Showing, Watch};
+use console_panel::actor::{self, Address, Answer};
+use console_program_contract::{Arguments, Effect, Executable, Program as _, Topic, Update, Event};
+use console_panel::page::{Aside, Bar, Handler, Active, Level, Page, Picture, ButtonPress, Row, Rows, Showing};
 use console_panel::card::{Card, Door};
 use console_panel::running;
 
-const TALL: usize = 8;
+const TALL: u32 = 8;
 
-const ABOUT: &str = "Type a song, whose it is, or anything it says";
+const ABOUT: &str = "Search songs, artists or albums";
 
-const MANY: usize = 120;
+const MANY: u32 = 120;
 
 const SCRUB: i64 = 5_000_000;
 
-enum Msg {
-    Heard(Heard, Answer<Vec<Doing<Its>>>),
+enum Message {
+    Event(MusicEvent, Answer<Vec<Effect<MusicEffect>>>),
     At(Answer<Standing>),
 }
 
-struct Held(Standing);
+struct Actor(Standing);
 
-impl actor::Machine for Held {
-    type Msg = Msg;
+impl actor::Machine for Actor {
+    type Message = Message;
 
-    fn step(self, message: Msg) -> Self {
+    fn step(self, message: Message) -> Self {
         match message {
-            Msg::Heard(heard, answer) => {
-                let Turn { now, doings } = Music::heard(&self.0, &Said::Its(heard));
-                let _ = answer.say(doings);
+            Message::Event(heard, answer) => {
+                let Update { state, effects } = Music::update(&self.0, &Event::Custom(heard));
+                let _ = answer.say(effects);
 
-                Held(now)
+                Actor(state)
             }
-            Msg::At(answer) => {
+            Message::At(answer) => {
                 let _ = answer.say(self.0.clone());
 
                 self
@@ -110,119 +115,113 @@ impl actor::Machine for Held {
     }
 }
 
-type Panel = Addr<Msg>;
+type Panel = Address<Message>;
 
 fn standing(held: &Panel) -> Result<Standing, Never> {
-    Ok(match held.ask(Msg::At) {
+    Ok(match held.ask(Message::At) {
         Ok(standing) => standing,
         Err(_) => {
-            eprintln!("music-panel: the panel's own state has gone, so it drew as it opened");
+            eprintln!("music-panel: the panel's own state is missing, so it drew as it opened");
 
             Standing::default()
         }
     })
 }
 
-fn decided(held: &Panel, heard: Heard) -> Result<Vec<Doing<Its>>, Never> {
-    Ok(match held.ask(|answer| Msg::Heard(heard, answer)) {
-        Ok(doings) => doings,
+fn decided(held: &Panel, heard: MusicEvent) -> Result<Vec<Effect<MusicEffect>>, Never> {
+    Ok(match held.ask(|answer| Message::Event(heard, answer)) {
+        Ok(effects) => effects,
         Err(_) => {
-            eprintln!("music-panel: the panel's own state has gone, so the press did nothing");
+            eprintln!("music-panel: the panel's own state is missing, so the press did nothing");
 
             Vec::new()
         }
     })
 }
 
-fn press(held: &Panel, heard: Heard, showing: &dyn Showing) -> Result<(), Never> {
-    let doings = decided(held, heard)?;
+fn press(held: &Panel, heard: MusicEvent, showing: &dyn Showing) -> Result<(), Never> {
+    let effects = decided(held, heard)?;
 
-    for doing in doings {
-        carry(&doing, showing)?;
+    for effect in effects {
+        carry(&effect, showing)?;
     }
 
     Ok(())
 }
 
-fn carry(doing: &Doing<Its>, showing: &dyn Showing) -> Result<(), Never> {
-    match doing {
-        Doing::Its(Its::Replace(row)) => showing.replace(*row),
-        Doing::Its(Its::Note(said)) => showing.note(said),
-        Doing::Its(Its::ForgetTyping) => showing.forget_typing(),
-        Doing::Its(Its::Shuffle(order)) => {
+fn carry(effect: &Effect<MusicEffect>, showing: &dyn Showing) -> Result<(), Never> {
+    match effect {
+        Effect::Custom(MusicEffect::Replace(row)) => {
+            let Ok(row) = fitted(*row);
+
+            showing.replace(row)
+        }
+        Effect::Custom(MusicEffect::Note(said)) => showing.note(said),
+        Effect::Custom(MusicEffect::ForgetTyping) => showing.forget_typing(),
+        Effect::Custom(MusicEffect::Shuffle(order)) => {
             player::shuffle(*order)?;
             showing.refresh();
         }
-        Doing::Its(Its::Repeat(over)) => {
+        Effect::Custom(MusicEffect::Repeat(over)) => {
             player::repeat(*over)?;
             showing.refresh();
         }
 
-        Doing::Ask(runs) => {
+        Effect::Run(runs) => {
             let whole = whole(runs)?;
 
             showing.later(whole);
         }
-        Doing::Start(runs) => {
+        Effect::Spawn(runs) => {
             let whole = whole(runs)?;
 
             showing.leave_running(whole);
         }
 
-        Doing::Watch(_)
-        | Doing::AskWhoever(_)
-        | Doing::Listen(_)
-        | Doing::Deafen(_)
-        | Doing::Write(_)
-        | Doing::Say(_)
-        | Doing::Print(_)
-        | Doing::Stop(_) => {},
+        Effect::Stream(_)
+        | Effect::Prompt(_)
+        | Effect::Subscribe(_)
+        | Effect::Unsubscribe(_)
+        | Effect::Write(_)
+        | Effect::Notify(_)
+        | Effect::Print(_)
+        | Effect::Stop(_) => {},
     }
 
     Ok(())
 }
 
-fn started(doing: &Doing<Its>) -> Result<Option<&console_program_contract::Runs>, Never> {
-    Ok(match doing {
-        Doing::Start(runs) => Some(runs),
-
-        Doing::Its(_)
-        | Doing::Ask(_)
-        | Doing::Watch(_)
-        | Doing::AskWhoever(_)
-        | Doing::Listen(_)
-        | Doing::Deafen(_)
-        | Doing::Write(_)
-        | Doing::Say(_)
-        | Doing::Print(_)
-        | Doing::Stop(_) => None,
-    })
-}
-
-fn whole(runs: &console_program_contract::Runs) -> Result<Vec<String>, Never> {
-    let mut argv = vec![
+fn whole(runs: &console_program_contract::Command) -> Result<Vec<String>, Never> {
+    let mut arguments = vec![
         match runs.program {
-            Named::Theirs(program) => {
+            Executable::External(program) => {
                 let Ok(name) = program.name();
 
                 name.to_string()
             }
-            Named::Ours(name) => name.to_string(),
+            Executable::Internal(name) => name.to_string(),
         },
     ];
 
-    argv.extend(runs.argv.clone());
+    arguments.extend(runs.arguments.clone());
 
-    Ok(argv)
+    Ok(arguments)
 }
 
 fn playing_rows(held: &Panel) -> Result<Vec<Row>, Never> {
     let asked = player::playing()?;
 
     match asked.as_ref() {
-        Some(playing) if playing.sound != Sound::Stopped => playing_card(held, playing),
-        Some(_) | None => {
-            let Ok(row) = Row::nothing("Nothing is playing");
+        Some(playing) => match playing.sound != Sound::Stopped {
+            true => playing_card(held, playing),
+            false => {
+                let Ok(row) = Row::nothing("Not Playing");
+
+                Ok(vec![row])
+            }
+        },
+        None => {
+            let Ok(row) = Row::nothing("Not Playing");
 
             Ok(vec![row])
         }
@@ -235,7 +234,7 @@ fn typed_in(held: &Panel) -> Result<String, Never> {
     Ok(standing.typed.trim().to_string())
 }
 
-fn press_at(held: &Panel) -> Result<usize, Never> {
+fn press_at(held: &Panel) -> Result<u32, Never> {
     let standing = standing(held)?;
 
     Ok(standing.press)
@@ -270,11 +269,12 @@ fn playing_card(held: &Panel, playing: &Playing) -> Result<Vec<Row>, Never> {
 }
 
 fn walking(held: &Panel, row: Row) -> Result<Row, Never> {
-    let of = row.across.as_ref().map_or(0, |across| across.presses.len());
+    let Ok(of) =
+        console_core_number_conversion::fitted::<_, u32>(row.buttons.as_ref().map_or(0, |across| across.presses.len()));
     let held = held.clone();
 
-    row.levelled(Arc::new(move |by| {
-        let _ = decided(&held, Heard::Along { by, of });
+    row.leveled(Arc::new(move |by| {
+        let _ = decided(&held, MusicEvent::Along { by, of });
     }))
 }
 
@@ -305,10 +305,10 @@ fn scrub_row() -> Result<Row, Never> {
     let bar = scrub_bar(scrub)?;
     let step = scrub_step(scrub)?;
 
-    let Ok(nothing) = Does::and_stay(|_| {});
+    let Ok(nothing) = Handler::and_stay(|_| {});
     let Ok(row) = Row::new(&done, Aside(&whole), nothing);
     let Ok(row) = row.picturing(Picture::Bar(bar));
-    let Ok(row) = row.levelled(step);
+    let Ok(row) = row.leveled(step);
 
     row.seeking(|showing, frac| {
         let Ok(()) = player::seek(frac);
@@ -331,17 +331,9 @@ fn scrub_bar(scrub: Scrub) -> Result<Bar, Never> {
 }
 
 fn clock(micros: i64) -> Result<String, Never> {
-    let seconds = micros.max(0).saturating_div(1_000_000);
-    let (hours, minutes, seconds) = (
-        seconds.saturating_div(3600),
-        seconds.saturating_div(60).wrapping_rem(60),
-        seconds.wrapping_rem(60),
-    );
+    let Ok(micros) = fitted::<i64, u64>(micros);
 
-    Ok(match hours > 0 {
-        true => format!("{hours}:{minutes:02}:{seconds:02}"),
-        false => format!("{minutes}:{seconds:02}"),
-    })
+    positional(Duration::from_micros(micros))
 }
 
 fn scrub_step(scrub: Scrub) -> Result<Level, Never> {
@@ -362,35 +354,35 @@ fn stepped(scrub: Scrub, dir: i32) -> Result<f64, Never> {
     Ok(along / whole)
 }
 
-fn transport_row(held: &Panel, playing: &Playing, at: usize) -> Result<Row, Never> {
+fn transport_row(held: &Panel, playing: &Playing, at: u32) -> Result<Row, Never> {
     let shuffling = player::shuffling()?;
     let over = player::over()?;
     let shuffle = held.clone();
     let repeat = held.clone();
 
-    let Ok(shuffles) = Press::new(
+    let Ok(shuffles) = ButtonPress::new(
             Icon::Shuffle,
             match shuffling {
-                Order::Any => InEffect::Yes,
-                Order::AsListed => InEffect::No,
+                Order::Any => Active::Yes,
+                Order::AsListed => Active::No,
             },
             move |showing| {
                 let Ok(shuffling) = player::shuffling();
 
-                let Ok(()) = press(&shuffle, Heard::Shuffling(shuffling), showing);
+                let Ok(()) = press(&shuffle, MusicEvent::Shuffling(shuffling), showing);
             },
     );
-    let Ok(previous) = Press::new(Icon::Previous, InEffect::No, |showing| {
+    let Ok(previous) = ButtonPress::new(Icon::Previous, Active::No, |showing| {
         let Ok(()) = player::previous();
 
         showing.refresh();
     });
-    let Ok(playing) = Press::new(
+    let Ok(playing) = ButtonPress::new(
             match playing.sound {
                 Sound::Paused | Sound::Stopped => Icon::Play,
                 Sound::Playing => Icon::Pause,
             },
-            InEffect::No,
+            Active::No,
             |showing| {
                 let Ok(()) = player::play_pause();
 
@@ -398,27 +390,28 @@ fn transport_row(held: &Panel, playing: &Playing, at: usize) -> Result<Row, Neve
             },
     );
     let Ok(playing) = playing.chief();
-    let Ok(next) = Press::new(Icon::Next, InEffect::No, |showing| {
+    let Ok(next) = ButtonPress::new(Icon::Next, Active::No, |showing| {
         let Ok(()) = player::next();
 
         showing.refresh();
     });
-    let Ok(repeats) = Press::new(
+    let Ok(repeats) = ButtonPress::new(
             match over {
                 Over::Again => Icon::RepeatSong,
                 Over::On | Over::Round => Icon::Repeat,
             },
             match over {
-                Over::On => InEffect::No,
-                Over::Again | Over::Round => InEffect::Yes,
+                Over::On => Active::No,
+                Over::Again | Over::Round => Active::Yes,
             },
             move |showing| {
                 let Ok(over) = player::over();
 
-                let Ok(()) = press(&repeat, Heard::Repeating(over), showing);
+                let Ok(()) = press(&repeat, MusicEvent::Repeating(over), showing);
             },
     );
     let presses = vec![shuffles, previous, playing, next, repeats];
+    let Ok(at) = fitted(at);
 
     Row::pressing(presses, at)
 }
@@ -438,7 +431,7 @@ fn in_the_folder(held: &Panel, folder: &Path) -> Result<Vec<Row>, Never> {
 
     match things.is_empty() {
         true => {
-            let Ok(row) = Row::nothing(&format!("Nothing in {}", folder.display()));
+            let Ok(row) = Row::nothing(&format!("No Music in {}", folder.display()));
 
             return Ok(vec![row]);
         }
@@ -471,7 +464,7 @@ fn answering(held: &Panel, folder: &Path, word: &str) -> Result<Vec<Row>, Never>
 
     match found.is_empty() {
         true => {
-            let Ok(row) = Row::nothing(&format!("Nothing here answers to {word}"));
+            let Ok(row) = Row::nothing(&format!("No Results for \u{201c}{word}\u{201d}"));
 
             return Ok(vec![row]);
         }
@@ -479,8 +472,9 @@ fn answering(held: &Panel, folder: &Path, word: &str) -> Result<Vec<Row>, Never>
     }
 
     let mut rows: Vec<Row> = Vec::new();
+    let Ok(most) = console_core_number_conversion::index(MANY);
 
-    for song in found.iter().take(MANY) {
+    for song in found.iter().take(most) {
         let row = played(held, song, folder)?;
 
         rows.push(row);
@@ -490,7 +484,14 @@ fn answering(held: &Panel, folder: &Path, word: &str) -> Result<Vec<Row>, Never>
 }
 
 fn songs(folder: &Path) -> Result<Vec<Song>, Never> {
-    let at = looking::at(&glib::user_cache_dir())?;
+    let Ok(cache) = console_core_places::Base::Cache.hers();
+
+    let cache = match cache {
+        Some(cache) => cache,
+        None => return looking::songs(folder, &library::things, &[]),
+    };
+
+    let at = looking::at(&cache)?;
     let said = std::fs::read_to_string(at);
 
     let known = match said {
@@ -511,9 +512,13 @@ fn chosen(held: &Panel, thing: &Thing) -> Result<Row, Never> {
         false => Kind::ASong,
     };
     let plays = plays(held, &thing.path, kind)?;
-    let offering = shown_in_the_files(held, &thing.path)?;
+    let shows = shown_in_the_files(held, &thing.path)?;
+    let Ok(offering) = console_panel::page::shown_or_selected(&thing.name, &thing.path, move |showing| {
+        let _ = shows(showing);
+    });
 
     let Ok(row) = Row::new(&thing.name, Aside(said), plays);
+    let Ok(row) = row.selectable(&thing.path.to_string_lossy());
 
     row.offering(offering)
 }
@@ -522,9 +527,13 @@ fn played(held: &Panel, song: &Song, folder: &Path) -> Result<Row, Never> {
     let says = song.says()?;
     let aside = song.aside(folder)?;
     let plays = plays(held, &song.path, Kind::ASong)?;
-    let offering = shown_in_the_files(held, &song.path)?;
+    let shows = shown_in_the_files(held, &song.path)?;
+    let Ok(offering) = console_panel::page::shown_or_selected(says, &song.path, move |showing| {
+        let _ = shows(showing);
+    });
 
     let Ok(row) = Row::new(says, Aside(&aside), plays);
+    let Ok(row) = row.selectable(&song.path.to_string_lossy());
 
     row.offering(offering)
 }
@@ -537,10 +546,10 @@ fn shown_in_the_files(
     let path = path.to_path_buf();
 
     Ok(move |_: &dyn Showing| {
-        let Ok(doings) = decided(&held, Heard::Shown(path.clone()));
+        let Ok(effects) = decided(&held, MusicEvent::Shown(path.clone()));
 
-        for doing in &doings {
-            let Ok(runs) = started(doing);
+        for effect in &effects {
+            let Ok(runs) = effect.spawned();
 
             match runs {
                 Some(runs) => {
@@ -555,12 +564,12 @@ fn shown_in_the_files(
     })
 }
 
-fn plays(held: &Panel, path: &Path, folder: Kind) -> Result<Does, Never> {
+fn plays(held: &Panel, path: &Path, folder: Kind) -> Result<Handler, Never> {
     let held = held.clone();
     let path = path.to_path_buf();
 
-    Does::and_stay(move |showing| {
-        let Ok(()) = press(&held, Heard::Chose { path: path.clone(), kind: folder }, showing);
+    Handler::and_stay(move |showing| {
+        let Ok(()) = press(&held, MusicEvent::Chose { path: path.clone(), kind: folder }, showing);
     })
 }
 
@@ -570,28 +579,21 @@ fn read_the_library(held: &Panel, showing: &dyn Showing) -> Result<(), Never> {
     let songs = songs(&folder)?;
     let unread = looking::unread(&songs)?;
 
-    press(held, Heard::Arrived { unread }, showing)
+    press(held, MusicEvent::Arrived { unread }, showing)
 }
 
-fn pages(held: &Panel) -> Result<Vec<Page>, Never> {
+fn playing_page(held: &Panel) -> Result<Page, Never> {
     let showing = held.clone();
-    let music = music_page(held)?;
-    let Ok(shell) = Program::Sh.name();
 
     let Ok(asked) = Rows::asked(move || {
         let Ok(rows) = playing_rows(&showing);
 
         rows
     });
-    let Ok(page) = Page::new("Playing", asked);
+    let Ok(page) = Page::new("Now Playing", asked);
     let Ok(page) = page.in_the_middle();
-    let Ok(watch) = Watch::on(
-        &[shell, "-c", "while true; do echo tick; sleep 1; done"],
-        "tick",
-    );
-    let Ok(playing) = page.watching(watch);
 
-    Ok(vec![playing, music])
+    page.listening(Topic::Player, player::worth_moving_the_clock)
 }
 
 fn music_page(held: &Panel) -> Result<Page, Never> {
@@ -606,13 +608,14 @@ fn music_page(held: &Panel) -> Result<Page, Never> {
         rows
     });
     let Ok(page) = Page::new("Music", asked);
+    let Ok(page) = page.trashing_selected();
     let Ok(page) = page.on_arriving(move |showing| {
         let Ok(()) = read_the_library(&arriving, showing);
     });
     let Ok(page) = page.on_back(move |showing| {
         let Ok(was) = standing(&backing);
 
-        let Ok(()) = press(&backing, Heard::Back, showing);
+        let Ok(()) = press(&backing, MusicEvent::Back, showing);
 
         let Ok(closes) = closes(&was);
 
@@ -623,12 +626,14 @@ fn music_page(held: &Panel) -> Result<Page, Never> {
     });
 
     page.searching(ABOUT, move |showing, word| {
-        let Ok(()) = press(&typing, Heard::Typed(word.to_string()), showing);
+        let Ok(()) = press(&typing, MusicEvent::Typed(word.to_string()), showing);
     })
 }
 
 
 pub const WHO: &str = "music-panel";
+
+pub const APP: &str = "music";
 
 const DOOR: &str = "music";
 
@@ -636,18 +641,39 @@ pub fn door(_argv: &[String]) -> Result<Door, Never> {
     Door::closing(DOOR)
 }
 
-pub fn card(_argv: &[String]) -> Result<Card, Never> {
-    let opening = Music::opening(&Argv::default());
-    let Ok(holding) = actor::supervise(move || Held(opening.state.clone()));
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Holds {
+    Playing,
+    Library,
+}
+
+fn held_as(holds: Holds) -> Result<Card, Never> {
+    let init = Music::init(&Arguments::default());
+    let Ok(holding) = actor::supervise(move || Actor(init.state.clone()));
     let held = holding.addr.clone();
 
     let Ok(card) = Card::new(Arc::new(move || {
-        let Ok(pages) = pages(&held);
+        let Ok(playing) = playing_page(&held);
 
-        pages
+        match holds {
+            Holds::Playing => vec![playing],
+            Holds::Library => {
+                let Ok(music) = music_page(&held);
+
+                vec![music, playing]
+            },
+        }
     }));
 
     card.shutting(Box::new(move || holding.shutdown()))
+}
+
+pub fn card(_argv: &[String]) -> Result<Card, Never> {
+    held_as(Holds::Playing)
+}
+
+pub fn library(_argv: &[String]) -> Result<Card, Never> {
+    held_as(Holds::Library)
 }
 
 #[cfg(test)]
@@ -668,7 +694,7 @@ mod tests {
 
         let Ok(scrub) = scrub_row();
 
-        let Ok(play) = Press::new(Icon::Play, InEffect::No, |_| ());
+        let Ok(play) = ButtonPress::new(Icon::Play, Active::No, |_| ());
 
         let Ok(pressing) = Row::pressing(vec![play], 0);
 
@@ -708,8 +734,8 @@ mod tests {
 
         let Ok(plain) = room.plain();
 
-        assert_eq!(plain.lines().count(), TALL);
-        assert!(plain.lines().all(|line| line.chars().count() == room.cols));
+        assert_eq!(u32::try_from(plain.lines().count()).unwrap(), TALL);
+        assert!(plain.lines().all(|line| u32::try_from(line.chars().count()).unwrap() == room.cols));
         let Ok(bare) = Row::stacked(Picture::None, "Blue Monday", Aside("New Order"));
 
         assert_eq!(empty.looks_like(&bare), Ok(Same::No));

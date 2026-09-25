@@ -10,7 +10,7 @@
 use std::sync::Arc;
 
 use console_panel::page::{Aside, Page, Row, Rows};
-use console_panel::panel;
+use console_panel::surface;
 
 fn main() {
     let build = Arc::new(|| {
@@ -25,5 +25,5 @@ fn main() {
 
         vec![page]
     });
-    let Ok(()) = panel::show(build, 0, None);
+    let Ok(()) = surface::show(build, 0, None);
 }

@@ -18,10 +18,10 @@
 //! hands the buffer to the compositor, and `sheet()` is gone.
 //!
 //! **One loop, and the bus read is the only thing on a thread.** GTK draws on
-//! one thread and will not be driven from somebody else's, which is why this
+//! one thread and will not be driven from someone else's, which is why this
 //! used to be a glib main loop with the state in a `RefCell` and the reading
 //! pushed through `spawn_blocking`. With the surface ours the loop is ours, so
-//! what is left on a thread is the one thing that genuinely blocks: `heard`
+//! what is left on a thread is the one thing that genuinely blocks: `update`
 //! waits for a whole message and a poll on the socket cannot promise one has
 //! arrived. It reads, puts what it heard behind a lock, and writes a byte down
 //! a pipe the loop is already watching -- which is what glib was doing, with
@@ -40,14 +40,14 @@
 //! releasing the buffer it was handed -- which is an event, which wakes the
 //! poll, which draws again. A card standing on the screen with nothing
 //! happening to it held a whole core that way, and the one the battery leaves
-//! up held it until somebody touched the card. What was last drawn is kept and
+//! up held it until someone touched the card. What was last drawn is kept and
 //! compared: the stack, and the size and scale the compositor last said, so a
 //! configure or a scale arriving late still redraws while a card that has not
 //! moved does not.
 //!
 //! **A card is taken down by touching it.** It is the only thing on this
 //! desktop a person can reach without opening anything, and it was mako's
-//! `on-touch=dismiss` before it was ours: a card that stands over what somebody
+//! `on-touch=dismiss` before it was ours: a card that stands over what someone
 //! is doing and cannot be got rid of is worse than one that never came. The hit
 //! test is `Panel::covers` over the same stack that was drawn, so what a thumb
 //! lands on is decided by the arithmetic rather than by a second opinion about
@@ -55,7 +55,7 @@
 //!
 //! **The pipe refuses to block at both ends, which it did not.** A loop woken
 //! by either the compositor's socket or the pipe drained the pipe on every
-//! pass, so a wake that was the compositor's read a pipe nobody had written
+//! pass, so a wake that was the compositor's read a pipe no one had written
 //! to and waited there for a byte that was not coming -- a daemon that stops
 //! answering the first time two things happen in the wrong order. It is
 //! `console_waiting::woken` now, where the reason lives beside the `unsafe`
@@ -77,54 +77,48 @@
 
 use std::collections::VecDeque;
 use std::io::Write;
-use std::os::fd::{AsRawFd, OwnedFd};
+use std::os::fd::{AsFd, OwnedFd};
 use std::process::ExitCode;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use console_bus::messages::Message;
-use console_bus::talking::{Bus, Got, Hearing, Saying};
-use console_core_colour::spent::{beside, read};
+use console_bus::connection::{Bus, NameRequestResult, Receiver, Sender};
+use console_core_color::palette::WearingError;
 use console_core_geometry::{Point, Size};
 use console_core_never::Never;
-use console_draw_painting::{Font, Frame, Run, measured, onto};
+use console_draw_painting::{Frame, Lines, Run, at_most, measured, onto};
 use console_draw_surface::standing::{
-    Anchor, Gone as Closed, Keyboard, Margin, Room, Under, Wanted,
+    Anchor, Closed, Keyboard, Margin, Room, Under, Wanted,
 };
 use console_draw_surface::scale::Scale;
-use console_draw_surface::{Missing, Poke, Surface};
+use console_draw_surface::{SurfaceError, PointerEvent, Surface};
 use console_notifications::reading::written;
 use console_notifications::saying::Expiry;
 use console_notifications::serving::{
-    self, Armed, Changed, Gone, Held, Holding, Turn, Why, going,
+    self, Armed, Modified, Closed as NotificationClosed, Holding, Turn, Why, going,
 };
-use console_notifications::showing::{self, Measured, Saying as Said, Stack, Wearing};
+use console_notifications::showing::{self, Measured, CardContent, Stack, Wearing};
 
 #[derive(Debug)]
 enum Cannot {
-    Wire(console_bus::talking::Wire),
-    Taken,
-    Lost(std::io::Error),
-    NoPalette { at: std::path::PathBuf, why: std::io::Error },
-    Undressed(showing::Undressed),
+    ConnectionError(console_bus::connection::ConnectionError),
+    NameTaken,
+    Palette(WearingError),
     Pipe(std::io::Error),
-    Compositor(Missing),
+    Compositor(SurfaceError),
 }
 
 impl std::fmt::Display for Cannot {
     fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Cannot::Wire(why) => write!(to, "{why}"),
-            Cannot::Taken => write!(
+            Cannot::ConnectionError(why) => write!(to, "{why}"),
+            Cannot::NameTaken => write!(
                 to,
                 "something else holds {}, so nothing here would ever be asked",
-                serving::NOTICES
+                serving::NOTIFICATIONS
             ),
-            Cannot::Lost(why) => write!(to, "this program cannot find itself: {why}"),
-            Cannot::NoPalette { at, why } => {
-                write!(to, "no palette at {}: {why}", at.display())
-            }
-            Cannot::Undressed(why) => write!(to, "{why}"),
+            Cannot::Palette(why) => write!(to, "{why}"),
             Cannot::Pipe(why) => write!(to, "nothing to be woken down: {why}"),
             Cannot::Compositor(why) => write!(to, "{why}"),
         }
@@ -133,20 +127,20 @@ impl std::fmt::Display for Cannot {
 
 impl std::error::Error for Cannot {}
 
-impl From<console_bus::talking::Wire> for Cannot {
-    fn from(why: console_bus::talking::Wire) -> Cannot {
-        Cannot::Wire(why)
+impl From<console_bus::connection::ConnectionError> for Cannot {
+    fn from(why: console_bus::connection::ConnectionError) -> Cannot {
+        Cannot::ConnectionError(why)
     }
 }
 
-impl From<showing::Undressed> for Cannot {
-    fn from(why: showing::Undressed) -> Cannot {
-        Cannot::Undressed(why)
+impl From<WearingError> for Cannot {
+    fn from(why: WearingError) -> Cannot {
+        Cannot::Palette(why)
     }
 }
 
-impl From<Missing> for Cannot {
-    fn from(why: Missing) -> Cannot {
+impl From<SurfaceError> for Cannot {
+    fn from(why: SurfaceError) -> Cannot {
         Cannot::Compositor(why)
     }
 }
@@ -164,14 +158,14 @@ fn main() -> ExitCode {
 
 fn answering() -> Result<(), Cannot> {
     let mut bus = Bus::session()?;
-    let got = bus.taking(serving::NOTICES)?;
+    let got = bus.taking(serving::NOTIFICATIONS)?;
 
     match got {
-        Got::Ours | Got::Already => {}
-        Got::Queued | Got::Taken => return Err(Cannot::Taken),
+        NameRequestResult::PrimaryOwner | NameRequestResult::AlreadyOwner => {}
+        NameRequestResult::InQueue | NameRequestResult::Exists => return Err(Cannot::NameTaken),
     }
 
-    let wearing = dressed()?;
+    let wearing = Wearing::worn()?;
     let mut surface = Surface::connect()?;
     let Ok((hearing, saying)) = bus.apart();
     let queue = listening(hearing)?;
@@ -191,7 +185,7 @@ enum Ended {
     No,
 }
 
-fn listening(hearing: Hearing) -> Result<Queue, Cannot> {
+fn listening(hearing: Receiver) -> Result<Queue, Cannot> {
     let woken = console_waiting::woken::pipe().map_err(Cannot::Pipe)?;
     let (reading, writing) = (woken.waiting, woken.saying);
     let heard = Arc::new(Mutex::new(VecDeque::new()));
@@ -236,53 +230,41 @@ fn listening(hearing: Hearing) -> Result<Queue, Cannot> {
     Ok(Queue { heard, ended, woken: reading })
 }
 
-fn dressed() -> Result<Wearing, Cannot> {
-    let me = std::env::current_exe().map_err(Cannot::Lost)?;
-    let Ok(at) = beside(&me);
-    let held = std::fs::read_to_string(&at)
-        .map_err(|why| Cannot::NoPalette { at: at.clone(), why })?;
-    let Ok(spent) = read(&held);
-    let wearing = Wearing::out_of(&spent)?;
-
-    Ok(wearing)
-}
-
 struct Waiting {
     armed: Armed,
     until: Instant,
 }
 
 #[derive(PartialEq)]
-struct Drew {
+struct Rendered {
     stack: Stack,
     logical: Option<Size<u32>>,
     scale: Scale,
 }
 
-fn asking(surface: &Surface, stack: &Stack) -> Result<Drew, Never> {
+fn asking(surface: &Surface, stack: &Stack) -> Result<Rendered, Never> {
     let Ok(logical) = surface.logical();
     let Ok(scale) = surface.scale();
 
-    Ok(Drew { stack: stack.clone(), logical, scale })
+    Ok(Rendered { stack: stack.clone(), logical, scale })
 }
 
 fn standing(
     surface: &mut Surface,
     queue: &Queue,
-    saying: &Saying,
+    saying: &Sender,
     wearing: &Wearing,
 ) -> Result<(), Cannot> {
     let mut holding = Holding::default();
     let mut waiting: Vec<Waiting> = Vec::new();
-    let woken = queue.woken.as_raw_fd();
-    let Ok(font) = showing::font();
-    let mut drew: Option<Drew> = None;
+    let woken = queue.woken.as_fd();
+    let mut drew: Option<Rendered> = None;
 
     loop {
         let Ok(()) = drained(queue, &mut holding, saying, &mut waiting);
         let Ok(()) = ran_out(&mut holding, saying, &mut waiting);
 
-        let Ok(stack) = shown(&holding, wearing, &font);
+        let Ok(stack) = shown(&holding, wearing);
         let Ok(wanted) = asking(surface, &stack);
 
         match drew.as_ref() == Some(&wanted) {
@@ -328,7 +310,7 @@ fn ending(queue: &Queue) -> Result<Ended, Never> {
 fn drained(
     queue: &Queue,
     holding: &mut Holding,
-    saying: &Saying,
+    saying: &Sender,
     waiting: &mut Vec<Waiting>,
 ) -> Result<(), Never> {
     let Ok(()) = console_waiting::woken::drained(&queue.woken);
@@ -346,17 +328,17 @@ fn drained(
         let Ok(()) = turned(&turn, saying, waiting);
 
         match turn.changed {
-            Changed::Yes => {
+            Modified::Yes => {
                 let Ok(()) = kept(holding);
             }
-            Changed::No => {}
+            Modified::No => {}
         }
     }
 }
 
-fn turned(turn: &Turn, saying: &Saying, waiting: &mut Vec<Waiting>) -> Result<(), Never> {
-    for gone in &turn.gone {
-        let _ = saying.say(gone);
+fn turned(turn: &Turn, saying: &Sender, waiting: &mut Vec<Waiting>) -> Result<(), Never> {
+    for closed in &turn.closed {
+        let _ = saying.say(closed);
     }
 
     match &turn.say {
@@ -408,7 +390,7 @@ fn soonest(waiting: &[Waiting]) -> Result<Option<Duration>, Never> {
 
 fn ran_out(
     holding: &mut Holding,
-    saying: &Saying,
+    saying: &Sender,
     waiting: &mut Vec<Waiting>,
 ) -> Result<(), Never> {
     let now = Instant::now();
@@ -425,15 +407,15 @@ fn ran_out(
     *waiting = still;
 
     for armed in over {
-        let Ok(gone) = holding.ran_out(&armed);
+        let Ok(ran_out) = holding.ran_out(&armed);
 
-        match gone {
-            Gone::No => {}
-            Gone::Yes => {
+        match ran_out {
+            NotificationClosed::No => {}
+            NotificationClosed::Yes => {
                 let Ok(said) = going(&[armed.id], Why::RanOut);
 
-                for gone in &said {
-                    let _ = saying.say(gone);
+                for closed in &said {
+                    let _ = saying.say(closed);
                 }
 
                 let Ok(()) = kept(holding);
@@ -444,25 +426,57 @@ fn ran_out(
     Ok(())
 }
 
-fn shown(holding: &Holding, wearing: &Wearing, font: &Font) -> Result<Stack, Never> {
+const SUMMARY_LINES: Lines = Lines(2);
+
+const BODY_LINES: Lines = Lines(2);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Clipped {
+    summary: String,
+    body: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Text<'a> {
+    summary: &'a str,
+    body: &'a str,
+}
+
+fn clipped(words: Text<'_>) -> Result<Clipped, Never> {
+    let Text { summary, body } = words;
+    let Ok(summary_font) = showing::SUMMARY.font();
+    let Ok(summary_weight) = showing::SUMMARY.weight();
+    let Ok(body_font) = showing::BODY.font();
+    let Ok(body_weight) = showing::BODY.weight();
+    let Ok(inner) = showing::x();
+    let Ok(inner) = console_core_number_conversion::fitted::<i32, u32>(inner);
+    let Ok(summary) = at_most(Run { said: summary, weight: summary_weight, width: inner }, &summary_font, SUMMARY_LINES);
+    let Ok(body) = at_most(Run { said: body, weight: body_weight, width: inner }, &body_font, BODY_LINES);
+
+    Ok(Clipped { summary, body })
+}
+
+fn shown(holding: &Holding, wearing: &Wearing) -> Result<Stack, Never> {
     let Ok(showing) = holding.showing();
+    let Ok(most) = console_core_number_conversion::index(showing::MOST);
     let mut said = Vec::new();
 
-    for held in showing.iter().take(showing::MOST) {
-        let Ok(one) = sized(held, font);
+    for held in showing.iter().take(most) {
+        let Ok(words) = clipped(Text { summary: &held.notification.summary, body: &held.notification.body });
+        let Ok(measure) = sized(&words);
 
-        said.push(one);
+        said.push((words, measure));
     }
 
     let mut cards = Vec::new();
 
-    for (held, measure) in showing.iter().take(showing::MOST).zip(&said) {
+    for (held, (words, measure)) in showing.iter().take(most).zip(&said) {
         cards.push((
-            Said {
-                id: held.notice.id,
-                summary: &held.notice.summary,
-                body: &held.notice.body,
-                urgency: held.notice.urgency,
+            CardContent {
+                id: held.notification.id,
+                summary: &words.summary,
+                body: &words.body,
+                urgency: held.notification.urgency,
                 value: held.value,
             },
             *measure,
@@ -474,24 +488,19 @@ fn shown(holding: &Holding, wearing: &Wearing, font: &Font) -> Result<Stack, Nev
     Ok(stack)
 }
 
-fn sized(held: &Held, font: &Font) -> Result<Measured, Never> {
-    let Ok(inner) = showing::across();
+fn sized(words: &Clipped) -> Result<Measured, Never> {
+    let Ok(summary_font) = showing::SUMMARY.font();
+    let Ok(summary_weight) = showing::SUMMARY.weight();
+    let Ok(body_font) = showing::BODY.font();
+    let Ok(body_weight) = showing::BODY.weight();
+    let Ok(inner) = showing::x();
     let Ok(inner) = console_core_number_conversion::fitted::<i32, u32>(inner);
-    let Ok(summary) = measured(
-        Run { said: &held.notice.summary, weight: console_core_shapes::Weight::Bold, wide: inner },
-        font,
-    );
-    let body = match held.notice.body.is_empty() {
+    let Ok(summary) = measured(Run { said: &words.summary, weight: summary_weight, width: inner }, &summary_font);
+
+    let body = match words.body.is_empty() {
         true => None,
         false => {
-            let Ok(body) = measured(
-                Run {
-                    said: &held.notice.body,
-                    weight: console_core_shapes::Weight::Plain,
-                    wide: inner,
-                },
-                font,
-            );
+            let Ok(body) = measured(Run { said: &words.body, weight: body_weight, width: inner }, &body_font);
 
             Some(body)
         }
@@ -517,7 +526,7 @@ fn drawn(surface: &mut Surface, stack: &Stack) -> Result<(), Cannot> {
         margin: Margin { top: showing::DOWN, right: showing::IN, bottom: 0, left: 0 },
         keyboard: Keyboard::Declines,
         room: Room::Over,
-        under: Under::Nothing,
+        under: Under::None,
     })?;
     let Ok(()) = surface.resize(stack.room);
 
@@ -540,18 +549,18 @@ fn touched(
     surface: &mut Surface,
     stack: &Stack,
     holding: &mut Holding,
-    saying: &Saying,
+    saying: &Sender,
 ) -> Result<(), Never> {
-    let Ok(pokes) = surface.pokes();
+    let Ok(pointer_events) = surface.pointer_events();
 
-    for poke in pokes {
-        let at = match poke {
-            Poke::Up | Poke::Moved { .. } => continue,
-            Poke::Down { at } => at,
+    for event in pointer_events {
+        let at = match event {
+            PointerEvent::Up | PointerEvent::Left | PointerEvent::Moved { .. } | PointerEvent::Scrolled { .. } | PointerEvent::Pinched { .. } => continue,
+            PointerEvent::Down { at } => at,
         };
         let Ok(across) = console_core_number_conversion::toward_zero_i32(at.0);
         let Ok(down) = console_core_number_conversion::toward_zero_i32(at.1);
-        let Ok(on) = stack.on(Point { across, down });
+        let Ok(on) = stack.on(Point { x: across, y: down });
 
         match on {
             Some(id) => {
@@ -564,12 +573,12 @@ fn touched(
     Ok(())
 }
 
-fn dismissed(id: u32, holding: &mut Holding, saying: &Saying) -> Result<(), Never> {
-    let Ok(gone) = holding.closed(id);
+fn dismissed(id: u32, holding: &mut Holding, saying: &Sender) -> Result<(), Never> {
+    let Ok(closed) = holding.closed(id);
 
-    match gone {
-        Gone::No => Ok(()),
-        Gone::Yes => {
+    match closed {
+        NotificationClosed::No => Ok(()),
+        NotificationClosed::Yes => {
             let Ok(said) = going(&[id], Why::Dismissed);
 
             for going in &said {
@@ -607,5 +616,41 @@ fn kept(holding: &Holding) -> Result<(), Never> {
 
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SCREEN_TALL: u32 = 480;
+
+    fn stacked(summary: &str, body: &str) -> u32 {
+        let Ok(words) = clipped(Text { summary, body });
+        let Ok(measure) = sized(&words);
+        let Ok(tall) = showing::height(&measure, None);
+        let gaps = u32::try_from(showing::BETWEEN * 2 + showing::DOWN).unwrap();
+
+        tall * showing::MOST + gaps
+    }
+
+    #[test]
+    fn three_cards_of_a_very_long_notification_still_fit_on_the_screen() {
+        let words = "Meditations of the Emperor ".repeat(400);
+        let unbroken = "x".repeat(8000);
+
+        assert!(stacked(&words, &words) <= SCREEN_TALL, "{} is past the foot of the screen", stacked(&words, &words));
+        assert!(stacked(&unbroken, &unbroken) <= SCREEN_TALL, "a word with no space in it is cut the same");
+    }
+
+    #[test]
+    fn a_long_notification_says_it_was_cut_and_a_short_one_is_left_alone() {
+        let many = "word ".repeat(2000);
+        let Ok(long) = clipped(Text { summary: &many, body: &many });
+        let Ok(short) = clipped(Text { summary: "Meditations", body: "is in Books" });
+
+        assert!(long.summary.ends_with(console_draw_painting::CUT));
+        assert!(long.body.ends_with(console_draw_painting::CUT));
+        assert_eq!(short, Clipped { summary: "Meditations".to_string(), body: "is in Books".to_string() });
     }
 }

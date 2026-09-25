@@ -32,10 +32,10 @@ pub enum Kind {
 }
 
 pub fn of(mime: &str) -> Result<Option<Kind>, Never> {
-    Ok(match () {
-        () if mime.starts_with("image/") => Some(Kind::Picture),
-        () if mime.starts_with("video/") => Some(Kind::Film),
-        () => None,
+    Ok(match (mime.starts_with("image/"), mime.starts_with("video/")) {
+        (true, true) | (true, false) => Some(Kind::Picture),
+        (false, true) => Some(Kind::Film),
+        (false, false) => None,
     })
 }
 

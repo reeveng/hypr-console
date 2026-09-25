@@ -13,10 +13,10 @@
 //! quantities want distinct types. The narrow version is the honest one and it
 //! is decidable off a signature -- no two parameters the compiler would accept
 //! in either order. That is the moment a coincidence of representation stops
-//! being a smell and becomes a fault waiting for somebody to write the call.
+//! being a smell and becomes a fault waiting for someone to write the call.
 //!
 //! Where it stops is bare representations: the integers, the floats, `char`,
-//! `str` and `String`. A repeated named type is a pair somebody has already
+//! `str` and `String`. A repeated named type is a pair someone has already
 //! decided about -- `fn between(from: Pixels, to: Pixels)` is two of one
 //! quantity rather than two quantities, and the answer there is a range if it
 //! is anything, not a third type. `bool` stays with EXPLICIT008, which owns it.
@@ -30,10 +30,10 @@
 //!
 //! Written the way EXPLICIT007 and EXPLICIT008 are, and skipping what they
 //! skip. A closure has no call site to protect. A method that implements
-//! somebody else's trait did not choose its own signature, and the place the
-//! choice was made is the trait. A receiver is not a parameter anybody passes.
+//! someone else's trait did not choose its own signature, and the place the
+//! choice was made is the trait. A receiver is not a parameter anyone passes.
 //! The span goes on the parameter that repeats rather than on the pair,
-//! because that is the one somebody is going to give a name to.
+//! because that is the one someone is going to give a name to.
 //!
 //! It arrived with the tree breaking it in more places than any rule since 019,
 //! and it stood in the warned tier while the pairs were named a crate at a
@@ -45,10 +45,10 @@
 //!
 //! What the rest wanted was one of three answers, and which one is a reading
 //! rather than a rule. A struct with named fields where the two values are one
-//! thing with two parts -- a summary and a body are a notice, an old name and a
+//! thing with two parts -- a summary and a body are a notification, an old name and a
 //! new one are a renaming, a heading and a key are where a line is. A one-word
 //! type where they are two roles of one kind of thing, which is what `Ink` and
-//! `Ground` had already been doing for a colour. And where neither fitted, the
+//! `Ground` had already been doing for a color. And where neither fitted, the
 //! reading was that one of the two had been the wrong type all along: a
 //! notification's timeout was a `&str` holding a number of milliseconds, and
 //! the fix was the number rather than a wrapper around the string.
@@ -96,7 +96,7 @@ fn implements_a_trait(cx: &LateContext<'_>, def_id: LocalDefId) -> bool {
 }
 
 // The representations that carry no meaning of their own. A named type is a
-// decision somebody already made; `bool` belongs to EXPLICIT008; and anything
+// decision someone already made; `bool` belongs to EXPLICIT008; and anything
 // with a lifetime or a generic in it is not a coincidence of representation.
 fn is_bare_representation<'tcx>(cx: &LateContext<'tcx>, ty: Ty<'tcx>) -> bool {
     match ty.kind() {
@@ -144,7 +144,7 @@ impl<'tcx> LateLintPass<'tcx> for Explicit024NoSwappableParams {
 
         let signature = cx.tcx.fn_sig(def_id).instantiate_identity().skip_binder();
 
-        // A receiver is not a parameter anybody passes, so it cannot be passed
+        // A receiver is not a parameter anyone passes, so it cannot be passed
         // in the wrong order either.
         let first = match decl.implicit_self() {
             ImplicitSelfKind::None => 0,

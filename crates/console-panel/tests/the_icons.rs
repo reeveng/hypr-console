@@ -1,7 +1,7 @@
 //! Nothing in the tree spells an icon name.
 //!
 //! `console_panel::icons::Icon` is where they come from, and the two ways a
-//! row or a button gets one -- `Picture::Named` and `Press::new` -- take the
+//! row or a button gets one -- `Picture::Named` and `ButtonPress::new` -- take the
 //! enum rather than a string, so the compiler does most of this. What it
 //! cannot reach is a GTK call made directly: `set_icon_name` and
 //! `from_icon_name` both take a `&str`, and a name handed to either is a name
@@ -16,6 +16,7 @@
 use std::path::{Path, PathBuf};
 
 use console_panel::icons::EVERY;
+use console_repository::sources::{Spelled, Word, of_every_crate, spells};
 
 fn root() -> PathBuf {
     let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -23,34 +24,10 @@ fn root() -> PathBuf {
 }
 
 fn sources() -> Vec<PathBuf> {
-    fn walk(at: &Path, into: &mut Vec<PathBuf>) {
-        let entries = match std::fs::read_dir(at) {
-            Ok(entries) => entries,
-            Err(_fault) => return,
-        };
-        for path in entries.flatten().map(|entry| entry.path()) {
-            match path {
-                path if path.is_dir() => walk(&path, into),
-                path if path.extension().is_some_and(|end| end == "rs") => into.push(path),
-                _ => {}
-            }
-        }
-    }
-    let ourself = root().join(file!());
-    let declaring = root().join("crates/console-panel/src/icons.rs");
-    let mut found = Vec::new();
-    let crates = match std::fs::read_dir(root().join("crates")) {
-        Ok(crates) => crates,
-        Err(_fault) => return found,
-    };
-    for crate_ in crates.flatten().map(|entry| entry.path()) {
-        for held in ["src", "tests", "examples"] {
-            walk(&crate_.join(held), &mut found);
-        }
-    }
-    found.retain(|at| at != &ourself && at != &declaring);
-    found.sort();
-    found
+    let (ourself, declaring) = (root().join(file!()), root().join("crates/console-panel/src/icons.rs"));
+    let Ok(every) = of_every_crate(&root(), &[&ourself, &declaring]);
+
+    every
 }
 
 #[test]
@@ -65,9 +42,7 @@ fn nothing_hands_gtk_an_icon_name_it_spelled_itself() {
         };
 
         for door in &doors {
-            for (found, _) in said.match_indices(door.as_str()) {
-                let from = found.saturating_add(door.len());
-                let rest = said.get(from..).unwrap_or_default();
+            for rest in said.split(door.as_str()).skip(1) {
                 let spelled = rest.trim_start().starts_with('"')
                     || rest.trim_start().starts_with("Some(\"");
 
@@ -85,14 +60,6 @@ fn nothing_hands_gtk_an_icon_name_it_spelled_itself() {
     );
 }
 
-fn said_exactly(said: &str, what: &str) -> bool {
-    said.match_indices(what).any(|(at, _)| {
-        said.get(at.saturating_add(what.len())..)
-            .and_then(|rest| rest.chars().next())
-            .is_none_or(|letter| !letter.is_alphanumeric() && letter != '_')
-    })
-}
-
 #[test]
 fn nothing_named_here_has_stopped_being_drawn() {
     let said: String = sources()
@@ -102,7 +69,7 @@ fn nothing_named_here_has_stopped_being_drawn() {
         .join("\n");
     let gone: Vec<&str> = EVERY
         .iter()
-        .filter(|icon| !said_exactly(&said, &format!("Icon::{icon:?}")))
+        .filter(|icon| spells(&said, Word(&format!("Icon::{icon:?}"))) == Ok(Spelled::No))
         .map(|icon| {
             let Ok(name) = icon.name();
 

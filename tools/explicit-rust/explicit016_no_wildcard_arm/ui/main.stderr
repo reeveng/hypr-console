@@ -4,7 +4,7 @@ error: this arm matches every variant of the enum without naming one
 LL |         _ => 0,
    |         ^
    |
-   = help: name every variant, so a variant added later is a compile error here rather than a silent vote
+   = help: name every variant, so a variant added later is a compile error here rather than a silent vote -- and over somebody else's open enum, ask the question instead: `match value == Wanted { true => …, false => … }`
    = note: `#[deny(explicit016_no_wildcard_arm)]` on by default
 
 error: this arm matches every variant of the enum without naming one
@@ -13,7 +13,15 @@ error: this arm matches every variant of the enum without naming one
 LL |         other => drop_it(other),
    |         ^^^^^
    |
-   = help: name every variant, so a variant added later is a compile error here rather than a silent vote
+   = help: name every variant, so a variant added later is a compile error here rather than a silent vote -- and over somebody else's open enum, ask the question instead: `match value == Wanted { true => …, false => … }`
 
-error: aborting due to 2 previous errors
+error: this arm matches every variant of the enum without naming one
+  --> $DIR/main.rs:46:9
+   |
+LL |         _ => 0,
+   |         ^
+   |
+   = help: name every variant, so a variant added later is a compile error here rather than a silent vote -- and over somebody else's open enum, ask the question instead: `match value == Wanted { true => …, false => … }`
+
+error: aborting due to 3 previous errors
 

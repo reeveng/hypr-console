@@ -1,7 +1,7 @@
 //! What this machine is called.
 //!
 //! The one setting on this panel that is typed rather than chosen, because
-//! nobody can offer a list of names a person might give their own device. So
+//! no one can offer a list of names a person might give their own device. So
 //! it goes through the same one-shot question the Wi-Fi password does: the
 //! keyboard comes up, a word comes back, and the row says what it is now.
 //!
@@ -13,7 +13,7 @@
 
 use console_core_never::Never;
 
-pub const LONGEST: usize = 63;
+pub const LONGEST: u32 = 63;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Allowed {
@@ -28,7 +28,8 @@ pub fn read(said: &str) -> Result<String, Never> {
 pub fn allowed(name: &str) -> Result<Allowed, Never> {
     let letters = name.chars().all(|letter| letter.is_ascii_alphanumeric() || letter == '-');
     let ends = name.starts_with('-') || name.ends_with('-');
-    let room = (1..=LONGEST).contains(&name.chars().count());
+    let Ok(written) = console_core_number_conversion::fitted::<_, u32>(name.chars().count());
+    let room = (1..=LONGEST).contains(&written);
 
     Ok(match letters && room && !ends {
         true => Allowed::Yes,
@@ -74,8 +75,8 @@ mod tests {
 
     #[test]
     fn a_name_longer_than_a_label_is_refused_here_rather_than_cut_there() {
-        assert_eq!(allowed(&"a".repeat(LONGEST)), Allowed::Yes);
-        assert_eq!(allowed(&"a".repeat(LONGEST.saturating_add(1))), Allowed::No);
+        assert_eq!(allowed(&"a".repeat(LONGEST.try_into().unwrap())), Allowed::Yes);
+        assert_eq!(allowed(&"a".repeat((LONGEST + 1).try_into().unwrap())), Allowed::No);
     }
 
     #[test]

@@ -1,76 +1,79 @@
-//! Words in, doings out, written down.
+//! Events in, effects out, written down.
 //!
 //! This is what makes the contract worth having. A trait with no way to press
-//! it is a shape: what settles a program is a list of the words it was told
+//! it is a shape: what settles a program is a list of the events it was told
 //! and a list of what it decided, held side by side, going red the moment the
 //! program changes its mind about either.
 //!
-//! It keeps the doings *per word* rather than in one heap. A heap says that
-//! somewhere in nine words the daemon ran the menu; a transcript says it ran
+//! It keeps the effects *per event* rather than in one heap. A heap says that
+//! somewhere in nine events the daemon ran the menu; a transcript says it ran
 //! the menu on the release and not on the press, which is the half of the
 //! button contract that was wrong for a year.
 
 use console_core_never::Never;
+use console_core_number_conversion::index;
 
-use crate::argv::Argv;
-use crate::doing::Doing;
-use crate::program::{Opening, Program, Turn};
-use crate::wants::Wants;
-use crate::word::Word;
+use crate::arguments::Arguments;
+use crate::effect::Effect;
+use crate::program::{Initial, Program, Update};
+use crate::subscription::Subscription;
+use crate::event::Event;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Turned<Hears, Does> {
-    pub word: Word<Hears>,
-    pub doings: Vec<Doing<Does>>,
+pub struct Step<E, F> {
+    pub event: Event<E>,
+    pub effects: Vec<Effect<F>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Said<State, Hears, Does> {
-    pub now: State,
-    pub wants: Vec<Wants>,
-    pub turns: Vec<Turned<Hears, Does>>,
+pub struct Trace<State, E, F> {
+    pub state: State,
+    pub subscriptions: Vec<Subscription>,
+    pub steps: Vec<Step<E, F>>,
 }
 
-impl<State, Hears, Does> Said<State, Hears, Does>
+impl<State, E, F> Trace<State, E, F>
 where
-    Does: Clone,
+    F: Clone,
 {
-    pub fn doings(&self) -> Result<Vec<Doing<Does>>, Never> {
-        Ok(self.turns.iter().flat_map(|turned| turned.doings.iter().cloned()).collect())
+    pub fn effects(&self) -> Result<Vec<Effect<F>>, Never> {
+        Ok(self.steps.iter().flat_map(|step| step.effects.iter().cloned()).collect())
     }
 
-    pub fn on(&self, turn: usize) -> Result<Option<&[Doing<Does>]>, Never> {
-        Ok(self.turns.get(turn).map(|turned| turned.doings.as_slice()))
+    pub fn on(&self, step: u32) -> Result<Option<&[Effect<F>]>, Never> {
+        let Ok(step) = index(step);
+
+        Ok(self.steps.get(step).map(|step| step.effects.as_slice()))
     }
 }
 
 pub type Transcript<P> =
-    Result<Said<<P as Program>::State, <P as Program>::Hears, <P as Program>::Does>, Never>;
+    Result<Trace<<P as Program>::State, <P as Program>::Event, <P as Program>::Effect>, Never>;
 
-pub fn walk<P: Program>(from: &P::State, words: &[Word<P::Hears>]) -> Transcript<P> {
-    said::<P>(from.clone(), Vec::new(), words)
+pub fn run_from<P: Program>(from: &P::State, events: &[Event<P::Event>]) -> Transcript<P> {
+    trace::<P>(from.clone(), Vec::new(), events)
 }
 
-pub fn told<P: Program>(argv: &Argv, words: &[Word<P::Hears>]) -> Transcript<P> {
-    let Opening { state, wants } = P::opening(argv);
+pub fn run<P: Program>(arguments: &Arguments, events: &[Event<P::Event>]) -> Transcript<P> {
+    let Initial { state, subscriptions } = P::init(arguments);
 
-    said::<P>(state, wants, words)
+    trace::<P>(state, subscriptions, events)
 }
 
-fn said<P: Program>(
+fn trace<P: Program>(
     from: P::State,
-    wants: Vec<Wants>,
-    words: &[Word<P::Hears>],
+    subscriptions: Vec<Subscription>,
+    events: &[Event<P::Event>],
 ) -> Transcript<P> {
     let mut state = from;
-    let mut turns: Vec<Turned<P::Hears, P::Does>> = Vec::new();
+    let mut steps: Vec<Step<P::Event, P::Effect>> = Vec::new();
 
-    for word in words {
-        let Turn { now, doings } = P::heard(&state, word);
+    for event in events {
+        let Update { state: next, effects } = P::update(&state, event);
 
-        state = now;
-        turns.push(Turned { word: word.clone(), doings });
+        state = next;
+        steps.push(Step { event: event.clone(), effects });
     }
 
-    Ok(Said { now: state, wants, turns })
+    Ok(Trace { state, subscriptions, steps })
 }

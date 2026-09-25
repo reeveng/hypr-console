@@ -6,27 +6,28 @@
 //! in the other language.
 
 
+use console_core_fonts::EM;
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
 use std::ops::Range;
 
-pub const GAP: i32 = 4;
-pub const MARGIN: i32 = 14;
-pub const PAD: i32 = 6;
+pub const GAP: i32 = EM * 2 / 9;
+pub const MARGIN: i32 = EM * 7 / 9;
+pub const PAD: i32 = EM / 3;
 
-pub const PICTURE: i32 = 32;
+pub const PICTURE: i32 = EM * 16 / 9;
 
-pub const SLEEVE: i32 = 176;
+pub const SLEEVE: i32 = EM * 88 / 9;
 
-pub const ANSWER: i32 = 150;
+pub const ANSWER: i32 = EM * 25 / 3;
 
-pub const PRESSED: i32 = 30;
+pub const PRESSED: i32 = EM * 5 / 3;
 
-pub const EDGE: i32 = 3;
+pub const EDGE: i32 = EM / 6;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Card {
-    pub wide: i32,
+    pub width: i32,
     pub spent: i32,
 }
 
@@ -35,22 +36,22 @@ pub struct Cell(pub i32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Tabs {
-    pub many: usize,
-    pub here: usize,
-    pub from: usize,
-    pub fits: usize,
+    pub many: u32,
+    pub here: u32,
+    pub from: u32,
+    pub fits: u32,
 }
 
 pub fn room(card: Card) -> Result<i32, Never> {
     Ok(card
-        .wide
+        .width
         .saturating_sub(2i32.saturating_mul(EDGE))
         .saturating_sub(2i32.saturating_mul(MARGIN))
         .saturating_sub(2i32.saturating_mul(PAD))
         .saturating_sub(card.spent))
 }
 
-pub fn fits(room: i32, cell: Cell) -> Result<usize, Never> {
+pub fn fits(room: i32, cell: Cell) -> Result<u32, Never> {
     let each = cell.0.saturating_add(GAP);
 
     let Ok(many) = fitted(room.saturating_add(GAP).saturating_div(each).max(1));
@@ -61,7 +62,7 @@ pub fn fits(room: i32, cell: Cell) -> Result<usize, Never> {
     })
 }
 
-pub fn showing(tabs: Tabs) -> Result<Range<usize>, Never> {
+pub fn showing(tabs: Tabs) -> Result<Range<u32>, Never> {
     match tabs.fits >= tabs.many {
         true => return Ok(0..tabs.many),
         false => {},
@@ -76,25 +77,27 @@ pub fn showing(tabs: Tabs) -> Result<Range<usize>, Never> {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Stop {
-    Tab(usize),
-    Out,
+    Tab(u32),
+    Outside,
 }
 
-pub fn along(tabs: usize, from: Stop, step: i32) -> Result<Stop, Never> {
-    let Ok(out) = fitted::<usize, i32>(tabs);
+pub fn along(tabs: u32, from: Stop, step: i32) -> Result<Stop, Never> {
+    let Ok(out) = fitted::<u32, i32>(tabs);
 
     let at = match from {
         Stop::Tab(index) => {
-            let Ok(index) = fitted::<usize, i32>(index);
+            let Ok(index) = fitted::<u32, i32>(index);
 
             index.min(out)
         }
-        Stop::Out => out,
+        Stop::Outside => out,
     };
 
-    Ok(match at.saturating_add(step).clamp(0, out) {
-        going if going == out => Stop::Out,
-        going => {
+    let going = at.saturating_add(step).clamp(0, out);
+
+    Ok(match going == out {
+        true => Stop::Outside,
+        false => {
             let Ok(going) = fitted(going);
 
             Stop::Tab(going)
@@ -137,7 +140,7 @@ mod tests {
     #[test]
     fn the_room_is_the_card_less_everything_that_is_not_a_tab() {
         assert_eq!(
-            room(Card { wide: 900, spent: 120 }),
+            room(Card { width: 900, spent: 120 }),
             Ok(900 - 2 * EDGE - 2 * MARGIN - 2 * PAD - 120)
         );
     }
@@ -145,19 +148,19 @@ mod tests {
     #[test]
     fn a_shoulder_walks_the_tabs_and_then_the_way_out() {
         assert_eq!(along(3, Stop::Tab(0), 1), Ok(Stop::Tab(1)));
-        assert_eq!(along(3, Stop::Tab(2), 1), Ok(Stop::Out));
-        assert_eq!(along(3, Stop::Out, -1), Ok(Stop::Tab(2)));
+        assert_eq!(along(3, Stop::Tab(2), 1), Ok(Stop::Outside));
+        assert_eq!(along(3, Stop::Outside, -1), Ok(Stop::Tab(2)));
     }
 
     #[test]
     fn the_walk_stops_at_both_ends() {
         assert_eq!(along(3, Stop::Tab(0), -1), Ok(Stop::Tab(0)));
-        assert_eq!(along(3, Stop::Out, 1), Ok(Stop::Out));
+        assert_eq!(along(3, Stop::Outside, 1), Ok(Stop::Outside));
     }
 
     #[test]
     fn the_way_out_is_there_on_a_panel_with_one_tab() {
-        assert_eq!(along(1, Stop::Tab(0), 1), Ok(Stop::Out));
-        assert_eq!(along(1, Stop::Out, -1), Ok(Stop::Tab(0)));
+        assert_eq!(along(1, Stop::Tab(0), 1), Ok(Stop::Outside));
+        assert_eq!(along(1, Stop::Outside, -1), Ok(Stop::Tab(0)));
     }
 }

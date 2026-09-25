@@ -101,34 +101,34 @@ done
 [ -x "$(command -v console-events)" ] && console-events &
 [ -x "$(command -v console-bar)" ] && console-bar &
 # The ground, which is what the device shows before console-wallpaper has chosen a
-# picture and all this stage ever shows, because it presses none. The colour is
+# picture and all this stage ever shows, because it presses none. The color is
 # sourced rather than written here: palette.sh exists to be read by shells, and
-# a hex typed into this string would be a colour nothing checks.
+# a hex typed into this string would be a color nothing checks.
 #
 # A desktop opened by hand starts none of it. The daemon cannot outlive the
 # compositor it drew on and it does not end when that one goes: it panics on
 # the socket that closed under it, which is a core file and a crash
-# notification for every window somebody shut. The sessions console-desktop
+# notification for every window someone shut. The sessions console-desktop
 # ends itself tell the daemon to go first, and this is the one the compositor's
 # own exit ends, where there is no moment left to say it in -- a shutdown
 # handler in the config was tried, and it runs after the clients are already
 # gone. What Hyprland fills the screen with instead is the device's own night,
-# which is the colour this would have painted.
+# which is the color this would have painted.
 @ground@
 # The keyboard, started the way the device's unit starts it, because this is
 # that unit's own ExecStart with its paths pointed into the stage. The path
-# matters as much as the flags do: `console_input_keyboard::asked` finds the keyboard beside
+# matters as much as the flags do: `console_input_keyboard::remote` finds the keyboard beside
 # itself and signals that command line, so a keyboard started as a bare name is
 # a keyboard nothing can raise. It reads palette.sh out of this same tree on the
 # way in and dresses its own command line, so a keyboard on this screen is the
-# keyboard the device has, in the colours this repository currently spends.
+# keyboard the device has, in the colors this repository currently spends.
 keyboard="@keyboard@"
 [ -x "${keyboard%% *}" ] && $keyboard &
 exit 0
 "#;
 
 fn monitor(output: &str, mode: Size<u32>, screen: &Screen, scale: f64) -> Result<String, Never> {
-    let Size { wide, tall } = mode;
+    let Size { width: wide, height: tall } = mode;
 
     Ok(format!(
         "hl.monitor({{\n    \
@@ -143,59 +143,59 @@ fn monitor(output: &str, mode: Size<u32>, screen: &Screen, scale: f64) -> Result
 }
 
 pub fn in_a_window(screen: &Screen, scale: f64) -> Result<String, Never> {
-    let (wide, tall) = (screen.mode.wide, screen.mode.tall);
+    let (wide, tall) = (screen.mode.width, screen.mode.height);
     let shown = |size: u32| {
         let Ok(shown) = whole_u32(f64::from(size) * scale / screen.scale);
 
         shown
     };
 
-    monitor("WAYLAND-1", Size { wide: shown(wide), tall: shown(tall) }, screen, scale)
+    monitor("WAYLAND-1", Size { width: shown(wide), height: shown(tall) }, screen, scale)
 }
 
 pub fn headless(screen: &Screen) -> Result<String, Never> {
-    let (wide, tall) = (screen.mode.wide, screen.mode.tall);
-    let mode = Size { wide, tall };
+    let (wide, tall) = (screen.mode.width, screen.mode.height);
+    let mode = Size { width: wide, height: tall };
     let Ok(first) = monitor("HEADLESS-1", mode, screen, screen.scale);
     let Ok(second) = monitor("HEADLESS-2", mode, screen, screen.scale);
-    let Ok(window) = monitor("WAYLAND-1", Size { wide: 320, tall: 200 }, screen, 1.0);
+    let Ok(window) = monitor("WAYLAND-1", Size { width: 320, height: 200 }, screen, 1.0);
 
     Ok(format!("{first}\n{second}\n{window}"))
 }
 
 pub fn made_headless(screen: &Screen) -> Result<String, Never> {
-    let (wide, tall) = (screen.mode.wide, screen.mode.tall);
+    let (wide, tall) = (screen.mode.width, screen.mode.height);
     Ok(format!(
         r#"hl.monitor({{ output = "HEADLESS-1", mode = "{wide}x{tall}@{}", position = "auto", scale = {}, transform = {} }})"#,
         screen.refresh, screen.scale, screen.transform
     ))
 }
 
-const THE_COLOUR_NOTHING_IS: &str = "\
--- On the device the bare background is the darkest colour in the palette, so
+const THE_COLOR_NOTHING_IS: &str = "\
+-- On the device the bare background is the darkest color in the palette, so
 -- that a wallpaper arriving a second after the compositor does not announce
--- itself with a flash of something else. Here that is the one colour it must
--- not be: the wallpaper rests at that same colour, so a screen nothing painted
+-- itself with a flash of something else. Here that is the one color it must
+-- not be: the wallpaper rests at that same color, so a screen nothing painted
 -- and a screen the wallpaper painted would read alike, and a check comparing them
 -- would pass with no wallpaper at all. Nothing is ever this.
 hl.config({ misc = { background_color = \"rgb(ff00ff)\" } })";
 
 const THE_DEVICES_OWN: &str = "\
 -- The ground is left the device's own, because this session starts no
--- wallpaper daemon to paint over it and nobody here has to tell a screen the
+-- wallpaper daemon to paint over it and no one here has to tell a screen the
 -- wallpaper painted from a screen nothing did.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Said<'a> {
+pub struct Names<'a> {
     pub screen: &'a str,
     pub device: &'a str,
 }
 
-pub fn config(said: Said<'_>, wallpaper: Wallpaper) -> Result<String, Never> {
-    let Said { screen: screen_said, device: device_config } = said;
+pub fn config(said: Names<'_>, wallpaper: Wallpaper) -> Result<String, Never> {
+    let Names { screen: screen_said, device: device_config } = said;
 
     let ground = match wallpaper {
-        Wallpaper::Started => THE_COLOUR_NOTHING_IS,
+        Wallpaper::Started => THE_COLOR_NOTHING_IS,
         Wallpaper::LeftOut => THE_DEVICES_OWN,
     };
 
@@ -230,7 +230,7 @@ mod tests {
 
     fn go() -> Screen {
         Screen {
-            mode: console_core_geometry::Size { wide: 2560, tall: 1600 },
+            mode: console_core_geometry::Size { width: 2560, height: 1600 },
             refresh: 144,
             scale: 2.5,
             transform: 1,
@@ -254,14 +254,14 @@ mod tests {
     #[test]
     fn the_nested_config_reads_the_devices_own() {
         let said = config(
-            Said { screen: "-- a screen", device: "/somewhere/hyprland.lua" },
+            Names { screen: "-- a screen", device: "/somewhere/hyprland.lua" },
             Wallpaper::Started,
         )
         .expect("the config");
         assert!(said.contains(r#"dofile("/somewhere/hyprland.lua")"#));
         assert!(
             said.contains("rgb(ff00ff)"),
-            "the background has to be a colour nothing is"
+            "the background has to be a color nothing is"
         );
     }
 
@@ -280,13 +280,13 @@ mod tests {
         );
 
         let said = config(
-            Said { screen: "-- a screen", device: "/somewhere/hyprland.lua" },
+            Names { screen: "-- a screen", device: "/somewhere/hyprland.lua" },
             Wallpaper::LeftOut,
         )
         .expect("the config");
         assert!(
             !said.contains("ff00ff"),
-            "nothing paints this ground, so a colour nothing is is all anybody would see: {said}"
+            "nothing paints this ground, so a color nothing is is all anyone would see: {said}"
         );
     }
 }

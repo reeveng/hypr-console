@@ -6,13 +6,13 @@
 //!
 //! What a device InputPlumber made says about itself is in `targets.rs`, and it
 //! is two numbers rather than the absence of a physical path: an empty path is
-//! every uinput device on the machine, somebody else's virtual pad included.
+//! every uinput device on the machine, someone else's virtual pad included.
 
 
 use crate::devices::Has;
 use crate::targets::{Identity, Target};
 use console_core_never::Never;
-use evdev::{AbsoluteAxisCode, Device, KeyCode};
+use console_input_event_devices::{AbsoluteAxisCode, Device, KeyCode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Made {
@@ -21,7 +21,7 @@ pub enum Made {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Says {
+pub struct DeviceInfo {
     pub path: String,
     pub name: String,
     pub phys: String,
@@ -31,7 +31,7 @@ pub struct Says {
     pub axes: Vec<u16>,
 }
 
-impl Says {
+impl DeviceInfo {
     fn has_key(&self, key: KeyCode) -> Result<Has, Never> {
         Ok(match self.keys.contains(&key.0) {
             true => Has::Yes,
@@ -64,47 +64,39 @@ impl Says {
 pub const UNNAMED: &str = "";
 
 pub fn named(device: &Device) -> Result<String, Never> {
-    Ok(match device.name() {
-        Some(name) => name.to_string(),
+    Ok(match &device.name {
+        Some(name) => name.clone(),
         None => UNNAMED.to_string(),
     })
 }
 
 pub fn wired(device: &Device) -> Result<String, Never> {
-    Ok(match device.physical_path() {
-        Some(phys) => phys.to_string(),
+    Ok(match &device.physical_path {
+        Some(phys) => phys.clone(),
         None => UNNAMED.to_string(),
     })
 }
 
-pub fn says(path: &str, device: &Device) -> Result<Says, Never> {
+pub fn describe(path: &str, device: &Device) -> Result<DeviceInfo, Never> {
     let Ok(name) = named(device);
     let Ok(phys) = wired(device);
 
-    let told = device.input_id();
+    let id = device.id;
+    let keys = device.keys.iter().map(|key| key.0).collect();
+    let axes = device.absolute_axes.iter().map(|axis| axis.0).collect();
 
-    let keys = match device.supported_keys() {
-        Some(keys) => keys.iter().map(|key| key.0).collect(),
-        None => Vec::new(),
-    };
-
-    let axes = match device.supported_absolute_axes() {
-        Some(axes) => axes.iter().map(|axis| axis.0).collect(),
-        None => Vec::new(),
-    };
-
-    Ok(Says {
+    Ok(DeviceInfo {
         path: path.to_string(),
         name,
         phys,
-        vendor: told.vendor(),
-        product: told.product(),
+        vendor: id.vendor,
+        product: id.product,
         keys,
         axes,
     })
 }
 
-pub fn gamepad(among: &[Says]) -> Result<Option<&Says>, Never> {
+pub fn gamepad(among: &[DeviceInfo]) -> Result<Option<&DeviceInfo>, Never> {
     let Ok(identity) = Target::Pad.identity();
 
     for says in among {
@@ -124,7 +116,7 @@ pub fn gamepad(among: &[Says]) -> Result<Option<&Says>, Never> {
     Ok(None)
 }
 
-pub fn keyboard(among: &[Says]) -> Result<Option<&Says>, Never> {
+pub fn keyboard(among: &[DeviceInfo]) -> Result<Option<&DeviceInfo>, Never> {
     let Ok(identity) = Target::Keyboard.identity();
 
     for says in among {
@@ -144,7 +136,7 @@ pub fn keyboard(among: &[Says]) -> Result<Option<&Says>, Never> {
     Ok(None)
 }
 
-pub fn typing(among: &[Says]) -> Result<Vec<&Says>, Never> {
+pub fn typing(among: &[DeviceInfo]) -> Result<Vec<&DeviceInfo>, Never> {
     let mut found = Vec::new();
 
     for says in among {
@@ -164,7 +156,7 @@ pub fn typing(among: &[Says]) -> Result<Vec<&Says>, Never> {
     Ok(found)
 }
 
-pub fn touchpad(among: &[Says]) -> Result<Option<&Says>, Never> {
+pub fn touchpad(among: &[DeviceInfo]) -> Result<Option<&DeviceInfo>, Never> {
     for says in among {
         let touched = says.has_key(KeyCode::BTN_TOUCH)?;
         let across = says.has_axis(AbsoluteAxisCode::ABS_X)?;
@@ -183,10 +175,10 @@ pub fn touchpad(among: &[Says]) -> Result<Option<&Says>, Never> {
 mod tests {
     use super::*;
 
-    fn pad(phys: &str) -> Says {
+    fn pad(phys: &str) -> DeviceInfo {
         let Ok(identity) = Target::Pad.identity();
 
-        Says {
+        DeviceInfo {
             path: "/dev/input/event0".into(),
             name: "Microsoft X-Box One Elite 2 pad".into(),
             phys: phys.into(),
@@ -197,8 +189,8 @@ mod tests {
         }
     }
 
-    fn steams_pad() -> Says {
-        Says {
+    fn steams_pad() -> DeviceInfo {
+        DeviceInfo {
             path: "/dev/input/event17".into(),
             name: "Microsoft X-Box 360 pad 0".into(),
             phys: String::new(),
@@ -209,10 +201,10 @@ mod tests {
         }
     }
 
-    fn keys() -> Says {
+    fn keys() -> DeviceInfo {
         let Ok(identity) = Target::Keyboard.identity();
 
-        Says {
+        DeviceInfo {
             path: "/dev/input/event1".into(),
             name: "InputPlumber Keyboard".into(),
             phys: String::new(),
@@ -223,8 +215,8 @@ mod tests {
         }
     }
 
-    fn touch() -> Says {
-        Says {
+    fn touch() -> DeviceInfo {
+        DeviceInfo {
             path: "/dev/input/event2".into(),
             name: "  Legion Controller  Touchpad".into(),
             phys: "usb-0000:c2:00.3-3/input1".into(),
@@ -236,7 +228,7 @@ mod tests {
     }
 
     #[test]
-    fn the_pad_that_is_read_is_the_one_nobody_is_holding() {
+    fn the_pad_that_is_read_is_the_one_no_one_is_holding() {
         let both = [pad("usb-0000:c2:00.3-3/input0"), pad("")];
         let Ok(found) = gamepad(&both);
 
@@ -266,7 +258,7 @@ mod tests {
         assert_eq!(
             gamepad(&[steams_pad()]),
             Ok(None),
-            "a machine whose only virtual pad is somebody else's has no pad of ours on it, \
+            "a machine whose only virtual pad is someone else's has no pad of ours on it, \
              and saying so is what stops the daemon reading a device nothing emits on"
         );
     }
@@ -280,7 +272,7 @@ mod tests {
     }
 
     #[test]
-    fn the_touchpad_is_found_although_somebody_is_holding_it() {
+    fn the_touchpad_is_found_although_someone_is_holding_it() {
         let every = [pad(""), keys(), touch()];
         let Ok(found) = touchpad(&every);
 
@@ -289,12 +281,12 @@ mod tests {
 
     #[test]
     fn a_touchscreen_is_not_the_touchpad() {
-        let screen = Says { name: "Legion Controller Touchscreen".into(), ..touch() };
+        let screen = DeviceInfo { name: "Legion Controller Touchscreen".into(), ..touch() };
         assert_eq!(touchpad(&[screen]), Ok(None));
     }
 
-    fn typed(name: &str) -> Says {
-        Says {
+    fn typed(name: &str) -> DeviceInfo {
+        DeviceInfo {
             path: "/dev/input/event3".into(),
             name: name.into(),
             phys: "usb-0000:c2:00.3-4/input0".into(),
@@ -306,7 +298,7 @@ mod tests {
     }
 
     #[test]
-    fn a_keyboard_somebody_plugged_in_is_the_one_with_letters_on_it() {
+    fn a_keyboard_someone_plugged_in_is_the_one_with_letters_on_it() {
         let every = [pad(""), keys(), touch(), typed("Logitech K380")];
         let Ok(found) = typing(&every);
 
@@ -317,7 +309,7 @@ mod tests {
     }
 
     #[test]
-    fn every_keyboard_somebody_plugged_in_is_one_of_them() {
+    fn every_keyboard_someone_plugged_in_is_one_of_them() {
         let every = [typed("Logitech K380"), typed("Some Other Board")];
         let Ok(found) = typing(&every);
 
@@ -326,7 +318,7 @@ mod tests {
 
     #[test]
     fn the_rocker_on_the_edge_of_the_machine_is_not_a_keyboard_to_type_on() {
-        let rocker = Says {
+        let rocker = DeviceInfo {
             path: "/dev/input/event4".into(),
             name: "Legion Go Volume".into(),
             phys: "isa0060/serio0/input0".into(),
@@ -340,8 +332,8 @@ mod tests {
     }
 
     #[test]
-    fn what_inputplumber_publishes_is_not_something_somebody_types_on() {
-        let ours = Says {
+    fn what_inputplumber_publishes_is_not_something_someone_types_on() {
+        let ours = DeviceInfo {
             keys: vec![KeyCode::KEY_A.0, KeyCode::KEY_Z.0, KeyCode::KEY_ESC.0],
             ..keys()
         };

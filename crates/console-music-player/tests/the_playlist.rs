@@ -1,14 +1,14 @@
 //! The three faults kew had here, asked of the thing that replaces it.
 //!
 //! Each of these was watched on the device against a library of six, and each
-//! cost a fork of somebody else's C to fix. They are written down as presses
+//! cost a fork of someone else's C to fix. They are written down as presses
 //! rather than as a claim about a permutation, because what a person does is
 //! press next and see whether the song changes.
 
 use console_music_player::playlist::{Moved, Order, Over, Playlist};
 use std::path::PathBuf;
 
-const SONGS: usize = 6;
+const SONGS: u32 = 6;
 
 fn library() -> Vec<PathBuf> {
     ["a", "b", "c", "d", "e", "f"]
@@ -64,7 +64,7 @@ fn next_plays_each_song_once_and_then_comes_round() {
     once.sort();
     once.dedup();
 
-    assert_eq!(once.len(), SONGS);
+    assert_eq!(u32::try_from(once.len()).unwrap(), SONGS);
 
     let Ok(moved) = list.onward();
 

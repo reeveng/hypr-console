@@ -1,6 +1,6 @@
 //! Held with L2, a shoulder carries the window rather than leaving it.
 
-use console_test_stages::checking::{Body, Check, Done, happened, not_same, same};
+use console_test_stages::checking::{Body, Check, CheckResult, happened, not_same, same};
 use console_test_stages::device::{Device, OPENING, PATIENCE};
 use console_test_stages::here::{Here, TURNS};
 
@@ -20,7 +20,7 @@ pub const HALF: Check = Check {
     bodies: &[Body::Here(half_here), Body::Device(half_there)],
 };
 
-fn carry_here(stage: &mut Here) -> Done {
+fn carry_here(stage: &mut Here) -> CheckResult {
     stage.trigger("l2", 1.0)?;
     stage.press("r1")?;
 
@@ -32,7 +32,7 @@ fn carry_here(stage: &mut Here) -> Done {
     })
 }
 
-fn carry_there(stage: &mut Device) -> Done {
+fn carry_there(stage: &mut Device) -> CheckResult {
     something_open(stage)?;
 
     let Ok(where_) = stage.workspace();
@@ -61,7 +61,7 @@ fn carry_there(stage: &mut Device) -> Done {
     same(&arrived, &set_out, || format!("{set_out} window(s) set out and {arrived} arrived"))
 }
 
-fn half_here(stage: &mut Here) -> Done {
+fn half_here(stage: &mut Here) -> CheckResult {
     stage.trigger("l2", 0.4)?;
     stage.press("r1")?;
 
@@ -71,7 +71,7 @@ fn half_here(stage: &mut Here) -> Done {
     same(&asked, &[r#"hl.dsp.focus({workspace = "+1"})"#], || format!("it asked for {asked:?}"))
 }
 
-fn half_there(stage: &mut Device) -> Done {
+fn half_there(stage: &mut Device) -> CheckResult {
     something_open(stage)?;
 
     let Ok(where_) = stage.workspace();
@@ -93,7 +93,7 @@ fn half_there(stage: &mut Device) -> Done {
     same(&came, &0, || format!("{came} window(s) came along and none should have"))
 }
 
-pub fn something_open(stage: &mut Device) -> Done {
+pub fn something_open(stage: &mut Device) -> CheckResult {
     let Ok(here) = stage.windows_here();
 
     match here > 0 {

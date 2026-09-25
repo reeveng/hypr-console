@@ -1,10 +1,10 @@
 # The screen
 
-How big it draws, how bright it is, and what it does when nobody is looking at
+How big it draws, how bright it is, and what it does when no one is looking at
 it. The first is on the **Screen** tab of the settings, with the brightness and
 the evening switch; the rest of this is what the machine does on its own.
 
-## How big everything is
+## Display Zoom
 
 The panel is 2560 by 1600 and the desktop is laid out at two and a half times
 the density it is drawn at, so a window sees 1024 by 640. That number is the
@@ -25,7 +25,7 @@ nothing on the machine could reach.
 Five plain words, two either side of the size this device is set up as, and no
 sentence among them. What a rung costs is written here rather than in the row it
 would have to be read out of: a list whose ends argue with themselves is a list
-nobody reads to the bottom of.
+no one reads to the bottom of.
 
 These, because a density is not a free number here. The compositor lays the
 desktop out in whole logical pixels and rounds off a scale that leaves a
@@ -33,7 +33,7 @@ fraction, so the size chosen would not be the size given. 2560 and 1600 share
 320, and every scale that divides them both is 320 over a whole number. The ones
 that are also a tidy number are 1.0, 1.25, 1.6, 2.0, 2.5, 3.2 and 4.0, each
 about a quarter from the next -- far enough that changing rung is a change
-somebody meant to make. **1.5 is not one of them**: it leaves 1706.67 pixels
+someone meant to make. **1.5 is not one of them**: it leaves 1706.67 pixels
 across, and 1.6 is the nearest rung to it.
 
 **Tiny** is the odd one and it is here on purpose. 1.0 is the panel at its own
@@ -107,7 +107,7 @@ picture, written into the stylesheet on every redraw. One number moves and the
 whole square moves with it, which is what makes it the same square at every
 rung of the ladder above.
 
-And it is hers to argue with. **The home screen** on the Screen tab is three
+And it is hers to argue with. **Home Screen** on the Display tab is three
 rows under that ladder -- how many across, how many down, and the same five
 words either side of what the room suggested -- written to
 `~/.config/console/home-screen` and said down the home screen's own door, so a
@@ -124,7 +124,7 @@ Nothing else in this repository is told the density. The panels take fractions
 of whatever screen they are given, and the on-screen keyboard reads the scale
 off the output it is drawn on.
 
-## Which way up it stands
+## Rotation
 
 A row per quarter under the ladder -- **Turned left**, **Not turned**, **Turned
 right**, **Turned over** -- and they are quarters either side of the way the
@@ -142,7 +142,7 @@ and a rung is a canvas divided into the panel's own width -- so turning the
 screen changes which of its two sides that width is, and the size has to go
 with the turn. `console-scale` describes the screen whole, in one eval, and
 restarts the bar and the home screen exactly as a change of size does. A turn
-that sent the transform on its own would leave the desktop at a density nobody
+that sent the transform on its own would leave the desktop at a density no one
 chose.
 
 It is remembered in `~/.config/console/screens/{connector}/turn`, beside that
@@ -163,16 +163,77 @@ of describing the screen -- `console apply` writes it into `monitor.lua` out of
 the panel's own mode, and `console-scale` says it in the same `eval` as the
 monitor, because the two are one answer.
 
-Which way round left is cannot be settled without the device in somebody's
+Which way round left is cannot be settled without the device in someone's
 hands: left is one quarter on from the mounting and right is three. If that
 reads backwards in the hand, the two arms swap and nothing else moves.
 
-## When nobody is looking at it
+## How bright it is, when the room decides
+
+This panel has an ambient light sensor on the AMD sensor hub, and **Auto-Brightness**
+on the Display tab is what it is for. Most machines that will ever run
+this desktop have no such sensor, which is why the row is not drawn when there
+is none and `console-light.service` answers its own `ExecCondition` with no
+before it starts anything: a unit skipped that way is inactive rather than
+failed, so nothing restarts it and nothing raises a card.
+
+**Nothing here ships a curve.** A table of light against brightness written in
+this repository would be one person's eyes, on one panel, in one room, and
+every machine that ran it would inherit a preference nobody on it had
+expressed. It is the same argument the monitor block and the size ladder
+already make: what is one machine's is not written down here.
+
+So it is taught. Every press of the brightness rocker is somebody saying how
+bright they want the screen in the light they are sitting in, which is a
+reading and a level and therefore a sample, and it costs them nothing to give
+because they were pressing the rocker anyway. Before the first press it knows
+nothing and does nothing. The first thing it ever does is something it was
+told.
+
+The table is a band per half-decade of the sensor's own number rather than a
+fit: the light in a room runs over four decades from a dark bedroom to direct
+sun, the eye reads it as a logarithm, and nobody presses the rocker often
+enough to fit anything. A band taught twice keeps half of what it knew and half
+of what it has just been told, so a press made for some other reason moves it
+rather than replacing it. Between taught bands it interpolates, outside them it
+holds the nearest, and it acts when the band changes rather than continuously
+-- a screen that creeps every time a cloud goes over is worse than one that
+never moves.
+
+**Being wrong costs one press, and the press is the next sample.** That is what
+makes it safe to leave on. There is no state it can reach that a person cannot
+correct in the way they were already going to, and correcting it is how it
+stops being wrong. It is also why there is no button to make it forget: two
+presses carry a band most of the way back on their own.
+
+The reading is the sensor's raw number and the scale beside it is not read.
+Nothing here ever says a number of lux out loud; what the reading is for is
+which band of light the room is in, which is a question about this reading
+against the others this sensor has given, and the raw number answers it exactly
+as well without putting a decimal in the middle of the one calculation that has
+to give the same answer twice.
+
+**The colour channels are not used, and it is not an oversight.** This sensor
+offers colour temperature and chromaticity beside the illuminance, which is
+what the evening warmth below would want -- a room's own colour instead of a
+clock. On this machine every one of them reads zero for ever while the
+illuminance tracks the room, and the kernel says why every few seconds:
+`hid-sensor-hub: Event data for report 4 was too short`. The firmware sends a
+longer record than the driver accepts and the driver drops it. So the warm
+curve keeps its clock.
+
+**It does not follow while the screen is dark.** The follower stands down as
+soon as the dim has happened, which keeps it from arguing with `console-brightness
+dim` and keeps it from waking the sensor hub for a panel nobody is looking at.
+Whatever is learned is the rocker's, never the follower's own: a daemon that
+both chose the brightness and recorded its choice as a preference would teach
+itself its own answer until the table said one thing everywhere.
+
+## When no one is looking at it
 
 Two things the compositor's own people wrote and this desktop only decides for:
-the screen dims and goes out when nothing is happening, and its colour warms
+the screen dims and goes out when nothing is happening, and its color warms
 through the evening on a clock. Neither is written here, and the reason is
-worth saying once: both need to be told what idle is and what a colour
+worth saying once: both need to be told what idle is and what a color
 transform is by the compositor itself, and a version of either written in
 this repository would be guessing at what Hyprland already knows.
 
@@ -180,9 +241,10 @@ this repository would be guessing at what Hyprland already knows.
 | --- | --- |
 | After two minutes | The screen dims, to the same floor the rocker will not go below |
 | After five | It goes out |
-| Anything at all | Both come back |
-| Dusk, and again at dawn | The colour slides warm and back, on a clock |
-| **Night colours**, on the Screen tab | Whether the clock gets to say at all |
+| After ten | The machine sleeps, unless something is holding a sleep lock |
+| Anything at all | All three come back |
+| Dusk, and again at dawn | The color slides warm and back, on a clock |
+| **Night Shift**, on the Display tab | Whether the clock gets to say at all |
 
 ## What counts as something happening
 
@@ -214,20 +276,30 @@ build for.
 **It does not lock.** The only way to type on this machine is the on-screen
 keyboard, which this desktop puts on a layer above whatever is up. A lock
 screen takes the keyboard for itself and would sit above that in turn, so the
-password could be asked for and not answered. A handheld nobody can unlock is
+password could be asked for and not answered. A handheld no one can unlock is
 worse than one that was never locked.
 
-**It does not suspend.** Nothing here has ever shown that this machine comes
-back from one. InputPlumber rebuilds the pad on resume, and whether it comes
-back is the kind of thing that gets found out by a device failing to wake in
-somebody's hands. **Sleep** is on the System tab, where a person chooses it and
-is there to see what happens. The battery a handheld spends with its screen off
-is small; the trust it spends by not waking up is not.
+**It used to not suspend, and that was the expensive decision here.** The
+refusal was argued rather than measured: nothing had shown this machine comes
+back from a sleep, InputPlumber rebuilds the pad on resume, and a device that
+will not wake in somebody's hands spends more trust than a battery is worth.
+Measured, it was false -- the device suspends and resumes over and over, and
+`amd_pmc` reports S0i3 entered and left cleanly every time. What the refusal
+cost is the difference between 2.78 W awake with the panel already out and
+about a quarter of a watt asleep: every hour past the blank was about a
+sixteenth of a full battery spent on a screen nobody was looking at.
 
-Music is the case that decides those two. The screen going out while something
-plays is right, and it happens: audio does not hold an idle inhibitor. A
-machine that suspended on the same timer would stop the music, which is why the
-timer that would have done it is not there.
+So it sleeps, five minutes past the blank rather than at it. The screen going
+out is a guess that nobody is there and it is wrong often; the gap is for the
+person still holding it. Five rather than ten because the case a wrong suspend
+used to ruin is now answered rather than waited out -- a playing song holds a
+logind `sleep` lock of its own, which `console-awake` argues for, and the
+suspend simply fails while it is held. **Sleep** is still on the System tab for
+somebody who wants it now.
+
+The lock is `sleep` and deliberately not `idle`. hypridle reads the idle
+inhibitors once for the whole of its config, so a player that took one would
+hold the panel lit as well -- and the panel is the expensive half.
 
 ## Where a change goes
 
@@ -238,9 +310,9 @@ listener runs is ours, and deliberately:
 Putting a screen back means having remembered where it was, and this desktop
 already keeps what full and floor mean on this panel in one place --
 `console_settings::screen`, which is also what the rocker and the level on the
-Screen tab read. The pair here adds one rule that a saved value in somebody
+Display tab read. The pair here adds one rule that a saved value in someone
 else's file could not: a screen that is no longer where the dimming left it is
-a screen somebody has touched, and it is left where they put it. Otherwise the
+a screen someone has touched, and it is left where they put it. Otherwise the
 press that woke the machine would also undo the change it was making.
 
 The note of where it was lives in the runtime directory, not the home, so a
@@ -275,9 +347,9 @@ over ssh. The second dispatch is gone and a test holds it gone: every
 `on-resume` in that file has to be the one that also knows how bright the
 screen was.
 
-## The colour
+## The color
 
-`hyprsunset` hands the compositor a colour transform. That is why it is used
+`hyprsunset` hands the compositor a color transform. That is why it is used
 rather than a shader over the top: what it changes is not captured, so the
 screenshot the top right paddle takes at eleven at night looks like the one
 taken at noon.
@@ -285,10 +357,10 @@ taken at noon.
 The screen follows the clock. It cools nothing all day, slides from daylight
 down to lamplight across the two hours of dusk, holds there through the night,
 and climbs back over the half hour before morning. It used to be a switch and
-one temperature, and that is a decision somebody has to remember to make twice
-a day: the evening it is wanted is the evening nobody thinks of it.
+one temperature, and that is a decision someone has to remember to make twice
+a day: the evening it is wanted is the evening no one thinks of it.
 
-The slide is what makes it invisible. A screen that changed colour in one step
+The slide is what makes it invisible. A screen that changed color in one step
 at half past seven would be a thing that happened to you; this is a thing you
 never catch happening. Its steps are spaced evenly in mireds rather than in
 kelvin, because the same thousand degrees is an enormous change at the warm end
@@ -299,7 +371,7 @@ The whole curve is a file the daemon reads once, so nothing of ours has to be
 awake to keep the screen honest at three in the morning. The file is written
 out of `console_settings::warm` by `console-warm curve` rather than by hand,
 and a test holds the two together: a curve written twice is a curve that goes
-out of step, and out of step here is a screen that changes colour at a time
+out of step, and out of step here is a screen that changes color at a time
 nothing in this repository mentions.
 
 ## Saying no to it
@@ -311,16 +383,16 @@ That is one switch behaving two ways depending on when it was pressed, and
 there is no way to ask the daemon to stop following its own profiles.
 
 So off means the daemon is not running. `console-warm` writes the answer down
-and restarts the unit; the unit asks `console-warm wanted` in `ExecCondition=`
-before it starts anything. A compositor with no colour transform on it is a
-screen showing its own colours, which is the one state that is true whatever
-the hour and survives a reboot without anybody re-asserting it.
+and restarts the unit; the unit asks `console-warm switched-on` in `ExecCondition=`
+before it starts anything. A compositor with no color transform on it is a
+screen showing its own colors, which is the one state that is true whatever
+the hour and survives a reboot without anyone re-asserting it.
 
 A condition that says no leaves the unit inactive rather than failed, so
-nothing restarts it and nothing is reported. `console-fell` had to be taught
-that `exec-condition` is not a fault, or every boot on a machine where somebody
-prefers their own colours would raise a card saying the screen daemon had
-stopped on its own.
+nothing restarts it and nothing is reported. `console-report-crash` had to be
+taught that `exec-condition` is not a fault, or every boot on a machine where
+someone prefers their own colors would raise a card saying the screen daemon
+had stopped on its own.
 
 ## Game Mode
 

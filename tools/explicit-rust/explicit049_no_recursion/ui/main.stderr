@@ -1,0 +1,43 @@
+error: `count` calls itself, so its depth is whatever it is handed
+  --> $DIR/main.rs:17:18
+   |
+LL |         found += count(inner);
+   |                  ^^^^^
+   |
+   = help: keep a stack of its own and walk until it is empty, or hand the depth in and count it down. Either one says the limit where the walk starts; a call that reaches itself spends a stack the process owns and no line of it names, and a recursion the compiler turns into a loop is still one the reader has to bound
+   = note: `#[deny(explicit049_no_recursion)]` on by default
+
+error: `open_one` calls `open_all`, which finds its way back to `open_one`, so the depth of the two is whatever they are handed
+  --> $DIR/main.rs:26:5
+   |
+LL |     open_all(&folder.within)
+   |     ^^^^^^^^
+   |
+   = help: keep a stack of its own and walk until it is empty, or hand the depth in and count it down. Either one says the limit where the walk starts; a call that reaches itself spends a stack the process owns and no line of it names, and a recursion the compiler turns into a loop is still one the reader has to bound
+
+error: `open_all` calls `open_one`, which finds its way back to `open_all`, so the depth of the two is whatever they are handed
+  --> $DIR/main.rs:31:24
+   |
+LL |     folders.iter().map(open_one).sum()
+   |                        ^^^^^^^^
+   |
+   = help: keep a stack of its own and walk until it is empty, or hand the depth in and count it down. Either one says the limit where the walk starts; a call that reaches itself spends a stack the process owns and no line of it names, and a recursion the compiler turns into a loop is still one the reader has to bound
+
+error: `deepest` calls itself, so its depth is whatever it is handed
+  --> $DIR/main.rs:39:46
+   |
+LL |         self.within.iter().map(|inner| inner.deepest()).max().unwrap_or(0) + 1
+   |                                              ^^^^^^^
+   |
+   = help: keep a stack of its own and walk until it is empty, or hand the depth in and count it down. Either one says the limit where the walk starts; a call that reaches itself spends a stack the process owns and no line of it names, and a recursion the compiler turns into a loop is still one the reader has to bound
+
+error: `fmt` calls itself, so its depth is whatever it is handed
+  --> $DIR/main.rs:50:13
+   |
+LL |             fmt::Display::fmt(inner, f)?;
+   |             ^^^^^^^^^^^^^^^^^
+   |
+   = help: keep a stack of its own and walk until it is empty, or hand the depth in and count it down. Either one says the limit where the walk starts; a call that reaches itself spends a stack the process owns and no line of it names, and a recursion the compiler turns into a loop is still one the reader has to bound
+
+error: aborting due to 5 previous errors
+

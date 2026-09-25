@@ -18,32 +18,32 @@
 use console_core_never::Never;
 use console_input_bindings::bound::Input;
 
-use crate::doing::Doing;
-use crate::means::{Job, Press, Table};
-use crate::mode::{Acts, Mode};
+use crate::effect::Effect;
+use crate::actions::{Task, ButtonPress, Table};
+use crate::mode::{InputHandling, Mode};
 
 pub fn job_for(
     table: &Table,
     mode: Mode,
     held: &[&str],
     pressed: &str,
-) -> Result<Option<&'static Job>, Never> {
-    let Ok(acts) = mode.acts();
+) -> Result<Option<&'static Task>, Never> {
+    let Ok(handling) = mode.input_handling();
 
-    match acts {
-        Acts::OnPresses => table.what(Input::Pad, held, pressed, mode),
-        Acts::NotReading => Ok(None),
+    match handling {
+        InputHandling::Enabled => table.what(Input::Pad, held, pressed, mode),
+        InputHandling::Disabled => Ok(None),
     }
 }
 
-pub fn acted(job: &Job, down: Press) -> Result<Option<Doing>, Never> {
-    job.what.does(down)
+pub fn acted(job: &Task, down: ButtonPress) -> Result<Option<Effect>, Never> {
+    job.action.does(down)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::means::What;
+    use crate::actions::Action;
 
     fn table() -> Table {
         let Ok(ours) = Table::ours();
@@ -51,21 +51,21 @@ mod tests {
         ours
     }
 
-    fn what(mode: Mode, button: &str) -> Option<What> {
+    fn what(mode: Mode, button: &str) -> Option<Action> {
         let Ok(found) = job_for(&table(), mode, &[], button);
 
-        found.map(|job| job.what)
+        found.map(|job| job.action)
     }
 
     #[test]
     fn a_back_button_runs_what_it_is_for() {
-        assert_eq!(what(Mode::Desktop, "left-paddle-top"), Some(What::Menu));
-        assert_eq!(what(Mode::Desktop, "legion-right"), Some(What::Settings));
+        assert_eq!(what(Mode::Desktop, "left-paddle-top"), Some(Action::Menu));
+        assert_eq!(what(Mode::Desktop, "legion-right"), Some(Action::Settings));
     }
 
     #[test]
     fn nothing_is_acted_on_where_this_daemon_is_not_the_one_reading() {
-        for mode in [Mode::Keyboard, Mode::Asking] {
+        for mode in [Mode::Keyboard, Mode::Prompt] {
             assert_eq!(what(mode, "left-paddle-top"), None, "{mode:?}");
             assert_eq!(what(mode, "a"), None, "{mode:?}");
         }

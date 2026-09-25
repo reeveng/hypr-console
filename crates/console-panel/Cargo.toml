@@ -19,11 +19,11 @@ path = "src/bin/console-confirm.rs"
 name = "console-put-away"
 path = "src/bin/console-put-away.rs"
 
-# Not a program on the device. The chooser's lock is between processes, so the
-# test that proves it wants a second process to be the other chooser.
+# Not a program on the device. The picker's lock is between processes, so the
+# test that proves it wants a second process to be the other picker.
 [[bin]]
-name = "second-chooser"
-path = "src/bin/second-chooser.rs"
+name = "second-picker"
+path = "src/bin/second-picker.rs"
 
 # The pictures every list draws, decoded once into the one file they read.
 [[bin]]
@@ -32,12 +32,17 @@ path = "src/bin/panel-pictures.rs"
 
 [dependencies]
 console-core-atomic-writes.workspace = true
+console-core-color.workspace = true
+console-core-fonts.workspace = true
+console-core-shapes.workspace = true
+console-draw-painting.workspace = true
+console-draw-surface.workspace = true
 console-core-words.workspace = true
 console-program-lifetime.workspace = true
 console-core-external-programs.workspace = true
 console-core-geometry.workspace = true
 console-core-never.workspace = true
-console-core-our-programs.workspace = true
+console-core-internal-programs.workspace = true
 console-core-places.workspace = true
 console-waiting.workspace = true
 console-core-number-conversion.workspace = true
@@ -46,13 +51,17 @@ console-onscreen.workspace = true
 # The one subscription per source on this machine. What used to be this
 # program's own connection to the compositor is a line down the pool's socket.
 console-events.workspace = true
+console-program-contract.workspace = true
 console-response-times.workspace = true
-gtk4 = "0.11"
-gtk4-layer-shell = "0.8"
+console-pictures.workspace = true
+console-sound-effects.workspace = true
 libc = "0.2"
+rustix.workspace = true
 serde_json = "1"
 
 [dev-dependencies]
+console-repository.workspace = true
+console-core-temporary-directories.workspace = true
 # The panel stage, which opens a panel in the nested desktop and reads back what
 # it drew. It depends on this crate in turn, which cargo allows exactly here: a
 # dev-dependency cycle is not a build cycle, because the checks are built after

@@ -7,7 +7,7 @@
 //! again when the hand does.
 //!
 //! Nothing here reads a clock. What is handed in is how long it has been since
-//! the last press, so the whole of this can be asked about without anybody
+//! the last press, so the whole of this can be asked about without anyone
 //! waiting for it.
 
 use std::time::Duration;
@@ -17,15 +17,15 @@ use console_core_never::Never;
 pub const QUIET: Duration = Duration::from_secs(4);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Awake {
+pub enum Woken {
     Yes,
     No,
 }
 
-pub fn awake(since: Duration) -> Result<Awake, Never> {
+pub fn awake(since: Duration) -> Result<Woken, Never> {
     Ok(match since < QUIET {
-        true => Awake::Yes,
-        false => Awake::No,
+        true => Woken::Yes,
+        false => Woken::No,
     })
 }
 
@@ -33,18 +33,18 @@ pub fn awake(since: Duration) -> Result<Awake, Never> {
 mod tests {
     use std::time::Duration;
 
-    use super::{Awake, QUIET, awake};
+    use super::{Woken, QUIET, awake};
 
     #[test]
     fn a_card_just_pressed_is_awake() {
-        assert_eq!(awake(Duration::ZERO), Ok(Awake::Yes));
-        assert_eq!(awake(QUIET - Duration::from_millis(1)), Ok(Awake::Yes));
+        assert_eq!(awake(Duration::ZERO), Ok(Woken::Yes));
+        assert_eq!(awake(QUIET - Duration::from_millis(1)), Ok(Woken::Yes));
     }
 
     #[test]
-    fn a_card_nobody_has_touched_is_only_the_picture() {
-        assert_eq!(awake(QUIET), Ok(Awake::No));
-        assert_eq!(awake(Duration::from_secs(600)), Ok(Awake::No));
+    fn a_card_no_one_has_touched_is_only_the_picture() {
+        assert_eq!(awake(QUIET), Ok(Woken::No));
+        assert_eq!(awake(Duration::from_secs(600)), Ok(Woken::No));
     }
 
     #[test]

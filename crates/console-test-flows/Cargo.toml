@@ -10,13 +10,14 @@ name = "console_test_flows"
 path = "src/lib.rs"
 
 [dev-dependencies]
+console-core-geometry.workspace = true
 console-input-controller.workspace = true
 console-onscreen.workspace = true
 console-button-guide.workspace = true
 console-input-bindings.workspace = true
 console-input-gamepad.workspace = true
 console-test-stages.workspace = true
-evdev = "0.13"
+console-input-event-devices.workspace = true
 
 [lints]
 workspace = true

@@ -32,7 +32,7 @@ use rustc_lint::{LateContext, LateLintPass, LintContext};
 dylint_linting::declare_late_lint! {
     /// EXPLICIT046: a bare `break` or `continue` inside a nested loop leaves
     /// one of the loops and does not say which, so the destination moves when
-    /// somebody wraps another loop around it. Name the loop with a label.
+    /// someone wraps another loop around it. Name the loop with a label.
     pub EXPLICIT046_NO_UNNAMED_JUMP,
     Deny,
     "a jump out of a nested loop that does not name the loop it leaves"
@@ -99,7 +99,7 @@ impl<'tcx> LateLintPass<'tcx> for Explicit046NoUnnamedJump {
                 "label the loop this leaves and say it here: `'over_rows: for ...` and \
                  `break 'over_rows`. A bare jump leaves the innermost loop, which is a fact about \
                  where the line happens to sit rather than about what it means, and it moves the \
-                 next time somebody wraps a loop around it",
+                 next time someone wraps a loop around it",
             ),
             false => {}
         }

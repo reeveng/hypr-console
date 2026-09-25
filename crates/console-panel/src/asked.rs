@@ -1,73 +1,105 @@
-//! Being asked to stop.
+//! Being asked to stop, as a descriptor a loop is already watching.
 //!
-//! A chooser hands the screen over by sending whoever holds it a SIGTERM and
+//! A picker hands the screen over by sending whoever holds it a SIGTERM and
 //! then waiting for the lock. Answering that signal is not tidiness, it is how
-//! two of these take turns, and a chooser that sleeps through it holds the
+//! two of these take turns, and a picker that sleeps through it holds the
 //! screen shut against the next one.
 //!
-//! glib stopped binding `g_unix_signal_add`, which is what puts a signal on
-//! the main loop rather than in the middle of whatever the process was doing.
-//! The function is still in the library this links against, so it is asked for
-//! by name. Blocking the signals and waiting for them on a thread of our own
-//! was the other way, and it is the wrong one: a blocked mask is inherited by
-//! every child the panel starts.
+//! What a loop of our own wants is not a callback: it is a descriptor beside
+//! the socket and the surface, so being asked to stop arrives the same way
+//! everything else does and is answered in the same place. The handler writes
+//! one byte to a pipe, which is the one thing a signal handler may do here, and
+//! the loop reads it and puts the panel down.
 //!
-//! Above everything else on the loop, which is not a preference. A panel whose
-//! compositor has gone spins: the display's own source is handed a socket that
-//! is hung up, says it is ready, is dispatched, finds nothing, and says it is
-//! ready again, forever. At the same priority the signal waits its turn behind
-//! that and never gets one -- a stray viewer sat at ninety per cent of a core
-//! for forty minutes, ignoring every SIGTERM, holding the screen shut against
-//! each panel that asked for it after. Being asked to stop is the one thing
-//! that has to keep working when the loop is otherwise wedged, so it goes
-//! first.
+//! Blocking the signals and waiting for them on a thread was the other way, and
+//! it is the wrong one twice over: a blocked mask is inherited by every child
+//! the panel starts, and a thread that answers a signal cannot touch what the
+//! loop is holding.
+//!
+//! The write end never closes, because the process it speaks for is what it
+//! outlives. The read end is handed to whoever asked and the loop owns it.
 
-use std::rc::Rc;
+use std::os::fd::{AsRawFd, OwnedFd};
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicI32, Ordering};
 
 use console_core_never::Never;
-use gtk4::glib;
 
 pub const STOPPING: [i32; 3] = [libc::SIGHUP, libc::SIGINT, libc::SIGTERM];
 
-unsafe extern "C" {
-    fn g_unix_signal_add_full(
-        priority: i32,
-        signum: i32,
-        function: glib::ffi::GSourceFunc,
-        data: glib::ffi::gpointer,
-        notify: glib::ffi::GDestroyNotify,
-    ) -> u32;
-}
+const NOWHERE: i32 = -1;
 
-pub fn stops_when_asked(then: impl Fn() + 'static) -> Result<(), Never> {
-    let shared: Rc<dyn Fn()> = Rc::new(then);
+#[cfg_attr(
+    dylint_lib = "explicit044_no_ambient_value",
+    allow(
+        explicit044_no_ambient_value,
+        reason = "a signal handler takes nothing and is handed nothing, so where to say a signal arrived is the one thing that cannot be passed in; it is the process's own pipe and it is written once"
+    )
+)]
+static TELLING: AtomicI32 = AtomicI32::new(NOWHERE);
 
-    for number in STOPPING {
-        let held = Box::into_raw(Box::new(Rc::clone(&shared))).cast::<std::ffi::c_void>();
+#[cfg_attr(
+    dylint_lib = "explicit044_no_ambient_value",
+    allow(
+        explicit044_no_ambient_value,
+        reason = "the far end of that pipe, held for as long as the process is, because a closed write end would be a hangup on the loop rather than a signal"
+    )
+)]
+static HELD: OnceLock<OwnedFd> = OnceLock::new();
 
-        // SAFETY: the box is handed over with the notify that frees it, and
-        unsafe {
-            g_unix_signal_add_full(
-                glib::ffi::G_PRIORITY_HIGH,
-                number,
-                Some(answer),
-                held,
-                Some(forget),
-            );
+pub fn told() -> Result<Option<OwnedFd>, Never> {
+    let (hear, tell) = match rustix::pipe::pipe() {
+        Ok(ends) => ends,
+        Err(fault) => {
+            eprintln!("console-panel: nothing to hear a signal on: {fault}");
+
+            return Ok(None);
         }
+    };
+
+    let raw = tell.as_raw_fd();
+
+    match HELD.set(tell) {
+        Ok(()) => {},
+        Err(_this_process_has_already_asked) => return Ok(Some(hear)),
     }
 
-    Ok(())
+    TELLING.store(raw, Ordering::SeqCst);
+
+    #[cfg_attr(
+        dylint_lib = "explicit051_no_machine_width",
+        allow(
+            explicit051_no_machine_width,
+            reason = "`signal` takes a `sighandler_t`, which is the machine's width by the C ABI and not by choice here"
+        )
+    )]
+    #[cfg_attr(
+        dylint_lib = "explicit011_no_as_cast",
+        allow(
+            explicit011_no_as_cast,
+            reason = "no trait turns a function into the number `signal` takes, which is the same reason `picker` gives two files over"
+        )
+    )]
+    let answer = asked as extern "C" fn(libc::c_int) as libc::sighandler_t;
+
+    for number in STOPPING {
+        // SAFETY: the handler allocates nothing and writes one byte to a pipe.
+        unsafe { libc::signal(number, answer) };
+    }
+
+    Ok(Some(hear))
 }
 
-unsafe extern "C" fn answer(data: glib::ffi::gpointer) -> glib::ffi::gboolean {
-    // SAFETY: `data` is the box `stops_when_asked` leaked, and glib hands back
-    let then = unsafe { &*data.cast::<Rc<dyn Fn()>>() };
-    then();
-    glib::ffi::GFALSE
-}
+extern "C" fn asked(_number: libc::c_int) {
+    let telling = TELLING.load(Ordering::SeqCst);
 
-unsafe extern "C" fn forget(data: glib::ffi::gpointer) {
-    // SAFETY: the same pointer again, and this is the notify glib calls once
-    drop(unsafe { Box::from_raw(data.cast::<Rc<dyn Fn()>>()) });
+    match telling {
+        NOWHERE => {},
+        fd => {
+            let said: [u8; 1] = [1];
+
+            // SAFETY: one byte to a pipe this process opened and still holds.
+            let _ = unsafe { libc::write(fd, said.as_ptr().cast(), 1) };
+        }
+    }
 }

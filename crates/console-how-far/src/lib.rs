@@ -8,7 +8,7 @@
 //!
 //! # Drawn the way pacman draws
 //!
-//! Not because of how it looks. Pacman is the long thing everybody on an Arch
+//! Not because of how it looks. Pacman is the long thing everyone on an Arch
 //! machine has already watched a hundred times without once wondering whether
 //! it was still alive, and what earns that is not the hashes: it is that pacman
 //! never says anything it does not know. Its counters come out of a transaction
@@ -51,20 +51,20 @@
 //! screen still gets a plain line per finished item and no redrawing at all.
 
 use console_core_never::Never;
-use console_core_number_conversion::{Float, toward_zero_u16};
+use console_core_number_conversion::{self as conversion, index, toward_zero_u16};
 
 use std::io::IsTerminal;
 use std::io::Write;
 
-pub const CELLS: usize = 22;
+pub const CELLS: u32 = 22;
 
-const NONE_OF_IT: usize = 0;
+const NONE_OF_IT: u32 = 0;
 
-pub const AROUND: usize = 9;
+pub const AROUND: u32 = 9;
 
 pub const WHOLE: u16 = 100;
 
-pub const ROOM: usize = 80;
+pub const ROOM: u32 = 80;
 
 const ERASE: &str = "\u{1b}[K";
 
@@ -114,20 +114,15 @@ pub fn plain(line: &str) -> Result<String, Never> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Far {
-    pub done: usize,
-    pub many: usize,
+pub struct Progress {
+    pub done: u32,
+    pub many: u32,
 }
 
-pub fn fraction(far: Far) -> Result<f64, Never> {
+pub fn fraction(far: Progress) -> Result<f64, Never> {
     Ok(match far.many {
         0 => 0.0,
-        many => {
-            let Ok(done) = far.done.float();
-            let Ok(many) = many.float();
-
-            done / many
-        }
+        many => f64::from(far.done) / f64::from(many),
     })
 }
 
@@ -137,11 +132,10 @@ pub fn percent(part: f64) -> Result<u16, Never> {
     Ok(percent.min(WHOLE))
 }
 
-pub fn counted(far: Far) -> Result<String, Never> {
-    let Far { done, many } = far;
-    let wide = format!("{many}").chars().count();
+pub fn counted(far: Progress) -> Result<String, Never> {
+    let Progress { done, many } = far;
 
-    Ok(format!("({done:>wide$}/{many})"))
+    Ok(format!("({done:>wide$}/{many})", wide = many.to_string().len()))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -154,37 +148,43 @@ pub fn caption(doing: &str, now: Now<'_>) -> Result<String, Never> {
     })
 }
 
-pub fn room(many: usize) -> Result<usize, Never> {
-    let Ok(widest) = counted(Far { done: many, many });
+pub fn room(many: u32) -> Result<u32, Never> {
+    let Ok(widest) = counted(Progress { done: many, many });
+    let Ok(widest) = conversion::fitted::<_, u32>(widest.chars().count());
 
     Ok(ROOM
-        .saturating_sub(widest.chars().count())
+        .saturating_sub(widest)
         .saturating_sub(CELLS)
         .saturating_sub(AROUND))
 }
 
-pub fn fitted(said: &str, room: usize) -> Result<String, Never> {
-    let over = said.chars().count().saturating_sub(room);
+pub fn fitted(said: &str, room: u32) -> Result<String, Never> {
+    let Ok(long) = conversion::fitted::<_, u32>(said.chars().count());
+    let over = long.saturating_sub(room);
 
     Ok(match over {
         0 => said.to_string(),
         over => {
-            let tail: String = said.chars().skip(over.saturating_add(1)).collect();
+            let Ok(past) = index(over.saturating_add(1));
+            let tail: String = said.chars().skip(past).collect();
 
             format!("…{tail}")
         }
     })
 }
 
-pub fn line(far: Far, said: &str, into: u16) -> Result<String, Never> {
+pub fn line(far: Progress, said: &str, into: u16) -> Result<String, Never> {
     let Ok(counted) = counted(far);
     let Ok(room) = room(far.many);
     let Ok(said) = fitted(said, room);
-    let full = match std::num::NonZeroUsize::new(usize::from(WHOLE)) {
-        Some(whole) => usize::from(into.min(WHOLE)).saturating_mul(CELLS) / whole,
+    let full = match std::num::NonZeroU32::new(u32::from(WHOLE)) {
+        Some(whole) => u32::from(into.min(WHOLE)).saturating_mul(CELLS) / whole,
         None => NONE_OF_IT,
     };
     let empty = CELLS.saturating_sub(full);
+    let Ok(room) = index(room);
+    let Ok(full) = index(full);
+    let Ok(empty) = index(empty);
 
     Ok(format!(
         "{counted} {said:<room$} [{}{}] {:>3}%",
@@ -197,15 +197,15 @@ pub fn line(far: Far, said: &str, into: u16) -> Result<String, Never> {
 #[derive(Debug)]
 pub struct Bar {
     watched: Watched,
-    at: usize,
-    many: usize,
+    at: u32,
+    many: u32,
     into: u16,
     doing: String,
     now: String,
 }
 
 impl Bar {
-    pub fn of(many: usize) -> Result<Self, Never> {
+    pub fn of(many: u32) -> Result<Self, Never> {
         let Ok(watched) = watched();
 
         Ok(Bar {
@@ -218,7 +218,7 @@ impl Bar {
         })
     }
 
-    pub fn unwatched(many: usize) -> Result<Self, Never> {
+    pub fn unwatched(many: u32) -> Result<Self, Never> {
         Ok(Bar {
             watched: Watched::Not,
             at: 0,
@@ -229,7 +229,7 @@ impl Bar {
         })
     }
 
-    pub fn many(&mut self, many: usize) -> Result<(), Never> {
+    pub fn many(&mut self, many: u32) -> Result<(), Never> {
         self.many = many;
 
         Ok(())
@@ -299,7 +299,7 @@ impl Bar {
     pub fn line(&self) -> Result<String, Never> {
         let Ok(said) = caption(&self.doing, Now(&self.now));
 
-        line(Far { done: self.at, many: self.many }, &said, self.into)
+        line(Progress { done: self.at, many: self.many }, &said, self.into)
     }
 
     fn moved(&self) -> Result<(), Never> {
@@ -317,7 +317,7 @@ impl Bar {
             (Watched::Screen, Ending::Again) => write!(out, "\r{ERASE}{drawn}"),
             (Watched::Not, Ending::Stays) => {
                 let Ok(said) = caption(&self.doing, Now(&self.now));
-                let Ok(counted) = counted(Far { done: self.at, many: self.many });
+                let Ok(counted) = counted(Progress { done: self.at, many: self.many });
 
                 writeln!(out, "  {counted} {said}")
             }
@@ -333,13 +333,17 @@ impl Bar {
 mod tests {
     use super::*;
 
+    fn columns(said: &str) -> u32 {
+        u32::try_from(said.chars().count()).unwrap()
+    }
+
     fn drawn(bar: &Bar) -> String {
         let Ok(line) = bar.line();
 
         line
     }
 
-    fn bar(many: usize) -> Bar {
+    fn bar(many: u32) -> Bar {
         let Ok(bar) = Bar::unwatched(many);
 
         bar
@@ -347,15 +351,15 @@ mod tests {
 
     #[test]
     fn the_counter_is_padded_to_the_width_of_its_total_so_it_does_not_jitter() {
-        assert_eq!(counted(Far { done: 1, many: 14 }), Ok("( 1/14)".to_string()));
-        assert_eq!(counted(Far { done: 14, many: 14 }), Ok("(14/14)".to_string()));
-        assert_eq!(counted(Far { done: 3, many: 9 }), Ok("(3/9)".to_string()));
-        assert_eq!(counted(Far { done: 7, many: 120 }), Ok("(  7/120)".to_string()));
+        assert_eq!(counted(Progress { done: 1, many: 14 }), Ok("( 1/14)".to_string()));
+        assert_eq!(counted(Progress { done: 14, many: 14 }), Ok("(14/14)".to_string()));
+        assert_eq!(counted(Progress { done: 3, many: 9 }), Ok("(3/9)".to_string()));
+        assert_eq!(counted(Progress { done: 7, many: 120 }), Ok("(  7/120)".to_string()));
     }
 
     #[test]
     fn a_line_is_the_counter_the_name_the_bar_and_the_number() {
-        let Ok(said) = line(Far { done: 2, many: 14 }, "installing console-fonts", 50);
+        let Ok(said) = line(Progress { done: 2, many: 14 }, "installing console-fonts", 50);
 
         assert!(said.starts_with("( 2/14) installing console-fonts"), "{said}");
         assert!(said.contains(&"#".repeat(11)), "{said}");
@@ -366,12 +370,12 @@ mod tests {
     #[test]
     fn every_line_fits_a_terminal_eighty_wide() {
         for (at, many, into) in
-            [(1_usize, 9_usize, 0_u16), (14, 14, 100), (120, 120, 7), (7, 1000, 50)]
+            [(1_u32, 9_u32, 0_u16), (14, 14, 100), (120, 120, 7), (7, 1000, 50)]
         {
             let Ok(said) =
                 caption("keeping the release", Now("home/@user@/.config/console/palette.css"));
-            let Ok(drawn) = line(Far { done: at, many }, &said, into);
-            let wide = drawn.chars().count();
+            let Ok(drawn) = line(Progress { done: at, many }, &said, into);
+            let wide = columns(&drawn);
 
             assert_eq!(wide, ROOM, "{wide} columns rather than {ROOM}: {drawn}");
         }
@@ -379,8 +383,8 @@ mod tests {
 
     #[test]
     fn a_short_name_is_padded_so_the_bar_stands_in_the_same_column_all_run() {
-        let Ok(one) = line(Far { done: 1, many: 14 }, "sweeping", 0);
-        let Ok(other) = line(Far { done: 2, many: 14 }, "installing console-fonts", 50);
+        let Ok(one) = line(Progress { done: 1, many: 14 }, "sweeping", 0);
+        let Ok(other) = line(Progress { done: 2, many: 14 }, "installing console-fonts", 50);
 
         assert_eq!(one.find('['), other.find('['), "{one}\n{other}");
     }
@@ -392,7 +396,7 @@ mod tests {
 
         assert!(said.starts_with('…'), "{said}");
         assert!(said.ends_with("palette.css"), "{said}");
-        assert!(said.chars().count() <= room, "{said}");
+        assert!(columns(&said) <= room, "{said}");
     }
 
     #[test]
@@ -440,19 +444,19 @@ mod tests {
         let Ok(()) = bar.full();
 
         assert!(drawn(&bar).ends_with("] 100%"), "{}", drawn(&bar));
-        assert!(drawn(&bar).contains(&"#".repeat(CELLS)), "{}", drawn(&bar));
+        assert!(drawn(&bar).contains(&"#".repeat(CELLS.try_into().unwrap())), "{}", drawn(&bar));
     }
 
     #[test]
     fn a_number_past_the_end_fills_the_bar_and_no_further() {
-        let Ok(said) = line(Far { done: 1, many: 1 }, "done", 400);
+        let Ok(said) = line(Progress { done: 1, many: 1 }, "done", 400);
 
         assert!(said.ends_with("] 100%"), "{said}");
-        assert_eq!(said.chars().filter(|one| *one == '#').count(), CELLS);
+        assert_eq!(columns(&said.replace(|one| one != '#', "")), CELLS);
     }
 
     #[test]
-    fn the_colour_a_program_writes_is_not_part_of_what_it_said() {
+    fn the_color_a_program_writes_is_not_part_of_what_it_said() {
         assert_eq!(
             plain("\u{1b}[0m\u{1b}[1m\u{1b}[32m   Compiling\u{1b}[0m console-panel v0.1.0"),
             Ok("   Compiling console-panel v0.1.0".to_string())
@@ -464,9 +468,9 @@ mod tests {
 
     #[test]
     fn nothing_is_divided_by_a_total_of_nothing() {
-        assert_eq!(fraction(Far { done: 0, many: 0 }), Ok(0.0));
-        assert_eq!(fraction(Far { done: 1, many: 4 }), Ok(0.25));
-        assert_eq!(fraction(Far { done: 4, many: 4 }), Ok(1.0));
+        assert_eq!(fraction(Progress { done: 0, many: 0 }), Ok(0.0));
+        assert_eq!(fraction(Progress { done: 1, many: 4 }), Ok(0.25));
+        assert_eq!(fraction(Progress { done: 4, many: 4 }), Ok(1.0));
     }
 
     #[test]

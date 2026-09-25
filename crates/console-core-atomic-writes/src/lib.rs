@@ -40,18 +40,18 @@
 //!
 //! # The reading
 //!
-//! The write side is why a file can be torn. The read side is why nobody ever
+//! The write side is why a file can be torn. The read side is why no one ever
 //! found out.
 //!
 //! Every one of these files was read with `.ok()` or `unwrap_or_default`, which
 //! turns *every* way of failing into the same answer as an empty file. A
 //! setting whose file will not open, a setting whose file is half written and a
-//! setting nobody has ever chosen are three different facts, and all three came
+//! setting no one has ever chosen are three different facts, and all three came
 //! back as the third. What that looks like from the outside is a machine that
-//! quietly went back to a default, at a moment nobody can identify, for a
-//! reason nobody can recover.
+//! quietly went back to a default, at a moment no one can identify, for a
+//! reason no one can recover.
 //!
-//! `Held` keeps them apart. A file that is not there is ordinary and means the
+//! `Stored` keeps them apart. A file that is not there is ordinary and means the
 //! default. A file that is there and will not be read is a fault, and the
 //! caller is handed it rather than a shrug. That is the same rule EXPLICIT006
 //! is written for -- an error is not an absence -- applied to the one place it
@@ -69,11 +69,25 @@
 //! sentence each of them used to print is the `Display` arm, so the journal
 //! reads as it did and a caller that wants to tell the full disk from the
 //! forbidden directory now can.
+//!
+//! # Two writers at once
+//!
+//! The staging name used to be one fixed name beside the file, which is only
+//! a staging name while there is one writer. Two processes writing one file at
+//! the same moment both made that one path, the second truncated the first's
+//! half-written bytes, and whichever renamed first could put a torn file in
+//! place -- the very thing this crate exists to rule out. So the name carries
+//! the process and the thread doing the writing, which are the two things that
+//! can be doing it at once. And the file that goes in keeps the mode and the
+//! owner of the one it replaces, because a rename puts a new file under the
+//! old name rather than new bytes into the old file, and a file that was 0600
+//! is not meant to come back 0644 because somebody changed a line in it.
 
 use console_core_never::Never;
 use std::fmt;
 use std::fs::File;
 use std::io::Write;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 pub const BESIDE: &str = "console-writing";
@@ -84,30 +98,70 @@ pub fn beside(live: &Path) -> Result<PathBuf, Never> {
         None => "file".to_string(),
     };
 
-    Ok(live.with_file_name(format!("{name}.{BESIDE}")))
+    let thread: String = format!("{:?}", std::thread::current().id())
+        .chars()
+        .filter(char::is_ascii_digit)
+        .collect();
+
+    Ok(live.with_file_name(format!("{name}.{BESIDE}.{}.{thread}", std::process::id())))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Held {
-    Said(String),
-    Nothing,
-    Unreadable(String),
+pub enum Stored {
+    Text(String),
+    Absent,
+    Failed(String),
 }
 
-impl Held {
-    pub fn said(self) -> Result<Option<String>, Never> {
+impl Stored {
+    pub fn text(self) -> Result<Option<String>, Never> {
         Ok(match self {
-            Held::Said(said) => Some(said),
-            Held::Nothing | Held::Unreadable(_) => None,
+            Stored::Text(text) => Some(text),
+            Stored::Absent | Stored::Failed(_) => None,
         })
     }
 }
 
-pub fn read(at: &Path) -> Result<Held, Never> {
+pub fn read(at: &Path) -> Result<Stored, Never> {
     Ok(match std::fs::read_to_string(at) {
-        Ok(said) => Held::Said(said),
-        Err(fault) if fault.kind() == std::io::ErrorKind::NotFound => Held::Nothing,
-        Err(fault) => Held::Unreadable(fault.to_string()),
+        Ok(text) => Stored::Text(text),
+        Err(fault) => match fault.kind() == std::io::ErrorKind::NotFound {
+            true => Stored::Absent,
+            false => Stored::Failed(fault.to_string()),
+        },
+    })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Unread(pub PathBuf, pub String);
+
+impl fmt::Display for Unread {
+    fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Unread(at, fault) = self;
+
+        write!(to, "{}: {fault}", at.display())
+    }
+}
+
+impl std::error::Error for Unread {}
+
+pub fn text_or_empty(at: &Path) -> Result<String, Unread> {
+    let Ok(stored) = read(at);
+
+    match stored {
+        Stored::Text(text) => Ok(text),
+        Stored::Absent => Ok(String::new()),
+        Stored::Failed(fault) => Err(Unread(at.to_path_buf(), fault)),
+    }
+}
+
+pub fn number<Number: std::str::FromStr>(at: &Path) -> Result<Option<Number>, Never> {
+    let Ok(stored) = read(at);
+    let Ok(text) = stored.text();
+
+    Ok(match text.map(|said| said.trim().parse::<Number>()) {
+        Some(Ok(number)) => Some(number),
+        Some(Err(_)) | None => None,
     })
 }
 
@@ -117,6 +171,7 @@ pub enum Unwritten {
     Filling(PathBuf, std::io::Error),
     Settling(PathBuf, std::io::Error),
     Moving(PathBuf, std::io::Error),
+    Keeping(PathBuf, std::io::Error),
     Naming(PathBuf, std::io::Error),
 }
 
@@ -130,6 +185,9 @@ impl fmt::Display for Unwritten {
             }
             Unwritten::Moving(at, fault) => {
                 write!(to, "{}: moving it into place: {fault}", at.display())
+            }
+            Unwritten::Keeping(at, fault) => {
+                write!(to, "{}: keeping its mode and owner: {fault}", at.display())
             }
             Unwritten::Naming(holding, fault) => write!(
                 to,
@@ -145,7 +203,7 @@ impl std::error::Error for Unwritten {}
 pub fn whole(at: &Path, bytes: &[u8]) -> Result<(), Unwritten> {
     let Ok(staged) = beside(at);
 
-    match settled(&staged, bytes) {
+    match settled(&staged, bytes).and_then(|()| kept(at, &staged)) {
         Ok(()) => {}
         Err(fault) => {
             let _ = std::fs::remove_file(&staged);
@@ -162,6 +220,15 @@ pub fn whole(at: &Path, bytes: &[u8]) -> Result<(), Unwritten> {
     }
 
     named(at)
+}
+
+pub fn whole_with_folders(at: &Path, bytes: &[u8]) -> Result<(), Unwritten> {
+    match at.parent() {
+        Some(parent) => std::fs::create_dir_all(parent).map_err(|fault| Unwritten::Making(parent.to_path_buf(), fault))?,
+        None => {}
+    }
+
+    whole(at, bytes)
 }
 
 #[cfg_attr(
@@ -181,6 +248,24 @@ pub fn settled(at: &Path, bytes: &[u8]) -> Result<(), Unwritten> {
         .map_err(|fault| Unwritten::Settling(at.to_path_buf(), fault))
 }
 
+fn kept(live: &Path, staged: &Path) -> Result<(), Unwritten> {
+    let was = match std::fs::metadata(live) {
+        Ok(was) => was,
+        Err(_nothing_there_to_keep) => return Ok(()),
+    };
+
+    let keeping = |fault| Unwritten::Keeping(live.to_path_buf(), fault);
+
+    std::fs::set_permissions(staged, was.permissions()).map_err(keeping)?;
+
+    let made = std::fs::metadata(staged).map_err(keeping)?;
+
+    match (made.uid() == was.uid(), made.gid() == was.gid()) {
+        (true, true) => Ok(()),
+        (_, _) => std::os::unix::fs::chown(staged, Some(was.uid()), Some(was.gid())).map_err(keeping),
+    }
+}
+
 pub fn named(at: &Path) -> Result<(), Unwritten> {
     let holding = match at.parent() {
         Some(holding) => holding,
@@ -192,15 +277,74 @@ pub fn named(at: &Path) -> Result<(), Unwritten> {
         .map_err(|fault| Unwritten::Naming(holding.to_path_buf(), fault))
 }
 
+#[derive(Debug)]
+pub struct Ungone(pub PathBuf, pub std::io::Error);
+
+impl fmt::Display for Ungone {
+    fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Ungone(at, fault) = self;
+
+        write!(to, "{} will not go away: {fault}", at.display())
+    }
+}
+
+impl std::error::Error for Ungone {}
+
+pub fn gone(at: &Path) -> Result<(), Ungone> {
+    match std::fs::remove_file(at) {
+        Ok(()) => Ok(()),
+        Err(fault) => match fault.kind() == std::io::ErrorKind::NotFound {
+            true => Ok(()),
+            false => Err(Ungone(at.to_path_buf(), fault)),
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn somewhere(named: &str) -> PathBuf {
-        let at = std::env::temp_dir().join(format!("console-writing-{named}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&at);
-        std::fs::create_dir_all(&at).expect("somewhere to work");
-        at
+        console_core_temporary_directories::fresh(&format!("writing-{named}")).expect("somewhere to work")
+    }
+
+    #[test]
+    fn a_file_that_was_never_there_is_already_gone() {
+        let at = somewhere("gone").join("never");
+        gone(&at).expect("nothing to take away");
+        whole(&at, b"here").expect("written");
+        gone(&at).expect("taken away");
+        assert!(!at.exists(), "the file is still there");
+    }
+
+    #[test]
+    fn the_folders_a_file_goes_in_are_made_for_it() {
+        let at = somewhere("folders").join("one/two/thing");
+        whole_with_folders(&at, b"deep").expect("written");
+        assert_eq!(std::fs::read(&at).expect("it"), b"deep");
+    }
+
+    #[test]
+    fn a_file_that_is_not_there_reads_as_nothing_and_one_that_cannot_be_read_says_so() {
+        let here = somewhere("unread");
+        assert_eq!(text_or_empty(&here.join("never")), Ok(String::new()));
+        assert!(text_or_empty(&here).is_err(), "a folder read as a file");
+    }
+
+    #[test]
+    fn a_number_kept_in_a_file_is_read_back_and_anything_else_is_none() {
+        let here = somewhere("number");
+        whole(&here.join("kept"), b"42\n").expect("written");
+        whole(&here.join("words"), b"forty-two").expect("written");
+        assert_eq!(number::<u32>(&here.join("kept")), Ok(Some(42)));
+        assert_eq!(number::<u32>(&here.join("words")), Ok(None));
+        assert_eq!(number::<u32>(&here.join("never")), Ok(None));
+    }
+
+    #[test]
+    fn a_folder_is_not_a_file_to_take_away() {
+        let at = somewhere("folder");
+        assert!(gone(&at).is_err(), "a folder was answered as gone");
     }
 
     #[test]
@@ -251,33 +395,66 @@ mod tests {
     }
 
     #[test]
+    fn a_file_keeps_its_mode_when_it_is_written_over() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let at = somewhere("mode").join("thing");
+        whole(&at, b"private").expect("written");
+        std::fs::set_permissions(&at, std::fs::Permissions::from_mode(0o600)).expect("made private");
+
+        whole(&at, b"still private").expect("written again");
+
+        let mode = std::fs::metadata(&at).expect("it").permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "writing a file over itself changed who may read it");
+    }
+
+    #[test]
+    fn two_writers_at_once_each_leave_a_whole_file() {
+        let at = somewhere("two").join("thing");
+        let long = vec![b'a'; 1 << 20];
+        let short = vec![b'b'; 1 << 10];
+
+        std::thread::scope(|scope| {
+            for _ in 0..50 {
+                let one = scope.spawn(|| whole(&at, &long));
+                let two = scope.spawn(|| whole(&at, &short));
+                one.join().expect("the first writer").expect("written");
+                two.join().expect("the second writer").expect("written");
+
+                let held = std::fs::read(&at).expect("it");
+                assert!(held == long || held == short, "a write came back torn, {} bytes", held.len());
+            }
+        });
+    }
+
+    #[test]
     fn nothing_there_and_will_not_be_read_are_two_different_answers() {
         let here = somewhere("held");
 
         let Ok(never) = read(&here.join("never-written"));
 
-        assert_eq!(never, Held::Nothing);
+        assert_eq!(never, Stored::Absent);
 
         let at = here.join("thing");
         whole(&at, b"said").expect("written");
 
         let Ok(held) = read(&at);
 
-        assert_eq!(held, Held::Said("said".to_string()));
+        assert_eq!(held, Stored::Text("said".to_string()));
 
         let Ok(directory) = read(&here);
 
         match directory {
-            Held::Unreadable(_) => {}
+            Stored::Failed(_) => {}
             other => panic!("a directory read as {other:?} rather than as a fault"),
         }
     }
 
     #[test]
     fn folding_the_two_together_is_possible_and_has_to_be_said() {
-        let Ok(said) = Held::Said("x".into()).said();
-        let Ok(nothing) = Held::Nothing.said();
-        let Ok(unreadable) = Held::Unreadable("boom".into()).said();
+        let Ok(said) = Stored::Text("x".into()).text();
+        let Ok(nothing) = Stored::Absent.text();
+        let Ok(unreadable) = Stored::Failed("boom".into()).text();
 
         assert_eq!(said, Some("x".to_string()));
         assert_eq!(nothing, None);

@@ -55,7 +55,7 @@ fn is_test_build(cx: &LateContext<'_>) -> bool {
     cx.sess().opts.test
 }
 
-// A range whose far end is somebody's length. Both spellings, since `..=` is
+// A range whose far end is someone's length. Both spellings, since `..=` is
 // written by a different struct and is the one that is off by one as well.
 fn ends_at_a_length<'tcx>(walked: &'tcx Expr<'tcx>) -> Option<&'tcx Expr<'tcx>> {
     let ends = match walked.kind {
@@ -103,8 +103,8 @@ impl<'tcx> LateLintPass<'tcx> for Explicit031NoWalkingByCount {
         }
 
         // The loop's head carries the mark of the `for` desugaring, and a
-        // diagnostic left on a desugared span is a diagnostic nobody is shown.
-        // `source_callsite` is the range as somebody wrote it.
+        // diagnostic left on a desugared span is a diagnostic no one is shown.
+        // `source_callsite` is the range as someone wrote it.
         span_lint_and_help(
             cx,
             EXPLICIT031_NO_WALKING_BY_COUNT,

@@ -3,28 +3,10 @@
 version = 4
 
 [[package]]
-name = "autocfg"
-version = "1.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
-
-[[package]]
 name = "bitflags"
 version = "2.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b588b76d00fde79687d7646a9b5bdf3cc0f655e0bbd080335a95d7e96f3587da"
-
-[[package]]
-name = "bitvec"
-version = "1.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ddcec3d12c579d40898fe0a9a358a803c23e9c52ca3c425707f81c9436211837"
-dependencies = [
- "funty",
- "radium",
- "tap",
- "wyz",
-]
 
 [[package]]
 name = "block-buffer"
@@ -85,12 +67,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
-name = "cfg_aliases"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
-
-[[package]]
 name = "console-applications"
 version = "0.1.0"
 dependencies = [
@@ -98,8 +74,42 @@ dependencies = [
  "console-core-external-programs",
  "console-core-ini-files",
  "console-core-never",
+ "console-core-number-conversion",
  "console-core-places",
- "console-panel",
+]
+
+[[package]]
+name = "console-architecture"
+version = "0.1.0"
+dependencies = [
+ "console-core-atomic-writes",
+ "console-core-external-programs",
+ "console-core-ini-files",
+ "console-core-never",
+ "console-core-words",
+ "console-repository",
+ "serde_json",
+]
+
+[[package]]
+name = "console-awake"
+version = "0.1.0"
+dependencies = [
+ "console-core-external-programs",
+ "console-core-never",
+ "console-core-words",
+ "console-program-lifetime",
+ "console-session",
+]
+
+[[package]]
+name = "console-battery"
+version = "0.1.0"
+dependencies = [
+ "console-core-atomic-writes",
+ "console-core-never",
+ "console-core-words",
+ "console-defaults",
 ]
 
 [[package]]
@@ -111,6 +121,41 @@ dependencies = [
  "console-core-external-programs",
  "console-core-never",
  "console-core-places",
+ "console-core-temporary-directories",
+]
+
+[[package]]
+name = "console-books"
+version = "0.1.0"
+dependencies = [
+ "console-core-atomic-writes",
+ "console-core-color",
+ "console-core-external-programs",
+ "console-core-fonts",
+ "console-core-geometry",
+ "console-core-internal-programs",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-places",
+ "console-core-shapes",
+ "console-core-words",
+ "console-core-zip-files",
+ "console-defaults",
+ "console-draw-painting",
+ "console-draw-surface",
+ "console-events",
+ "console-panel",
+ "console-pictures",
+ "console-program-contract",
+ "console-program-lifetime",
+]
+
+[[package]]
+name = "console-boot-entries"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "console-core-number-conversion",
 ]
 
 [[package]]
@@ -118,6 +163,7 @@ name = "console-browser-extension"
 version = "0.1.0"
 dependencies = [
  "console-core-atomic-writes",
+ "console-core-checksums",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
@@ -131,7 +177,7 @@ dependencies = [
  "console-core-external-programs",
  "console-core-never",
  "console-core-number-conversion",
- "libc",
+ "rustix",
 ]
 
 [[package]]
@@ -142,14 +188,24 @@ dependencies = [
  "console-core-atomic-writes",
  "console-core-external-programs",
  "console-core-never",
+ "console-core-number-conversion",
  "console-core-places",
  "console-files",
  "console-input-bindings",
  "console-input-controller",
+ "console-input-event-devices",
  "console-input-focus",
  "console-input-gamepad",
+]
+
+[[package]]
+name = "console-calculator"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-words",
  "console-panel",
- "evdev",
 ]
 
 [[package]]
@@ -158,6 +214,7 @@ version = "0.1.0"
 dependencies = [
  "console-core-external-programs",
  "console-core-never",
+ "console-core-number-conversion",
  "console-panel",
  "console-test-stages",
 ]
@@ -170,8 +227,34 @@ dependencies = [
  "console-core-geometry",
  "console-core-never",
  "console-core-number-conversion",
+ "console-core-places",
  "console-core-words",
  "serde_json",
+]
+
+[[package]]
+name = "console-content-types"
+version = "0.1.0"
+dependencies = [
+ "console-core-atomic-writes",
+ "console-core-never",
+]
+
+[[package]]
+name = "console-control-center"
+version = "0.1.0"
+dependencies = [
+ "console-core-color",
+ "console-core-fonts",
+ "console-core-geometry",
+ "console-core-internal-programs",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-shapes",
+ "console-draw-painting",
+ "console-draw-surface",
+ "console-onscreen",
+ "console-program-lifetime",
 ]
 
 [[package]]
@@ -179,10 +262,19 @@ name = "console-core-atomic-writes"
 version = "0.1.0"
 dependencies = [
  "console-core-never",
+ "console-core-temporary-directories",
 ]
 
 [[package]]
-name = "console-core-colour"
+name = "console-core-checksums"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "console-core-number-conversion",
+]
+
+[[package]]
+name = "console-core-color"
 version = "0.1.0"
 dependencies = [
  "console-core-never",
@@ -191,6 +283,14 @@ dependencies = [
 
 [[package]]
 name = "console-core-external-programs"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "console-core-temporary-directories",
+]
+
+[[package]]
+name = "console-core-fonts"
 version = "0.1.0"
 dependencies = [
  "console-core-never",
@@ -205,6 +305,13 @@ dependencies = [
 
 [[package]]
 name = "console-core-ini-files"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+]
+
+[[package]]
+name = "console-core-internal-programs"
 version = "0.1.0"
 dependencies = [
  "console-core-never",
@@ -229,18 +336,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "console-core-our-programs"
-version = "0.1.0"
-dependencies = [
- "console-core-never",
-]
-
-[[package]]
 name = "console-core-places"
 version = "0.1.0"
 dependencies = [
+ "console-core-atomic-writes",
  "console-core-never",
  "console-core-words",
+]
+
+[[package]]
+name = "console-core-qr-codes"
+version = "0.1.0"
+dependencies = [
+ "console-core-geometry",
+ "console-core-never",
+ "console-core-number-conversion",
 ]
 
 [[package]]
@@ -254,16 +364,33 @@ dependencies = [
 name = "console-core-shapes"
 version = "0.1.0"
 dependencies = [
- "console-core-colour",
+ "console-core-color",
+ "console-core-fonts",
  "console-core-geometry",
  "console-core-never",
  "console-core-number-conversion",
 ]
 
 [[package]]
+name = "console-core-temporary-directories"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+]
+
+[[package]]
 name = "console-core-walking"
 version = "0.1.0"
 dependencies = [
+ "console-core-never",
+ "console-core-number-conversion",
+]
+
+[[package]]
+name = "console-core-web-engine"
+version = "0.1.0"
+dependencies = [
+ "console-core-geometry",
  "console-core-never",
 ]
 
@@ -274,6 +401,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.4",
+]
+
+[[package]]
+name = "console-core-zip-files"
+version = "0.1.0"
+dependencies = [
+ "console-core-checksums",
+ "console-core-never",
+ "console-core-number-conversion",
 ]
 
 [[package]]
@@ -293,19 +429,33 @@ dependencies = [
  "console-core-external-programs",
  "console-core-never",
  "console-core-places",
+ "console-core-temporary-directories",
  "console-core-words",
+ "console-defaults",
  "serde_json",
+]
+
+[[package]]
+name = "console-defaults"
+version = "0.1.0"
+dependencies = [
+ "console-core-atomic-writes",
+ "console-core-never",
+ "console-core-places",
+ "rustix",
 ]
 
 [[package]]
 name = "console-device"
 version = "0.1.0"
 dependencies = [
+ "console-awake",
  "console-core-atomic-writes",
  "console-core-external-programs",
+ "console-core-internal-programs",
  "console-core-never",
- "console-core-our-programs",
  "console-core-places",
+ "console-device-name",
  "console-program-contract",
  "console-program-runtime",
  "console-repository",
@@ -313,18 +463,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "console-device-name"
+version = "0.1.0"
+
+[[package]]
 name = "console-downloads"
 version = "0.1.0"
 dependencies = [
+ "console-books",
  "console-core-atomic-writes",
  "console-core-external-programs",
+ "console-core-localization",
  "console-core-never",
  "console-core-number-conversion",
+ "console-core-places",
  "console-core-words",
- "console-music",
+ "console-music-player",
  "console-panel",
  "console-program-contract",
- "gtk4",
  "serde_json",
 ]
 
@@ -333,7 +489,7 @@ name = "console-draw-painting"
 version = "0.1.0"
 dependencies = [
  "cairo-rs",
- "console-core-colour",
+ "console-core-color",
  "console-core-geometry",
  "console-core-never",
  "console-core-number-conversion",
@@ -349,11 +505,13 @@ dependencies = [
  "console-core-geometry",
  "console-core-never",
  "console-core-number-conversion",
+ "console-response-times",
  "console-screen",
- "libc",
+ "rustix",
  "wayland-client",
  "wayland-protocols",
  "wayland-protocols-wlr",
+ "xkbcommon",
 ]
 
 [[package]]
@@ -362,18 +520,23 @@ version = "0.1.0"
 dependencies = [
  "console-core-external-programs",
  "console-core-never",
+ "console-core-number-conversion",
  "console-core-places",
  "console-core-reconnect",
  "console-onscreen",
  "console-program-contract",
  "console-program-lifetime",
+ "rustix",
 ]
 
 [[package]]
 name = "console-files"
 version = "0.1.0"
 dependencies = [
+ "console-applications",
+ "console-content-types",
  "console-core-atomic-writes",
+ "console-core-checksums",
  "console-core-external-programs",
  "console-core-never",
  "console-core-number-conversion",
@@ -381,7 +544,18 @@ dependencies = [
  "console-core-words",
  "console-panel",
  "console-program-contract",
- "gtk4",
+]
+
+[[package]]
+name = "console-forecast"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-places",
+ "console-panel",
+ "console-wallpaper",
+ "console-weather",
 ]
 
 [[package]]
@@ -391,20 +565,23 @@ dependencies = [
  "console-applications",
  "console-compositor",
  "console-core-atomic-writes",
+ "console-core-color",
  "console-core-geometry",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
- "console-core-reconnect",
+ "console-core-shapes",
  "console-core-walking",
  "console-core-words",
+ "console-draw-painting",
+ "console-draw-surface",
+ "console-events",
  "console-onscreen",
  "console-panel",
- "console-screen",
+ "console-program-contract",
+ "console-program-lifetime",
  "console-status-bar",
- "gtk4",
- "gtk4-layer-shell",
- "serde_json",
+ "rustix",
 ]
 
 [[package]]
@@ -422,8 +599,8 @@ dependencies = [
  "console-core-atomic-writes",
  "console-core-never",
  "console-core-places",
- "console-default-applications",
- "tempfile",
+ "console-core-temporary-directories",
+ "console-defaults",
 ]
 
 [[package]]
@@ -432,12 +609,13 @@ version = "0.1.0"
 dependencies = [
  "console-core-atomic-writes",
  "console-core-never",
+ "console-core-number-conversion",
  "console-core-places",
+ "console-core-temporary-directories",
  "console-core-words",
+ "console-input-event-devices",
  "console-input-gamepad",
- "evdev",
  "serde",
- "tempfile",
  "toml 0.9.12+spec-1.1.0",
 ]
 
@@ -449,6 +627,7 @@ dependencies = [
  "console-core-atomic-writes",
  "console-core-external-programs",
  "console-core-geometry",
+ "console-core-internal-programs",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
@@ -456,6 +635,7 @@ dependencies = [
  "console-cpu-boost",
  "console-events",
  "console-input-bindings",
+ "console-input-event-devices",
  "console-input-gamepad",
  "console-input-language",
  "console-onscreen",
@@ -463,8 +643,7 @@ dependencies = [
  "console-program-lifetime",
  "console-program-runtime",
  "console-response-times",
- "evdev",
- "libc",
+ "rustix",
  "serde_json",
 ]
 
@@ -474,17 +653,26 @@ version = "0.1.0"
 dependencies = [
  "console-core-atomic-writes",
  "console-core-external-programs",
+ "console-core-internal-programs",
  "console-core-never",
  "console-core-number-conversion",
- "console-core-our-programs",
  "console-core-places",
- "console-default-applications",
+ "console-defaults",
  "console-program-contract",
  "console-program-lifetime",
  "console-program-runtime",
  "console-response-times",
  "console-waiting",
- "libc",
+ "rustix",
+]
+
+[[package]]
+name = "console-input-event-devices"
+version = "0.1.0"
+dependencies = [
+ "console-core-geometry",
+ "console-core-never",
+ "console-core-number-conversion",
 ]
 
 [[package]]
@@ -493,8 +681,8 @@ version = "0.1.0"
 dependencies = [
  "console-core-never",
  "console-core-words",
+ "console-input-event-devices",
  "console-input-gamepad",
- "evdev",
 ]
 
 [[package]]
@@ -507,11 +695,11 @@ dependencies = [
  "console-core-never",
  "console-core-number-conversion",
  "console-core-words",
+ "console-input-event-devices",
  "console-input-gamepad",
  "console-program-contract",
  "console-program-runtime",
  "console-repository",
- "evdev",
  "libc",
  "serde",
  "serde_json",
@@ -523,7 +711,7 @@ name = "console-input-keyboard"
 version = "0.1.0"
 dependencies = [
  "cairo-rs",
- "console-core-colour",
+ "console-core-color",
  "console-core-external-programs",
  "console-core-geometry",
  "console-core-never",
@@ -533,12 +721,12 @@ dependencies = [
  "console-core-words",
  "console-input-alphabets",
  "console-input-controller",
+ "console-input-event-devices",
  "console-input-focus",
  "console-input-gamepad",
  "console-program-contract",
  "console-program-runtime",
  "console-response-times",
- "evdev",
  "libc",
  "pango",
  "pangocairo",
@@ -554,6 +742,7 @@ version = "0.1.0"
 dependencies = [
  "console-compositor",
  "console-core-never",
+ "console-core-number-conversion",
  "console-core-places",
  "console-core-walking",
  "console-input-alphabets",
@@ -563,19 +752,25 @@ dependencies = [
 name = "console-input-mapping"
 version = "0.1.0"
 dependencies = [
+ "console-button-guide",
  "console-core-atomic-writes",
+ "console-core-color",
  "console-core-external-programs",
+ "console-core-geometry",
  "console-core-never",
+ "console-core-number-conversion",
  "console-core-places",
+ "console-core-shapes",
+ "console-draw-painting",
+ "console-draw-surface",
  "console-input-bindings",
  "console-input-controller",
+ "console-input-event-devices",
  "console-input-focus",
  "console-input-gamepad",
+ "console-onscreen",
  "console-panel",
  "console-program-contract",
- "evdev",
- "gtk4",
- "gtk4-layer-shell",
 ]
 
 [[package]]
@@ -599,8 +794,37 @@ dependencies = [
  "console-core-geometry",
  "console-core-never",
  "console-core-number-conversion",
+ "console-input-event-devices",
  "console-screen",
- "evdev",
+]
+
+[[package]]
+name = "console-kernel"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "console-kernel-handles",
+]
+
+[[package]]
+name = "console-kernel-files"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+]
+
+[[package]]
+name = "console-kernel-handles"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+]
+
+[[package]]
+name = "console-kernel-scheduling"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
 ]
 
 [[package]]
@@ -618,18 +842,71 @@ dependencies = [
 ]
 
 [[package]]
-name = "console-manifest-engine"
+name = "console-login-greeter"
 version = "0.1.0"
 dependencies = [
+ "console-core-color",
+ "console-core-geometry",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-shapes",
+ "console-draw-painting",
+ "console-input-event-devices",
+ "console-login-pattern",
+ "console-login-window",
+ "console-program-contract",
+ "console-screen",
+]
+
+[[package]]
+name = "console-login-pattern"
+version = "0.1.0"
+dependencies = [
+ "console-core-geometry",
+ "console-core-never",
+ "console-core-number-conversion",
+]
+
+[[package]]
+name = "console-login-session"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "console-core-number-conversion",
+]
+
+[[package]]
+name = "console-login-window"
+version = "0.1.0"
+dependencies = [
+ "console-applications",
  "console-core-atomic-writes",
  "console-core-external-programs",
  "console-core-ini-files",
+ "console-core-internal-programs",
  "console-core-never",
  "console-core-number-conversion",
- "console-core-our-programs",
+ "console-core-places",
+ "console-login-session",
+ "console-program-lifetime",
+]
+
+[[package]]
+name = "console-manifest-engine"
+version = "0.1.0"
+dependencies = [
+ "console-awake",
+ "console-battery",
+ "console-core-atomic-writes",
+ "console-core-external-programs",
+ "console-core-fonts",
+ "console-core-ini-files",
+ "console-core-internal-programs",
+ "console-core-never",
+ "console-core-number-conversion",
  "console-core-places",
  "console-core-words",
- "console-default-applications",
+ "console-defaults",
  "console-how-far",
  "console-input-bindings",
  "console-input-controller",
@@ -638,8 +915,8 @@ dependencies = [
  "console-manifest-migrations",
  "console-notifications",
  "console-program-lifetime",
+ "console-repository",
  "console-screen",
- "console-status-bar",
  "serde_json",
  "serde_yaml_ng",
  "toml 0.9.12+spec-1.1.0",
@@ -651,7 +928,10 @@ version = "0.1.0"
 dependencies = [
  "console-core-atomic-writes",
  "console-core-external-programs",
+ "console-core-internal-programs",
  "console-core-never",
+ "console-manifest-engine",
+ "console-rename",
  "console-repository",
 ]
 
@@ -662,7 +942,8 @@ dependencies = [
  "console-core-atomic-writes",
  "console-core-external-programs",
  "console-core-never",
- "console-device",
+ "console-core-temporary-directories",
+ "console-device-name",
  "console-repository",
 ]
 
@@ -670,18 +951,24 @@ dependencies = [
 name = "console-media-viewer"
 version = "0.1.0"
 dependencies = [
+ "console-content-types",
  "console-core-external-programs",
  "console-core-geometry",
+ "console-core-localization",
  "console-core-never",
  "console-core-number-conversion",
+ "console-core-places",
+ "console-core-shapes",
  "console-core-walking",
  "console-core-words",
+ "console-music-player",
  "console-panel",
+ "console-pictures",
  "console-program-contract",
+ "console-program-lifetime",
  "console-settings",
  "console-test-stages",
- "gstreamer",
- "gtk4",
+ "console-waiting",
 ]
 
 [[package]]
@@ -690,17 +977,20 @@ version = "0.1.0"
 dependencies = [
  "console-core-atomic-writes",
  "console-core-external-programs",
+ "console-core-geometry",
+ "console-core-localization",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
+ "console-core-shapes",
  "console-core-walking",
  "console-core-words",
  "console-events",
  "console-music-player",
  "console-panel",
+ "console-pictures",
  "console-program-contract",
  "console-waiting",
- "gtk4",
  "serde_json",
 ]
 
@@ -708,6 +998,8 @@ dependencies = [
 name = "console-music-player"
 version = "0.1.0"
 dependencies = [
+ "console-awake",
+ "console-bus",
  "console-core-atomic-writes",
  "console-core-external-programs",
  "console-core-ini-files",
@@ -717,8 +1009,6 @@ dependencies = [
  "console-core-words",
  "console-program-lifetime",
  "console-response-times",
- "gio",
- "glib",
  "serde_json",
 ]
 
@@ -728,8 +1018,9 @@ version = "0.1.0"
 dependencies = [
  "console-bus",
  "console-core-atomic-writes",
- "console-core-colour",
+ "console-core-color",
  "console-core-external-programs",
+ "console-core-fonts",
  "console-core-geometry",
  "console-core-never",
  "console-core-number-conversion",
@@ -744,7 +1035,7 @@ dependencies = [
  "console-program-contract",
  "console-program-lifetime",
  "console-waiting",
- "libc",
+ "rustix",
  "serde",
  "serde_json",
 ]
@@ -755,10 +1046,10 @@ version = "0.1.0"
 dependencies = [
  "console-compositor",
  "console-core-atomic-writes",
- "console-core-external-programs",
  "console-core-never",
  "console-core-places",
  "console-core-words",
+ "libc",
  "serde_json",
 ]
 
@@ -767,8 +1058,9 @@ name = "console-palette"
 version = "0.1.0"
 dependencies = [
  "console-core-atomic-writes",
- "console-core-colour",
+ "console-core-color",
  "console-core-never",
+ "console-core-number-conversion",
  "console-core-places",
  "console-core-words",
  "console-repository",
@@ -783,22 +1075,31 @@ version = "0.1.0"
 dependencies = [
  "console-compositor",
  "console-core-atomic-writes",
+ "console-core-color",
  "console-core-external-programs",
+ "console-core-fonts",
  "console-core-geometry",
+ "console-core-internal-programs",
  "console-core-never",
  "console-core-number-conversion",
- "console-core-our-programs",
  "console-core-places",
+ "console-core-shapes",
+ "console-core-temporary-directories",
  "console-core-words",
+ "console-draw-painting",
+ "console-draw-surface",
  "console-events",
  "console-onscreen",
+ "console-pictures",
+ "console-program-contract",
  "console-program-lifetime",
+ "console-repository",
  "console-response-times",
+ "console-sound-effects",
  "console-test-stages",
  "console-waiting",
- "gtk4",
- "gtk4-layer-shell",
  "libc",
+ "rustix",
  "serde_json",
 ]
 
@@ -806,10 +1107,13 @@ dependencies = [
 name = "console-panels"
 version = "0.1.0"
 dependencies = [
+ "console-calculator",
  "console-calendar",
+ "console-core-internal-programs",
  "console-core-never",
  "console-downloads",
  "console-files",
+ "console-forecast",
  "console-input-mapping",
  "console-launcher",
  "console-media-viewer",
@@ -818,8 +1122,19 @@ dependencies = [
  "console-panel",
  "console-response-times",
  "console-settings",
- "gtk4",
  "libc",
+ "rustix",
+]
+
+[[package]]
+name = "console-pictures"
+version = "0.1.0"
+dependencies = [
+ "console-core-external-programs",
+ "console-core-geometry",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-shapes",
 ]
 
 [[package]]
@@ -828,6 +1143,7 @@ version = "0.1.0"
 dependencies = [
  "console-core-external-programs",
  "console-core-never",
+ "console-core-number-conversion",
 ]
 
 [[package]]
@@ -836,7 +1152,7 @@ version = "0.1.0"
 dependencies = [
  "console-core-external-programs",
  "console-core-never",
- "libc",
+ "console-waiting",
 ]
 
 [[package]]
@@ -852,25 +1168,48 @@ dependencies = [
 ]
 
 [[package]]
-name = "console-repository"
+name = "console-recovery"
+version = "0.1.0"
+dependencies = [
+ "console-core-external-programs",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-walking",
+ "console-core-words",
+ "console-input-event-devices",
+ "console-program-contract",
+]
+
+[[package]]
+name = "console-rename"
 version = "0.1.0"
 dependencies = [
  "console-core-atomic-writes",
  "console-core-external-programs",
  "console-core-never",
- "console-program-contract",
- "console-program-runtime",
+ "console-repository",
+]
+
+[[package]]
+name = "console-repository"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "console-core-number-conversion",
+ "proc-macro2",
+ "quote",
+ "syn 3.0.4",
 ]
 
 [[package]]
 name = "console-resource-usage"
 version = "0.1.0"
 dependencies = [
+ "console-battery",
  "console-core-atomic-writes",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
- "console-default-applications",
  "serde_json",
 ]
 
@@ -883,6 +1222,7 @@ dependencies = [
  "console-core-number-conversion",
  "console-core-places",
  "libc",
+ "rustix",
  "serde_json",
 ]
 
@@ -897,6 +1237,7 @@ dependencies = [
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
+ "console-core-temporary-directories",
  "console-events",
  "console-program-contract",
  "console-program-lifetime",
@@ -904,7 +1245,6 @@ dependencies = [
  "console-waiting",
  "serde",
  "serde_json",
- "tempfile",
 ]
 
 [[package]]
@@ -916,7 +1256,6 @@ dependencies = [
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
- "serde_json",
 ]
 
 [[package]]
@@ -925,6 +1264,7 @@ version = "0.1.0"
 dependencies = [
  "console-core-atomic-writes",
  "console-core-external-programs",
+ "console-core-internal-programs",
  "console-core-never",
  "console-core-places",
  "console-core-words",
@@ -936,24 +1276,39 @@ name = "console-settings"
 version = "0.1.0"
 dependencies = [
  "console-applications",
+ "console-battery",
+ "console-books",
  "console-compositor",
  "console-core-atomic-writes",
+ "console-core-color",
  "console-core-external-programs",
  "console-core-geometry",
+ "console-core-internal-programs",
  "console-core-localization",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
+ "console-core-qr-codes",
+ "console-core-shapes",
  "console-core-words",
  "console-default-applications",
+ "console-draw-painting",
+ "console-draw-surface",
+ "console-events",
  "console-home-screen",
  "console-input-alphabets",
  "console-input-dictation",
+ "console-input-event-devices",
  "console-input-language",
+ "console-login-greeter",
+ "console-login-pattern",
+ "console-login-window",
  "console-notifications",
  "console-panel",
+ "console-pictures",
  "console-program-contract",
  "console-screen",
+ "console-sound-effects",
  "console-waiting",
  "console-wallpaper",
  "serde",
@@ -961,20 +1316,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "console-sound-effects"
+version = "0.1.0"
+dependencies = [
+ "console-core-external-programs",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-words",
+ "console-defaults",
+ "console-program-lifetime",
+]
+
+[[package]]
 name = "console-status-bar"
 version = "0.1.0"
 dependencies = [
+ "console-battery",
  "console-compositor",
- "console-core-colour",
+ "console-core-color",
  "console-core-external-programs",
+ "console-core-fonts",
  "console-core-geometry",
+ "console-core-internal-programs",
  "console-core-never",
  "console-core-number-conversion",
- "console-core-our-programs",
  "console-core-reconnect",
  "console-core-shapes",
  "console-core-words",
  "console-default-applications",
+ "console-defaults",
  "console-draw-painting",
  "console-draw-surface",
  "console-events",
@@ -995,6 +1365,8 @@ dependencies = [
 name = "console-test-checks"
 version = "0.1.0"
 dependencies = [
+ "console-architecture",
+ "console-awake",
  "console-compositor",
  "console-core-atomic-writes",
  "console-core-external-programs",
@@ -1003,22 +1375,29 @@ dependencies = [
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
+ "console-core-temporary-directories",
+ "console-events",
  "console-home-screen",
  "console-input-bindings",
  "console-input-controller",
+ "console-input-event-devices",
  "console-input-gamepad",
+ "console-login-greeter",
+ "console-login-pattern",
+ "console-login-window",
  "console-music-player",
  "console-notifications",
  "console-onscreen",
  "console-panel",
  "console-program-lifetime",
+ "console-repository",
+ "console-response-times",
  "console-resume",
  "console-screen",
  "console-settings",
  "console-status-bar",
  "console-test-stages",
  "console-waiting",
- "evdev",
  "serde",
  "serde_json",
  "toml 0.9.12+spec-1.1.0",
@@ -1036,8 +1415,10 @@ dependencies = [
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
+ "console-manifest-engine",
  "console-onscreen",
  "console-program-lifetime",
+ "console-repository",
  "console-screen",
  "console-test-stages",
  "console-waiting",
@@ -1050,12 +1431,13 @@ name = "console-test-flows"
 version = "0.1.0"
 dependencies = [
  "console-button-guide",
+ "console-core-geometry",
  "console-input-bindings",
  "console-input-controller",
+ "console-input-event-devices",
  "console-input-gamepad",
  "console-onscreen",
  "console-test-stages",
- "evdev",
 ]
 
 [[package]]
@@ -1065,7 +1447,7 @@ dependencies = [
  "cairo-rs",
  "console-compositor",
  "console-core-atomic-writes",
- "console-core-colour",
+ "console-core-color",
  "console-core-external-programs",
  "console-core-geometry",
  "console-core-ini-files",
@@ -1074,19 +1456,21 @@ dependencies = [
  "console-core-places",
  "console-core-walking",
  "console-core-words",
- "console-device",
+ "console-device-name",
  "console-how-far",
  "console-input-bindings",
  "console-input-controller",
+ "console-input-event-devices",
  "console-input-gamepad",
  "console-notifications",
  "console-onscreen",
  "console-panel",
  "console-program-lifetime",
+ "console-response-times",
  "console-screen",
  "console-waiting",
- "evdev",
  "libc",
+ "rustix",
  "serde_json",
 ]
 
@@ -1106,7 +1490,7 @@ name = "console-waiting"
 version = "0.1.0"
 dependencies = [
  "console-core-never",
- "libc",
+ "rustix",
 ]
 
 [[package]]
@@ -1115,7 +1499,7 @@ version = "0.1.0"
 dependencies = [
  "console-compositor",
  "console-core-atomic-writes",
- "console-core-colour",
+ "console-core-color",
  "console-core-external-programs",
  "console-core-geometry",
  "console-core-never",
@@ -1128,10 +1512,24 @@ dependencies = [
  "console-program-lifetime",
  "console-repository",
  "console-screen",
+ "console-weather",
  "serde",
  "serde_json",
  "sha2",
  "toml 0.9.12+spec-1.1.0",
+]
+
+[[package]]
+name = "console-weather"
+version = "0.1.0"
+dependencies = [
+ "console-core-atomic-writes",
+ "console-core-external-programs",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-words",
+ "console-defaults",
+ "serde_json",
 ]
 
 [[package]]
@@ -1170,12 +1568,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2"
 
 [[package]]
-name = "either"
-version = "1.18.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "252afb9ae5eaa683babdc6a068b3f5726eb19e05070c731f9b2a23a7c3e8ed34"
-
-[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1192,44 +1584,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "evdev"
-version = "0.13.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25b686663ba7f08d92880ff6ba22170f1df4e83629341cba34cf82cd65ebea99"
-dependencies = [
- "bitvec",
- "cfg-if",
- "libc",
- "nix",
-]
-
-[[package]]
-name = "fastrand"
-version = "2.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
-
-[[package]]
-name = "field-offset"
-version = "0.3.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38e2275cc4e4fc009b0669731a1e5ab7ebf11f469eaede2bab9309a5b4d6057f"
-dependencies = [
- "memoffset",
- "rustc_version",
-]
-
-[[package]]
 name = "find-msvc-tools"
 version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d45db016d36b838f563236e9193d0ee6ce38f3f68b6c94e914b4929c96bbb890"
-
-[[package]]
-name = "funty"
-version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e6d5a32815ae3f33302d95fdcb2ce17862f8c65363dcfd29360480ba1001fc9c"
 
 [[package]]
 name = "futures-channel"
@@ -1294,64 +1652,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gdk-pixbuf"
-version = "0.22.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25f420376dbee041b2db374ce4573892a36222bb3f6c0c43e24f0d67eae9b646"
-dependencies = [
- "gdk-pixbuf-sys",
- "gio",
- "glib",
- "libc",
-]
-
-[[package]]
-name = "gdk-pixbuf-sys"
-version = "0.22.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48f31b37b1fc4b48b54f6b91b7ef04c18e00b4585d98359dd7b998774bbd91fb"
-dependencies = [
- "gio-sys",
- "glib-sys",
- "gobject-sys",
- "libc",
- "system-deps 7.0.8",
-]
-
-[[package]]
-name = "gdk4"
-version = "0.11.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d81e2a6c6ecba2aab60633a98df1868b03fa0bfdce8105edc27c1bccf71f0e39"
-dependencies = [
- "cairo-rs",
- "gdk-pixbuf",
- "gdk4-sys",
- "gio",
- "gl",
- "glib",
- "libc",
- "pango",
-]
-
-[[package]]
-name = "gdk4-sys"
-version = "0.11.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3d8f608d8d7d229975c4d0d026f5d3071598c4ddab3c5262b0a31840fec78d13"
-dependencies = [
- "cairo-sys-rs",
- "gdk-pixbuf-sys",
- "gio-sys",
- "glib-sys",
- "gobject-sys",
- "libc",
- "pango-sys",
- "pkg-config",
- "system-deps 7.0.8",
-]
-
-[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1359,17 +1659,6 @@ checksum = "85649ca51fd72272d7821adaf274ad91c288277713d9c18820d8499a7ff69e9a"
 dependencies = [
  "typenum",
  "version_check",
-]
-
-[[package]]
-name = "getrandom"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "300e883d756b2e4ec94e02791f39b04b522276138852cfc41d9fb7e904106099"
-dependencies = [
- "cfg-if",
- "libc",
- "r-efi",
 ]
 
 [[package]]
@@ -1403,26 +1692,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gl"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a94edab108827d67608095e269cf862e60d920f144a5026d3dbcfd8b877fb404"
-dependencies = [
- "gl_generator",
-]
-
-[[package]]
-name = "gl_generator"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a95dfc23a2b4a9a2f5ab41d194f8bfda3cabec42af4e39f08c339eb2a0c124d"
-dependencies = [
- "khronos_api",
- "log",
- "xml-rs",
-]
-
-[[package]]
 name = "glib"
 version = "0.22.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1434,7 +1703,6 @@ dependencies = [
  "futures-executor",
  "futures-task",
  "futures-util",
- "gio-sys",
  "glib-macros",
  "glib-sys",
  "gobject-sys",
@@ -1477,176 +1745,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "graphene-rs"
-version = "0.22.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb856b9c558971c3f13ab692358926da710b046932a4e087aedcc35b040d7dff"
-dependencies = [
- "glib",
- "graphene-sys",
-]
-
-[[package]]
-name = "graphene-sys"
-version = "0.22.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c7ffdfde88f3570d3705e0d8a2433e036d387a1f2930bbf47eafcb5f569fd04"
-dependencies = [
- "glib-sys",
- "libc",
- "system-deps 7.0.8",
-]
-
-[[package]]
-name = "gsk4"
-version = "0.11.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b867be1c5f14dcb8f552c0eff6e9a9b1da5f8b43943e8efc3a63c889d84952ff"
-dependencies = [
- "cairo-rs",
- "gdk4",
- "glib",
- "graphene-rs",
- "gsk4-sys",
- "libc",
- "pango",
-]
-
-[[package]]
-name = "gsk4-sys"
-version = "0.11.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b7c7eb2e681ee896646cfb8872b431f24d09f53ba9283289d9b10caa6707088"
-dependencies = [
- "cairo-sys-rs",
- "gdk4-sys",
- "glib-sys",
- "gobject-sys",
- "graphene-sys",
- "libc",
- "pango-sys",
- "system-deps 7.0.8",
-]
-
-[[package]]
-name = "gstreamer"
-version = "0.25.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab4527e1b9bae8d29ce137bde5b8eec8ae8f78f13ad00fc6e70cbe227d6ad027"
-dependencies = [
- "cfg-if",
- "futures-channel",
- "futures-core",
- "futures-util",
- "glib",
- "gstreamer-sys",
- "itertools",
- "kstring",
- "libc",
- "muldiv",
- "num-integer",
- "num-rational",
- "option-operations",
- "pastey",
- "pin-project-lite",
- "smallvec",
- "thiserror",
-]
-
-[[package]]
-name = "gstreamer-sys"
-version = "0.25.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "533fa8d28fc830eafccbcfcfddb390563ea5d3a351af2c3aab99e197e5f5b1ba"
-dependencies = [
- "cfg-if",
- "glib-sys",
- "gobject-sys",
- "libc",
- "system-deps 7.0.8",
-]
-
-[[package]]
-name = "gtk4"
-version = "0.11.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "98a0a0466484f64b07b5b8184d43fa46be78eb0b8e04ae4e179af31d770b76d9"
-dependencies = [
- "cairo-rs",
- "field-offset",
- "futures-channel",
- "gdk-pixbuf",
- "gdk4",
- "gio",
- "glib",
- "graphene-rs",
- "gsk4",
- "gtk4-macros",
- "gtk4-sys",
- "libc",
- "pango",
-]
-
-[[package]]
-name = "gtk4-layer-shell"
-version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "17c28ea0f4676fdaaae7ff2413a24d0d35c8657424f84856c1103c73454c9da4"
-dependencies = [
- "bitflags",
- "gdk4",
- "glib",
- "glib-sys",
- "gtk4",
- "gtk4-layer-shell-sys",
- "libc",
-]
-
-[[package]]
-name = "gtk4-layer-shell-sys"
-version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bcf19bb884ef0ef55b9e6b2b369c39b4fcc0c41e3a0c1cbc8c267720338b690b"
-dependencies = [
- "gdk4-sys",
- "glib-sys",
- "gtk4-sys",
- "libc",
- "system-deps 8.0.0",
-]
-
-[[package]]
-name = "gtk4-macros"
-version = "0.11.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ac7179400a36a04de039c24206bb841c5596992b907b43b23ee8d5bdc40d00e"
-dependencies = [
- "proc-macro-crate",
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "gtk4-sys"
-version = "0.11.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "82b8f954786af0b1984425c4446b77f5ff6594346181316be3f850caab1c6f01"
-dependencies = [
- "cairo-sys-rs",
- "gdk-pixbuf-sys",
- "gdk4-sys",
- "gio-sys",
- "glib-sys",
- "gobject-sys",
- "graphene-sys",
- "gsk4-sys",
- "libc",
- "pango-sys",
- "system-deps 7.0.8",
-]
-
-[[package]]
 name = "hashbrown"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1671,34 +1769,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "itertools"
-version = "0.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b4baf93f58d4425749ca49a51c50ebab072c5df6994d08fed93541c331481dc"
-dependencies = [
- "either",
-]
-
-[[package]]
 name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
-
-[[package]]
-name = "khronos_api"
-version = "3.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc"
-
-[[package]]
-name = "kstring"
-version = "2.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "558bf9508a558512042d3095138b1f7b8fe90c5467d94f9f1da28b3731c5dbd1"
-dependencies = [
- "static_assertions",
-]
 
 [[package]]
 name = "libc"
@@ -1713,12 +1787,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
 
 [[package]]
-name = "log"
-version = "0.4.34"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
-
-[[package]]
 name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1731,76 +1799,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d1219ed1b7f229ee7104d281dd01d6802fe28bb6e95d292942c4daacdeb798c0"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "memoffset"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a"
-dependencies = [
- "autocfg",
-]
-
-[[package]]
-name = "muldiv"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "956787520e75e9bd233246045d19f42fb73242759cc57fba9611d940ae96d4b0"
-
-[[package]]
-name = "nix"
-version = "0.29.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71e2746dc3a24dd78b3cfcb7be93368c6de9963d30f43a6a73998a9cf4b17b46"
-dependencies = [
- "bitflags",
- "cfg-if",
- "cfg_aliases",
- "libc",
-]
-
-[[package]]
-name = "num-integer"
-version = "0.1.47"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ce2d95d4b3734dc35aa2f45e1aa22cd416814592a4f9d9205e11affd5b8e10b"
-dependencies = [
- "num-traits",
-]
-
-[[package]]
-name = "num-rational"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f83d14da390562dca69fc84082e73e548e1ad308d24accdedd2720017cb37824"
-dependencies = [
- "num-integer",
- "num-traits",
-]
-
-[[package]]
-name = "num-traits"
-version = "0.2.19"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
-dependencies = [
- "autocfg",
-]
-
-[[package]]
-name = "once_cell"
-version = "1.21.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
-
-[[package]]
-name = "option-operations"
-version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aca39cf52b03268400c16eeb9b56382ea3c3353409309b63f5c8f0b1faf42754"
-dependencies = [
- "pastey",
 ]
 
 [[package]]
@@ -1852,12 +1850,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pastey"
-version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ee67f1008b1ba2321834326597b8e186293b049a023cdef258527550b9935b4"
-
-[[package]]
 name = "pin-project-lite"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1868,15 +1860,6 @@ name = "pkg-config"
 version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
-
-[[package]]
-name = "proc-macro-crate"
-version = "3.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e67ba7e9b2b56446f1d419b1d807906278ffa1a658a8a5d8a39dcb1f5a78614f"
-dependencies = [
- "toml_edit",
-]
 
 [[package]]
 name = "proc-macro2"
@@ -1906,27 +1889,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "r-efi"
-version = "6.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
-
-[[package]]
-name = "radium"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc33ff2d4973d518d823d61aa239014831e521c75da58e3df4840d3f47749d09"
-
-[[package]]
-name = "rustc_version"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cfcb3a22ef46e85b45de6ee7e79d063319ebb6594faafcf1c225ea92ab6e9b92"
-dependencies = [
- "semver",
-]
-
-[[package]]
 name = "rustix"
 version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1944,12 +1906,6 @@ name = "ryu"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
-
-[[package]]
-name = "semver"
-version = "1.0.28"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a7852d02fc848982e0c167ef163aaff9cd91dc640ba85e263cb1ce46fae51cd"
 
 [[package]]
 name = "serde"
@@ -2046,12 +2002,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ed6a63f02c8539c91a8685a86f4099661ba3da017932f6ebbea6de3f0fa7c90"
 
 [[package]]
-name = "static_assertions"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
-
-[[package]]
 name = "syn"
 version = "2.0.119"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2088,19 +2038,6 @@ dependencies = [
 
 [[package]]
 name = "system-deps"
-version = "8.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83779a5c956bcb6ba627a4ecf0a9d7625db47d7537e0892d97f712ac995648a3"
-dependencies = [
- "cfg-expr",
- "heck",
- "pkg-config",
- "toml 1.1.4+spec-1.1.0",
- "version-compare",
-]
-
-[[package]]
-name = "system-deps"
 version = "9.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a0dae2cbca1f0ff93795713cfe0a4c02f760e3c0b8ae2ab4ec4045808ff429f"
@@ -2113,49 +2050,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "tap"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
-
-[[package]]
 name = "target-lexicon"
 version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "adb6935a6f5c20170eeceb1a3835a49e12e19d792f6dd344ccc76a985ca5a6ca"
-
-[[package]]
-name = "tempfile"
-version = "3.27.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
-dependencies = [
- "fastrand",
- "getrandom",
- "once_cell",
- "rustix",
- "windows-sys",
-]
-
-[[package]]
-name = "thiserror"
-version = "2.0.20"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec86235f5fcc2a73650310756d2ac5b138a5780bbbdfae3eeccec992c435ba4f"
-dependencies = [
- "thiserror-impl",
-]
-
-[[package]]
-name = "thiserror-impl"
-version = "2.0.20"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc04cd3e1236dd4a98afca4569f2deb3f120e5422a4023be2cb683f8486292af"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 3.0.4",
-]
 
 [[package]]
 name = "toml"
@@ -2203,18 +2101,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3165f65f62e28e0115a00b2ebdd37eb6f3b641855f9d636d3cd4103767159ad7"
 dependencies = [
  "serde_core",
-]
-
-[[package]]
-name = "toml_edit"
-version = "0.25.13+spec-1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6975367e4d2ef766d86af01ffad14b622fecc8d4357a998fbc4deb6e9bacaf9b"
-dependencies = [
- "indexmap",
- "toml_datetime 1.1.1+spec-1.1.0",
- "toml_parser",
- "winnow 1.0.4",
 ]
 
 [[package]]
@@ -2371,18 +2257,6 @@ name = "winnow"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23b97319f7b8343df12cc98938e5c3eb436064524c8d2b4e30a1d3a36eecdf81"
-dependencies = [
- "memchr",
-]
-
-[[package]]
-name = "wyz"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "05f360fc0b24296329c78fda852a1e9ae82de9cf7b27dae4b7f62f118f77b9ed"
-dependencies = [
- "tap",
-]
 
 [[package]]
 name = "xkbcommon"
@@ -2400,12 +2274,6 @@ name = "xkeysym"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9cc00251562a284751c9973bace760d86c0276c471b4be569fe6b068ee97a56"
-
-[[package]]
-name = "xml-rs"
-version = "0.8.29"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e450f9b2ed1dff33c94c12589a87338689467b9c4f5d8a5710bd09a847d2c8a7"
 
 [[package]]
 name = "zmij"

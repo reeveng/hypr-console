@@ -5,7 +5,7 @@
 //! One line of JSON whenever the answer changes, which is what a waybar custom
 //! module reads. The icon is always there, playing or not: it is the way into
 //! the Music panel with a finger, and a control that disappears when nothing is
-//! playing is a control nobody can find to start anything.
+//! playing is a control no one can find to start anything.
 //!
 //! It is lit while the panel is up, exactly as the menu and the keyboard are,
 //! so the icon says whether a tap opens the music or puts it away.

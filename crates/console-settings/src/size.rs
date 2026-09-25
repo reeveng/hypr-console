@@ -2,7 +2,7 @@
 //!
 //! A rung is how much of the desktop a window sees, and not a density. That is
 //! the whole of what changed here, and it is what lets this desktop be put on a
-//! panel nobody here owns.
+//! panel no one here owns.
 //!
 //! ## A rung is a canvas, and the density falls out of the panel
 //!
@@ -10,7 +10,7 @@
 //! one of them was a number about a screen that is 2560 by 1600. 2560 and 1600
 //! share 320, the ladder was 320 over a whole number, and a panel that does not
 //! share 320 takes some of those rungs and leaves a fraction the compositor
-//! warns about and then rounds off on its own: a size somebody chooses and does
+//! warns about and then rounds off on its own: a size someone chooses and does
 //! not get.
 //!
 //! So a rung says how many points across the panel is cut into, and the scale
@@ -22,21 +22,21 @@
 //! [`console_screen::DRAWN_AT`] is Normal, and it is the one number here that is
 //! about this desktop rather than about a screen: every surface was drawn and
 //! measured at 1024 across. The rungs either side are a quarter apart or so --
-//! far enough that changing rung is a change somebody meant to make.
+//! far enough that changing rung is a change someone meant to make.
 //!
 //! The bottom rung is the odd one, and it is here on purpose. [`Across::Pixels`]
 //! is the panel at its own pixels, whatever that comes to, which on this device
 //! is about a third the size everything in this repository was drawn to be read
 //! and hit at. It is below what this device is designed for and it is not below
-//! what somebody else's eyes, or somebody else's use of this desktop, might
+//! what someone else's eyes, or someone else's use of this desktop, might
 //! want. So it is offered rather than left out because the machine it was
 //! written on does not want it. What it costs is said here and not in the row: a
-//! list whose ends argue with themselves is a list nobody reads to the bottom
+//! list whose ends argue with themselves is a list no one reads to the bottom
 //! of.
 //!
 //! Five words and no numbers. "2.0" is a number about a compositor; what a
 //! person is choosing is how big things are, and the plainest ladder for that is
-//! the one anybody would say out loud.
+//! the one anyone would say out loud.
 //!
 //! ## A panel that cannot wear a rung says so
 //!
@@ -49,7 +49,7 @@
 //! The compositor's file is this repository's, byte for byte -- `console check`
 //! reports it as drift the moment anything on the machine edits it. So the file
 //! goes on declaring the size this device is set up as, and a machine standing
-//! somewhere else says so under `~/.config/console/screens`, which is nobody's
+//! somewhere else says so under `~/.config/console/screens`, which is no one's
 //! to check. Same shape as [`crate::warm`], and for the same reason.
 //!
 //! It is a rung per screen rather than a rung for the machine, and
@@ -77,7 +77,7 @@
 //! a number in the compositor's file -- right for the one way up this device
 //! was ever set up, and left behind the moment the screen could be turned: a
 //! desktop standing at a quarter with its touches still read at the mounting
-//! is one where every panel answers a press somebody did not make. So the
+//! is one where every panel answers a press someone did not make. So the
 //! touch device is part of describing the screen and goes in the same `eval`,
 //! for the same reason the density does.
 //!
@@ -182,7 +182,7 @@ pub fn at(
     panel.keeping(home, &format!("{NAMED}-{shaped}"))
 }
 
-pub fn standing(monitors: &serde_json::Value) -> Result<Option<Size>, Never> {
+pub fn standing(monitors: &[console_compositor::Monitor]) -> Result<Option<Size>, Never> {
     let Ok(shown) = console_screen::shown(monitors);
 
     let screen = match shown {
@@ -198,7 +198,7 @@ pub fn standing(monitors: &serde_json::Value) -> Result<Option<Size>, Never> {
 }
 
 pub fn lua(panel: Output<'_>, screen: &Screen, scale: f64) -> Result<String, Never> {
-    let (wide, tall) = (screen.mode.wide, screen.mode.tall);
+    let (wide, tall) = (screen.mode.width, screen.mode.height);
     let named = panel.0;
     let transform = screen.transform;
 
@@ -227,7 +227,7 @@ mod tests {
 
     fn laptop() -> Screen {
         Screen {
-            mode: console_core_geometry::Size { wide: 1920, tall: 1200 },
+            mode: console_core_geometry::Size { width: 1920, height: 1200 },
             refresh: 60,
             scale: 1.0,
             transform: 0,
@@ -246,8 +246,8 @@ mod tests {
         size
     }
 
-    fn said(text: &str) -> serde_json::Value {
-        console_compositor::read(text).expect("what hyprctl said")
+    fn said(text: &str) -> Vec<console_compositor::Monitor> {
+        console_compositor::read_monitors(text).expect("the fixture is the compositor's answer")
     }
 
     fn standing(text: &str) -> Option<Size> {
@@ -276,7 +276,7 @@ mod tests {
     fn the_offered_sizes_divide_the_panel_into_whole_pixels() {
         let screen = screen();
         let held = pixels(&screen);
-        let (wide, tall) = (held.wide, held.tall);
+        let (wide, tall) = (held.width, held.height);
         for size in EVERY {
             for side in [wide, tall] {
                 let logical = f64::from(side) / scale(size);
@@ -296,7 +296,7 @@ mod tests {
         let Ok(held) = laptop.pixels();
 
         for size in EVERY {
-            for side in [held.wide, held.tall] {
+            for side in [held.width, held.height] {
                 let logical = f64::from(side) / scale_on(size, &laptop);
 
                 assert_eq!(
@@ -327,7 +327,7 @@ mod tests {
     #[test]
     fn a_rung_wider_than_the_panel_is_one_the_panel_cannot_wear() {
         let small = Screen {
-            mode: console_core_geometry::Size { wide: 1280, tall: 800 },
+            mode: console_core_geometry::Size { width: 1280, height: 800 },
             refresh: 60,
             scale: 1.0,
             transform: 0,
@@ -350,7 +350,7 @@ mod tests {
     }
 
     #[test]
-    fn the_ladder_climbs_and_every_step_is_one_anybody_would_see() {
+    fn the_ladder_climbs_and_every_step_is_one_anyone_would_see() {
         for pair in EVERY.windows(2) {
             let (below, above) = (scale(pair[0]), scale(pair[1]));
             assert!(below < above, "{:?} is not below {:?}", pair[0], pair[1]);
@@ -396,13 +396,17 @@ mod tests {
 
     #[test]
     fn a_screen_whose_panel_is_half_said_stands_on_no_rung_at_all() {
-        assert_eq!(standing(r#"{"eDP-1": {"levels": {}}}"#), None);
-        assert_eq!(standing(r#"[{"width": 1600, "scale": 2.5}]"#), None);
         assert_eq!(
             standing(r#"[{"name": "eDP-1", "scale": 2.5}]"#),
             None,
             "a density is not a rung until the panel it is on is known"
         );
+
+        let layers = console_compositor::read(console_compositor::Query::Monitors, r#"{"eDP-1": {"levels": {}}}"#);
+        let nameless = console_compositor::read(console_compositor::Query::Monitors, r#"[{"width": 1600, "scale": 2.5}]"#);
+
+        assert!(layers.is_err(), "an answer about layers is not an answer about screens");
+        assert!(nameless.is_err(), "a screen that will not name itself is not a screen");
     }
 
     #[test]
@@ -419,11 +423,10 @@ mod tests {
         for transform in 0..4 {
             let screen = Screen { transform, ..screen() };
             let said = lua(&screen, 2.5);
-            let both = said.matches(&format!("transform = {transform}")).count();
-
             assert!(said.contains("touchdevice"), "the finger was not told anything: {said}");
             assert_eq!(
-                both, 2,
+                said.matches(&format!("transform = {transform}")).count(),
+                2,
                 "the screen and the finger on it are at two different quarters: {said}"
             );
         }

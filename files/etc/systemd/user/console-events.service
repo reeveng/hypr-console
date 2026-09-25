@@ -10,7 +10,7 @@ PartOf=console.target
 [Service]
 Type=simple
 ExecStart=/usr/local/bin/console-events
-ExecStopPost=-/usr/local/bin/console-fell %n
+ExecStopPost=-/usr/local/bin/console-report-crash %n
 Restart=always
 RestartSec=5
 
@@ -18,14 +18,15 @@ RestartSec=5
 #
 # It opens no device. What it holds is one subscription per source and one
 # socket of its own, all of them under the runtime directory -- and where a
-# source is somebody else's program rather than a socket, it is that program's
+# source is someone else's program rather than a socket, it is that program's
 # output being read. `pactl subscribe` is the first of those and it was watched
 # under exactly these lines before it was believed: `pactl` reaches the sound
 # server over a socket in the runtime directory and never opens `/dev/snd`, so
 # `PrivateDevices=` costs it nothing. The home directory is read-only rather
-# than gone because a watched path is a topic this will grow and most of the
-# paths anybody would watch are in it; nothing here writes there, and the day
-# something does, this line is where the argument goes.
+# than gone because the folders it watches -- Music, Videos, Books and the rest
+# -- are in it, and inotify wants to read a folder to watch it; nothing here
+# writes there, and the day something does, this line is where the argument
+# goes.
 #
 # The three that came after it were watched the same way and pass for the same
 # reason. `nmcli monitor` asks NetworkManager over the system bus and prints
@@ -35,12 +36,16 @@ RestartSec=5
 # to standard error, which a source sends nowhere, so getting in is not
 # mistaken for something having happened.
 #
-# `AF_UNIX` alone. Every source it holds is a socket on this machine or a
-# program that reaches one, and the one thing that would ever take it off the
-# machine is a mistake.
+# `gdbus monitor --system` for Bluetooth is the same again: a socket to the
+# system bus. `udevadm monitor` for the battery is not. The kernel says a supply
+# changed on a netlink socket, so this is `AF_UNIX AF_NETLINK`, which is what
+# `confining.conf` says every other console unit is given anyway. Neither
+# reaches off this machine, and the one thing that would ever take it off the
+# machine is a mistake. The netlink socket wants no device node either, so
+# `PrivateDevices=` stands.
 PrivateDevices=yes
 ProtectHome=read-only
-RestrictAddressFamilies=AF_UNIX
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
 
 [Install]
 WantedBy=console.target

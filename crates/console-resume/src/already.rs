@@ -4,7 +4,7 @@
 //! that should be saving whenever the desktop is up. It is disastrous for a
 //! thing whose first act is to close every window: a crash, a `systemctl
 //! restart`, a deploy that reloads the units -- each of those swept the screen
-//! and rebuilt it out of a file, five seconds later, in front of somebody who
+//! and rebuilt it out of a file, five seconds later, in front of someone who
 //! was using it.
 //!
 //! Putting back is what a desktop *starting* means, and a restart is not a
@@ -28,7 +28,7 @@ use crate::Unresumed;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Already {
-    PutBack,
+    Restore,
     NotYet,
     CannotTell,
 }
@@ -60,7 +60,7 @@ pub fn asked() -> Result<Already, Never> {
     };
 
     Ok(match at.exists() {
-        true => Already::PutBack,
+        true => Already::Restore,
         false => Already::NotYet,
     })
 }

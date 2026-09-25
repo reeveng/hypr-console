@@ -8,9 +8,9 @@
 //! hardware.
 //!
 //! The answer is not a file per machine. A desktop that cannot be installed
-//! until somebody writes a file for their laptop is a desktop with one
+//! until someone writes a file for their laptop is a desktop with one
 //! installation, and a manifest that grows a section per device is a manifest
-//! nobody can read. So this is the exceptions, most machines match nothing in
+//! no one can read. So this is the exceptions, most machines match nothing in
 //! it, and what they get is `desktop.conf` and nothing else.
 //!
 //! A machine is named by what its firmware calls itself. `matches` is read
@@ -179,6 +179,19 @@ pub fn said_as_manifest(held: &[(String, String)]) -> Result<String, Never> {
     Ok(out)
 }
 
+pub fn of_every(said: &str) -> Result<String, Never> {
+    let Ok(entries) = entries(said);
+
+    Ok(entries
+        .values()
+        .map(|held| {
+            let Ok(said) = said_as_manifest(held);
+
+            said
+        })
+        .collect())
+}
+
 pub fn of(said: &str, machine: Named<'_>) -> Result<String, Never> {
     let Named(named) = machine;
     let Ok(entries) = entries(said);
@@ -267,7 +280,7 @@ iptsd
     }
 
     #[test]
-    fn a_machine_in_no_block_gets_nothing_rather_than_somebody_elses_hardware() {
+    fn a_machine_in_no_block_gets_nothing_rather_than_someone_elses_hardware() {
         let at = firmware("laptop", &[
             ("product_name", "21MC001RCK"),
             ("product_family", "ThinkPad T14 Gen 5"),

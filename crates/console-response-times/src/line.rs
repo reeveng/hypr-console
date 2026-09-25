@@ -21,7 +21,7 @@ const NOT_SAID: f64 = 0.0;
 
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Said {
+pub enum Value {
     Count(u64),
     Word(String),
 }
@@ -35,7 +35,7 @@ pub struct Entry {
     pub what: String,
     pub waited: Duration,
     pub marks: Vec<(String, Duration)>,
-    pub notes: Vec<(String, Said)>,
+    pub notes: Vec<(String, Value)>,
 }
 
 pub fn ms(took: Duration) -> Result<f64, Never> {
@@ -78,8 +78,8 @@ pub fn written(entry: &Entry) -> Result<String, Never> {
                 first = false;
 
                 let value = match note {
-                    Said::Count(many) => many.to_string(),
-                    Said::Word(word) => {
+                    Value::Count(many) => many.to_string(),
+                    Value::Word(word) => {
                         let Ok(word) = quoted(word);
 
                         word
@@ -188,9 +188,9 @@ pub fn read(said: &str) -> Result<Option<Entry>, Never> {
                     serde_json::Value::Number(many) => {
                         let many = many.as_u64()?;
 
-                        Said::Count(many)
+                        Value::Count(many)
                     }
-                    serde_json::Value::String(word) => Said::Word(word.clone()),
+                    serde_json::Value::String(word) => Value::Word(word.clone()),
                     serde_json::Value::Null
                     | serde_json::Value::Bool(_)
                     | serde_json::Value::Array(_)
@@ -223,8 +223,8 @@ mod tests {
                 ("gtk".to_string(), Duration::from_millis(128)),
             ],
             notes: vec![
-                ("rows".to_string(), Said::Count(73)),
-                ("door".to_string(), Said::Word("menu".to_string())),
+                ("rows".to_string(), Value::Count(73)),
+                ("door".to_string(), Value::Word("menu".to_string())),
             ],
         }
     }
@@ -242,7 +242,7 @@ mod tests {
     #[test]
     fn a_name_with_a_quotation_mark_in_it_is_still_one_line_of_json() {
         let mut entry = an_opening();
-        entry.notes = vec![("folder".to_string(), Said::Word("she said \"go\"".into()))];
+        entry.notes = vec![("folder".to_string(), Value::Word("she said \"go\"".into()))];
 
         let Ok(said) = written(&entry);
 
@@ -261,10 +261,11 @@ mod tests {
         ];
         let Ok(said) = written(&entry);
 
-        let gtk = said.find("gtk").expect("gtk");
-        let built = said.find("built").expect("built");
-        let frame = said.find("frame").expect("frame");
-        assert!(gtk < built && built < frame);
+        let in_order = said
+            .split_once("gtk")
+            .and_then(|(_, rest)| rest.split_once("built"))
+            .and_then(|(_, rest)| rest.split_once("frame"));
+        assert!(in_order.is_some(), "{said}");
     }
 
     #[test]
@@ -280,8 +281,8 @@ mod tests {
         assert_eq!(back.who, entry.who);
         assert_eq!(back.what, entry.what);
         assert_eq!(ms(back.waited), ms(entry.waited));
-        assert!(back.notes.contains(&("rows".to_string(), Said::Count(73))));
-        assert!(back.notes.contains(&("door".to_string(), Said::Word("menu".to_string()))));
+        assert!(back.notes.contains(&("rows".to_string(), Value::Count(73))));
+        assert!(back.notes.contains(&("door".to_string(), Value::Word("menu".to_string()))));
         let named: Vec<&str> = back.marks.iter().map(|(name, _)| name.as_str()).collect();
         assert!(named.contains(&"press") && named.contains(&"gtk"));
     }

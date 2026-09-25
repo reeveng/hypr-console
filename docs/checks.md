@@ -15,20 +15,20 @@ rather than adding a second one.
 A check is written for the stages that can answer it. `Body::Here` is what needs
 no machine, `Body::Device` is what only the Legion Go can answer, and
 `Body::Desktop` is what wants a screen to look at: `--stage desktop` runs the
-device's desktop nested on this machine and can say what colour it is and which
+device's desktop nested on this machine and can say what color it is and which
 windows the nested compositor had when it looked -- the second because whether a
 session came back is a question about which windows exist and not about any
-colour. A stage nothing is written for skips and says so. So does a stage that
+color. A stage nothing is written for skips and says so. So does a stage that
 is handed something it cannot do, which is how `120` and `130` say the device
 cannot see a page scroll or send a touch.
 
 Every check that runs without a machine also runs in `cargo test`, so a check
-nobody has run since the feature changed cannot survive to fail on the device
+no one has run since the feature changed cannot survive to fail on the device
 for a reason that has nothing to do with the device.
 
 ## The person holding it is told what is happening
 
-A device run is minutes of somebody's handheld opening menus by itself, and
+A device run is minutes of someone's handheld opening menus by itself, and
 everything the run says it says on a terminal in another room. So it says two
 things on the device as well, and no more than two.
 
@@ -37,13 +37,13 @@ The strip under the bar fills as it goes. That row of pixels already exists --
 ends of it agree on -- and a check run writes the same file the same way, from
 the laptop end of the ssh. Nothing new is drawn: a panel put up to report the
 run would be a layer over the desktop that the checks then have to press
-through, and several of them ask what is on the screen and what colour it is.
+through, and several of them ask what is on the screen and what color it is.
 The surface reporting the run would be the run's own worst interference.
 
 The strip fills while a check runs, not only when one ends. Longest first puts
 the longest check of the run at the front, so the strip used to stand exactly
 where the last run left it through the worst two minutes there are -- the two
-minutes somebody is most likely to decide it has hung. A check that has been
+minutes someone is most likely to decide it has hung. A check that has been
 timed before carries its own estimate, so `lasting::crept` walks its share of
 the strip with the clock and keeps the last tenth of that share back. An
 estimate is right until the machine is busy or the check is waiting on something
@@ -64,7 +64,7 @@ crate: `docs/deploy.md` argues for that shape and this is the other thing it is
 used for. What it fills with is the run's own progress and never the check's --
 a bar that filled for the check that is running restarts at nothing a dozen
 times in a run, which is a bar that moves in steps however smoothly each step is
-drawn, and how far through the fourth check it is was nobody's question. The
+drawn, and how far through the fourth check it is was no one's question. The
 counter and the name say which check.
 
 That line is drawn on a clock rather than on the ssh, by a thread asking
@@ -83,14 +83,14 @@ A card is raised when it starts, saying how many checks and about how long, and
 replaced by one at the end saying how it went. The strip has its tooltip turned
 off and is two pixels tall, so it can say how much is left and nothing else; the
 card is where the words go. The one at the end stays on the screen when
-something failed, because a run that ends badly while somebody is making tea is
+something failed, because a run that ends badly while someone is making tea is
 the whole reason to say it twice.
 
 ## Longest first, and how it knows
 
 On the device the checks run longest first. Everywhere else they run in the
 order they grew, which walks the desktop the way it was built; on the device
-that order says nothing anybody watching needs, and it makes the strip crawl
+that order says nothing anyone watching needs, and it makes the strip crawl
 and jump by turns. Longest first puts the wait at the front, so the strip slows
 early and runs at the end -- which is not a trick played on the reader, it is
 what the run does. `going` weights an apply the same way and for the same
@@ -101,8 +101,8 @@ module of `console-test-stages` times every check as it runs and hands the
 table back to the device, under `~/.local/state/console/checked`, where the
 next run reads it. An apply has few enough stretches to carry estimates in
 their source and be corrected by hand; the checks do not, arriving one or two
-at a time as they do, and a number nobody updates is a bar that lies about a
-run somebody is watching.
+at a time as they do, and a number no one updates is a bar that lies about a
+run someone is watching.
 
 A check nothing has ever timed is given the middle of what is known -- not a
 claim about its length, a claim that it is no more surprising than the rest.
@@ -110,14 +110,14 @@ claim about its length, a claim that it is no more surprising than the rest.
 Only a check that passed teaches the table. One that fails stops at the first
 thing that is wrong, which is usually early, so a red run would otherwise teach
 the table that the slowest thing in it is quick, and the next run's bar would be
-confidently wrong about exactly the check somebody is waiting on. A skipped one
+confidently wrong about exactly the check someone is waiting on. A skipped one
 has not run at all. Neither is a measurement of anything, and a table with a gap
-in it is worth more than a table with a number nobody should believe.
+in it is worth more than a table with a number no one should believe.
 
 ## And a table that travels
 
 What measuring alone cannot do is exist before the first run, and that is the
-run most likely to be watched, because it is the one on a device somebody has
+run most likely to be watched, because it is the one on a device someone has
 just put back together. It used to count checks, which tells a person the
 ten-second one and the three-minute one are the same wait.
 
@@ -152,7 +152,7 @@ not evidence about the run.
 The bar is bent down a little on purpose. At the halfway mark of the run it says
 forty per cent and it catches up as it goes. A bar that runs ahead of the work
 arrives at ninety-eight and stops, and the last two per cent taking a third of
-the wait is the exact thing that makes somebody stop believing a bar -- once,
+the wait is the exact thing that makes someone stop believing a bar -- once,
 and then for every bar after it. Lagging and then gathering speed is never wrong
 in the direction that costs anything.
 
@@ -162,7 +162,7 @@ always had to survive being named on its own.
 
 ## The machine is asked only what nothing else can
 
-The device tier is minutes of somebody's handheld, and most of what is written
+The device tier is minutes of someone's handheld, and most of what is written
 for it is a second question about a feature the emulator answered here in a
 third of a second, before the deploy went out. So `--stage device` asked for
 nothing in particular runs only the checks nothing else can answer, and prints
@@ -187,7 +187,7 @@ about the desktop.
 
 ## Assert what a person would see
 
-A check has to assert the thing somebody would notice, not the mechanism behind
+A check has to assert the thing someone would notification, not the mechanism behind
 it.
 
 Three checks pressed B on an open menu and then asked which controller profile
@@ -196,7 +196,7 @@ screen that would not close. The question to ask is whether the menu is gone.
 
 Asking the mechanism is still worth doing as a tiebreak. `150-the-wallpaper`
 reads five places on the screen first and then asks the wallpaper daemon which
-file it is showing, because an empty screen is the same colour as the picture.
+file it is showing, because an empty screen is the same color as the picture.
 
 ## A green check can be a lie
 
@@ -206,24 +206,31 @@ before. Both are true whether the window came along or stayed behind, so it
 passed from the day it was written with the trigger doing nothing at all.
 
 Ask what a check would say if the feature were broken. If the answer is the
-same, it is not a check. A green one nobody doubts is worse than a red one,
+same, it is not a check. A green one no one doubts is worse than a red one,
 because it is the thing that was supposed to tell you.
+
+A fix lands with the check that goes red without it. A fault that had to be
+fixed is one somebody met on the device, and the fix alone is a promise the next
+change does not have to keep. So the fix is broken on purpose once, the check is
+watched failing for the reason the fault had, and the fix goes back. A check
+that has to change later changes because the feature or the way it looks did,
+in the commit that says so.
 
 `140` was the same shape for longer. It asks whether every service is `active`,
 and every one of them restarts itself, so a daemon dying every few minutes is
-`active` at almost any moment somebody asks. The wallpaper daemon core-dumped
+`active` at almost any moment someone asks. The wallpaper daemon core-dumped
 eight times in a day underneath a green check. `210` is the question that was
 missing: how many times has anything had to be started again.
 
 ## Wait for the thing, not for a number of seconds
 
-How long a chooser takes to draw is how busy the machine is. A check that sleeps
+How long a picker takes to draw is how busy the machine is. A check that sleeps
 for a fixed guess passes on a quiet device and fails on the same device behind a
 screenshot another check is taking, which is exactly how `180` failed inside the
 tier while passing three times out of three on its own. Four checks had the
 fault before it was found.
 
-`drawn()` waits for a chooser to arrive and `gone()` waits for every chooser to
+`drawn()` waits for a picker to arrive and `closed()` waits for every picker to
 leave. `changed(reading, from)` waits for something the device can be asked --
 the brightness, the volume, which workspace, how many windows, which song --
 to stop being what it was, which is what most of a check's waiting turns out to
@@ -250,7 +257,7 @@ duration is the press itself -- a d-pad held down so the highlight walks -- the
 elapsing is what was asked for, and that is the same exception EXPLICIT021
 already makes. Everything else is a question, and the last of them to be
 written was the home screen's, which waits on a repaint: what says the
-highlight moved is the colour of the screen, and `lit()` reads it and can fail
+highlight moved is the color of the screen, and `lit()` reads it and can fail
 to. That is why `until` carries the fault its question carries -- a wait whose
 question cannot fail is a wait the screen cannot be handed to.
 
@@ -293,6 +300,14 @@ be pressed is inside the room. There is always a way out. Every panel here broke
 the first of those, and no check could see it, because nothing had ever asked a
 panel what it had drawn -- only whether it had drawn.
 
+One rule is about the rows rather than the hand. A row's words and every cell
+it carries reach the screen: each line says what the row was built with and
+the text the surface put inside its band, and a word in the first and not the
+second is the fault. The calendar came up as a month's name over six empty
+boxes when the drawn surface replaced the toolkit, because the surface had
+been written against every part of a row except its cells, and a panel that
+draws nothing where its days should be answered every question above.
+
 One test per panel, so a name after the test binary runs one of them: about
 nine seconds for one panel, most of which is a compositor starting.
 
@@ -318,21 +333,21 @@ nested session is a window on whoever's screen started it, and it used to open
 on their current workspace in the magenta this stage paints and sit there for
 the length of the run. `console-desktop` now asks the running compositor, before
 starting the nested one, to put anything of class `aquamarine` on a special
-workspace of its own, silently. Nothing is written to anybody's config and the
+workspace of its own, silently. Nothing is written to anyone's config and the
 rule is gone at the next reload.
 
     hyprctl dispatch togglespecialworkspace console-desktop
 
 is how to watch one while it runs.
 
-The panels take turns. `console_panel::chooser` allows one chooser on a session
+The panels take turns. `console_panel::picker` allows one picker on a session
 at a time and enforces it by asking whoever holds the screen to leave, which is
 right on the device and wrong here: the lock belongs to the login session and
 the nested sessions are inside it, so two of these running at once are two
 panels asking each other to go. The stage takes an exclusive lock for the length
-of a run rather than asking anybody to remember a flag.
+of a run rather than asking anyone to remember a flag.
 
-## It is somebody's machine
+## It is someone's machine
 
 `--stage device` does nothing without `--yes`, and `--dry` prints what it would
 send. Some checks open menus, move between workspaces and close windows. Read a
@@ -346,7 +361,7 @@ holding the device decides what happens on it.
 ## And it is given back the way it was found
 
 Permission to run is not permission to keep what the run changed. A tier is
-minutes of somebody's handheld moving between workspaces, opening a window,
+minutes of someone's handheld moving between workspaces, opening a window,
 turning the screen up and the sound down, and until `putting_back` it left all
 of that wherever the last check happened to stop. The person who lent the
 device got it back on a workspace they had not chosen, at a brightness they had
@@ -362,8 +377,8 @@ between two of them. The last line of a run says what was handed back, and what
 would not go.
 
 Nothing is put back that the machine would not say. `Level` has a word for a
-reading nobody got, because a brightness that could not be read is not a
-brightness of nought and a run that treated it as one would hand back a black
+reading no one got, because a brightness that could not be read is not a
+brightness of zero and a run that treated it as one would hand back a black
 screen. A workspace or a profile with no name is the same: there is nothing to
 go back to, so nothing is done.
 
@@ -372,22 +387,22 @@ rule is that a check may take away what it made and may not take away what it
 found:
 
 - `030` opens the window it closes. Pressing the paddle at whatever was in
-  front of you asserts the right thing by taking somebody's window away, and
+  front of you asserts the right thing by taking someone's window away, and
   there is no putting that back. It also asks a better question -- not that the
   count went down, which is true whichever window went, but that the one in
   front is the one that is gone.
 - `070` takes away the picture it took, by the name that appeared while it was
-  looking. A screenshot of somebody's desktop in the folder they keep their own
+  looking. A screenshot of someone's desktop in the folder they keep their own
   in is a thing left behind for them to find and delete.
 - `250` closes the browser window it opened rather than every browser window
-  there is. `pkill` is not a way to close a window somebody else may be using.
+  there is. `pkill` is not a way to close a window someone else may be using.
 - `280` stands down when the machine is already playing something. It would
   have to stop the player to press this, and a song cannot be put back where it
-  was in somebody's afternoon.
+  was in someone's afternoon.
 - The home checks clear the screen with `fresh` rather than with `console-put-away`,
-  which closes the focused window when no chooser is up.
+  which closes the focused window when no picker is up.
 
-Ctrl-C is answered rather than fatal, because a run somebody stops halfway is
+Ctrl-C is answered rather than fatal, because a run someone stops halfway is
 the one that would otherwise leave the most behind -- it is usually stopped
 because of what it is doing to their device. The signal sets a flag that the
 loop over the checks reads, and that `Device::until` reads so a wait for

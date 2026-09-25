@@ -10,7 +10,7 @@
 //! `ByAPress` is three, and a count of whole identifiers would say every one of
 //! them exactly once and measure nothing.
 //!
-//! What is dropped is what somebody else said. A string literal is stripped
+//! What is dropped is what someone else said. A string literal is stripped
 //! before the identifiers are taken, because a `hyprctl` argument, a CSS
 //! property and a `.desktop` key are quotations rather than this desktop's
 //! words, and a vocabulary that counted them would be a list of every program
@@ -24,7 +24,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 use console_core_never::Never;
-use console_core_number_conversion::Float;
+use console_core_number_conversion::{Float, fitted};
 
 use crate::{PerMillion, Uses};
 
@@ -92,7 +92,7 @@ const SPAN: char = '`';
 
 const UNDER: char = '_';
 
-const SHORTEST: usize = 3;
+const SHORTEST: u32 = 3;
 
 pub fn counted(root: &Path) -> Result<Counted, Unread> {
     let code = under(&root.join(CRATES), Ending::Rust)?;
@@ -177,32 +177,32 @@ fn walking(at: &Path) -> Result<Walk, Never> {
     })
 }
 
-pub fn under(at: &Path, ending: Ending) -> Result<Vec<PathBuf>, Unread> {
-    let held = std::fs::read_dir(at).map_err(|fault| Unread::Listing(at.to_path_buf(), fault))?;
+pub fn under(root: &Path, ending: Ending) -> Result<Vec<PathBuf>, Unread> {
     let Ok(wanted) = ending.spelled();
     let mut found = Vec::new();
+    let mut waiting = vec![root.to_path_buf()];
 
-    for entry in held.flatten() {
-        let at = entry.path();
+    while let Some(folder) = waiting.pop() {
+        let held = std::fs::read_dir(&folder).map_err(|fault| Unread::Listing(folder.clone(), fault))?;
 
-        match at.is_dir() {
-            true => {
-                let Ok(walk) = walking(&at);
+        for entry in held.flatten() {
+            let at = entry.path();
 
-                match walk {
-                    Walk::Into => {
-                        let deeper = under(&at, ending)?;
+            match at.is_dir() {
+                true => {
+                    let Ok(walk) = walking(&at);
 
-                        found.extend(deeper);
-                    },
-                    Walk::Past => {},
-                }
-            },
+                    match walk {
+                        Walk::Into => waiting.push(at),
+                        Walk::Past => {},
+                    }
+                },
 
-            false => match at.extension().and_then(OsStr::to_str) == Some(wanted) {
-                true => found.push(at),
-                false => {},
-            },
+                false => match at.extension().and_then(OsStr::to_str) == Some(wanted) {
+                    true => found.push(at),
+                    false => {},
+                },
+            }
         }
     }
 
@@ -332,8 +332,10 @@ pub fn split(said: &str) -> Result<Vec<String>, Never> {
 }
 
 fn keeping(word: &str) -> Result<Option<String>, Never> {
+    let Ok(long) = fitted::<_, u32>(word.len());
+
     Ok(
-        match word.len() >= SHORTEST && word.chars().all(|letter| letter.is_ascii_alphabetic()) {
+        match long >= SHORTEST && word.chars().all(|letter| letter.is_ascii_alphabetic()) {
             true => Some(word.to_string()),
             false => None,
         },

@@ -15,7 +15,7 @@
 //! anything: a settings file, a wallpaper's memory of what it was showing, a
 //! staged copy, a palette. Each of those is a file this desktop
 //! reads on the next boot, which is the one moment the fault shows up and the
-//! one moment nobody is watching.
+//! one moment no one is watching.
 //!
 //! It is EXPLICIT001's rule about swallowing a failure, said about the other
 //! end of the same call. `unwrap_or_default()` on a read turns "could not read

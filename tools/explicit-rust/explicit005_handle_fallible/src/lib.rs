@@ -17,7 +17,7 @@ dylint_linting::declare_late_lint! {
     /// say so with `let _ = …`, which EXPLICIT009 is about.
     pub EXPLICIT005_HANDLE_FALLIBLE,
     Deny,
-    "a `Result` used as a statement is a failure nobody handled"
+    "a `Result` used as a statement is a failure no one handled"
 }
 
 fn is_test_build(cx: &LateContext<'_>) -> bool {

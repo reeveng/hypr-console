@@ -73,7 +73,7 @@ pub enum Still {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Room {
-    Kept,
+    Retained,
     Spared,
 }
 
@@ -88,7 +88,7 @@ pub fn wants_room(things: &[Entry]) -> Result<Room, Never> {
         let worth = thing.worth_a_picture()?;
 
         match thing.folder || worth == Worth::APicture {
-            true => return Ok(Room::Kept),
+            true => return Ok(Room::Retained),
             false => {},
         }
     }
@@ -212,7 +212,7 @@ mod tests {
     }
 
     #[test]
-    fn a_big_number_loses_the_decimal_nobody_reads() {
+    fn a_big_number_loses_the_decimal_no_one_reads() {
         assert_eq!(said(431 * (1 << 20)), Ok("431 MB".to_string()));
         assert_eq!(said(9 * (1 << 20)), Ok("9.0 MB".to_string()));
     }
@@ -242,8 +242,8 @@ mod tests {
         let photo = of_kind(file("beach.jpg", 1), "image/jpeg");
         let notes = of_kind(file("notes.txt", 1), "text/plain");
 
-        assert_eq!(wants_room(&[folder("Holiday"), photo]), Ok(Room::Kept));
-        assert_eq!(wants_room(&[folder("Holiday"), notes.clone()]), Ok(Room::Kept));
+        assert_eq!(wants_room(&[folder("Holiday"), photo]), Ok(Room::Retained));
+        assert_eq!(wants_room(&[folder("Holiday"), notes.clone()]), Ok(Room::Retained));
         assert_eq!(wants_room(&[notes]), Ok(Room::Spared));
         assert_eq!(wants_room(&[]), Ok(Room::Spared));
     }

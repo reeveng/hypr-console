@@ -1,11 +1,11 @@
-//! What the machine spent while nobody was watching, and what spent it.
+//! What the machine spent while no one was watching, and what spent it.
 //!
 //! The device's own idle draw took a person sitting over an ssh session with
 //! two sixty-second windows to find, and what it found -- an audio stack awake
-//! on a machine with nothing playing -- was true for months before anybody
-//! measured it. A measurement somebody has to be present for is a measurement
+//! on a machine with nothing playing -- was true for months before anyone
+//! measured it. A measurement someone has to be present for is a measurement
 //! of the moment they were present. So this is the same two readings taken
-//! while nobody is there: a line every few minutes, kept, and read afterwards.
+//! while no one is there: a line every few minutes, kept, and read afterwards.
 //!
 //! ## What one looks like
 //!
@@ -20,7 +20,7 @@
 //! came up.
 //! A rate is a question about two moments and nothing here is entitled to
 //! answer it -- a snapshot that wrote watts would be writing an average over a
-//! window it chose, and the window somebody wants is the one they ask about
+//! window it chose, and the window someone wants is the one they ask about
 //! afterwards. [`between`] is where two lines become watts. `draw` is the one
 //! reading that is already a rate, because the battery answers that question
 //! itself and nothing is gained by throwing the answer away.
@@ -40,10 +40,19 @@
 //! about the night rather than about the desktop. A kernel with no
 //! `total_hw_sleep` says nothing, and nothing is taken to mean it never slept.
 //!
+//! Which is why the watts come out of the windows that held no sleep at all,
+//! and a reading with a suspend inside it is dropped from the rate the way a
+//! reading on the cable is. One fall in the battery across a window that was
+//! partly awake and partly asleep cannot be divided between the two: the
+//! counters say how long each lasted and never which of them spent what.
+//! Apportioning it at some assumed rate would be this crate writing down the
+//! answer it was built to go and measure. A log that is nothing but straddling
+//! windows says nothing, and says so.
+//!
 //! ## What spent it, by name rather than by number
 //!
 //! A pid is a number that means a different program next week, and a report
-//! that names one is a report nobody can read. So CPU time is summed by the
+//! that names one is a report no one can read. So CPU time is summed by the
 //! name in `/proc/pid/stat` -- every `wireplumber` on the machine is one line
 //! -- and a restart shows up as a counter going backwards, which [`between`]
 //! drops rather than counts as time spent. `NAMED` of them, which is the top
@@ -70,8 +79,8 @@ use std::path::{Path, PathBuf};
 
 use console_core_atomic_writes::read;
 use console_core_never::Never;
-use console_core_number_conversion::Float;
-use console_default_applications::battery::{BATTERY, Charge, SUPPLIES, charge};
+use console_core_number_conversion::{Float, index};
+use console_battery::{BATTERY, Charge, SUPPLIES, charge};
 
 const UPTIME: &str = "/proc/uptime";
 
@@ -97,9 +106,9 @@ const WHOLE: f64 = 100.0;
 
 const NONE: f64 = 0.0;
 
-const NAMED: usize = 20;
+const NAMED: u32 = 20;
 
-const FIELDS_BEFORE_UTIME: usize = 11;
+const FIELDS_BEFORE_UTIME: u32 = 11;
 
 
 #[derive(Debug, Clone, PartialEq)]
@@ -153,8 +162,8 @@ pub fn where_() -> Result<Option<PathBuf>, Never> {
     Ok(ours.map(|ours| ours.join(STORE)))
 }
 
-fn counted(said: &str) -> Result<Option<f64>, Never> {
-    Ok(match said.trim().parse::<f64>() {
+fn counted(text: &str) -> Result<Option<f64>, Never> {
+    Ok(match text.trim().parse::<f64>() {
         Ok(number) => Some(number),
         Err(_not_a_number) => None,
     })
@@ -162,19 +171,19 @@ fn counted(said: &str) -> Result<Option<f64>, Never> {
 
 fn number(at: &Path) -> Result<Option<f64>, Never> {
     let Ok(held) = read(at);
-    let Ok(said) = held.said();
+    let Ok(text) = held.text();
 
-    match said {
-        Some(said) => counted(&said),
+    match text {
+        Some(text) => counted(&text),
         None => Ok(None),
     }
 }
 
 fn up() -> Result<Option<f64>, Never> {
     let Ok(held) = read(Path::new(UPTIME));
-    let Ok(said) = held.said();
+    let Ok(text) = held.text();
 
-    let first = said.as_deref().map(str::split_whitespace).and_then(|mut words| words.next());
+    let first = text.as_deref().map(str::split_whitespace).and_then(|mut words| words.next());
 
     match first {
         Some(first) => counted(first),
@@ -199,7 +208,7 @@ fn gpu() -> Result<Option<f64>, Never> {
 
     for sensor in sensors.flatten().map(|sensor| sensor.path()) {
         let Ok(held) = read(&sensor.join("name"));
-        let Ok(named) = held.said();
+        let Ok(named) = held.text();
 
         match named.as_deref().map(str::trim) {
             Some(AMDGPU) => {}
@@ -217,26 +226,19 @@ fn gpu() -> Result<Option<f64>, Never> {
     Ok(None)
 }
 
-fn spending(said: &str) -> Result<Option<(String, f64)>, Never> {
-    let ends = match said.rfind(')') {
-        Some(ends) => ends,
-        None => return Ok(None),
-    };
-    let starts = match said.find('(') {
-        Some(starts) => starts,
+fn spending(text: &str) -> Result<Option<(String, f64)>, Never> {
+    let (through_name, rest) = match text.rsplit_once(')') {
+        Some(split) => split,
         None => return Ok(None),
     };
 
-    let named = match said.get(starts.saturating_add(1)..ends) {
-        Some(named) => named.to_string(),
-        None => return Ok(None),
-    };
-    let rest = match said.get(ends.saturating_add(1)..) {
-        Some(rest) => rest,
+    let named = match through_name.split_once('(') {
+        Some((_, named)) => named.to_string(),
         None => return Ok(None),
     };
 
-    let mut fields = rest.split_whitespace().skip(FIELDS_BEFORE_UTIME);
+    let Ok(before) = index(FIELDS_BEFORE_UTIME);
+    let mut fields = rest.split_whitespace().skip(before);
     let mine = fields.next().map(str::parse::<u64>);
     let system = fields.next().map(str::parse::<u64>);
 
@@ -269,13 +271,13 @@ fn busy() -> Result<Vec<(String, f64)>, Never> {
         }
 
         let Ok(held) = read(&process.join("stat"));
-        let Ok(said) = held.said();
+        let Ok(text) = held.text();
 
-        let said = match said {
-            Some(said) => said,
+        let text = match text {
+            Some(text) => text,
             None => continue,
         };
-        let Ok(spending) = spending(&said);
+        let Ok(spending) = spending(&text);
 
         let (named, seconds) = match spending {
             Some(spending) => spending,
@@ -288,8 +290,10 @@ fn busy() -> Result<Vec<(String, f64)>, Never> {
 
     let mut gathered: Vec<(String, f64)> = spent.into_iter().collect();
 
+    let Ok(named) = index(NAMED);
+
     gathered.sort_by(|one, another| another.1.total_cmp(&one.1));
-    gathered.truncate(NAMED);
+    gathered.truncate(named);
 
     Ok(gathered)
 }
@@ -302,7 +306,7 @@ fn battery() -> Result<Option<PathBuf>, Never> {
 
     for supply in supplies.flatten().map(|supply| supply.path()) {
         let Ok(held) = read(&supply.join("type"));
-        let Ok(kind) = held.said();
+        let Ok(kind) = held.text();
 
         match kind.as_deref().map(str::trim) {
             Some(BATTERY) => return Ok(Some(supply)),
@@ -331,71 +335,71 @@ pub fn taken(at: u64) -> Result<Moment, Never> {
         }
         None => (None, None),
     };
-    let Ok(said) = charge();
-    let Ok(charged) = Charge::of(&said);
+    let Ok(text) = charge();
+    let Ok(charged) = Charge::of(&text);
     let Ok(busy) = busy();
 
     Ok(Moment { at, up, slept, energy, draw, gpu, percent: charged.percent, busy })
 }
 
-fn quoted(said: &str) -> Result<String, Never> {
-    Ok(serde_json::Value::String(said.to_string()).to_string())
+fn quoted(text: &str) -> Result<String, Never> {
+    Ok(serde_json::Value::String(text.to_string()).to_string())
 }
 
 pub fn written(moment: &Moment) -> Result<String, Never> {
-    let mut said = format!("{{\"at\":{}", moment.at);
+    let mut text = format!("{{\"at\":{}", moment.at);
 
     match moment.up {
-        Some(up) => said.push_str(&format!(",\"up\":{up:.1}")),
+        Some(up) => text.push_str(&format!(",\"up\":{up:.1}")),
         None => {}
     }
 
-    said.push_str(&format!(",\"slept\":{:.1}", moment.slept));
+    text.push_str(&format!(",\"slept\":{:.1}", moment.slept));
 
     match moment.energy {
-        Some(energy) => said.push_str(&format!(",\"energy\":{energy:.3}")),
+        Some(energy) => text.push_str(&format!(",\"energy\":{energy:.3}")),
         None => {}
     }
 
     match moment.draw {
-        Some(draw) => said.push_str(&format!(",\"draw\":{draw:.2}")),
+        Some(draw) => text.push_str(&format!(",\"draw\":{draw:.2}")),
         None => {}
     }
 
     match moment.gpu {
-        Some(gpu) => said.push_str(&format!(",\"gpu\":{gpu:.2}")),
+        Some(gpu) => text.push_str(&format!(",\"gpu\":{gpu:.2}")),
         None => {}
     }
 
     match moment.percent {
-        Some(percent) => said.push_str(&format!(",\"percent\":{percent}")),
+        Some(percent) => text.push_str(&format!(",\"percent\":{percent}")),
         None => {}
     }
 
-    said.push_str(",\"busy\":{");
+    text.push_str(",\"busy\":{");
 
     let mut first = true;
 
     for (named, seconds) in &moment.busy {
         match first {
             true => {}
-            false => said.push(','),
+            false => text.push(','),
         }
 
         first = false;
 
         let Ok(named) = quoted(named);
 
-        said.push_str(&format!("{named}:{seconds:.1}"));
+        text.push_str(&format!("{named}:{seconds:.1}"));
     }
 
-    said.push_str("}}");
+    text.push_str("}}");
 
-    Ok(said)
+    Ok(text)
 }
 
-pub fn of(said: &str) -> Result<Option<Moment>, Never> {
-    let held: serde_json::Value = match serde_json::from_str(said) {
+pub fn of(text: &str) -> Result<Option<Moment>, Never> {
+    let held: serde_json::Value = match serde_json::from_str(text) {
         Ok(held) => held,
         Err(_not_a_line) => return Ok(None),
     };
@@ -461,9 +465,9 @@ pub fn kept(at: &Path, moment: &Moment) -> Result<(), Unsaid> {
         .open(at)
         .map_err(|fault| Unsaid::Opening(at.to_path_buf(), fault))?;
 
-    let Ok(said) = written(moment);
+    let Ok(text) = written(moment);
 
-    file.write_all(format!("{said}\n").as_bytes())
+    file.write_all(format!("{text}\n").as_bytes())
         .map_err(|fault| Unsaid::Writing(at.to_path_buf(), fault))
 }
 
@@ -502,15 +506,17 @@ pub fn between(moments: &[Moment]) -> Result<Option<Used>, Never> {
         used.awake += awake;
         used.asleep += asleep;
 
-        match (before.energy, after.energy) {
-            (Some(was), Some(is)) => match was > is {
-                true => {
-                    used.watthours += was - is;
-                    used.flat += wall / HOUR;
-                }
-                false => {}
-            },
-            (None, _) | (_, None) => {}
+        let dropped = match (before.energy, after.energy) {
+            (Some(was), Some(is)) => (was - is).max(NONE),
+            (None, _) | (_, None) => NONE,
+        };
+
+        match (dropped > NONE, asleep > NONE) {
+            (true, false) => {
+                used.watthours += dropped;
+                used.flat += wall / HOUR;
+            }
+            (true, true) | (false, false) | (false, true) => {}
         }
 
         match after.gpu {
@@ -551,8 +557,10 @@ pub fn between(moments: &[Moment]) -> Result<Option<Used>, Never> {
 
     let mut gathered: Vec<(String, f64)> = busy.into_iter().collect();
 
+    let Ok(named) = index(NAMED);
+
     gathered.sort_by(|one, another| another.1.total_cmp(&one.1));
-    gathered.truncate(NAMED);
+    gathered.truncate(named);
 
     used.busy = gathered;
 
@@ -576,33 +584,35 @@ fn stretch(seconds: f64) -> Result<String, Never> {
 pub fn told(used: &Used) -> Result<String, Never> {
     let Ok(awake) = stretch(used.awake);
     let Ok(asleep) = stretch(used.asleep);
-    let mut said = format!("{awake} awake, {asleep} asleep\n");
+    let mut text = format!("{awake} awake, {asleep} asleep\n");
     let Ok(drawn) = watts(used);
 
     match drawn {
         Some(drawn) => {
             let Ok(flat) = stretch(used.flat * HOUR);
 
-            said.push_str(&format!(
-                "{drawn:.1} W off the battery, {:.1} Wh over {flat}\n",
+            text.push_str(&format!(
+                "{drawn:.1} W awake, {:.1} Wh over {flat} of it\n",
                 used.watthours
             ));
         }
-        None => said.push_str("on the cable the whole time, so nothing says what it draws\n"),
+        None => text.push_str(
+            "never awake off the cable for a whole reading, so nothing says what it draws\n",
+        ),
     }
 
     match used.gpu {
-        Some(gpu) => said.push_str(&format!("the graphics drew {gpu:.1} W\n")),
+        Some(gpu) => text.push_str(&format!("the graphics drew {gpu:.1} W\n")),
         None => {}
     }
 
-    said.push_str("\nwhat spent the time awake\n");
+    text.push_str("\nwhat spent the time awake\n");
 
     for (named, seconds) in &used.busy {
         let share = seconds / used.awake * WHOLE;
 
-        said.push_str(&format!("  {named:<24}{share:>6.1} % of a core\n"));
+        text.push_str(&format!("  {named:<24}{share:>6.1} % of a core\n"));
     }
 
-    Ok(said)
+    Ok(text)
 }

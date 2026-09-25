@@ -1,6 +1,6 @@
 //! What time it is, for a program that is frozen and thawed.
 //!
-//! The daemon guards against acting on what piled up while nobody was
+//! The daemon guards against acting on what piled up while no one was
 //! listening: a turn that arrives far later than the one before it is a turn
 //! the machine was not running for, and what queued in the gap is thrown away
 //! rather than acted on. `turning::AWAY_SECONDS` is that guard and the comment
@@ -19,20 +19,37 @@
 //!
 //! `CLOCK_BOOTTIME` is the same clock with the sleeping counted. It is the
 //! only difference between the two, and it is the whole of what was wrong.
+//!
+//! The guard used to read the gap between two turns, which held while a turn
+//! came fifty times a second whatever happened. It no longer does: the loop
+//! waits for a press when nothing it holds needs looking at, and a minute of
+//! nobody touching the machine is a minute between two turns that the machine
+//! was running for. So a [`Instant`] carries both clocks, and what the guard
+//! reads is how far they drew apart, which is the sleeping and nothing else.
 
 
 use console_core_never::Never;
 use console_core_number_conversion::Float;
+use rustix::time::{clock_gettime, clock_gettime_dynamic, ClockId, DynamicClockId};
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Instant {
+    pub since_boot: f64,
+    pub suspended: f64,
+}
+
+pub fn now() -> Result<Instant, Never> {
+    let Ok(since_boot) = since_boot();
+    let Ok(running) = monotonic();
+
+    Ok(Instant { since_boot, suspended: (since_boot - running).max(0.0) })
+}
 
 pub fn since_boot() -> Result<f64, Never> {
-    let mut when = libc::timespec { tv_sec: 0, tv_nsec: 0 };
-    // SAFETY: a write into a timespec this call owns for the length of it.
-    let asked = unsafe { libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut when) };
-
-    match asked {
-        0 => {},
-        _ => return monotonic(),
-    }
+    let when = match clock_gettime_dynamic(DynamicClockId::Boottime) {
+        Ok(when) => when,
+        Err(_) => return monotonic(),
+    };
 
     let Ok(seconds) = when.tv_sec.float();
     let Ok(nanoseconds) = when.tv_nsec.float();
@@ -41,10 +58,7 @@ pub fn since_boot() -> Result<f64, Never> {
 }
 
 fn monotonic() -> Result<f64, Never> {
-    let mut when = libc::timespec { tv_sec: 0, tv_nsec: 0 };
-
-    // SAFETY: as above.
-    unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut when) };
+    let when = clock_gettime(ClockId::Monotonic);
 
     let Ok(seconds) = when.tv_sec.float();
     let Ok(nanoseconds) = when.tv_nsec.float();
@@ -80,6 +94,18 @@ mod tests {
         let Ok(monotonic) = monotonic();
 
         assert!(booted >= monotonic - 0.05);
+    }
+
+    #[test]
+    fn a_machine_that_has_not_slept_since_the_last_look_has_not_drawn_apart() {
+        let Ok(first) = now();
+
+        std::thread::sleep(std::time::Duration::from_millis(20));
+
+        let Ok(later) = now();
+
+        assert!(later.since_boot > first.since_boot);
+        assert!((later.suspended - first.suspended).abs() < 0.01, "{first:?} then {later:?}");
     }
 
     #[test]

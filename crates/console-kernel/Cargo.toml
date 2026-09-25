@@ -1,0 +1,22 @@
+[package]
+name = "console-kernel"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_kernel"
+path = "src/lib.rs"
+
+[[bin]]
+name = "console-kernel"
+path = "src/main.rs"
+test = false
+
+[dependencies]
+console-core-never.workspace = true
+console-kernel-handles.workspace = true
+
+[lints]
+workspace = true

@@ -9,13 +9,13 @@
 //! at.
 
 use console_settings::rows::tabs;
-use console_status_bar::holding::ALONG;
+use console_status_bar::state::ALONG;
 
 fn asked() -> Vec<String> {
     ALONG
         .into_iter()
-        .map(|what| {
-            let Ok(tab) = what.tab();
+        .map(|item| {
+            let Ok(tab) = item.tab();
 
             tab.to_string()
         })

@@ -1,7 +1,7 @@
 //! The player this desktop owns, in place of the one it forked.
 //!
-//! Everything the Music panel's buttons do was kew's: somebody else's C,
-//! carried on the device as a compiled binary nobody here could read, linked
+//! Everything the Music panel's buttons do was kew's: someone else's C,
+//! carried on the device as a compiled binary no one here could read, linked
 //! against libopus, libvorbis and libfaad because miniaudio brings decoders for
 //! flac, mp3 and wav and for nothing else. The formats it could not get from
 //! the audio backend, ravachol had to bridge by hand. That is a sound
@@ -16,12 +16,12 @@
 //! position is what has been written, and stopping is a pipe that closes.
 //!
 //! GStreamer was the other road and it is worth saying why it was not taken.
-//! This desktop already links it, but only in `console-media-viewer`, and only
-//! because GTK here is built with no media backend at all -- a film needs
-//! `gtk4paintablesink` to hand a widget something it can draw. A song needs
-//! nothing drawn. And the decoders behind gst-libav are ffmpeg's own, so the
-//! pipeline would have bought a scheduler, a bus and a plugin tree in order to
-//! reach exactly the decoders a pipe reaches. What it would have bought that is
+//! This desktop linked it once, in `console-media-viewer`, and only because GTK
+//! there was built with no media backend at all -- a film needed
+//! `gtk4paintablesink` to hand a widget something it could draw. A song needs
+//! nothing drawn. And the decoders behind it are ffmpeg's own, so the pipeline
+//! would have bought a scheduler, a bus and a plugin tree in order to reach
+//! exactly the decoders a pipe reaches. What it would have bought that is
 //! real is seeking without opening the file again, and that is the one place
 //! this is worse: a seek here is ffmpeg started again at an offset.
 //!
@@ -37,6 +37,6 @@ pub mod art;
 pub mod bus;
 pub mod library;
 pub mod playlist;
-pub mod remembering;
+pub mod bookmark;
 pub mod sounding;
 pub mod tags;

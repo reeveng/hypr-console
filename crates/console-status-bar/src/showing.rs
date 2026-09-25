@@ -1,37 +1,30 @@
 //! The bar, in numbers: how deep it is, what stands along it, and what a thumb
 //! on it lands on.
 //!
-//! **Every measurement is a share of something rather than a number of
-//! points.** The stylesheet held them as points -- 38 deep, 15 either side of
-//! what a slot says, 2 of margin -- and they were right for one screen at one
-//! density and silently wrong at any other. The Screen tab changes how many
-//! logical points this glass is laid out in, and a bar written in points gets
-//! physically smaller every time somebody raises that, which makes the one
-//! control on the desktop that has to be hittable the one that shrinks. So the
-//! bar's depth is a share of the screen's shorter side and everything inside it
-//! is a share of the bar's depth, which is what those numbers always were: 15 of
-//! padding was never fifteen of anything, it was a bit under four tenths of the
-//! depth, and saying so is what makes it hold on a screen nobody has yet.
+//! **Every measurement is a share of the em.** The stylesheet held them as
+//! points -- 38 deep, 15 either side of what a slot says, 2 of margin -- and
+//! they were right for one size of type and silently wrong at any other. So the
+//! bar's depth is a share of the em every surface sets its words in, and
+//! everything inside it is a share of the bar's depth, which is what those
+//! numbers always were: 15 of padding was never fifteen of anything, it was a bit
+//! under four tenths of the depth.
 //!
-//! At this device's 1024 by 640 they come out at exactly the points the
-//! stylesheet held, which is how the shares were chosen and is what
+//! It was a share of the screen's shorter side for a while, so that a denser
+//! screen gave a bar the same size to a thumb. That kept the bar and the words
+//! in it answering two different questions, and the words won every time
+//! someone asked for bigger type: the text grew and the bar it stood in did not.
+//! A bar is where things are read, so it is as deep as what is read in it
+//! needs, and making the type bigger makes the bar bigger with it.
+//!
+//! At an em of 18 they come out at exactly the points the stylesheet held, which
+//! is how the shares were chosen and is what
 //! `the_shares_land_on_the_numbers_the_stylesheet_held` keeps true.
-//!
-//! **The shorter side, and not the height, because the screen turns.** The two
-//! were the same number for as long as this panel only ever stood the way it is
-//! screwed in, where the height is the short edge. Turned a quarter the height
-//! is the long edge, and a share of it is a bar two and a half times as deep
-//! with every glyph in it grown to match, which is what a person sees first and
-//! is what they say is wrong. The shorter side is the panel's own short edge
-//! whichever way up it stands, so the bar comes out the same number of real
-//! pixels deep either way: the depth of a bar is a question about a thumb, and
-//! a thumb does not turn with the screen.
 //!
 //! What the shape buys is a second knob: the bar as a whole is `DEEP`, and
 //! anything in it can be nudged against the bar without moving the rest.
 //!
 //! **A turned screen is a shorter bar, and something has to go.** The depth
-//! holds because a thumb does not turn with the screen -- but neither does
+//! holds because the type does not turn with the screen -- but neither does
 //! anything else in here, and the edge the bar runs along is the panel's long
 //! one one way up and its short one the other. So the same slots, at the same
 //! size to a thumb, are asked to stand in about two thirds of the room, and
@@ -41,14 +34,14 @@
 //!
 //! [`shed`] is the order things go in, and it is an order rather than a
 //! shrink, because everything here is already the size a thumb needs. The
-//! workspaces nobody is on go first -- the shoulders are what move between
+//! workspaces no one is on go first -- the shoulders are what move between
 //! windows on this device and the bar is where you read which one you are on,
 //! so the one in front is the whole of what that row has to say when there is
 //! no room for the rest. Then the readings drop what is written beside them
 //! and keep their icon, which is the other half of a slot that was never the
 //! half being read at a glance. If it still does not fit the middle is put
-//! against the group on its right rather than in the centre of the screen, so
-//! what a short bar looks like is a clock off-centre and not a clock over an
+//! against the group on its right rather than in the center of the screen, so
+//! what a short bar looks like is a clock off-center and not a clock over an
 //! icon.
 //!
 //! **The strip is the last two rows of this surface rather than a bar of its
@@ -67,17 +60,18 @@
 //! -- where each slab lands, what a thumb hits, whether lighting one moves the
 //! rest -- be asserted with no screen anywhere near it.
 
-use console_core_colour::Oklch;
-use console_core_colour::spent::{Undressed, named};
+use console_core_color::Oklch;
+use console_core_color::palette::{PaletteError, named};
 use console_core_geometry::{Point, Size};
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
-use console_core_shapes::{Covers, Edge, Font, Panel, Round, Shape, Weight, Words};
+use console_core_fonts::{EM, Font, ICONS, TextStyle};
+use console_core_shapes::{Covers, Edge, Panel, Round, Shape, Weight, Text};
 
 use std::collections::BTreeMap;
 use std::num::NonZeroU32;
 
-use crate::reading::{Tone, What};
+use crate::reading::{Tone, StatusItem};
 
 pub use console_onscreen::BAR as WHO;
 
@@ -105,9 +99,9 @@ impl Share {
     }
 }
 
-pub const DEEP: Share = Share(59);
+pub const DEEP: Share = Share(2111);
 
-pub const THIN: Share = Share(3);
+pub const THIN: Share = Share(111);
 
 pub const PAD: Share = Share(395);
 
@@ -118,14 +112,6 @@ pub const ROUND: Share = Share(105);
 pub const BETWEEN: Share = Share(105);
 
 pub const ICON: Share = Share(579);
-
-pub const WORD: Share = Share(395);
-
-pub const SMALL: Share = Share(289);
-
-pub const LETTERS: &str = "Noto Sans";
-
-pub const ICONS: &str = "FantasqueSansM Nerd Font Mono";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Face {
@@ -155,11 +141,9 @@ pub struct Fitting {
 }
 
 impl Fitting {
-    pub fn of(room: Size<u32>) -> Result<Fitting, Never> {
-        let across = room.wide.min(room.tall);
-
-        let Ok(deep) = DEEP.spent(across);
-        let Ok(thin) = THIN.spent(across);
+    pub fn of(em: u32) -> Result<Fitting, Never> {
+        let Ok(deep) = DEEP.spent(em);
+        let Ok(thin) = THIN.spent(em);
         let Ok(pad) = PAD.spent(deep);
         let Ok(margin) = MARGIN.spent(deep);
         let Ok(round) = ROUND.spent(deep);
@@ -168,29 +152,32 @@ impl Fitting {
         Ok(Fitting { deep, thin, pad, margin, round, between })
     }
 
-    pub fn tall(&self) -> Result<u32, Never> {
+    pub fn of_em() -> Result<Fitting, Never> {
+        let Ok(em) = fitted::<i32, u32>(EM);
+
+        Fitting::of(em)
+    }
+
+    pub fn height(&self) -> Result<u32, Never> {
         Ok(self.deep.saturating_add(self.thin))
     }
 
     pub fn font(&self, face: Face) -> Result<Font, Never> {
-        let share = match face {
-            Face::Icon => ICON,
-            Face::Clock | Face::Reading => WORD,
-            Face::Small => SMALL,
-        };
-        let family = match face {
-            Face::Icon => ICONS,
-            Face::Clock | Face::Reading | Face::Small => LETTERS,
-        };
-        let Ok(tall) = share.spent(self.deep);
+        match face {
+            Face::Icon => {
+                let Ok(tall) = ICON.spent(self.deep);
 
-        Ok(Font { family: family.to_string(), tall })
+                Ok(Font { family: ICONS.to_string(), height: tall })
+            }
+            Face::Clock | Face::Reading => TextStyle::Callout.font(),
+            Face::Small => TextStyle::Caption.font(),
+        }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Said {
-    pub said: String,
+pub struct Span {
+    pub text: String,
     pub face: Face,
 }
 
@@ -201,22 +188,22 @@ pub enum Lit {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Does {
+pub enum BarAction {
     Calendar,
     Launcher,
     Keyboard,
     Workspace(i64),
-    Settings(What),
+    Settings(StatusItem),
     Music,
-    Notices,
+    Notifications,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Slot {
-    pub said: Vec<Said>,
+    pub spans: Vec<Span>,
     pub tone: Tone,
     pub lit: Lit,
-    pub does: Option<Does>,
+    pub action: Option<BarAction>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -228,11 +215,11 @@ pub struct Measured {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Filling {
     At(u16),
-    Nothing,
+    None,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Saying {
+pub struct Layout {
     pub left: Vec<Slot>,
     pub middle: Vec<Slot>,
     pub right: Vec<Slot>,
@@ -248,16 +235,16 @@ pub struct Bar {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Touching {
-    pub does: Does,
+pub struct HitRegion {
+    pub action: BarAction,
     pub panel: Panel,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Drawn {
+pub struct Rendered {
     pub shapes: Vec<Shape>,
     pub room: Size<u32>,
-    pub touching: Vec<Touching>,
+    pub touching: Vec<HitRegion>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -277,7 +264,7 @@ pub const SPENDS: [&str; 9] =
     ["ground", "text", "soft", "pink", "night", "butter", "coral", "leaf", "fill"];
 
 impl Wearing {
-    pub fn out_of(spent: &BTreeMap<String, String>) -> Result<Wearing, Undressed> {
+    pub fn out_of(spent: &BTreeMap<String, String>) -> Result<Wearing, PaletteError> {
         let ground = named(spent, "ground")?;
         let text = named(spent, "text")?;
         let soft = named(spent, "soft")?;
@@ -296,10 +283,10 @@ impl Wearing {
             Lit::Yes => self.night,
             Lit::No => match tone {
                 Tone::Plain => self.text,
-                Tone::Quiet => self.soft,
+                Tone::Secondary => self.soft,
                 Tone::Pressed => self.pink,
                 Tone::Low => self.butter,
-                Tone::Wrong => self.coral,
+                Tone::Error => self.coral,
                 Tone::Well => self.leaf,
             },
         })
@@ -307,18 +294,18 @@ impl Wearing {
 }
 
 pub fn slab(measured: &Measured, fitting: Fitting) -> Result<Size<u32>, Never> {
-    let said = measured.runs.iter().map(|run| run.wide).fold(0_u32, u32::saturating_add);
-    let Ok(many) = fitted::<usize, u32>(measured.runs.len());
+    let said = measured.runs.iter().map(|run| run.width).fold(0_u32, u32::saturating_add);
+    let Ok(many) = fitted::<_, u32>(measured.runs.len());
     let gaps = fitting.between.saturating_mul(many.saturating_sub(1));
     let wide = said.saturating_add(gaps).saturating_add(fitting.pad.saturating_mul(2));
 
-    Ok(Size { wide, tall: fitting.deep.saturating_sub(fitting.margin.saturating_mul(2)) })
+    Ok(Size { width: wide, height: fitting.deep.saturating_sub(fitting.margin.saturating_mul(2)) })
 }
 
 fn advance(measured: &Measured, fitting: Fitting) -> Result<u32, Never> {
     let Ok(slab) = slab(measured, fitting);
 
-    Ok(slab.wide.saturating_add(fitting.margin.saturating_mul(2)))
+    Ok(slab.width.saturating_add(fitting.margin.saturating_mul(2)))
 }
 
 pub fn group(slots: &[Measured], fitting: Fitting) -> Result<u32, Never> {
@@ -363,28 +350,28 @@ pub fn holds(bar: &Bar, fitting: Fitting, wide: u32) -> Result<Room, Never> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Keep {
+enum Retain {
     Yes,
     No,
 }
 
-fn one_of_the_workspaces_nobody_is_on(one: &Measured) -> Result<Keep, Never> {
-    let does = match one.slot.does {
-        Some(does) => does,
-        None => return Ok(Keep::Yes),
+fn one_of_the_workspaces_no_one_is_on(one: &Measured) -> Result<Retain, Never> {
+    let action = match one.slot.action {
+        Some(action) => action,
+        None => return Ok(Retain::Yes),
     };
 
-    Ok(match does {
-        Does::Workspace(_) => match one.slot.lit {
-            Lit::Yes => Keep::Yes,
-            Lit::No => Keep::No,
+    Ok(match action {
+        BarAction::Workspace(_) => match one.slot.lit {
+            Lit::Yes => Retain::Yes,
+            Lit::No => Retain::No,
         },
-        Does::Calendar
-        | Does::Launcher
-        | Does::Keyboard
-        | Does::Settings(_)
-        | Does::Music
-        | Does::Notices => Keep::Yes,
+        BarAction::Calendar
+        | BarAction::Launcher
+        | BarAction::Keyboard
+        | BarAction::Settings(_)
+        | BarAction::Music
+        | BarAction::Notifications => Retain::Yes,
     })
 }
 
@@ -392,11 +379,11 @@ fn only_the_workspace_in_front(slots: &[Measured]) -> Result<Vec<Measured>, Neve
     let mut kept = Vec::new();
 
     for one in slots {
-        let Ok(keep) = one_of_the_workspaces_nobody_is_on(one);
+        let Ok(keep) = one_of_the_workspaces_no_one_is_on(one);
 
         match keep {
-            Keep::Yes => kept.push(one.clone()),
-            Keep::No => {},
+            Retain::Yes => kept.push(one.clone()),
+            Retain::No => {},
         }
     }
 
@@ -404,20 +391,20 @@ fn only_the_workspace_in_front(slots: &[Measured]) -> Result<Vec<Measured>, Neve
 }
 
 fn the_icon_alone(one: &Measured) -> Result<Measured, Never> {
-    let mut said = Vec::new();
+    let mut spans = Vec::new();
     let mut runs = Vec::new();
 
-    for (one, run) in one.slot.said.iter().zip(&one.runs) {
+    for (one, run) in one.slot.spans.iter().zip(&one.runs) {
         match one.face {
             Face::Small => {},
             Face::Icon | Face::Clock | Face::Reading => {
-                said.push(one.clone());
+                spans.push(one.clone());
                 runs.push(*run);
             }
         }
     }
 
-    Ok(Measured { slot: Slot { said, ..one.slot.clone() }, runs })
+    Ok(Measured { slot: Slot { spans, ..one.slot.clone() }, runs })
 }
 
 fn icons_alone(slots: &[Measured]) -> Result<Vec<Measured>, Never> {
@@ -454,14 +441,14 @@ pub fn shed(bar: &Bar, fitting: Fitting, wide: u32) -> Result<Bar, Never> {
     Ok(Bar { right, ..folded })
 }
 
-pub fn along(bar: &Bar, wearing: &Wearing, room: Size<u32>) -> Result<Drawn, Never> {
-    let Ok(fitting) = Fitting::of(room);
-    let Ok(tall) = fitting.tall();
-    let wide = room.wide;
+pub fn along(bar: &Bar, wearing: &Wearing, room: Size<u32>) -> Result<Rendered, Never> {
+    let Ok(fitting) = Fitting::of_em();
+    let Ok(tall) = fitting.height();
+    let wide = room.width;
     let Ok(bar) = shed(bar, fitting, wide);
     let mut shapes = vec![Shape::Panel(Panel {
-        at: Point { across: 0, down: 0 },
-        size: Size { wide, tall },
+        at: Point { x: 0, y: 0 },
+        size: Size { width: wide, height: tall },
         round: Round(0),
         fill: wearing.ground,
         edge: Edge::None,
@@ -473,22 +460,22 @@ pub fn along(bar: &Bar, wearing: &Wearing, room: Size<u32>) -> Result<Drawn, Nev
     let Ok(right) = group(&bar.right, fitting);
     let free = wide.saturating_sub(right).saturating_sub(middle);
     let halfway = wide.saturating_sub(middle).div_ceil(2);
-    let Ok(centre) = fitted::<u32, i32>(halfway.min(free).max(along_the_left.min(free)));
+    let Ok(center) = fitted::<u32, i32>(halfway.min(free).max(along_the_left.min(free)));
     let Ok(ends) = fitted::<u32, i32>(wide.saturating_sub(right));
 
-    for (slots, from) in [(&bar.left, 0), (&bar.middle, centre), (&bar.right, ends)] {
+    for (slots, from) in [(&bar.left, 0), (&bar.middle, center), (&bar.right, ends)] {
         let Ok(()) = laid(slots, from, fitting, wearing, &mut shapes, &mut touching);
     }
 
     match bar.filling {
-        Filling::Nothing => {}
+        Filling::None => {}
         Filling::At(thousandths) => {
             let Ok(filled) = filled(wide, thousandths);
             let Ok(down) = fitted::<u32, i32>(fitting.deep);
 
             shapes.push(Shape::Panel(Panel {
-                at: Point { across: 0, down },
-                size: Size { wide: filled, tall: fitting.thin },
+                at: Point { x: 0, y: down },
+                size: Size { width: filled, height: fitting.thin },
                 round: Round(0),
                 fill: wearing.fill,
                 edge: Edge::None,
@@ -496,7 +483,7 @@ pub fn along(bar: &Bar, wearing: &Wearing, room: Size<u32>) -> Result<Drawn, Nev
         }
     }
 
-    Ok(Drawn { shapes, room: Size { wide, tall }, touching })
+    Ok(Rendered { shapes, room: Size { width: wide, height: tall }, touching })
 }
 
 fn laid(
@@ -505,7 +492,7 @@ fn laid(
     fitting: Fitting,
     wearing: &Wearing,
     shapes: &mut Vec<Shape>,
-    touching: &mut Vec<Touching>,
+    touching: &mut Vec<HitRegion>,
 ) -> Result<(), Never> {
     let Ok(margin) = fitted::<u32, i32>(fitting.margin);
     let Ok(pad) = fitted::<u32, i32>(fitting.pad);
@@ -514,7 +501,7 @@ fn laid(
     for one in slots {
         let Ok(size) = slab(one, fitting);
         let panel = Panel {
-            at: Point { across: across.saturating_add(margin), down: margin },
+            at: Point { x: across.saturating_add(margin), y: margin },
             size,
             round: Round(fitting.round),
             fill: wearing.pink,
@@ -526,29 +513,29 @@ fn laid(
             Lit::No => {},
         }
 
-        match one.slot.does {
-            Some(does) => touching.push(Touching { does, panel }),
+        match one.slot.action {
+            Some(action) => touching.push(HitRegion { action, panel }),
             None => {},
         }
 
         let Ok(ink) = wearing.ink(one.slot.tone, one.slot.lit);
-        let mut at = panel.at.across.saturating_add(pad);
+        let mut at = panel.at.x.saturating_add(pad);
 
-        for (said, run) in one.slot.said.iter().zip(&one.runs) {
-            let Ok(font) = fitting.font(said.face);
-            let Ok(weight) = said.face.weight();
-            let Ok(down) = centred(panel, *run);
+        for (span, run) in one.slot.spans.iter().zip(&one.runs) {
+            let Ok(font) = fitting.font(span.face);
+            let Ok(weight) = span.face.weight();
+            let Ok(down) = centered(panel, *run);
 
-            shapes.push(Shape::Words(Words {
-                at: Point { across: at, down },
-                wide: run.wide,
-                said: said.said.clone(),
+            shapes.push(Shape::Text(Text {
+                at: Point { x: at, y: down },
+                width: run.width,
+                said: span.text.clone(),
                 weight,
                 font,
                 ink,
             }));
 
-            let Ok(step) = fitted::<u32, i32>(run.wide.saturating_add(fitting.between));
+            let Ok(step) = fitted::<u32, i32>(run.width.saturating_add(fitting.between));
 
             at = at.saturating_add(step);
         }
@@ -562,16 +549,16 @@ fn laid(
     Ok(())
 }
 
-fn centred(panel: Panel, run: Size<u32>) -> Result<i32, Never> {
-    let Ok(spare) = fitted::<u32, i32>(panel.size.tall.saturating_sub(run.tall).div_ceil(2));
+fn centered(panel: Panel, run: Size<u32>) -> Result<i32, Never> {
+    let Ok(spare) = fitted::<u32, i32>(panel.size.height.saturating_sub(run.height).div_ceil(2));
 
-    Ok(panel.at.down.saturating_add(spare))
+    Ok(panel.at.y.saturating_add(spare))
 }
 
-impl Drawn {
-    pub fn on(&self, at: Point<i32>) -> Result<Option<Does>, Never> {
+impl Rendered {
+    pub fn on(&self, at: Point<i32>) -> Result<Option<BarAction>, Never> {
         Ok(self.touching.iter().find_map(|touching| match touching.panel.covers(at) {
-            Ok(Covers::Yes) => Some(touching.does),
+            Ok(Covers::Yes) => Some(touching.action),
             Ok(Covers::No) | Err(_) => None,
         }))
     }
@@ -581,34 +568,20 @@ impl Drawn {
 mod tests {
     use super::*;
 
-    const SIX: [(&str, &str); 9] = [
-        ("ground", "2b2029"),
-        ("text", "f7e7f3"),
-        ("soft", "e5cde0"),
-        ("pink", "ff9ecb"),
-        ("night", "231b26"),
-        ("butter", "f2d692"),
-        ("coral", "ff8f8f"),
-        ("leaf", "9fd88f"),
-        ("fill", "723b5f"),
-    ];
+    const SPENT: &str = "ground=2b2029\ntext=f7e7f3\nsoft=e5cde0\npink=ff9ecb\nnight=231b26\nbutter=f2d692\ncoral=ff8f8f\nleaf=9fd88f\nfill=723b5f";
 
-    const SCREEN: Size<u32> = Size { wide: 1024, tall: 640 };
+    const SCREEN: Size<u32> = Size { width: 1024, height: 640 };
 
-    const ACROSS: u32 = SCREEN.wide;
+    const ACROSS: u32 = SCREEN.width;
 
     fn fitting() -> Fitting {
-        let Ok(fitting) = Fitting::of(SCREEN);
+        let Ok(fitting) = Fitting::of(18);
 
         fitting
     }
 
     pub(super) fn wearing() -> Wearing {
-        let mut spent = BTreeMap::new();
-
-        for (named, six) in SIX {
-            spent.insert(named.to_string(), six.to_string());
-        }
+        let Ok(spent) = console_core_color::palette::read(SPENT);
 
         match Wearing::out_of(&spent) {
             Ok(wearing) => wearing,
@@ -616,24 +589,24 @@ mod tests {
         }
     }
 
-    fn slot(said: Vec<Said>, does: Option<Does>) -> Measured {
-        let runs = said
+    fn slot(spans: Vec<Span>, action: Option<BarAction>) -> Measured {
+        let runs = spans
             .iter()
             .map(|one| match one.face {
-                Face::Icon => Size { wide: 14, tall: 22 },
-                Face::Clock | Face::Reading => Size { wide: 40, tall: 18 },
-                Face::Small => Size { wide: 24, tall: 13 },
+                Face::Icon => Size { width: 14, height: 22 },
+                Face::Clock | Face::Reading => Size { width: 40, height: 18 },
+                Face::Small => Size { width: 24, height: 13 },
             })
             .collect();
 
         Measured {
-            slot: Slot { said, tone: Tone::Plain, lit: Lit::No, does },
+            slot: Slot { spans, tone: Tone::Plain, lit: Lit::No, action },
             runs,
         }
     }
 
-    fn icon(said: &str, does: Option<Does>) -> Measured {
-        slot(vec![Said { said: said.to_string(), face: Face::Icon }], does)
+    fn icon(icon: &str, action: Option<BarAction>) -> Measured {
+        slot(vec![Span { text: icon.to_string(), face: Face::Icon }], action)
     }
 
     fn lit(measured: Measured) -> Measured {
@@ -641,107 +614,78 @@ mod tests {
     }
 
     fn bar(left: Vec<Measured>, middle: Vec<Measured>, right: Vec<Measured>) -> Bar {
-        Bar { left, middle, right, filling: Filling::Nothing }
+        Bar { left, middle, right, filling: Filling::None }
     }
 
-    fn drawn(bar: &Bar) -> Drawn {
+    fn drawn(bar: &Bar) -> Rendered {
         let Ok(drawn) = along(bar, &wearing(), SCREEN);
 
         drawn
     }
 
-    fn panels(drawn: &Drawn) -> Vec<Panel> {
-        drawn
-            .shapes
-            .iter()
-            .filter_map(|shape| match shape {
-                Shape::Panel(panel) => Some(*panel),
-                Shape::Words(_) => None,
-            })
-            .collect()
+    fn panels(drawn: &Rendered) -> Vec<Panel> {
+        let Ok(panels) = console_core_shapes::panels(&drawn.shapes);
+
+        panels
     }
 
-    fn words(drawn: &Drawn) -> Vec<Words> {
-        drawn
-            .shapes
-            .iter()
-            .filter_map(|shape| match shape {
-                Shape::Words(words) => Some(words.clone()),
-                Shape::Panel(_) => None,
-            })
-            .collect()
+    fn words(drawn: &Rendered) -> Vec<Text> {
+        let Ok(words) = console_core_shapes::texts(&drawn.shapes);
+
+        words
     }
 
     fn far(panel: &Panel) -> i32 {
-        let Ok(wide) = fitted::<u32, i32>(panel.size.wide);
+        let Ok(wide) = fitted::<u32, i32>(panel.size.width);
 
-        panel.at.across.saturating_add(wide)
-    }
-
-    #[test]
-    fn a_turned_screen_is_the_same_bar_and_not_a_bar_two_and_a_half_times_as_deep() {
-        let Ok(mounted) = Fitting::of(Size { wide: 1024, tall: 640 });
-        let Ok(turned) = Fitting::of(Size { wide: 1280, tall: 2048 });
-        let Ok(mounted_pixels) = mounted.tall();
-        let Ok(turned_pixels) = turned.tall();
-
-        assert_eq!(
-            mounted_pixels.saturating_mul(5) / 2,
-            100,
-            "the panel as it is mounted, at the rung it was drawn for"
-        );
-        assert_eq!(
-            turned_pixels.saturating_mul(5) / 4,
-            100,
-            "a quarter turn is the same real pixels deep, at the scale that turn is worn at"
-        );
+        panel.at.x.saturating_add(wide)
     }
 
     fn workspace(named: &str, id: i64, lit: Lit) -> Measured {
         let one = slot(
-            vec![Said { said: named.to_string(), face: Face::Reading }],
-            Some(Does::Workspace(id)),
+            vec![Span { text: named.to_string(), face: Face::Reading }],
+            Some(BarAction::Workspace(id)),
         );
 
         Measured { slot: Slot { lit, ..one.slot }, ..one }
     }
 
-    fn reading(icon: &str, beside: &str, what: What) -> Measured {
+    fn reading(icon: &str, beside: &str, item: StatusItem) -> Measured {
         slot(
             vec![
-                Said { said: icon.to_string(), face: Face::Icon },
-                Said { said: beside.to_string(), face: Face::Small },
+                Span { text: icon.to_string(), face: Face::Icon },
+                Span { text: beside.to_string(), face: Face::Small },
             ],
-            Some(Does::Settings(what)),
+            Some(BarAction::Settings(item)),
         )
     }
 
     fn a_bar_of_everything() -> Bar {
         bar(
             vec![
-                icon("\u{f003b}", Some(Does::Launcher)),
-                icon("\u{f030c}", Some(Does::Keyboard)),
+                icon("\u{f003b}", Some(BarAction::Launcher)),
+                icon("\u{f030c}", Some(BarAction::Keyboard)),
                 workspace("1", 1, Lit::No),
                 workspace("2", 2, Lit::No),
                 workspace("3", 3, Lit::Yes),
                 workspace("+", 4, Lit::No),
             ],
             vec![slot(
-                vec![Said { said: "Sun 20 Sep  02:15".to_string(), face: Face::Clock }],
-                Some(Does::Calendar),
+                vec![Span { text: "Sun 20 Sep  02:15".to_string(), face: Face::Clock }],
+                Some(BarAction::Calendar),
             )],
             vec![
-                icon("\u{f075a}", Some(Does::Music)),
-                reading("\u{f057e}", "60%", What::Sound),
-                icon("\u{f00af}", Some(Does::Settings(What::Bluetooth))),
-                reading("\u{f0079}", "95%", What::Battery),
-                icon("\u{f009c}", Some(Does::Notices)),
+                icon("\u{f075a}", Some(BarAction::Music)),
+                reading("\u{f057e}", "60%", StatusItem::Sound),
+                icon("\u{f00af}", Some(BarAction::Settings(StatusItem::Bluetooth))),
+                reading("\u{f0079}", "95%", StatusItem::Battery),
+                icon("\u{f009c}", Some(BarAction::Notifications)),
             ],
         )
     }
 
-    fn does_of(slots: &[Measured]) -> Vec<Option<Does>> {
-        slots.iter().map(|one| one.slot.does).collect()
+    fn does_of(slots: &[Measured]) -> Vec<Option<BarAction>> {
+        slots.iter().map(|one| one.slot.action).collect()
     }
 
     #[test]
@@ -752,8 +696,8 @@ mod tests {
         assert_eq!(shed, whole);
     }
 
-    fn runs_of(slots: &[Measured]) -> Vec<usize> {
-        slots.iter().map(|one| one.runs.len()).collect()
+    fn runs_of(slots: &[Measured]) -> Vec<u32> {
+        slots.iter().map(|one| u32::try_from(one.runs.len()).unwrap()).collect()
     }
 
     #[test]
@@ -764,8 +708,8 @@ mod tests {
 
         assert_eq!(
             does_of(&shed.left),
-            [Some(Does::Launcher), Some(Does::Keyboard), Some(Does::Workspace(3))],
-            "the workspaces nobody is on should have gone first"
+            [Some(BarAction::Launcher), Some(BarAction::Keyboard), Some(BarAction::Workspace(3))],
+            "the workspaces no one is on should have gone first"
         );
         assert_eq!(runs_of(&shed.right), runs_of(&whole.right), "a reading lost its words too soon");
         assert_eq!(does_of(&shed.middle), does_of(&whole.middle), "the clock was taken away");
@@ -786,19 +730,19 @@ mod tests {
         let whole = a_bar_of_everything();
 
         for wide in [800_u32, 1024, 1280, 2048, 2560] {
-            let room = Size { wide, tall: wide.saturating_mul(2) };
+            let room = Size { width: wide, height: wide.saturating_mul(2) };
             let Ok(drawn) = along(&whole, &wearing(), room);
 
             for pair in drawn.touching.windows(2) {
                 match (pair.first(), pair.get(1)) {
                     (Some(one), Some(next)) => {
-                        let Ok(far) = fitted::<u32, i32>(one.panel.size.wide);
+                        let Ok(far) = fitted::<u32, i32>(one.panel.size.width);
 
                         assert!(
-                            one.panel.at.across.saturating_add(far) <= next.panel.at.across,
+                            one.panel.at.x.saturating_add(far) <= next.panel.at.x,
                             "at {wide} across, {:?} is drawn over {:?}",
-                            one.does,
-                            next.does
+                            one.action,
+                            next.action
                         );
                     }
                     (_one, _next) => {}
@@ -810,11 +754,11 @@ mod tests {
     #[test]
     fn the_shares_land_on_the_numbers_the_stylesheet_held() {
         let one = fitting();
-        let Ok(tall) = one.tall();
+        let Ok(tall) = one.height();
         let size = |face| {
             let Ok(font) = one.font(face);
 
-            font.tall
+            font.height
         };
 
         assert_eq!(one.deep, 38, "the bar was 38 points deep on this screen");
@@ -825,24 +769,31 @@ mod tests {
         assert_eq!(one.between, 4);
         assert_eq!(tall, 40, "the bar and the strip reserved 40 points between them");
         assert_eq!(size(Face::Icon), 22);
-        assert_eq!(size(Face::Clock), 15);
-        assert_eq!(size(Face::Reading), 15);
-        assert_eq!(size(Face::Small), 11);
+        assert_eq!(size(Face::Clock), 16);
+        assert_eq!(size(Face::Reading), 16);
+        assert_eq!(size(Face::Small), 12);
     }
 
     #[test]
-    fn a_denser_screen_is_a_bar_that_is_the_same_size_to_a_thumb() {
-        let Ok(loose) = Fitting::of(Size { wide: 1024, tall: 640 });
-        let Ok(dense) = Fitting::of(Size { wide: 1280, tall: 800 });
-        let quarter = loose.deep.saturating_mul(5).div_ceil(4);
+    fn a_bigger_em_is_a_bigger_bar_in_proportion_and_the_icons_still_fit_in_it() {
+        let Ok(one) = Fitting::of(18);
+        let Ok(twice) = Fitting::of(36);
 
-        assert!(dense.deep > loose.deep, "{dense:?} against {loose:?}");
         assert!(
-            dense.deep.abs_diff(quarter) <= 1,
-            "a screen a quarter denser should give a bar a quarter deeper: {} against {quarter}",
-            dense.deep
+            twice.deep.abs_diff(one.deep.saturating_mul(2)) <= 1,
+            "twice the type should be twice the bar: {} against {}",
+            twice.deep,
+            one.deep
         );
-        assert!(dense.pad > loose.pad, "the target shrank when the screen got denser");
+        assert!(twice.pad.abs_diff(one.pad.saturating_mul(2)) <= 1, "{twice:?} against {one:?}");
+
+        for em in [12_u32, 18, 24, 36] {
+            let Ok(fitting) = Fitting::of(em);
+            let Ok(icon) = fitting.font(Face::Icon);
+            let room = fitting.deep.saturating_sub(fitting.margin.saturating_mul(2));
+
+            assert!(icon.height <= room, "at an em of {em} an icon {} tall is in {room}", icon.height);
+        }
     }
 
     #[test]
@@ -864,32 +815,32 @@ mod tests {
         let one = fitting();
         let Ok(size) = slab(&icon("\u{f00af}", None), one);
 
-        assert_eq!(size.wide, 14 + one.pad * 2);
-        assert_eq!(size.tall, one.deep - one.margin * 2);
+        assert_eq!(size.width, 14 + one.pad * 2);
+        assert_eq!(size.height, one.deep - one.margin * 2);
     }
 
     #[test]
     fn a_slot_saying_two_things_puts_a_gap_between_them_and_pads_the_pair() {
         let both = slot(
             vec![
-                Said { said: "\u{f0079}".to_string(), face: Face::Icon },
-                Said { said: "64%".to_string(), face: Face::Small },
+                Span { text: "\u{f0079}".to_string(), face: Face::Icon },
+                Span { text: "64%".to_string(), face: Face::Small },
             ],
             None,
         );
         let fitting = fitting();
         let Ok(one) = slab(&both, fitting);
 
-        assert_eq!(one.wide, 14 + fitting.between + 24 + fitting.pad * 2);
+        assert_eq!(one.width, 14 + fitting.between + 24 + fitting.pad * 2);
     }
 
     #[test]
     fn nothing_that_can_be_pressed_is_smaller_than_a_thumb() {
-        let drawn = drawn(&bar(vec![icon("\u{f0004}", Some(Does::Launcher))], vec![], vec![]));
+        let drawn = drawn(&bar(vec![icon("\u{f0004}", Some(BarAction::Launcher))], vec![], vec![]));
 
         for touching in &drawn.touching {
             assert!(
-                touching.panel.size.wide >= 30 && touching.panel.size.tall >= 30,
+                touching.panel.size.width >= 30 && touching.panel.size.height >= 30,
                 "{:?} is smaller than a thumb at arm's length",
                 touching.panel.size
             );
@@ -900,9 +851,9 @@ mod tests {
     #[test]
     fn the_left_group_starts_at_the_left_edge_and_the_right_group_ends_at_the_right() {
         let drawn = drawn(&bar(
-            vec![lit(icon("\u{f0004}", Some(Does::Launcher)))],
+            vec![lit(icon("\u{f0004}", Some(BarAction::Launcher)))],
             vec![],
-            vec![lit(icon("\u{f009c}", Some(Does::Notices)))],
+            vec![lit(icon("\u{f009c}", Some(BarAction::Notifications)))],
         ));
         let round = Round(fitting().round);
         let slabs: Vec<Panel> =
@@ -912,7 +863,7 @@ mod tests {
 
         match slabs.as_slice() {
             [left, right] => {
-                assert_eq!(left.at.across, margin, "the first slab is not against the left edge");
+                assert_eq!(left.at.x, margin, "the first slab is not against the left edge");
                 assert_eq!(
                     far(right),
                     across.saturating_sub(margin),
@@ -925,17 +876,17 @@ mod tests {
 
     #[test]
     fn the_middle_is_the_middle_however_wide_the_screen_is() {
-        let clock = slot(vec![Said { said: "14:30".to_string(), face: Face::Clock }], None);
+        let clock = slot(vec![Span { text: "14:30".to_string(), face: Face::Clock }], None);
         let one = [clock.clone()];
         let bar = bar(vec![], vec![clock], vec![]);
 
         for wide in [640_u32, 1024, 1280] {
-            let room = Size { wide, tall: SCREEN.tall };
-            let Ok(fitting) = Fitting::of(room);
+            let room = Size { width: wide, height: SCREEN.height };
+            let Ok(fitting) = Fitting::of_em();
             let Ok(drawn) = along(&bar, &wearing(), room);
             let Ok(one) = group(&one, fitting);
             let run = match words(&drawn).first() {
-                Some(run) => run.at.across,
+                Some(run) => run.at.x,
                 None => panic!("the clock should be drawn"),
             };
             let Ok(from) = fitted::<u32, i32>(wide.saturating_sub(one).div_ceil(2));
@@ -948,14 +899,14 @@ mod tests {
     #[test]
     fn lighting_a_slot_moves_nothing_along_the_bar() {
         let dark = bar(
-            vec![icon("\u{f0004}", Some(Does::Launcher)), icon("\u{f0311}", Some(Does::Keyboard))],
+            vec![icon("\u{f0004}", Some(BarAction::Launcher)), icon("\u{f0311}", Some(BarAction::Keyboard))],
             vec![],
             vec![],
         );
         let alight = bar(
             vec![
-                lit(icon("\u{f0004}", Some(Does::Launcher))),
-                icon("\u{f0311}", Some(Does::Keyboard)),
+                lit(icon("\u{f0004}", Some(BarAction::Launcher))),
+                icon("\u{f0311}", Some(BarAction::Keyboard)),
             ],
             vec![],
             vec![],
@@ -974,8 +925,8 @@ mod tests {
 
     #[test]
     fn an_unlit_slot_draws_no_slab_and_the_bar_shows_through() {
-        let dark = drawn(&bar(vec![icon("\u{f0004}", Some(Does::Launcher))], vec![], vec![]));
-        let alight = drawn(&bar(vec![lit(icon("\u{f0004}", Some(Does::Launcher)))], vec![], vec![]));
+        let dark = drawn(&bar(vec![icon("\u{f0004}", Some(BarAction::Launcher))], vec![], vec![]));
+        let alight = drawn(&bar(vec![lit(icon("\u{f0004}", Some(BarAction::Launcher)))], vec![], vec![]));
 
         assert_eq!(panels(&dark).len(), 1, "an unlit slot drew something under itself");
         assert_eq!(panels(&alight).len(), 2, "a lit slot drew no slab");
@@ -983,14 +934,14 @@ mod tests {
 
     #[test]
     fn a_lit_slot_wears_the_deepest_ink_because_it_is_standing_on_pink() {
-        let alight = drawn(&bar(vec![lit(icon("\u{f0004}", Some(Does::Launcher)))], vec![], vec![]));
+        let alight = drawn(&bar(vec![lit(icon("\u{f0004}", Some(BarAction::Launcher)))], vec![], vec![]));
         let worn = wearing();
 
         assert_eq!(words(&alight).first().map(|run| run.ink), Some(worn.night));
     }
 
     #[test]
-    fn a_reading_and_a_thing_that_is_pressed_are_not_the_same_colour_at_rest() {
+    fn a_reading_and_a_thing_that_is_pressed_are_not_the_same_color_at_rest() {
         let worn = wearing();
         let ink = |tone| {
             let Ok(ink) = worn.ink(tone, Lit::No);
@@ -1000,19 +951,19 @@ mod tests {
 
         assert_eq!(ink(Tone::Plain), worn.text);
         assert_eq!(ink(Tone::Pressed), worn.pink);
-        assert_eq!(ink(Tone::Quiet), worn.soft);
+        assert_eq!(ink(Tone::Secondary), worn.soft);
         assert_ne!(ink(Tone::Plain), ink(Tone::Pressed));
-        assert_ne!(ink(Tone::Plain), ink(Tone::Quiet));
+        assert_ne!(ink(Tone::Plain), ink(Tone::Secondary));
     }
 
     #[test]
     fn every_run_a_slot_says_is_drawn_and_not_only_the_first() {
         let charge = slot(
             vec![
-                Said { said: "\u{f0079}".to_string(), face: Face::Icon },
-                Said { said: "64%".to_string(), face: Face::Small },
+                Span { text: "\u{f0079}".to_string(), face: Face::Icon },
+                Span { text: "64%".to_string(), face: Face::Small },
             ],
-            Some(Does::Settings(What::Battery)),
+            Some(BarAction::Settings(StatusItem::Battery)),
         );
         let drawn = drawn(&bar(vec![], vec![], vec![charge]));
         let said: Vec<String> = words(&drawn).into_iter().map(|run| run.said).collect();
@@ -1024,8 +975,8 @@ mod tests {
     fn what_a_slot_says_is_centred_down_the_bar_whatever_height_it_came_out() {
         let charge = slot(
             vec![
-                Said { said: "\u{f0079}".to_string(), face: Face::Icon },
-                Said { said: "64%".to_string(), face: Face::Small },
+                Span { text: "\u{f0079}".to_string(), face: Face::Icon },
+                Span { text: "64%".to_string(), face: Face::Small },
             ],
             None,
         );
@@ -1034,7 +985,7 @@ mod tests {
             .iter()
             .zip([22_u32, 13])
             .map(|(run, tall)| {
-                let down = u32::try_from(run.at.down).unwrap_or(0);
+                let down = u32::try_from(run.at.y).unwrap_or(0);
 
                 down.saturating_mul(2).saturating_add(tall)
             })
@@ -1052,24 +1003,24 @@ mod tests {
     #[test]
     fn a_thumb_on_the_second_icon_is_on_the_second_icon() {
         let drawn = drawn(&bar(
-            vec![icon("\u{f0004}", Some(Does::Launcher)), icon("\u{f0311}", Some(Does::Keyboard))],
+            vec![icon("\u{f0004}", Some(BarAction::Launcher)), icon("\u{f0311}", Some(BarAction::Keyboard))],
             vec![],
             vec![],
         ));
         let second = match drawn.touching.get(1) {
-            Some(touching) => touching.panel.at.across.saturating_add(2),
+            Some(touching) => touching.panel.at.x.saturating_add(2),
             None => panic!("two slots should answer a tap"),
         };
-        let Ok(found) = drawn.on(Point { across: second, down: 20 });
+        let Ok(found) = drawn.on(Point { x: second, y: 20 });
 
-        assert_eq!(found, Some(Does::Keyboard));
+        assert_eq!(found, Some(BarAction::Keyboard));
     }
 
     #[test]
     fn a_thumb_on_the_bar_itself_is_on_nothing() {
-        let drawn = drawn(&bar(vec![icon("\u{f0004}", Some(Does::Launcher))], vec![], vec![]));
-        let Ok(middle) = drawn.on(Point { across: 500, down: 20 });
-        let Ok(under) = drawn.on(Point { across: 20, down: 38 });
+        let drawn = drawn(&bar(vec![icon("\u{f0004}", Some(BarAction::Launcher))], vec![], vec![]));
+        let Ok(middle) = drawn.on(Point { x: 500, y: 20 });
+        let Ok(under) = drawn.on(Point { x: 20, y: 38 });
 
         assert_eq!(middle, None, "the empty middle of the bar opened something");
         assert_eq!(under, None, "the strip under the bar opened something");
@@ -1077,7 +1028,7 @@ mod tests {
 
     #[test]
     fn a_slot_that_only_reads_answers_no_tap_at_all() {
-        let clock = slot(vec![Said { said: "14:30".to_string(), face: Face::Clock }], None);
+        let clock = slot(vec![Span { text: "14:30".to_string(), face: Face::Clock }], None);
         let drawn = drawn(&bar(vec![], vec![clock], vec![]));
 
         assert!(drawn.touching.is_empty(), "the clock answered a tap");
@@ -1086,18 +1037,18 @@ mod tests {
     #[test]
     fn the_strip_is_the_last_rows_of_the_bar_and_is_drawn_nowhere_else() {
         let fitting = fitting();
-        let Ok(tall) = fitting.tall();
+        let Ok(tall) = fitting.height();
         let running = Bar { filling: Filling::At(500), ..bar(vec![], vec![], vec![]) };
         let drawn = drawn(&running);
         let Ok(down) = fitted::<u32, i32>(fitting.deep);
 
-        assert_eq!(drawn.room, Size { wide: ACROSS, tall });
+        assert_eq!(drawn.room, Size { width: ACROSS, height: tall });
 
         match panels(&drawn).as_slice() {
             [ground, strip] => {
-                assert_eq!(ground.size.tall, tall, "the bar's own ground is not the whole surface");
-                assert_eq!(strip.at.down, down);
-                assert_eq!(strip.size.tall, fitting.thin);
+                assert_eq!(ground.size.height, tall, "the bar's own ground is not the whole surface");
+                assert_eq!(strip.at.y, down);
+                assert_eq!(strip.size.height, fitting.thin);
             }
             other => panic!("a ground and a fill should be drawn: {other:?}"),
         }
@@ -1135,7 +1086,7 @@ mod tests {
 
         spent.insert("ground".to_string(), "2b2029".to_string());
 
-        assert_eq!(Wearing::out_of(&spent), Err(Undressed::Absent("text")));
+        assert_eq!(Wearing::out_of(&spent), Err(PaletteError::Absent("text")));
     }
 
     #[test]

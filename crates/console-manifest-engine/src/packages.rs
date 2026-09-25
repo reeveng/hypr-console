@@ -8,13 +8,13 @@
 //! quiet afternoon.
 //!
 //! So a package named in the manifest and held as a dependency is not held. It
-//! reads as installed, every check passes, and it leaves on somebody else's
+//! reads as installed, every check passes, and it leaves on someone else's
 //! errand. Three packages were found this way in one evening -- pw-record's,
 //! notify-send's and pactl's -- each of them working only because something
 //! unrelated had dragged it in, and the manifest is meant to be the answer to
 //! exactly that.
 //!
-//! `Held::Borrowed` is that state said out loud, and `console apply` settles it
+//! `PackageState::Borrowed` is that state said out loud, and `console apply` settles it
 //! by telling pacman the desktop asked for the package too, which is true.
 
 use std::collections::HashSet;
@@ -25,7 +25,7 @@ use console_core_words::Words;
 use crate::settled::Settled;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
-pub enum Held {
+pub enum PackageState {
     #[words(name = "ok")]
     Ok,
     #[words(name = "held as a dependency")]
@@ -34,22 +34,22 @@ pub enum Held {
     Missing,
 }
 
-impl Held {
+impl PackageState {
     pub fn settled(self) -> Result<Settled, Never> {
-        Ok(match self == Held::Ok {
+        Ok(match self == PackageState::Ok {
             true => Settled::Yes,
             false => Settled::No,
         })
     }
 }
 
-pub fn held(installed: &[String], asked_for: &[String], package: &str) -> Result<Held, Never> {
+pub fn held(installed: &[String], asked_for: &[String], package: &str) -> Result<PackageState, Never> {
     let said = |names: &[String]| names.iter().any(|name| name == package);
 
     Ok(match (said(installed), said(asked_for)) {
-        (_, true) => Held::Ok,
-        (true, false) => Held::Borrowed,
-        (false, false) => Held::Missing,
+        (_, true) => PackageState::Ok,
+        (true, false) => PackageState::Borrowed,
+        (false, false) => PackageState::Missing,
     })
 }
 
@@ -63,7 +63,7 @@ pub fn borrowed<'a>(
         .filter(|package| {
             let Ok(held) = held(installed, asked_for, package);
 
-            held == Held::Borrowed
+            held == PackageState::Borrowed
         })
         .map(String::as_str)
         .collect())
@@ -87,7 +87,7 @@ mod tests {
         said.iter().map(|name| name.to_string()).collect()
     }
 
-    fn holding(installed: &[String], asked_for: &[String], package: &str) -> Held {
+    fn holding(installed: &[String], asked_for: &[String], package: &str) -> PackageState {
         let Ok(held) = held(installed, asked_for, package);
 
         held
@@ -106,29 +106,29 @@ mod tests {
     }
 
     #[test]
-    fn a_package_somebody_asked_for_is_held() {
+    fn a_package_someone_asked_for_is_held() {
         let installed = names(&["glib2", "gtk4"]);
         let asked_for = names(&["gtk4"]);
-        assert_eq!(holding(&installed, &asked_for, "gtk4"), Held::Ok);
+        assert_eq!(holding(&installed, &asked_for, "gtk4"), PackageState::Ok);
     }
 
     #[test]
     fn a_package_that_came_in_with_something_else_is_only_borrowed() {
         let installed = names(&["glib2", "gtk4"]);
         let asked_for = names(&["gtk4"]);
-        assert_eq!(holding(&installed, &asked_for, "glib2"), Held::Borrowed);
+        assert_eq!(holding(&installed, &asked_for, "glib2"), PackageState::Borrowed);
     }
 
     #[test]
     fn a_package_nothing_has_is_missing() {
-        assert_eq!(holding(&[], &[], "wtype"), Held::Missing);
+        assert_eq!(holding(&[], &[], "wtype"), PackageState::Missing);
     }
 
     #[test]
-    fn only_a_package_somebody_asked_for_is_settled() {
-        let Ok(asked_for) = Held::Ok.settled();
-        let Ok(borrowed) = Held::Borrowed.settled();
-        let Ok(missing) = Held::Missing.settled();
+    fn only_a_package_someone_asked_for_is_settled() {
+        let Ok(asked_for) = PackageState::Ok.settled();
+        let Ok(borrowed) = PackageState::Borrowed.settled();
+        let Ok(missing) = PackageState::Missing.settled();
 
         assert_eq!(asked_for, Settled::Yes);
         assert_eq!(borrowed, Settled::No);

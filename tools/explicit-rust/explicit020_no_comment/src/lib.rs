@@ -6,9 +6,9 @@
 //! Every `///` and every `//` in this workspace was deleted once, on the rule
 //! that a sentence beside a line of code is a second statement of the same
 //! thing and only one of the two is compiled. What was worth keeping was moved
-//! into `docs/`, where it is read by somebody deciding something rather than
-//! by somebody scrolling past. Then they came back: a `///` over a new
-//! function, three lines of argument above a `match`, a `// TODO` nobody
+//! into `docs/`, where it is read by someone deciding something rather than
+//! by someone scrolling past. Then they came back: a `///` over a new
+//! function, three lines of argument above a `match`, a `// TODO` no one
 //! returned to. They came back because the rule was a paragraph in a document
 //! and not a thing the build could fail on, and a rule of that kind lasts
 //! exactly as long as the memory of whoever wrote it. This is that rule in the
@@ -41,12 +41,12 @@
 //!
 //! Every other rule here returns early on a test build, and the reason is
 //! always that the harm it names is absent in a test: a panic in a test is the
-//! test failing, an `as` in a fixture is arithmetic nobody ships. Nothing of
+//! test failing, an `as` in a fixture is arithmetic no one ships. Nothing of
 //! that kind is true here. A comment in a test is prose beside code, read by
 //! the same person, going stale at the same rate -- and a test is the place a
 //! reader goes to find out what a thing is supposed to do, so it is the last
 //! place that should be explaining itself twice. Exempting tests would also
-//! split the rule along a line nobody could see: `tests/the_tree.rs` is a
+//! split the rule along a line no one could see: `tests/the_tree.rs` is a
 //! test build and a `#[cfg(test)] mod` inside a library is not, so the same
 //! comment would be legal in one file and not in the other.
 
@@ -87,7 +87,7 @@ struct Run {
 /// about.
 ///
 /// The source map holds every file the compiler has opened, which is not the
-/// same set as the files somebody in this repository wrote. A dependency
+/// same set as the files someone in this repository wrote. A dependency
 /// pulled out of the registry, a file generated under `target/` by a build
 /// script, and anything the standard library brought in are all code this
 /// workspace does not get to have an opinion about -- and a lint that reported

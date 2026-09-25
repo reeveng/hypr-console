@@ -1,4 +1,4 @@
-//! The public copy of this desktop, built with nobody's name in it.
+//! The public copy of this desktop, built with no one's name in it.
 //!
 //! What comes out is the same desktop with four things changed, and it is
 //! built rather than kept, so it can be built again when this one moves on.
@@ -8,7 +8,7 @@
 //!     machine this is.
 //!   * The machine is called handheld rather than the name on the network.
 //!   * The controller's serial number is gone from the captured devices.
-//!   * The one compiled program is not carried. It is a fork of somebody
+//!   * The one compiled program is not carried. It is a fork of someone
 //!     else's GPL project, and publishing a binary means offering the source
 //!     with it, which is theirs to publish and not ours. What is published
 //!     instead is where it came from and how to build it.
@@ -19,8 +19,8 @@
 //! its lines are this tree's now, GPL-3.0 asks that it stay GPL-3.0 and not
 //! that it stay unpublished, upstream is named in `papers/forks.md` and in the
 //! crate's own `authors`, and a workspace that names a member the copy does not
-//! carry is a copy nobody can build. What was being protected by holding it
-//! back was somebody else's release, and there is no longer one here to
+//! carry is a copy no one can build. What was being protected by holding it
+//! back was someone else's release, and there is no longer one here to
 //! withhold.
 //!
 //! Everything else is the same file. The tests run against the copy, because a

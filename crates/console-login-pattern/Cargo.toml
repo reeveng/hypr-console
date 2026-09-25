@@ -1,0 +1,22 @@
+[package]
+name = "console-login-pattern"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# The dots a person connects to log in, and where a press on the pad goes
+# between them. Arithmetic only: the greeter draws it, recovery sets it in
+# text, and both ask the same answers of it.
+
+[lib]
+name = "console_login_pattern"
+path = "src/lib.rs"
+
+[dependencies]
+console-core-geometry.workspace = true
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+
+[lints]
+workspace = true

@@ -30,7 +30,7 @@ fn every_target_this_desktop_asks_for_is_on_the_device_wearing_what_it_says() {
             "the profile asks InputPlumber for {asked} and this desktop finds it by \
              {:#06x}:{:#06x}, which nothing in the capture is wearing. Either InputPlumber \
              names it differently now or it makes it differently, and the daemon will open \
-             somebody else's device or none at all",
+             someone else's device or none at all",
             identity.vendor,
             identity.product
         );

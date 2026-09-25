@@ -4,30 +4,30 @@
 //!
 //! What to ask and how to read the answer is `console_settings::introducing`,
 //! which can be asked without a radio. This is the part that needs one, and the
-//! notice when it did not work.
+//! notification when it did not work.
 //!
 //! It exists because a panel row runs one program with one list of words and
 //! meeting a device is three of those. The row could have been three rows and
-//! was not: somebody pressing a keyboard's name means the keyboard to work, and
+//! was not: someone pressing a keyboard's name means the keyboard to work, and
 //! a machine that made them press Pair, then Trust, then Connect would be
 //! asking them to know what bluez calls the halves of that.
 //!
 //! Silent when it worked. The row it was pressed from redraws into the device
-//! being there, which is the whole of what anybody wanted to see; a notice
+//! being there, which is the whole of what anyone wanted to see; a notification
 //! saying the same thing again is a card to put away. Failure is the other way
 //! round -- the row goes back to reading the way it did, which on its own is
 //! indistinguishable from a press that never landed -- so what bluez said is
-//! carried out to where somebody can read it.
+//! carried out to where someone can read it.
 
 use console_core_external_programs::Program;
 use console_core_never::Never;
-use console_notifications::saying::{Notice, Said, raise};
-use console_settings::introducing::{self, Answered, Asked, INTRODUCE, Went};
+use console_notifications::saying::{Notification, Content, raise};
+use console_settings::introducing::{self, Reply, Command, INTRODUCE, Went};
 
-fn bluetoothctl(argv: &[String]) -> Result<String, Never> {
+fn bluetoothctl(arguments: &[String]) -> Result<String, Never> {
     let mut asking = Program::Bluetoothctl.command()?;
 
-    let said = match asking.args(argv).output() {
+    let said = match asking.args(arguments).output() {
         Ok(said) => said,
         Err(_) => return Ok(String::new()),
     };
@@ -39,11 +39,11 @@ fn bluetoothctl(argv: &[String]) -> Result<String, Never> {
     ))
 }
 
-fn would_not(says: &str, said: Answered<'_>) -> Result<(), Never> {
+fn would_not(says: &str, said: Reply<'_>) -> Result<(), Never> {
     let words = introducing::would_not(says, said)?;
-    let notice = Notice::new(Said { summary: &words, body: "" })?;
-    let notice = notice.lasting(6000)?;
-    let Ok(_) = raise(&notice);
+    let notification = Notification::new(Content { summary: &words, body: "" })?;
+    let notification = notification.lasting(6000)?;
+    let Ok(_) = raise(&notification);
 
     Ok(())
 }
@@ -55,7 +55,7 @@ fn introduce(address: &str) -> Result<Went, Never> {
 
     match paired {
         Went::Not => {
-            let Ok(()) = would_not(&format!("{address} would not pair:"), Answered(&said));
+            let Ok(()) = would_not(&format!("{address} would not pair:"), Reply(&said));
 
             return Ok(Went::Not);
         }
@@ -73,7 +73,7 @@ fn introduce(address: &str) -> Result<Went, Never> {
         Went::Not => {
             let Ok(()) = would_not(
                 &format!("{address} paired but would not connect:"),
-                Answered(&said),
+                Reply(&said),
             );
         }
         Went::Well => {},
@@ -93,8 +93,8 @@ fn main() -> std::process::ExitCode {
     let Ok(asked) = introducing::asked(&words);
 
     let address = match asked {
-        Asked::Introduce(address) => address,
-        Asked::Nothing => {
+        Command::Introduce(address) => address,
+        Command::None => {
             let Ok(how) = said_how();
 
             return how;

@@ -1,4 +1,4 @@
-//! Somebody makes the buttons their own, and the desktop keeps its promises
+//! Someone makes the buttons their own, and the desktop keeps its promises
 //! after.
 //!
 //! The first flow, and first on purpose: every other flow walks the desktop
@@ -16,15 +16,15 @@
 
 use std::collections::BTreeMap;
 
-use evdev::{EventType, KeyCode};
+use console_input_event_devices::{EventType, KeyCode};
 
-use console_input_controller::means::Table;
+use console_input_controller::actions::Table;
 use console_input_controller::mode::Mode;
-use console_onscreen::Said;
+use console_onscreen::PadInput;
 use console_test_flows::screens;
 use console_input_bindings::bound::{Binding, Input, Played};
-use console_input_bindings::moved::{Jobs, Moved};
-use console_test_stages::device::Seen;
+use console_input_bindings::moved::{Tasks, Moved};
+use console_test_stages::device::Ready;
 use console_test_stages::here::{Here, TURNS};
 
 fn stage() -> Here {
@@ -45,30 +45,34 @@ fn ours() -> Table {
     table
 }
 
-fn of(said: &Jobs) -> Table {
+fn of(said: &Tasks) -> Table {
     let Ok(table) = Table::of(said);
 
     table
 }
 
-fn none() -> Jobs {
-    let Ok(said) = Jobs::none();
+fn none() -> Tasks {
+    let Ok(said) = Tasks::none();
 
     said
 }
 
-fn moving(
-    said: &mut Jobs,
+fn adding(
+    said: &mut Tasks,
     every: &BTreeMap<String, Vec<Binding>>,
     job: &str,
     onto: &Binding,
 ) -> Moved {
-    let Ok(moved) = said.moving(every, job, onto);
+    let Ok(moved) = said.adding(every, job, onto);
 
     moved
 }
 
-fn written(said: &Jobs) -> String {
+fn removing(said: &mut Tasks, job: &str, off: &Binding) {
+    let Ok(()) = said.removing(&every(&of(said)), job, off);
+}
+
+fn written(said: &Tasks) -> String {
     let Ok(written) = said.written();
 
     written
@@ -90,7 +94,7 @@ fn started(here: &Here) -> Vec<String> {
     names
 }
 
-fn sent(here: &Here, kind: EventType, code: u16, value: i32) -> Seen {
+fn sent(here: &Here, kind: EventType, code: u16, value: i32) -> Ready {
     let Ok(seen) = here.sent(kind, code, value);
 
     seen
@@ -102,7 +106,7 @@ fn wrote(here: &Here, kind: EventType, code: u16) -> i32 {
     wrote
 }
 
-fn told(here: &Here) -> Vec<Said> {
+fn told(here: &Here) -> Vec<PadInput> {
     let Ok(told) = here.told();
 
     told.to_vec()
@@ -136,8 +140,10 @@ fn moving_a_job_moves_it_and_nothing_else() {
 
     let mut said = none();
     let onto = Binding::read("r2 + a").expect("a binding");
-    assert_eq!(moving(&mut said, &every(&ours()), "screenshot", &onto), Moved::Onto);
-    let read = Jobs::read(&written(&said)).expect("what the setup screen wrote reads back");
+    let off = Binding::read("l2 + right-paddle-bottom").expect("a binding");
+    assert_eq!(adding(&mut said, &every(&ours()), "screenshot", &onto), Moved::Onto);
+    removing(&mut said, "screenshot", &off);
+    let read = Tasks::read(&written(&said)).expect("what the setup screen wrote reads back");
     bound_by(&mut here, of(&read));
 
     here.trigger("r2", 1.0).expect("a trigger");
@@ -149,7 +155,7 @@ fn moving_a_job_moves_it_and_nothing_else() {
     );
     assert_eq!(
         sent(&here, EventType::KEY, KeyCode::BTN_LEFT.0, 1),
-        Seen::NotYet,
+        Ready::NotYet,
         "the chord that takes the picture does not also click"
     );
     here.trigger("r2", 0.0).expect("a trigger let go");
@@ -163,7 +169,7 @@ fn moving_a_job_moves_it_and_nothing_else() {
         "the screenshot has left the paddle it was moved off"
     );
     assert!(
-        wrote(&here, EventType::RELATIVE, evdev::RelativeAxisCode::REL_WHEEL.0) < 0,
+        wrote(&here, EventType::RELATIVE, console_input_event_devices::RelativeAxisCode::REL_WHEEL.0) < 0,
         "bare of its second job, the paddle goes on scrolling the page"
     );
     here.trigger("l2", 0.0).expect("a trigger let go");
@@ -173,7 +179,7 @@ fn moving_a_job_moves_it_and_nothing_else() {
     here.settle(TURNS);
     assert_eq!(
         sent(&here, EventType::KEY, KeyCode::BTN_LEFT.0, 1),
-        Seen::Yes,
+        Ready::Yes,
         "a on its own is still a click"
     );
     assert!(started(&here).is_empty(), "a click starts nothing");
@@ -182,7 +188,7 @@ fn moving_a_job_moves_it_and_nothing_else() {
 #[test]
 fn the_move_holds_wherever_a_person_goes() {
     let mut here = stage();
-    let said = Jobs::read("[jobs]\nscreenshot = \"r2 + a\"\n").expect("a table");
+    let said = Tasks::read("[jobs]\nscreenshot = \"r2 + a\"\n").expect("a table");
     bound_by(&mut here, of(&said));
 
     let shot = |here: &mut Here| {
@@ -197,30 +203,30 @@ fn the_move_holds_wherever_a_person_goes() {
 
     assert!(shot(&mut here), "on the desktop, the moved chord takes the picture");
 
-    here.showing(screens::A_CHOOSER).expect("a chooser");
-    assert!(shot(&mut here), "with a chooser up, the moved chord still takes the picture");
+    here.showing(screens::A_PICKER).expect("a picker");
+    assert!(shot(&mut here), "with a picker up, the moved chord still takes the picture");
     here.press("a").expect("a");
     here.press("r1").expect("a shoulder");
     here.settle(TURNS);
     assert_eq!(
         sent(&here, EventType::KEY, KeyCode::KEY_ENTER.0, 1),
-        Seen::Yes,
-        "bare a with a chooser up takes the row it is standing on"
+        Ready::Yes,
+        "bare a with a picker up takes the row it is standing on"
     );
     assert_eq!(
         sent(&here, EventType::KEY, KeyCode::KEY_PAGEDOWN.0, 1),
-        Seen::Yes,
-        "a shoulder with a chooser up is the tab beside this one"
+        Ready::Yes,
+        "a shoulder with a picker up is the tab beside this one"
     );
-    assert!(dispatches(&here).is_empty(), "with a chooser up, a shoulder is not a workspace");
+    assert!(dispatches(&here).is_empty(), "with a picker up, a shoulder is not a workspace");
     here.fresh();
 
     here.showing(screens::THE_HOME_SCREEN).expect("the home screen");
-    assert_eq!(mode(&here), Mode::Home, "the home screen is drawn and asleep");
+    assert_eq!(mode(&here), Mode::HomeScreen, "the home screen is drawn and asleep");
     here.press("dpad-right").expect("the d-pad");
     here.settle(TURNS);
     assert!(
-        told(&here).contains(&Said::Right),
+        told(&here).contains(&PadInput::Right),
         "the first d-pad press is a word to the home screen"
     );
     assert_eq!(mode(&here), Mode::Standing, "the word woke it");
@@ -229,12 +235,12 @@ fn the_move_holds_wherever_a_person_goes() {
     here.press("a").expect("a");
     here.settle(TURNS);
     assert!(
-        told(&here).contains(&Said::Pressed),
+        told(&here).contains(&PadInput::Pressed),
         "standing on a square, a is the square's"
     );
     assert_eq!(
         sent(&here, EventType::KEY, KeyCode::BTN_LEFT.0, 1),
-        Seen::NotYet,
+        Ready::NotYet,
         "standing on a square, a is not a click"
     );
     here.fresh();
@@ -243,15 +249,15 @@ fn the_move_holds_wherever_a_person_goes() {
 
     here.press("b").expect("b");
     here.settle(TURNS);
-    assert!(told(&here).contains(&Said::Back), "b puts the highlight away");
-    assert_eq!(mode(&here), Mode::Home, "the home screen is asleep again");
+    assert!(told(&here).contains(&PadInput::Back), "b puts the highlight away");
+    assert_eq!(mode(&here), Mode::HomeScreen, "the home screen is asleep again");
     here.fresh();
 
     here.press("a").expect("a");
     here.settle(TURNS);
     assert_eq!(
         sent(&here, EventType::KEY, KeyCode::BTN_LEFT.0, 1),
-        Seen::Yes,
+        Ready::Yes,
         "asleep again, a is the pointer's button"
     );
     here.fresh();
@@ -272,7 +278,7 @@ fn the_move_holds_wherever_a_person_goes() {
 #[test]
 fn the_file_says_several_buttons_a_chord_or_nothing_at_all() {
     let mut here = stage();
-    let said = Jobs::read(
+    let said = Tasks::read(
         "[jobs]\nmenu = [\"left-paddle-top\", \"l2 + b\"]\ndictate = \"\"\nteleport = \"y\"\n",
     )
     .expect("a table");
@@ -294,7 +300,7 @@ fn the_file_says_several_buttons_a_chord_or_nothing_at_all() {
     here.settle(TURNS);
     assert_eq!(
         sent(&here, EventType::KEY, KeyCode::KEY_ESC.0, 1),
-        Seen::Yes,
+        Ready::Yes,
         "b on its own is still back"
     );
     assert!(started(&here).is_empty(), "b on its own opens nothing");
@@ -309,12 +315,12 @@ fn the_file_says_several_buttons_a_chord_or_nothing_at_all() {
     here.settle(TURNS);
     assert_eq!(
         sent(&here, EventType::KEY, KeyCode::BTN_RIGHT.0, 1),
-        Seen::Yes,
+        Ready::Yes,
         "a job from some newer desktop does not take y from more-options"
     );
     here.fresh();
 
-    let fault = Jobs::read("[jobs]\nmenu = \"a\"\nscreenshot = \"nose + a\"\n")
+    let fault = Tasks::read("[jobs]\nmenu = \"a\"\nscreenshot = \"nose + a\"\n")
         .expect_err("nothing on this machine is called nose");
     assert!(
         fault.to_string().starts_with("screenshot: "),
@@ -332,11 +338,11 @@ fn one_press_still_does_one_thing() {
     let mut said = none();
     let onto = Binding::read("left-paddle-top").expect("a binding");
     assert_eq!(
-        moving(&mut said, &every(&ours()), "guide", &onto),
+        adding(&mut said, &every(&ours()), "guide", &onto),
         Moved::TookFrom("menu".to_string())
     );
 
-    let read = Jobs::read(&written(&said)).expect("what the setup screen wrote reads back");
+    let read = Tasks::read(&written(&said)).expect("what the setup screen wrote reads back");
     let table = of(&read);
     let left = bindings(&table, "menu");
 
@@ -346,7 +352,7 @@ fn one_press_still_does_one_thing() {
     );
     assert!(
         left.iter().any(|one| one.on == Input::Keyboard && one.played() == Ok(Played::ByAPress)),
-        "and taking its paddle away did not take the key somebody else reaches it by"
+        "and taking its paddle away did not take the key someone else reaches it by"
     );
     bound_by(&mut here, table);
 
@@ -354,12 +360,16 @@ fn one_press_still_does_one_thing() {
     here.settle(TURNS);
     assert_eq!(
         started(&here),
-        ["console-buttons"],
+        ["mapping-panel"],
         "the paddle opens the guide, and does not also open the menu"
     );
     here.fresh();
 
     here.press("menu").expect("the button with the lines on it");
     here.settle(TURNS);
-    assert!(started(&here).is_empty(), "the guide's old button was left playing nothing");
+    assert_eq!(
+        started(&here),
+        ["mapping-panel"],
+        "a button given to the guide is added beside the one it had"
+    );
 }

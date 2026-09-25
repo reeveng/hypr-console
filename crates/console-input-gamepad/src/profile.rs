@@ -28,11 +28,11 @@ use std::path::PathBuf;
 
 use console_core_never::Never;
 use console_core_words::Words;
-use evdev::KeyCode;
+use console_input_event_devices::KeyCode;
 #[cfg(feature = "read")]
 use serde::Deserialize;
 
-use crate::Unpressed;
+use crate::GamepadError;
 use crate::devices::Has;
 use crate::vocabulary;
 
@@ -59,21 +59,21 @@ pub struct Target {
 }
 
 impl Target {
-    pub fn code(&self) -> Result<KeyCode, Unpressed> {
+    pub fn code(&self) -> Result<KeyCode, GamepadError> {
         match self.kind {
             Kind::Key => vocabulary::key_code(&self.name),
             Kind::MouseButton => {
                 let Ok(code) = vocabulary::mouse_code(&self.name);
 
-                code.ok_or_else(|| Unpressed::NoMouseButton(self.name.clone()))
+                code.ok_or_else(|| GamepadError::NoMouseButton(self.name.clone()))
             }
             Kind::GamepadButton => {
                 let Ok(code) = vocabulary::gamepad_code(&self.name);
 
-                code.ok_or_else(|| Unpressed::NoPadButton(self.name.clone()))
+                code.ok_or_else(|| GamepadError::NoPadButton(self.name.clone()))
             }
             Kind::MouseMotion | Kind::GamepadAxis | Kind::GamepadTrigger => {
-                Err(Unpressed::NotOneCode(self.kind, self.name.clone()))
+                Err(GamepadError::NotOneCode(self.kind, self.name.clone()))
             }
         }
     }
@@ -123,9 +123,9 @@ pub struct Profile {
 
 #[cfg(feature = "read")]
 impl Profile {
-    pub fn read(path: &Path, yaml: &str) -> Result<Self, Unpressed> {
+    pub fn read(path: &Path, yaml: &str) -> Result<Self, GamepadError> {
         let raw: Raw = serde_yaml_ng::from_str(yaml)
-            .map_err(|fault| Unpressed::Unparsed(path.to_path_buf(), fault))?;
+            .map_err(|fault| GamepadError::Parse(path.to_path_buf(), fault))?;
         let stem = path.file_stem().map_or(String::new(), |s| s.to_string_lossy().to_string());
 
         let mut mappings = Vec::new();
@@ -171,7 +171,7 @@ impl Profile {
         })
     }
 
-    pub fn for_button(&self, spoken: &str) -> Result<Vec<&Mapping>, Unpressed> {
+    pub fn for_button(&self, spoken: &str) -> Result<Vec<&Mapping>, GamepadError> {
         let name = vocabulary::button_name(spoken)?;
         Ok(self
             .mappings
@@ -180,7 +180,7 @@ impl Profile {
             .collect())
     }
 
-    pub fn targets_of(&self, spoken: &str) -> Result<Vec<&Target>, Unpressed> {
+    pub fn targets_of(&self, spoken: &str) -> Result<Vec<&Target>, GamepadError> {
         let mappings = self.for_button(spoken)?;
 
         Ok(mappings.iter().flat_map(|mapping| &mapping.targets).collect())
@@ -195,10 +195,10 @@ impl Profile {
 pub const PROFILE_DIR: &str = "files/etc/inputplumber/profiles";
 
 #[cfg(feature = "read")]
-pub fn load_all(root: &Path) -> Result<BTreeMap<String, Profile>, Unpressed> {
+pub fn load_all(root: &Path) -> Result<BTreeMap<String, Profile>, GamepadError> {
     let holding = root.join(PROFILE_DIR);
     let listed = std::fs::read_dir(&holding)
-        .map_err(|fault| Unpressed::Unreadable(holding.clone(), fault))?;
+        .map_err(|fault| GamepadError::Read(holding.clone(), fault))?;
     let mut found: Vec<PathBuf> = listed
         .filter_map(|entry| match entry {
             Ok(e) => Some(e.path()),
@@ -211,7 +211,7 @@ pub fn load_all(root: &Path) -> Result<BTreeMap<String, Profile>, Unpressed> {
         .iter()
         .map(|path| {
             let yaml = std::fs::read_to_string(path)
-                .map_err(|fault| Unpressed::Unreadable(path.clone(), fault))?;
+                .map_err(|fault| GamepadError::Read(path.clone(), fault))?;
             let profile = Profile::read(path, &yaml)?;
 
             let Ok(stem) = profile.stem();

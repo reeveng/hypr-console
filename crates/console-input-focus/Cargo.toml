@@ -17,7 +17,7 @@ path = "src/lib.rs"
 console-core-words.workspace = true
 console-input-gamepad.workspace = true
 console-core-never.workspace = true
-evdev = "0.13"
+console-input-event-devices.workspace = true
 
 [lints]
 workspace = true

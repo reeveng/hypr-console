@@ -2,10 +2,10 @@
 //!
 //! `lasting` keeps what each check took on the machine it ran on, and that
 //! table is the truth about that machine. What it cannot do is exist before
-//! the first run: a device nobody has ever checked knows nothing at all, so
+//! the first run: a device no one has ever checked knows nothing at all, so
 //! its first run counts checks rather than time, and a run divided into equal
-//! checks tells somebody the two-second one and the three-minute one are the
-//! same wait. That is the run somebody is most likely to be watching, because
+//! checks tells someone the two-second one and the three-minute one are the
+//! same wait. That is the run someone is most likely to be watching, because
 //! it is the one on a machine they have just put together.
 //!
 //! So a table travels with the source as well. It is not a second opinion
@@ -31,7 +31,7 @@
 //! device run is the end of a deploy, and a deploy is what the test was
 //! standing in front of -- so the first check written for the device alone was
 //! also the last thing that tree could deploy. What it was guarding against
-//! was already handled: `Lengths::middle` gives a check nobody has timed the
+//! was already handled: `Lengths::middle` gives a check no one has timed the
 //! middle of what is known, which is `lasting`'s own answer and has its own
 //! test. The number arrives in the commit after the deploy that measured it,
 //! which is the only order it can arrive in.

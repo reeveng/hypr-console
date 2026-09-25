@@ -12,7 +12,7 @@
 //! the new ones are installed *there* only because that migration was also
 //! doing the install.  A migration that fails stops the apply. That is not the
 //! cautious choice, it is the only honest one: the next thing the apply does is
-//! install over a machine whose state nobody now knows, and `console apply` is
+//! install over a machine whose state no one now knows, and `console apply` is
 //! the thing people reach for when something is wrong.
 //!
 //! On a machine that has never applied none of them is run and all of them are
@@ -78,7 +78,7 @@ pub fn run(root: &Path, user: &str) -> Result<(), Unapplied> {
             dylint_lib = "explicit029_no_asking_per_item",
             allow(
                 explicit029_no_asking_per_item,
-                reason = "a migration is a shell script somebody wrote, and each is remembered as done on its own: one of them failing has to leave the ones after it unrun, which one process for the lot could not do"
+                reason = "a migration is a shell script someone wrote, and each is remembered as done on its own: one of them failing has to leave the ones after it unrun, which one process for the lot could not do"
             )
         )]
         let ran = Command::new(bash)

@@ -5,16 +5,16 @@
 //! process was holding is still held at the moment the kernel takes it away:
 //! a file written beside the live one and not yet renamed over it, a claim on
 //! an input device, a lock in `/run`, and -- the one that matters here -- a
-//! child started `Alongside`.
+//! child started `BoundToParent`.
 //!
 //! `console-program-lifetime` is the whole argument for why that last one is
-//! not a small thing. `Alongside` is two mechanisms and needs both: a death
+//! not a small thing. `BoundToParent` is two mechanisms and needs both: a death
 //! signal, so a parent that is killed takes its child with it, and a `Drop`,
 //! so a parent that returns does too. An `exit` is neither. It is not a kill,
 //! so the death signal never fires; it is not a return, so the drop never
 //! runs. The child outlives the program that started it, which is the exact
 //! outcome the type was written to make impossible, and it is reached by the
-//! one line nobody reads because it is the last line of an error arm.
+//! one line no one reads because it is the last line of an error arm.
 //!
 //! What every site here is doing is saying a fault and failing, which is what
 //! `ExitCode` is: `main` returns `ExitCode::FAILURE` and the run ends the
@@ -24,11 +24,11 @@
 //! place in the program that can still say it.
 //!
 //! `abort` is denied for the same reason and a louder one: it does not even
-//! flush. It is here so that nobody answers this rule by reaching for the
+//! flush. It is here so that no one answers this rule by reaching for the
 //! other function on the same page.
 //!
 //! What is not touched is a process this one did not start and is not: `exit`
-//! read off somebody else's `ExitStatus` is a number that came back, not a
+//! read off someone else's `ExitStatus` is a number that came back, not a
 //! way of leaving.
 //!
 //! It arrived denied, with the tree breaking it in a handful of binaries and
@@ -51,7 +51,7 @@ use rustc_lint::{LateContext, LateLintPass, LintContext};
 dylint_linting::declare_late_lint! {
     /// EXPLICIT042: `std::process::exit` leaves without unwinding, so nothing
     /// the program was holding is dropped -- including a child started
-    /// `Alongside`, whose whole promise is the drop that never runs. Return
+    /// `BoundToParent`, whose whole promise is the drop that never runs. Return
     /// from `main` with an `ExitCode` instead.
     pub EXPLICIT042_NO_LEAVING_EARLY,
     Deny,
@@ -112,8 +112,8 @@ impl<'tcx> LateLintPass<'tcx> for Explicit042NoLeavingEarly {
             None,
             "say the fault and hand it back: `main` returns `std::process::ExitCode`, and \
              `ExitCode::FAILURE` ends the run the same way with the stack unwound on the way out. A \
-             child started `console_program_lifetime::Lifetime::Alongside` is killed by that drop and by \
-             nothing else, so an `exit` under one is a program left running with nobody to stop it",
+             child started `console_program_lifetime::Lifetime::BoundToParent` is killed by that drop and by \
+             nothing else, so an `exit` under one is a program left running with no one to stop it",
         );
     }
 }

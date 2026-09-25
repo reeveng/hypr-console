@@ -11,10 +11,10 @@ use rustc_lint::{LateContext, LateLintPass, LintContext};
 use rustc_middle::ty::Ty;
 
 dylint_linting::declare_late_lint! {
-    /// EXPLICIT033: an absence answered by a value nobody wrote down.
+    /// EXPLICIT033: an absence answered by a value no one wrote down.
     ///
     /// EXPLICIT001 is this rule over a `Result`, where what is swallowed is
-    /// somebody else's error. This is the same three methods over an `Option`,
+    /// someone else's error. This is the same three methods over an `Option`,
     /// where there is no error to swallow and the fault is quieter: a `None`
     /// meant something, and `unwrap_or_default()` is the one spelling of the
     /// answer that never says what.
@@ -28,13 +28,13 @@ dylint_linting::declare_late_lint! {
     /// place a name was owed.
     ///
     /// A `match` with both arms costs two lines and says which two things can
-    /// be true. Where the absence is somebody else's business, hand it on:
+    /// be true. Where the absence is someone else's business, hand it on:
     /// return the `Option`, or `ok_or` a fault that says what was missing.
     /// Where it really does have a chosen answer, the answer is written at the
     /// call site in full, which is the whole of what this rule asks for.
     ///
     /// `Option::unwrap_or` over a default that is itself the subject -- a
-    /// palette's fallback colour, a layout's minimum -- is the shape that wants
+    /// palette's fallback color, a layout's minimum -- is the shape that wants
     /// a named constant rather than a literal, and then the `match` reads as
     /// the sentence it is.
     pub EXPLICIT033_NO_UNNAMED_ABSENCE,

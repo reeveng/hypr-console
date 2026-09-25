@@ -1,6 +1,6 @@
 //! One panel, opened alone in the nested desktop and asked what it drew.
 //!
-//! The other stages here are about the machine: is the desktop up, what colour
+//! The other stages here are about the machine: is the desktop up, what color
 //! is the screen, did the daemon run the thing the button says. This one is
 //! about a surface, and it is the tier a change to a panel is tried in while it
 //! is being written -- one program, one compositor, a few seconds, and no
@@ -8,7 +8,7 @@
 //!
 //! What it can answer is the question nothing here could answer before: not *is
 //! it drawn* but *could a hand use it*. The panel writes down every part of
-//! itself a hand could land on and where, `console_panel::telling` reads it
+//! itself a hand could land on and where, `console_panel::description` reads it
 //! back, and a check holds that against what the rows were built to offer. The
 //! two faults it was written for are the two it catches without pressing
 //! anything at all: a row that offers something behind Y and draws no mark for
@@ -59,12 +59,23 @@
 //! against is the library and the program's own file. The other programs under
 //! `console-panel/src/bin` are not in it: they are separate binaries that
 //! cannot change what this one draws, and counting them meant that editing the
-//! bar's door stopped every panel check in the tree until somebody rebuilt the
+//! bar's door stopped every panel check in the tree until someone rebuilt the
 //! world.
+//!
+//! **What runs is the staged copy, found on the stage's own path.** A panel
+//! draws itself now, and a surface that draws itself reads the palette out of
+//! the tree it is installed in -- `console_core_color::palette::beside`, which
+//! is the argument for why a stage differs from the device in where it is and
+//! in nothing else. Opening `target/debug/files` by its absolute path
+//! walks up from `target/` into a directory that has no `usr/local`, finds no
+//! palette, and the panel says so on stderr and draws nothing at all. The
+//! toolkit never met this because its colors were compiled into a stylesheet.
+//! The binary in `target/` is still what is checked for staleness: it is the
+//! same file, cloned into the stage.
 //!
 //! ```no_run
 //! # use console_test_stages::panels::Panel;
-//! let Ok(mut panel) = Panel::opening("viewer-panel", &["/home/me/Pictures/beach.jpg"]);
+//! let Ok(mut panel) = Panel::opening("viewer", &["/home/me/Pictures/beach.jpg"]);
 //! let drawn = panel.drawn().expect("the viewer drew nothing");
 //!
 //! for card in &drawn {
@@ -72,15 +83,15 @@
 //! }
 //! ```
 
-use std::os::fd::AsRawFd;
+use rustix::fs::flock;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use console_core_geometry::Point;
 use console_core_never::Never;
-use console_panel::telling::{self, Bare, Line, Offers, Reachable, Spot, Told};
+use console_panel::description::{self, Bare, Line, Offers, Reachable, Spot, Description};
 
-use crate::Awry;
+use crate::Error;
 
 struct Room(Option<std::fs::File>);
 
@@ -107,10 +118,12 @@ impl Room {
         };
 
         match &held {
-            Some(file) => {
-                // SAFETY: the descriptor is this file's, and open for the call.
-                unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
-            }
+            Some(file) => match flock(file, rustix::fs::FlockOperation::LockExclusive) {
+                Ok(()) => {},
+                Err(fault) => {
+                    eprintln!("console-test-stages: {}: waiting for the lock: {fault}", at.display());
+                },
+            },
             None => {},
         }
 
@@ -121,10 +134,12 @@ impl Room {
 impl Drop for Room {
     fn drop(&mut self) {
         match &self.0 {
-            Some(file) => {
-                // SAFETY: as above, and this is the handle that took it.
-                unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
-            }
+            Some(file) => match flock(file, rustix::fs::FlockOperation::Unlock) {
+                Ok(()) => {},
+                Err(fault) => {
+                    eprintln!("console-test-stages: the lock this run took would not come off: {fault}");
+                },
+            },
             None => {},
         }
     }
@@ -132,7 +147,7 @@ impl Drop for Room {
 
 const PROGRAMS: &str = "bin";
 
-fn built_since_the_panel_code(program: &Path) -> Result<(), Awry> {
+fn built_since_the_panel_code(program: &Path) -> Result<(), Error> {
     let when = |at: &Path| -> Option<std::time::SystemTime> {
         let about = match at.metadata() {
             Ok(about) => about,
@@ -194,10 +209,11 @@ fn built_since_the_panel_code(program: &Path) -> Result<(), Awry> {
     }
 
     match (newest, when(program)) {
-        (Some(edited), Some(built)) if built < edited => {
-            Err(Awry::Stale(program.to_path_buf()))
-        }
-        _ => Ok(()),
+        (Some(edited), Some(built)) => match built < edited {
+            true => Err(Error::Stale(program.to_path_buf())),
+            false => Ok(()),
+        },
+        (Some(_), None) | (None, Some(_)) | (None, None) => Ok(()),
     }
 }
 
@@ -215,7 +231,7 @@ pub struct Panel {
     args: Vec<String>,
     presses: Vec<String>,
     here: PathBuf,
-    read: Option<Vec<Told>>,
+    read: Option<Vec<Description>>,
 }
 
 impl Panel {
@@ -234,7 +250,7 @@ impl Panel {
         })
     }
 
-    pub fn press(&mut self, card: &Told, spot: &Spot) -> Result<(), Awry> {
+    pub fn press(&mut self, card: &Description, spot: &Spot) -> Result<(), Error> {
         let Ok((across, down)) = spot.middle();
 
         match across >= 0 && down >= 0 {
@@ -246,16 +262,16 @@ impl Panel {
 
                 Ok(())
             }
-            false => Err(Awry::NotInside(
-                Point { across, down },
+            false => Err(Error::NotInside(
+                Point { x: across, y: down },
                 card.panel.clone(),
             )),
         }
     }
 
-    pub fn key(&mut self, key: &str) -> Result<(), Awry> {
+    pub fn key(&mut self, key: &str) -> Result<(), Error> {
         match key.is_empty() {
-            true => Err(Awry::NamelessKey),
+            true => Err(Error::UnnamedKey),
             false => {
                 self.presses.push(format!("wtype -k {key}"));
 
@@ -285,7 +301,7 @@ impl Panel {
         })
     }
 
-    pub fn drawn(&mut self) -> Result<Vec<Told>, Awry> {
+    pub fn drawn(&mut self) -> Result<Vec<Description>, Error> {
         match &self.read {
             Some(read) => return Ok(read.clone()),
             None => {},
@@ -296,10 +312,10 @@ impl Panel {
 
         match program.is_file() {
             true => built_since_the_panel_code(&program)?,
-            false => return Err(Awry::NotBuilt(program)),
+            false => return Err(Error::NotBuilt(program)),
         }
 
-        std::fs::create_dir_all(&self.here).map_err(Awry::Machine)?;
+        std::fs::create_dir_all(&self.here).map_err(Error::Machine)?;
 
         let told = self.here.join("told.jsonl");
         let _ = std::fs::remove_file(&told);
@@ -307,13 +323,13 @@ impl Panel {
         let opening = format!(
             "CONSOLE_PANEL_TELLS={} {} {}",
             told.display(),
-            program.display(),
+            self.program,
             self.args.join(" ")
         );
 
         let Ok(desktop) = crate::beside("console-desktop");
         let mut nesting = Command::new(desktop);
-        nesting.arg("shot").arg(self.here.join("screen.png"));
+        nesting.arg("describe");
 
         nesting.arg("--bare");
         nesting.args(["--open", &opening]);
@@ -328,18 +344,27 @@ impl Panel {
             None => {},
         }
 
-        let said = nesting.output().map_err(Awry::Machine)?;
+        let said = nesting.output().map_err(Error::Machine)?;
+
+        match said.status.success() {
+            true => {},
+            false => {
+                let Ok(why) = why(&said.stderr);
+
+                return Err(Error::NotNested(self.program.clone(), why));
+            },
+        }
 
         let read = std::fs::read_to_string(&told).map_err(|fault| {
             let Ok(why) = why(&said.stderr);
 
-            Awry::SaidNothingDrawn(self.program.clone(), fault, why)
+            Error::SaidNothingDrawn(self.program.clone(), fault, why)
         })?;
 
-        let every = telling::every(&read)?;
+        let every = description::every(&read)?;
 
         match every.is_empty() {
-            true => Err(Awry::DrewNothing(self.program.clone())),
+            true => Err(Error::DrewNothing(self.program.clone())),
             false => {
                 self.read = Some(every.clone());
 
@@ -365,7 +390,8 @@ fn why(said: &[u8]) -> Result<String, Never> {
     let all = String::from_utf8_lossy(said);
     let worth: Vec<&str> = all.lines().map(str::trim_end).filter(heard_before).collect();
 
-    let from = worth.len().saturating_sub(TOLD_LINES);
+    let Ok(many) = console_core_number_conversion::fitted::<_, u32>(worth.len());
+    let Ok(from) = console_core_number_conversion::index(many.saturating_sub(TOLD_LINES));
 
     Ok(match worth.get(from..) {
         Some(said) => said.join("\n"),
@@ -373,7 +399,7 @@ fn why(said: &[u8]) -> Result<String, Never> {
     })
 }
 
-const TOLD_LINES: usize = 12;
+const TOLD_LINES: u32 = 12;
 
 impl Drop for Panel {
     fn drop(&mut self) {
@@ -381,7 +407,7 @@ impl Drop for Panel {
     }
 }
 
-pub fn every_offer_answered(card: &Told) -> Result<(), Awry> {
+pub fn every_offer_answered(card: &Description) -> Result<(), Error> {
     let missing: Vec<String> = card
         .lines
         .iter()
@@ -400,12 +426,12 @@ pub fn every_offer_answered(card: &Told) -> Result<(), Awry> {
 
     match missing.is_empty() {
         true => Ok(()),
-        false => Err(Awry::OfferUnanswered(card.panel.clone(), missing)),
+        false => Err(Error::OfferUnanswered(card.panel.clone(), missing)),
     }
 }
 
-pub fn one_mark_for_one_subject(card: &Told) -> Result<(), Awry> {
-    let marks = card
+pub fn one_mark_for_one_subject(card: &Description) -> Result<(), Error> {
+    let Ok(marks) = console_core_number_conversion::fitted::<_, u32>(card
         .lines
         .iter()
         .filter(|line| {
@@ -413,22 +439,22 @@ pub fn one_mark_for_one_subject(card: &Told) -> Result<(), Awry> {
 
             worn.is_some()
         })
-        .count();
+        .count());
     let offered = card.lines.iter().any(|line| line.offers == Offers::Yes);
 
     match (offered, marks) {
         (false, 0) | (true, 1) => Ok(()),
-        (false, _) => Err(Awry::MarkWithoutOffer(card.panel.clone())),
-        (true, _) => Err(Awry::TooManyMarks(card.panel.clone(), marks)),
+        (false, _) => Err(Error::MarkWithoutOffer(card.panel.clone())),
+        (true, _) => Err(Error::TooManyMarks(card.panel.clone(), marks)),
     }
 }
 
-pub fn every_mark_reachable(card: &Told) -> Result<(), Awry> {
+pub fn every_mark_reachable(card: &Description) -> Result<(), Error> {
     let Ok(every) = card.every_spot();
     let off: Vec<String> = every
         .into_iter()
         .filter(|spot| {
-            let Ok(reachable) = telling::reachable(spot, card.room);
+            let Ok(reachable) = description::reachable(spot, card.room);
 
             reachable == Reachable::No
         })
@@ -437,16 +463,44 @@ pub fn every_mark_reachable(card: &Told) -> Result<(), Awry> {
 
     match off.is_empty() {
         true => Ok(()),
-        false => Err(Awry::OutOfReach(card.panel.clone(), card.room, off)),
+        false => Err(Error::OutOfReach(card.panel.clone(), card.room, off)),
     }
 }
 
-pub fn a_way_out_is_drawn(card: &Told) -> Result<(), Awry> {
+pub fn a_way_out_is_drawn(card: &Description) -> Result<(), Error> {
     let Ok(worn) = card.wearing("shut");
 
     match worn {
         Some(_) => Ok(()),
-        None => Err(Awry::NoWayOut(card.panel.clone(), card.tab.clone())),
+        None => Err(Error::NoWayOut(card.panel.clone(), card.tab.clone())),
+    }
+}
+
+pub fn every_row_draws_what_it_carries(card: &Description) -> Result<(), Error> {
+    let missing: Vec<String> = card
+        .lines
+        .iter()
+        .flat_map(|line| {
+            let Ok(said) = said_of(line);
+            let words = match (line.says.is_empty(), line.drew.is_empty()) {
+                (false, true) => Some(format!("{said} draws none of its words")),
+                (true, _) | (false, false) => None,
+            };
+
+            let drew: std::collections::BTreeSet<&String> = line.drew.iter().collect();
+            let cells = line
+                .cells
+                .iter()
+                .filter(move |cell| !drew.contains(cell))
+                .map(move |cell| format!("{said} draws no cell {cell:?}"));
+
+            words.into_iter().chain(cells.collect::<Vec<_>>())
+        })
+        .collect();
+
+    match missing.is_empty() {
+        true => Ok(()),
+        false => Err(Error::Hidden(card.panel.clone(), missing)),
     }
 }
 
@@ -462,27 +516,59 @@ mod tests {
     use super::*;
 
     fn spot(name: &str, at: (i32, i32), big: (i32, i32)) -> Spot {
-        Spot { name: name.to_string(), at, big, scrolls: telling::Scrolls::No }
+        Spot { name: name.to_string(), at, big, scrolls: description::Scrolls::No }
     }
 
-    fn line(at: usize, offers: Offers, bare: Bare, spots: Vec<Spot>) -> Line {
+    fn line(at: u32, offers: Offers, bare: Bare, spots: Vec<Spot>) -> Line {
         Line {
             at,
             says: String::new(),
             aside: String::new(),
             offers,
             bare,
-            heading: console_panel::telling::Heading::No,
-            standing: console_panel::telling::Standing::No,
+            heading: console_panel::description::Heading::No,
+            standing: console_panel::description::Standing::No,
             spots,
+            cells: Vec::new(),
+            drew: Vec::new(),
         }
     }
 
-    fn card(lines: Vec<Line>, spots: Vec<Spot>) -> Told {
-        Told {
+    fn week(cells: &[&str], drew: &[&str]) -> Line {
+        Line {
+            cells: cells.iter().map(|cell| (*cell).to_string()).collect(),
+            drew: drew.iter().map(|word| (*word).to_string()).collect(),
+            ..line(0, Offers::No, Bare::No, Vec::new())
+        }
+    }
+
+    #[test]
+    fn a_week_whose_days_are_carried_and_not_drawn_is_the_fault() {
+        let card = card(vec![week(&["1", "2", "3"], &[])], Vec::new());
+
+        assert!(every_row_draws_what_it_carries(&card).is_err());
+    }
+
+    #[test]
+    fn a_week_that_draws_every_day_it_carries_holds() {
+        let card = card(vec![week(&["1", "2", "3"], &["1", "2", "3"])], Vec::new());
+
+        assert!(every_row_draws_what_it_carries(&card).is_ok());
+    }
+
+    #[test]
+    fn a_row_whose_words_never_reach_the_screen_is_the_fault() {
+        let quiet = Line { says: "Wi-Fi".to_string(), ..line(0, Offers::No, Bare::No, Vec::new()) };
+        let card = card(vec![quiet], Vec::new());
+
+        assert!(every_row_draws_what_it_carries(&card).is_err());
+    }
+
+    fn card(lines: Vec<Line>, spots: Vec<Spot>) -> Description {
+        Description {
             panel: "a-panel".to_string(),
             tab: "One".to_string(),
-            out: telling::Out::No,
+            out: description::Output::No,
             room: (1024, 600),
             spots,
             lines,
@@ -527,7 +613,7 @@ mod tests {
     }
 
     #[test]
-    fn a_mark_hanging_off_the_room_is_a_mark_nobody_can_press() {
+    fn a_mark_hanging_off_the_room_is_a_mark_no_one_can_press() {
         let off = card(Vec::new(), vec![spot("shut", (982, 14), (56, 44))]);
         let on = card(Vec::new(), vec![spot("shut", (954, 14), (56, 44))]);
 

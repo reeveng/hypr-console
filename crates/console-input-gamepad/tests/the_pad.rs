@@ -7,10 +7,10 @@
 use console_core_geometry::Point;
 use std::path::{Path, PathBuf};
 
-use evdev::{EventType, KeyCode};
+use console_input_event_devices::{EventType, KeyCode};
 use console_input_gamepad::capture::captured;
 use console_input_gamepad::devices::{Devices, Has};
-use console_input_gamepad::go::{Held, LegionGo};
+use console_input_gamepad::go::{RecordingClock, LegionGo};
 use console_input_gamepad::profile::Profile;
 use console_input_gamepad::router::every_profile;
 use console_input_gamepad::world::{World, Written};
@@ -28,9 +28,9 @@ fn root() -> PathBuf {
 }
 }
 
-fn go(profile: &str) -> LegionGo<World, Held> {
+fn go(profile: &str) -> LegionGo<World, RecordingClock> {
     let devices = ok(Devices::new(captured().expect("the capture"), ok(World::of(captured().expect("the capture")))));
-    LegionGo::new(every_profile(&root()).expect("the profiles"), devices, Held::default(), profile)
+    LegionGo::new(every_profile(&root()).expect("the profiles"), devices, RecordingClock::default(), profile)
         .expect("a pad")
 }
 
@@ -48,15 +48,15 @@ mapping:
           button: Left
 ";
 
-fn go_of(yaml: &str, stem: &str) -> LegionGo<World, Held> {
+fn go_of(yaml: &str, stem: &str) -> LegionGo<World, RecordingClock> {
     let path = PathBuf::from(format!("{stem}.yaml"));
     let profile = Profile::read(&path, yaml).expect("a profile");
     let devices = ok(Devices::new(captured().expect("the capture"), ok(World::of(captured().expect("the capture")))));
-    LegionGo::new([(stem.to_string(), profile)].into(), devices, Held::default(), stem)
+    LegionGo::new([(stem.to_string(), profile)].into(), devices, RecordingClock::default(), stem)
         .expect("a pad")
 }
 
-fn keys(go: &LegionGo<World, Held>, role: &str) -> Vec<(u16, i32)> {
+fn keys(go: &LegionGo<World, RecordingClock>, role: &str) -> Vec<(u16, i32)> {
     ok(go.devices.sink.of_kind(role, EventType::KEY, None))
         .iter()
         .map(|written| (written.code, written.value))
@@ -121,7 +121,7 @@ fn holding_a_trigger_pulls_it_all_the_way() {
 #[test]
 fn a_stick_is_one_frame_of_two_numbers() {
     let mut pad = go("game");
-    pad.stick("left-stick", Point { across: 1.0, down: -1.0 }).expect("a push");
+    pad.stick("left-stick", Point { x: 1.0, y: -1.0 }).expect("a push");
     let span = ok(pad.devices.axis("pad", 0).expect("ABS_X").span());
     let pushed = ok(pad.devices.sink.of_kind("pad", EventType::ABSOLUTE, None));
     assert_eq!(
@@ -137,14 +137,14 @@ fn a_stick_is_one_frame_of_two_numbers() {
 fn a_stick_only_moves_where_the_profile_publishes_a_pad() {
     let mut pad = go_of(WITHOUT_A_MOUSE, "spare");
     assert_eq!(ok(pad.profile()).publishes("xbox-elite"), Ok(Has::No));
-    pad.stick("left-stick", Point { across: 1.0, down: 0.0 }).expect("a push");
+    pad.stick("left-stick", Point { x: 1.0, y: 0.0 }).expect("a push");
     assert!(ok(pad.devices.sink.of_kind("pad", EventType::ABSOLUTE, None)).is_empty());
 }
 
 #[test]
 fn the_touchpad_is_not_in_the_profile_loop_at_all() {
     let mut pad = go(console_input_gamepad::router::NAME);
-    ok(pad.tap(Point { across: 300, down: 400 }));
+    ok(pad.tap(Point { x: 300, y: 400 }));
     let touched = ok(pad.devices.sink.written("touchpad"));
     assert_eq!(touched.first().map(|w| (w.kind, w.code, w.value)), Some((EventType::KEY, KeyCode::BTN_TOUCH.0, 1)));
     assert!(touched.iter().any(|w| w.kind == EventType::ABSOLUTE && w.value == 300));
@@ -153,7 +153,7 @@ fn the_touchpad_is_not_in_the_profile_loop_at_all() {
 #[test]
 fn a_drag_reports_every_step_of_the_way() {
     let mut pad = go(console_input_gamepad::router::NAME);
-    ok(pad.drag(Point { across: 0, down: 0 }, Point { across: 80, down: 0 }, 8, 0.0));
+    ok(pad.drag(Point { x: 0, y: 0 }, Point { x: 80, y: 0 }, 8, 0.0));
     let along: Vec<i32> = ok(pad.devices.sink.of_kind("touchpad", EventType::ABSOLUTE, Some(0)))
         .iter()
         .map(|written| written.value)

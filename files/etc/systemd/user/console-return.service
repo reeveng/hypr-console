@@ -10,7 +10,7 @@ Type=simple
 ExecStart=/usr/local/bin/controller-game
 # Losing this silently is losing the way back, and the button that would say
 # so is the one that has stopped working.
-ExecStopPost=-/usr/local/bin/console-fell %n
+ExecStopPost=-/usr/local/bin/console-report-crash %n
 Restart=always
 RestartSec=2
 

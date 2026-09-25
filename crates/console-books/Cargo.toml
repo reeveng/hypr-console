@@ -1,0 +1,43 @@
+[package]
+name = "console-books"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_books"
+path = "src/lib.rs"
+
+[[bin]]
+name = "books"
+path = "src/bin/books.rs"
+
+[[bin]]
+name = "books-catalog"
+path = "src/bin/books-catalog.rs"
+
+[dependencies]
+console-core-atomic-writes.workspace = true
+console-core-color.workspace = true
+console-core-fonts.workspace = true
+console-core-words.workspace = true
+console-defaults.workspace = true
+console-core-external-programs.workspace = true
+console-core-geometry.workspace = true
+console-core-never.workspace = true
+console-events.workspace = true
+console-program-contract.workspace = true
+console-core-number-conversion.workspace = true
+console-core-internal-programs.workspace = true
+console-core-places.workspace = true
+console-core-shapes.workspace = true
+console-core-zip-files.workspace = true
+console-draw-painting.workspace = true
+console-draw-surface.workspace = true
+console-panel.workspace = true
+console-pictures.workspace = true
+console-program-lifetime.workspace = true
+
+[lints]
+workspace = true

@@ -10,20 +10,20 @@
 //! The size and the way up are one eval and not two. A density here is a rung
 //! divided into the width of the panel, and turning the panel changes which of
 //! its two sides that is -- so a turn that did not carry the size with it would
-//! leave the desktop at a density nobody chose, and the screen is described
+//! leave the desktop at a density no one chose, and the screen is described
 //! whole or not at all.
 //!
 //! `apply` is the one the session runs. What a person chose is in a file of
 //! their own and this puts it back on at every login, because a desktop that
-//! forgot the size it was set to at every reboot would be a setting nobody could
+//! forgot the size it was set to at every reboot would be a setting no one could
 //! rely on having made.
 //!
 //! The screen it is put on is the one the compositor says it is driving, and not
 //! the one the tree declares. Those were the same thing for as long as there was
 //! one machine: `declared()` reads a block written for a 1600x2560 panel turned
 //! a quarter, and a laptop handed that through `eval` comes up rotated at two
-//! and a half times the size, which is a session nobody can use rather than a
-//! size nobody asked for. A machine with no compositor to ask is told so and
+//! and a half times the size, which is a session no one can use rather than a
+//! size no one asked for. A machine with no compositor to ask is told so and
 //! nothing is changed.
 //!
 //! **A rung is one screen's, in one shape.** Which of a panel's two sides is
@@ -33,22 +33,22 @@
 //! decides the shape, and the shape decides which rung is put on -- which is
 //! also why turning back finds the size that was chosen there.
 //!
-//! A shape nobody has chosen a size in yet wears the other shape's word rather
+//! A shape no one has chosen a size in yet wears the other shape's word rather
 //! than the density that is already on the screen. A rung is a canvas across,
 //! so carrying the word over is what keeps everything the same size to an eye
 //! through a turn, and carrying the density over is what makes a turn quietly
 //! change the size as well -- which is the thing the turn was described whole
-//! in one eval to avoid. The word is the answer somebody gave; the density is
+//! in one eval to avoid. The word is the answer someone gave; the density is
 //! arithmetic about a screen they have not seen yet.
 //!
 //! **An answer is one screen's.** A word typed here is about the panel the
 //! compositor is driving -- the built-in one where there is one, which is the
-//! screen somebody holding a handheld is looking at -- and it is kept under
+//! screen someone holding a handheld is looking at -- and it is kept under
 //! that screen's own connector by `console_settings::screens`. `apply` is the
 //! other half: it walks every screen the compositor has, puts each one back to
 //! what was remembered for it, and leaves alone the ones nothing was ever
 //! chosen for. A machine that kept one word for the whole of itself put the
-//! handheld's quarter turn on the monitor somebody plugged into it, which is
+//! handheld's quarter turn on the monitor someone plugged into it, which is
 //! not a setting behaving oddly -- it is one answer being asked of two
 //! different questions.
 //!
@@ -61,8 +61,7 @@
 
 use std::process::ExitCode;
 
-use console_core_atomic_writes::Held;
-use console_compositor::Done;
+use console_compositor::DispatchResult;
 use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_settings::screens::{Output, Unnamed};
@@ -79,15 +78,10 @@ enum Wanted {
 }
 
 fn kept(at: &std::path::Path) -> Result<String, Never> {
-    let Ok(held) = console_core_atomic_writes::read(at);
-
-    Ok(match held {
-        Held::Said(said) => said,
-
-        Held::Nothing => String::new(),
-
-        Held::Unreadable(fault) => {
-            eprintln!("console-scale: {}: {fault}", at.display());
+    Ok(match console_core_atomic_writes::text_or_empty(at) {
+        Ok(said) => said,
+        Err(fault) => {
+            eprintln!("console-scale: {fault}");
 
             String::new()
         }
@@ -105,7 +99,7 @@ fn main() -> ExitCode {
     let home = match said {
         Some(home) => home,
         None => {
-            eprintln!("console-scale: no HOME, so there is nobody to remember for");
+            eprintln!("console-scale: no HOME, so there is no one to remember for");
 
             return ExitCode::FAILURE;
         }
@@ -302,11 +296,10 @@ fn remembers(
 fn applied(home: &std::path::Path) -> Result<ExitCode, Never> {
     let Ok(said) = asked();
 
-    let said = match said {
-        Some(said) => said,
+    let monitors = match said {
+        Some(monitors) => monitors,
         None => return Ok(ExitCode::SUCCESS),
     };
-    let Ok(monitors) = console_compositor::monitors(&said);
 
     for monitor in &monitors {
         let Ok(driving) = console_screen::driving(monitor);
@@ -384,17 +377,18 @@ fn refused(
         None => standing.scale,
     };
     let Ok(lua) = size::lua(Output(named), &standing, scale);
-    let Ok(done) = console_compositor::told(console_compositor::Told::Eval, &lua);
+    let Ok(done) = console_compositor::request(console_compositor::Request::Eval, &lua);
 
     Ok(match done {
-        Done::Taken => None,
-        Done::Refused(why) => Some(format!("the compositor would not take it: {why}")),
+        DispatchResult::Success => None,
+        DispatchResult::Failure(why) => Some(format!("the compositor would not take it: {why}")),
     })
 }
 
-fn asked() -> Result<Option<serde_json::Value>, Never> {
-    Ok(match console_compositor::asked(console_compositor::Asked::Monitors) {
-        Ok(monitors) => Some(monitors),
+fn asked() -> Result<Option<Vec<console_compositor::Monitor>>, Never> {
+    Ok(match console_compositor::query(console_compositor::Query::Monitors) {
+        Ok(console_compositor::Answer::Monitors(monitors)) => Some(monitors),
+        Ok(_not_what_was_asked) => None,
         Err(why) => {
             eprintln!("console-scale: {why}");
 

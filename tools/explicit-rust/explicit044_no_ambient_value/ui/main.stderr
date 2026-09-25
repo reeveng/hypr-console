@@ -1,4 +1,4 @@
-error: `ASKED` is a value the whole process shares: this holds a value that can be filled or changed after somebody has read it
+error: `ASKED` is a value the whole process shares: this holds a value that can be filled or changed after someone has read it
   --> $DIR/main.rs:10:1
    |
 LL | static ASKED: OnceLock<String> = OnceLock::new();
@@ -7,7 +7,7 @@ LL | static ASKED: OnceLock<String> = OnceLock::new();
    = help: hand it in. A memo filled on first use answers every later caller with the first caller's answer, and nothing a check does can arrange for it to be anything else -- so it belongs on something the caller already holds, filled where the caller can see it filled. Where the process really is the only thing that can hold it, allow this rule here and let the reason say why nothing else could
    = note: `#[deny(explicit044_no_ambient_value)]` on by default
 
-error: `STOPPING` is a value the whole process shares: this holds a value that can be filled or changed after somebody has read it
+error: `STOPPING` is a value the whole process shares: this holds a value that can be filled or changed after someone has read it
   --> $DIR/main.rs:14:1
    |
 LL | static STOPPING: AtomicBool = AtomicBool::new(false);
@@ -15,13 +15,13 @@ LL | static STOPPING: AtomicBool = AtomicBool::new(false);
    |
    = help: hand it in. A memo filled on first use answers every later caller with the first caller's answer, and nothing a check does can arrange for it to be anything else -- so it belongs on something the caller already holds, filled where the caller can see it filled. Where the process really is the only thing that can hold it, allow this rule here and let the reason say why nothing else could
 
-error: `std::env::current_dir` reaches past this call: this is wherever the program was started from, which is not a place anybody chose
+error: `std::env::current_dir` reaches past this call: this is wherever the program was started from, which is not a place anyone chose
   --> $DIR/main.rs:22:5
    |
 LL |     std::env::current_dir().ok()
    |     ^^^^^^^^^^^^^^^^^^^^^^^
    |
-   = help: the environment is read in the crate that owns what a name means, which is EXPLICIT026, and writing one from somewhere else arranges that crate's answer behind its back. A path is joined to a root somebody named -- `console_core_places` for a person's files, `console_repository` for this tree -- rather than resolved against wherever the program was started. Where a child really has to be handed a different environment, hand it to the child: `Command::env` changes that process and not this one
+   = help: the environment is read in the crate that owns what a name means, which is EXPLICIT026, and writing one from somewhere else arranges that crate's answer behind its back. A path is joined to a root someone named -- `console_core_places` for a person's files, `console_repository` for this tree -- rather than resolved against wherever the program was started. Where a child really has to be handed a different environment, hand it to the child: `Command::env` changes that process and not this one
 
 error: `std::env::set_current_dir` reaches past this call: every relative path in the process means something else after this line
   --> $DIR/main.rs:29:13
@@ -29,7 +29,7 @@ error: `std::env::set_current_dir` reaches past this call: every relative path i
 LL |     let _ = std::env::set_current_dir(at);
    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-   = help: the environment is read in the crate that owns what a name means, which is EXPLICIT026, and writing one from somewhere else arranges that crate's answer behind its back. A path is joined to a root somebody named -- `console_core_places` for a person's files, `console_repository` for this tree -- rather than resolved against wherever the program was started. Where a child really has to be handed a different environment, hand it to the child: `Command::env` changes that process and not this one
+   = help: the environment is read in the crate that owns what a name means, which is EXPLICIT026, and writing one from somewhere else arranges that crate's answer behind its back. A path is joined to a root someone named -- `console_core_places` for a person's files, `console_repository` for this tree -- rather than resolved against wherever the program was started. Where a child really has to be handed a different environment, hand it to the child: `Command::env` changes that process and not this one
 
 error: aborting due to 4 previous errors
 

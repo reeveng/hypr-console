@@ -32,7 +32,7 @@
 //! between them showed a notification in neither list or in both.
 //!
 //! Nothing here is required to be there. Every field but the id is allowed to
-//! be missing, because a notification is somebody else's text; and a daemon
+//! be missing, because a notification is someone else's text; and a daemon
 //! that is not running has written no file at all -- which is no notifications
 //! rather than a fault of its own, because the bell has to go quiet when the
 //! daemon dies rather than light up.
@@ -48,7 +48,7 @@ pub enum Urgency {
     #[default]
     #[words(says = "", wearing = "", sent = "normal")]
     Normal,
-    #[words(says = "wrong", wearing = "wrong", sent = "critical")]
+    #[words(says = "Urgent", wearing = "wrong", sent = "critical")]
     Critical,
 }
 
@@ -63,7 +63,7 @@ impl Urgency {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct Notice {
+pub struct Notification {
     pub id: u32,
     pub app: String,
     pub summary: String,
@@ -72,17 +72,17 @@ pub struct Notice {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum Wrong {
+pub enum Error {
     Yes,
     #[default]
     No,
 }
 
-impl Notice {
-    pub fn wrong(&self) -> Result<Wrong, Never> {
+impl Notification {
+    pub fn wrong(&self) -> Result<Error, Never> {
         Ok(match self.urgency == Urgency::Critical {
-            true => Wrong::Yes,
-            false => Wrong::No,
+            true => Error::Yes,
+            false => Error::No,
         })
     }
 
@@ -99,7 +99,7 @@ impl Notice {
 }
 
 #[derive(Deserialize, Serialize)]
-struct Said {
+struct StoredNotification {
     id: u32,
     app_name: Option<String>,
     summary: Option<String>,
@@ -108,42 +108,43 @@ struct Said {
 }
 
 #[derive(Deserialize, Serialize, Default)]
-struct Kept {
-    waiting: Vec<Said>,
-    earlier: Vec<Said>,
-    quiet: Option<String>,
+struct StoredInbox {
+    waiting: Vec<StoredNotification>,
+    earlier: Vec<StoredNotification>,
+    #[serde(rename = "quiet")]
+    do_not_disturb: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct Whole {
-    pub waiting: Vec<Notice>,
-    pub earlier: Vec<Notice>,
-    pub quiet: Quiet,
+pub struct Inbox {
+    pub waiting: Vec<Notification>,
+    pub earlier: Vec<Notification>,
+    pub do_not_disturb: DoNotDisturb,
 }
 
-pub fn whole(said: &str) -> Result<Whole, Never> {
-    let kept = match serde_json::from_str::<Kept>(said) {
+pub fn whole(said: &str) -> Result<Inbox, Never> {
+    let kept = match serde_json::from_str::<StoredInbox>(said) {
         Ok(kept) => kept,
-        Err(_fault) => return Ok(Whole::default()),
+        Err(_fault) => return Ok(Inbox::default()),
     };
 
     let Ok(waiting) = every(kept.waiting);
     let Ok(earlier) = every(kept.earlier);
 
-    let quiet = match kept.quiet.as_deref() {
-        Some("held-back") => Quiet::HeldBack,
-        Some(_) | None => Quiet::Coming,
+    let do_not_disturb = match kept.do_not_disturb.as_deref() {
+        Some("held-back") => DoNotDisturb::On,
+        Some(_) | None => DoNotDisturb::Off,
     };
 
-    Ok(Whole { waiting, earlier, quiet })
+    Ok(Inbox { waiting, earlier, do_not_disturb })
 }
 
-pub fn written(whole: &Whole) -> Result<String, Never> {
-    let Ok(waiting) = spelt(&whole.waiting);
-    let Ok(earlier) = spelt(&whole.earlier);
-    let Ok(quiet) = whole.quiet.said();
+pub fn written(whole: &Inbox) -> Result<String, Never> {
+    let Ok(waiting) = spelled(&whole.waiting);
+    let Ok(earlier) = spelled(&whole.earlier);
+    let Ok(do_not_disturb) = whole.do_not_disturb.said();
 
-    let kept = Kept { waiting, earlier, quiet: Some(quiet.to_string()) };
+    let kept = StoredInbox { waiting, earlier, do_not_disturb: Some(do_not_disturb.to_string()) };
 
     Ok(match serde_json::to_string(&kept) {
         Ok(said) => said,
@@ -151,17 +152,17 @@ pub fn written(whole: &Whole) -> Result<String, Never> {
     })
 }
 
-fn spelt(held: &[Notice]) -> Result<Vec<Said>, Never> {
-    let mut every: Vec<Said> = Vec::new();
+fn spelled(held: &[Notification]) -> Result<Vec<StoredNotification>, Never> {
+    let mut every: Vec<StoredNotification> = Vec::new();
 
-    for notice in held {
-        let Ok(urgency) = notice.urgency.sent();
+    for notification in held {
+        let Ok(urgency) = notification.urgency.sent();
 
-        every.push(Said {
-            id: notice.id,
-            app_name: Some(notice.app.clone()),
-            summary: Some(notice.summary.clone()),
-            body: Some(notice.body.clone()),
+        every.push(StoredNotification {
+            id: notification.id,
+            app_name: Some(notification.app.clone()),
+            summary: Some(notification.summary.clone()),
+            body: Some(notification.body.clone()),
             urgency: Some(urgency.to_string()),
         });
     }
@@ -169,8 +170,8 @@ fn spelt(held: &[Notice]) -> Result<Vec<Said>, Never> {
     Ok(every)
 }
 
-pub fn read(said: &str) -> Result<Vec<Notice>, Never> {
-    let held = match serde_json::from_str::<Vec<Said>>(said) {
+pub fn read(said: &str) -> Result<Vec<Notification>, Never> {
+    let held = match serde_json::from_str::<Vec<StoredNotification>>(said) {
         Ok(held) => held,
         Err(_fault) => return Ok(Vec::new()),
     };
@@ -178,8 +179,8 @@ pub fn read(said: &str) -> Result<Vec<Notice>, Never> {
     every(held)
 }
 
-fn every(held: Vec<Said>) -> Result<Vec<Notice>, Never> {
-    let mut every: Vec<Notice> = Vec::new();
+fn every(held: Vec<StoredNotification>) -> Result<Vec<Notification>, Never> {
+    let mut every: Vec<Notification> = Vec::new();
 
     for said in held {
         let Ok(app) = word(said.app_name);
@@ -187,7 +188,7 @@ fn every(held: Vec<Said>) -> Result<Vec<Notice>, Never> {
         let Ok(body) = word(said.body);
         let Ok(urgency) = Urgency::named(said.urgency.as_deref());
 
-        every.push(Notice { id: said.id, app, summary, body, urgency });
+        every.push(Notification { id: said.id, app, summary, body, urgency });
     }
 
     Ok(every)
@@ -201,12 +202,12 @@ fn word(said: Option<String>) -> Result<String, Never> {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Words)]
-pub enum Quiet {
+pub enum DoNotDisturb {
     #[words(said = "held-back")]
-    HeldBack,
+    On,
     #[default]
     #[words(said = "coming")]
-    Coming,
+    Off,
 }
 
 #[cfg(test)]
@@ -262,16 +263,16 @@ mod tests {
     fn a_fault_says_it_is_one_and_nothing_else_does() {
         let Ok(held) = read(TWO);
 
-        assert_eq!(held[0].wrong(), Ok(Wrong::Yes));
-        assert_eq!(held[1].wrong(), Ok(Wrong::No));
-        assert_eq!(held[0].urgency.says(), Ok("wrong"));
+        assert_eq!(held[0].wrong(), Ok(Error::Yes));
+        assert_eq!(held[1].wrong(), Ok(Error::No));
+        assert_eq!(held[0].urgency.says(), Ok("Urgent"));
     }
 
     #[test]
     fn only_a_fault_says_anything_beside_itself() {
         assert_eq!(Urgency::Normal.says(), Ok(""));
         assert_eq!(Urgency::Low.says(), Ok(""));
-        assert_eq!(Urgency::Critical.says(), Ok("wrong"));
+        assert_eq!(Urgency::Critical.says(), Ok("Urgent"));
     }
 
     #[test]
@@ -310,13 +311,13 @@ mod tests {
         assert_eq!(whole.waiting.len(), 1);
         assert_eq!(whole.waiting[0].body, "and its body");
         assert_eq!(whole.earlier.len(), 1);
-        assert_eq!(whole.quiet, Quiet::HeldBack);
+        assert_eq!(whole.do_not_disturb, DoNotDisturb::On);
     }
 
     #[test]
     fn what_is_written_is_what_is_read_back() {
         let Ok(held) = read(TWO);
-        let whole = Whole { waiting: held.clone(), earlier: Vec::new(), quiet: Quiet::Coming };
+        let whole = Inbox { waiting: held.clone(), earlier: Vec::new(), do_not_disturb: DoNotDisturb::Off };
         let Ok(written) = written(&whole);
         let Ok(back) = whole_of(&written);
 
@@ -324,7 +325,7 @@ mod tests {
         assert_eq!(back.waiting[0].urgency, Urgency::Critical);
     }
 
-    fn whole_of(said: &str) -> Result<Whole, Never> {
+    fn whole_of(said: &str) -> Result<Inbox, Never> {
         whole(said)
     }
 
@@ -333,13 +334,13 @@ mod tests {
         for said in ["", "no", "{}", "[]", "null"] {
             let Ok(whole) = whole(said);
 
-            assert_eq!(whole, Whole::default(), "{said:?}");
+            assert_eq!(whole, Inbox::default(), "{said:?}");
         }
     }
 
     #[test]
     fn a_daemon_that_is_quiet_says_so_in_the_file() {
-        let quiet = Whole { quiet: Quiet::HeldBack, ..Whole::default() };
+        let quiet = Inbox { do_not_disturb: DoNotDisturb::On, ..Inbox::default() };
         let Ok(written) = written(&quiet);
 
         assert!(written.contains("held-back"), "{written}");
